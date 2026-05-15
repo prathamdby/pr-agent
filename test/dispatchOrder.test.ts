@@ -46,10 +46,10 @@ describe("dispatch ordering", () => {
 		expect(getInstallationToken).not.toHaveBeenCalled();
 	});
 
-	it("calls getInstallationToken for ignored event when installation present", async () => {
+	it("does not call getInstallationToken for ignored events (no handler work)", async () => {
 		const payload = { installation: { id: 99 }, zen: "x" };
 		const rawBody = Buffer.from(JSON.stringify(payload));
 		await dispatchGithubEvent(baseCfg, { event: "ping", delivery: "ord-2", rawBody }, payload);
-		expect(getInstallationToken).toHaveBeenCalledWith(baseCfg, 99);
+		expect(getInstallationToken).not.toHaveBeenCalled();
 	});
 });

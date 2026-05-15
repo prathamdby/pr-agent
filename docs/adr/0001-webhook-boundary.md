@@ -11,7 +11,7 @@ GitHub App webhooks are untyped JSON at the HTTP boundary. The service must vali
 ## Decision
 
 1. **Per-event Zod schemas** live under `src/webhook/payloads/`, composed with `z.strictObject` where practical so unexpected keys signal GitHub payload drift during development.
-2. **Dispatch order** is fixed: **parse + validate → dedupe → installation token → route to handlers**. Parse failures **do not** consume the in-memory dedupe slot, so a retry after a transient validation error is not dropped as a “duplicate.”
+2. **Dispatch order** is fixed: **parse + validate → dedupe → (if event is handled) installation token → handlers**. **Ignored** `X-GitHub-Event` values skip the token call—no handler runs, so minting an installation token would only add latency and failure modes (e.g. local smoke tests without real GitHub credentials). Parse failures **do not** consume the in-memory dedupe slot, so a retry after a transient validation error is not dropped as a “duplicate.”
 3. **Vitest** exercises pure seams (`deliveryDedupe`, `verifySignature`, `parseSlashCommand`, `parseGithubPayload`, dispatch ordering).
 
 ## Consequences
