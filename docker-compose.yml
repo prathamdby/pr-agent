@@ -1,0 +1,23 @@
+services:
+  pr-agent:
+    build: .
+    image: pr-agent:local
+    env_file:
+      - ${PR_AGENT_ENV_FILE:-.env}
+    environment:
+      PORT: "7224"
+    ports:
+      - "7224:7224"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7224/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

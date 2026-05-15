@@ -35,6 +35,31 @@ npm run dev
 
 Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
 
+## Docker and Docker Compose
+
+- **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in [docker-compose.yml](docker-compose.yml) and [`.env.example`](.env.example)).
+- **Health:** `GET /health` returns `200` and plain `ok` (used by `HEALTHCHECK` in the image and by Compose).
+- **Webhook URL** (when Compose maps default ports): **`http://<host>:7224/webhooks`** — same path as bare Node.
+- **Provider API keys** (for example **`OPENAI_API_KEY`**) are **not** read by [`src/config.ts`](src/config.ts); Pi AI loads them from the environment. Set them in `.env` beside the GitHub fields or the container will boot but **`/review`** and automated reviews fail at runtime.
+- **Secrets:** never commit `.env`; keep Compose files off public pastebins.
+
+```bash
+cp .env.example .env
+# Set real GITHUB_* , WEBHOOK_SECRET , and OPENAI_API_KEY (or keys for your PI_PROVIDER )
+docker compose build
+docker compose up
+```
+
+Compose sets `environment.PORT=7224` and **`7224:7224`** publishing so host and container ports match. For a host port clash, change **`ports`** to for example **`7227:7224`** and keep container **`PORT`** at **7224**.
+
+**Requires Docker Engine with Compose v2** (CLI plugin). `env_file` defaults to **`.env`**; use host env **`PR_AGENT_ENV_FILE`** for an alternate path (variable substitution in the Compose file).
+
+Alternate env file path (CI or smoke):
+
+```bash
+PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
+```
+
 ## BTCA reference clones
 
 For exploring upstream tool shapes locally, use `~/.btca/agent/sandbox` with clones of `vercel-labs/github-tools` and `earendil-works/pi` (see project plan).

@@ -13,10 +13,20 @@ function readRawBody(req: http.IncomingMessage): Promise<Buffer> {
 	});
 }
 
+function requestPath(url: string | undefined): string {
+	return url?.split("?")[0] ?? "";
+}
+
 export function startWebhookServer(cfg: Config) {
 	const server = http.createServer(async (req, res) => {
 		try {
-			if (req.method !== "POST" || req.url?.split("?")[0] !== "/webhooks") {
+			const path = requestPath(req.url);
+			if (req.method === "GET" && path === "/health") {
+				res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" }).end("ok");
+				return;
+			}
+
+			if (req.method !== "POST" || path !== "/webhooks") {
 				res.writeHead(404).end();
 				return;
 			}
@@ -56,7 +66,9 @@ export function startWebhookServer(cfg: Config) {
 	});
 
 	server.listen(cfg.port, () => {
-		log.info("listening", { port: cfg.port });
+		const addr = server.address();
+		const bound = typeof addr === "object" && addr ? addr.port : cfg.port;
+		log.info("listening", { port: bound });
 	});
 
 	return server;
