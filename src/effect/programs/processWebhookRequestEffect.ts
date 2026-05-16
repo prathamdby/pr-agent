@@ -53,6 +53,7 @@ export function processWebhookHttpRequestEffect(
 
     const event = req.headers["x-github-event"] ?? "";
     const delivery = req.headers["x-github-delivery"];
+    const logDelivery = delivery ?? "(missing)";
 
     const t0 = Date.now();
     const result = yield* dispatcher
@@ -65,7 +66,7 @@ export function processWebhookHttpRequestEffect(
         Effect.map(() => ({ ok: true as const })),
         Effect.catchTag("WebhookHandlerError", (err: WebhookHandlerError) =>
           Effect.sync(() => {
-            log.error("webhook_handler_error", { event, delivery, message: err.message });
+            log.error("webhook_handler_error", { event, delivery: logDelivery, message: err.message });
             return { ok: false as const };
           }),
         ),
@@ -76,11 +77,11 @@ export function processWebhookHttpRequestEffect(
       return { status: 500, body: "internal error" } satisfies WebhookResponseLike;
     }
 
-    log.info("webhook_handled", { event, delivery, ms: elapsedMs, runtime: "effect" });
+    log.info("webhook_handled", { event, delivery: logDelivery, ms: elapsedMs, runtime: "effect" });
     if (elapsedMs > cfg.webhookTimeoutMs) {
       log.warn("webhook_timeout_budget_exceeded", {
         event,
-        delivery,
+        delivery: logDelivery,
         ms: elapsedMs,
         budgetMs: cfg.webhookTimeoutMs,
       });

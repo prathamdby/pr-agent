@@ -104,4 +104,65 @@ describe("GithubInstallationToken service", () => {
       spy.mockRestore();
     }
   });
+
+  it("coalesces concurrent misses for the same installation into one mint (TOCTOU guard)", async () => {
+    let calls = 0;
+    const spy = vi.spyOn(appAuth, "mintInstallationAuth").mockImplementation(async (_cfg, id) => {
+      calls += 1;
+      await new Promise((r) => setTimeout(r, 20));
+      return {
+        type: "token",
+        tokenType: "installation",
+        token: `tok-${id}`,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        installationId: id,
+      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>;
+    });
+
+    const program = Effect.gen(function* () {
+      const svc = yield* GithubInstallationToken;
+      const tasks = Array.from({ length: 16 }, () => svc.getToken(cfg, 42));
+      return yield* Effect.all(tasks, { concurrency: "unbounded" });
+    });
+
+    try {
+      const results = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
+      expect(results.every((r) => r === "tok-42")).toBe(true);
+      expect(calls).toBe(1);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("retries after a failed mint (pending entry is cleared)", async () => {
+    let calls = 0;
+    const spy = vi.spyOn(appAuth, "mintInstallationAuth").mockImplementation(async (_cfg, id) => {
+      calls += 1;
+      if (calls === 1) throw new Error("mint failed");
+      return {
+        type: "token",
+        tokenType: "installation",
+        token: `tok-${id}`,
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        installationId: id,
+      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>;
+    });
+
+    const program = Effect.gen(function* () {
+      const svc = yield* GithubInstallationToken;
+      const first = yield* Effect.either(svc.getToken(cfg, 5));
+      const second = yield* svc.getToken(cfg, 5);
+      return [first, second] as const;
+    });
+
+    try {
+      const [first, second] = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
+      expect(first._tag).toBe("Left");
+      expect(second).toBe("tok-5");
+      expect(calls).toBe(2);
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });
