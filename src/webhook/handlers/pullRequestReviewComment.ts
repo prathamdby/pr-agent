@@ -1,5 +1,4 @@
 import type { Config } from "../../config.js";
-import { getBotUserId } from "../../github/appAuth.js";
 import { createGithubBot } from "../../github/botFacade.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import {
@@ -10,19 +9,14 @@ import {
 import type { PullRequestReviewCommentWebhookPayload } from "../payloads/pullRequestReviewCommentEvent.js";
 
 export type PullRequestReviewCommentHandlerDeps = {
-	getBotUserId: (
-		cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-		installationToken: string,
-	) => Promise<number>;
+	botUserId: number;
 };
-
-const defaultDeps: PullRequestReviewCommentHandlerDeps = { getBotUserId };
 
 export async function handlePullRequestReviewCommentEvent(
 	cfg: Config,
 	token: string,
 	data: PullRequestReviewCommentWebhookPayload,
-	deps: PullRequestReviewCommentHandlerDeps = defaultDeps,
+	deps: PullRequestReviewCommentHandlerDeps,
 ): Promise<void> {
 	if (data.action !== "created") return;
 
@@ -32,8 +26,7 @@ export async function handlePullRequestReviewCommentEvent(
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	const botId = await deps.getBotUserId(cfg, token);
-	if (comment.user.id === botId) return;
+	if (comment.user.id === deps.botUserId) return;
 
 	const command = parseSlashCommand(body);
 	if (!command) return;

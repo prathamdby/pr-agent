@@ -24,20 +24,6 @@ export async function mintInstallationAuth(
 	});
 }
 
-/**
- * Mint an installation token without caching. Production callers should go through
- * the {@link GithubInstallationToken} Effect service, which adds a Ref-backed
- * cache with a 60s freshness buffer.
- */
-export async function getInstallationToken(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-	installationId: number,
-): Promise<string> {
-	const auth = await mintInstallationAuth(cfg, installationId);
-	log.debug("minted_installation_token", { installationId, expiresAt: auth.expiresAt });
-	return auth.token;
-}
-
 export function installationOctokit(token: string): InstallationOctokit {
 	return new RetryOctokit({ auth: token });
 }
@@ -72,7 +58,7 @@ async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "g
 /**
  * Mint bot identity for the authenticated installation, with the public-slug fallback.
  * Caching is the caller's responsibility — production callers should go through the
- * {@link BotIdentity} Effect service.
+ * `BotIdentity` Effect service.
  */
 export async function mintBotIdentity(
 	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
@@ -93,20 +79,4 @@ export async function mintBotIdentity(
 
 	log.debug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
 	return u;
-}
-
-/** @deprecated Use the {@link BotIdentity} Effect service for cached lookups. */
-export async function resolveBotIdentity(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-	installationToken: string,
-): Promise<BotIdentity> {
-	return mintBotIdentity(cfg, installationToken);
-}
-
-export async function getBotUserId(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-	installationToken: string,
-): Promise<number> {
-	const { userId } = await mintBotIdentity(cfg, installationToken);
-	return userId;
 }

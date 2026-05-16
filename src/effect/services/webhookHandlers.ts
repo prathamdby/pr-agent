@@ -23,36 +23,35 @@ export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
   }
 >() {}
 
-const HandlersCore = Layer.effect(
+function runPromiseHandler<TArgs extends unknown[]>(
+  fn: (...args: TArgs) => Promise<void>,
+  args: TArgs,
+): Effect.Effect<void, Error> {
+  return Effect.tryPromise({
+    try: () => fn(...args),
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  });
+}
+
+export const WebhookHandlersCore = Layer.effect(
   WebhookHandlers,
   Effect.gen(function* () {
     const botIdentity = yield* BotIdentity;
 
-    const getBotUserId = (
-      cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-      installationToken: string,
-    ): Promise<number> => Effect.runPromise(botIdentity.getUserId(cfg, installationToken));
-
-    const handlerDeps = { getBotUserId };
-
     return WebhookHandlers.of({
-      pullRequest: (cfg, token, data) =>
-        Effect.tryPromise({
-          try: () => handlePullRequestEvent(cfg, token, data),
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-        }),
+      pullRequest: (cfg, token, data) => runPromiseHandler(handlePullRequestEvent, [cfg, token, data]),
       issueComment: (cfg, token, data) =>
-        Effect.tryPromise({
-          try: () => handleIssueCommentEvent(cfg, token, data, handlerDeps),
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        Effect.gen(function* () {
+          const botUserId = yield* botIdentity.getUserId(cfg, token);
+          yield* runPromiseHandler(handleIssueCommentEvent, [cfg, token, data, { botUserId }]);
         }),
       pullRequestReviewComment: (cfg, token, data) =>
-        Effect.tryPromise({
-          try: () => handlePullRequestReviewCommentEvent(cfg, token, data, handlerDeps),
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        Effect.gen(function* () {
+          const botUserId = yield* botIdentity.getUserId(cfg, token);
+          yield* runPromiseHandler(handlePullRequestReviewCommentEvent, [cfg, token, data, { botUserId }]);
         }),
     });
   }),
 );
 
-export const WebhookHandlersLive = HandlersCore.pipe(Layer.provide(BotIdentityLive));
+export const WebhookHandlersLive = WebhookHandlersCore.pipe(Layer.provide(BotIdentityLive));
