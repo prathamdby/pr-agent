@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { getProviders, type KnownProvider } from "@earendil-works/pi-ai";
 
 function requireEnv(name: string): string {
@@ -10,12 +11,55 @@ function optionalEnv(name: string, defaultValue: string): string {
 	return process.env[name] ?? defaultValue;
 }
 
+function stripMatchingQuotes(value: string): string {
+	const first = value[0];
+	const last = value[value.length - 1];
+	if ((first === `"` && last === `"`) || (first === `'` && last === `'`)) {
+		return value.slice(1, -1);
+	}
+	return value;
+}
+
+function looksLikePemPrivateKey(value: string): boolean {
+	return value.includes("-----BEGIN ") && value.includes("PRIVATE KEY-----");
+}
+
+function decodeBase64Pem(value: string): string | null {
+	const compact = value.replace(/\s/g, "");
+	if (!/^[A-Za-z0-9+/]+={0,2}$/.test(compact) || compact.length % 4 !== 0) {
+		return null;
+	}
+
+	const decoded = Buffer.from(compact, "base64").toString("utf8").trim();
+	return looksLikePemPrivateKey(decoded) ? decoded : null;
+}
+
+export function normalizeGithubAppPrivateKey(raw: string): string {
+	const unquoted = stripMatchingQuotes(raw.trim());
+	let key = unquoted.replace(/\\n/g, "\n");
+
+	if (!looksLikePemPrivateKey(key)) {
+		const decoded = decodeBase64Pem(unquoted);
+		if (decoded) key = decoded.replace(/\\n/g, "\n");
+	}
+
+	try {
+		crypto.createPrivateKey(key);
+	} catch {
+		throw new Error(
+			"GITHUB_APP_PRIVATE_KEY must be a valid unencrypted PEM private key. Use the GitHub App private key content with real newlines, escaped \\n newlines, or base64-encoded PEM.",
+		);
+	}
+
+	return key;
+}
+
 export function loadConfig() {
 	const port = Number(optionalEnv("PORT", "3000"));
 	if (!Number.isFinite(port) || port < 1) throw new Error("PORT must be a positive number");
 
 	const githubAppId = requireEnv("GITHUB_APP_ID");
-	const githubAppPrivateKey = requireEnv("GITHUB_APP_PRIVATE_KEY").replace(/\\n/g, "\n");
+	const githubAppPrivateKey = normalizeGithubAppPrivateKey(requireEnv("GITHUB_APP_PRIVATE_KEY"));
 	const webhookSecret = requireEnv("WEBHOOK_SECRET");
 
 	const piProviderRaw = optionalEnv("PI_PROVIDER", "openai");
