@@ -2,13 +2,13 @@ import { z } from "zod";
 import { installationSchema, repositorySchema } from "./common.js";
 
 export const pullRequestWebhookSchema = z
-	.strictObject({
+	.object({
 		action: z.string(),
 		installation: installationSchema,
 		repository: repositorySchema,
-		pull_request: z.strictObject({
+		pull_request: z.object({
 			number: z.number(),
-			head: z.strictObject({
+			head: z.object({
 				sha: z.string(),
 			}),
 		}),

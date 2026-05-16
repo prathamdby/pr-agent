@@ -1,11 +1,11 @@
 import { z } from "zod";
 
-export const installationSchema = z.strictObject({
+export const installationSchema = z.object({
 	id: z.number(),
 });
 
-export const repositorySchema = z.strictObject({
-	owner: z.strictObject({ login: z.string() }),
+export const repositorySchema = z.object({
+	owner: z.object({ login: z.string() }),
 	name: z.string(),
 });
 
