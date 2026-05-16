@@ -1,4 +1,5 @@
 import http from "node:http";
+import net from "node:net";
 import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
@@ -59,6 +60,47 @@ function postSigned(
 		);
 		req.on("error", reject);
 		req.end(body);
+	});
+}
+
+function postRaw(
+	port: number,
+	path: string,
+	body: Buffer,
+	headers: string[],
+): Promise<{ status: number; body: string }> {
+	return new Promise((resolve, reject) => {
+		const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
+			const headerLines = [];
+			for (let i = 0; i < headers.length; i += 2) {
+				headerLines.push(`${headers[i]}: ${headers[i + 1]}`);
+			}
+			const req = [
+				`POST ${path} HTTP/1.1`,
+				`Host: 127.0.0.1:${port}`,
+				`Content-Type: application/json`,
+				`Content-Length: ${body.length}`,
+				...headerLines,
+				"Connection: close",
+				"",
+				"",
+			].join("\r\n");
+			sock.write(req);
+			sock.write(body);
+		});
+
+		const chunks: Buffer[] = [];
+		sock.on("data", (c) => chunks.push(Buffer.from(c)));
+		sock.on("end", () => {
+			const text = Buffer.concat(chunks).toString("utf8");
+			const sep = text.indexOf("\r\n\r\n");
+			const head = text.slice(0, sep);
+			const respBody = text.slice(sep + 4);
+			const statusLine = head.split("\r\n")[0] ?? "";
+			const status = Number(statusLine.split(" ")[1] ?? 0);
+			resolve({ status, body: respBody });
+		});
+		sock.on("error", reject);
 	});
 }
 
@@ -142,6 +184,30 @@ describe("effect webhook server (end-to-end)", () => {
 
 		const body = Buffer.from(JSON.stringify({ zen: "no-sig" }));
 		const res = await postSigned(addr.port, "/webhooks", body, {});
+		expect(res.status).toBe(401);
+		expect(res.body).toBe("invalid signature");
+	});
+
+	it("handles duplicate x-hub-signature-256 headers gracefully (no crash; 401)", async () => {
+		handle = await startEffectServer();
+		const addr = handle.server.address();
+		if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+
+		const body = Buffer.from(JSON.stringify({ zen: "dup-headers" }));
+		// Real sig under the correct secret + a second junk sig. @effect/platform's Headers
+		// coalesces duplicates with `, ` so the verifier sees a garbage value and returns 401
+		// without throwing on `.startsWith()`.
+		const realSig = signBody(testCfg.webhookSecret, body);
+		const res = await postRaw(addr.port, "/webhooks", body, [
+			"x-hub-signature-256",
+			realSig,
+			"x-hub-signature-256",
+			"sha256=deadbeef",
+			"x-github-event",
+			"ping",
+			"x-github-delivery",
+			"dup-1",
+		]);
 		expect(res.status).toBe(401);
 		expect(res.body).toBe("invalid signature");
 	});
