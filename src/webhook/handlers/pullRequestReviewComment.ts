@@ -8,15 +8,11 @@ import {
 } from "../../commands/registry.js";
 import type { PullRequestReviewCommentWebhookPayload } from "../payloads/pullRequestReviewCommentEvent.js";
 
-export type PullRequestReviewCommentHandlerDeps = {
-	botUserId: number;
-};
-
 export async function handlePullRequestReviewCommentEvent(
 	cfg: Config,
 	token: string,
 	data: PullRequestReviewCommentWebhookPayload,
-	deps: PullRequestReviewCommentHandlerDeps,
+	{ botUserId }: { botUserId: number },
 ): Promise<void> {
 	if (data.action !== "created") return;
 
@@ -26,7 +22,7 @@ export async function handlePullRequestReviewCommentEvent(
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	if (comment.user.id === deps.botUserId) return;
+	if (comment.user.id === botUserId) return;
 
 	const command = parseSlashCommand(body);
 	if (!command) return;

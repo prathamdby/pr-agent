@@ -37,8 +37,7 @@ export const BotIdentityLive = Layer.effect(
       Effect.gen(function* () {
         const candidate = yield* Deferred.make<BotIdentityValue, Error>();
 
-        // Atomic check-and-claim: either return a fresh value, attach to an in-flight
-        // Deferred, or install the candidate Deferred and become the sole minter.
+        // Atomic check-and-claim: return existing value, attach to in-flight Deferred, or claim the mint.
         const action = yield* Ref.modify(store, (map): readonly [StoreAction, Map<string, Entry>] => {
           const hit = map.get(cfg.githubAppId);
           if (hit && hit.tag === "value") return [{ tag: "hit", value: hit.value }, map];
@@ -50,8 +49,7 @@ export const BotIdentityLive = Layer.effect(
         if (action.tag === "hit") return action.value;
         if (action.tag === "wait") return yield* Deferred.await(action.deferred);
 
-        // Claim path: we own the mint. On success, publish the value; on failure,
-        // remove the pending entry so a later caller can retry.
+        // Sole minter: on failure clear the pending entry so a later caller retries.
         return yield* Effect.tryPromise({
           try: () => mintBotIdentity(cfg, installationToken),
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),

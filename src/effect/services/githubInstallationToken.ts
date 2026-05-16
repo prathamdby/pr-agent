@@ -36,8 +36,7 @@ export const GithubInstallationTokenLive = Layer.effect(
           const now = yield* Clock.currentTimeMillis;
           const candidate = yield* Deferred.make<string, Error>();
 
-          // Atomic check-and-claim: return fresh token, attach to in-flight mint, or claim
-          // the mint slot ourselves. Expired entries fall through to the claim branch.
+          // Atomic check-and-claim: return fresh token, attach to in-flight mint, or claim it. Expired entries fall through to claim.
           const action = yield* Ref.modify(store, (map): readonly [StoreAction, Map<number, Entry>] => {
             const hit = map.get(installationId);
             if (hit && hit.tag === "value" && hit.expiresAtTs - FRESHNESS_BUFFER_MS > now) {
@@ -53,16 +52,14 @@ export const GithubInstallationTokenLive = Layer.effect(
           if (action.tag === "hit") return action.token;
           if (action.tag === "wait") return yield* Deferred.await(action.deferred);
 
-          // Claim path: we own the mint. Publish on success; clear on failure so the next
-          // caller can retry.
+          // Sole minter: on failure clear the pending entry so a later caller retries.
           return yield* Effect.tryPromise({
             try: () => mintInstallationAuth(cfg, installationId),
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
           }).pipe(
             Effect.tap((auth) =>
               Effect.gen(function* () {
-                const mintedAt = yield* Clock.currentTimeMillis;
-                const expiresAtTs = auth.expiresAt ? Date.parse(auth.expiresAt) : mintedAt + FALLBACK_TTL_MS;
+                const expiresAtTs = auth.expiresAt ? Date.parse(auth.expiresAt) : now + FALLBACK_TTL_MS;
                 yield* Ref.update(store, (m) => {
                   m.set(installationId, { tag: "value", token: auth.token, expiresAtTs });
                   return m;

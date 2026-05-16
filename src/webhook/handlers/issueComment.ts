@@ -8,15 +8,11 @@ import {
 } from "../../commands/registry.js";
 import type { IssueCommentWebhookPayload } from "../payloads/issueCommentEvent.js";
 
-export type IssueCommentHandlerDeps = {
-	botUserId: number;
-};
-
 export async function handleIssueCommentEvent(
 	cfg: Config,
 	token: string,
 	data: IssueCommentWebhookPayload,
-	deps: IssueCommentHandlerDeps,
+	{ botUserId }: { botUserId: number },
 ): Promise<void> {
 	if (data.action !== "created") return;
 
@@ -26,7 +22,7 @@ export async function handleIssueCommentEvent(
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	if (comment.user.id === deps.botUserId) return;
+	if (comment.user.id === botUserId) return;
 
 	const command = parseSlashCommand(body);
 	if (!command) return;

@@ -1,22 +1,13 @@
 import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
-import { createServer } from "node:http";
-import type http from "node:http";
+import { createServer, type Server } from "node:http";
 import type { Config } from "../config.js";
 import { processWebhookHttpRequestEffect } from "./programs/processWebhookRequestEffect.js";
 import { WebhookDispatcherLive } from "./services/webhookDispatcher.js";
 
-/**
- * Defensive header normalization. `@effect/platform-node`'s `ServerRequestImpl.headers`
- * passes through Node's `IncomingMessage.headers` (typed `string | string[] | undefined`
- * by @types/node) without coercion. At runtime, Node coalesces non-multi-value headers to
- * a single comma-joined string — verified empirically — but normalize defensively to make
- * the contract explicit and avoid relying on undocumented runtime behavior.
- */
-function singleHeader(v: string | readonly string[] | undefined): string | undefined {
-  if (v === undefined) return undefined;
-  return Array.isArray(v) ? v.join(", ") : (v as string);
+function singleHeader(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v.join(", ") : v;
 }
 
 export function buildEffectWebhookApp(cfg: Config) {
@@ -46,7 +37,7 @@ export function buildEffectWebhookApp(cfg: Config) {
   );
 }
 
-export function buildEffectWebhookLayer(cfg: Config, serverFactory: () => http.Server = createServer) {
+export function buildEffectWebhookLayer(cfg: Config, serverFactory: () => Server = createServer) {
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
   return buildEffectWebhookApp(cfg).pipe(
     HttpServer.serve(),
