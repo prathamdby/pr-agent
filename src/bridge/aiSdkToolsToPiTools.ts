@@ -2,12 +2,39 @@ import type { Tool as AiSdkTool } from "ai";
 import { Type } from "@earendil-works/pi-ai";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { ToolExecutionOptions } from "ai";
+import { z } from "zod";
 
 /** More descriptive than an empty object schema; still permissive for zod-backed SDK tools. */
 const looseParams = Type.Record(Type.String(), Type.Any());
 
 function isExecutableTool(t: unknown): t is AiSdkTool<any, any> {
 	return typeof t === "object" && t !== null && typeof (t as AiSdkTool<any, any>).execute === "function";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
+}
+
+function isZodSchema(value: unknown): value is z.ZodType {
+	return isRecord(value) && "_zod" in value;
+}
+
+function isJsonSchema(value: unknown): value is PiTool["parameters"] {
+	return isRecord(value) && typeof value.type === "string";
+}
+
+function toolParameters(t: AiSdkTool<any, any>): PiTool["parameters"] {
+	const inputSchema = (t as AiSdkTool<any, any> & { inputSchema?: unknown; parameters?: unknown }).inputSchema ?? (t as AiSdkTool<any, any> & { parameters?: unknown }).parameters;
+
+	if (isZodSchema(inputSchema)) {
+		return z.toJSONSchema(inputSchema, { unrepresentable: "any" }) as PiTool["parameters"];
+	}
+
+	if (isJsonSchema(inputSchema)) {
+		return inputSchema;
+	}
+
+	return looseParams;
 }
 
 function formatToolExecuteError(toolName: string, err: unknown): string {
@@ -28,7 +55,7 @@ export function bridgeGithubToolsToPi(ghTools: Record<string, unknown>) {
 	const piTools: PiTool[] = entries.map(([name, t]) => ({
 		name,
 		description: typeof t.description === "string" ? t.description : `GitHub tool: ${name}`,
-		parameters: looseParams,
+		parameters: toolParameters(t),
 	}));
 
 	const byName = Object.fromEntries(entries) as Record<string, AiSdkTool<any, any>>;
