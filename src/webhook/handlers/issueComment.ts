@@ -18,7 +18,7 @@ export async function handleIssueCommentEvent(cfg: Config, token: string, data: 
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	const botId = await getBotUserId(token, cfg.githubAppId);
+	const botId = await getBotUserId(cfg, token);
 	if (comment.user.id === botId) return;
 
 	const command = parseSlashCommand(body);

@@ -54,23 +54,63 @@ export function installationOctokit(token: string): InstallationOctokit {
 	return new RetryOctokit({ auth: token });
 }
 
+async function mintAppJwtToken(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<string> {
+	const authFn = createAppAuth({
+		appId: cfg.githubAppId,
+		privateKey: cfg.githubAppPrivateKey,
+	});
+	const appAuth = await authFn({ type: "app" });
+	return appAuth.token;
+}
+
+/**
+ * When `GET /user` rejects installation tokens (“Resource not accessible by integration”), resolve bot id via JWT + public {@link https://api.github.com/users/{slug}%5Bbot%5D} profile.
+ */
+async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<{ userId: number; login: string }> {
+	const jwtToken = await mintAppJwtToken(cfg);
+	const jwtOctokit = new RetryOctokit({ auth: jwtToken });
+	const { data } = await jwtOctokit.rest.apps.getAuthenticated();
+	if (!data?.slug) {
+		throw new Error("GitHub App /app response missing slug (cannot resolve bot user)");
+	}
+	const slug = data.slug;
+	const anon = new RetryOctokit();
+	const { data: user } = await anon.rest.users.getByUsername({
+		username: `${slug}[bot]`,
+	});
+	return { userId: user.id, login: user.login };
+}
+
 /** GitHub login for the authenticated installation (bot user), scoped to `GITHUB_APP_ID`. */
 export async function resolveBotIdentity(
-	token: string,
-	githubAppId: string,
+	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+	installationToken: string,
 ): Promise<{ userId: number; login: string }> {
-	const cached = cachedBotUsers.get(githubAppId);
+	const cached = cachedBotUsers.get(cfg.githubAppId);
 	if (cached) return cached;
 
-	const o = installationOctokit(token);
-	const { data } = await o.rest.users.getAuthenticated();
-	const u = { userId: data.id, login: data.login };
-	cachedBotUsers.set(githubAppId, u);
-	log.debug("resolved_bot_identity", { login: u.login, githubAppId });
+	const o = installationOctokit(installationToken);
+	let u: { userId: number; login: string };
+	try {
+		const { data } = await o.rest.users.getAuthenticated();
+		u = { userId: data.id, login: data.login };
+	} catch (e: unknown) {
+		const status = (e as { status?: number }).status;
+		if (status !== 403) throw e;
+
+		log.debug("resolved_bot_identity_fallback_jwt_slug", { githubAppId: cfg.githubAppId });
+		u = await resolveBotIdentityViaAppSlug(cfg);
+	}
+
+	cachedBotUsers.set(cfg.githubAppId, u);
+	log.debug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
 	return u;
 }
 
-export async function getBotUserId(token: string, githubAppId: string): Promise<number> {
-	const { userId } = await resolveBotIdentity(token, githubAppId);
+export async function getBotUserId(
+	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+	installationToken: string,
+): Promise<number> {
+	const { userId } = await resolveBotIdentity(cfg, installationToken);
 	return userId;
 }
