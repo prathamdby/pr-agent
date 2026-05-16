@@ -20,6 +20,138 @@ describe("parseGithubPayload", () => {
 		expect(p.data.pull_request.head.sha).toBe("abc");
 	});
 
+	it("parses real-shaped pull_request payloads with extra GitHub fields", () => {
+		const raw = {
+			action: "synchronize",
+			number: 3,
+			installation: { id: 42, node_id: "I_kwDO" },
+			repository: {
+				id: 10,
+				node_id: "R_kwDO",
+				full_name: "o/r",
+				owner: {
+					id: 11,
+					login: "o",
+					node_id: "U_kwDO",
+					avatar_url: "https://example.test/avatar.png",
+					type: "User",
+					site_admin: false,
+				},
+				name: "r",
+				private: false,
+				html_url: "https://github.com/o/r",
+				default_branch: "main",
+			},
+			pull_request: {
+				url: "https://api.github.com/repos/o/r/pulls/3",
+				id: 12,
+				node_id: "PR_kwDO",
+				number: 3,
+				head: {
+					label: "o:feature",
+					ref: "feature",
+					sha: "abc",
+					user: { login: "o", id: 11 },
+					repo: { name: "r", full_name: "o/r" },
+				},
+				base: { ref: "main" },
+				changed_files: 2,
+			},
+			sender: { login: "o", id: 11 },
+		};
+
+		const p = parseGithubPayload("pull_request", raw);
+		expect(p.name).toBe("pull_request");
+		expect(p.data.repository.owner.login).toBe("o");
+		expect(p.data.pull_request.head.sha).toBe("abc");
+	});
+
+	it("parses real-shaped issue_comment payloads with extra GitHub fields", () => {
+		const raw = {
+			action: "created",
+			installation: { id: 42, node_id: "I_kwDO" },
+			repository: {
+				id: 10,
+				node_id: "R_kwDO",
+				full_name: "o/r",
+				owner: { id: 11, login: "o", node_id: "U_kwDO", type: "User" },
+				name: "r",
+				private: false,
+				html_url: "https://github.com/o/r",
+				default_branch: "main",
+			},
+			issue: {
+				url: "https://api.github.com/repos/o/r/issues/3",
+				id: 13,
+				node_id: "I_kwDO_issue",
+				number: 3,
+				title: "PR title",
+				user: { login: "author", id: 14 },
+				pull_request: { url: "https://api.github.com/repos/o/r/pulls/3" },
+				body: "description",
+			},
+			comment: {
+				url: "https://api.github.com/repos/o/r/issues/comments/99",
+				html_url: "https://github.com/o/r/pull/3#issuecomment-99",
+				id: 99,
+				node_id: "IC_kwDO",
+				user: {
+					id: 15,
+					login: "commenter",
+					node_id: "U_kwDO_commenter",
+					avatar_url: "https://example.test/avatar.png",
+					type: "User",
+					site_admin: false,
+				},
+				body: "/review",
+				created_at: "2026-05-16T06:33:46Z",
+			},
+			sender: { login: "commenter", id: 15 },
+		};
+
+		const p = parseGithubPayload("issue_comment", raw);
+		expect(p.name).toBe("issue_comment");
+		expect(p.data.issue.number).toBe(3);
+		expect(p.data.comment.body).toBe("/review");
+	});
+
+	it("parses real-shaped pull_request_review_comment payloads with extra GitHub fields", () => {
+		const raw = {
+			action: "created",
+			installation: { id: 42, node_id: "I_kwDO" },
+			repository: {
+				id: 10,
+				node_id: "R_kwDO",
+				full_name: "o/r",
+				owner: { id: 11, login: "o", node_id: "U_kwDO", type: "User" },
+				name: "r",
+				private: false,
+			},
+			pull_request: {
+				id: 12,
+				node_id: "PR_kwDO",
+				number: 3,
+				head: { sha: "abc" },
+			},
+			comment: {
+				url: "https://api.github.com/repos/o/r/pulls/comments/100",
+				id: 100,
+				node_id: "PRRC_kwDO",
+				user: { id: 15, login: "commenter", node_id: "U_kwDO_commenter" },
+				body: "/help",
+				path: "src/index.ts",
+				commit_id: "abc",
+				original_commit_id: "abc",
+			},
+			sender: { login: "commenter", id: 15 },
+		};
+
+		const p = parseGithubPayload("pull_request_review_comment", raw);
+		expect(p.name).toBe("pull_request_review_comment");
+		expect(p.data.pull_request.number).toBe(3);
+		expect(p.data.comment.id).toBe(100);
+	});
+
 	it("throws WebhookParseError on malformed pull_request", () => {
 		expect(() => parseGithubPayload("pull_request", { action: "opened" })).toThrow(WebhookParseError);
 	});

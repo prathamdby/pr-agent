@@ -2,16 +2,16 @@ import { z } from "zod";
 import { installationSchema, repositorySchema } from "./common.js";
 
 export const pullRequestReviewCommentWebhookSchema = z
-	.strictObject({
+	.object({
 		action: z.string(),
 		installation: installationSchema,
 		repository: repositorySchema,
-		pull_request: z.strictObject({
+		pull_request: z.object({
 			number: z.number(),
 		}),
-		comment: z.strictObject({
+		comment: z.object({
 			id: z.number(),
-			user: z.strictObject({
+			user: z.object({
 				id: z.number(),
 			}),
 			body: z.string().nullish(),

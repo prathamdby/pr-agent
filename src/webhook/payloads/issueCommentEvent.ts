@@ -2,19 +2,19 @@ import { z } from "zod";
 import { installationSchema, repositorySchema } from "./common.js";
 
 export const issueCommentWebhookSchema = z
-	.strictObject({
+	.object({
 		action: z.string(),
 		installation: installationSchema,
 		repository: repositorySchema,
 		issue: z
-			.strictObject({
+			.object({
 				number: z.number(),
 				pull_request: z.unknown(),
 			})
 			.refine((i) => i.pull_request != null, { message: "issue must belong to a pull request" }),
-		comment: z.strictObject({
+		comment: z.object({
 			id: z.number(),
-			user: z.strictObject({
+			user: z.object({
 				id: z.number(),
 			}),
 			body: z.string().nullish(),
