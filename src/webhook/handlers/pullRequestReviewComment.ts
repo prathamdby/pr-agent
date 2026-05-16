@@ -9,10 +9,20 @@ import {
 } from "../../commands/registry.js";
 import type { PullRequestReviewCommentWebhookPayload } from "../payloads/pullRequestReviewCommentEvent.js";
 
+export type PullRequestReviewCommentHandlerDeps = {
+	getBotUserId: (
+		cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+		installationToken: string,
+	) => Promise<number>;
+};
+
+const defaultDeps: PullRequestReviewCommentHandlerDeps = { getBotUserId };
+
 export async function handlePullRequestReviewCommentEvent(
 	cfg: Config,
 	token: string,
 	data: PullRequestReviewCommentWebhookPayload,
+	deps: PullRequestReviewCommentHandlerDeps = defaultDeps,
 ): Promise<void> {
 	if (data.action !== "created") return;
 
@@ -22,7 +32,7 @@ export async function handlePullRequestReviewCommentEvent(
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	const botId = await getBotUserId(cfg, token);
+	const botId = await deps.getBotUserId(cfg, token);
 	if (comment.user.id === botId) return;
 
 	const command = parseSlashCommand(body);

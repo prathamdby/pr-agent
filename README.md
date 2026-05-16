@@ -14,6 +14,7 @@ GitHub App webhook service that performs automated pull request reviews using [`
 - **Slash commands** are detected on the **first non-empty line** only, and are **case-sensitive** (`/review` works; `/Review` does not).
 - **Webhook deduplication** uses `X-GitHub-Delivery` when present; if that header is missing, the server falls back to **SHA-256(raw body)** so identical retries still collapse.
 - **Agent loop:** after the main `MAX_TOOL_ROUNDS` limit, the service runs up to **`MAX_FINALIZE_ROUNDS`** additional model turns if the conversation still ends with pending `toolResult` messages, then—if still stuck—forces one **text-only** completion (tools cleared) so the webhook does not end with an unfinished tool chain.
+- **Review concurrency:** full review runs are bounded by **`REVIEW_CONCURRENCY`** (default `2`) so bursts of webhook deliveries cannot start unbounded concurrent LLM/tool loops.
 - **Upstream tools:** `@github-tools/sdk` targets the Vercel AI ecosystem; errors mentioning workflow/durable/approval may mean a tool is not viable in plain Node—check logs; you may need fewer presets or direct REST for that action.
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
 
@@ -34,6 +35,18 @@ npm run dev
 ```
 
 Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
+
+### Runtime
+
+- Runtime is Effect TS by default and is the only production boot path.
+
+### Effect version gate
+
+- `npm run check:effect-versions` enforces pinned rewrite compatibility versions:
+  - `effect@3.21.2`
+  - `@effect/platform@0.96.1`
+  - `@effect/platform-node@0.106.0`
+- `npm test` now runs this version gate before Vitest.
 
 ## Docker and Docker Compose
 
@@ -72,6 +85,8 @@ For exploring upstream tool shapes locally, use `~/.btca/agent/sandbox` with clo
 | `npm run build` | Compile to `dist/`   |
 | `npm start`   | Run compiled `dist/`   |
 | `npm run typecheck` | `tsc --noEmit`   |
+| `npm run check:effect-versions` | Verify pinned Effect deps |
+| `npm run test:spike` | Phase-0 Effect compatibility tests |
 | `npm run test` | Vitest (`test/**/*.test.ts`) |
 | `npm run test:watch` | Vitest watch mode |
 

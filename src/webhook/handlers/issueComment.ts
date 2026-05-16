@@ -9,7 +9,21 @@ import {
 } from "../../commands/registry.js";
 import type { IssueCommentWebhookPayload } from "../payloads/issueCommentEvent.js";
 
-export async function handleIssueCommentEvent(cfg: Config, token: string, data: IssueCommentWebhookPayload): Promise<void> {
+export type IssueCommentHandlerDeps = {
+	getBotUserId: (
+		cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+		installationToken: string,
+	) => Promise<number>;
+};
+
+const defaultDeps: IssueCommentHandlerDeps = { getBotUserId };
+
+export async function handleIssueCommentEvent(
+	cfg: Config,
+	token: string,
+	data: IssueCommentWebhookPayload,
+	deps: IssueCommentHandlerDeps = defaultDeps,
+): Promise<void> {
 	if (data.action !== "created") return;
 
 	const owner = data.repository.owner.login;
@@ -18,7 +32,7 @@ export async function handleIssueCommentEvent(cfg: Config, token: string, data: 
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	const botId = await getBotUserId(cfg, token);
+	const botId = await deps.getBotUserId(cfg, token);
 	if (comment.user.id === botId) return;
 
 	const command = parseSlashCommand(body);

@@ -82,6 +82,16 @@ export function loadConfig() {
 		throw new Error("MAX_FINALIZE_ROUNDS must be zero or a positive number");
 	}
 
+	const reviewConcurrency = Number(optionalEnv("REVIEW_CONCURRENCY", "2"));
+	if (!Number.isFinite(reviewConcurrency) || reviewConcurrency < 1) {
+		throw new Error("REVIEW_CONCURRENCY must be a positive number");
+	}
+
+	const webhookTimeoutMs = Number(optionalEnv("WEBHOOK_TIMEOUT_MS", "10000"));
+	if (!Number.isFinite(webhookTimeoutMs) || webhookTimeoutMs < 1) {
+		throw new Error("WEBHOOK_TIMEOUT_MS must be a positive number");
+	}
+
 	const logLevel = optionalEnv("LOG_LEVEL", "info") as "debug" | "info" | "warn" | "error";
 	if (!["debug", "info", "warn", "error"].includes(logLevel)) {
 		throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
@@ -96,6 +106,8 @@ export function loadConfig() {
 		piModel,
 		maxToolRounds,
 		maxFinalizeRounds,
+		reviewConcurrency,
+		webhookTimeoutMs,
 		logLevel,
 	};
 }

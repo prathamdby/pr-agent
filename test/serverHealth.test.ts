@@ -1,8 +1,9 @@
 import http from "node:http";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { Effect, Fiber, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { initLog } from "../src/log.js";
-import { startWebhookServer } from "../src/webhook/server.js";
+import { buildEffectWebhookLayer } from "../src/effect/server.js";
 
 const testCfg: Config = {
 	port: 0,
@@ -13,6 +14,8 @@ const testCfg: Config = {
 	piModel: "gpt-4o-mini",
 	maxToolRounds: 24,
 	maxFinalizeRounds: 6,
+	reviewConcurrency: 2,
+	webhookTimeoutMs: 10000,
 	logLevel: "error",
 };
 
@@ -30,33 +33,46 @@ function get(port: number, path: string): Promise<{ status: number; body: string
 	});
 }
 
-describe("startWebhookServer routes", () => {
+type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
+
+function startEffectServer(): Promise<Handle> {
+	return new Promise((resolve, reject) => {
+		let captured: http.Server | undefined;
+		const layer = buildEffectWebhookLayer(testCfg, () => {
+			captured = http.createServer();
+			captured.once("listening", () => {
+				if (captured) resolve({ server: captured, fiber });
+			});
+			captured.once("error", reject);
+			return captured;
+		});
+		const fiber = Effect.runFork(Layer.launch(layer));
+	});
+}
+
+async function stopEffectServer(handle: Handle): Promise<void> {
+	await Effect.runPromise(Fiber.interrupt(handle.fiber));
+	if (handle.server.listening) {
+		await new Promise<void>((resolve) => handle.server.close(() => resolve()));
+	}
+}
+
+describe("effect webhook server (end-to-end)", () => {
 	beforeAll(() => {
 		initLog("error");
 	});
 
-	let server: http.Server | undefined;
+	let handle: Handle | undefined;
 
 	afterEach(async () => {
-		if (!server) return;
-		await new Promise<void>((resolve, reject) => {
-			server!.close((err) => (err ? reject(err) : resolve()));
-		});
-		server = undefined;
+		if (!handle) return;
+		await stopEffectServer(handle);
+		handle = undefined;
 	});
 
-	function awaitListening(s: http.Server) {
-		return new Promise<void>((resolve) => {
-			if (s.listening) resolve();
-			else s.once("listening", () => resolve());
-		});
-	}
-
 	it("returns 200 plain ok for GET /health", async () => {
-		const s = startWebhookServer({ ...testCfg, port: 0 });
-		server = s;
-		await awaitListening(s);
-		const addr = s.address();
+		handle = await startEffectServer();
+		const addr = handle.server.address();
 		if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
 		const res = await get(addr.port, "/health");
 		expect(res.status).toBe(200);
@@ -64,10 +80,8 @@ describe("startWebhookServer routes", () => {
 	});
 
 	it("returns 404 for unknown GET path", async () => {
-		const s = startWebhookServer({ ...testCfg, port: 0 });
-		server = s;
-		await awaitListening(s);
-		const addr = s.address();
+		handle = await startEffectServer();
+		const addr = handle.server.address();
 		if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
 		const res = await get(addr.port, "/nope");
 		expect(res.status).toBe(404);
