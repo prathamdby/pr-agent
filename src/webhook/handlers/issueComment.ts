@@ -1,5 +1,4 @@
 import type { Config } from "../../config.js";
-import { getBotUserId } from "../../github/appAuth.js";
 import { createGithubBot } from "../../github/botFacade.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import {
@@ -9,7 +8,12 @@ import {
 } from "../../commands/registry.js";
 import type { IssueCommentWebhookPayload } from "../payloads/issueCommentEvent.js";
 
-export async function handleIssueCommentEvent(cfg: Config, token: string, data: IssueCommentWebhookPayload): Promise<void> {
+export async function handleIssueCommentEvent(
+	cfg: Config,
+	token: string,
+	data: IssueCommentWebhookPayload,
+	{ botUserId }: { botUserId: number },
+): Promise<void> {
 	if (data.action !== "created") return;
 
 	const owner = data.repository.owner.login;
@@ -18,8 +22,7 @@ export async function handleIssueCommentEvent(cfg: Config, token: string, data: 
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	const botId = await getBotUserId(cfg, token);
-	if (comment.user.id === botId) return;
+	if (comment.user.id === botUserId) return;
 
 	const command = parseSlashCommand(body);
 	if (!command) return;

@@ -1,5 +1,6 @@
 import { postIssueComment, replyToPullReviewComment } from "../github/comments.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
+import { runQueuedReview } from "../agent/reviewQueue.js";
 import type { Config } from "../config.js";
 
 const helpBody = [
@@ -43,15 +44,17 @@ export async function handleReviewCommand(params: {
 	commandBody: string;
 }) {
 	const { cfg, token, owner, repo, prNumber, headSha, commandBody } = params;
-	await runFullPrReview({
-		cfg,
-		token,
-		owner,
-		repo,
-		prNumber,
-		headSha,
-		userSupplement: `User invoked /review with:\n${commandBody}`,
-	});
+	await runQueuedReview(`${owner}/${repo}#${prNumber}:slash`, () =>
+		runFullPrReview({
+			cfg,
+			token,
+			owner,
+			repo,
+			prNumber,
+			headSha,
+			userSupplement: `User invoked /review with:\n${commandBody}`,
+		}),
+	);
 }
 
 export async function postEphemeralIssueNote(

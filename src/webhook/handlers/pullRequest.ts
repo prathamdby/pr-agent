@@ -1,5 +1,6 @@
 import type { Config } from "../../config.js";
 import { runFullPrReview } from "../../agent/reviewRun.js";
+import { runQueuedReview } from "../../agent/reviewQueue.js";
 import { createGithubBot } from "../../github/botFacade.js";
 import { log } from "../../log.js";
 import type { PullRequestWebhookPayload } from "../payloads/pullRequestEvent.js";
@@ -18,12 +19,14 @@ export async function handlePullRequestEvent(cfg: Config, token: string, data: P
 	await Promise.all([bot.acknowledgeWithEyesOnIssue(owner, name, pr.number)]);
 
 	log.info("run_automated_review", { owner, repo: name, pr: pr.number, action });
-	await runFullPrReview({
-		cfg,
-		token,
-		owner,
-		repo: name,
-		prNumber: pr.number,
-		headSha: pr.head.sha,
-	});
+	await runQueuedReview(`${owner}/${name}#${pr.number}:auto`, () =>
+		runFullPrReview({
+			cfg,
+			token,
+			owner,
+			repo: name,
+			prNumber: pr.number,
+			headSha: pr.head.sha,
+		}),
+	);
 }

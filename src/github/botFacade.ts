@@ -8,7 +8,7 @@ import {
 
 /**
  * Side-effect helpers used by webhook handlers (reactions, PR head SHA, comments).
- * Keeps `getBotUserId` / installation auth in {@link ./appAuth.ts}.
+ * Installation auth and bot identity live behind Effect services in {@link ../effect/services/}.
  */
 export function createGithubBot(apiToken: string) {
 	return {

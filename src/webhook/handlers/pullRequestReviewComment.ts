@@ -1,5 +1,4 @@
 import type { Config } from "../../config.js";
-import { getBotUserId } from "../../github/appAuth.js";
 import { createGithubBot } from "../../github/botFacade.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import {
@@ -13,6 +12,7 @@ export async function handlePullRequestReviewCommentEvent(
 	cfg: Config,
 	token: string,
 	data: PullRequestReviewCommentWebhookPayload,
+	{ botUserId }: { botUserId: number },
 ): Promise<void> {
 	if (data.action !== "created") return;
 
@@ -22,8 +22,7 @@ export async function handlePullRequestReviewCommentEvent(
 	const comment = data.comment;
 	const body = comment.body ?? "";
 
-	const botId = await getBotUserId(cfg, token);
-	if (comment.user.id === botId) return;
+	if (comment.user.id === botUserId) return;
 
 	const command = parseSlashCommand(body);
 	if (!command) return;

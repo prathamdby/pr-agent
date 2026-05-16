@@ -4,16 +4,13 @@ import { retry } from "@octokit/plugin-retry";
 import type { Config } from "../config.js";
 import { log } from "../log.js";
 
-type CachedInstallation = InstallationAccessTokenAuthentication & { expiresAtTs: number };
-const installationTokenCache = new Map<number, CachedInstallation>();
-
 const RetryOctokit = Octokit.plugin(retry);
 export type InstallationOctokit = InstanceType<typeof RetryOctokit>;
 
-/** Bot user is keyed by GitHub App id so multiple apps in one process do not collide. */
-const cachedBotUsers = new Map<string, { userId: number; login: string }>();
+export type CachedInstallationToken = InstallationAccessTokenAuthentication & { expiresAtTs: number };
+export type BotIdentity = { userId: number; login: string };
 
-async function mintInstallationAuth(
+export async function mintInstallationAuth(
 	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
 	installationId: number,
 ): Promise<InstallationAccessTokenAuthentication> {
@@ -25,29 +22,6 @@ async function mintInstallationAuth(
 		type: "installation",
 		installationId,
 	});
-}
-
-/**
- * Cached installation token (60s freshness buffer before JWT expiry claims).
- */
-export async function getInstallationToken(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-	installationId: number,
-): Promise<string> {
-	const now = Date.now();
-	const hit = installationTokenCache.get(installationId);
-	if (hit && hit.expiresAtTs - 60_000 > now) {
-		return hit.token;
-	}
-
-	const auth = await mintInstallationAuth(cfg, installationId);
-	const expiresAt = auth.expiresAt ? Date.parse(auth.expiresAt) : now + 55 * 60 * 1000;
-	installationTokenCache.set(installationId, {
-		...auth,
-		expiresAtTs: expiresAt,
-	});
-	log.debug("minted_installation_token", { installationId, expiresAt: auth.expiresAt });
-	return auth.token;
 }
 
 export function installationOctokit(token: string): InstallationOctokit {
@@ -66,7 +40,7 @@ async function mintAppJwtToken(cfg: Pick<Config, "githubAppId" | "githubAppPriva
 /**
  * When `GET /user` rejects installation tokens (“Resource not accessible by integration”), resolve bot id via JWT + public {@link https://api.github.com/users/{slug}%5Bbot%5D} profile.
  */
-async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<{ userId: number; login: string }> {
+async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<BotIdentity> {
 	const jwtToken = await mintAppJwtToken(cfg);
 	const jwtOctokit = new RetryOctokit({ auth: jwtToken });
 	const { data } = await jwtOctokit.rest.apps.getAuthenticated();
@@ -81,16 +55,17 @@ async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "g
 	return { userId: user.id, login: user.login };
 }
 
-/** GitHub login for the authenticated installation (bot user), scoped to `GITHUB_APP_ID`. */
-export async function resolveBotIdentity(
+/**
+ * Mint bot identity for the authenticated installation, with the public-slug fallback.
+ * Caching is the caller's responsibility — production callers should go through the
+ * `BotIdentity` Effect service.
+ */
+export async function mintBotIdentity(
 	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
 	installationToken: string,
-): Promise<{ userId: number; login: string }> {
-	const cached = cachedBotUsers.get(cfg.githubAppId);
-	if (cached) return cached;
-
+): Promise<BotIdentity> {
 	const o = installationOctokit(installationToken);
-	let u: { userId: number; login: string };
+	let u: BotIdentity;
 	try {
 		const { data } = await o.rest.users.getAuthenticated();
 		u = { userId: data.id, login: data.login };
@@ -102,15 +77,6 @@ export async function resolveBotIdentity(
 		u = await resolveBotIdentityViaAppSlug(cfg);
 	}
 
-	cachedBotUsers.set(cfg.githubAppId, u);
 	log.debug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
 	return u;
-}
-
-export async function getBotUserId(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-	installationToken: string,
-): Promise<number> {
-	const { userId } = await resolveBotIdentity(cfg, installationToken);
-	return userId;
 }

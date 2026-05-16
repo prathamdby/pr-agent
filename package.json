@@ -11,8 +11,11 @@
     "start": "node dist/index.js",
     "dev": "node --import tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "npm run check:effect-versions && vitest run",
+    "test:watch": "vitest",
+    "dev:effect-spike": "node --import tsx src/effectSpike/main.ts",
+    "check:effect-versions": "node scripts/check-effect-versions.mjs",
+    "test:spike": "vitest run test/effectSpike.test.ts"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.74.0",
@@ -21,7 +24,10 @@
     "@octokit/plugin-retry": "^8.1.0",
     "@octokit/rest": "^21.1.1",
     "ai": "^6.0.97",
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "effect": "3.21.2",
+    "@effect/platform": "0.96.1",
+    "@effect/platform-node": "0.106.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.14",
