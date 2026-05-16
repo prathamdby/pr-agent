@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
 import type { Config } from "../src/config.js";
@@ -31,6 +32,38 @@ function get(port: number, path: string): Promise<{ status: number; body: string
 			})
 			.on("error", reject);
 	});
+}
+
+function postSigned(
+	port: number,
+	path: string,
+	body: Buffer,
+	headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
+	return new Promise((resolve, reject) => {
+		const req = http.request(
+			{
+				hostname: "127.0.0.1",
+				port,
+				path,
+				method: "POST",
+				headers: { "content-type": "application/json", "content-length": body.length, ...headers },
+			},
+			(res) => {
+				const chunks: Buffer[] = [];
+				res.on("data", (c) => chunks.push(Buffer.from(c)));
+				res.on("end", () => {
+					resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") });
+				});
+			},
+		);
+		req.on("error", reject);
+		req.end(body);
+	});
+}
+
+function signBody(secret: string, body: Buffer): string {
+	return `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
 }
 
 type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
@@ -85,5 +118,31 @@ describe("effect webhook server (end-to-end)", () => {
 		if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
 		const res = await get(addr.port, "/nope");
 		expect(res.status).toBe(404);
+	});
+
+	it("accepts a signed ping webhook end-to-end and returns 200 ok", async () => {
+		handle = await startEffectServer();
+		const addr = handle.server.address();
+		if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+
+		const body = Buffer.from(JSON.stringify({ zen: "smoke", installation: { id: 1 } }));
+		const res = await postSigned(addr.port, "/webhooks", body, {
+			"x-hub-signature-256": signBody(testCfg.webhookSecret, body),
+			"x-github-event": "ping",
+			"x-github-delivery": "e2e-ping-1",
+		});
+		expect(res.status).toBe(200);
+		expect(res.body).toBe("ok");
+	});
+
+	it("rejects an unsigned POST with 401 end-to-end", async () => {
+		handle = await startEffectServer();
+		const addr = handle.server.address();
+		if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+
+		const body = Buffer.from(JSON.stringify({ zen: "no-sig" }));
+		const res = await postSigned(addr.port, "/webhooks", body, {});
+		expect(res.status).toBe(401);
+		expect(res.body).toBe("invalid signature");
 	});
 });
