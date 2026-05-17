@@ -13,9 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "npm run check:effect-versions && vitest run",
     "test:watch": "vitest",
-    "dev:effect-spike": "node --import tsx src/effectSpike/main.ts",
-    "check:effect-versions": "node scripts/check-effect-versions.mjs",
-    "test:spike": "vitest run test/effectSpike.test.ts"
+    "check:effect-versions": "node scripts/check-effect-versions.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.74.0",

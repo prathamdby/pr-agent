@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect";
 import { createServer, type Server } from "node:http";
 import type { Config } from "../config.js";
 import { processWebhookHttpRequestEffect } from "./programs/processWebhookRequestEffect.js";
-import { WebhookDispatcherLive } from "./services/webhookDispatcher.js";
+import { buildWebhookDispatcherLive } from "./services/webhookDispatcher.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
@@ -42,7 +42,7 @@ export function buildEffectWebhookLayer(cfg: Config, serverFactory: () => Server
   return buildEffectWebhookApp(cfg).pipe(
     HttpServer.serve(),
     Layer.provide(serverLayer),
-    Layer.provide(WebhookDispatcherLive),
+    Layer.provide(buildWebhookDispatcherLive(cfg)),
   );
 }
 

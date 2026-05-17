@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { Effect, Layer } from "effect";
-import { WebhookDispatcher, WebhookDispatcherLive } from "../src/effect/services/webhookDispatcher.js";
+import { Effect } from "effect";
+import { WebhookDispatcher, buildWebhookDispatcherLive } from "../src/effect/services/webhookDispatcher.js";
 import type { Config } from "../src/config.js";
 
 const cfg: Config = {
@@ -24,7 +24,7 @@ describe("effect service ports", () => {
       expect(typeof dispatcher.dispatch).toBe("function");
     });
 
-    await Effect.runPromise(program.pipe(Effect.provide(WebhookDispatcherLive)));
+    await Effect.runPromise(program.pipe(Effect.provide(buildWebhookDispatcherLive(cfg))));
   });
 
   it("dispatcher handles parse errors without throwing", async () => {
@@ -37,6 +37,6 @@ describe("effect service ports", () => {
       });
     });
 
-    await Effect.runPromise(program.pipe(Effect.provide(WebhookDispatcherLive)));
+    await Effect.runPromise(program.pipe(Effect.provide(buildWebhookDispatcherLive(cfg))));
   });
 });

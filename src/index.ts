@@ -1,7 +1,6 @@
 import { loadConfig, type Config } from "./config.js";
 import { initLog, log } from "./log.js";
 import { startEffectWebhookServer } from "./effect/server.js";
-import { configureReviewQueue } from "./agent/reviewQueue.js";
 
 function main() {
   let cfg: Config;
@@ -14,7 +13,6 @@ function main() {
   }
 
   initLog(cfg.logLevel);
-  configureReviewQueue(cfg.reviewConcurrency);
   log.info("boot", { provider: cfg.piProvider, model: cfg.piModel });
   log.info("runtime_selected", { runtime: "effect" });
   startEffectWebhookServer(cfg);
