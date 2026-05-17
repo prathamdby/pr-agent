@@ -15,9 +15,6 @@ describe("ReviewQueue Layer", () => {
 					label,
 					Effect.gen(function* () {
 						yield* Ref.update(inFlight, (n) => n + 1);
-						yield* Ref.update(peak, (current) =>
-							Math.max(current, /* read */ 0),
-						);
 						const current = yield* Ref.get(inFlight);
 						yield* Ref.update(peak, (p) => Math.max(p, current));
 						yield* Effect.sleep(Duration.seconds(1));

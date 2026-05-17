@@ -48,12 +48,7 @@ export function runSlashCommandFlow(
 
 		const surface = yield* PrGithubSurface;
 
-		const ackTriggeringComment =
-			ctx.replyTarget.kind === "prConversation"
-				? surface.acknowledgeOnIssueComment(ctx.token, ctx.owner, ctx.repo, ctx.commentId)
-				: surface.acknowledgeOnReviewComment(ctx.token, ctx.owner, ctx.repo, ctx.commentId);
-
-		const postReply = (body: string): Effect.Effect<void, Error> =>
+		const postReply = (body: string) =>
 			ctx.replyTarget.kind === "prConversation"
 				? surface.postPrConversationComment(ctx.token, ctx.owner, ctx.repo, ctx.replyTarget.prNumber, body)
 				: surface.replyOnInlineReviewThread(
@@ -66,7 +61,9 @@ export function runSlashCommandFlow(
 				);
 
 		yield* surface.acknowledgeOnPrConversation(ctx.token, ctx.owner, ctx.repo, ctx.replyTarget.prNumber);
-		yield* ackTriggeringComment;
+		yield* ctx.replyTarget.kind === "prConversation"
+			? surface.acknowledgeOnIssueComment(ctx.token, ctx.owner, ctx.repo, ctx.commentId)
+			: surface.acknowledgeOnReviewComment(ctx.token, ctx.owner, ctx.repo, ctx.commentId);
 
 		if (command === "help") {
 			yield* postReply(helpBody);

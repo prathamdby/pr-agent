@@ -49,9 +49,7 @@ const DispatcherCore = Layer.effect(
   }),
 );
 
-export const buildWebhookDispatcherLive = (
-  cfg: Pick<Config, "reviewConcurrency">,
-): Layer.Layer<WebhookDispatcher> =>
+export const buildWebhookDispatcherLive = (cfg: Pick<Config, "reviewConcurrency">) =>
   DispatcherCore.pipe(
     Layer.provide(GithubInstallationTokenLive),
     Layer.provide(WebhookHandlersLive),

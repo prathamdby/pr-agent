@@ -3,18 +3,14 @@ import { installationOctokit } from "../../github/appAuth.js";
 
 const EYES = "eyes" as const;
 
-function rejectIsSuppressableReactionError(e: unknown): boolean {
-	const status = (e as { status?: number }).status;
-	return status === 422 || status === 403;
-}
-
 function safeReact(thunk: () => Promise<unknown>): Effect.Effect<void, Error> {
 	return Effect.tryPromise({
 		try: async () => {
 			try {
 				await thunk();
-			} catch (e) {
-				if (rejectIsSuppressableReactionError(e)) return;
+			} catch (e: unknown) {
+				const status = (e as { status?: number }).status;
+				if (status === 422 || status === 403) return;
 				throw e;
 			}
 		},

@@ -12,9 +12,7 @@ export class ReviewQueue extends Context.Tag("ReviewQueue")<
 	}
 >() {}
 
-export const ReviewQueueLive = (
-	cfg: Pick<Config, "reviewConcurrency">,
-): Layer.Layer<ReviewQueue> =>
+export const ReviewQueueLive = (cfg: Pick<Config, "reviewConcurrency">) =>
 	Layer.effect(
 		ReviewQueue,
 		Effect.gen(function* () {
