@@ -2,6 +2,7 @@ import { complete, getModel } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Message, ToolCall } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import { bridgeGithubToolsToPi } from "../bridge/aiSdkToolsToPiTools.js";
+import { buildContext7Toolset } from "./context7Tools.js";
 import { buildCodeReviewToolset } from "./githubTools.js";
 import { log } from "../log.js";
 
@@ -77,6 +78,7 @@ const automatedSystemPrompt = [
 	"2. Trace data flow to prove a reachable trigger path",
 	"3. Check if the pattern appears elsewhere (may be deliberate)",
 	"4. Align test assumptions vs production behaviour when citing tests",
+	"5. When a finding hinges on third-party library behaviour (an external API's shape, semantics, or version-specific availability), call resolveLibraryId to get the canonical Context7 ID, then getLibraryDocs to verify the claim against current docs. Do not pre-warm—only look up to verify a claim you are about to make.",
 	"",
 	"## Reporting gate",
 	"### Report if at least one is true",
@@ -131,7 +133,8 @@ export async function runFullPrReview(params: {
 	const { cfg, token, owner, repo, prNumber, headSha, userSupplement } = params;
 
 	const ghToolset = buildCodeReviewToolset(token) as unknown as Record<string, unknown>;
-	const { piTools, executeTool } = bridgeGithubToolsToPi(ghToolset);
+	const ctxToolset = buildContext7Toolset({ apiKey: cfg.context7ApiKey });
+	const { piTools, executeTool } = bridgeGithubToolsToPi({ ...ghToolset, ...ctxToolset });
 
 	const model = getModel(cfg.piProvider, cfg.piModel as never);
 
