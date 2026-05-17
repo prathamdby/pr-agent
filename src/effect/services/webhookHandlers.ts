@@ -1,13 +1,13 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
 import { runFullPrReview } from "../../agent/reviewRun.js";
-import { runQueuedReview } from "../../agent/reviewQueue.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { runSlashCommandFlow } from "../../commands/slashCommandFlow.js";
 import { log } from "../../log.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { BotIdentity, BotIdentityLive } from "./botIdentity.js";
 import { PrGithubSurface, PrGithubSurfaceLive } from "./prGithubSurface.js";
+import { ReviewQueue } from "./reviewQueue.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
@@ -33,6 +33,7 @@ export const WebhookHandlersCore = Layer.effect(
 	Effect.gen(function* () {
 		const botIdentity = yield* BotIdentity;
 		const surface = yield* PrGithubSurface;
+		const reviewQueue = yield* ReviewQueue;
 
 		return WebhookHandlers.of({
 			pullRequest: (cfg, token, data) =>
@@ -49,13 +50,14 @@ export const WebhookHandlersCore = Layer.effect(
 
 					log.info("run_automated_review", { owner, repo, pr: prNumber, action });
 
-					yield* Effect.tryPromise({
-						try: () =>
-							runQueuedReview(`${owner}/${repo}#${prNumber}:auto`, () =>
-								runFullPrReview({ cfg, token, owner, repo, prNumber, headSha }),
-							).then(() => undefined),
-						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-					});
+					yield* reviewQueue.submit(
+						`${owner}/${repo}#${prNumber}:auto`,
+						Effect.tryPromise({
+							try: () =>
+								runFullPrReview({ cfg, token, owner, repo, prNumber, headSha }).then(() => undefined),
+							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+						}),
+					);
 				}),
 
 			issueComment: (cfg, token, data) =>
@@ -76,7 +78,10 @@ export const WebhookHandlersCore = Layer.effect(
 						commentId: data.comment.id,
 						body,
 						replyTarget: { kind: "prConversation", prNumber: data.issue.number },
-					}).pipe(Effect.provideService(PrGithubSurface, surface));
+					}).pipe(
+						Effect.provideService(PrGithubSurface, surface),
+						Effect.provideService(ReviewQueue, reviewQueue),
+					);
 				}),
 
 			pullRequestReviewComment: (cfg, token, data) =>
@@ -101,7 +106,10 @@ export const WebhookHandlersCore = Layer.effect(
 							prNumber: data.pull_request.number,
 							inReplyToCommentId: data.comment.id,
 						},
-					}).pipe(Effect.provideService(PrGithubSurface, surface));
+					}).pipe(
+						Effect.provideService(PrGithubSurface, surface),
+						Effect.provideService(ReviewQueue, reviewQueue),
+					);
 				}),
 		});
 	}),

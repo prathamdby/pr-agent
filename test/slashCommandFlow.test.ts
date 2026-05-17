@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { PrGithubSurface } from "../src/effect/services/prGithubSurface.js";
+import { ReviewQueue } from "../src/effect/services/reviewQueue.js";
 import { runSlashCommandFlow, type SlashContext } from "../src/commands/slashCommandFlow.js";
-import * as reviewQueue from "../src/agent/reviewQueue.js";
 import * as reviewRun from "../src/agent/reviewRun.js";
 
 const cfg: Config = {
@@ -61,6 +61,18 @@ function makeSurface(spies: SurfaceSpies, headSha = "abc"): Layer.Layer<PrGithub
 	);
 }
 
+function makeReviewQueue(submitSpy?: ReturnType<typeof vi.fn>): Layer.Layer<ReviewQueue> {
+	return Layer.succeed(
+		ReviewQueue,
+		ReviewQueue.of({
+			submit: <A, E>(label: string, task: Effect.Effect<A, E>) => {
+				submitSpy?.(label);
+				return task;
+			},
+		}),
+	);
+}
+
 function newSpies(): SurfaceSpies {
 	return {
 		acknowledgeOnPrConversation: vi.fn(),
@@ -93,6 +105,7 @@ describe("runSlashCommandFlow", () => {
 		await Effect.runPromise(
 			runSlashCommandFlow(baseCtx({ commenterId: 1, botUserId: 1, body: "/help" })).pipe(
 				Effect.provide(makeSurface(spies)),
+				Effect.provide(makeReviewQueue()),
 			),
 		);
 		expect(spies.acknowledgeOnPrConversation).not.toHaveBeenCalled();
@@ -103,7 +116,10 @@ describe("runSlashCommandFlow", () => {
 	it("returns silently for non-slash bodies", async () => {
 		const spies = newSpies();
 		await Effect.runPromise(
-			runSlashCommandFlow(baseCtx({ body: "just a comment" })).pipe(Effect.provide(makeSurface(spies))),
+			runSlashCommandFlow(baseCtx({ body: "just a comment" })).pipe(
+				Effect.provide(makeSurface(spies)),
+				Effect.provide(makeReviewQueue()),
+			),
 		);
 		expect(spies.acknowledgeOnPrConversation).not.toHaveBeenCalled();
 		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
@@ -112,7 +128,10 @@ describe("runSlashCommandFlow", () => {
 	it("/help on PR conversation: acks both surfaces and posts help via issue comment", async () => {
 		const spies = newSpies();
 		await Effect.runPromise(
-			runSlashCommandFlow(baseCtx({ body: "/help" })).pipe(Effect.provide(makeSurface(spies))),
+			runSlashCommandFlow(baseCtx({ body: "/help" })).pipe(
+				Effect.provide(makeSurface(spies)),
+				Effect.provide(makeReviewQueue()),
+			),
 		);
 		expect(spies.acknowledgeOnPrConversation).toHaveBeenCalledWith("tok", "o", "r", 3);
 		expect(spies.acknowledgeOnIssueComment).toHaveBeenCalledWith("tok", "o", "r", 99);
@@ -134,7 +153,10 @@ describe("runSlashCommandFlow", () => {
 					body: "/help",
 					replyTarget: { kind: "inlineReviewThread", prNumber: 3, inReplyToCommentId: 99 },
 				}),
-			).pipe(Effect.provide(makeSurface(spies))),
+			).pipe(
+				Effect.provide(makeSurface(spies)),
+				Effect.provide(makeReviewQueue()),
+			),
 		);
 		expect(spies.acknowledgeOnReviewComment).toHaveBeenCalledWith("tok", "o", "r", 99);
 		expect(spies.replyOnInlineReviewThread).toHaveBeenCalledWith(
@@ -152,7 +174,10 @@ describe("runSlashCommandFlow", () => {
 	it("unknown command posts an ephemeral note via the right reply target", async () => {
 		const spies = newSpies();
 		await Effect.runPromise(
-			runSlashCommandFlow(baseCtx({ body: "/whatever" })).pipe(Effect.provide(makeSurface(spies))),
+			runSlashCommandFlow(baseCtx({ body: "/whatever" })).pipe(
+				Effect.provide(makeSurface(spies)),
+				Effect.provide(makeReviewQueue()),
+			),
 		);
 		expect(spies.postPrConversationComment).toHaveBeenCalledWith(
 			"tok",
@@ -163,9 +188,9 @@ describe("runSlashCommandFlow", () => {
 		);
 	});
 
-	it("/review enqueues runFullPrReview through runQueuedReview with the resolved head SHA", async () => {
+	it("/review submits runFullPrReview through the ReviewQueue with the resolved head SHA", async () => {
 		const spies = newSpies();
-		const queueSpy = vi.spyOn(reviewQueue, "runQueuedReview").mockImplementation(async (_label, task) => task());
+		const submitSpy = vi.fn();
 		const reviewSpy = vi
 			.spyOn(reviewRun, "runFullPrReview")
 			.mockResolvedValue({ lastAssistant: { role: "assistant", content: [], timestamp: 0 } as never });
@@ -174,11 +199,12 @@ describe("runSlashCommandFlow", () => {
 			await Effect.runPromise(
 				runSlashCommandFlow(baseCtx({ body: "/review take a look" })).pipe(
 					Effect.provide(makeSurface(spies, "feedf00d")),
+					Effect.provide(makeReviewQueue(submitSpy)),
 				),
 			);
 
-			expect(queueSpy).toHaveBeenCalledTimes(1);
-			expect(queueSpy.mock.calls[0]?.[0]).toBe("o/r#3:slash");
+			expect(submitSpy).toHaveBeenCalledTimes(1);
+			expect(submitSpy).toHaveBeenCalledWith("o/r#3:slash");
 			expect(reviewSpy).toHaveBeenCalledWith(
 				expect.objectContaining({
 					owner: "o",
@@ -189,7 +215,6 @@ describe("runSlashCommandFlow", () => {
 				}),
 			);
 		} finally {
-			queueSpy.mockRestore();
 			reviewSpy.mockRestore();
 		}
 	});

@@ -3,6 +3,7 @@ import { Cause, Effect, Exit, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { BotIdentity } from "../src/effect/services/botIdentity.js";
 import { PrGithubSurface } from "../src/effect/services/prGithubSurface.js";
+import { ReviewQueue } from "../src/effect/services/reviewQueue.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 
 const cfg: Config = {
@@ -41,6 +42,13 @@ const explodingSurface = Layer.succeed(
   }),
 );
 
+const explodingReviewQueue = Layer.succeed(
+  ReviewQueue,
+  ReviewQueue.of({
+    submit: () => Effect.die("ReviewQueue must not be called"),
+  }),
+);
+
 describe("WebhookHandlers Effect resolution", () => {
   it("propagates BotIdentity failure through Effect's error channel (no Promise escape)", async () => {
     const failingBot = Layer.succeed(
@@ -54,6 +62,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const HandlersWithFailingBot = WebhookHandlersCore.pipe(
       Layer.provide(failingBot),
       Layer.provide(explodingSurface),
+      Layer.provide(explodingReviewQueue),
     );
 
     const exit = await Effect.runPromiseExit(
@@ -90,6 +99,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const Handlers = WebhookHandlersCore.pipe(
       Layer.provide(constBot),
       Layer.provide(explodingSurface),
+      Layer.provide(explodingReviewQueue),
     );
 
     // The exploding surface dies if any acknowledgement / post call runs.

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { Config } from "../src/config.js";
 import { processWebhookHttpRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
-import { WebhookDispatcherLive } from "../src/effect/services/webhookDispatcher.js";
+import { buildWebhookDispatcherLive } from "../src/effect/services/webhookDispatcher.js";
 
 const cfg: Config = {
   port: 0,
@@ -38,7 +38,7 @@ describe("effect webhook program integration", () => {
           "x-github-delivery": "d1",
         },
         rawBody: body,
-      }).pipe(Effect.provide(WebhookDispatcherLive)),
+      }).pipe(Effect.provide(buildWebhookDispatcherLive(cfg))),
     );
 
     expect(res.status).toBe(200);

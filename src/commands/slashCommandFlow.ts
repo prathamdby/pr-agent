@@ -1,8 +1,8 @@
 import { Effect } from "effect";
 import type { Config } from "../config.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
-import { runQueuedReview } from "../agent/reviewQueue.js";
 import { PrGithubSurface } from "../effect/services/prGithubSurface.js";
+import { ReviewQueue } from "../effect/services/reviewQueue.js";
 import { parseSlashCommand } from "./parseSlashCommand.js";
 
 export type ReplyTarget =
@@ -37,7 +37,9 @@ const helpBody = [
 	"- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");
 
-export function runSlashCommandFlow(ctx: SlashContext): Effect.Effect<void, Error, PrGithubSurface> {
+export function runSlashCommandFlow(
+	ctx: SlashContext,
+): Effect.Effect<void, Error, PrGithubSurface | ReviewQueue> {
 	return Effect.gen(function* () {
 		if (ctx.commenterId === ctx.botUserId) return;
 
@@ -79,9 +81,11 @@ export function runSlashCommandFlow(ctx: SlashContext): Effect.Effect<void, Erro
 		}
 
 		if (command === "review") {
-			yield* Effect.tryPromise({
-				try: () =>
-					runQueuedReview(`${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:slash`, () =>
+			const reviewQueue = yield* ReviewQueue;
+			yield* reviewQueue.submit(
+				`${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:slash`,
+				Effect.tryPromise({
+					try: () =>
 						runFullPrReview({
 							cfg: ctx.cfg,
 							token: ctx.token,
@@ -90,10 +94,10 @@ export function runSlashCommandFlow(ctx: SlashContext): Effect.Effect<void, Erro
 							prNumber: ctx.replyTarget.prNumber,
 							headSha,
 							userSupplement: `User invoked /review with:\n${ctx.body}`,
-						}),
-					).then(() => undefined),
-				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-			});
+						}).then(() => undefined),
+					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+				}),
+			);
 			return;
 		}
 
