@@ -68,19 +68,18 @@ export function runSlashCommandFlow(
 		yield* surface.acknowledgeOnPrConversation(ctx.token, ctx.owner, ctx.repo, ctx.replyTarget.prNumber);
 		yield* ackTriggeringComment;
 
-		const headSha = yield* surface.getPullRequestHeadSha(
-			ctx.token,
-			ctx.owner,
-			ctx.repo,
-			ctx.replyTarget.prNumber,
-		);
-
 		if (command === "help") {
 			yield* postReply(helpBody);
 			return;
 		}
 
 		if (command === "review") {
+			const headSha = yield* surface.getPullRequestHeadSha(
+				ctx.token,
+				ctx.owner,
+				ctx.repo,
+				ctx.replyTarget.prNumber,
+			);
 			const reviewQueue = yield* ReviewQueue;
 			yield* reviewQueue.submit(
 				`${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:slash`,

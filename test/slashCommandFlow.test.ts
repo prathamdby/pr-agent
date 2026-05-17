@@ -143,6 +143,7 @@ describe("runSlashCommandFlow", () => {
 			expect.stringContaining("PR Agent help"),
 		);
 		expect(spies.replyOnInlineReviewThread).not.toHaveBeenCalled();
+		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
 	});
 
 	it("/help on inline review thread: acks review-comment surface and replies in thread", async () => {
@@ -186,6 +187,23 @@ describe("runSlashCommandFlow", () => {
 			3,
 			expect.stringContaining("Unknown command `/whatever`"),
 		);
+		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
+	});
+
+	it("/help on inline review thread does not fetch head SHA", async () => {
+		const spies = newSpies();
+		await Effect.runPromise(
+			runSlashCommandFlow(
+				baseCtx({
+					body: "/help",
+					replyTarget: { kind: "inlineReviewThread", prNumber: 3, inReplyToCommentId: 99 },
+				}),
+			).pipe(
+				Effect.provide(makeSurface(spies)),
+				Effect.provide(makeReviewQueue()),
+			),
+		);
+		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
 	});
 
 	it("/review submits runFullPrReview through the ReviewQueue with the resolved head SHA", async () => {
