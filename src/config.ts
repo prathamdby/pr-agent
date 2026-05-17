@@ -92,6 +92,8 @@ export function loadConfig() {
 		throw new Error("WEBHOOK_TIMEOUT_MS must be a positive number");
 	}
 
+	const context7ApiKey = optionalEnv("CONTEXT7_API_KEY", "");
+
 	const logLevel = optionalEnv("LOG_LEVEL", "info") as "debug" | "info" | "warn" | "error";
 	if (!["debug", "info", "warn", "error"].includes(logLevel)) {
 		throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
@@ -108,6 +110,7 @@ export function loadConfig() {
 		maxFinalizeRounds,
 		reviewConcurrency,
 		webhookTimeoutMs,
+		context7ApiKey,
 		logLevel,
 	};
 }

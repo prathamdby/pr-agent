@@ -13,7 +13,11 @@ function main() {
   }
 
   initLog(cfg.logLevel);
-  log.info("boot", { provider: cfg.piProvider, model: cfg.piModel });
+  log.info("boot", {
+    provider: cfg.piProvider,
+    model: cfg.piModel,
+    context7_enabled: cfg.context7ApiKey.length > 0,
+  });
   log.info("runtime_selected", { runtime: "effect" });
   startEffectWebhookServer(cfg);
 }

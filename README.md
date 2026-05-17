@@ -16,6 +16,7 @@ GitHub App webhook service that performs automated pull request reviews using [`
 - **Agent loop:** after the main `MAX_TOOL_ROUNDS` limit, the service runs up to **`MAX_FINALIZE_ROUNDS`** additional model turns if the conversation still ends with pending `toolResult` messages, then—if still stuck—forces one **text-only** completion (tools cleared) so the webhook does not end with an unfinished tool chain.
 - **Review concurrency:** full review runs are bounded by **`REVIEW_CONCURRENCY`** (default `2`), enforced by an Effect `Semaphore` Layer (`ReviewQueue`), so bursts of webhook deliveries cannot start unbounded concurrent LLM/tool loops. Per-process (in-memory); multi-replica deployments are at-least-once.
 - **Upstream tools:** `@github-tools/sdk` targets the Vercel AI ecosystem; errors mentioning workflow/durable/approval may mean a tool is not viable in plain Node—check logs; you may need fewer presets or direct REST for that action.
+- **Library docs lookup:** the review agent also gets two Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api` to verify upstream API claims before flagging findings. Anonymous calls work for public libraries with rate limits; set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [docs/adr/0003-context7-docs-tool.md](docs/adr/0003-context7-docs-tool.md) for why the SDK is bypassed.
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
 
 ## GitHub App setup (summary)
