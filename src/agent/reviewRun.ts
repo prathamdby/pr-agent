@@ -314,7 +314,6 @@ export async function runFullPrReview(params: {
 				);
 				logGithubToolRequestError(call.name, null, logCtx, classified);
 				text = formatToolErrorMessage(call.name, null, classified);
-				rateLimitConsecutiveFailures = 0;
 				context.messages.push({
 					role: "toolResult",
 					toolCallId: call.id,

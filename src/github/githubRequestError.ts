@@ -63,6 +63,7 @@ function headerString(headers: ResponseHeaders | undefined, name: string): strin
 	return String(v);
 }
 
+// GitHub does not return issued-at; age assumes a 1h TTL and may overstate real age when TTL is shorter (e.g. 10m)
 const ASSUMED_INSTALLATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 export function getTokenTiming(
@@ -116,9 +117,17 @@ export function extractGithubResponseMeta(err: RequestError): {
 			const rc = (err.request as unknown as { retryCount?: number }).retryCount;
 			return typeof rc === "number" ? rc : undefined;
 		})(),
-		pluginPrimaryRateLimit: headerString(headers, "x-ratelimit-remaining") === "0",
-		pluginSecondaryRateLimit: SECONDARY_RATE_MESSAGE.test(err.message),
+		pluginPrimaryRateLimit: isPrimaryRateLimitExceeded(message, headers),
+		pluginSecondaryRateLimit: SECONDARY_RATE_MESSAGE.test(message),
 	};
+}
+
+function isPrimaryRateLimitExceeded(message: string, headers: ResponseHeaders | undefined): boolean {
+	if (headerString(headers, "x-ratelimit-remaining") !== "0") return false;
+	if (SECONDARY_RATE_MESSAGE.test(message)) return false;
+	const resource = headerString(headers, "x-ratelimit-resource");
+	if (resource == null) return false;
+	return resource === "core" || resource === "search";
 }
 
 export function classifyGithubToolError(
@@ -244,6 +253,7 @@ export function bumpRateLimitConsecutiveFailures(
 	consecutive: number,
 	classification: GithubToolErrorClassification,
 ): number {
+	if (classification === "token_expired") return consecutive;
 	return isRateLimitClassification(classification) ? consecutive + 1 : 0;
 }
 

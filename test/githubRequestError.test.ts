@@ -35,12 +35,30 @@ describe("githubRequestError", () => {
 		expect(isRateLimitClassification(c.classification)).toBe(true);
 	});
 
-	it("classifies rate_limit when x-ratelimit-remaining is 0 even with Bad credentials message", () => {
+	it("classifies rate_limit when x-ratelimit-remaining is 0 on core with Bad credentials message", () => {
+		const err = httpError(401, "Bad credentials - https://docs.github.com/rest", {
+			"x-ratelimit-remaining": "0",
+			"x-ratelimit-resource": "core",
+		});
+		const c = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
+		expect(c.classification).toBe("rate_limit");
+	});
+
+	it("classifies probable_secondary when remaining is 0 without core/search resource", () => {
 		const err = httpError(401, "Bad credentials - https://docs.github.com/rest", {
 			"x-ratelimit-remaining": "0",
 		});
 		const c = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
-		expect(c.classification).toBe("rate_limit");
+		expect(c.classification).toBe("probable_secondary");
+	});
+
+	it("classifies secondary_rate_limit when remaining is 0 and message mentions secondary rate", () => {
+		const err = httpError(403, "Bad credentials; secondary rate limit", {
+			"x-ratelimit-remaining": "0",
+			"x-ratelimit-resource": "core",
+		});
+		const c = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
+		expect(c.classification).toBe("secondary_rate_limit");
 	});
 
 	it("classifies Bad credentials as auth when token is near expiry (HttpError)", () => {
@@ -52,6 +70,7 @@ describe("githubRequestError", () => {
 	it("classifies rate_limit on near-expiry token when x-ratelimit-remaining is 0", () => {
 		const err = httpError(403, "API rate limit exceeded", {
 			"x-ratelimit-remaining": "0",
+			"x-ratelimit-resource": "core",
 		});
 		const c = classifyGithubToolError(err, { expiresAtTs: Date.now() + 30_000 });
 		expect(c.classification).toBe("rate_limit");
@@ -80,6 +99,7 @@ describe("githubRequestError", () => {
 		const reset = String(Math.floor(Date.now() / 1000) + 120);
 		const err = httpError(403, "API rate limit exceeded", {
 			"x-ratelimit-remaining": "0",
+			"x-ratelimit-resource": "core",
 			"x-ratelimit-reset": reset,
 		});
 		const c = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
@@ -125,5 +145,9 @@ describe("githubRequestError", () => {
 		expect(n).toBe(0);
 		n = bumpRateLimitConsecutiveFailures(n, "probable_secondary");
 		expect(n).toBe(1);
+	});
+
+	it("bumpRateLimitConsecutiveFailures preserves count for token_expired", () => {
+		expect(bumpRateLimitConsecutiveFailures(2, "token_expired")).toBe(2);
 	});
 });
