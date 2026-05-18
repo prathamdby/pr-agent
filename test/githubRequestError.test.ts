@@ -1,10 +1,12 @@
 import { RequestError } from "@octokit/request-error";
 import { describe, expect, it } from "vitest";
 import {
+	bumpRateLimitConsecutiveFailures,
 	classifyGithubToolError,
 	extractGithubResponseMeta,
 	formatToolErrorMessage,
 	isRateLimitClassification,
+	TOKEN_EXPIRED_TOOL_MESSAGE,
 } from "../src/github/githubRequestError.js";
 
 function httpError(
@@ -102,5 +104,26 @@ describe("githubRequestError", () => {
 		const text = formatToolErrorMessage("getFileContent", err, c);
 		expect(text).toMatch(/Rate-limit cooldown 10s/);
 		expect(text).toMatch(/do not issue tool calls/);
+	});
+
+	it("formatToolErrorMessage returns a single message for token_expired", () => {
+		const c = classifyGithubToolError(new Error("guard"), {
+			expiresAtTs: Date.now() + 30_000,
+		});
+		expect(c.classification).toBe("token_expired");
+		expect(formatToolErrorMessage("getFileContent", new Error("guard"), c)).toBe(
+			TOKEN_EXPIRED_TOOL_MESSAGE,
+		);
+	});
+
+	it("bumpRateLimitConsecutiveFailures resets on non-rate-limit classifications", () => {
+		let n = 0;
+		n = bumpRateLimitConsecutiveFailures(n, "rate_limit");
+		n = bumpRateLimitConsecutiveFailures(n, "rate_limit");
+		expect(n).toBe(2);
+		n = bumpRateLimitConsecutiveFailures(n, "auth");
+		expect(n).toBe(0);
+		n = bumpRateLimitConsecutiveFailures(n, "probable_secondary");
+		expect(n).toBe(1);
 	});
 });

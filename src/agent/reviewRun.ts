@@ -9,10 +9,10 @@ import { automatedSecuritySystemPrompt, githubToolingDiscipline } from "./securi
 import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
 import type { ReviewMode } from "./reviewSchema.js";
 import {
+	bumpRateLimitConsecutiveFailures,
 	classifyGithubToolError,
 	formatToolErrorMessage,
 	isInstallationTokenNearExpiry,
-	isRateLimitClassification,
 	logGithubToolRequestError,
 } from "../github/githubRequestError.js";
 
@@ -294,21 +294,36 @@ export async function runFullPrReview(params: {
 				continue;
 			}
 
-			try {
-				if (
-					githubExecutorNames.has(call.name) &&
-					isInstallationTokenNearExpiry(tokenExpiresAtTs)
-				) {
-					log.warn("token_expired_before_tool", {
-						tool: call.name,
-						tokenExpiresInSeconds: Math.max(
-							0,
-							Math.floor((tokenExpiresAtTs - Date.now()) / 1000),
-						),
-					});
-					throw new Error("Installation token is near expiry for this review run");
-				}
+			const isGithubTool = githubExecutorNames.has(call.name);
 
+			if (isGithubTool && isInstallationTokenNearExpiry(tokenExpiresAtTs)) {
+				log.warn("token_expired_before_tool", {
+					tool: call.name,
+					tokenExpiresInSeconds: Math.max(
+						0,
+						Math.floor((tokenExpiresAtTs - Date.now()) / 1000),
+					),
+				});
+				isError = true;
+				const classified = classifyGithubToolError(
+					new Error("token near expiry guard"),
+					{ expiresAtTs: tokenExpiresAtTs },
+				);
+				logGithubToolRequestError(call.name, null, logCtx, classified);
+				text = formatToolErrorMessage(call.name, null, classified);
+				rateLimitConsecutiveFailures = 0;
+				context.messages.push({
+					role: "toolResult",
+					toolCallId: call.id,
+					toolName: call.name,
+					content: [{ type: "text", text }],
+					isError,
+					timestamp: Date.now(),
+				});
+				continue;
+			}
+
+			try {
 				const exec = executors[call.name];
 				if (!exec) throw new Error(`Unknown tool: ${call.name}`);
 				const out = await exec(call.arguments);
@@ -321,34 +336,34 @@ export async function runFullPrReview(params: {
 				}
 			} catch (e) {
 				isError = true;
-				const isGithubTool = githubExecutorNames.has(call.name);
 				if (isGithubTool) {
 					const classified = classifyGithubToolError(e, { expiresAtTs: tokenExpiresAtTs });
 					logGithubToolRequestError(call.name, e, logCtx, classified);
 					text = formatToolErrorMessage(call.name, e, classified);
 
-					if (isRateLimitClassification(classified.classification)) {
-						rateLimitConsecutiveFailures++;
-						if (
-							!rateLimitCircuitOpen &&
-							rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
-						) {
-							rateLimitCircuitOpen = true;
-							log.warn("review_rate_limit_circuit_open", {
-								consecutiveFailures: rateLimitConsecutiveFailures,
-								owner,
-								repo,
-								pr: prNumber,
-								mode: reviewMode,
+					rateLimitConsecutiveFailures = bumpRateLimitConsecutiveFailures(
+						rateLimitConsecutiveFailures,
+						classified.classification,
+					);
+					if (
+						!rateLimitCircuitOpen &&
+						rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
+					) {
+						rateLimitCircuitOpen = true;
+						log.warn("review_rate_limit_circuit_open", {
+							consecutiveFailures: rateLimitConsecutiveFailures,
+							owner,
+							repo,
+							pr: prNumber,
+							mode: reviewMode,
+						});
+						if (!circuitUserMessageSent) {
+							circuitUserMessageSent = true;
+							context.messages.push({
+								role: "user",
+								content: CIRCUIT_OPEN_USER_MESSAGE,
+								timestamp: Date.now(),
 							});
-							if (!circuitUserMessageSent) {
-								circuitUserMessageSent = true;
-								context.messages.push({
-									role: "user",
-									content: CIRCUIT_OPEN_USER_MESSAGE,
-									timestamp: Date.now(),
-								});
-							}
 						}
 					}
 				} else {

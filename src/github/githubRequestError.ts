@@ -240,6 +240,16 @@ export function isRateLimitClassification(
 	);
 }
 
+export function bumpRateLimitConsecutiveFailures(
+	consecutive: number,
+	classification: GithubToolErrorClassification,
+): number {
+	return isRateLimitClassification(classification) ? consecutive + 1 : 0;
+}
+
+export const TOKEN_EXPIRED_TOOL_MESSAGE =
+	"Installation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.";
+
 export function logGithubToolRequestError(
 	tool: string,
 	err: unknown,
@@ -294,7 +304,12 @@ export function logGithubToolRequestError(
 		log.warn("github_tool_request_error", {
 			...base,
 			status: 0,
-			message: err instanceof Error ? err.message.slice(0, MESSAGE_TRUNCATE) : String(err),
+			message:
+				err instanceof Error
+					? err.message.slice(0, MESSAGE_TRUNCATE)
+					: err == null
+						? "token near expiry guard"
+						: String(err),
 		});
 		return;
 	}
@@ -316,7 +331,7 @@ export function formatToolErrorMessage(
 			: `Error executing ${tool}: ${String(err)}`;
 
 	if (classified.classification === "token_expired") {
-		return `${base}\n\nInstallation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.`;
+		return TOKEN_EXPIRED_TOOL_MESSAGE;
 	}
 
 	if (!isRateLimitClassification(classified.classification)) {
