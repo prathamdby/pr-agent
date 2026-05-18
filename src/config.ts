@@ -94,6 +94,14 @@ export function loadConfig() {
 
 	const context7ApiKey = optionalEnv("CONTEXT7_API_KEY", "");
 
+	const maxReviewFindings = Number(optionalEnv("MAX_REVIEW_FINDINGS", "8"));
+	if (!Number.isFinite(maxReviewFindings) || maxReviewFindings < 1) {
+		throw new Error("MAX_REVIEW_FINDINGS must be a positive number");
+	}
+
+	const enableReviewLabelsEffort = optionalEnv("ENABLE_REVIEW_LABELS_EFFORT", "true") === "true";
+	const enableReviewLabelsSecurity = optionalEnv("ENABLE_REVIEW_LABELS_SECURITY", "false") === "true";
+
 	const logLevel = optionalEnv("LOG_LEVEL", "info") as "debug" | "info" | "warn" | "error";
 	if (!["debug", "info", "warn", "error"].includes(logLevel)) {
 		throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
@@ -111,6 +119,9 @@ export function loadConfig() {
 		reviewConcurrency,
 		webhookTimeoutMs,
 		context7ApiKey,
+		maxReviewFindings,
+		enableReviewLabelsEffort,
+		enableReviewLabelsSecurity,
 		logLevel,
 	};
 }

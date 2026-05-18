@@ -1,0 +1,87 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renderInlineThreadBody > P0 with fixPrompt accordion 1`] = `
+"[P0] Race on shared map
+
+Concurrent writes without lock.
+
+<details>
+<summary>Prompt to fix</summary>
+
+\`\`\`
+In src/a.ts lines 5-7, guard the map with a mutex or use Ref.modify.
+\`\`\`
+
+</details>"
+`;
+
+exports[`renderInlineThreadBody > P1 with fixPrompt accordion 1`] = `
+"[P1] Missing await
+
+Promise not awaited in handler.
+
+<details>
+<summary>Prompt to fix</summary>
+
+\`\`\`
+In src/b.ts line 1, await the promise before returning.
+\`\`\`
+
+</details>"
+`;
+
+exports[`renderInlineThreadBody > P2 with fixPrompt accordion 1`] = `
+"[P2] Off-by-one in slice
+
+End index excludes last element incorrectly.
+
+<details>
+<summary>Prompt to fix</summary>
+
+\`\`\`
+In src/c.ts lines 20-22, adjust slice end index to include the last item.
+\`\`\`
+
+</details>"
+`;
+
+exports[`renderReviewSummaryComment > (a) no findings 1`] = `
+"## PR Agent Review
+
+Adds a retry wrapper around the webhook dispatcher.
+
+| | |
+| --- | --- |
+| Focus | No P0–P2 findings |
+| Effort | 🔵🔵🔵⚪⚪ (3/5) |
+| Relevant tests | partial |
+| Security | No security concerns identified |"
+`;
+
+exports[`renderReviewSummaryComment > (b) P0 + P3 mix 1`] = `
+"## PR Agent Review
+
+Adds a retry wrapper around the webhook dispatcher.
+
+| | |
+| --- | --- |
+| **P0** | [Null deref on empty payload](https://github.com/acme/widgets/blob/abc123def456/src/index.ts#L10-L12) |
+| P3 | |
+| | [Typo in heading](https://github.com/acme/widgets/blob/abc123def456/README.md#L1) |
+| Effort | 🔵🔵🔵⚪⚪ (3/5) |
+| Relevant tests | partial |
+| Security | No security concerns identified |"
+`;
+
+exports[`renderReviewSummaryComment > (c) securityConcerns set 1`] = `
+"## PR Agent Review
+
+Adds a retry wrapper around the webhook dispatcher.
+
+| | |
+| --- | --- |
+| Focus | No P0–P2 findings |
+| Effort | 🔵🔵🔵⚪⚪ (3/5) |
+| Relevant tests | partial |
+| Security | Webhook secret compared without timing-safe equal. |"
+`;

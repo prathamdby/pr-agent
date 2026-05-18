@@ -1,4 +1,12 @@
 import { Context, Effect, Layer } from "effect";
+import { reviewLabelsFromPayload, syncReviewLabels } from "../../agent/reviewLabels.js";
+import type { ReviewPayload } from "../../agent/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../../agent/reviewSchema.js";
+import {
+	listPullRequestLabels,
+	setPullRequestLabels,
+	upsertReviewSummaryComment,
+} from "../../github/reviewPublish.js";
 import { installationOctokit } from "../../github/appAuth.js";
 
 const EYES = "eyes" as const;
@@ -67,6 +75,21 @@ export class PrGithubSurface extends Context.Tag("PrGithubSurface")<
 			repo: string,
 			prNumber: number,
 		) => Effect.Effect<string, Error>;
+		readonly upsertReviewSummaryComment: (
+			apiToken: string,
+			owner: string,
+			repo: string,
+			prNumber: number,
+			body: string,
+		) => Effect.Effect<{ id: number; updated: boolean }, Error>;
+		readonly syncReviewLabelsForPayload: (
+			apiToken: string,
+			owner: string,
+			repo: string,
+			prNumber: number,
+			payload: ReviewPayload,
+			opts: { effort: boolean; security: boolean },
+		) => Effect.Effect<void, Error>;
 	}
 >() {}
 
@@ -138,6 +161,18 @@ export const PrGithubSurfaceLive = Layer.succeed(
 					pull_number: prNumber,
 				});
 				return data.head.sha;
+			}),
+
+		upsertReviewSummaryComment: (apiToken, owner, repo, prNumber, body) =>
+			tryRest(() => upsertReviewSummaryComment(apiToken, owner, repo, prNumber, body, REVIEW_SUMMARY_SENTINEL)),
+
+		syncReviewLabelsForPayload: (apiToken, owner, repo, prNumber, payload, opts) =>
+			tryRest(async () => {
+				if (!opts.effort && !opts.security) return;
+				const current = await listPullRequestLabels(apiToken, owner, repo, prNumber);
+				const managed = reviewLabelsFromPayload(payload, opts);
+				const next = syncReviewLabels(current, managed);
+				await setPullRequestLabels(apiToken, owner, repo, prNumber, next);
 			}),
 	}),
 );

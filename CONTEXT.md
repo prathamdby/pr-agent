@@ -14,3 +14,5 @@ This file is **domain language only** — not a specification of how the system 
 - **Review run** — One automated LLM + tool pass scoped to a pull request (automated `pull_request` events or a `/review` command).
 - **Review queue** — Bounded in-process work queue (size `REVIEW_CONCURRENCY`) that serializes review runs so a burst of webhook deliveries cannot start unbounded concurrent LLM/tool loops.
 - **Webhook parse error** — The JSON failed validation at the app boundary (unexpected or missing fields for that event type); the delivery is not treated as processed for deduplication until parsing succeeds.
+- **Review payload** — The structured, validated description of a completed review run (findings plus overview gates), emitted once per review run via `submitReview`.
+- **Review summary comment** — A single server-rendered comment on the PR conversation, identified by the review sentinel (`## PR Agent Review`), containing navigation and overview gates—not duplicated finding bodies from inline review threads.
