@@ -1,13 +1,15 @@
 import { RequestError } from "@octokit/request-error";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	bumpRateLimitConsecutiveFailures,
 	classifyGithubToolError,
 	extractGithubResponseMeta,
 	formatToolErrorMessage,
 	isRateLimitClassification,
+	logGithubToolRequestError,
 	TOKEN_EXPIRED_TOOL_MESSAGE,
 } from "../src/github/githubRequestError.js";
+import { log } from "../src/log.js";
 
 function httpError(
 	status: number,
@@ -159,5 +161,36 @@ describe("githubRequestError", () => {
 
 	it("bumpRateLimitConsecutiveFailures preserves count for token_expired", () => {
 		expect(bumpRateLimitConsecutiveFailures(2, "token_expired")).toBe(2);
+	});
+
+	it("logGithubToolRequestError emits github_tool_request_error for non-HTTP errors", () => {
+		const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+		const err = new TypeError("fetch failed");
+		const classified = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
+		const logCtx = {
+			expiresAtTs: youngExpiry,
+			owner: "o",
+			repo: "r",
+			prNumber: 1,
+			mode: "review",
+		};
+
+		logGithubToolRequestError("getFileContent", err, logCtx, classified);
+
+		expect(warn).toHaveBeenCalledWith(
+			"github_tool_request_error",
+			expect.objectContaining({
+				tool: "getFileContent",
+				classification: "other",
+				status: 0,
+				message: "fetch failed",
+				owner: "o",
+				repo: "r",
+				pr: 1,
+				mode: "review",
+				retryAfterSeconds: classified.retryAfterSeconds,
+			}),
+		);
+		warn.mockRestore();
 	});
 });

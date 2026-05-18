@@ -342,9 +342,13 @@ export function logGithubToolRequestError(
 		return;
 	}
 
-	log.warn("tool_execute_failed", {
-		tool,
-		message: err instanceof Error ? err.message.slice(0, MESSAGE_TRUNCATE) : String(err),
+	log.warn("github_tool_request_error", {
+		...base,
+		status: 0,
+		message:
+			err instanceof Error
+				? err.message.slice(0, MESSAGE_TRUNCATE)
+				: String(err),
 	});
 }
 
