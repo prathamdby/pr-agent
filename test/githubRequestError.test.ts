@@ -165,6 +165,13 @@ describe("githubRequestError", () => {
 		expect(bumpRateLimitConsecutiveFailures(2, "token_expired")).toBe(2);
 	});
 
+	it("getTokenTiming reports time since expiry when token is expired and ttlMs is omitted", () => {
+		const now = 1_000_000;
+		const expiresAtTs = now - 90_000;
+		expect(getTokenTiming(expiresAtTs, now).tokenExpiresInSeconds).toBe(0);
+		expect(getTokenTiming(expiresAtTs, now).tokenAgeSeconds).toBe(90);
+	});
+
 	it("getTokenTiming uses minted ttlMs for age when fallback TTL is below 1h", () => {
 		const now = 1_000_000;
 		const fallbackTtlMs = 55 * 60 * 1000;

@@ -226,13 +226,15 @@ export async function runFullPrReview(params: {
 		state: submitState,
 	});
 
+	const reviewGithubExecutors = filterReviewAgentExecutors(gh.executors);
+
 	const piTools: PiTool[] = [
 		...filterReviewAgentTools(gh.piTools),
 		...ctx7.piTools,
 		submitTool,
 	];
 	const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
-		...filterReviewAgentExecutors(gh.executors),
+		...reviewGithubExecutors,
 		...ctx7.executors,
 		submitReview: submitExecutor,
 	};
@@ -279,7 +281,7 @@ export async function runFullPrReview(params: {
 		mode: reviewMode,
 	};
 
-	const githubExecutorNames = new Set(Object.keys(gh.executors));
+	const githubExecutorNames = new Set(Object.keys(reviewGithubExecutors));
 
 	async function appendToolResults(toolCalls: ToolCall[]) {
 		for (const call of toolCalls) {

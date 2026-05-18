@@ -94,7 +94,7 @@ export function getTokenTiming(
 		ttlMs ??
 		(observedTtlMs > 0
 			? Math.min(MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS, observedTtlMs)
-			: MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS);
+			: 0);
 	const issuedAtTs = expiresAtTs - effectiveTtlMs;
 	const tokenAgeSeconds = Math.max(0, Math.floor((now - issuedAtTs) / 1000));
 	return { tokenAgeSeconds, tokenExpiresInSeconds };
