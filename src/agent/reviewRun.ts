@@ -4,9 +4,27 @@ import type { Config } from "../config.js";
 import { log } from "../log.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
+import { createIssueComment } from "../github/reviewPublish.js";
 import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
 
-export type ReviewRunResult = { lastAssistant: AssistantMessage; published: boolean };
+const PUBLISH_FALLBACK_SENTINEL = "## PR Agent Review — could not publish structured output";
+
+const PROSE_ONLY_NUDGE =
+	"You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
+
+export type ReviewRunResult = {
+	lastAssistant: AssistantMessage;
+	published: boolean;
+	publishAttempts: number;
+};
+
+const PUBLISH_RECOVERY_ROUNDS = 4;
+
+const PUBLISH_RECOVERY_PROMPTS = [
+	"You ended with a text reply but never called submitReview. Call submitReview exactly once now with a complete ReviewPayload based on your analysis above. Do not continue investigating unless required to fix payload validation.",
+	"The structured review was still not published. You must call submitReview now with a valid ReviewPayload. No prose-only replies.",
+	"Final publish attempt: call submitReview immediately with your ReviewPayload. This is required to complete the review.",
+] as const;
 
 function collectToolCalls(message: AssistantMessage): ToolCall[] {
 	return message.content.filter((p): p is ToolCall => p.type === "toolCall");
@@ -22,6 +40,21 @@ function assistantReplySummary(message: AssistantMessage): string {
 function endsWithToolResults(messages: Message[]): boolean {
 	return messages[messages.length - 1]?.role === "toolResult";
 }
+
+function formatPublishFallbackComment(summary: string, attempts: number, maxAttempts: number): string {
+	return [
+		PUBLISH_FALLBACK_SENTINEL,
+		"",
+		`_Structured publish failed after ${attempts}/${maxAttempts} attempt(s). Re-run \`/review\` or check server logs._`,
+		"",
+		summary,
+	].join("\n");
+}
+
+type ToolLoopMode = {
+	toolChoice: "first-round" | "every-round" | "optional";
+	nudgeOnProseOnly?: boolean;
+};
 
 /** Review bot system prompt — methodology + structured submitReview contract. */
 function buildAutomatedSystemPrompt(): string {
@@ -187,6 +220,7 @@ export async function runFullPrReview(params: {
 
 	let lastAssistant: AssistantMessage | null = null;
 	let stopLoop = false;
+	let publishAttempts = 0;
 
 	async function appendToolResults(toolCalls: ToolCall[]) {
 		for (const call of toolCalls) {
@@ -217,12 +251,16 @@ export async function runFullPrReview(params: {
 		}
 	}
 
-	async function runToolLoop(maxRounds: number, firstRoundToolRequired: boolean) {
+	async function runToolLoop(maxRounds: number, mode: ToolLoopMode) {
 		for (let round = 0; round < maxRounds && !stopLoop; round++) {
+			const requireTools =
+				mode.toolChoice === "every-round" ||
+				(mode.toolChoice === "first-round" && round === 0);
+
 			const assistant = await complete(
 				model,
 				context,
-				round === 0 && firstRoundToolRequired && piTools.length > 0 ? { toolChoice: "required" } : undefined,
+				requireTools && piTools.length > 0 ? { toolChoice: "required" } : undefined,
 			);
 			lastAssistant = assistant;
 			context.messages.push(assistant);
@@ -233,6 +271,14 @@ export async function runFullPrReview(params: {
 					round,
 					summary: assistantReplySummary(assistant).slice(0, 200),
 				});
+				if (mode.nudgeOnProseOnly && !stopLoop && round < maxRounds - 1) {
+					context.messages.push({
+						role: "user",
+						content: PROSE_ONLY_NUDGE,
+						timestamp: Date.now(),
+					});
+					continue;
+				}
 				break;
 			}
 
@@ -241,47 +287,83 @@ export async function runFullPrReview(params: {
 		}
 	}
 
-	await runToolLoop(cfg.maxToolRounds, true);
-
-	for (let f = 0; f < cfg.maxFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
-		log.warn("agent_finalize_pass", { pass: f });
-		const assistant = await complete(model, context);
-		lastAssistant = assistant;
-		context.messages.push(assistant);
-
-		const toolCalls = collectToolCalls(assistant);
-		if (toolCalls.length === 0) {
-			log.info("agent_finalize_complete", { pass: f });
-			break;
+	async function runValidationRepair() {
+		if (!submitState.published && submitState.lastValidationError) {
+			log.info("review_payload_repair_attempt", { message: submitState.lastValidationError });
+			context.messages.push({
+				role: "user",
+				content: `Your submitReview payload failed validation: ${submitState.lastValidationError}. Fix the payload and call submitReview again.`,
+				timestamp: Date.now(),
+			});
+			submitState.lastValidationError = null;
+			stopLoop = false;
+			await runToolLoop(1, { toolChoice: "optional" });
 		}
-
-		log.info("agent_finalize_tool_round", { pass: f, tools: toolCalls.map((t) => t.name) });
-		await appendToolResults(toolCalls);
 	}
 
-	if (!submitState.published && submitState.lastValidationError) {
-		log.info("review_payload_repair_attempt", { message: submitState.lastValidationError });
+	async function runFinalizePasses() {
+		for (let f = 0; f < cfg.maxFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
+			log.warn("agent_finalize_pass", { pass: f });
+			const assistant = await complete(model, context);
+			lastAssistant = assistant;
+			context.messages.push(assistant);
+
+			const toolCalls = collectToolCalls(assistant);
+			if (toolCalls.length === 0) {
+				log.info("agent_finalize_complete", { pass: f });
+				break;
+			}
+
+			log.info("agent_finalize_tool_round", { pass: f, tools: toolCalls.map((t) => t.name) });
+			await appendToolResults(toolCalls);
+		}
+	}
+
+	async function runInvestigationPhase() {
+		stopLoop = false;
+		await runToolLoop(cfg.maxToolRounds, { toolChoice: "first-round" });
+		await runFinalizePasses();
+		await runValidationRepair();
+	}
+
+	async function runPublishRecoveryPhase(attemptIndex: number) {
+		const prompt =
+			PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
+			PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
+		log.info("review_publish_retry", {
+			attempt: attemptIndex + 1,
+			maxAttempts: cfg.maxReviewPublishAttempts,
+			owner,
+			repo,
+			pr: prNumber,
+		});
+		stopLoop = false;
 		context.messages.push({
 			role: "user",
-			content: `Your submitReview payload failed validation: ${submitState.lastValidationError}. Fix the payload and call submitReview again.`,
+			content: prompt,
 			timestamp: Date.now(),
 		});
-		submitState.lastValidationError = null;
-		await runToolLoop(1, false);
+		await runToolLoop(PUBLISH_RECOVERY_ROUNDS, {
+			toolChoice: "every-round",
+			nudgeOnProseOnly: true,
+		});
+		await runValidationRepair();
 	}
 
-	if (!submitState.published && endsWithToolResults(context.messages)) {
-		log.warn("agent_incomplete_tool_chain", {
-			maxToolRounds: cfg.maxToolRounds,
-			maxFinalizeRounds: cfg.maxFinalizeRounds,
-			published: submitState.published,
+	async function runMaintainerPlainTextFallback() {
+		log.warn("agent_publish_fallback", {
+			publishAttempts,
+			maxAttempts: cfg.maxReviewPublishAttempts,
+			endsOnToolResult: endsWithToolResults(context.messages),
 		});
 		const savedTools = context.tools;
 		context.tools = [];
+		const prompt = endsWithToolResults(context.messages)
+			? "System: tooling budget is exhausted or review was not published. Respond with **plain text only** (no tool calls). Summarize what was done, what failed or is blocked, and what the maintainers should do next."
+			: "System: the structured review was not published after multiple attempts. Respond with **plain text only** (no tool calls). Summarize your findings and what maintainers should do next (including re-running /review).";
 		context.messages.push({
 			role: "user",
-			content:
-				"System: tooling budget is exhausted or review was not published. Respond with **plain text only** (no tool calls). Summarize what was done, what failed or is blocked, and what the maintainers should do next.",
+			content: prompt,
 			timestamp: Date.now(),
 		});
 
@@ -289,11 +371,55 @@ export async function runFullPrReview(params: {
 		lastAssistant = assistant;
 		context.messages.push(assistant);
 		context.tools = savedTools;
+
+		const summary = assistantReplySummary(assistant);
+		if (summary.length === 0) return;
+
+		const body = formatPublishFallbackComment(
+			summary,
+			publishAttempts,
+			cfg.maxReviewPublishAttempts,
+		);
+		try {
+			const comment = await createIssueComment(token, owner, repo, prNumber, body);
+			log.info("review_publish_fallback_comment", {
+				owner,
+				repo,
+				pr: prNumber,
+				commentId: comment.id,
+			});
+		} catch (e) {
+			const message = e instanceof Error ? e.message : String(e);
+			log.warn("review_publish_fallback_comment_failed", { owner, repo, pr: prNumber, message });
+		}
+	}
+
+	for (let attempt = 0; attempt < cfg.maxReviewPublishAttempts && !submitState.published; attempt++) {
+		publishAttempts = attempt + 1;
+		if (attempt === 0) {
+			await runInvestigationPhase();
+		} else {
+			await runPublishRecoveryPhase(attempt);
+		}
+	}
+
+	if (!submitState.published) {
+		log.warn("review_publish_exhausted", {
+			attempts: publishAttempts,
+			maxAttempts: cfg.maxReviewPublishAttempts,
+			owner,
+			repo,
+			pr: prNumber,
+		});
+	}
+
+	if (!submitState.published) {
+		await runMaintainerPlainTextFallback();
 	}
 
 	if (!lastAssistant) {
 		throw new Error("Agent produced no assistant message");
 	}
 
-	return { lastAssistant, published: submitState.published };
+	return { lastAssistant, published: submitState.published, publishAttempts };
 }

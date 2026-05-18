@@ -82,6 +82,11 @@ export function loadConfig() {
 		throw new Error("MAX_FINALIZE_ROUNDS must be zero or a positive number");
 	}
 
+	const maxReviewPublishAttempts = Number(optionalEnv("MAX_REVIEW_PUBLISH_ATTEMPTS", "3"));
+	if (!Number.isFinite(maxReviewPublishAttempts) || maxReviewPublishAttempts < 1) {
+		throw new Error("MAX_REVIEW_PUBLISH_ATTEMPTS must be a positive number");
+	}
+
 	const reviewConcurrency = Number(optionalEnv("REVIEW_CONCURRENCY", "2"));
 	if (!Number.isFinite(reviewConcurrency) || reviewConcurrency < 1) {
 		throw new Error("REVIEW_CONCURRENCY must be a positive number");
@@ -116,6 +121,7 @@ export function loadConfig() {
 		piModel,
 		maxToolRounds,
 		maxFinalizeRounds,
+		maxReviewPublishAttempts,
 		reviewConcurrency,
 		webhookTimeoutMs,
 		context7ApiKey,

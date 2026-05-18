@@ -97,6 +97,7 @@ export function runSlashCommandFlow(
 									owner: ctx.owner,
 									repo: ctx.repo,
 									pr: ctx.replyTarget.prNumber,
+									publishAttempts: result.publishAttempts,
 								});
 							}
 						}),

@@ -15,6 +15,7 @@ const cfg: Config = {
 	piModel: "gpt-4o-mini",
 	maxToolRounds: 24,
 	maxFinalizeRounds: 6,
+	maxReviewPublishAttempts: 3,
 	reviewConcurrency: 2,
 	webhookTimeoutMs: 10000,
 	logLevel: "error",
@@ -211,7 +212,11 @@ describe("runSlashCommandFlow", () => {
 		const submitSpy = vi.fn();
 		const reviewSpy = vi
 			.spyOn(reviewRun, "runFullPrReview")
-			.mockResolvedValue({ lastAssistant: { role: "assistant", content: [], timestamp: 0 } as never });
+			.mockResolvedValue({
+				lastAssistant: { role: "assistant", content: [], timestamp: 0 } as never,
+				published: true,
+				publishAttempts: 1,
+			});
 
 		try {
 			await Effect.runPromise(

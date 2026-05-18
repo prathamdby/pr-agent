@@ -55,7 +55,14 @@ export const WebhookHandlersCore = Layer.effect(
 						Effect.tryPromise({
 							try: () =>
 								runFullPrReview({ cfg, token, owner, repo, prNumber, headSha }).then((result) => {
-									if (!result.published) log.warn("review_not_published", { owner, repo, pr: prNumber });
+									if (!result.published) {
+										log.warn("review_not_published", {
+											owner,
+											repo,
+											pr: prNumber,
+											publishAttempts: result.publishAttempts,
+										});
+									}
 								}),
 							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 						}),

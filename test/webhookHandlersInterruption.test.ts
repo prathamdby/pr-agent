@@ -15,6 +15,7 @@ const cfg: Config = {
   piModel: "gpt-4o-mini",
   maxToolRounds: 24,
   maxFinalizeRounds: 6,
+  maxReviewPublishAttempts: 3,
   reviewConcurrency: 2,
   webhookTimeoutMs: 10000,
   logLevel: "error",
