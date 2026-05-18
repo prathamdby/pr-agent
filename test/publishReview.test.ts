@@ -1,0 +1,168 @@
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { publishReview } from "../src/agent/publishReview.js";
+import * as reviewSchema from "../src/agent/reviewSchema.js";
+import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+
+vi.mock("../src/github/reviewPublish.js", () => ({
+	createPullRequestReviewWithComments: vi.fn(async () => ({ id: 1, url: "https://example.com/review/1" })),
+	upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
+	listPullRequestLabels: vi.fn(async () => []),
+	setPullRequestLabels: vi.fn(async () => undefined),
+}));
+
+import {
+	createPullRequestReviewWithComments,
+	setPullRequestLabels,
+	upsertReviewSummaryComment,
+} from "../src/github/reviewPublish.js";
+
+const payload: ReviewPayload = {
+	prCharacter: "Test PR.",
+	findings: [
+		{
+			severity: "P1",
+			file: "src/x.ts",
+			startLine: 4,
+			endLine: 4,
+			title: "Bug",
+			detail: "Bad logic.",
+			fixPrompt: "Fix src/x.ts line 4.",
+		},
+	],
+	estimatedEffort: 2,
+	relevantTests: "no",
+	securityConcerns: null,
+	followUps: [],
+};
+
+const baseParams = {
+	token: "t",
+	owner: "o",
+	repo: "r",
+	prNumber: 1,
+	headSha: "sha",
+	cfg: {
+		maxReviewFindings: 8,
+		enableReviewLabelsEffort: false,
+		enableReviewLabelsSecurity: false,
+	},
+	payload,
+};
+
+describe("publishReview", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it("uses REQUEST_CHANGES for P1 and passes inline comments", async () => {
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+		await publishReview({ ...baseParams, publishState });
+
+		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.objectContaining({
+				event: "REQUEST_CHANGES",
+				comments: [
+					expect.objectContaining({
+						path: "src/x.ts",
+						line: 4,
+						side: "RIGHT",
+					}),
+				],
+			}),
+		);
+		expect(upsertReviewSummaryComment).toHaveBeenCalled();
+		expect(publishState.inlinePublished).toBe(true);
+	});
+
+	it("bases review event on full findings not inline subset", async () => {
+		const spy = vi.spyOn(reviewSchema, "reviewEventForFindings");
+		const findings: ReviewPayload["findings"] = [
+			{
+				severity: "P2",
+				file: "a.ts",
+				startLine: 1,
+				endLine: 1,
+				title: "P2 only",
+				detail: "d",
+				fixPrompt: "fix",
+			},
+			{
+				severity: "P1",
+				file: "b.ts",
+				startLine: 2,
+				endLine: 2,
+				title: "P1 hidden from inline cap",
+				detail: "d",
+				fixPrompt: "fix",
+			},
+		];
+
+		await publishReview({
+			...baseParams,
+			publishState: { published: false, inlinePublished: false, lastValidationError: null },
+			cfg: { maxReviewFindings: 1, enableReviewLabelsEffort: false, enableReviewLabelsSecurity: false },
+			payload: { ...payload, findings },
+		});
+
+		expect(spy).toHaveBeenCalledWith(findings);
+		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.objectContaining({ event: "REQUEST_CHANGES" }),
+		);
+		spy.mockRestore();
+	});
+
+	it("uses COMMENT when only P2 findings", async () => {
+		await publishReview({
+			...baseParams,
+			publishState: { published: false, inlinePublished: false, lastValidationError: null },
+			payload: {
+				...payload,
+				findings: [{ ...payload.findings[0]!, severity: "P2" }],
+			},
+		});
+
+		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.objectContaining({ event: "COMMENT" }),
+		);
+	});
+
+	it("skips inline review when inlinePublished is already true", async () => {
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+		publishState.inlinePublished = true;
+
+		await publishReview({ ...baseParams, publishState });
+
+		expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+		expect(upsertReviewSummaryComment).toHaveBeenCalled();
+	});
+
+	it("does not fail publish when label sync throws", async () => {
+		vi.mocked(setPullRequestLabels).mockRejectedValueOnce(new Error("labels forbidden"));
+
+		await expect(
+			publishReview({
+				...baseParams,
+				publishState: { published: false, inlinePublished: false, lastValidationError: null },
+				cfg: {
+					maxReviewFindings: 8,
+					enableReviewLabelsEffort: true,
+					enableReviewLabelsSecurity: false,
+				},
+			}),
+		).resolves.toBeUndefined();
+
+		expect(upsertReviewSummaryComment).toHaveBeenCalled();
+	});
+});
