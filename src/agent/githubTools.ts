@@ -476,7 +476,11 @@ function buildTools(octokit: InstallationOctokit) {
 			owner: z.string().describe("Repository owner"),
 			repo: z.string().describe("Repository name"),
 			pullNumber: z.number().describe("Pull request number"),
-			body: z.string().optional().describe("Review body text (supports Markdown)"),
+			body: z
+				.string()
+				.describe(
+					"Review body text (supports Markdown). Required by GitHub for COMMENT and REQUEST_CHANGES events; provide a short summary for APPROVE as well.",
+				),
 			event: z
 				.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"])
 				.describe("Review action: approve, request changes, or comment"),

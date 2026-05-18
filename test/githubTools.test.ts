@@ -83,7 +83,7 @@ describe("buildGithubTools — surface", () => {
 		["listBranches", ["owner", "repo"]],
 		["searchCode", ["query"]],
 		["addPullRequestComment", ["owner", "repo", "pullNumber", "body"]],
-		["createPullRequestReview", ["owner", "repo", "pullNumber", "event"]],
+		["createPullRequestReview", ["owner", "repo", "pullNumber", "event", "body"]],
 	])("%s parameters declare object type and required fields", (name, required) => {
 		const { piTools } = buildWithStub(makeOctokitStub());
 		const tool = piTools.find((t) => t.name === name)!;
@@ -534,16 +534,32 @@ describe("createPullRequestReview — comments + event variants", () => {
 			repo: "r",
 			pullNumber: 3,
 			event: "COMMENT",
+			body: "no actionable findings on changed lines",
 		});
 
 		expect(pullsCreateReview).toHaveBeenCalledWith({
 			owner: "o",
 			repo: "r",
 			pull_number: 3,
-			body: undefined,
+			body: "no actionable findings on changed lines",
 			event: "COMMENT",
 			comments: undefined,
 		});
+	});
+
+	it("rejects calls without body (schema.parse throws before Octokit is hit)", async () => {
+		const pullsCreateReview = mockedReview();
+		const { executors } = buildWithStub(makeOctokitStub({ pullsCreateReview }));
+
+		await expect(
+			executors.createPullRequestReview({
+				owner: "o",
+				repo: "r",
+				pullNumber: 3,
+				event: "COMMENT",
+			}),
+		).rejects.toThrow();
+		expect(pullsCreateReview).not.toHaveBeenCalled();
 	});
 
 	it.each(["APPROVE", "REQUEST_CHANGES", "COMMENT"] as const)("forwards event=%s", async (event) => {
@@ -555,6 +571,7 @@ describe("createPullRequestReview — comments + event variants", () => {
 			repo: "r",
 			pullNumber: 3,
 			event,
+			body: "summary",
 		});
 
 		expect(pullsCreateReview).toHaveBeenCalledWith(expect.objectContaining({ event }));
