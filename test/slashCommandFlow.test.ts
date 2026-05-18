@@ -89,6 +89,8 @@ function baseCtx(overrides: Partial<SlashContext> = {}): SlashContext {
 	return {
 		cfg,
 		token: "tok",
+		tokenExpiresAtTs: Date.now() + 3_600_000,
+		tokenTtlMs: 3_600_000,
 		owner: "o",
 		repo: "r",
 		botUserId: 1,

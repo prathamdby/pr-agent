@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Layer, TestClock, TestContext } from "effect";
+import { Clock, Effect, Layer, TestClock, TestContext } from "effect";
 import * as appAuth from "../src/github/appAuth.js";
 import {
   GithubInstallationToken,
@@ -31,8 +31,8 @@ describe("GithubInstallationToken service", () => {
 
     try {
       const [a, b] = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
-      expect(a).toBe("tok-a");
-      expect(b).toBe("tok-a");
+      expect(a.token).toBe("tok-a");
+      expect(b.token).toBe("tok-a");
       expect(spy).toHaveBeenCalledTimes(1);
     } finally {
       spy.mockRestore();
@@ -67,8 +67,8 @@ describe("GithubInstallationToken service", () => {
           Effect.provide(TestContext.TestContext),
         ),
       );
-      expect(a).toBe("tok-1");
-      expect(b).toBe("tok-2");
+      expect(a.token).toBe("tok-1");
+      expect(b.token).toBe("tok-2");
       expect(spy).toHaveBeenCalledTimes(2);
     } finally {
       spy.mockRestore();
@@ -96,9 +96,9 @@ describe("GithubInstallationToken service", () => {
 
     try {
       const [a, b, aAgain] = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
-      expect(a).toBe("tok-1");
-      expect(b).toBe("tok-2");
-      expect(aAgain).toBe("tok-1");
+      expect(a.token).toBe("tok-1");
+      expect(b.token).toBe("tok-2");
+      expect(aAgain.token).toBe("tok-1");
       expect(spy).toHaveBeenCalledTimes(2);
     } finally {
       spy.mockRestore();
@@ -127,9 +127,35 @@ describe("GithubInstallationToken service", () => {
 
     try {
       const results = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
-      expect(results.every((r) => r === "tok-42")).toBe(true);
+      expect(results.every((r) => r.token === "tok-42")).toBe(true);
       expect(calls).toBe(1);
       expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("uses fallback TTL when auth.expiresAt is unparseable", async () => {
+    const spy = mockMint("tok-a", "not-a-valid-date");
+    const fallbackTtlMs = 55 * 60 * 1000;
+
+    const program = Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
+      const svc = yield* GithubInstallationToken;
+      const token = yield* svc.getToken(cfg, 1);
+      return { now, token };
+    });
+
+    try {
+      const { now, token } = await Effect.runPromise(
+        program.pipe(
+          Effect.provide(GithubInstallationTokenLive),
+          Effect.provide(TestContext.TestContext),
+        ),
+      );
+      expect(Number.isFinite(token.expiresAtTs)).toBe(true);
+      expect(token.expiresAtTs).toBe(now + fallbackTtlMs);
+      expect(token.ttlMs).toBe(fallbackTtlMs);
     } finally {
       spy.mockRestore();
     }
@@ -159,7 +185,7 @@ describe("GithubInstallationToken service", () => {
     try {
       const [first, second] = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
       expect(first._tag).toBe("Left");
-      expect(second).toBe("tok-5");
+      expect(second.token).toBe("tok-5");
       expect(calls).toBe(2);
     } finally {
       spy.mockRestore();

@@ -17,13 +17,14 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.74.0",
+    "@effect/platform": "0.96.1",
+    "@effect/platform-node": "0.106.0",
     "@octokit/auth-app": "^8.1.2",
     "@octokit/plugin-retry": "^8.1.0",
+    "@octokit/plugin-throttling": "^11.0.3",
     "@octokit/rest": "^21.1.1",
-    "zod": "^4.3.6",
     "effect": "3.21.2",
-    "@effect/platform": "0.96.1",
-    "@effect/platform-node": "0.106.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^22.13.14",

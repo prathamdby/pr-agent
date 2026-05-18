@@ -107,6 +107,16 @@ export function loadConfig() {
 	const enableReviewLabelsEffort = optionalEnv("ENABLE_REVIEW_LABELS_EFFORT", "true") === "true";
 	const enableReviewLabelsSecurity = optionalEnv("ENABLE_REVIEW_LABELS_SECURITY", "false") === "true";
 
+	const maxPrFilesListed = Number(optionalEnv("MAX_PR_FILES_LISTED", "300"));
+	if (!Number.isFinite(maxPrFilesListed) || maxPrFilesListed < 1) {
+		throw new Error("MAX_PR_FILES_LISTED must be a positive number");
+	}
+
+	const maxPrFilesPatchBytes = Number(optionalEnv("MAX_PR_FILES_PATCH_BYTES", "500000"));
+	if (!Number.isFinite(maxPrFilesPatchBytes) || maxPrFilesPatchBytes < 1) {
+		throw new Error("MAX_PR_FILES_PATCH_BYTES must be a positive number");
+	}
+
 	const logLevel = optionalEnv("LOG_LEVEL", "info") as "debug" | "info" | "warn" | "error";
 	if (!["debug", "info", "warn", "error"].includes(logLevel)) {
 		throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
@@ -128,6 +138,8 @@ export function loadConfig() {
 		maxReviewFindings,
 		enableReviewLabelsEffort,
 		enableReviewLabelsSecurity,
+		maxPrFilesListed,
+		maxPrFilesPatchBytes,
 		logLevel,
 	};
 }

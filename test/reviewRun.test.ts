@@ -48,7 +48,27 @@ const cfg = {
 	maxReviewFindings: 8,
 	enableReviewLabelsEffort: false,
 	enableReviewLabelsSecurity: false,
+	maxPrFilesListed: 300,
+	maxPrFilesPatchBytes: 500_000,
 } satisfies Config;
+
+const farFutureTokenExpiry = Date.now() + 3_600_000;
+
+function reviewParams(
+	overrides: Partial<Parameters<typeof runFullPrReview>[0]> = {},
+): Parameters<typeof runFullPrReview>[0] {
+	return {
+		cfg,
+		token: "t",
+		tokenExpiresAtTs: farFutureTokenExpiry,
+		tokenTtlMs: 3_600_000,
+		owner: "o",
+		repo: "r",
+		prNumber: 1,
+		headSha: "sha",
+		...overrides,
+	};
+}
 
 const defaultCompleteResult = () => ({
 	role: "assistant" as const,
@@ -74,30 +94,28 @@ describe("runFullPrReview mode", () => {
 		vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
 	});
 
+	it("requires finite tokenExpiresAtTs", async () => {
+		await expect(runFullPrReview(reviewParams({ tokenExpiresAtTs: NaN }))).rejects.toThrow(
+			/tokenExpiresAtTs/,
+		);
+	});
+
 	it("selects security system prompt when mode is review-security", async () => {
-		await runFullPrReview({
-			cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-			token: "t",
-			owner: "o",
-			repo: "r",
-			prNumber: 1,
-			headSha: "sha",
-			mode: "review-security",
-		});
+		await runFullPrReview(
+			reviewParams({
+				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+				mode: "review-security",
+			}),
+		);
 
 		const context = vi.mocked(complete).mock.calls[0]![1] as { systemPrompt: string };
 		expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
 	});
 
 	it("selects general system prompt by default", async () => {
-		await runFullPrReview({
-			cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-			token: "t",
-			owner: "o",
-			repo: "r",
-			prNumber: 1,
-			headSha: "sha",
-		});
+		await runFullPrReview(
+			reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 } }),
+		);
 
 		const context = vi.mocked(complete).mock.calls[0]![1] as { systemPrompt: string };
 		expect(context.systemPrompt).toContain("senior staff software engineer");
@@ -107,15 +125,9 @@ describe("runFullPrReview mode", () => {
 	it("requires tools on round 0 for both modes when tools are available", async () => {
 		for (const mode of ["review", "review-security"] as const) {
 			vi.mocked(complete).mockClear();
-			await runFullPrReview({
-				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-				token: "t",
-				owner: "o",
-				repo: "r",
-				prNumber: 1,
-				headSha: "sha",
-				mode,
-			});
+			await runFullPrReview(
+				reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 }, mode }),
+			);
 			expect(vi.mocked(complete).mock.calls[0]![2]).toEqual({ toolChoice: "required" });
 		}
 	});
@@ -164,15 +176,12 @@ describe("runFullPrReview mode", () => {
 		}));
 
 		const infoSpy = vi.spyOn(log, "info");
-		await runFullPrReview({
-			cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-			token: "t",
-			owner: "o",
-			repo: "r",
-			prNumber: 1,
-			headSha: "sha",
-			mode: "review-security",
-		});
+		await runFullPrReview(
+			reviewParams({
+				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+				mode: "review-security",
+			}),
+		);
 
 		expect(infoSpy).toHaveBeenCalledWith(
 			"agent_tool_round",
@@ -181,15 +190,7 @@ describe("runFullPrReview mode", () => {
 	});
 
 	it("uses security fallback heading when security publish is exhausted", async () => {
-		await runFullPrReview({
-			cfg,
-			token: "t",
-			owner: "o",
-			repo: "r",
-			prNumber: 1,
-			headSha: "sha",
-			mode: "review-security",
-		});
+		await runFullPrReview(reviewParams({ mode: "review-security" }));
 
 		expect(createIssueComment).toHaveBeenCalledWith(
 			"t",
@@ -210,14 +211,7 @@ describe("runFullPrReview publish retries", () => {
 	it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {
 		const infoSpy = vi.spyOn(log, "info");
 
-		const result = await runFullPrReview({
-			cfg,
-			token: "t",
-			owner: "o",
-			repo: "r",
-			prNumber: 1,
-			headSha: "sha",
-		});
+		const result = await runFullPrReview(reviewParams());
 
 		expect(result.published).toBe(false);
 		expect(result.publishAttempts).toBe(3);
@@ -232,14 +226,7 @@ describe("runFullPrReview publish retries", () => {
 	});
 
 	it("posts a maintainer-visible fallback comment when publish is exhausted", async () => {
-		const result = await runFullPrReview({
-			cfg,
-			token: "t",
-			owner: "o",
-			repo: "r",
-			prNumber: 1,
-			headSha: "sha",
-		});
+		const result = await runFullPrReview(reviewParams());
 
 		expect(result.published).toBe(false);
 		expect(createIssueComment).toHaveBeenCalledWith(

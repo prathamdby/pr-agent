@@ -17,6 +17,8 @@ export type ReplyTarget =
 export type SlashContext = {
 	readonly cfg: Config;
 	readonly token: string;
+	readonly tokenExpiresAtTs: number;
+	readonly tokenTtlMs: number;
 	readonly owner: string;
 	readonly repo: string;
 	readonly botUserId: number;
@@ -93,6 +95,8 @@ export function runSlashCommandFlow(
 						runFullPrReview({
 							cfg: ctx.cfg,
 							token: ctx.token,
+							tokenExpiresAtTs: ctx.tokenExpiresAtTs,
+							tokenTtlMs: ctx.tokenTtlMs,
 							owner: ctx.owner,
 							repo: ctx.repo,
 							prNumber: ctx.replyTarget.prNumber,

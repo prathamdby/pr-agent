@@ -4,6 +4,7 @@ import type { Config } from "../src/config.js";
 import { WebhookParseError } from "../src/webhook/parseGithubPayload.js";
 import { dispatchGithubEventEffect } from "../src/effect/programs/dispatchEffect.js";
 import { DeliveryDedupe } from "../src/effect/services/deliveryDedupe.js";
+import type { InstallationToken } from "../src/github/appAuth.js";
 import { GithubInstallationToken } from "../src/effect/services/githubInstallationToken.js";
 import { WebhookHandlers } from "../src/effect/services/webhookHandlers.js";
 import * as parseModule from "../src/webhook/parseGithubPayload.js";
@@ -21,6 +22,12 @@ const cfg: Config = {
 	reviewConcurrency: 2,
 	webhookTimeoutMs: 10000,
 	logLevel: "error",
+};
+
+const fakeInstallationToken: InstallationToken = {
+	token: "fake-token",
+	expiresAtTs: Date.now() + 3_600_000,
+	ttlMs: 3_600_000,
 };
 
 type Trace = {
@@ -55,7 +62,7 @@ function buildLayers(trace: Trace) {
 			getToken: (cfg, installationId) =>
 				Effect.sync(() => {
 					trace.getToken(cfg, installationId);
-					return "fake-token";
+					return fakeInstallationToken;
 				}),
 		}),
 	);
@@ -146,7 +153,7 @@ describe("dispatchGithubEventEffect ordering", () => {
 									getToken: (cfg, id) =>
 										Effect.sync(() => {
 											trace.getToken(cfg, id);
-											return "fake-token";
+											return fakeInstallationToken;
 										}),
 								}),
 							),
@@ -212,7 +219,7 @@ describe("dispatchGithubEventEffect ordering", () => {
 			);
 
 			expect(trace.getToken).toHaveBeenCalledWith(cfg, 7);
-			expect(trace.pullRequest).toHaveBeenCalledWith(cfg, "fake-token", parsedData);
+			expect(trace.pullRequest).toHaveBeenCalledWith(cfg, fakeInstallationToken, parsedData);
 		} finally {
 			spy.mockRestore();
 		}

@@ -5,9 +5,22 @@ import { log } from "../log.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { createIssueComment } from "../github/reviewPublish.js";
-import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
+import { automatedSecuritySystemPrompt, githubToolingDiscipline } from "./securityPrompt.js";
 import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
 import type { ReviewMode } from "./reviewSchema.js";
+import {
+	bumpRateLimitConsecutiveFailures,
+	classifyGithubToolError,
+	formatToolErrorMessage,
+	isInstallationTokenNearExpiry,
+	logGithubToolRequestError,
+} from "../github/githubRequestError.js";
+
+const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
+const CIRCUIT_OPEN_USER_MESSAGE =
+	"Stop GitHub tool calls; call submitReview now with your current analysis from the conversation above.";
+const CIRCUIT_OPEN_TOOL_RESULT =
+	"Rate-limit circuit open: further GitHub investigation tools are blocked for this review run. Call submitReview now.";
 
 const PUBLISH_FALLBACK_SENTINEL = "## PR Agent Review — could not publish structured output";
 const SECURITY_PUBLISH_FALLBACK_SENTINEL =
@@ -76,8 +89,10 @@ function buildAutomatedSystemPrompt(): string {
 		"",
 		"## Getting started (GitHub tooling)",
 		"1. Understand context: inspect the PR body, linked issues/tickets via tools where possible, head SHA, and file list touched by this PR.",
-		"2. Obtain the change set: inspect the unified diff / changed files via tools; work through everything that changed—leave no touched file unscanned.",
+		"2. Obtain the change set: call `listPullRequestFiles` and inspect patches; work through everything that changed—leave no touched file unscanned.",
 		"3. Do not speculate: verify suspicion with reads against the codebase or API responses reachable through tools.",
+		"",
+		githubToolingDiscipline,
 		"",
 		"<!-- BEGIN_SHARED_METHODOLOGY -->",
 		"",
@@ -177,6 +192,8 @@ function buildAutomatedSystemPrompt(): string {
 export async function runFullPrReview(params: {
 	cfg: Config;
 	token: string;
+	tokenExpiresAtTs: number;
+	tokenTtlMs: number;
 	owner: string;
 	repo: string;
 	prNumber: number;
@@ -184,10 +201,20 @@ export async function runFullPrReview(params: {
 	mode?: ReviewMode;
 	userSupplement?: string;
 }): Promise<ReviewRunResult> {
-	const { cfg, token, owner, repo, prNumber, headSha, userSupplement } = params;
+	const { cfg, token, tokenExpiresAtTs, tokenTtlMs, owner, repo, prNumber, headSha, userSupplement } =
+		params;
+	if (!Number.isFinite(tokenExpiresAtTs)) {
+		throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+	}
+	if (!Number.isFinite(tokenTtlMs) || tokenTtlMs <= 0) {
+		throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
+	}
 	const reviewMode = params.mode ?? "review";
 
-	const gh = buildGithubTools(token);
+	const gh = buildGithubTools(token, {
+		maxPrFilesListed: cfg.maxPrFilesListed,
+		maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+	});
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
 	const submitState = { published: false, inlinePublished: false, lastValidationError: null };
 	const publishCtx = { owner, repo, prNumber, headSha };
@@ -199,13 +226,15 @@ export async function runFullPrReview(params: {
 		state: submitState,
 	});
 
+	const reviewGithubExecutors = filterReviewAgentExecutors(gh.executors);
+
 	const piTools: PiTool[] = [
 		...filterReviewAgentTools(gh.piTools),
 		...ctx7.piTools,
 		submitTool,
 	];
 	const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
-		...filterReviewAgentExecutors(gh.executors),
+		...reviewGithubExecutors,
 		...ctx7.executors,
 		submitReview: submitExecutor,
 	};
@@ -239,11 +268,71 @@ export async function runFullPrReview(params: {
 	let lastAssistant: AssistantMessage | null = null;
 	let stopLoop = false;
 	let publishAttempts = 0;
+	let rateLimitConsecutiveFailures = 0;
+	let rateLimitCircuitOpen = false;
+	let circuitUserMessagePending = false;
+
+	const logCtx = {
+		expiresAtTs: tokenExpiresAtTs,
+		ttlMs: tokenTtlMs,
+		owner,
+		repo,
+		prNumber,
+		mode: reviewMode,
+	};
+
+	const githubExecutorNames = new Set(Object.keys(reviewGithubExecutors));
 
 	async function appendToolResults(toolCalls: ToolCall[]) {
 		for (const call of toolCalls) {
 			let text: string;
 			let isError = false;
+
+			if (
+				rateLimitCircuitOpen &&
+				call.name !== "submitReview" &&
+				githubExecutorNames.has(call.name)
+			) {
+				log.info("github_tool_circuit_short_circuit", { tool: call.name });
+				context.messages.push({
+					role: "toolResult",
+					toolCallId: call.id,
+					toolName: call.name,
+					content: [{ type: "text", text: CIRCUIT_OPEN_TOOL_RESULT }],
+					isError: true,
+					timestamp: Date.now(),
+				});
+				continue;
+			}
+
+			const isGithubTool = githubExecutorNames.has(call.name);
+
+			if (isGithubTool && isInstallationTokenNearExpiry(tokenExpiresAtTs)) {
+				log.warn("token_expired_before_tool", {
+					tool: call.name,
+					tokenExpiresInSeconds: Math.max(
+						0,
+						Math.floor((tokenExpiresAtTs - Date.now()) / 1000),
+					),
+				});
+				isError = true;
+				const classified = classifyGithubToolError(
+					new Error("token near expiry guard"),
+					{ expiresAtTs: tokenExpiresAtTs, ttlMs: tokenTtlMs },
+				);
+				logGithubToolRequestError(call.name, null, logCtx, classified);
+				text = formatToolErrorMessage(call.name, null, classified);
+				context.messages.push({
+					role: "toolResult",
+					toolCallId: call.id,
+					toolName: call.name,
+					content: [{ type: "text", text }],
+					isError,
+					timestamp: Date.now(),
+				});
+				continue;
+			}
+
 			try {
 				const exec = executors[call.name];
 				if (!exec) throw new Error(`Unknown tool: ${call.name}`);
@@ -252,10 +341,41 @@ export async function runFullPrReview(params: {
 				if (call.name === "submitReview" && submitState.published) {
 					stopLoop = true;
 				}
+				if (githubExecutorNames.has(call.name)) {
+					rateLimitConsecutiveFailures = 0;
+				}
 			} catch (e) {
 				isError = true;
-				text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
-				log.warn("tool_execute_failed", { tool: call.name, message: text });
+				if (isGithubTool) {
+					const classified = classifyGithubToolError(e, {
+						expiresAtTs: tokenExpiresAtTs,
+						ttlMs: tokenTtlMs,
+					});
+					logGithubToolRequestError(call.name, e, logCtx, classified);
+					text = formatToolErrorMessage(call.name, e, classified);
+
+					rateLimitConsecutiveFailures = bumpRateLimitConsecutiveFailures(
+						rateLimitConsecutiveFailures,
+						classified.classification,
+					);
+					if (
+						!rateLimitCircuitOpen &&
+						rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
+					) {
+						rateLimitCircuitOpen = true;
+						log.warn("review_rate_limit_circuit_open", {
+							consecutiveFailures: rateLimitConsecutiveFailures,
+							owner,
+							repo,
+							pr: prNumber,
+							mode: reviewMode,
+						});
+						circuitUserMessagePending = true;
+					}
+				} else {
+					text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
+					log.warn("tool_execute_failed", { tool: call.name, message: text });
+				}
 			}
 
 			context.messages.push({
@@ -264,6 +384,15 @@ export async function runFullPrReview(params: {
 				toolName: call.name,
 				content: [{ type: "text", text }],
 				isError,
+				timestamp: Date.now(),
+			});
+		}
+
+		if (circuitUserMessagePending) {
+			circuitUserMessagePending = false;
+			context.messages.push({
+				role: "user",
+				content: CIRCUIT_OPEN_USER_MESSAGE,
 				timestamp: Date.now(),
 			});
 		}
