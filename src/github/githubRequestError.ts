@@ -270,6 +270,7 @@ export function bumpRateLimitConsecutiveFailures(
 	consecutive: number,
 	classification: GithubToolErrorClassification,
 ): number {
+	// Preserve streak on token_expired so near-expiry blocks do not erase rate-limit circuit progress
 	if (classification === "token_expired") return consecutive;
 	return isRateLimitClassification(classification) ? consecutive + 1 : 0;
 }

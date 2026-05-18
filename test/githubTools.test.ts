@@ -265,40 +265,36 @@ describe("buildGithubTools — happy paths", () => {
 	});
 
 	it("listPullRequestFiles stops pagination when patch byte cap is reached", async () => {
-		const bigPatch = "x".repeat(200);
-		const page2 = [
-			{
-				filename: "extra.ts",
-				status: "modified",
-				additions: 1,
-				deletions: 1,
-				changes: 2,
-				patch: bigPatch,
-			},
-		];
-		const pullsListFiles = vi
-			.fn()
-			.mockResolvedValueOnce({
-				data: [
-					{
-						filename: "a.ts",
-						status: "modified",
-						additions: 1,
-						deletions: 1,
-						changes: 2,
-						patch: bigPatch,
-					},
-					{
-						filename: "b.ts",
-						status: "modified",
-						additions: 1,
-						deletions: 1,
-						changes: 2,
-						patch: bigPatch,
-					},
-				],
-			})
-			.mockResolvedValueOnce({ data: page2 });
+		const bigPatch = "x".repeat(202);
+		const smallPatch = "x".repeat(49);
+		const pullsListFiles = vi.fn().mockResolvedValueOnce({
+			data: [
+				{
+					filename: "a.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 1,
+					changes: 2,
+					patch: smallPatch,
+				},
+				{
+					filename: "b.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 1,
+					changes: 2,
+					patch: bigPatch,
+				},
+				{
+					filename: "c.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 1,
+					changes: 2,
+					patch: smallPatch,
+				},
+			],
+		});
 		vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
 		const { executors } = buildGithubTools("tok", { maxPrFilesListed: 10, maxPrFilesPatchBytes: 250 });
 
@@ -306,10 +302,16 @@ describe("buildGithubTools — happy paths", () => {
 			owner: "o",
 			repo: "r",
 			pullNumber: 1,
-		})) as { files: unknown[] };
+		})) as {
+			files: unknown[];
+			omittedCount: number;
+			warning?: string;
+		};
 
 		expect(pullsListFiles).toHaveBeenCalledTimes(1);
 		expect(out.files).toHaveLength(2);
+		expect(out.omittedCount).toBe(1);
+		expect(out.warning).toMatch(/1 additional file\(s\) not listed/i);
 	});
 
 	it("listPullRequestFiles uses at-least omitted count when more pages remain", async () => {

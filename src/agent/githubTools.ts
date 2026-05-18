@@ -115,6 +115,7 @@ async function listPullRequestFilesPaginated(
 	let omittedCountLowerBound = false;
 	let patchBytes = 0;
 	let patchOmittedCount = 0;
+	let patchSkippedFileCount = 0;
 	let patchCapReached = false;
 
 	for (let page = 1; ; page++) {
@@ -172,6 +173,11 @@ async function listPullRequestFilesPaginated(
 
 			if (patchCapReached) break;
 		}
+		if (patchCapReached) {
+			const skippedOnPage = data.length - consumed;
+			omittedCount += skippedOnPage;
+			patchSkippedFileCount += skippedOnPage;
+		}
 		if (truncated || patchCapReached) break;
 		if (data.length < 100) break;
 	}
@@ -186,8 +192,12 @@ async function listPullRequestFilesPaginated(
 		);
 	}
 	if (patchOmittedCount > 0) {
+		const patchParts = [`patches omitted for ${patchOmittedCount} file(s)`];
+		if (patchSkippedFileCount > 0) {
+			patchParts.push(`${patchSkippedFileCount} additional file(s) not listed`);
+		}
 		warnings.push(
-			`Unified diff patches omitted for ${patchOmittedCount} file(s) after ${limits.maxPrFilesPatchBytes} byte cap.`,
+			`Unified diff ${patchParts.join("; ")} after ${limits.maxPrFilesPatchBytes} byte cap.`,
 		);
 	}
 	const warning = warnings.length > 0 ? warnings.join(" ") : undefined;
