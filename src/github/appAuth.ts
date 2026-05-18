@@ -16,6 +16,8 @@ export type BotIdentity = { userId: number; login: string };
 export type InstallationToken = {
 	readonly token: string;
 	readonly expiresAtTs: number;
+	/** Observed TTL at mint (ms); used for token_age_seconds in logs */
+	readonly ttlMs: number;
 };
 
 export async function mintInstallationAuth(

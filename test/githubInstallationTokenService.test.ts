@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Effect, Layer, TestClock, TestContext } from "effect";
+import { Clock, Effect, Layer, TestClock, TestContext } from "effect";
 import * as appAuth from "../src/github/appAuth.js";
 import {
   GithubInstallationToken,
@@ -137,21 +137,25 @@ describe("GithubInstallationToken service", () => {
 
   it("uses fallback TTL when auth.expiresAt is unparseable", async () => {
     const spy = mockMint("tok-a", "not-a-valid-date");
+    const fallbackTtlMs = 55 * 60 * 1000;
 
     const program = Effect.gen(function* () {
+      const now = yield* Clock.currentTimeMillis;
       const svc = yield* GithubInstallationToken;
-      return yield* svc.getToken(cfg, 1);
+      const token = yield* svc.getToken(cfg, 1);
+      return { now, token };
     });
 
     try {
-      const token = await Effect.runPromise(
+      const { now, token } = await Effect.runPromise(
         program.pipe(
           Effect.provide(GithubInstallationTokenLive),
           Effect.provide(TestContext.TestContext),
         ),
       );
       expect(Number.isFinite(token.expiresAtTs)).toBe(true);
-      expect(token.expiresAtTs).toBe(55 * 60 * 1000);
+      expect(token.expiresAtTs).toBe(now + fallbackTtlMs);
+      expect(token.ttlMs).toBe(fallbackTtlMs);
     } finally {
       spy.mockRestore();
     }

@@ -27,6 +27,7 @@ const cfg: Config = {
 const fakeInstallationToken: InstallationToken = {
 	token: "fake-token",
 	expiresAtTs: Date.now() + 3_600_000,
+	ttlMs: 3_600_000,
 };
 
 type Trace = {

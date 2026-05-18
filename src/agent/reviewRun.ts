@@ -193,6 +193,7 @@ export async function runFullPrReview(params: {
 	cfg: Config;
 	token: string;
 	tokenExpiresAtTs: number;
+	tokenTtlMs: number;
 	owner: string;
 	repo: string;
 	prNumber: number;
@@ -200,9 +201,13 @@ export async function runFullPrReview(params: {
 	mode?: ReviewMode;
 	userSupplement?: string;
 }): Promise<ReviewRunResult> {
-	const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, headSha, userSupplement } = params;
+	const { cfg, token, tokenExpiresAtTs, tokenTtlMs, owner, repo, prNumber, headSha, userSupplement } =
+		params;
 	if (!Number.isFinite(tokenExpiresAtTs)) {
 		throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+	}
+	if (!Number.isFinite(tokenTtlMs) || tokenTtlMs <= 0) {
+		throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
 	}
 	const reviewMode = params.mode ?? "review";
 
@@ -267,6 +272,7 @@ export async function runFullPrReview(params: {
 
 	const logCtx = {
 		expiresAtTs: tokenExpiresAtTs,
+		ttlMs: tokenTtlMs,
 		owner,
 		repo,
 		prNumber,
@@ -310,7 +316,7 @@ export async function runFullPrReview(params: {
 				isError = true;
 				const classified = classifyGithubToolError(
 					new Error("token near expiry guard"),
-					{ expiresAtTs: tokenExpiresAtTs },
+					{ expiresAtTs: tokenExpiresAtTs, ttlMs: tokenTtlMs },
 				);
 				logGithubToolRequestError(call.name, null, logCtx, classified);
 				text = formatToolErrorMessage(call.name, null, classified);
@@ -339,7 +345,10 @@ export async function runFullPrReview(params: {
 			} catch (e) {
 				isError = true;
 				if (isGithubTool) {
-					const classified = classifyGithubToolError(e, { expiresAtTs: tokenExpiresAtTs });
+					const classified = classifyGithubToolError(e, {
+						expiresAtTs: tokenExpiresAtTs,
+						ttlMs: tokenTtlMs,
+					});
 					logGithubToolRequestError(call.name, e, logCtx, classified);
 					text = formatToolErrorMessage(call.name, e, classified);
 

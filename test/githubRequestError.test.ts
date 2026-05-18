@@ -5,6 +5,8 @@ import {
 	classifyGithubToolError,
 	extractGithubResponseMeta,
 	formatToolErrorMessage,
+	getTokenTiming,
+	isGraphqlRateLimitError,
 	isRateLimitClassification,
 	logGithubToolRequestError,
 	TOKEN_EXPIRED_TOOL_MESSAGE,
@@ -161,6 +163,23 @@ describe("githubRequestError", () => {
 
 	it("bumpRateLimitConsecutiveFailures preserves count for token_expired", () => {
 		expect(bumpRateLimitConsecutiveFailures(2, "token_expired")).toBe(2);
+	});
+
+	it("getTokenTiming uses minted ttlMs for age when fallback TTL is below 1h", () => {
+		const now = 1_000_000;
+		const fallbackTtlMs = 55 * 60 * 1000;
+		const expiresAtTs = now + fallbackTtlMs;
+		expect(getTokenTiming(expiresAtTs, now, fallbackTtlMs).tokenAgeSeconds).toBe(0);
+		expect(getTokenTiming(expiresAtTs, now + 5 * 60 * 1000, fallbackTtlMs).tokenAgeSeconds).toBe(
+			5 * 60,
+		);
+	});
+
+	it("isGraphqlRateLimitError matches GraphqlResponseError.errors shape", () => {
+		const err = Object.assign(new Error("Request failed due to following response errors"), {
+			errors: [{ type: "RATE_LIMITED", message: "rate limit" }],
+		});
+		expect(isGraphqlRateLimitError(err)).toBe(true);
 	});
 
 	it("logGithubToolRequestError emits github_tool_request_error for non-HTTP errors", () => {

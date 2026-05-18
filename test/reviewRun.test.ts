@@ -61,6 +61,7 @@ function reviewParams(
 		cfg,
 		token: "t",
 		tokenExpiresAtTs: farFutureTokenExpiry,
+		tokenTtlMs: 3_600_000,
 		owner: "o",
 		repo: "r",
 		prNumber: 1,

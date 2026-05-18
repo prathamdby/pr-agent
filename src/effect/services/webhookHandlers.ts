@@ -46,7 +46,7 @@ export const WebhookHandlersCore = Layer.effect(
 					const repo = data.repository.name;
 					const prNumber = data.pull_request.number;
 					const headSha = data.pull_request.head.sha;
-					const { token, expiresAtTs: tokenExpiresAtTs } = installation;
+					const { token, expiresAtTs: tokenExpiresAtTs, ttlMs: tokenTtlMs } = installation;
 
 					yield* surface.acknowledgeOnPrConversation(token, owner, repo, prNumber);
 
@@ -60,6 +60,7 @@ export const WebhookHandlersCore = Layer.effect(
 									cfg,
 									token,
 									tokenExpiresAtTs,
+									tokenTtlMs,
 									owner,
 									repo,
 									prNumber,
@@ -85,13 +86,14 @@ export const WebhookHandlersCore = Layer.effect(
 					const body = data.comment.body ?? "";
 					if (!parseSlashCommand(body)) return;
 
-					const { token, expiresAtTs: tokenExpiresAtTs } = installation;
+					const { token, expiresAtTs: tokenExpiresAtTs, ttlMs: tokenTtlMs } = installation;
 					const botUserId = yield* botIdentity.getUserId(cfg, token);
 
 					yield* runSlashCommandFlow({
 						cfg,
 						token,
 						tokenExpiresAtTs,
+						tokenTtlMs,
 						owner: data.repository.owner.login,
 						repo: data.repository.name,
 						botUserId,
@@ -111,13 +113,14 @@ export const WebhookHandlersCore = Layer.effect(
 					const body = data.comment.body ?? "";
 					if (!parseSlashCommand(body)) return;
 
-					const { token, expiresAtTs: tokenExpiresAtTs } = installation;
+					const { token, expiresAtTs: tokenExpiresAtTs, ttlMs: tokenTtlMs } = installation;
 					const botUserId = yield* botIdentity.getUserId(cfg, token);
 
 					yield* runSlashCommandFlow({
 						cfg,
 						token,
 						tokenExpiresAtTs,
+						tokenTtlMs,
 						owner: data.repository.owner.login,
 						repo: data.repository.name,
 						botUserId,

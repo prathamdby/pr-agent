@@ -21,6 +21,7 @@ const BAD_CREDENTIALS_MESSAGE = /bad credentials/i;
 
 export type InstallationTokenContext = {
 	readonly expiresAtTs: number;
+	readonly ttlMs?: number;
 	readonly now?: number;
 };
 
@@ -49,11 +50,27 @@ export function isGithubRequestError(err: unknown): err is RequestError {
 	);
 }
 
+function graphqlRateLimitErrors(err: unknown): Array<{ type?: string }> {
+	const e = err as {
+		errors?: Array<{ type?: string }>;
+		data?: { errors?: Array<{ type?: string }> };
+		response?: { errors?: Array<{ type?: string }>; data?: { errors?: Array<{ type?: string }> } };
+	};
+	return (
+		e.errors ??
+		e.response?.errors ??
+		e.data?.errors ??
+		e.response?.data?.errors ??
+		[]
+	);
+}
+
 export function isGraphqlRateLimitError(err: unknown): boolean {
 	if (!(err instanceof Error)) return false;
+	// @octokit/plugin-throttling (wrap-request.js)
 	if (err.message === "GraphQL Rate Limit Exceeded") return true;
-	const response = (err as { response?: { data?: { errors?: Array<{ type?: string }> } } }).response;
-	return (response?.data?.errors ?? []).some((e) => e.type === "RATE_LIMITED");
+	// @octokit/graphql GraphqlResponseError exposes errors on err.errors / err.response.errors
+	return graphqlRateLimitErrors(err).some((e) => e.type === "RATE_LIMITED");
 }
 
 function headerString(headers: ResponseHeaders | undefined, name: string): string | undefined {
@@ -63,15 +80,22 @@ function headerString(headers: ResponseHeaders | undefined, name: string): strin
 	return String(v);
 }
 
-// GitHub does not return issued-at; age assumes a 1h TTL and may overstate real age when TTL is shorter (e.g. 10m)
-const ASSUMED_INSTALLATION_TOKEN_TTL_MS = 60 * 60 * 1000;
+// GitHub does not return issued-at; infer from expiresAt using min(observed TTL, 1h cap)
+const MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS = 60 * 60 * 1000;
 
 export function getTokenTiming(
 	expiresAtTs: number,
 	now: number = Date.now(),
+	ttlMs?: number,
 ): { tokenAgeSeconds: number; tokenExpiresInSeconds: number } {
 	const tokenExpiresInSeconds = Math.max(0, Math.floor((expiresAtTs - now) / 1000));
-	const issuedAtTs = expiresAtTs - ASSUMED_INSTALLATION_TOKEN_TTL_MS;
+	const observedTtlMs = Math.max(0, expiresAtTs - now);
+	const effectiveTtlMs =
+		ttlMs ??
+		(observedTtlMs > 0
+			? Math.min(MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS, observedTtlMs)
+			: MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS);
+	const issuedAtTs = expiresAtTs - effectiveTtlMs;
 	const tokenAgeSeconds = Math.max(0, Math.floor((now - issuedAtTs) / 1000));
 	return { tokenAgeSeconds, tokenExpiresInSeconds };
 }
@@ -182,16 +206,13 @@ export function classifyGithubToolError(
 		};
 	}
 
-	if (meta.retryAfterHeader) {
-		const parsed = Number(meta.retryAfterHeader);
-		if (Number.isFinite(parsed) && parsed > 0) {
-			return {
-				classification: "secondary_rate_limit",
-				pluginPrimaryRateLimit: false,
-				pluginSecondaryRateLimit: true,
-				...retry,
-			};
-		}
+	if (parsePositiveRetryAfterSeconds(meta.retryAfterHeader) != null) {
+		return {
+			classification: "secondary_rate_limit",
+			pluginPrimaryRateLimit: false,
+			pluginSecondaryRateLimit: true,
+			...retry,
+		};
 	}
 
 	if (meta.pluginPrimaryRateLimit) {
@@ -234,15 +255,20 @@ export function classifyGithubToolError(
 	};
 }
 
+function parsePositiveRetryAfterSeconds(header: string | undefined): number | undefined {
+	if (header == null || header === "") return undefined;
+	const parsed = Number(header);
+	if (Number.isFinite(parsed) && parsed > 0) return Math.ceil(parsed);
+	return undefined;
+}
+
 function resolveRetryAfter(
 	meta: ReturnType<typeof extractGithubResponseMeta>,
 	now: number,
 ): { retryAfterSeconds: number; retryAfterSource: RetryAfterSource } {
-	if (meta.retryAfterHeader) {
-		const parsed = Number(meta.retryAfterHeader);
-		if (Number.isFinite(parsed) && parsed > 0) {
-			return { retryAfterSeconds: Math.ceil(parsed), retryAfterSource: "header" };
-		}
+	const fromHeader = parsePositiveRetryAfterSeconds(meta.retryAfterHeader);
+	if (fromHeader != null) {
+		return { retryAfterSeconds: fromHeader, retryAfterSource: "header" };
 	}
 
 	if (meta.rateLimitReset) {
@@ -284,7 +310,7 @@ export function logGithubToolRequestError(
 	logCtx: GithubToolLogContext,
 	classified: ClassifiedGithubError,
 ): void {
-	const timing = getTokenTiming(logCtx.expiresAtTs, logCtx.now);
+	const timing = getTokenTiming(logCtx.expiresAtTs, logCtx.now, logCtx.ttlMs);
 	const base: Record<string, unknown> = {
 		tool,
 		classification: classified.classification,
