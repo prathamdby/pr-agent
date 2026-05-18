@@ -53,7 +53,7 @@ export function renderReviewSummaryComment(payload: ReviewPayload, ctx: RenderCo
 	const rows: string[] = [];
 	rows.push(REVIEW_SUMMARY_SENTINEL);
 	rows.push("");
-	rows.push(payload.prCharacter.trim());
+	rows.push(escapeTableCell(payload.prCharacter.trim()));
 	rows.push("");
 	rows.push("| | |");
 	rows.push("| --- | --- |");

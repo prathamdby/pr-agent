@@ -27,7 +27,7 @@ export async function publishReview(params: ReviewPublishContext & {
 	const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
 	const payload = normalizeReviewPayload(raw);
 	const inlineFindings = selectInlineFindings(payload.findings, cfg.maxReviewFindings);
-	const event = reviewEventForFindings(inlineFindings);
+	const event = reviewEventForFindings(payload.findings);
 
 	if (!publishState.inlinePublished) {
 		const comments: InlineReviewComment[] = inlineFindings.map((f) => ({

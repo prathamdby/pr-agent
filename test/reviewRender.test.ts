@@ -72,6 +72,14 @@ describe("renderReviewSummaryComment", () => {
 		expect(body).toContain("Webhook secret compared");
 	});
 
+	it("escapes pipes in prCharacter", () => {
+		const body = renderReviewSummaryComment(
+			basePayload({ prCharacter: "Adds auth | breaks table" }),
+			ctx,
+		);
+		expect(body).toContain("Adds auth \\| breaks table");
+	});
+
 	it("escapes pipes in security and follow-ups table cells", () => {
 		const body = renderReviewSummaryComment(
 			basePayload({
