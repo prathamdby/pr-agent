@@ -201,6 +201,9 @@ export async function runFullPrReview(params: {
 	userSupplement?: string;
 }): Promise<ReviewRunResult> {
 	const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, headSha, userSupplement } = params;
+	if (!Number.isFinite(tokenExpiresAtTs)) {
+		throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+	}
 	const reviewMode = params.mode ?? "review";
 
 	const gh = buildGithubTools(token, {
