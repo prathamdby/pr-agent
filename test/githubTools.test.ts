@@ -387,6 +387,29 @@ describe("getFileContent — three branches", () => {
 		expect(out).toMatchObject({ type: "file", path: "big.bin", sha: "abc", size: 2_000_000, content: null });
 		expect(out.note).toMatch(/1 MB/);
 	});
+
+	it("file branch with size=0 (empty file): returns content: \"\" not the oversize note", async () => {
+		const reposGetContent = vi.fn().mockResolvedValue({
+			data: {
+				type: "file",
+				path: "empty.txt",
+				sha: "e69de29",
+				size: 0,
+				content: "",
+				encoding: "base64",
+			},
+		});
+		const { executors } = buildWithStub(makeOctokitStub({ reposGetContent }));
+
+		const out = (await executors.getFileContent({ owner: "o", repo: "r", path: "empty.txt" })) as {
+			type: string;
+			content: string | null;
+			note?: string;
+		};
+
+		expect(out).toEqual({ type: "file", path: "empty.txt", sha: "e69de29", size: 0, content: "" });
+		expect(out.note).toBeUndefined();
+	});
 });
 
 describe("getBlame — branches and error paths", () => {

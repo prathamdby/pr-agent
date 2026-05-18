@@ -220,7 +220,7 @@ export function buildGithubTools(token: string): {
 			if (data.type !== "file") {
 				return { type: data.type, path: data.path };
 			}
-			if (data.encoding === "none" || !data.content) {
+			if (data.encoding === "none" || data.content == null) {
 				return {
 					type: "file" as const,
 					path: data.path,
