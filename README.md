@@ -5,7 +5,7 @@ GitHub App webhook service that performs automated pull request reviews using [`
 ## What it does
 
 - On **`pull_request`** (`opened`, `synchronize`, `reopened`), adds 👀 (`eyes`) on the PR issue, then runs an agent loop to inspect the PR and post a **`COMMENT`**-style GitHub review plus a timeline summary comment when the model succeeds.
-- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help` and `/review`, reacts with 👀 on the PR + triggering comment where applicable, and routes commands.
+- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/review`, and `/review-security`, reacts with 👀 on the PR + triggering comment where applicable, and routes commands.
 - Responds **`200`** only **after inline processing completes** — large models can exceed GitHub’s webhook timeouts; operators should tune `MAX_TOOL_ROUNDS`/model latency or revisit async delivery (tracked as a scaling concern in the plan).
 
 ## Behaviour details
@@ -18,6 +18,7 @@ GitHub App webhook service that performs automated pull request reviews using [`
 - **Upstream tools:** `@github-tools/sdk` targets the Vercel AI ecosystem; errors mentioning workflow/durable/approval may mean a tool is not viable in plain Node—check logs; you may need fewer presets or direct REST for that action.
 - **Library docs lookup:** the review agent also gets two Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api` to verify upstream API claims before flagging findings. Anonymous calls work for public libraries with rate limits; set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [docs/adr/0003-context7-docs-tool.md](docs/adr/0003-context7-docs-tool.md) for why the SDK is bypassed.
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
+- **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Uses the same `ReviewQueue` and `MAX_TOOL_ROUNDS` as `/review`; large PRs may need a higher `MAX_TOOL_ROUNDS`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
 
 ## GitHub App setup (summary)
 

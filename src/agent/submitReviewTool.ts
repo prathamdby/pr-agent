@@ -3,7 +3,13 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import { log } from "../log.js";
 import { publishReview } from "./publishReview.js";
-import { reviewPayloadSchema, type ReviewPublishContext } from "./reviewSchema.js";
+import {
+	reviewPayloadSchema,
+	SECURITY_REVIEW_SUMMARY_SENTINEL,
+	REVIEW_SUMMARY_SENTINEL,
+	type ReviewMode,
+	type ReviewPublishContext,
+} from "./reviewSchema.js";
 
 const DELIVERY_TOOL_NAMES = new Set(["createPullRequestReview", "addPullRequestComment"]);
 
@@ -31,23 +37,32 @@ export function buildSubmitReviewTool(params: {
 	cfg: Config;
 	token: string;
 	ctx: ReviewPublishContext;
+	mode?: ReviewMode;
 	state: SubmitReviewState;
 }): {
 	piTool: PiTool;
 	executor: (args: Record<string, unknown>) => Promise<unknown>;
 } {
 	const submitSchema = reviewPayloadSchema;
+	const mode = params.mode ?? "review";
 
+	const summarySentinel =
+		mode === "review-security" ? SECURITY_REVIEW_SUMMARY_SENTINEL : REVIEW_SUMMARY_SENTINEL;
 	const piTool: PiTool = {
 		name: "submitReview",
-		description:
-			"Submit the completed structured review exactly once. Pass a ReviewPayload object matching the schema. This publishes inline review threads and the PR conversation summary; do not call createPullRequestReview or addPullRequestComment.",
+		description: [
+			"Submit the completed structured review exactly once.",
+			"Pass a ReviewPayload object matching the schema.",
+			`This publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
+			"Do not call createPullRequestReview or addPullRequestComment.",
+		].join(" "),
 		parameters: z.toJSONSchema(submitSchema, { unrepresentable: "any" }) as PiTool["parameters"],
 	};
 
 	const executor = async (args: Record<string, unknown>) => {
 		if (params.state.published) {
 			log.info("review_submit_duplicate_ignored", {
+				mode,
 				owner: params.ctx.owner,
 				repo: params.ctx.repo,
 				pr: params.ctx.prNumber,
@@ -59,13 +74,14 @@ export function buildSubmitReviewTool(params: {
 		if (!parsed.success) {
 			const message = parsed.error.message;
 			params.state.lastValidationError = message;
-			log.warn("review_payload_validation_failed", { message });
+			log.warn("review_payload_validation_failed", { mode, message });
 			throw new Error(`Review payload validation failed: ${message}`);
 		}
 
 		params.state.lastValidationError = null;
 		await publishReview({
 			token: params.token,
+			mode,
 			cfg: params.cfg,
 			...params.ctx,
 			payload: parsed.data,
@@ -73,6 +89,7 @@ export function buildSubmitReviewTool(params: {
 		});
 		params.state.published = true;
 		log.info("review_published", {
+			mode,
 			owner: params.ctx.owner,
 			repo: params.ctx.repo,
 			pr: params.ctx.prNumber,

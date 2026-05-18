@@ -27,7 +27,9 @@ vi.mock("@earendil-works/pi-ai", () => ({
 	})),
 }));
 
+import { complete } from "@earendil-works/pi-ai";
 import { createIssueComment } from "../src/github/reviewPublish.js";
+import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { runFullPrReview } from "../src/agent/reviewRun.js";
 
 const cfg = {
@@ -48,9 +50,161 @@ const cfg = {
 	enableReviewLabelsSecurity: false,
 } satisfies Config;
 
+const defaultCompleteResult = () => ({
+	role: "assistant" as const,
+	content: [{ type: "text" as const, text: "analysis without submitReview" }],
+	api: "test",
+	provider: "test",
+	model: "test",
+	usage: {
+		input: 0,
+		output: 0,
+		cacheRead: 0,
+		cacheWrite: 0,
+		totalTokens: 0,
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+	},
+	stopReason: "stop" as const,
+	timestamp: Date.now(),
+});
+
+describe("runFullPrReview mode", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
+	});
+
+	it("selects security system prompt when mode is review-security", async () => {
+		await runFullPrReview({
+			cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+			token: "t",
+			owner: "o",
+			repo: "r",
+			prNumber: 1,
+			headSha: "sha",
+			mode: "review-security",
+		});
+
+		const context = vi.mocked(complete).mock.calls[0]![1] as { systemPrompt: string };
+		expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
+	});
+
+	it("selects general system prompt by default", async () => {
+		await runFullPrReview({
+			cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+			token: "t",
+			owner: "o",
+			repo: "r",
+			prNumber: 1,
+			headSha: "sha",
+		});
+
+		const context = vi.mocked(complete).mock.calls[0]![1] as { systemPrompt: string };
+		expect(context.systemPrompt).toContain("senior staff software engineer");
+		expect(context.systemPrompt).not.toBe(automatedSecuritySystemPrompt);
+	});
+
+	it("requires tools on round 0 for both modes when tools are available", async () => {
+		for (const mode of ["review", "review-security"] as const) {
+			vi.mocked(complete).mockClear();
+			await runFullPrReview({
+				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+				token: "t",
+				owner: "o",
+				repo: "r",
+				prNumber: 1,
+				headSha: "sha",
+				mode,
+			});
+			expect(vi.mocked(complete).mock.calls[0]![2]).toEqual({ toolChoice: "required" });
+		}
+	});
+
+	it("includes mode on agent_tool_round when tools run", async () => {
+		vi.mocked(complete).mockImplementationOnce(async () => ({
+			role: "assistant" as const,
+			content: [
+				{
+					type: "toolCall" as const,
+					id: "c1",
+					name: "getPullRequest",
+					arguments: { owner: "o", repo: "r", pullNumber: 1 },
+				},
+			],
+			api: "test",
+			provider: "test",
+			model: "test",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "toolUse" as const,
+			timestamp: Date.now(),
+		}));
+		vi.mocked(complete).mockImplementation(async () => ({
+			role: "assistant" as const,
+			content: [{ type: "text" as const, text: "done" }],
+			api: "test",
+			provider: "test",
+			model: "test",
+			usage: {
+				input: 0,
+				output: 0,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 0,
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+			},
+			stopReason: "stop" as const,
+			timestamp: Date.now(),
+		}));
+
+		const infoSpy = vi.spyOn(log, "info");
+		await runFullPrReview({
+			cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+			token: "t",
+			owner: "o",
+			repo: "r",
+			prNumber: 1,
+			headSha: "sha",
+			mode: "review-security",
+		});
+
+		expect(infoSpy).toHaveBeenCalledWith(
+			"agent_tool_round",
+			expect.objectContaining({ mode: "review-security" }),
+		);
+	});
+
+	it("uses security fallback heading when security publish is exhausted", async () => {
+		await runFullPrReview({
+			cfg,
+			token: "t",
+			owner: "o",
+			repo: "r",
+			prNumber: 1,
+			headSha: "sha",
+			mode: "review-security",
+		});
+
+		expect(createIssueComment).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.stringContaining("## PR Agent Security Review — could not publish"),
+		);
+	});
+});
+
 describe("runFullPrReview publish retries", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
 	});
 
 	it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {

@@ -8,11 +8,13 @@ import {
 } from "../github/reviewPublish.js";
 import { log } from "../log.js";
 import { reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
-import { REVIEW_POINTER_BODY, renderInlineThreadBody, renderReviewSummaryComment } from "./reviewRender.js";
+import { renderInlineThreadBody, renderReviewSummaryComment, reviewPointerBodyForMode } from "./reviewRender.js";
 import {
 	normalizeReviewPayload,
 	reviewEventForFindings,
+	reviewSummarySentinelForMode,
 	selectInlineFindings,
+	type ReviewMode,
 	type ReviewPayload,
 	type ReviewPublishContext,
 } from "./reviewSchema.js";
@@ -20,11 +22,14 @@ import type { SubmitReviewState } from "./submitReviewTool.js";
 
 export async function publishReview(params: ReviewPublishContext & {
 	token: string;
+	mode?: ReviewMode;
 	cfg: Pick<Config, "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
 	payload: ReviewPayload;
 	publishState: SubmitReviewState;
 }): Promise<void> {
 	const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
+	const mode = params.mode ?? "review";
+	const summarySentinel = reviewSummarySentinelForMode(mode);
 	const payload = normalizeReviewPayload(raw);
 	const inlineFindings = selectInlineFindings(payload.findings, cfg.maxReviewFindings);
 	const event = reviewEventForFindings(payload.findings);
@@ -38,13 +43,14 @@ export async function publishReview(params: ReviewPublishContext & {
 		}));
 
 		const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-			body: REVIEW_POINTER_BODY,
+			body: reviewPointerBodyForMode(mode),
 			event,
 			comments: comments.length > 0 ? comments : undefined,
 		});
 
 		publishState.inlinePublished = true;
 		log.info("review_published_inline", {
+			mode,
 			owner,
 			repo,
 			pr: prNumber,
@@ -60,10 +66,12 @@ export async function publishReview(params: ReviewPublishContext & {
 		prNumber,
 		headSha,
 		maxFindings: cfg.maxReviewFindings,
+		summarySentinel,
 	});
 
-	const summary = await upsertReviewSummaryComment(token, owner, repo, prNumber, summaryBody);
+	const summary = await upsertReviewSummaryComment(token, owner, repo, prNumber, summaryBody, summarySentinel);
 	log.info("review_published_summary", {
+		mode,
 		owner,
 		repo,
 		pr: prNumber,

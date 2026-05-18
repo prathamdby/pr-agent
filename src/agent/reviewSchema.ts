@@ -1,6 +1,13 @@
 import { z } from "zod";
 
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
+export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
+
+export type ReviewMode = "review" | "review-security";
+
+export function reviewSummarySentinelForMode(mode: ReviewMode): string {
+	return mode === "review-security" ? SECURITY_REVIEW_SUMMARY_SENTINEL : REVIEW_SUMMARY_SENTINEL;
+}
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 

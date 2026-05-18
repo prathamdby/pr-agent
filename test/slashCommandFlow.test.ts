@@ -207,6 +207,38 @@ describe("runSlashCommandFlow", () => {
 		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
 	});
 
+	it("/review-security submits security-mode runFullPrReview through the ReviewQueue", async () => {
+		const spies = newSpies();
+		const submitSpy = vi.fn();
+		const reviewSpy = vi
+			.spyOn(reviewRun, "runFullPrReview")
+			.mockResolvedValue({
+				lastAssistant: { role: "assistant", content: [], timestamp: 0 } as never,
+				published: true,
+				publishAttempts: 1,
+			});
+
+		try {
+			await Effect.runPromise(
+				runSlashCommandFlow(baseCtx({ body: "/review-security deep pass" })).pipe(
+					Effect.provide(makeSurface(spies, "deadbeef")),
+					Effect.provide(makeReviewQueue(submitSpy)),
+				),
+			);
+
+			expect(submitSpy).toHaveBeenCalledWith("o/r#3:slash:security");
+			expect(reviewSpy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					mode: "review-security",
+					headSha: "deadbeef",
+					userSupplement: expect.stringContaining("/review-security"),
+				}),
+			);
+		} finally {
+			reviewSpy.mockRestore();
+		}
+	});
+
 	it("/review submits runFullPrReview through the ReviewQueue with the resolved head SHA", async () => {
 		const spies = newSpies();
 		const submitSpy = vi.fn();

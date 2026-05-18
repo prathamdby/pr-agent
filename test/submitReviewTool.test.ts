@@ -1,5 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { log } from "../src/log.js";
 import { buildSubmitReviewTool } from "../src/agent/submitReviewTool.js";
+import { SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
 
 vi.mock("../src/agent/publishReview.js", () => ({
 	publishReview: vi.fn(async () => undefined),
@@ -27,6 +29,10 @@ const cfg = {
 };
 
 describe("submitReview tool", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
 	it("ignores duplicate submitReview after publish", async () => {
 		const state = { published: false, inlinePublished: false, lastValidationError: null };
 		const { executor } = buildSubmitReviewTool({
@@ -52,6 +58,7 @@ describe("submitReview tool", () => {
 	});
 
 	it("sets lastValidationError on malformed payload", async () => {
+		const warnSpy = vi.spyOn(log, "warn");
 		const state = { published: false, inlinePublished: false, lastValidationError: null };
 		const { executor } = buildSubmitReviewTool({
 			cfg,
@@ -63,5 +70,17 @@ describe("submitReview tool", () => {
 		await expect(executor({ prCharacter: "x" })).rejects.toThrow(/validation failed/i);
 		expect(state.lastValidationError).toBeTruthy();
 		expect(state.published).toBe(false);
+		warnSpy.mockRestore();
+	});
+
+	it("mentions the security summary sentinel in the tool description", () => {
+		const { piTool } = buildSubmitReviewTool({
+			cfg,
+			token: "tok",
+			ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+			mode: "review-security",
+			state: { published: false, inlinePublished: false, lastValidationError: null },
+		});
+		expect(piTool.description).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
 	});
 });
