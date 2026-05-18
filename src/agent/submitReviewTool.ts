@@ -23,8 +23,14 @@ export function filterReviewAgentExecutors(
 
 export type SubmitReviewState = {
 	published: boolean;
+	/** True after inline review is on GitHub; prevents duplicate reviews on retry. */
+	inlinePublished: boolean;
 	lastValidationError: string | null;
 };
+
+export function createSubmitReviewState(): SubmitReviewState {
+	return { published: false, inlinePublished: false, lastValidationError: null };
+}
 
 export function buildSubmitReviewTool(params: {
 	cfg: Config;
@@ -68,6 +74,7 @@ export function buildSubmitReviewTool(params: {
 			cfg: params.cfg,
 			...params.ctx,
 			payload: parsed.data,
+			publishState: params.state,
 		});
 		params.state.published = true;
 		log.info("review_published", {

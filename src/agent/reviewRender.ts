@@ -5,6 +5,11 @@ export type RenderContext = ReviewPublishContext & {
 	maxFindings: number;
 };
 
+/** Escape pipe/newline so model-provided text does not break GFM table rows. */
+export function escapeTableCell(text: string): string {
+	return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
 function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
 	const lineAnchor = startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
 	return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
@@ -79,13 +84,13 @@ export function renderReviewSummaryComment(payload: ReviewPayload, ctx: RenderCo
 	rows.push(`| Effort | ${effortBar(payload.estimatedEffort)} (${payload.estimatedEffort}/5) |`);
 	rows.push(`| Relevant tests | ${payload.relevantTests} |`);
 	rows.push(
-		`| Security | ${payload.securityConcerns ?? "No security concerns identified"} |`,
+		`| Security | ${payload.securityConcerns != null ? escapeTableCell(payload.securityConcerns) : "No security concerns identified"} |`,
 	);
 
 	if (payload.followUps.length > 0) {
 		rows.push("| Follow-ups | |");
 		for (const item of payload.followUps) {
-			rows.push(`| | ${item} |`);
+			rows.push(`| | ${escapeTableCell(item)} |`);
 		}
 	}
 

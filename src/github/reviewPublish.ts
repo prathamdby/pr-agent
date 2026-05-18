@@ -8,6 +8,8 @@ export type InlineReviewComment = {
 	body: string;
 };
 
+const COMMENTS_PAGE_SIZE = 100;
+
 export async function createPullRequestReviewWithComments(
 	token: string,
 	owner: string,
@@ -31,6 +33,10 @@ export async function createPullRequestReviewWithComments(
 	return { id: data.id, url: data.html_url };
 }
 
+/**
+ * Find the bot's review summary comment by sentinel across all pages.
+ * GitHub returns comments oldest-first; keep the last match so re-runs update the newest summary.
+ */
 export async function findIssueCommentBySentinel(
 	token: string,
 	owner: string,
@@ -39,14 +45,30 @@ export async function findIssueCommentBySentinel(
 	sentinel: string,
 ): Promise<{ id: number } | null> {
 	const octokit = installationOctokit(token);
-	const { data } = await octokit.rest.issues.listComments({
-		owner,
-		repo,
-		issue_number: issueNumber,
-		per_page: 100,
-	});
-	const hit = data.find((c) => (c.body ?? "").startsWith(sentinel));
-	return hit ? { id: hit.id } : null;
+	let page = 1;
+	let lastMatch: { id: number } | null = null;
+
+	for (;;) {
+		const { data } = await octokit.rest.issues.listComments({
+			owner,
+			repo,
+			issue_number: issueNumber,
+			per_page: COMMENTS_PAGE_SIZE,
+			page,
+		});
+		if (data.length === 0) break;
+
+		for (const c of data) {
+			if ((c.body ?? "").startsWith(sentinel)) {
+				lastMatch = { id: c.id };
+			}
+		}
+
+		if (data.length < COMMENTS_PAGE_SIZE) break;
+		page++;
+	}
+
+	return lastMatch;
 }
 
 export async function createIssueComment(

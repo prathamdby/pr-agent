@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { renderInlineThreadBody, renderReviewSummaryComment } from "../src/agent/reviewRender.js";
+import {
+	escapeTableCell,
+	renderInlineThreadBody,
+	renderReviewSummaryComment,
+} from "../src/agent/reviewRender.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 
 const ctx = {
@@ -21,6 +25,12 @@ function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
 		...overrides,
 	};
 }
+
+describe("escapeTableCell", () => {
+	it("escapes pipes and newlines", () => {
+		expect(escapeTableCell("a|b\nc")).toBe("a\\|b c");
+	});
+});
 
 describe("renderReviewSummaryComment", () => {
 	it("(a) no findings", () => {
@@ -70,6 +80,18 @@ describe("renderReviewSummaryComment", () => {
 		);
 		expect(body).toMatchSnapshot();
 		expect(body).toContain("Webhook secret compared");
+	});
+
+	it("escapes pipes in security and follow-ups table cells", () => {
+		const body = renderReviewSummaryComment(
+			basePayload({
+				securityConcerns: "foo | bar",
+				followUps: ["baz | qux"],
+			}),
+			ctx,
+		);
+		expect(body).toContain("foo \\| bar");
+		expect(body).toContain("baz \\| qux");
 	});
 });
 

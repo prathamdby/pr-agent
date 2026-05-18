@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import type { Config } from "../config.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
+import { logReviewRunOutcome } from "../agent/reviewRunOutcome.js";
 import { PrGithubSurface } from "../effect/services/prGithubSurface.js";
 import { ReviewQueue } from "../effect/services/reviewQueue.js";
 import { parseSlashCommand } from "./parseSlashCommand.js";
@@ -90,7 +91,13 @@ export function runSlashCommandFlow(
 							prNumber: ctx.replyTarget.prNumber,
 							headSha,
 							userSupplement: `User invoked /review with:\n${ctx.body}`,
-						}).then(() => undefined),
+						}).then((result) => {
+							logReviewRunOutcome(result, {
+								owner: ctx.owner,
+								repo: ctx.repo,
+								prNumber: ctx.replyTarget.prNumber,
+							});
+						}),
 					catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 				}),
 			);
