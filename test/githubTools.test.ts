@@ -364,6 +364,29 @@ describe("getFileContent — three branches", () => {
 
 		expect(out).toEqual({ type: "symlink", path: "src/link" });
 	});
+
+	it("file branch with encoding=none (>1 MB): returns null content + note", async () => {
+		const reposGetContent = vi.fn().mockResolvedValue({
+			data: {
+				type: "file",
+				path: "big.bin",
+				sha: "abc",
+				size: 2_000_000,
+				content: "",
+				encoding: "none",
+			},
+		});
+		const { executors } = buildWithStub(makeOctokitStub({ reposGetContent }));
+
+		const out = (await executors.getFileContent({ owner: "o", repo: "r", path: "big.bin" })) as {
+			type: string;
+			content: string | null;
+			note?: string;
+		};
+
+		expect(out).toMatchObject({ type: "file", path: "big.bin", sha: "abc", size: 2_000_000, content: null });
+		expect(out.note).toMatch(/1 MB/);
+	});
 });
 
 describe("getBlame — branches and error paths", () => {

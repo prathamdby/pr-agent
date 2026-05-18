@@ -220,6 +220,16 @@ export function buildGithubTools(token: string): {
 			if (data.type !== "file") {
 				return { type: data.type, path: data.path };
 			}
+			if (data.encoding === "none" || !data.content) {
+				return {
+					type: "file" as const,
+					path: data.path,
+					sha: data.sha,
+					size: data.size,
+					content: null,
+					note: "File exceeds the 1 MB inline-content limit; GitHub returned metadata only. Use the Git Blobs API (rest.git.getBlob) or a narrower selection.",
+				};
+			}
 			const content = Buffer.from(data.content, "base64").toString("utf-8");
 			return {
 				type: "file" as const,
