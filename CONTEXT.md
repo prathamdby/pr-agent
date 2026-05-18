@@ -18,3 +18,6 @@ This file is **domain language only** — not a specification of how the system 
 - **Review payload** — The structured, validated description of a completed review run (findings plus overview gates), emitted once per review run via `submitReview`.
 - **Review summary comment** — A server-rendered comment on the PR conversation, identified by the sentinel `## PR Agent Review`, containing navigation and overview gates—not duplicated finding bodies from inline review threads.
 - **Security review summary comment** — Same shape as a review summary comment, identified by `## PR Agent Security Review`; may coexist with a general review summary on the same PR.
+- **Probable secondary rate limit** — GitHub returned an auth-shaped error while the installation token is still within its TTL; treated as a likely pacing/abuse limit for logging and cooldown, not a confirmed diagnosis.
+- **Truncated change set** — File listing for a review run where some changed files are omitted due to configured caps; the run continues with explicit truncation metadata.
+- **Rate-limit circuit** — After repeated classified rate-limit failures in one review run, further GitHub investigation tools are short-circuited; `submitReview` remains available.

@@ -1,6 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
 import { runFullPrReview } from "../../agent/reviewRun.js";
+import type { InstallationToken } from "../../github/appAuth.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { runSlashCommandFlow } from "../../commands/slashCommandFlow.js";
 import { log } from "../../log.js";
@@ -18,11 +19,11 @@ const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
 	WebhookHandlers,
 	{
-		readonly pullRequest: (cfg: Config, token: string, data: PullRequestData) => Effect.Effect<void, Error>;
-		readonly issueComment: (cfg: Config, token: string, data: IssueCommentData) => Effect.Effect<void, Error>;
+		readonly pullRequest: (cfg: Config, installation: InstallationToken, data: PullRequestData) => Effect.Effect<void, Error>;
+		readonly issueComment: (cfg: Config, installation: InstallationToken, data: IssueCommentData) => Effect.Effect<void, Error>;
 		readonly pullRequestReviewComment: (
 			cfg: Config,
-			token: string,
+			installation: InstallationToken,
 			data: PullRequestReviewCommentData,
 		) => Effect.Effect<void, Error>;
 	}
@@ -36,7 +37,7 @@ export const WebhookHandlersCore = Layer.effect(
 		const reviewQueue = yield* ReviewQueue;
 
 		return WebhookHandlers.of({
-			pullRequest: (cfg, token, data) =>
+			pullRequest: (cfg, installation, data) =>
 				Effect.gen(function* () {
 					const action = data.action;
 					if (!action || !AUTOMATED_PR_ACTIONS.has(action)) return;
@@ -45,6 +46,7 @@ export const WebhookHandlersCore = Layer.effect(
 					const repo = data.repository.name;
 					const prNumber = data.pull_request.number;
 					const headSha = data.pull_request.head.sha;
+					const { token, expiresAtTs: tokenExpiresAtTs } = installation;
 
 					yield* surface.acknowledgeOnPrConversation(token, owner, repo, prNumber);
 
@@ -54,7 +56,15 @@ export const WebhookHandlersCore = Layer.effect(
 						`${owner}/${repo}#${prNumber}:auto`,
 						Effect.tryPromise({
 							try: () =>
-								runFullPrReview({ cfg, token, owner, repo, prNumber, headSha }).then((result) => {
+								runFullPrReview({
+									cfg,
+									token,
+									tokenExpiresAtTs,
+									owner,
+									repo,
+									prNumber,
+									headSha,
+								}).then((result) => {
 									if (!result.published) {
 										log.warn("review_not_published", {
 											owner,
@@ -69,17 +79,19 @@ export const WebhookHandlersCore = Layer.effect(
 					);
 				}),
 
-			issueComment: (cfg, token, data) =>
+			issueComment: (cfg, installation, data) =>
 				Effect.gen(function* () {
 					if (data.action !== "created") return;
 					const body = data.comment.body ?? "";
 					if (!parseSlashCommand(body)) return;
 
+					const { token, expiresAtTs: tokenExpiresAtTs } = installation;
 					const botUserId = yield* botIdentity.getUserId(cfg, token);
 
 					yield* runSlashCommandFlow({
 						cfg,
 						token,
+						tokenExpiresAtTs,
 						owner: data.repository.owner.login,
 						repo: data.repository.name,
 						botUserId,
@@ -93,17 +105,19 @@ export const WebhookHandlersCore = Layer.effect(
 					);
 				}),
 
-			pullRequestReviewComment: (cfg, token, data) =>
+			pullRequestReviewComment: (cfg, installation, data) =>
 				Effect.gen(function* () {
 					if (data.action !== "created") return;
 					const body = data.comment.body ?? "";
 					if (!parseSlashCommand(body)) return;
 
+					const { token, expiresAtTs: tokenExpiresAtTs } = installation;
 					const botUserId = yield* botIdentity.getUserId(cfg, token);
 
 					yield* runSlashCommandFlow({
 						cfg,
 						token,
+						tokenExpiresAtTs,
 						owner: data.repository.owner.login,
 						repo: data.repository.name,
 						botUserId,

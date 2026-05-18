@@ -48,6 +48,8 @@ const cfg = {
 	maxReviewFindings: 8,
 	enableReviewLabelsEffort: false,
 	enableReviewLabelsSecurity: false,
+	maxPrFilesListed: 300,
+	maxPrFilesPatchBytes: 500_000,
 } satisfies Config;
 
 const defaultCompleteResult = () => ({

@@ -152,22 +152,107 @@ describe("buildGithubTools — happy paths", () => {
 		expect(out[0]).toMatchObject({ authorLogin: "octocat" });
 	});
 
-	it("listPullRequestFiles forwards paging and returns patch", async () => {
-		const pullsListFiles = vi.fn().mockResolvedValue({
-			data: [
-				{ filename: "f.ts", status: "modified", additions: 1, deletions: 1, changes: 2, patch: "@@..." },
-			],
-		});
+	it("listPullRequestFiles paginates server-side at per_page 100 and returns patch", async () => {
+		const page1 = Array.from({ length: 100 }, (_, i) => ({
+			filename: `a${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 1,
+			changes: 2,
+			patch: `@@a${i}`,
+		}));
+		const pullsListFiles = vi
+			.fn()
+			.mockResolvedValueOnce({ data: page1 })
+			.mockResolvedValueOnce({
+				data: [
+					{ filename: "b.ts", status: "added", additions: 1, deletions: 0, changes: 1, patch: "@@b" },
+				],
+			});
 		const { executors } = buildWithStub(makeOctokitStub({ pullsListFiles }));
 
 		const out = (await executors.listPullRequestFiles({
 			owner: "o",
 			repo: "r",
 			pullNumber: 3,
-		})) as Array<{ patch: string }>;
+		})) as { files: Array<{ patch: string }>; truncated: boolean };
 
-		expect(pullsListFiles).toHaveBeenCalledWith({ owner: "o", repo: "r", pull_number: 3, per_page: 30, page: 1 });
-		expect(out[0].patch).toBe("@@...");
+		expect(pullsListFiles).toHaveBeenNthCalledWith(1, {
+			owner: "o",
+			repo: "r",
+			pull_number: 3,
+			per_page: 100,
+			page: 1,
+		});
+		expect(pullsListFiles).toHaveBeenNthCalledWith(2, {
+			owner: "o",
+			repo: "r",
+			pull_number: 3,
+			per_page: 100,
+			page: 2,
+		});
+		expect(out.files).toHaveLength(101);
+		expect(out.files[0].patch).toBe("@@a0");
+		expect(out.truncated).toBe(false);
+	});
+
+	it("listPullRequestFiles truncates at maxPrFilesListed", async () => {
+		const rows = Array.from({ length: 5 }, (_, i) => ({
+			filename: `f${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 1,
+			changes: 2,
+			patch: `@@${i}`,
+		}));
+		const pullsListFiles = vi.fn().mockResolvedValue({ data: rows });
+		vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+		const { executors } = buildGithubTools("tok", { maxPrFilesListed: 3, maxPrFilesPatchBytes: 500_000 });
+
+		const out = (await executors.listPullRequestFiles({
+			owner: "o",
+			repo: "r",
+			pullNumber: 1,
+		})) as { files: unknown[]; truncated: boolean; omittedCount: number; warning?: string };
+
+		expect(pullsListFiles).toHaveBeenCalledTimes(1);
+		expect(out.files).toHaveLength(3);
+		expect(out.truncated).toBe(true);
+		expect(out.omittedCount).toBe(2);
+		expect(out.warning).toMatch(/truncated/i);
+	});
+
+	it("listPullRequestFiles stops pagination once maxPrFilesListed is reached", async () => {
+		const page1 = Array.from({ length: 100 }, (_, i) => ({
+			filename: `a${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 1,
+			changes: 2,
+		}));
+		const page2 = Array.from({ length: 100 }, (_, i) => ({
+			filename: `b${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 1,
+			changes: 2,
+		}));
+		const pullsListFiles = vi
+			.fn()
+			.mockResolvedValueOnce({ data: page1 })
+			.mockResolvedValueOnce({ data: page2 });
+		vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+		const { executors } = buildGithubTools("tok", { maxPrFilesListed: 150, maxPrFilesPatchBytes: 500_000 });
+
+		const out = (await executors.listPullRequestFiles({
+			owner: "o",
+			repo: "r",
+			pullNumber: 1,
+		})) as { files: unknown[]; truncated: boolean };
+
+		expect(pullsListFiles).toHaveBeenCalledTimes(2);
+		expect(out.files).toHaveLength(150);
+		expect(out.truncated).toBe(true);
 	});
 
 	it("listPullRequestReviews returns authorLogin instead of bare author", async () => {

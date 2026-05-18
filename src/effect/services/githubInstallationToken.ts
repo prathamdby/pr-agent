@@ -1,6 +1,6 @@
 import { Clock, Context, Deferred, Effect, Layer, Ref } from "effect";
 import type { Config } from "../../config.js";
-import { mintInstallationAuth } from "../../github/appAuth.js";
+import { mintInstallationAuth, type InstallationToken } from "../../github/appAuth.js";
 import { log } from "../../log.js";
 
 const FRESHNESS_BUFFER_MS = 60_000;
@@ -8,12 +8,12 @@ const FALLBACK_TTL_MS = 55 * 60 * 1000;
 
 type Entry =
   | { readonly tag: "value"; readonly token: string; readonly expiresAtTs: number }
-  | { readonly tag: "pending"; readonly deferred: Deferred.Deferred<string, Error> };
+  | { readonly tag: "pending"; readonly deferred: Deferred.Deferred<InstallationToken, Error> };
 
 type StoreAction =
-  | { readonly tag: "hit"; readonly token: string }
-  | { readonly tag: "wait"; readonly deferred: Deferred.Deferred<string, Error> }
-  | { readonly tag: "claim"; readonly deferred: Deferred.Deferred<string, Error> };
+  | { readonly tag: "hit"; readonly token: InstallationToken }
+  | { readonly tag: "wait"; readonly deferred: Deferred.Deferred<InstallationToken, Error> }
+  | { readonly tag: "claim"; readonly deferred: Deferred.Deferred<InstallationToken, Error> };
 
 export class GithubInstallationToken extends Context.Tag("GithubInstallationToken")<
   GithubInstallationToken,
@@ -21,7 +21,7 @@ export class GithubInstallationToken extends Context.Tag("GithubInstallationToke
     readonly getToken: (
       cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
       installationId: number,
-    ) => Effect.Effect<string, Error>;
+    ) => Effect.Effect<InstallationToken, Error>;
   }
 >() {}
 
@@ -34,13 +34,12 @@ export const GithubInstallationTokenLive = Layer.effect(
       getToken: (cfg, installationId) =>
         Effect.gen(function* () {
           const now = yield* Clock.currentTimeMillis;
-          const candidate = yield* Deferred.make<string, Error>();
+          const candidate = yield* Deferred.make<InstallationToken, Error>();
 
-          // Atomic check-and-claim: return fresh token, attach to in-flight mint, or claim it. Expired entries fall through to claim.
           const action = yield* Ref.modify(store, (map): readonly [StoreAction, Map<number, Entry>] => {
             const hit = map.get(installationId);
             if (hit && hit.tag === "value" && hit.expiresAtTs - FRESHNESS_BUFFER_MS > now) {
-              return [{ tag: "hit", token: hit.token }, map];
+              return [{ tag: "hit", token: { token: hit.token, expiresAtTs: hit.expiresAtTs } }, map];
             }
             if (hit && hit.tag === "pending") {
               return [{ tag: "wait", deferred: hit.deferred }, map];
@@ -52,22 +51,23 @@ export const GithubInstallationTokenLive = Layer.effect(
           if (action.tag === "hit") return action.token;
           if (action.tag === "wait") return yield* Deferred.await(action.deferred);
 
-          // Sole minter: on failure clear the pending entry so a later caller retries.
           return yield* Effect.tryPromise({
             try: () => mintInstallationAuth(cfg, installationId),
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
           }).pipe(
-            Effect.tap((auth) =>
-              Effect.gen(function* () {
-                const expiresAtTs = auth.expiresAt ? Date.parse(auth.expiresAt) : now + FALLBACK_TTL_MS;
+            Effect.flatMap((auth) => {
+              const expiresAtTs = auth.expiresAt ? Date.parse(auth.expiresAt) : now + FALLBACK_TTL_MS;
+              const value: InstallationToken = { token: auth.token, expiresAtTs };
+              return Effect.gen(function* () {
                 yield* Ref.update(store, (m) => {
                   m.set(installationId, { tag: "value", token: auth.token, expiresAtTs });
                   return m;
                 });
-                yield* Deferred.succeed(action.deferred, auth.token);
+                yield* Deferred.succeed(action.deferred, value);
                 log.debug("minted_installation_token", { installationId, expiresAt: auth.expiresAt });
-              }),
-            ),
+                return value;
+              });
+            }),
             Effect.tapError((err) =>
               Effect.gen(function* () {
                 yield* Ref.update(store, (m) => {
@@ -77,7 +77,6 @@ export const GithubInstallationTokenLive = Layer.effect(
                 yield* Deferred.fail(action.deferred, err);
               }),
             ),
-            Effect.map((auth) => auth.token),
           );
         }),
     });

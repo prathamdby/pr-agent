@@ -5,9 +5,22 @@ import { log } from "../log.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { createIssueComment } from "../github/reviewPublish.js";
-import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
+import { automatedSecuritySystemPrompt, githubToolingDiscipline } from "./securityPrompt.js";
 import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
 import type { ReviewMode } from "./reviewSchema.js";
+import {
+	classifyGithubToolError,
+	formatToolErrorMessage,
+	isInstallationTokenNearExpiry,
+	isRateLimitClassification,
+	logGithubToolRequestError,
+} from "../github/githubRequestError.js";
+
+const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
+const CIRCUIT_OPEN_USER_MESSAGE =
+	"Stop GitHub tool calls; call submitReview now with your current analysis from the conversation above.";
+const CIRCUIT_OPEN_TOOL_RESULT =
+	"Rate-limit circuit open: further GitHub investigation tools are blocked for this review run. Call submitReview now.";
 
 const PUBLISH_FALLBACK_SENTINEL = "## PR Agent Review — could not publish structured output";
 const SECURITY_PUBLISH_FALLBACK_SENTINEL =
@@ -76,8 +89,10 @@ function buildAutomatedSystemPrompt(): string {
 		"",
 		"## Getting started (GitHub tooling)",
 		"1. Understand context: inspect the PR body, linked issues/tickets via tools where possible, head SHA, and file list touched by this PR.",
-		"2. Obtain the change set: inspect the unified diff / changed files via tools; work through everything that changed—leave no touched file unscanned.",
+		"2. Obtain the change set: call `listPullRequestFiles` and inspect patches; work through everything that changed—leave no touched file unscanned.",
 		"3. Do not speculate: verify suspicion with reads against the codebase or API responses reachable through tools.",
+		"",
+		githubToolingDiscipline,
 		"",
 		"<!-- BEGIN_SHARED_METHODOLOGY -->",
 		"",
@@ -177,6 +192,7 @@ function buildAutomatedSystemPrompt(): string {
 export async function runFullPrReview(params: {
 	cfg: Config;
 	token: string;
+	tokenExpiresAtTs: number;
 	owner: string;
 	repo: string;
 	prNumber: number;
@@ -184,10 +200,13 @@ export async function runFullPrReview(params: {
 	mode?: ReviewMode;
 	userSupplement?: string;
 }): Promise<ReviewRunResult> {
-	const { cfg, token, owner, repo, prNumber, headSha, userSupplement } = params;
+	const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, headSha, userSupplement } = params;
 	const reviewMode = params.mode ?? "review";
 
-	const gh = buildGithubTools(token);
+	const gh = buildGithubTools(token, {
+		maxPrFilesListed: cfg.maxPrFilesListed,
+		maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+	});
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
 	const submitState = { published: false, inlinePublished: false, lastValidationError: null };
 	const publishCtx = { owner, repo, prNumber, headSha };
@@ -239,12 +258,57 @@ export async function runFullPrReview(params: {
 	let lastAssistant: AssistantMessage | null = null;
 	let stopLoop = false;
 	let publishAttempts = 0;
+	let rateLimitConsecutiveFailures = 0;
+	let rateLimitCircuitOpen = false;
+	let circuitUserMessageSent = false;
+
+	const logCtx = {
+		expiresAtTs: tokenExpiresAtTs,
+		owner,
+		repo,
+		prNumber,
+		mode: reviewMode,
+	};
+
+	const githubExecutorNames = new Set(Object.keys(gh.executors));
 
 	async function appendToolResults(toolCalls: ToolCall[]) {
 		for (const call of toolCalls) {
 			let text: string;
 			let isError = false;
+
+			if (
+				rateLimitCircuitOpen &&
+				call.name !== "submitReview" &&
+				githubExecutorNames.has(call.name)
+			) {
+				log.info("github_tool_circuit_short_circuit", { tool: call.name });
+				context.messages.push({
+					role: "toolResult",
+					toolCallId: call.id,
+					toolName: call.name,
+					content: [{ type: "text", text: CIRCUIT_OPEN_TOOL_RESULT }],
+					isError: true,
+					timestamp: Date.now(),
+				});
+				continue;
+			}
+
 			try {
+				if (
+					githubExecutorNames.has(call.name) &&
+					isInstallationTokenNearExpiry(tokenExpiresAtTs)
+				) {
+					log.warn("token_expired_before_tool", {
+						tool: call.name,
+						tokenExpiresInSeconds: Math.max(
+							0,
+							Math.floor((tokenExpiresAtTs - Date.now()) / 1000),
+						),
+					});
+					throw new Error("Installation token is near expiry for this review run");
+				}
+
 				const exec = executors[call.name];
 				if (!exec) throw new Error(`Unknown tool: ${call.name}`);
 				const out = await exec(call.arguments);
@@ -252,10 +316,45 @@ export async function runFullPrReview(params: {
 				if (call.name === "submitReview" && submitState.published) {
 					stopLoop = true;
 				}
+				if (githubExecutorNames.has(call.name)) {
+					rateLimitConsecutiveFailures = 0;
+				}
 			} catch (e) {
 				isError = true;
-				text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
-				log.warn("tool_execute_failed", { tool: call.name, message: text });
+				const isGithubTool = githubExecutorNames.has(call.name);
+				if (isGithubTool) {
+					const classified = classifyGithubToolError(e, { expiresAtTs: tokenExpiresAtTs });
+					logGithubToolRequestError(call.name, e, logCtx, classified);
+					text = formatToolErrorMessage(call.name, e, classified);
+
+					if (isRateLimitClassification(classified.classification)) {
+						rateLimitConsecutiveFailures++;
+						if (
+							!rateLimitCircuitOpen &&
+							rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
+						) {
+							rateLimitCircuitOpen = true;
+							log.warn("review_rate_limit_circuit_open", {
+								consecutiveFailures: rateLimitConsecutiveFailures,
+								owner,
+								repo,
+								pr: prNumber,
+								mode: reviewMode,
+							});
+							if (!circuitUserMessageSent) {
+								circuitUserMessageSent = true;
+								context.messages.push({
+									role: "user",
+									content: CIRCUIT_OPEN_USER_MESSAGE,
+									timestamp: Date.now(),
+								});
+							}
+						}
+					}
+				} else {
+					text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
+					log.warn("tool_execute_failed", { tool: call.name, message: text });
+				}
 			}
 
 			context.messages.push({

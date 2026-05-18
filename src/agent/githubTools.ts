@@ -80,11 +80,98 @@ type BlameResponse = {
 	};
 };
 
-export function buildGithubTools(token: string): {
+async function listPullRequestFilesPaginated(
+	octokit: ReturnType<typeof installationOctokit>,
+	owner: string,
+	repo: string,
+	pullNumber: number,
+	limits: { maxPrFilesListed: number; maxPrFilesPatchBytes: number },
+): Promise<{
+	files: Array<{
+		filename: string;
+		status: string;
+		additions: number;
+		deletions: number;
+		changes: number;
+		patch?: string;
+		patchOmitted?: boolean;
+	}>;
+	truncated: boolean;
+	omittedCount: number;
+	warning?: string;
+}> {
+	const all: Array<{
+		filename: string;
+		status: string;
+		additions: number;
+		deletions: number;
+		changes: number;
+		patch?: string;
+	}> = [];
+
+	let truncated = false;
+	let omittedCount = 0;
+
+	for (let page = 1; ; page++) {
+		const { data } = await octokit.rest.pulls.listFiles({
+			owner,
+			repo,
+			pull_number: pullNumber,
+			per_page: 100,
+			page,
+		});
+		if (data.length === 0) break;
+		let consumed = 0;
+		for (const file of data) {
+			if (all.length >= limits.maxPrFilesListed) {
+				truncated = true;
+				omittedCount += data.length - consumed;
+				break;
+			}
+			all.push({
+				filename: file.filename,
+				status: file.status,
+				additions: file.additions,
+				deletions: file.deletions,
+				changes: file.changes,
+				patch: file.patch ?? undefined,
+			});
+			consumed++;
+		}
+		if (truncated) break;
+		if (data.length < 100) break;
+	}
+
+	let patchBytes = 0;
+	const files = all.map((file) => {
+		const patch = file.patch;
+		if (patch == null) {
+			return { ...file, patch: undefined };
+		}
+		const patchLen = Buffer.byteLength(patch, "utf8");
+		if (patchBytes + patchLen <= limits.maxPrFilesPatchBytes) {
+			patchBytes += patchLen;
+			return file;
+		}
+		return { ...file, patch: undefined, patchOmitted: true as const };
+	});
+
+	const warning = truncated
+		? `Change set truncated to ${limits.maxPrFilesListed} files (${omittedCount} omitted).`
+		: undefined;
+
+	return { files, truncated, omittedCount, warning };
+}
+
+export function buildGithubTools(
+	token: string,
+	limits?: { maxPrFilesListed: number; maxPrFilesPatchBytes: number },
+): {
 	piTools: PiTool[];
 	executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
 	const octokit = installationOctokit(token);
+	const fileLimits = limits ?? { maxPrFilesListed: 300, maxPrFilesPatchBytes: 500_000 };
 
 	const getPullRequest: ReviewTool = {
 		description: "Get detailed information about a specific pull request",
@@ -148,25 +235,15 @@ export function buildGithubTools(token: string): {
 			owner: z.string().describe("Repository owner"),
 			repo: z.string().describe("Repository name"),
 			pullNumber: z.number().describe("Pull request number"),
-			perPage: z.number().optional().default(30).describe("Number of results to return (max 100)"),
-			page: z.number().optional().default(1).describe("Page number for pagination"),
 		}),
-		run: async ({ owner, repo, pullNumber, perPage, page }) => {
-			const { data } = await octokit.rest.pulls.listFiles({
-				owner,
-				repo,
-				pull_number: pullNumber,
-				per_page: perPage,
-				page,
-			});
-			return data.map((file) => ({
-				filename: file.filename,
-				status: file.status,
-				additions: file.additions,
-				deletions: file.deletions,
-				changes: file.changes,
-				patch: file.patch,
-			}));
+		run: async ({ owner, repo, pullNumber }) => {
+			const result = await listPullRequestFilesPaginated(octokit, owner, repo, pullNumber, fileLimits);
+			return {
+				files: result.files,
+				truncated: result.truncated,
+				omittedCount: result.omittedCount,
+				warning: result.warning,
+			};
 		},
 	};
 
