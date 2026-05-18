@@ -7,7 +7,7 @@ const FRESHNESS_BUFFER_MS = 60_000;
 const FALLBACK_TTL_MS = 55 * 60 * 1000;
 
 type Entry =
-  | { readonly tag: "value"; readonly token: string; readonly expiresAtTs: number }
+  | { readonly tag: "value"; readonly token: InstallationToken }
   | { readonly tag: "pending"; readonly deferred: Deferred.Deferred<InstallationToken, Error> };
 
 type StoreAction =
@@ -38,8 +38,8 @@ export const GithubInstallationTokenLive = Layer.effect(
 
           const action = yield* Ref.modify(store, (map): readonly [StoreAction, Map<number, Entry>] => {
             const hit = map.get(installationId);
-            if (hit && hit.tag === "value" && hit.expiresAtTs - FRESHNESS_BUFFER_MS > now) {
-              return [{ tag: "hit", token: { token: hit.token, expiresAtTs: hit.expiresAtTs } }, map];
+            if (hit && hit.tag === "value" && hit.token.expiresAtTs - FRESHNESS_BUFFER_MS > now) {
+              return [{ tag: "hit", token: hit.token }, map];
             }
             if (hit && hit.tag === "pending") {
               return [{ tag: "wait", deferred: hit.deferred }, map];
@@ -60,7 +60,7 @@ export const GithubInstallationTokenLive = Layer.effect(
               const value: InstallationToken = { token: auth.token, expiresAtTs };
               return Effect.gen(function* () {
                 yield* Ref.update(store, (m) => {
-                  m.set(installationId, { tag: "value", token: auth.token, expiresAtTs });
+                  m.set(installationId, { tag: "value", token: value });
                   return m;
                 });
                 yield* Deferred.succeed(action.deferred, value);

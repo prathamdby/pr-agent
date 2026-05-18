@@ -222,6 +222,48 @@ describe("buildGithubTools — happy paths", () => {
 		expect(out.warning).toMatch(/truncated/i);
 	});
 
+	it("listPullRequestFiles warns when patch bytes exceed maxPrFilesPatchBytes", async () => {
+		const bigPatch = "x".repeat(200);
+		const pullsListFiles = vi.fn().mockResolvedValue({
+			data: [
+				{
+					filename: "a.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 1,
+					changes: 2,
+					patch: bigPatch,
+				},
+				{
+					filename: "b.ts",
+					status: "modified",
+					additions: 1,
+					deletions: 1,
+					changes: 2,
+					patch: bigPatch,
+				},
+			],
+		});
+		vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+		const { executors } = buildGithubTools("tok", { maxPrFilesListed: 10, maxPrFilesPatchBytes: 250 });
+
+		const out = (await executors.listPullRequestFiles({
+			owner: "o",
+			repo: "r",
+			pullNumber: 1,
+		})) as {
+			files: Array<{ filename: string; patch?: string; patchOmitted?: boolean }>;
+			truncated: boolean;
+			warning?: string;
+		};
+
+		expect(out.files[0].patch).toBe(bigPatch);
+		expect(out.files[1].patchOmitted).toBe(true);
+		expect(out.truncated).toBe(false);
+		expect(out.warning).toMatch(/patches omitted for 1 file/i);
+		expect(out.warning).toMatch(/250 byte cap/i);
+	});
+
 	it("listPullRequestFiles stops pagination once maxPrFilesListed is reached", async () => {
 		const page1 = Array.from({ length: 100 }, (_, i) => ({
 			filename: `a${i}.ts`,

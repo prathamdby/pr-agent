@@ -143,6 +143,7 @@ async function listPullRequestFilesPaginated(
 	}
 
 	let patchBytes = 0;
+	let patchOmittedCount = 0;
 	const files = all.map((file) => {
 		const patch = file.patch;
 		if (patch == null) {
@@ -153,12 +154,22 @@ async function listPullRequestFilesPaginated(
 			patchBytes += patchLen;
 			return file;
 		}
+		patchOmittedCount++;
 		return { ...file, patch: undefined, patchOmitted: true as const };
 	});
 
-	const warning = truncated
-		? `Change set truncated to ${limits.maxPrFilesListed} files (${omittedCount} omitted).`
-		: undefined;
+	const warnings: string[] = [];
+	if (truncated) {
+		warnings.push(
+			`Change set truncated to ${limits.maxPrFilesListed} files (${omittedCount} omitted).`,
+		);
+	}
+	if (patchOmittedCount > 0) {
+		warnings.push(
+			`Unified diff patches omitted for ${patchOmittedCount} file(s) after ${limits.maxPrFilesPatchBytes} byte cap.`,
+		);
+	}
+	const warning = warnings.length > 0 ? warnings.join(" ") : undefined;
 
 	return { files, truncated, omittedCount, warning };
 }
