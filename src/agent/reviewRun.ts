@@ -1,9 +1,9 @@
 import { complete, getModel } from "@earendil-works/pi-ai";
-import type { AssistantMessage, Context, Message, ToolCall } from "@earendil-works/pi-ai";
+import type { AssistantMessage, Context, Message, Tool as PiTool, ToolCall } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import { bridgeGithubToolsToPi } from "../bridge/aiSdkToolsToPiTools.js";
 import { buildContext7Toolset } from "./context7Tools.js";
-import { buildCodeReviewToolset } from "./githubTools.js";
+import { buildGithubTools } from "./githubTools.js";
 import { log } from "../log.js";
 
 export type ReviewRunResult = { lastAssistant: AssistantMessage };
@@ -132,9 +132,18 @@ export async function runFullPrReview(params: {
 }): Promise<ReviewRunResult> {
 	const { cfg, token, owner, repo, prNumber, headSha, userSupplement } = params;
 
-	const ghToolset = buildCodeReviewToolset(token) as unknown as Record<string, unknown>;
-	const ctxToolset = buildContext7Toolset({ apiKey: cfg.context7ApiKey });
-	const { piTools, executeTool } = bridgeGithubToolsToPi({ ...ghToolset, ...ctxToolset });
+	const gh = buildGithubTools(token);
+	const ctxBridged = bridgeGithubToolsToPi(buildContext7Toolset({ apiKey: cfg.context7ApiKey }));
+	const piTools: PiTool[] = [...gh.piTools, ...ctxBridged.piTools];
+	const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
+		...gh.executors,
+		...Object.fromEntries(
+			ctxBridged.piTools.map((t) => [
+				t.name,
+				(args: Record<string, unknown>) => ctxBridged.executeTool(t.name, args, ""),
+			]),
+		),
+	};
 
 	const model = getModel(cfg.piProvider, cfg.piModel as never);
 
@@ -168,7 +177,9 @@ export async function runFullPrReview(params: {
 			let text: string;
 			let isError = false;
 			try {
-				const out = await executeTool(call.name, call.arguments, call.id);
+				const exec = executors[call.name];
+				if (!exec) throw new Error(`Unknown tool: ${call.name}`);
+				const out = await exec(call.arguments);
 				text = typeof out === "string" ? out : JSON.stringify(out, null, 2);
 			} catch (e) {
 				isError = true;
