@@ -33,10 +33,6 @@ export async function createPullRequestReviewWithComments(
 	return { id: data.id, url: data.html_url };
 }
 
-/**
- * Find the bot's review summary comment by sentinel across all pages.
- * GitHub returns comments oldest-first; keep the last match so re-runs update the newest summary.
- */
 export async function findIssueCommentBySentinel(
 	token: string,
 	owner: string,

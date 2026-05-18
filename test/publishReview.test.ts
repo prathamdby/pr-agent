@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReview } from "../src/agent/publishReview.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
-import { createSubmitReviewState } from "../src/agent/submitReviewTool.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
 	createPullRequestReviewWithComments: vi.fn(async () => ({ id: 1, url: "https://example.com/review/1" })),
@@ -55,7 +54,7 @@ describe("publishReview", () => {
 	});
 
 	it("uses REQUEST_CHANGES for P1 and passes inline comments", async () => {
-		const publishState = createSubmitReviewState();
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
 		await publishReview({ ...baseParams, publishState });
 
 		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
@@ -81,7 +80,7 @@ describe("publishReview", () => {
 	it("uses COMMENT when only P2 findings", async () => {
 		await publishReview({
 			...baseParams,
-			publishState: createSubmitReviewState(),
+			publishState: { published: false, inlinePublished: false, lastValidationError: null },
 			payload: {
 				...payload,
 				findings: [{ ...payload.findings[0]!, severity: "P2" }],
@@ -98,7 +97,7 @@ describe("publishReview", () => {
 	});
 
 	it("skips inline review when inlinePublished is already true", async () => {
-		const publishState = createSubmitReviewState();
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
 		publishState.inlinePublished = true;
 
 		await publishReview({ ...baseParams, publishState });
@@ -113,7 +112,7 @@ describe("publishReview", () => {
 		await expect(
 			publishReview({
 				...baseParams,
-				publishState: createSubmitReviewState(),
+				publishState: { published: false, inlinePublished: false, lastValidationError: null },
 				cfg: {
 					maxReviewFindings: 8,
 					enableReviewLabelsEffort: true,

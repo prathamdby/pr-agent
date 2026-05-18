@@ -1,7 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
 import { runFullPrReview } from "../../agent/reviewRun.js";
-import { logReviewRunOutcome } from "../../agent/reviewRunOutcome.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { runSlashCommandFlow } from "../../commands/slashCommandFlow.js";
 import { log } from "../../log.js";
@@ -56,7 +55,7 @@ export const WebhookHandlersCore = Layer.effect(
 						Effect.tryPromise({
 							try: () =>
 								runFullPrReview({ cfg, token, owner, repo, prNumber, headSha }).then((result) => {
-									logReviewRunOutcome(result, { owner, repo, prNumber });
+									if (!result.published) log.warn("review_not_published", { owner, repo, pr: prNumber });
 								}),
 							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 						}),

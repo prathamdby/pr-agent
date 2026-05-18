@@ -17,7 +17,6 @@ export function reviewLabelsFromPayload(
 	return labels;
 }
 
-/** Idempotent label sync: drop managed namespace, preserve unrelated labels, add current run's. */
 export function syncReviewLabels(currentLabels: string[], nextManaged: string[]): string[] {
 	const preserved = currentLabels.filter(
 		(name) => !name.startsWith(LABEL_REVIEW_EFFORT_PREFIX) && name !== LABEL_SECURITY_CONCERN,

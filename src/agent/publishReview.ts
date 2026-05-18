@@ -18,14 +18,12 @@ import {
 } from "./reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
 
-export type PublishReviewParams = ReviewPublishContext & {
+export async function publishReview(params: ReviewPublishContext & {
 	token: string;
 	cfg: Pick<Config, "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
 	payload: ReviewPayload;
 	publishState: SubmitReviewState;
-};
-
-export async function publishReview(params: PublishReviewParams): Promise<void> {
+}): Promise<void> {
 	const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
 	const payload = normalizeReviewPayload(raw);
 	const inlineFindings = selectInlineFindings(payload.findings, cfg.maxReviewFindings);
@@ -54,8 +52,6 @@ export async function publishReview(params: PublishReviewParams): Promise<void> 
 			event,
 			inlineCount: comments.length,
 		});
-	} else {
-		log.info("review_inline_skipped_already_published", { owner, repo, pr: prNumber });
 	}
 
 	const summaryBody = renderReviewSummaryComment(payload, {

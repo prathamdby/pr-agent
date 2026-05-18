@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSubmitReviewTool, createSubmitReviewState } from "../src/agent/submitReviewTool.js";
+import { buildSubmitReviewTool } from "../src/agent/submitReviewTool.js";
 
 vi.mock("../src/agent/publishReview.js", () => ({
 	publishReview: vi.fn(async () => undefined),
@@ -27,7 +27,7 @@ const cfg = {
 
 describe("submitReview tool", () => {
 	it("ignores duplicate submitReview after publish", async () => {
-		const state = createSubmitReviewState();
+		const state = { published: false, inlinePublished: false, lastValidationError: null };
 		const { executor } = buildSubmitReviewTool({
 			cfg,
 			token: "tok",
@@ -51,7 +51,7 @@ describe("submitReview tool", () => {
 	});
 
 	it("sets lastValidationError on malformed payload", async () => {
-		const state = createSubmitReviewState();
+		const state = { published: false, inlinePublished: false, lastValidationError: null };
 		const { executor } = buildSubmitReviewTool({
 			cfg,
 			token: "tok",

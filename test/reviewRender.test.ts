@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	escapeTableCell,
-	renderInlineThreadBody,
-	renderReviewSummaryComment,
-} from "../src/agent/reviewRender.js";
+import { renderInlineThreadBody, renderReviewSummaryComment } from "../src/agent/reviewRender.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 
 const ctx = {
@@ -25,12 +21,6 @@ function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
 		...overrides,
 	};
 }
-
-describe("escapeTableCell", () => {
-	it("escapes pipes and newlines", () => {
-		expect(escapeTableCell("a|b\nc")).toBe("a\\|b c");
-	});
-});
 
 describe("renderReviewSummaryComment", () => {
 	it("(a) no findings", () => {

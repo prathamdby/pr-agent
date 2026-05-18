@@ -5,8 +5,7 @@ export type RenderContext = ReviewPublishContext & {
 	maxFindings: number;
 };
 
-/** Escape pipe/newline so model-provided text does not break GFM table rows. */
-export function escapeTableCell(text: string): string {
+function escapeTableCell(text: string): string {
 	return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 

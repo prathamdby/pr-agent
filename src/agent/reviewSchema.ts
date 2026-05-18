@@ -61,7 +61,6 @@ export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
 	return severity === "P0" || severity === "P1" || severity === "P2";
 }
 
-/** P0 → P1 → P2 inline candidates; P3 excluded. Preserves model order within each band. */
 export function selectInlineFindings(findings: ReviewFinding[], maxFindings: number): ReviewFinding[] {
 	const inline = findings.filter((f) => isInlineSeverity(f.severity));
 	inline.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);

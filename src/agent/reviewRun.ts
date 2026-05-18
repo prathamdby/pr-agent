@@ -4,12 +4,7 @@ import type { Config } from "../config.js";
 import { log } from "../log.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
-import {
-	buildSubmitReviewTool,
-	createSubmitReviewState,
-	filterReviewAgentExecutors,
-	filterReviewAgentTools,
-} from "./submitReviewTool.js";
+import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
 
 export type ReviewRunResult = { lastAssistant: AssistantMessage; published: boolean };
 
@@ -147,7 +142,7 @@ export async function runFullPrReview(params: {
 
 	const gh = buildGithubTools(token);
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
-	const submitState = createSubmitReviewState();
+	const submitState = { published: false, inlinePublished: false, lastValidationError: null };
 	const publishCtx = { owner, repo, prNumber, headSha };
 	const { piTool: submitTool, executor: submitExecutor } = buildSubmitReviewTool({
 		cfg,
