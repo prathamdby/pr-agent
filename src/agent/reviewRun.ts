@@ -1,8 +1,7 @@
 import { complete, getModel } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Message, Tool as PiTool, ToolCall } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import { bridgeGithubToolsToPi } from "../bridge/aiSdkToolsToPiTools.js";
-import { buildContext7Toolset } from "./context7Tools.js";
+import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { log } from "../log.js";
 
@@ -133,16 +132,11 @@ export async function runFullPrReview(params: {
 	const { cfg, token, owner, repo, prNumber, headSha, userSupplement } = params;
 
 	const gh = buildGithubTools(token);
-	const ctxBridged = bridgeGithubToolsToPi(buildContext7Toolset({ apiKey: cfg.context7ApiKey }));
-	const piTools: PiTool[] = [...gh.piTools, ...ctxBridged.piTools];
+	const ctx = buildContext7Tools({ apiKey: cfg.context7ApiKey });
+	const piTools: PiTool[] = [...gh.piTools, ...ctx.piTools];
 	const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
 		...gh.executors,
-		...Object.fromEntries(
-			ctxBridged.piTools.map((t) => [
-				t.name,
-				(args: Record<string, unknown>) => ctxBridged.executeTool(t.name, args, ""),
-			]),
-		),
+		...ctx.executors,
 	};
 
 	const model = getModel(cfg.piProvider, cfg.piModel as never);
