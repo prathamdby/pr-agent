@@ -135,6 +135,28 @@ describe("GithubInstallationToken service", () => {
     }
   });
 
+  it("uses fallback TTL when auth.expiresAt is unparseable", async () => {
+    const spy = mockMint("tok-a", "not-a-valid-date");
+
+    const program = Effect.gen(function* () {
+      const svc = yield* GithubInstallationToken;
+      return yield* svc.getToken(cfg, 1);
+    });
+
+    try {
+      const token = await Effect.runPromise(
+        program.pipe(
+          Effect.provide(GithubInstallationTokenLive),
+          Effect.provide(TestContext.TestContext),
+        ),
+      );
+      expect(Number.isFinite(token.expiresAtTs)).toBe(true);
+      expect(token.expiresAtTs).toBe(55 * 60 * 1000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("retries after a failed mint (pending entry is cleared)", async () => {
     let calls = 0;
     const spy = vi.spyOn(appAuth, "mintInstallationAuth").mockImplementation(async (_cfg, id) => {

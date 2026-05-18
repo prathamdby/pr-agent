@@ -264,6 +264,73 @@ describe("buildGithubTools — happy paths", () => {
 		expect(out.warning).toMatch(/250 byte cap/i);
 	});
 
+	it("listPullRequestFiles does not double-count omitted files when file and patch caps coincide", async () => {
+		const smallPatch = "x".repeat(49);
+		const bigPatch = "x".repeat(202);
+		const page = [
+			{
+				filename: "a.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+				patch: smallPatch,
+			},
+			{
+				filename: "b.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+				patch: smallPatch,
+			},
+			{
+				filename: "c.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+				patch: smallPatch,
+			},
+			{
+				filename: "d.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+				patch: smallPatch,
+			},
+			{
+				filename: "e.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+				patch: bigPatch,
+			},
+			...Array.from({ length: 5 }, (_, i) => ({
+				filename: `f${i}.ts`,
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+			})),
+		];
+		const pullsListFiles = vi.fn().mockResolvedValueOnce({ data: page });
+		vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+		const { executors } = buildGithubTools("tok", { maxPrFilesListed: 5, maxPrFilesPatchBytes: 250 });
+
+		const out = (await executors.listPullRequestFiles({
+			owner: "o",
+			repo: "r",
+			pullNumber: 1,
+		})) as { truncated: boolean; omittedCount: number; files: unknown[] };
+
+		expect(out.truncated).toBe(true);
+		expect(out.files).toHaveLength(5);
+		expect(out.omittedCount).toBe(5);
+	});
+
 	it("listPullRequestFiles stops pagination when patch byte cap is reached", async () => {
 		const bigPatch = "x".repeat(202);
 		const smallPatch = "x".repeat(49);
@@ -309,9 +376,9 @@ describe("buildGithubTools — happy paths", () => {
 		};
 
 		expect(pullsListFiles).toHaveBeenCalledTimes(1);
-		expect(out.files).toHaveLength(2);
-		expect(out.omittedCount).toBe(1);
-		expect(out.warning).toMatch(/1 additional file\(s\) not listed/i);
+		expect(out.files).toHaveLength(3);
+		expect(out.omittedCount).toBe(0);
+		expect(out.warning).toMatch(/patches omitted for 2 file/i);
 	});
 
 	it("listPullRequestFiles uses at-least omitted count when more pages remain", async () => {

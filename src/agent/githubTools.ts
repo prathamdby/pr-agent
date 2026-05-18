@@ -170,15 +170,13 @@ async function listPullRequestFilesPaginated(
 				...(patchOmitted ? { patchOmitted } : {}),
 			});
 			consumed++;
-
-			if (patchCapReached) break;
 		}
-		if (patchCapReached) {
+		if (patchCapReached && !truncated) {
 			const skippedOnPage = data.length - consumed;
 			omittedCount += skippedOnPage;
 			patchSkippedFileCount += skippedOnPage;
 		}
-		if (truncated || patchCapReached) break;
+		if (truncated) break;
 		if (data.length < 100) break;
 	}
 

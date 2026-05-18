@@ -56,7 +56,8 @@ export const GithubInstallationTokenLive = Layer.effect(
             catch: (e) => (e instanceof Error ? e : new Error(String(e))),
           }).pipe(
             Effect.flatMap((auth) => {
-              const expiresAtTs = auth.expiresAt ? Date.parse(auth.expiresAt) : now + FALLBACK_TTL_MS;
+              const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
+              const expiresAtTs = Number.isFinite(parsed) ? parsed : now + FALLBACK_TTL_MS;
               const value: InstallationToken = { token: auth.token, expiresAtTs };
               return Effect.gen(function* () {
                 yield* Ref.update(store, (m) => {
