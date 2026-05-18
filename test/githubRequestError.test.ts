@@ -52,6 +52,16 @@ describe("githubRequestError", () => {
 		expect(c.classification).toBe("probable_secondary");
 	});
 
+	it("classifies secondary_rate_limit when retry-after is set without secondary message", () => {
+		const err = httpError(403, "API rate limit exceeded", {
+			"x-ratelimit-remaining": "0",
+			"x-ratelimit-resource": "core",
+			"retry-after": "30",
+		});
+		const c = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
+		expect(c.classification).toBe("secondary_rate_limit");
+	});
+
 	it("classifies secondary_rate_limit when remaining is 0 and message mentions secondary rate", () => {
 		const err = httpError(403, "Bad credentials; secondary rate limit", {
 			"x-ratelimit-remaining": "0",

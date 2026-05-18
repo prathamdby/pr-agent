@@ -125,6 +125,11 @@ export function extractGithubResponseMeta(err: RequestError): {
 function isPrimaryRateLimitExceeded(message: string, headers: ResponseHeaders | undefined): boolean {
 	if (headerString(headers, "x-ratelimit-remaining") !== "0") return false;
 	if (SECONDARY_RATE_MESSAGE.test(message)) return false;
+	const retryAfter = headerString(headers, "retry-after");
+	if (retryAfter) {
+		const parsed = Number(retryAfter);
+		if (Number.isFinite(parsed) && parsed > 0) return false;
+	}
 	const resource = headerString(headers, "x-ratelimit-resource");
 	if (resource == null) return false;
 	return resource === "core" || resource === "search";
@@ -175,6 +180,18 @@ export function classifyGithubToolError(
 			pluginSecondaryRateLimit: true,
 			...retry,
 		};
+	}
+
+	if (meta.retryAfterHeader) {
+		const parsed = Number(meta.retryAfterHeader);
+		if (Number.isFinite(parsed) && parsed > 0) {
+			return {
+				classification: "secondary_rate_limit",
+				pluginPrimaryRateLimit: false,
+				pluginSecondaryRateLimit: true,
+				...retry,
+			};
+		}
 	}
 
 	if (meta.pluginPrimaryRateLimit) {

@@ -263,7 +263,7 @@ export async function runFullPrReview(params: {
 	let publishAttempts = 0;
 	let rateLimitConsecutiveFailures = 0;
 	let rateLimitCircuitOpen = false;
-	let circuitUserMessageSent = false;
+	let circuitUserMessagePending = false;
 
 	const logCtx = {
 		expiresAtTs: tokenExpiresAtTs,
@@ -359,14 +359,7 @@ export async function runFullPrReview(params: {
 							pr: prNumber,
 							mode: reviewMode,
 						});
-						if (!circuitUserMessageSent) {
-							circuitUserMessageSent = true;
-							context.messages.push({
-								role: "user",
-								content: CIRCUIT_OPEN_USER_MESSAGE,
-								timestamp: Date.now(),
-							});
-						}
+						circuitUserMessagePending = true;
 					}
 				} else {
 					text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
@@ -380,6 +373,15 @@ export async function runFullPrReview(params: {
 				toolName: call.name,
 				content: [{ type: "text", text }],
 				isError,
+				timestamp: Date.now(),
+			});
+		}
+
+		if (circuitUserMessagePending) {
+			circuitUserMessagePending = false;
+			context.messages.push({
+				role: "user",
+				content: CIRCUIT_OPEN_USER_MESSAGE,
 				timestamp: Date.now(),
 			});
 		}

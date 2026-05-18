@@ -100,17 +100,22 @@ async function listPullRequestFilesPaginated(
 	omittedCount: number;
 	warning?: string;
 }> {
-	const all: Array<{
+	const files: Array<{
 		filename: string;
 		status: string;
 		additions: number;
 		deletions: number;
 		changes: number;
 		patch?: string;
+		patchOmitted?: boolean;
 	}> = [];
 
 	let truncated = false;
 	let omittedCount = 0;
+	let omittedCountLowerBound = false;
+	let patchBytes = 0;
+	let patchOmittedCount = 0;
+	let patchCapReached = false;
 
 	for (let page = 1; ; page++) {
 		const { data } = await octokit.rest.pulls.listFiles({
@@ -123,45 +128,61 @@ async function listPullRequestFilesPaginated(
 		if (data.length === 0) break;
 		let consumed = 0;
 		for (const file of data) {
-			if (all.length >= limits.maxPrFilesListed) {
+			if (files.length >= limits.maxPrFilesListed) {
 				truncated = true;
 				omittedCount += data.length - consumed;
+				if (data.length === 100) omittedCountLowerBound = true;
 				break;
 			}
-			all.push({
+
+			const rawPatch = file.patch ?? undefined;
+			let patch: string | undefined = rawPatch;
+			let patchOmitted: true | undefined;
+
+			if (rawPatch != null && !patchCapReached) {
+				const patchLen = Buffer.byteLength(rawPatch, "utf8");
+				if (patchBytes + patchLen <= limits.maxPrFilesPatchBytes) {
+					patchBytes += patchLen;
+					patchOmitted = undefined;
+				} else {
+					patchCapReached = true;
+					patchOmittedCount++;
+					patch = undefined;
+					patchOmitted = true;
+				}
+			} else if (rawPatch != null && patchCapReached) {
+				patch = undefined;
+				patchOmitted = true;
+				patchOmittedCount++;
+			} else {
+				patch = undefined;
+				patchOmitted = undefined;
+			}
+
+			files.push({
 				filename: file.filename,
 				status: file.status,
 				additions: file.additions,
 				deletions: file.deletions,
 				changes: file.changes,
-				patch: file.patch ?? undefined,
+				patch,
+				...(patchOmitted ? { patchOmitted } : {}),
 			});
 			consumed++;
+
+			if (patchCapReached) break;
 		}
-		if (truncated) break;
+		if (truncated || patchCapReached) break;
 		if (data.length < 100) break;
 	}
 
-	let patchBytes = 0;
-	let patchOmittedCount = 0;
-	const files = all.map((file) => {
-		const patch = file.patch;
-		if (patch == null) {
-			return { ...file, patch: undefined };
-		}
-		const patchLen = Buffer.byteLength(patch, "utf8");
-		if (patchBytes + patchLen <= limits.maxPrFilesPatchBytes) {
-			patchBytes += patchLen;
-			return file;
-		}
-		patchOmittedCount++;
-		return { ...file, patch: undefined, patchOmitted: true as const };
-	});
-
 	const warnings: string[] = [];
 	if (truncated) {
+		const omittedLabel = omittedCountLowerBound
+			? `at least ${omittedCount}`
+			: String(omittedCount);
 		warnings.push(
-			`Change set truncated to ${limits.maxPrFilesListed} files (${omittedCount} omitted).`,
+			`Change set truncated to ${limits.maxPrFilesListed} files (${omittedLabel} omitted).`,
 		);
 	}
 	if (patchOmittedCount > 0) {

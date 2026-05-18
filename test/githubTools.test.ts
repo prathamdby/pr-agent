@@ -264,6 +264,83 @@ describe("buildGithubTools — happy paths", () => {
 		expect(out.warning).toMatch(/250 byte cap/i);
 	});
 
+	it("listPullRequestFiles stops pagination when patch byte cap is reached", async () => {
+		const bigPatch = "x".repeat(200);
+		const page2 = [
+			{
+				filename: "extra.ts",
+				status: "modified",
+				additions: 1,
+				deletions: 1,
+				changes: 2,
+				patch: bigPatch,
+			},
+		];
+		const pullsListFiles = vi
+			.fn()
+			.mockResolvedValueOnce({
+				data: [
+					{
+						filename: "a.ts",
+						status: "modified",
+						additions: 1,
+						deletions: 1,
+						changes: 2,
+						patch: bigPatch,
+					},
+					{
+						filename: "b.ts",
+						status: "modified",
+						additions: 1,
+						deletions: 1,
+						changes: 2,
+						patch: bigPatch,
+					},
+				],
+			})
+			.mockResolvedValueOnce({ data: page2 });
+		vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+		const { executors } = buildGithubTools("tok", { maxPrFilesListed: 10, maxPrFilesPatchBytes: 250 });
+
+		const out = (await executors.listPullRequestFiles({
+			owner: "o",
+			repo: "r",
+			pullNumber: 1,
+		})) as { files: unknown[] };
+
+		expect(pullsListFiles).toHaveBeenCalledTimes(1);
+		expect(out.files).toHaveLength(2);
+	});
+
+	it("listPullRequestFiles uses at-least omitted count when more pages remain", async () => {
+		const page = Array.from({ length: 100 }, (_, i) => ({
+			filename: `f${i}.ts`,
+			status: "modified",
+			additions: 1,
+			deletions: 1,
+			changes: 2,
+		}));
+		const pullsListFiles = vi
+			.fn()
+			.mockResolvedValueOnce({ data: page })
+			.mockResolvedValueOnce({ data: page })
+			.mockResolvedValueOnce({ data: page })
+			.mockResolvedValueOnce({ data: page });
+		vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+		const { executors } = buildGithubTools("tok", { maxPrFilesListed: 300, maxPrFilesPatchBytes: 500_000 });
+
+		const out = (await executors.listPullRequestFiles({
+			owner: "o",
+			repo: "r",
+			pullNumber: 1,
+		})) as { truncated: boolean; omittedCount: number; warning?: string };
+
+		expect(pullsListFiles).toHaveBeenCalledTimes(4);
+		expect(out.truncated).toBe(true);
+		expect(out.omittedCount).toBe(100);
+		expect(out.warning).toMatch(/at least 100 omitted/i);
+	});
+
 	it("listPullRequestFiles stops pagination once maxPrFilesListed is reached", async () => {
 		const page1 = Array.from({ length: 100 }, (_, i) => ({
 			filename: `a${i}.ts`,
