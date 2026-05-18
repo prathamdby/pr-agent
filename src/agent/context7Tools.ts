@@ -1,3 +1,4 @@
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
 const CONTEXT7_BASE_URL = "https://context7.com/api";
@@ -28,11 +29,23 @@ const getLibraryDocsSchema = z.object({
 		),
 });
 
-type Context7Tool = {
+type ReviewTool = {
 	readonly description: string;
-	readonly inputSchema: z.ZodType;
-	readonly execute: (args: Record<string, unknown>) => Promise<string>;
+	readonly schema: z.ZodType;
+	readonly run: (parsed: any) => Promise<unknown>;
 };
+
+function toPiTool(name: string, t: ReviewTool): PiTool {
+	return {
+		name,
+		description: t.description,
+		parameters: z.toJSONSchema(t.schema, { unrepresentable: "any" }) as PiTool["parameters"],
+	};
+}
+
+function toExecutor(t: ReviewTool): (args: Record<string, unknown>) => Promise<unknown> {
+	return async (args) => t.run(t.schema.parse(args));
+}
 
 function authHeader(apiKey: string): Record<string, string> {
 	return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
@@ -76,42 +89,43 @@ async function context7Get(url: string, apiKey: string): Promise<string> {
  * rejects missing API keys, which would break anonymous fallback.
  * See docs/adr/0003-context7-docs-tool.md.
  */
-export function buildContext7Toolset({ apiKey }: { apiKey: string }) {
-	const resolveLibraryId: Context7Tool = {
+export function buildContext7Tools({ apiKey }: { apiKey: string }): {
+	piTools: PiTool[];
+	executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+} {
+	const resolveLibraryId: ReviewTool = {
 		description:
 			"Resolve an external library name (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known.",
-		inputSchema: resolveLibraryIdSchema,
-		execute: async (args) => {
-			const parsed = resolveLibraryIdSchema.parse(args);
+		schema: resolveLibraryIdSchema,
+		run: async ({ libraryName, query }) => {
 			const params = new URLSearchParams({
-				libraryName: parsed.libraryName,
-				query: parsed.query?.trim() || parsed.libraryName,
+				libraryName,
+				query: query?.trim() || libraryName,
 			});
-			return context7Get(
-				`${CONTEXT7_BASE_URL}/v2/libs/search?${params.toString()}`,
-				apiKey,
-			);
+			return context7Get(`${CONTEXT7_BASE_URL}/v2/libs/search?${params.toString()}`, apiKey);
 		},
 	};
 
-	const getLibraryDocs: Context7Tool = {
+	const getLibraryDocs: ReviewTool = {
 		description:
 			"Fetch current documentation for a third-party library by its Context7 library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding.",
-		inputSchema: getLibraryDocsSchema,
-		execute: async (args) => {
-			const parsed = getLibraryDocsSchema.parse(args);
+		schema: getLibraryDocsSchema,
+		run: async ({ libraryId, topic }) => {
 			const params = new URLSearchParams({
-				libraryId: parsed.libraryId,
+				libraryId,
 				type: "txt",
 			});
-			const topic = parsed.topic?.trim();
-			if (topic) params.set("query", topic);
-			return context7Get(
-				`${CONTEXT7_BASE_URL}/v2/context?${params.toString()}`,
-				apiKey,
-			);
+			const topicTrimmed = topic?.trim();
+			if (topicTrimmed) params.set("query", topicTrimmed);
+			return context7Get(`${CONTEXT7_BASE_URL}/v2/context?${params.toString()}`, apiKey);
 		},
 	};
 
-	return { resolveLibraryId, getLibraryDocs };
+	const tools = { resolveLibraryId, getLibraryDocs };
+	const entries = Object.entries(tools);
+
+	return {
+		piTools: entries.map(([name, t]) => toPiTool(name, t)),
+		executors: Object.fromEntries(entries.map(([name, t]) => [name, toExecutor(t)])),
+	};
 }

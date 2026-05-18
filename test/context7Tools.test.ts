@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildContext7Toolset } from "../src/agent/context7Tools.js";
-import { bridgeGithubToolsToPi } from "../src/bridge/aiSdkToolsToPiTools.js";
+import { buildContext7Tools } from "../src/agent/context7Tools.js";
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
 	return new Response(JSON.stringify(body), {
@@ -24,15 +23,14 @@ function headersOf(init: RequestInit | undefined): Record<string, string> {
 	return h as Record<string, string>;
 }
 
-describe("buildContext7Toolset", () => {
-	it("exposes both tools through bridgeGithubToolsToPi", () => {
-		const toolset = buildContext7Toolset({ apiKey: "" });
-		const { piTools } = bridgeGithubToolsToPi(toolset);
+describe("buildContext7Tools — surface", () => {
+	it("exposes both tools", () => {
+		const { piTools } = buildContext7Tools({ apiKey: "" });
 		expect(piTools.map((t) => t.name).sort()).toEqual(["getLibraryDocs", "resolveLibraryId"]);
 	});
 
-	it("converts the resolveLibraryId Zod schema and requires libraryName", () => {
-		const { piTools } = bridgeGithubToolsToPi(buildContext7Toolset({ apiKey: "" }));
+	it("resolveLibraryId parameters declare object type and require libraryName", () => {
+		const { piTools } = buildContext7Tools({ apiKey: "" });
 		const tool = piTools.find((t) => t.name === "resolveLibraryId");
 		expect(tool?.parameters).toMatchObject({
 			type: "object",
@@ -44,8 +42,8 @@ describe("buildContext7Toolset", () => {
 		expect((tool?.parameters as { required?: string[] }).required).toContain("libraryName");
 	});
 
-	it("converts the getLibraryDocs Zod schema and requires libraryId", () => {
-		const { piTools } = bridgeGithubToolsToPi(buildContext7Toolset({ apiKey: "" }));
+	it("getLibraryDocs parameters declare object type and require libraryId", () => {
+		const { piTools } = buildContext7Tools({ apiKey: "" });
 		const tool = piTools.find((t) => t.name === "getLibraryDocs");
 		expect(tool?.parameters).toMatchObject({
 			type: "object",
@@ -56,15 +54,17 @@ describe("buildContext7Toolset", () => {
 		});
 		expect((tool?.parameters as { required?: string[] }).required).toContain("libraryId");
 	});
+});
 
+describe("buildContext7Tools — executors", () => {
 	it("resolveLibraryId hits /v2/libs/search, defaults query to libraryName, omits Authorization when key is empty", async () => {
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockResolvedValueOnce(jsonResponse({ results: [{ id: "/facebook/react", title: "React" }] }));
 
 		try {
-			const toolset = buildContext7Toolset({ apiKey: "" });
-			const out = await toolset.resolveLibraryId.execute({ libraryName: "react" });
+			const { executors } = buildContext7Tools({ apiKey: "" });
+			const out = (await executors.resolveLibraryId({ libraryName: "react" })) as string;
 
 			expect(fetchSpy).toHaveBeenCalledTimes(1);
 			const [url, init] = fetchSpy.mock.calls[0]!;
@@ -85,11 +85,11 @@ describe("buildContext7Toolset", () => {
 			.mockResolvedValueOnce(txtResponse("# React Hooks\nuseState is..."));
 
 		try {
-			const toolset = buildContext7Toolset({ apiKey: "ctx7sk-test" });
-			const out = await toolset.getLibraryDocs.execute({
+			const { executors } = buildContext7Tools({ apiKey: "ctx7sk-test" });
+			const out = (await executors.getLibraryDocs({
 				libraryId: "/facebook/react",
 				topic: "  hooks  ",
-			});
+			})) as string;
 
 			const [url, init] = fetchSpy.mock.calls[0]!;
 			const u = new URL(String(url));
@@ -108,8 +108,8 @@ describe("buildContext7Toolset", () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(txtResponse("anything"));
 
 		try {
-			const toolset = buildContext7Toolset({ apiKey: "" });
-			await toolset.getLibraryDocs.execute({ libraryId: "/facebook/react" });
+			const { executors } = buildContext7Tools({ apiKey: "" });
+			await executors.getLibraryDocs({ libraryId: "/facebook/react" });
 			const [url] = fetchSpy.mock.calls[0]!;
 			expect(new URL(String(url)).searchParams.get("query")).toBeNull();
 		} finally {
@@ -123,8 +123,8 @@ describe("buildContext7Toolset", () => {
 		);
 
 		try {
-			const toolset = buildContext7Toolset({ apiKey: "" });
-			await expect(toolset.getLibraryDocs.execute({ libraryId: "/no/such/lib" })).rejects.toThrow(
+			const { executors } = buildContext7Tools({ apiKey: "" });
+			await expect(executors.getLibraryDocs({ libraryId: "/no/such/lib" })).rejects.toThrow(
 				/Context7 404.*Invalid library/,
 			);
 		} finally {
