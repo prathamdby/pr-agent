@@ -53,13 +53,18 @@ async function mintAppJwtToken(cfg: Pick<Config, "githubAppId" | "githubAppPriva
  */
 async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<BotIdentity> {
 	const jwtToken = await mintAppJwtToken(cfg);
-	const jwtOctokit = new ThrottledOctokit({ auth: jwtToken });
+	const jwtOctokit = new ThrottledOctokit({
+		auth: jwtToken,
+		throttle: { onRateLimit, onSecondaryRateLimit },
+	});
 	const { data } = await jwtOctokit.rest.apps.getAuthenticated();
 	if (!data?.slug) {
 		throw new Error("GitHub App /app response missing slug (cannot resolve bot user)");
 	}
 	const slug = data.slug;
-	const anon = new ThrottledOctokit();
+	const anon = new ThrottledOctokit({
+		throttle: { onRateLimit, onSecondaryRateLimit },
+	});
 	const { data: user } = await anon.rest.users.getByUsername({
 		username: `${slug}[bot]`,
 	});
