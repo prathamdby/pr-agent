@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { renderInlineThreadBody, renderReviewSummaryComment } from "../src/agent/reviewRender.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
 
 const ctx = {
 	owner: "acme",
@@ -8,6 +9,7 @@ const ctx = {
 	prNumber: 42,
 	headSha: "abc123def456",
 	maxFindings: 8,
+	summarySentinel: REVIEW_SUMMARY_SENTINEL,
 };
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
@@ -78,6 +80,15 @@ describe("renderReviewSummaryComment", () => {
 			ctx,
 		);
 		expect(body).toContain("Adds auth \\| breaks table");
+	});
+
+	it("uses security sentinel when requested", () => {
+		const body = renderReviewSummaryComment(basePayload(), {
+			...ctx,
+			summarySentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
+		});
+		expect(body).toContain("## PR Agent Security Review");
+		expect(body).not.toContain("## PR Agent Review\n");
 	});
 
 	it("escapes pipes in security and follow-ups table cells", () => {

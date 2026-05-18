@@ -1,5 +1,5 @@
-import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "./reviewSchema.js";
-import { REVIEW_SUMMARY_SENTINEL, isInlineSeverity, selectInlineFindings } from "./reviewSchema.js";
+import type { ReviewFinding, ReviewPayload, ReviewPublishContext, ReviewMode } from "./reviewSchema.js";
+import { isInlineSeverity, selectInlineFindings } from "./reviewSchema.js";
 
 export type RenderContext = ReviewPublishContext & {
 	maxFindings: number;
@@ -43,15 +43,24 @@ export function renderInlineThreadBody(finding: ReviewFinding): string {
 }
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
+export const SECURITY_REVIEW_POINTER_BODY =
+	"See the security review summary in the PR conversation.";
 
-export function renderReviewSummaryComment(payload: ReviewPayload, ctx: RenderContext): string {
+export function reviewPointerBodyForMode(mode: ReviewMode): string {
+	return mode === "review-security" ? SECURITY_REVIEW_POINTER_BODY : REVIEW_POINTER_BODY;
+}
+
+export function renderReviewSummaryComment(
+	payload: ReviewPayload,
+	ctx: RenderContext & { summarySentinel: string },
+): string {
 	const inlineCandidates = payload.findings.filter((f) => isInlineSeverity(f.severity));
 	const shown = selectInlineFindings(payload.findings, ctx.maxFindings);
 	const p3 = payload.findings.filter((f) => f.severity === "P3");
 	const truncated = inlineCandidates.length > shown.length;
 
 	const rows: string[] = [];
-	rows.push(REVIEW_SUMMARY_SENTINEL);
+	rows.push(ctx.summarySentinel);
 	rows.push("");
 	rows.push(escapeTableCell(payload.prCharacter.trim()));
 	rows.push("");

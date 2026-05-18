@@ -31,10 +31,13 @@ const helpBody = [
 	"",
 	"Commands (first line of a **new** comment):",
 	"- `/help` — show this message",
-	"- `/review` — re-run a full review using the current PR head commit",
+	"- `/review` — general bug-and-correctness review (also runs automatically on PR open/sync)",
+	"- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
 	"",
 	"Notes:",
-	"- Automated reviews also run on PR `opened` / `synchronize` / `reopened`.",
+	"- Automated reviews use `/review`'s lens on PR `opened` / `synchronize` / `reopened`.",
+	"- `/review` and `/review-security` can both leave summary comments on the same PR (different sentinels).",
+	"- Some security issues may appear in both passes; pick the command that matches your question.",
 	"- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");
 
@@ -71,16 +74,20 @@ export function runSlashCommandFlow(
 			return;
 		}
 
-		if (command === "review") {
+		if (command === "review" || command === "review-security") {
 			const headSha = yield* surface.getPullRequestHeadSha(
 				ctx.token,
 				ctx.owner,
 				ctx.repo,
 				ctx.replyTarget.prNumber,
 			);
+			const queueLabel =
+				command === "review-security"
+					? `${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:slash:security`
+					: `${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:slash`;
 			const reviewQueue = yield* ReviewQueue;
 			yield* reviewQueue.submit(
-				`${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:slash`,
+				queueLabel,
 				Effect.tryPromise({
 					try: () =>
 						runFullPrReview({
@@ -90,10 +97,12 @@ export function runSlashCommandFlow(
 							repo: ctx.repo,
 							prNumber: ctx.replyTarget.prNumber,
 							headSha,
-							userSupplement: `User invoked /review with:\n${ctx.body}`,
+							mode: command,
+							userSupplement: `User invoked /${command} with:\n${ctx.body}`,
 						}).then((result) => {
 							if (!result.published) {
 								log.warn("review_not_published", {
+									mode: command,
 									owner: ctx.owner,
 									repo: ctx.repo,
 									pr: ctx.replyTarget.prNumber,

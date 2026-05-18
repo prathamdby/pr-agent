@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReview } from "../src/agent/publishReview.js";
 import * as reviewSchema from "../src/agent/reviewSchema.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+import { SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
+import { SECURITY_REVIEW_POINTER_BODY } from "../src/agent/reviewRender.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
 	createPullRequestReviewWithComments: vi.fn(async () => ({ id: 1, url: "https://example.com/review/1" })),
@@ -146,6 +148,31 @@ describe("publishReview", () => {
 
 		expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
 		expect(upsertReviewSummaryComment).toHaveBeenCalled();
+	});
+
+	it("uses security sentinel and pointer when mode is review-security", async () => {
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+		await publishReview({
+			...baseParams,
+			mode: "review-security",
+			publishState,
+		});
+
+		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.objectContaining({ body: SECURITY_REVIEW_POINTER_BODY }),
+		);
+		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.stringContaining(SECURITY_REVIEW_SUMMARY_SENTINEL),
+			SECURITY_REVIEW_SUMMARY_SENTINEL,
+		);
 	});
 
 	it("does not fail publish when label sync throws", async () => {

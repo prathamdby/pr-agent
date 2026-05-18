@@ -5,9 +5,13 @@ import { log } from "../log.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { createIssueComment } from "../github/reviewPublish.js";
+import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
 import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
+import type { ReviewMode } from "./reviewSchema.js";
 
 const PUBLISH_FALLBACK_SENTINEL = "## PR Agent Review — could not publish structured output";
+const SECURITY_PUBLISH_FALLBACK_SENTINEL =
+	"## PR Agent Security Review — could not publish structured output";
 
 const PROSE_ONLY_NUDGE =
 	"You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
@@ -41,11 +45,19 @@ function endsWithToolResults(messages: Message[]): boolean {
 	return messages[messages.length - 1]?.role === "toolResult";
 }
 
-function formatPublishFallbackComment(summary: string, attempts: number, maxAttempts: number): string {
+function formatPublishFallbackComment(
+	mode: ReviewMode,
+	summary: string,
+	attempts: number,
+	maxAttempts: number,
+): string {
+	const retryCmd = mode === "review-security" ? "/review-security" : "/review";
+	const sentinel =
+		mode === "review-security" ? SECURITY_PUBLISH_FALLBACK_SENTINEL : PUBLISH_FALLBACK_SENTINEL;
 	return [
-		PUBLISH_FALLBACK_SENTINEL,
+		sentinel,
 		"",
-		`_Structured publish failed after ${attempts}/${maxAttempts} attempt(s). Re-run \`/review\` or check server logs._`,
+		`_Structured publish failed after ${attempts}/${maxAttempts} attempt(s). Re-run \`${retryCmd}\` or check server logs._`,
 		"",
 		summary,
 	].join("\n");
@@ -169,9 +181,11 @@ export async function runFullPrReview(params: {
 	repo: string;
 	prNumber: number;
 	headSha: string;
+	mode?: ReviewMode;
 	userSupplement?: string;
 }): Promise<ReviewRunResult> {
 	const { cfg, token, owner, repo, prNumber, headSha, userSupplement } = params;
+	const reviewMode = params.mode ?? "review";
 
 	const gh = buildGithubTools(token);
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
@@ -181,6 +195,7 @@ export async function runFullPrReview(params: {
 		cfg,
 		token,
 		ctx: publishCtx,
+		mode: reviewMode,
 		state: submitState,
 	});
 
@@ -203,11 +218,14 @@ export async function runFullPrReview(params: {
 		`Head commit SHA: ${headSha}`,
 		userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
 		"",
-		"Perform a full review using investigation tools, then call submitReview exactly once with a complete ReviewPayload.",
+		reviewMode === "review-security"
+			? "Perform a deep security review of the PR diff using investigation tools, then call submitReview exactly once with a complete ReviewPayload."
+			: "Perform a full review using investigation tools, then call submitReview exactly once with a complete ReviewPayload.",
 	].join("\n");
 
 	const context: Context = {
-		systemPrompt: buildAutomatedSystemPrompt(),
+		systemPrompt:
+			reviewMode === "review-security" ? automatedSecuritySystemPrompt : buildAutomatedSystemPrompt(),
 		messages: [
 			{
 				role: "user",
@@ -251,11 +269,11 @@ export async function runFullPrReview(params: {
 		}
 	}
 
-	async function runToolLoop(maxRounds: number, mode: ToolLoopMode) {
+	async function runToolLoop(maxRounds: number, loopMode: ToolLoopMode) {
 		for (let round = 0; round < maxRounds && !stopLoop; round++) {
 			const requireTools =
-				mode.toolChoice === "every-round" ||
-				(mode.toolChoice === "first-round" && round === 0);
+				loopMode.toolChoice === "every-round" ||
+				(loopMode.toolChoice === "first-round" && round === 0);
 
 			const assistant = await complete(
 				model,
@@ -268,10 +286,11 @@ export async function runFullPrReview(params: {
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
 				log.info("agent_round_complete_no_tools", {
+					mode: reviewMode,
 					round,
 					summary: assistantReplySummary(assistant).slice(0, 200),
 				});
-				if (mode.nudgeOnProseOnly && !stopLoop && round < maxRounds - 1) {
+				if (loopMode.nudgeOnProseOnly && !stopLoop && round < maxRounds - 1) {
 					context.messages.push({
 						role: "user",
 						content: PROSE_ONLY_NUDGE,
@@ -282,14 +301,21 @@ export async function runFullPrReview(params: {
 				break;
 			}
 
-			log.info("agent_tool_round", { round, tools: toolCalls.map((t) => t.name) });
+			log.info("agent_tool_round", {
+				mode: reviewMode,
+				round,
+				tools: toolCalls.map((t) => t.name),
+			});
 			await appendToolResults(toolCalls);
 		}
 	}
 
 	async function runValidationRepair() {
 		if (!submitState.published && submitState.lastValidationError) {
-			log.info("review_payload_repair_attempt", { message: submitState.lastValidationError });
+			log.info("review_payload_repair_attempt", {
+				mode: reviewMode,
+				message: submitState.lastValidationError,
+			});
 			context.messages.push({
 				role: "user",
 				content: `Your submitReview payload failed validation: ${submitState.lastValidationError}. Fix the payload and call submitReview again.`,
@@ -303,18 +329,22 @@ export async function runFullPrReview(params: {
 
 	async function runFinalizePasses() {
 		for (let f = 0; f < cfg.maxFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
-			log.warn("agent_finalize_pass", { pass: f });
+			log.warn("agent_finalize_pass", { mode: reviewMode, pass: f });
 			const assistant = await complete(model, context);
 			lastAssistant = assistant;
 			context.messages.push(assistant);
 
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
-				log.info("agent_finalize_complete", { pass: f });
+				log.info("agent_finalize_complete", { mode: reviewMode, pass: f });
 				break;
 			}
 
-			log.info("agent_finalize_tool_round", { pass: f, tools: toolCalls.map((t) => t.name) });
+			log.info("agent_finalize_tool_round", {
+				mode: reviewMode,
+				pass: f,
+				tools: toolCalls.map((t) => t.name),
+			});
 			await appendToolResults(toolCalls);
 		}
 	}
@@ -331,6 +361,7 @@ export async function runFullPrReview(params: {
 			PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
 			PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
 		log.info("review_publish_retry", {
+			mode: reviewMode,
 			attempt: attemptIndex + 1,
 			maxAttempts: cfg.maxReviewPublishAttempts,
 			owner,
@@ -352,6 +383,7 @@ export async function runFullPrReview(params: {
 
 	async function runMaintainerPlainTextFallback() {
 		log.warn("agent_publish_fallback", {
+			mode: reviewMode,
 			publishAttempts,
 			maxAttempts: cfg.maxReviewPublishAttempts,
 			endsOnToolResult: endsWithToolResults(context.messages),
@@ -360,7 +392,7 @@ export async function runFullPrReview(params: {
 		context.tools = [];
 		const prompt = endsWithToolResults(context.messages)
 			? "System: tooling budget is exhausted or review was not published. Respond with **plain text only** (no tool calls). Summarize what was done, what failed or is blocked, and what the maintainers should do next."
-			: "System: the structured review was not published after multiple attempts. Respond with **plain text only** (no tool calls). Summarize your findings and what maintainers should do next (including re-running /review).";
+			: `System: the structured review was not published after multiple attempts. Respond with **plain text only** (no tool calls). Summarize your findings and what maintainers should do next (including re-running ${reviewMode === "review-security" ? "/review-security" : "/review"}).`;
 		context.messages.push({
 			role: "user",
 			content: prompt,
@@ -376,6 +408,7 @@ export async function runFullPrReview(params: {
 		if (summary.length === 0) return;
 
 		const body = formatPublishFallbackComment(
+			reviewMode,
 			summary,
 			publishAttempts,
 			cfg.maxReviewPublishAttempts,
@@ -383,6 +416,7 @@ export async function runFullPrReview(params: {
 		try {
 			const comment = await createIssueComment(token, owner, repo, prNumber, body);
 			log.info("review_publish_fallback_comment", {
+				mode: reviewMode,
 				owner,
 				repo,
 				pr: prNumber,
@@ -390,7 +424,13 @@ export async function runFullPrReview(params: {
 			});
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
-			log.warn("review_publish_fallback_comment_failed", { owner, repo, pr: prNumber, message });
+			log.warn("review_publish_fallback_comment_failed", {
+				mode: reviewMode,
+				owner,
+				repo,
+				pr: prNumber,
+				message,
+			});
 		}
 	}
 
@@ -405,6 +445,7 @@ export async function runFullPrReview(params: {
 
 	if (!submitState.published) {
 		log.warn("review_publish_exhausted", {
+			mode: reviewMode,
 			attempts: publishAttempts,
 			maxAttempts: cfg.maxReviewPublishAttempts,
 			owner,

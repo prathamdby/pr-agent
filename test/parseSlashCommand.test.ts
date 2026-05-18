@@ -4,6 +4,7 @@ import { parseSlashCommand } from "../src/commands/parseSlashCommand.js";
 describe("parseSlashCommand", () => {
 	it("parses first non-empty line command", () => {
 		expect(parseSlashCommand("/review please")).toBe("review");
+		expect(parseSlashCommand("/review-security")).toBe("review-security");
 		expect(parseSlashCommand(" \n/help")).toBe("help");
 	});
 
