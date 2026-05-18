@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
-import { installationOctokit, type InstallationOctokit } from "../github/appAuth.js";
+import { installationOctokit } from "../github/appAuth.js";
 
 type ReviewTool = {
 	readonly description: string;
@@ -80,7 +80,12 @@ type BlameResponse = {
 	};
 };
 
-function buildTools(octokit: InstallationOctokit) {
+export function buildGithubTools(token: string): {
+	piTools: PiTool[];
+	executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+} {
+	const octokit = installationOctokit(token);
+
 	const getPullRequest: ReviewTool = {
 		description: "Get detailed information about a specific pull request",
 		schema: z.object({
@@ -295,7 +300,7 @@ function buildTools(octokit: InstallationOctokit) {
 
 	const getBlame: ReviewTool = {
 		description:
-			"Line-level git blame for a file at a commit-like ref (branch, tag, or SHA). Returns contiguous ranges mapping lines to the commits that last modified them — use this to see who introduced a line and when (GitHub GraphQL API). Pass the PR head SHA as `ref` to avoid an extra default-branch lookup.",
+			"Line-level git blame for a file at a commit-like ref (branch, tag, or SHA). Returns contiguous ranges mapping lines to the commits that last modified them — use this to see who introduced a line and when (GitHub GraphQL API).",
 		schema: z.object({
 			owner: z.string().describe("Repository owner"),
 			repo: z.string().describe("Repository name"),
@@ -519,7 +524,7 @@ function buildTools(octokit: InstallationOctokit) {
 		},
 	};
 
-	return {
+	const tools: Record<string, ReviewTool> = {
 		getPullRequest,
 		listPullRequests,
 		listPullRequestFiles,
@@ -534,14 +539,6 @@ function buildTools(octokit: InstallationOctokit) {
 		addPullRequestComment,
 		createPullRequestReview,
 	};
-}
-
-export function buildGithubTools(token: string): {
-	piTools: PiTool[];
-	executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-	const octokit = installationOctokit(token);
-	const tools = buildTools(octokit);
 	const entries = Object.entries(tools);
 
 	return {
