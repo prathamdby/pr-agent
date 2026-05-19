@@ -20,6 +20,8 @@ const cfg = {
 	maxFinalizeRounds: 0,
 	maxReviewPublishAttempts: 3,
 	reviewConcurrency: 1,
+	askConcurrency: 3,
+	maxAskToolRounds: 12,
 	webhookTimeoutMs: 10000,
 	context7ApiKey: "",
 	maxReviewFindings: 8,

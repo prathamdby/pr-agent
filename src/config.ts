@@ -92,6 +92,16 @@ export function loadConfig() {
 		throw new Error("REVIEW_CONCURRENCY must be a positive number");
 	}
 
+	const askConcurrency = Number(optionalEnv("ASK_CONCURRENCY", "3"));
+	if (!Number.isFinite(askConcurrency) || askConcurrency < 1) {
+		throw new Error("ASK_CONCURRENCY must be a positive number");
+	}
+
+	const maxAskToolRounds = Number(optionalEnv("MAX_ASK_TOOL_ROUNDS", "12"));
+	if (!Number.isFinite(maxAskToolRounds) || maxAskToolRounds < 1) {
+		throw new Error("MAX_ASK_TOOL_ROUNDS must be a positive number");
+	}
+
 	const webhookTimeoutMs = Number(optionalEnv("WEBHOOK_TIMEOUT_MS", "10000"));
 	if (!Number.isFinite(webhookTimeoutMs) || webhookTimeoutMs < 1) {
 		throw new Error("WEBHOOK_TIMEOUT_MS must be a positive number");
@@ -133,6 +143,8 @@ export function loadConfig() {
 		maxFinalizeRounds,
 		maxReviewPublishAttempts,
 		reviewConcurrency,
+		askConcurrency,
+		maxAskToolRounds,
 		webhookTimeoutMs,
 		context7ApiKey,
 		maxReviewFindings,

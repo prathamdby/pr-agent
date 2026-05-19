@@ -15,6 +15,11 @@ export const pullRequestReviewCommentWebhookSchema = z
 				id: z.number(),
 			}),
 			body: z.string().nullish(),
+			path: z.string().optional(),
+			line: z.number().optional(),
+			start_line: z.number().nullable().optional(),
+			side: z.enum(["LEFT", "RIGHT"]).optional(),
+			diff_hunk: z.string().optional(),
 		}),
 	});
 

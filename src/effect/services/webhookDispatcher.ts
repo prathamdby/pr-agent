@@ -3,6 +3,7 @@ import type { Config } from "../../config.js";
 import { WebhookHandlerError } from "../errors.js";
 import { dispatchGithubEventEffect } from "../programs/dispatchEffect.js";
 import { DeliveryDedupe, DeliveryDedupeLive } from "./deliveryDedupe.js";
+import { AskQueueLive } from "./askQueue.js";
 import { GithubInstallationToken, GithubInstallationTokenLive } from "./githubInstallationToken.js";
 import { ReviewQueueLive } from "./reviewQueue.js";
 import { WebhookHandlers, WebhookHandlersLive } from "./webhookHandlers.js";
@@ -49,10 +50,11 @@ const DispatcherCore = Layer.effect(
   }),
 );
 
-export const buildWebhookDispatcherLive = (cfg: Pick<Config, "reviewConcurrency">) =>
+export const buildWebhookDispatcherLive = (cfg: Pick<Config, "reviewConcurrency" | "askConcurrency">) =>
   DispatcherCore.pipe(
     Layer.provide(GithubInstallationTokenLive),
     Layer.provide(WebhookHandlersLive),
     Layer.provide(DeliveryDedupeLive),
     Layer.provide(ReviewQueueLive(cfg)),
+    Layer.provide(AskQueueLive(cfg)),
   );

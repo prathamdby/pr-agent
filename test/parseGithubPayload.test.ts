@@ -138,8 +138,12 @@ describe("parseGithubPayload", () => {
 				id: 100,
 				node_id: "PRRC_kwDO",
 				user: { id: 15, login: "commenter", node_id: "U_kwDO_commenter" },
-				body: "/help",
-				path: "src/index.ts",
+				body: "/ask what is this?",
+				path: "src/hook.ts",
+				line: 12,
+				start_line: 10,
+				side: "RIGHT",
+				diff_hunk: "@@ -1,3 +1,3 @@\n-old\n+new",
 				commit_id: "abc",
 				original_commit_id: "abc",
 			},
@@ -150,6 +154,9 @@ describe("parseGithubPayload", () => {
 		expect(p.name).toBe("pull_request_review_comment");
 		expect(p.data.pull_request.number).toBe(3);
 		expect(p.data.comment.id).toBe(100);
+		expect(p.data.comment.path).toBe("src/hook.ts");
+		expect(p.data.comment.line).toBe(12);
+		expect(p.data.comment.diff_hunk).toContain("@@");
 	});
 
 	it("throws WebhookParseError on malformed pull_request", () => {

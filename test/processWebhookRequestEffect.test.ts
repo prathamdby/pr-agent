@@ -18,6 +18,8 @@ const cfg: Config = {
   maxFinalizeRounds: 6,
   maxReviewPublishAttempts: 3,
   reviewConcurrency: 2,
+	askConcurrency: 3,
+	maxAskToolRounds: 12,
   webhookTimeoutMs: 10000,
   logLevel: "error",
 };
