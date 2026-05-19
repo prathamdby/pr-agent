@@ -53,6 +53,13 @@ async function mintAppJwtToken(cfg: Pick<Config, "githubAppId" | "githubAppPriva
 /**
  * When `GET /user` rejects installation tokens (“Resource not accessible by integration”), resolve bot id via JWT + public {@link https://api.github.com/users/{slug}%5Bbot%5D} profile.
  */
+/** Resolve the app's bot user id without minting an installation token. */
+export async function getAppBotIdentity(
+	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+): Promise<BotIdentity> {
+	return resolveBotIdentityViaAppSlug(cfg);
+}
+
 async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<BotIdentity> {
 	const jwtToken = await mintAppJwtToken(cfg);
 	const jwtOctokit = new ThrottledOctokit({

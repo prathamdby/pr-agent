@@ -3,10 +3,16 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
-import { formatAskFailureReply } from "../agent/formatAskReply.js";
+import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../agent/reviewSchema.js";
-import { installationOctokit, mintBotIdentity, mintInstallationAuth } from "../github/appAuth.js";
+import {
+	getAppBotIdentity,
+	installationOctokit,
+	mintBotIdentity,
+	mintInstallationAuth,
+} from "../github/appAuth.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { log } from "../log.js";
 import {
@@ -43,7 +49,7 @@ async function getInstallationToken(cfg: Config, installationId: number) {
 	const auth = await mintInstallationAuth(cfg, installationId);
 	const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
 	const now = Date.now();
-	const expiresAtTs = Number.isFinite(parsed) ? parsed : now + 55 * 60 * 1000;
+	const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
 	return { token: auth.token, expiresAtTs, ttlMs: Math.max(0, expiresAtTs - now) };
 }
 
@@ -119,8 +125,11 @@ async function postReply(token: string, data: AckJobData, body: string): Promise
 }
 
 async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
+	if (data.commenterId != null) {
+		const bot = await getAppBotIdentity(cfg);
+		if (bot.userId === data.commenterId) return;
+	}
 	const installation = await getInstallationToken(cfg, data.installationId);
-	if (await isBotCommenter(cfg, installation.token, data.commenterId)) return;
 
 	for (const target of data.targets) {
 		await safeReaction(installation.token, data.owner, data.repo, target);
@@ -282,6 +291,7 @@ async function handleReviewJob(
 }
 
 async function publishAskAnswer(token: string, item: AgentWorkItem, answer: string): Promise<void> {
+	const body = sanitizeAskAnswerText(answer);
 	const replyTarget = (item.payload as AskWorkPayload).replyTarget;
 	const octokit = installationOctokit(token);
 	if (replyTarget.kind === "inlineReviewThread") {
@@ -291,7 +301,7 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
 				repo: item.repo,
 				pull_number: replyTarget.prNumber,
 				comment_id: replyTarget.inReplyToCommentId,
-				body: answer,
+				body,
 			});
 			return;
 		} catch (e) {
@@ -306,7 +316,7 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
 				owner: item.owner,
 				repo: item.repo,
 				issue_number: replyTarget.prNumber,
-				body: ["_Could not reply in the review thread; posting here instead._", "", answer].join("\n"),
+				body: ["_Could not reply in the review thread; posting here instead._", "", body].join("\n"),
 			});
 			return;
 		}
@@ -315,7 +325,7 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
 		owner: item.owner,
 		repo: item.repo,
 		issue_number: replyTarget.prNumber,
-		body: answer,
+		body,
 	});
 }
 

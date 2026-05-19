@@ -80,8 +80,11 @@ function headerString(headers: ResponseHeaders | undefined, name: string): strin
 	return String(v);
 }
 
+// GitHub installation tokens are valid for one hour; use when expiresAt is missing at mint.
+export const INSTALLATION_TOKEN_FALLBACK_TTL_MS = 60 * 60 * 1000;
+
 // GitHub does not return issued-at; infer from expiresAt using min(observed TTL, 1h cap)
-const MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS = 60 * 60 * 1000;
+const MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS = INSTALLATION_TOKEN_FALLBACK_TTL_MS;
 
 export function getTokenTiming(
 	expiresAtTs: number,
