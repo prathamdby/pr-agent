@@ -4,10 +4,11 @@ import type { Config } from "../config.js";
 import { log } from "../log.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
-import { createIssueComment } from "../github/reviewPublish.js";
+import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
+import { renderStructuredPublishFallback } from "../agentWork/progressComment.js";
 import { automatedSecuritySystemPrompt, githubToolingDiscipline } from "./securityPrompt.js";
 import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
-import type { ReviewMode } from "./reviewSchema.js";
+import { reviewSummarySentinelForMode, type ReviewMode } from "./reviewSchema.js";
 import {
 	bumpRateLimitConsecutiveFailures,
 	classifyGithubToolError,
@@ -21,10 +22,6 @@ const CIRCUIT_OPEN_USER_MESSAGE =
 	"Stop GitHub tool calls; call submitReview now with your current analysis from the conversation above.";
 const CIRCUIT_OPEN_TOOL_RESULT =
 	"Rate-limit circuit open: further GitHub investigation tools are blocked for this review run. Call submitReview now.";
-
-const PUBLISH_FALLBACK_SENTINEL = "## PR Agent Review — could not publish structured output";
-const SECURITY_PUBLISH_FALLBACK_SENTINEL =
-	"## PR Agent Security Review — could not publish structured output";
 
 const PROSE_ONLY_NUDGE =
 	"You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
@@ -56,24 +53,6 @@ function assistantReplySummary(message: AssistantMessage): string {
 
 function endsWithToolResults(messages: Message[]): boolean {
 	return messages[messages.length - 1]?.role === "toolResult";
-}
-
-function formatPublishFallbackComment(
-	mode: ReviewMode,
-	summary: string,
-	attempts: number,
-	maxAttempts: number,
-): string {
-	const retryCmd = mode === "review-security" ? "/review-security" : "/review";
-	const sentinel =
-		mode === "review-security" ? SECURITY_PUBLISH_FALLBACK_SENTINEL : PUBLISH_FALLBACK_SENTINEL;
-	return [
-		sentinel,
-		"",
-		`_Structured publish failed after ${attempts}/${maxAttempts} attempt(s). Re-run \`${retryCmd}\` or check server logs._`,
-		"",
-		summary,
-	].join("\n");
 }
 
 type ToolLoopMode = {
@@ -200,6 +179,12 @@ export async function runFullPrReview(params: {
 	headSha: string;
 	mode?: ReviewMode;
 	userSupplement?: string;
+	initialPublishState?: { published?: boolean; inlinePublished?: boolean };
+	recordPublishStep?: (
+		step: "inline_review" | "summary_comment" | "labels",
+		detail?: { githubId?: string | number; meta?: Record<string, unknown> },
+	) => Promise<void>;
+	shouldAbortPublish?: () => Promise<boolean>;
 }): Promise<ReviewRunResult> {
 	const { cfg, token, tokenExpiresAtTs, tokenTtlMs, owner, repo, prNumber, headSha, userSupplement } =
 		params;
@@ -216,7 +201,11 @@ export async function runFullPrReview(params: {
 		maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
 	});
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
-	const submitState = { published: false, inlinePublished: false, lastValidationError: null };
+	const submitState = {
+		published: params.initialPublishState?.published ?? false,
+		inlinePublished: params.initialPublishState?.inlinePublished ?? false,
+		lastValidationError: null,
+	};
 	const publishCtx = { owner, repo, prNumber, headSha };
 	const { piTool: submitTool, executor: submitExecutor } = buildSubmitReviewTool({
 		cfg,
@@ -224,6 +213,8 @@ export async function runFullPrReview(params: {
 		ctx: publishCtx,
 		mode: reviewMode,
 		state: submitState,
+		recordPublishStep: params.recordPublishStep,
+		shouldAbortPublish: params.shouldAbortPublish,
 	});
 
 	const reviewGithubExecutors = filterReviewAgentExecutors(gh.executors);
@@ -536,20 +527,28 @@ export async function runFullPrReview(params: {
 		const summary = assistantReplySummary(assistant);
 		if (summary.length === 0) return;
 
-		const body = formatPublishFallbackComment(
-			reviewMode,
+		const body = renderStructuredPublishFallback({
+			mode: reviewMode,
 			summary,
-			publishAttempts,
-			cfg.maxReviewPublishAttempts,
-		);
+			attempts: publishAttempts,
+			maxAttempts: cfg.maxReviewPublishAttempts,
+		});
 		try {
-			const comment = await createIssueComment(token, owner, repo, prNumber, body);
+			const comment = await upsertReviewSummaryComment(
+				token,
+				owner,
+				repo,
+				prNumber,
+				body,
+				reviewSummarySentinelForMode(reviewMode),
+			);
 			log.info("review_publish_fallback_comment", {
 				mode: reviewMode,
 				owner,
 				repo,
 				pr: prNumber,
 				commentId: comment.id,
+				updated: comment.updated,
 			});
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);

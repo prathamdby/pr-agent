@@ -1,10 +1,10 @@
 import { Clock, Context, Deferred, Effect, Layer, Ref } from "effect";
 import type { Config } from "../../config.js";
 import { mintInstallationAuth, type InstallationToken } from "../../github/appAuth.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../../github/githubRequestError.js";
 import { log } from "../../log.js";
 
 const FRESHNESS_BUFFER_MS = 60_000;
-const FALLBACK_TTL_MS = 55 * 60 * 1000;
 
 type Entry =
   | { readonly tag: "value"; readonly token: InstallationToken }
@@ -57,10 +57,12 @@ export const GithubInstallationTokenLive = Layer.effect(
           }).pipe(
             Effect.flatMap((auth) => {
               const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
-              const expiresAtTs = Number.isFinite(parsed) ? parsed : now + FALLBACK_TTL_MS;
+              const expiresAtTs = Number.isFinite(parsed)
+                ? parsed
+                : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
               const ttlMs = Number.isFinite(parsed)
                 ? Math.max(0, expiresAtTs - now)
-                : FALLBACK_TTL_MS;
+                : INSTALLATION_TOKEN_FALLBACK_TTL_MS;
               const value: InstallationToken = { token: auth.token, expiresAtTs, ttlMs };
               return Effect.gen(function* () {
                 yield* Ref.update(store, (m) => {

@@ -137,7 +137,7 @@ describe("GithubInstallationToken service", () => {
 
   it("uses fallback TTL when auth.expiresAt is unparseable", async () => {
     const spy = mockMint("tok-a", "not-a-valid-date");
-    const fallbackTtlMs = 55 * 60 * 1000;
+    const fallbackTtlMs = 60 * 60 * 1000;
 
     const program = Effect.gen(function* () {
       const now = yield* Clock.currentTimeMillis;

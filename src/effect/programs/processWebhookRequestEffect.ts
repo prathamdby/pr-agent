@@ -74,7 +74,7 @@ export function processWebhookHttpRequestEffect(
     const elapsedMs = Date.now() - t0;
 
     if (!result.ok) {
-      return { status: 500, body: "internal error" } satisfies WebhookResponseLike;
+      return { status: 503, body: "service unavailable" } satisfies WebhookResponseLike;
     }
 
     log.info("webhook_handled", { event, delivery: logDelivery, ms: elapsedMs, runtime: "effect" });

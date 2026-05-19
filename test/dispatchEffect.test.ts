@@ -3,10 +3,8 @@ import { Effect, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { WebhookParseError } from "../src/webhook/parseGithubPayload.js";
 import { dispatchGithubEventEffect } from "../src/effect/programs/dispatchEffect.js";
-import { DeliveryDedupe } from "../src/effect/services/deliveryDedupe.js";
-import type { InstallationToken } from "../src/github/appAuth.js";
-import { GithubInstallationToken } from "../src/effect/services/githubInstallationToken.js";
 import { WebhookHandlers } from "../src/effect/services/webhookHandlers.js";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import * as parseModule from "../src/webhook/parseGithubPayload.js";
 
 const cfg: Config = {
@@ -14,57 +12,59 @@ const cfg: Config = {
 	githubAppId: "1",
 	githubAppPrivateKey: "k",
 	webhookSecret: "s",
+	databaseUrl: "postgres://test",
+	role: "web",
 	piProvider: "openai",
 	piModel: "gpt-4o-mini",
 	maxToolRounds: 24,
 	maxFinalizeRounds: 6,
 	maxReviewPublishAttempts: 3,
 	reviewConcurrency: 2,
-	askConcurrency: 3,
+	askConcurrency: 1,
+	ackConcurrency: 2,
+	queueRetryLimit: 3,
+	queueRetryDelaySeconds: 30,
+	queueRetryDelayMaxSeconds: 300,
+	queueExpireInSeconds: 3600,
+	queueHeartbeatSeconds: 60,
+	queueRetentionSeconds: 1209600,
+	queueDeleteAfterSeconds: 604800,
+	installationGroupConcurrency: 2,
 	maxAskToolRounds: 12,
 	webhookTimeoutMs: 10000,
+	context7ApiKey: "",
+	maxReviewFindings: 8,
+	enableReviewLabelsEffort: false,
+	enableReviewLabelsSecurity: false,
+	maxPrFilesListed: 300,
+	maxPrFilesPatchBytes: 500000,
 	logLevel: "error",
 };
 
-const fakeInstallationToken: InstallationToken = {
-	token: "fake-token",
-	expiresAtTs: Date.now() + 3_600_000,
-	ttlMs: 3_600_000,
-};
-
 type Trace = {
-	dedupeKey: ReturnType<typeof vi.fn>;
-	seenOrMark: ReturnType<typeof vi.fn>;
-	getToken: ReturnType<typeof vi.fn>;
+	recordIgnored: ReturnType<typeof vi.fn>;
+	submitAutomatedReview: ReturnType<typeof vi.fn>;
+	submitSlashCommand: ReturnType<typeof vi.fn>;
 	pullRequest: ReturnType<typeof vi.fn>;
 	issueComment: ReturnType<typeof vi.fn>;
 	pullRequestReviewComment: ReturnType<typeof vi.fn>;
 };
 
 function buildLayers(trace: Trace) {
-	const dedupeLayer = Layer.succeed(
-		DeliveryDedupe,
-		DeliveryDedupe.of({
-			key: (delivery, body) =>
+	const schedulerLayer = Layer.succeed(
+		AgentWorkScheduler,
+		AgentWorkScheduler.of({
+			recordIgnored: (headers, decision) =>
 				Effect.sync(() => {
-					trace.dedupeKey(delivery, body);
-					return delivery ?? "body:hash";
+					trace.recordIgnored(headers, decision);
 				}),
-			seenOrMark: (key) =>
+			submitAutomatedReview: (headers, ref, action) =>
 				Effect.sync(() => {
-					trace.seenOrMark(key);
-					return false;
+					trace.submitAutomatedReview(headers, ref, action);
 				}),
-		}),
-	);
-
-	const tokenLayer = Layer.succeed(
-		GithubInstallationToken,
-		GithubInstallationToken.of({
-			getToken: (cfg, installationId) =>
+			submitSlashCommand: (input) =>
 				Effect.sync(() => {
-					trace.getToken(cfg, installationId);
-					return fakeInstallationToken;
+					trace.submitSlashCommand(input);
 				}),
 		}),
 	);
@@ -72,29 +72,29 @@ function buildLayers(trace: Trace) {
 	const handlersLayer = Layer.succeed(
 		WebhookHandlers,
 		WebhookHandlers.of({
-			pullRequest: (cfg, token, data) =>
+			pullRequest: (cfg, headers, data) =>
 				Effect.sync(() => {
-					trace.pullRequest(cfg, token, data);
+					trace.pullRequest(cfg, headers, data);
 				}),
-			issueComment: (cfg, token, data) =>
+			issueComment: (cfg, headers, data) =>
 				Effect.sync(() => {
-					trace.issueComment(cfg, token, data);
+					trace.issueComment(cfg, headers, data);
 				}),
-			pullRequestReviewComment: (cfg, token, data) =>
+			pullRequestReviewComment: (cfg, headers, data) =>
 				Effect.sync(() => {
-					trace.pullRequestReviewComment(cfg, token, data);
+					trace.pullRequestReviewComment(cfg, headers, data);
 				}),
 		}),
 	);
 
-	return Layer.mergeAll(dedupeLayer, tokenLayer, handlersLayer);
+	return Layer.mergeAll(schedulerLayer, handlersLayer);
 }
 
 function newTrace(): Trace {
 	return {
-		dedupeKey: vi.fn(),
-		seenOrMark: vi.fn(),
-		getToken: vi.fn(),
+		recordIgnored: vi.fn(),
+		submitAutomatedReview: vi.fn(),
+		submitSlashCommand: vi.fn(),
 		pullRequest: vi.fn(),
 		issueComment: vi.fn(),
 		pullRequestReviewComment: vi.fn(),
@@ -102,7 +102,7 @@ function newTrace(): Trace {
 }
 
 describe("dispatchGithubEventEffect ordering", () => {
-	it("stops on parse error without dedupe/token", async () => {
+	it("stops on parse error without durable intake", async () => {
 		const trace = newTrace();
 		const spy = vi.spyOn(parseModule, "parseGithubPayload").mockImplementation(() => {
 			throw new WebhookParseError("bad", "pull_request");
@@ -117,68 +117,14 @@ describe("dispatchGithubEventEffect ordering", () => {
 				}).pipe(Effect.provide(buildLayers(trace))),
 			);
 
-			expect(trace.seenOrMark).not.toHaveBeenCalled();
-			expect(trace.getToken).not.toHaveBeenCalled();
+			expect(trace.recordIgnored).not.toHaveBeenCalled();
+			expect(trace.pullRequest).not.toHaveBeenCalled();
 		} finally {
 			spy.mockRestore();
 		}
 	});
 
-	it("stops on duplicate before token", async () => {
-		const trace = newTrace();
-		const spy = vi
-			.spyOn(parseModule, "parseGithubPayload")
-			.mockReturnValue({ name: "ignored", data: {} });
-
-		// Override seenOrMark to return duplicate
-		const duplicateDedupeLayer = Layer.succeed(
-			DeliveryDedupe,
-			DeliveryDedupe.of({
-				key: (delivery) => Effect.sync(() => delivery ?? "body:hash"),
-				seenOrMark: () => Effect.sync(() => true),
-			}),
-		);
-
-		try {
-			await Effect.runPromise(
-				dispatchGithubEventEffect({
-					cfg,
-					headers: { event: "ping", delivery: "d1", rawBody: Buffer.from("{}") },
-					payload: {},
-				}).pipe(
-					Effect.provide(
-						Layer.mergeAll(
-							duplicateDedupeLayer,
-							Layer.succeed(
-								GithubInstallationToken,
-								GithubInstallationToken.of({
-									getToken: (cfg, id) =>
-										Effect.sync(() => {
-											trace.getToken(cfg, id);
-											return fakeInstallationToken;
-										}),
-								}),
-							),
-							Layer.succeed(
-								WebhookHandlers,
-								WebhookHandlers.of({
-									pullRequest: () => Effect.void,
-									issueComment: () => Effect.void,
-									pullRequestReviewComment: () => Effect.void,
-								}),
-							),
-						),
-					),
-				),
-			);
-
-			expect(trace.getToken).not.toHaveBeenCalled();
-		} finally {
-			spy.mockRestore();
-		}
-	});
-
-	it("skips token for ignored event", async () => {
+	it("records ignored events without minting tokens", async () => {
 		const trace = newTrace();
 		const spy = vi
 			.spyOn(parseModule, "parseGithubPayload")
@@ -193,13 +139,17 @@ describe("dispatchGithubEventEffect ordering", () => {
 				}).pipe(Effect.provide(buildLayers(trace))),
 			);
 
-			expect(trace.getToken).not.toHaveBeenCalled();
+			expect(trace.recordIgnored).toHaveBeenCalledWith(
+				{ event: "ping", delivery: "d2", rawBody: expect.any(Buffer) },
+				"ignored_event_ping",
+			);
+			expect(trace.pullRequest).not.toHaveBeenCalled();
 		} finally {
 			spy.mockRestore();
 		}
 	});
 
-	it("routes pull_request to handler with minted token", async () => {
+	it("routes pull_request to handler with raw headers and no token", async () => {
 		const trace = newTrace();
 		const parsedData = {
 			action: "opened",
@@ -220,8 +170,12 @@ describe("dispatchGithubEventEffect ordering", () => {
 				}).pipe(Effect.provide(buildLayers(trace))),
 			);
 
-			expect(trace.getToken).toHaveBeenCalledWith(cfg, 7);
-			expect(trace.pullRequest).toHaveBeenCalledWith(cfg, fakeInstallationToken, parsedData);
+			expect(trace.pullRequest).toHaveBeenCalledWith(
+				cfg,
+				{ event: "pull_request", delivery: "d3", rawBody: expect.any(Buffer) },
+				parsedData,
+			);
+			expect(trace.submitAutomatedReview).not.toHaveBeenCalled();
 		} finally {
 			spy.mockRestore();
 		}

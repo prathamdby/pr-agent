@@ -107,7 +107,7 @@ describe("processWebhookHttpRequestEffect", () => {
     }
   });
 
-  it("returns 500 when dispatcher fails with WebhookHandlerError", async () => {
+  it("returns 503 when dispatcher fails with WebhookHandlerError", async () => {
     const failingDispatcherLayer = Layer.succeed(
       WebhookDispatcher,
       WebhookDispatcher.of({
@@ -128,7 +128,7 @@ describe("processWebhookHttpRequestEffect", () => {
         }).pipe(Effect.provide(failingDispatcherLayer)),
       );
 
-      expect(out).toEqual({ status: 500, body: "internal error" });
+      expect(out).toEqual({ status: 503, body: "service unavailable" });
       const errLog = errorSpy.mock.calls.find((c) => c[0] === "webhook_handler_error");
       expect(errLog).toBeDefined();
       expect(errLog?.[1]).toMatchObject({ message: "boom" });

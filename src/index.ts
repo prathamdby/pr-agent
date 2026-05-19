@@ -1,6 +1,7 @@
 import { loadConfig, type Config } from "./config.js";
 import { initLog, log } from "./log.js";
 import { startEffectWebhookServer } from "./effect/server.js";
+import { startAgentWorker } from "./worker.js";
 
 function main() {
   let cfg: Config;
@@ -14,11 +15,16 @@ function main() {
 
   initLog(cfg.logLevel);
   log.info("boot", {
+    role: cfg.role,
     provider: cfg.piProvider,
     model: cfg.piModel,
     context7_enabled: cfg.context7ApiKey.length > 0,
   });
   log.info("runtime_selected", { runtime: "effect" });
+  if (cfg.role === "worker") {
+    startAgentWorker(cfg);
+    return;
+  }
   startEffectWebhookServer(cfg);
 }
 

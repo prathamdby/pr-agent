@@ -26,6 +26,10 @@ export async function publishReview(params: ReviewPublishContext & {
 	cfg: Pick<Config, "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
 	payload: ReviewPayload;
 	publishState: SubmitReviewState;
+	recordPublishStep?: (
+		step: "inline_review" | "summary_comment" | "labels",
+		detail?: { githubId?: string | number; meta?: Record<string, unknown> },
+	) => Promise<void>;
 }): Promise<void> {
 	const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
 	const mode = params.mode ?? "review";
@@ -48,6 +52,10 @@ export async function publishReview(params: ReviewPublishContext & {
 				event,
 				comments,
 			});
+			await params.recordPublishStep?.("inline_review", {
+				githubId: review.id,
+				meta: { url: review.url, inlineCount: comments.length, event },
+			});
 
 			log.info("review_published_inline", {
 				mode,
@@ -69,6 +77,11 @@ export async function publishReview(params: ReviewPublishContext & {
 		}
 
 		publishState.inlinePublished = true;
+		if (comments.length === 0) {
+			await params.recordPublishStep?.("inline_review", {
+				meta: { inlineCount: 0, reason: "no_p0_p2_findings" },
+			});
+		}
 	}
 
 	const summaryBody = renderReviewSummaryComment(payload, {
@@ -81,6 +94,10 @@ export async function publishReview(params: ReviewPublishContext & {
 	});
 
 	const summary = await upsertReviewSummaryComment(token, owner, repo, prNumber, summaryBody, summarySentinel);
+	await params.recordPublishStep?.("summary_comment", {
+		githubId: summary.id,
+		meta: { updated: summary.updated },
+	});
 	log.info("review_published_summary", {
 		mode,
 		owner,
@@ -99,6 +116,7 @@ export async function publishReview(params: ReviewPublishContext & {
 					security: cfg.enableReviewLabelsSecurity,
 				})
 			) {
+				await params.recordPublishStep?.("labels", { meta: { labels: current, alreadySynced: true } });
 				return;
 			}
 			const managed = reviewLabelsFromPayload(payload, {
@@ -107,6 +125,7 @@ export async function publishReview(params: ReviewPublishContext & {
 			});
 			const next = syncReviewLabels(current, managed);
 			await setPullRequestLabels(token, owner, repo, prNumber, next);
+			await params.recordPublishStep?.("labels", { meta: { labels: next } });
 			log.info("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);

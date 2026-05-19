@@ -9,6 +9,7 @@ RUN pnpm install --frozen-lockfile
 FROM deps AS build
 COPY tsconfig.json ./
 COPY src ./src
+COPY migrations ./migrations
 RUN pnpm run build
 
 FROM node:22-bookworm-slim AS runtime
@@ -22,6 +23,7 @@ COPY package.json pnpm-lock.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/migrations ./migrations
 
 USER node
 

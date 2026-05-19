@@ -1,11 +1,9 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
+import { AgentWorkSchedulerRuntimeLive } from "../../agentWork/runtime.js";
+import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import { WebhookHandlerError } from "../errors.js";
 import { dispatchGithubEventEffect } from "../programs/dispatchEffect.js";
-import { DeliveryDedupe, DeliveryDedupeLive } from "./deliveryDedupe.js";
-import { AskQueueLive } from "./askQueue.js";
-import { GithubInstallationToken, GithubInstallationTokenLive } from "./githubInstallationToken.js";
-import { ReviewQueueLive } from "./reviewQueue.js";
 import { WebhookHandlers, WebhookHandlersLive } from "./webhookHandlers.js";
 
 export type DispatchInput = {
@@ -28,15 +26,13 @@ export class WebhookDispatcher extends Context.Tag("WebhookDispatcher")<
 const DispatcherCore = Layer.effect(
   WebhookDispatcher,
   Effect.gen(function* () {
-    const dedupe = yield* DeliveryDedupe;
-    const tokenSvc = yield* GithubInstallationToken;
+    const scheduler = yield* AgentWorkScheduler;
     const handlers = yield* WebhookHandlers;
 
     return WebhookDispatcher.of({
       dispatch: (input) =>
         dispatchGithubEventEffect(input).pipe(
-          Effect.provideService(DeliveryDedupe, dedupe),
-          Effect.provideService(GithubInstallationToken, tokenSvc),
+          Effect.provideService(AgentWorkScheduler, scheduler),
           Effect.provideService(WebhookHandlers, handlers),
           Effect.mapError(
             (e) =>
@@ -50,11 +46,8 @@ const DispatcherCore = Layer.effect(
   }),
 );
 
-export const buildWebhookDispatcherLive = (cfg: Pick<Config, "reviewConcurrency" | "askConcurrency">) =>
+export const buildWebhookDispatcherLive = (cfg: Config) =>
   DispatcherCore.pipe(
-    Layer.provide(GithubInstallationTokenLive),
     Layer.provide(WebhookHandlersLive),
-    Layer.provide(DeliveryDedupeLive),
-    Layer.provide(ReviewQueueLive(cfg)),
-    Layer.provide(AskQueueLive(cfg)),
+    Layer.provide(AgentWorkSchedulerRuntimeLive(cfg)),
   );

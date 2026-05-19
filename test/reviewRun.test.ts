@@ -4,6 +4,7 @@ import { log } from "../src/log.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
 	createIssueComment: vi.fn(async () => ({ id: 99, url: "https://example.com/issues/comments/99" })),
+	upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
 }));
 
 vi.mock("@earendil-works/pi-ai", () => ({
@@ -28,7 +29,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
 }));
 
 import { complete } from "@earendil-works/pi-ai";
-import { createIssueComment } from "../src/github/reviewPublish.js";
+import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { runFullPrReview } from "../src/agent/reviewRun.js";
 
@@ -194,12 +195,13 @@ describe("runFullPrReview mode", () => {
 	it("uses security fallback heading when security publish is exhausted", async () => {
 		await runFullPrReview(reviewParams({ mode: "review-security" }));
 
-		expect(createIssueComment).toHaveBeenCalledWith(
+		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
 			"t",
 			"o",
 			"r",
 			1,
-			expect.stringContaining("## PR Agent Security Review — could not publish"),
+			expect.stringContaining("## PR Agent Security Review"),
+			"## PR Agent Security Review",
 		);
 	});
 });
@@ -231,19 +233,21 @@ describe("runFullPrReview publish retries", () => {
 		const result = await runFullPrReview(reviewParams());
 
 		expect(result.published).toBe(false);
-		expect(createIssueComment).toHaveBeenCalledWith(
+		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
 			"t",
 			"o",
 			"r",
 			1,
-			expect.stringContaining("could not publish structured output"),
+			expect.stringContaining("Structured publish failed"),
+			"## PR Agent Review",
 		);
-		expect(createIssueComment).toHaveBeenCalledWith(
+		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
 			"t",
 			"o",
 			"r",
 			1,
 			expect.stringContaining("analysis without submitReview"),
+			"## PR Agent Review",
 		);
 	});
 });

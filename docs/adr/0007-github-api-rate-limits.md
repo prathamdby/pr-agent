@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for async webhook acknowledgement and worker-time token minting.
 
 ## Context
 
@@ -30,13 +30,16 @@ Large PR reviews drive many GitHub REST/GraphQL tool calls in a single synchrono
 
 ## Consequences
 
-- Reviews on large PRs may run longer (throttle waits); synchronous webhook contract unchanged; `WEBHOOK_TIMEOUT_MS` remains logging-only.
+- Reviews on large PRs may run longer (throttle waits); ADR 0009 moves review execution out of the webhook request fiber.
 - Truncated PRs (>300 files) degrade review coverage by design.
 - Throttle state is per-process; `REVIEW_CONCURRENCY > 1` or multi-replica deploys can still burst the same installation.
 - `probable_secondary` is a heuristic; use structured logs to disprove in production.
 
-## Deferred
+## Superseded by ADR 0009
 
 - Async webhook ack (early `200`).
 - Mid-review installation token re-mint.
+
+## Deferred
+
 - Cross-process rate-limit coordination (Redis Bottleneck clustering).

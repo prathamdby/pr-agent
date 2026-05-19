@@ -2,9 +2,8 @@ import { Effect } from "effect";
 import type { Config } from "../../config.js";
 import { log } from "../../log.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
-import { DeliveryDedupe } from "../services/deliveryDedupe.js";
-import { GithubInstallationToken } from "../services/githubInstallationToken.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
+import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 
 export type DispatchEffectInput = {
   cfg: Config;
@@ -14,7 +13,7 @@ export type DispatchEffectInput = {
 
 export function dispatchGithubEventEffect(
   input: DispatchEffectInput,
-): Effect.Effect<void, Error, DeliveryDedupe | GithubInstallationToken | WebhookHandlers> {
+): Effect.Effect<void, Error, AgentWorkScheduler | WebhookHandlers> {
   return Effect.gen(function* () {
     const { cfg, headers, payload } = input;
     const event = headers.event ?? "";
@@ -34,32 +33,23 @@ export function dispatchGithubEventEffect(
       return yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
     }
 
-    const dedupe = yield* DeliveryDedupe;
-    const key = yield* dedupe.key(headers.delivery, headers.rawBody);
-    const isDup = yield* dedupe.seenOrMark(key);
-    if (isDup) {
-      log.info("deduped_delivery", { dedupeKey: key, event });
-      return;
-    }
-
+    const scheduler = yield* AgentWorkScheduler;
     if (parsed.name === "ignored") {
       log.debug("ignored_event", { event });
+      yield* scheduler.recordIgnored(headers, `ignored_event_${event || "missing"}`);
       return;
     }
-
-    const tokenSvc = yield* GithubInstallationToken;
-    const token = yield* tokenSvc.getToken(cfg, parsed.data.installation.id);
 
     const handlers = yield* WebhookHandlers;
     switch (parsed.name) {
       case "pull_request":
-        yield* handlers.pullRequest(cfg, token, parsed.data);
+        yield* handlers.pullRequest(cfg, headers, parsed.data);
         return;
       case "issue_comment":
-        yield* handlers.issueComment(cfg, token, parsed.data);
+        yield* handlers.issueComment(cfg, headers, parsed.data);
         return;
       case "pull_request_review_comment":
-        yield* handlers.pullRequestReviewComment(cfg, token, parsed.data);
+        yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data);
         return;
       default:
         parsed satisfies never;
