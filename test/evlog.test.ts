@@ -40,6 +40,16 @@ describe("evlog wide events", () => {
 		expect(ctx.eventsDropped).toBe(2);
 	});
 
+	it("resets maxWideEvents when re-initialized without option", () => {
+		evlog.initEvlog("debug", { silent: true, suppressDrainWarning: true, maxWideEvents: 5 });
+		evlog.initEvlog("debug", { silent: true, suppressDrainWarning: true });
+		const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+		for (let i = 0; i < 10; i++) {
+			evlog.recordEvent(logger, `evt_${i}`, {}, "info");
+		}
+		expect((logger.getContext().events as unknown[]).length).toBe(10);
+	});
+
 	it("recordEvent skips debug-level entries when LOG_LEVEL is info", () => {
 		evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
 		const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });

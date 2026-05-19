@@ -21,8 +21,10 @@ const LEVEL_RANK: Record<WideEventLevel, number> = {
 	error: 3,
 };
 
+export const DEFAULT_MAX_WIDE_EVENTS = 128;
+
 let globalMinLevel: WideEventLevel = "info";
-let globalMaxWideEvents = 128;
+let globalMaxWideEvents = DEFAULT_MAX_WIDE_EVENTS;
 
 const { storage, useLogger: useLoggerFromStorage } = createLoggerStorage(
 	"evlog: call initEvlog() at boot and run handlers inside runWithOperationLogger()",
@@ -134,7 +136,7 @@ export function initEvlog(
 	},
 ): void {
 	globalMinLevel = logLevel;
-	if (options?.maxWideEvents != null) globalMaxWideEvents = options.maxWideEvents;
+	globalMaxWideEvents = options?.maxWideEvents ?? DEFAULT_MAX_WIDE_EVENTS;
 
 	const isProduction = process.env.NODE_ENV === "production";
 	initLogger({
