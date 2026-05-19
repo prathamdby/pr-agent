@@ -98,7 +98,7 @@ export function initEvlog(
 			environment: (process.env.NODE_ENV ?? "development") as "development" | "production" | "test",
 		},
 		minLevel: logLevel,
-		pretty: process.env.NODE_ENV !== "production",
+		pretty: true,
 		redact: process.env.NODE_ENV === "production",
 		silent: options?.silent ?? false,
 		_suppressDrainWarning: options?.suppressDrainWarning ?? false,
