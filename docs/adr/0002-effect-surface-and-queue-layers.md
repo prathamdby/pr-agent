@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for durable review/ask work execution.
 
 ## Context
 

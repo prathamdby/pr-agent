@@ -32,7 +32,7 @@ export type SlashContext = {
 	readonly codeAnchor?: CodeAnchor;
 };
 
-const helpBody = [
+export const slashHelpBody = [
 	"### PR Agent help",
 	"",
 	"Commands (first line of a **new** comment):",
@@ -78,7 +78,7 @@ export function runSlashCommandFlow(
 			: surface.acknowledgeOnReviewComment(ctx.token, ctx.owner, ctx.repo, ctx.commentId);
 
 		if (command === "help") {
-			yield* postReply(helpBody);
+			yield* postReply(slashHelpBody);
 			return;
 		}
 

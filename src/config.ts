@@ -61,6 +61,13 @@ export function loadConfig() {
 	const githubAppId = requireEnv("GITHUB_APP_ID");
 	const githubAppPrivateKey = normalizeGithubAppPrivateKey(requireEnv("GITHUB_APP_PRIVATE_KEY"));
 	const webhookSecret = requireEnv("WEBHOOK_SECRET");
+	const databaseUrl = requireEnv("DATABASE_URL");
+
+	const roleRaw = optionalEnv("ROLE", "web");
+	if (!["web", "worker"].includes(roleRaw)) {
+		throw new Error('ROLE must be one of web, worker');
+	}
+	const role = roleRaw as "web" | "worker";
 
 	const piProviderRaw = optionalEnv("PI_PROVIDER", "openai");
 	const piModel = optionalEnv("PI_MODEL", "gpt-4o-mini");
@@ -92,9 +99,54 @@ export function loadConfig() {
 		throw new Error("REVIEW_CONCURRENCY must be a positive number");
 	}
 
-	const askConcurrency = Number(optionalEnv("ASK_CONCURRENCY", "3"));
+	const askConcurrency = Number(optionalEnv("ASK_CONCURRENCY", "1"));
 	if (!Number.isFinite(askConcurrency) || askConcurrency < 1) {
 		throw new Error("ASK_CONCURRENCY must be a positive number");
+	}
+
+	const ackConcurrency = Number(optionalEnv("ACK_CONCURRENCY", "2"));
+	if (!Number.isFinite(ackConcurrency) || ackConcurrency < 1) {
+		throw new Error("ACK_CONCURRENCY must be a positive number");
+	}
+
+	const queueRetryLimit = Number(optionalEnv("QUEUE_RETRY_LIMIT", "3"));
+	if (!Number.isFinite(queueRetryLimit) || queueRetryLimit < 0) {
+		throw new Error("QUEUE_RETRY_LIMIT must be zero or a positive number");
+	}
+
+	const queueRetryDelaySeconds = Number(optionalEnv("QUEUE_RETRY_DELAY_SECONDS", "30"));
+	if (!Number.isFinite(queueRetryDelaySeconds) || queueRetryDelaySeconds < 0) {
+		throw new Error("QUEUE_RETRY_DELAY_SECONDS must be zero or a positive number");
+	}
+
+	const queueRetryDelayMaxSeconds = Number(optionalEnv("QUEUE_RETRY_DELAY_MAX_SECONDS", "300"));
+	if (!Number.isFinite(queueRetryDelayMaxSeconds) || queueRetryDelayMaxSeconds < 1) {
+		throw new Error("QUEUE_RETRY_DELAY_MAX_SECONDS must be a positive number");
+	}
+
+	const queueExpireInSeconds = Number(optionalEnv("QUEUE_EXPIRE_IN_SECONDS", "3600"));
+	if (!Number.isFinite(queueExpireInSeconds) || queueExpireInSeconds < 1) {
+		throw new Error("QUEUE_EXPIRE_IN_SECONDS must be a positive number");
+	}
+
+	const queueHeartbeatSeconds = Number(optionalEnv("QUEUE_HEARTBEAT_SECONDS", "60"));
+	if (!Number.isFinite(queueHeartbeatSeconds) || queueHeartbeatSeconds < 10) {
+		throw new Error("QUEUE_HEARTBEAT_SECONDS must be at least 10");
+	}
+
+	const queueRetentionSeconds = Number(optionalEnv("QUEUE_RETENTION_SECONDS", "1209600"));
+	if (!Number.isFinite(queueRetentionSeconds) || queueRetentionSeconds < 1) {
+		throw new Error("QUEUE_RETENTION_SECONDS must be a positive number");
+	}
+
+	const queueDeleteAfterSeconds = Number(optionalEnv("QUEUE_DELETE_AFTER_SECONDS", "604800"));
+	if (!Number.isFinite(queueDeleteAfterSeconds) || queueDeleteAfterSeconds < 0) {
+		throw new Error("QUEUE_DELETE_AFTER_SECONDS must be zero or a positive number");
+	}
+
+	const installationGroupConcurrency = Number(optionalEnv("INSTALLATION_GROUP_CONCURRENCY", "2"));
+	if (!Number.isFinite(installationGroupConcurrency) || installationGroupConcurrency < 1) {
+		throw new Error("INSTALLATION_GROUP_CONCURRENCY must be a positive number");
 	}
 
 	const maxAskToolRounds = Number(optionalEnv("MAX_ASK_TOOL_ROUNDS", "12"));
@@ -137,6 +189,8 @@ export function loadConfig() {
 		githubAppId,
 		githubAppPrivateKey,
 		webhookSecret,
+		databaseUrl,
+		role,
 		piProvider,
 		piModel,
 		maxToolRounds,
@@ -144,6 +198,15 @@ export function loadConfig() {
 		maxReviewPublishAttempts,
 		reviewConcurrency,
 		askConcurrency,
+		ackConcurrency,
+		queueRetryLimit,
+		queueRetryDelaySeconds,
+		queueRetryDelayMaxSeconds,
+		queueExpireInSeconds,
+		queueHeartbeatSeconds,
+		queueRetentionSeconds,
+		queueDeleteAfterSeconds,
+		installationGroupConcurrency,
 		maxAskToolRounds,
 		webhookTimeoutMs,
 		context7ApiKey,

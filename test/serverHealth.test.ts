@@ -6,21 +6,39 @@ import { Effect, Fiber, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { initLog } from "../src/log.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
+import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 
 const testCfg: Config = {
 	port: 0,
 	githubAppId: "1",
 	githubAppPrivateKey: "fake",
 	webhookSecret: "secret",
+	databaseUrl: "postgres://test",
+	role: "web",
 	piProvider: "openai",
 	piModel: "gpt-4o-mini",
 	maxToolRounds: 24,
 	maxFinalizeRounds: 6,
 	maxReviewPublishAttempts: 3,
 	reviewConcurrency: 2,
-	askConcurrency: 3,
+	askConcurrency: 1,
+	ackConcurrency: 2,
+	queueRetryLimit: 3,
+	queueRetryDelaySeconds: 30,
+	queueRetryDelayMaxSeconds: 300,
+	queueExpireInSeconds: 3600,
+	queueHeartbeatSeconds: 60,
+	queueRetentionSeconds: 1209600,
+	queueDeleteAfterSeconds: 604800,
+	installationGroupConcurrency: 2,
 	maxAskToolRounds: 12,
 	webhookTimeoutMs: 10000,
+	context7ApiKey: "",
+	maxReviewFindings: 8,
+	enableReviewLabelsEffort: false,
+	enableReviewLabelsSecurity: false,
+	maxPrFilesListed: 300,
+	maxPrFilesPatchBytes: 500000,
 	logLevel: "error",
 };
 
@@ -116,6 +134,12 @@ type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
 function startEffectServer(): Promise<Handle> {
 	return new Promise((resolve, reject) => {
 		let captured: http.Server | undefined;
+		const dispatcherLayer = Layer.succeed(
+			WebhookDispatcher,
+			WebhookDispatcher.of({
+				dispatch: () => Effect.void,
+			}),
+		);
 		const layer = buildEffectWebhookLayer(testCfg, () => {
 			captured = http.createServer();
 			captured.once("listening", () => {
@@ -123,7 +147,7 @@ function startEffectServer(): Promise<Handle> {
 			});
 			captured.once("error", reject);
 			return captured;
-		});
+		}, dispatcherLayer);
 		const fiber = Effect.runFork(Layer.launch(layer));
 	});
 }

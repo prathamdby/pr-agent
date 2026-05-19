@@ -39,6 +39,10 @@ export function buildSubmitReviewTool(params: {
 	ctx: ReviewPublishContext;
 	mode?: ReviewMode;
 	state: SubmitReviewState;
+	recordPublishStep?: (
+		step: "inline_review" | "summary_comment" | "labels",
+		detail?: { githubId?: string | number; meta?: Record<string, unknown> },
+	) => Promise<void>;
 }): {
 	piTool: PiTool;
 	executor: (args: Record<string, unknown>) => Promise<unknown>;
@@ -86,6 +90,7 @@ export function buildSubmitReviewTool(params: {
 			...params.ctx,
 			payload: parsed.data,
 			publishState: params.state,
+			recordPublishStep: params.recordPublishStep,
 		});
 		params.state.published = true;
 		log.info("review_published", {
