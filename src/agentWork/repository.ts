@@ -88,6 +88,16 @@ export async function claimWorkForExecution(pool: Pool, id: string): Promise<boo
 	return row?.status === "running" && row.cancel_requested_at == null;
 }
 
+export async function markWorkPublishDegraded(pool: Pool, id: string): Promise<void> {
+	await pool.query(
+		`UPDATE agent_work_items
+		    SET payload = payload || '{"publishDegraded": true}'::jsonb,
+		        updated_at = now()
+		  WHERE id = $1`,
+		[id],
+	);
+}
+
 export async function markWorkCompleted(pool: Pool, id: string): Promise<boolean> {
 	const result = await pool.query(
 		`UPDATE agent_work_items

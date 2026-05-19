@@ -5,7 +5,7 @@ import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../agent/reviewSchema.js";
+import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import {
 	getAppBotIdentity,
 	installationOctokit,
@@ -21,6 +21,7 @@ import {
 	markWorkCancelled,
 	markWorkCompleted,
 	markWorkFailed,
+	markWorkPublishDegraded,
 	markWorkRetrying,
 	claimWorkForExecution,
 	recordPublishStep,
@@ -198,6 +199,7 @@ async function handleReviewJob(
 	const data = job.data;
 	const item = await getWorkItem(pool, data.workItemId);
 	if (!item || item.type !== "review" || !item.reviewLens) return;
+	const reviewLens = item.reviewLens;
 	if (await shouldSkipWork(pool, item)) {
 		await markWorkCancelled(pool, item.id);
 		return;
@@ -222,7 +224,7 @@ async function handleReviewJob(
 			return;
 		}
 
-		const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, item.reviewLens);
+		const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, reviewLens);
 		log.info("agent_work_started", { type: "review", workItemId: item.id, resourceKey: item.resourceKey });
 		const result = await runFullPrReview({
 			cfg,
@@ -233,7 +235,7 @@ async function handleReviewJob(
 			repo: item.repo,
 			prNumber: item.prNumber,
 			headSha,
-			mode: item.reviewLens,
+			mode: reviewLens,
 			userSupplement: payload.userSupplement,
 			initialPublishState: {
 				inlinePublished: publishState.inlinePublished,
@@ -243,7 +245,7 @@ async function handleReviewJob(
 				recordPublishStep(pool, {
 					workItemId: item.id,
 					resourceKey: item.resourceKey,
-					reviewLens: item.reviewLens as ReviewMode,
+					reviewLens,
 					step,
 					githubId: detail?.githubId,
 					detail: detail?.meta,
@@ -260,7 +262,9 @@ async function handleReviewJob(
 				repo: item.repo,
 				pr: item.prNumber,
 				publishAttempts: result.publishAttempts,
+				publishDegraded: true,
 			});
+			await markWorkPublishDegraded(pool, item.id);
 		}
 		if (!(await markWorkCompleted(pool, item.id))) {
 			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
@@ -275,7 +279,14 @@ async function handleReviewJob(
 		const message = e instanceof Error ? e.message : String(e);
 		if (!isTerminalPgBossAttempt(job)) {
 			if (await markWorkRetrying(pool, item.id, e)) {
-				log.warn("agent_work_retrying", { type: "review", workItemId: item.id, message });
+				log.warn("agent_work_retrying", {
+					type: "review",
+					workItemId: item.id,
+					message,
+					pgBossRetryCount: job.retryCount,
+					pgBossRetryLimit: job.retryLimit,
+					dbAttemptCount: item.attemptCount,
+				});
 				throw e;
 			}
 			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
@@ -287,8 +298,8 @@ async function handleReviewJob(
 		}
 		if (installation) {
 			const body = renderReviewFailureNotice({
-				mode: item.reviewLens,
-				retryCommand: item.reviewLens === "review-security" ? "/review-security" : "/review",
+				mode: reviewLens,
+				retryCommand: reviewLens === "review-security" ? "/review-security" : "/review",
 			});
 			try {
 				await upsertReviewSummaryComment(
@@ -297,7 +308,7 @@ async function handleReviewJob(
 					item.repo,
 					item.prNumber,
 					body,
-					reviewSummarySentinelForMode(item.reviewLens),
+					reviewSummarySentinelForMode(reviewLens),
 				);
 			} catch (publishError) {
 				log.warn("review_failure_notice_failed", {
@@ -306,7 +317,14 @@ async function handleReviewJob(
 				});
 			}
 		}
-		log.error("agent_work_failed", { type: "review", workItemId: item.id, message });
+		log.error("agent_work_failed", {
+			type: "review",
+			workItemId: item.id,
+			message,
+			pgBossRetryCount: job.retryCount,
+			pgBossRetryLimit: job.retryLimit,
+			dbAttemptCount: item.attemptCount,
+		});
 	}
 }
 
@@ -410,7 +428,14 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 		const message = e instanceof Error ? e.message : String(e);
 		if (!isTerminalPgBossAttempt(job)) {
 			if (await markWorkRetrying(pool, item.id, e)) {
-				log.warn("agent_work_retrying", { type: "ask", workItemId: item.id, message });
+				log.warn("agent_work_retrying", {
+					type: "ask",
+					workItemId: item.id,
+					message,
+					pgBossRetryCount: job.retryCount,
+					pgBossRetryLimit: job.retryLimit,
+					dbAttemptCount: item.attemptCount,
+				});
 				throw e;
 			}
 			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
@@ -438,7 +463,14 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 				});
 			}
 		}
-		log.error("agent_work_failed", { type: "ask", workItemId: item.id, message });
+		log.error("agent_work_failed", {
+			type: "ask",
+			workItemId: item.id,
+			message,
+			pgBossRetryCount: job.retryCount,
+			pgBossRetryLimit: job.retryLimit,
+			dbAttemptCount: item.attemptCount,
+		});
 	}
 }
 

@@ -68,6 +68,8 @@ export type ReviewWorkPayload = {
 	readonly source: WorkSource;
 	readonly userSupplement?: string;
 	readonly commenterId?: number;
+	/** Set when the run finished but structured publish did not succeed */
+	readonly publishDegraded?: boolean;
 };
 
 export type AskWorkPayload = {
