@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { BotIdentity } from "../src/effect/services/botIdentity.js";
+import { GithubInstallationToken } from "../src/effect/services/githubInstallationToken.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 
 const cfg: Config = {
@@ -46,6 +48,23 @@ const issueCommentData = {
   comment: { id: 99, user: { id: 7 }, body: "/help" },
 } as never;
 
+function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
+	const tokens = Layer.succeed(
+		GithubInstallationToken,
+		GithubInstallationToken.of({
+			getToken: () => Effect.succeed({ token: "t", expiresAtTs: Date.now() + 60_000 }),
+		}),
+	);
+	const bot = Layer.succeed(
+		BotIdentity,
+		BotIdentity.of({
+			resolve: () => Effect.succeed({ userId: 42, login: "pr-agent[bot]" }),
+			getUserId: () => Effect.succeed(42),
+		}),
+	);
+	return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(tokens), Layer.provide(bot));
+}
+
 describe("WebhookHandlers Effect resolution", () => {
   it("propagates scheduler failure through Effect's error channel (no Promise escape)", async () => {
     const failingScheduler = Layer.succeed(
@@ -57,7 +76,7 @@ describe("WebhookHandlers Effect resolution", () => {
       }),
     );
 
-    const HandlersWithFailingScheduler = WebhookHandlersCore.pipe(Layer.provide(failingScheduler));
+    const HandlersWithFailingScheduler = handlerTestLayers(failingScheduler);
 
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
@@ -98,7 +117,7 @@ describe("WebhookHandlers Effect resolution", () => {
       }),
     );
 
-    const Handlers = WebhookHandlersCore.pipe(Layer.provide(scheduler));
+    const Handlers = handlerTestLayers(scheduler);
     const nonSlash = { ...issueCommentData, comment: { id: 99, user: { id: 7 }, body: "hello" } } as never;
 
     const exit = await Effect.runPromiseExit(
@@ -108,6 +127,43 @@ describe("WebhookHandlers Effect resolution", () => {
           cfg,
           { event: "issue_comment", delivery: "d2", rawBody: Buffer.from("{}") },
           nonSlash,
+        );
+      }).pipe(Effect.provide(Handlers)),
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(ignored).toBe(true);
+    expect(slash).toBe(false);
+  });
+
+  it("ignores slash commands from the bot before enqueueing work", async () => {
+    let ignored = false;
+    let slash = false;
+    const scheduler = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: (_headers, decision) =>
+          Effect.sync(() => {
+            if (decision === "ignored_bot_slash_command") ignored = true;
+          }),
+        submitAutomatedReview: () => Effect.void,
+        submitSlashCommand: () =>
+          Effect.sync(() => {
+            slash = true;
+          }),
+      }),
+    );
+
+    const Handlers = handlerTestLayers(scheduler);
+    const botSlash = { ...issueCommentData, comment: { id: 99, user: { id: 42 }, body: "/help" } } as never;
+
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        const handlers = yield* WebhookHandlers;
+        yield* handlers.issueComment(
+          cfg,
+          { event: "issue_comment", delivery: "d3", rawBody: Buffer.from("{}") },
+          botSlash,
         );
       }).pipe(Effect.provide(Handlers)),
     );

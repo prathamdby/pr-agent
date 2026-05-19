@@ -90,6 +90,19 @@ export async function markWorkFailed(pool: Pool, id: string, error: unknown): Pr
 	);
 }
 
+export async function markWorkRetrying(pool: Pool, id: string, error: unknown): Promise<void> {
+	const message = error instanceof Error ? error.message : String(error);
+	await pool.query(
+		`UPDATE agent_work_items
+		    SET status = 'queued',
+		        last_error = $2,
+		        updated_at = now()
+		  WHERE id = $1
+		    AND status = 'running'`,
+		[id, message],
+	);
+}
+
 export async function markWorkCancelled(pool: Pool, id: string): Promise<void> {
 	await pool.query(
 		`UPDATE agent_work_items

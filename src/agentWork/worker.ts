@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
-import type { PgBoss } from "pg-boss";
+import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply } from "../agent/formatAskReply.js";
@@ -15,6 +15,7 @@ import {
 	markWorkCancelled,
 	markWorkCompleted,
 	markWorkFailed,
+	markWorkRetrying,
 	markWorkRunning,
 	recordPublishStep,
 	shouldSkipWork,
@@ -32,6 +33,10 @@ import {
 	type ReviewJobData,
 	type ReviewWorkPayload,
 } from "./types.js";
+
+function isTerminalPgBossAttempt(job: JobWithMetadata<ReviewJobData | AskJobData>): boolean {
+	return job.retryCount >= job.retryLimit;
+}
 
 async function getInstallationToken(cfg: Config, installationId: number) {
 	const auth = await mintInstallationAuth(cfg, installationId);
@@ -160,7 +165,12 @@ async function maybeSkipBotWork(cfg: Config, token: string, item: AgentWorkItem)
 	return isBotCommenter(cfg, token, commenterId);
 }
 
-async function handleReviewJob(cfg: Config, pool: Pool, data: ReviewJobData): Promise<void> {
+async function handleReviewJob(
+	cfg: Config,
+	pool: Pool,
+	job: JobWithMetadata<ReviewJobData>,
+): Promise<void> {
+	const data = job.data;
 	const item = await getWorkItem(pool, data.workItemId);
 	if (!item || item.type !== "review" || !item.reviewLens) return;
 	if (await shouldSkipWork(pool, item)) {
@@ -228,8 +238,13 @@ async function handleReviewJob(cfg: Config, pool: Pool, data: ReviewJobData): Pr
 		await markWorkCompleted(pool, item.id);
 		log.info("agent_work_completed", { type: "review", workItemId: item.id });
 	} catch (e) {
-		await markWorkFailed(pool, item.id, e);
 		const message = e instanceof Error ? e.message : String(e);
+		if (!isTerminalPgBossAttempt(job)) {
+			await markWorkRetrying(pool, item.id, e);
+			log.warn("agent_work_retrying", { type: "review", workItemId: item.id, message });
+			throw e;
+		}
+		await markWorkFailed(pool, item.id, e);
 		const body = renderReviewFailureNotice({
 			mode: item.reviewLens,
 			retryCommand: item.reviewLens === "review-security" ? "/review-security" : "/review",
@@ -292,7 +307,8 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
 	});
 }
 
-async function handleAskJob(cfg: Config, pool: Pool, data: AskJobData): Promise<void> {
+async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJobData>): Promise<void> {
+	const data = job.data;
 	const item = await getWorkItem(pool, data.workItemId);
 	if (!item || item.type !== "ask") return;
 	if (!(await markWorkRunning(pool, item.id))) return;
@@ -323,6 +339,12 @@ async function handleAskJob(cfg: Config, pool: Pool, data: AskJobData): Promise<
 		await markWorkCompleted(pool, item.id);
 		log.info("agent_work_completed", { type: "ask", workItemId: item.id });
 	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		if (!isTerminalPgBossAttempt(job)) {
+			await markWorkRetrying(pool, item.id, e);
+			log.warn("agent_work_retrying", { type: "ask", workItemId: item.id, message });
+			throw e;
+		}
 		await markWorkFailed(pool, item.id, e);
 		try {
 			await publishAskAnswer(
@@ -340,11 +362,7 @@ async function handleAskJob(cfg: Config, pool: Pool, data: AskJobData): Promise<
 				message: publishError instanceof Error ? publishError.message : String(publishError),
 			});
 		}
-		log.error("agent_work_failed", {
-			type: "ask",
-			workItemId: item.id,
-			message: e instanceof Error ? e.message : String(e),
-		});
+		log.error("agent_work_failed", { type: "ask", workItemId: item.id, message });
 		throw e;
 	}
 }
@@ -364,9 +382,10 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 								localConcurrency: cfg.reviewConcurrency,
 								groupConcurrency: cfg.installationGroupConcurrency,
 								heartbeatRefreshSeconds: Math.max(1, Math.floor(cfg.queueHeartbeatSeconds / 2)),
+								includeMetadata: true,
 							},
 							async ([job]) => {
-								await handleReviewJob(cfg, pool, job.data);
+								await handleReviewJob(cfg, pool, job);
 							},
 						),
 						boss.work<AskJobData>(
@@ -375,9 +394,10 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 								localConcurrency: cfg.askConcurrency,
 								groupConcurrency: cfg.installationGroupConcurrency,
 								heartbeatRefreshSeconds: Math.max(1, Math.floor(cfg.queueHeartbeatSeconds / 2)),
+								includeMetadata: true,
 							},
 							async ([job]) => {
-								await handleAskJob(cfg, pool, job.data);
+								await handleAskJob(cfg, pool, job);
 							},
 						),
 					]);
