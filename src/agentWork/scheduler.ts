@@ -26,6 +26,8 @@ import {
 } from "./types.js";
 
 const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
+/** Lens used for webhook-driven PR reviews; superseding queries key on this value. */
+const AUTOMATED_REVIEW_LENS: ReviewMode = "review";
 
 type EventRecord = {
 	readonly id: string;
@@ -271,29 +273,29 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							    SET status = 'superseded',
 							        updated_at = now()
 							  WHERE resource_key = $1
-							    AND review_lens = 'review'
+							    AND review_lens = $2
 							    AND source = 'auto'
 							    AND status = 'queued'
 							  RETURNING id`,
-							[resourceKey],
+							[resourceKey, AUTOMATED_REVIEW_LENS],
 						);
 						const running = await client.query<{ id: string }>(
 							`UPDATE agent_work_items
 							    SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
 							        updated_at = now()
 							  WHERE resource_key = $1
-							    AND review_lens = 'review'
+							    AND review_lens = $2
 							    AND source = 'auto'
 							    AND status = 'running'
 							  RETURNING id`,
-							[resourceKey],
+							[resourceKey, AUTOMATED_REVIEW_LENS],
 						);
 
 						const workItemId = await createReviewWorkItem(client, {
 							webhookEventId: event.id,
 							ref,
 							source: "auto",
-							lens: "review",
+							lens: AUTOMATED_REVIEW_LENS,
 						});
 						await client.query(
 							`UPDATE agent_work_items
@@ -309,9 +311,9 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							repo: ref.repo,
 							prNumber: ref.prNumber,
 							targets: [{ kind: "pr", prNumber: ref.prNumber }],
-							progress: { lens: "review", headSha: ref.headSha, source: "auto" },
+							progress: { lens: AUTOMATED_REVIEW_LENS, headSha: ref.headSha, source: "auto" },
 						});
-						await enqueueReview(boss, client, ref, workItemId, "review");
+						await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS);
 						log.info("agent_work_enqueued", { type: "review", source: "auto", workItemId, resourceKey });
 					}),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),

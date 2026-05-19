@@ -66,6 +66,17 @@ export async function markWorkRunning(pool: Pool, id: string): Promise<boolean> 
 	return (result.rowCount ?? 0) > 0;
 }
 
+/** Claim queued work or resume a pg-boss retry while the row is still running. */
+export async function claimWorkForExecution(pool: Pool, id: string): Promise<boolean> {
+	if (await markWorkRunning(pool, id)) return true;
+	const row = await queryOne<{ status: WorkStatus; cancel_requested_at: Date | null }>(
+		pool,
+		"SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1",
+		[id],
+	);
+	return row?.status === "running" && row.cancel_requested_at == null;
+}
+
 export async function markWorkCompleted(pool: Pool, id: string): Promise<boolean> {
 	const result = await pool.query(
 		`UPDATE agent_work_items

@@ -22,7 +22,7 @@ import {
 	markWorkCompleted,
 	markWorkFailed,
 	markWorkRetrying,
-	markWorkRunning,
+	claimWorkForExecution,
 	recordPublishStep,
 	shouldSkipWork,
 	updateRunningWorkHeadSha,
@@ -187,7 +187,7 @@ async function handleReviewJob(
 		await markWorkCancelled(pool, item.id);
 		return;
 	}
-	if (!(await markWorkRunning(pool, item.id))) return;
+	if (!(await claimWorkForExecution(pool, item.id))) return;
 
 	let installation: Awaited<ReturnType<typeof getInstallationToken>> | undefined;
 	try {
@@ -339,7 +339,7 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 		await markWorkCancelled(pool, item.id);
 		return;
 	}
-	if (!(await markWorkRunning(pool, item.id))) return;
+	if (!(await claimWorkForExecution(pool, item.id))) return;
 
 	let installation: Awaited<ReturnType<typeof getInstallationToken>> | undefined;
 	const payload = item.payload as AskWorkPayload;
