@@ -21,3 +21,6 @@ This file is **domain language only** — not a specification of how the system 
 - **Probable secondary rate limit** — GitHub returned an auth-shaped error while the installation token is still within its TTL; treated as a likely pacing/abuse limit for logging and cooldown, not a confirmed diagnosis.
 - **Truncated change set** — File listing for a review run where some changed files are omitted due to configured caps; the run continues with explicit truncation metadata.
 - **Rate-limit circuit** — After repeated classified rate-limit failures in one review run, further GitHub investigation tools are short-circuited; `submitReview` remains available.
+- **Ask run** — One automated LLM + tool pass that answers a command issuer's question about PR code; triggered by `/ask` only; produces a plain-text **ask answer** (not a review payload or review summary comment). Each ask run is independent; prior ask runs or thread comments are not used as context.
+- **Ask queue** — Bounded in-process work queue (size `ASK_CONCURRENCY`) that serializes ask runs so a burst of `/ask` commands cannot start unbounded concurrent LLM/tool loops.
+- **Code anchor** — File path, line range, and diff hunk from an inline review comment; tells an ask run which code the command issuer was looking at.

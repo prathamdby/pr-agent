@@ -1,9 +1,12 @@
 import { Effect } from "effect";
 import type { Config } from "../config.js";
+import { runAskRun, type CodeAnchor } from "../agent/askRun.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
+import { AskQueue } from "../effect/services/askQueue.js";
 import { PrGithubSurface } from "../effect/services/prGithubSurface.js";
 import { log } from "../log.js";
 import { ReviewQueue } from "../effect/services/reviewQueue.js";
+import { ASK_USAGE_HINT, parseAskQuestion } from "./parseAskQuestion.js";
 import { parseSlashCommand } from "./parseSlashCommand.js";
 
 export type ReplyTarget =
@@ -26,6 +29,7 @@ export type SlashContext = {
 	readonly commentId: number;
 	readonly body: string;
 	readonly replyTarget: ReplyTarget;
+	readonly codeAnchor?: CodeAnchor;
 };
 
 const helpBody = [
@@ -33,19 +37,21 @@ const helpBody = [
 	"",
 	"Commands (first line of a **new** comment):",
 	"- `/help` — show this message",
+	"- `/ask <question>` — ask about this PR or a specific line of code",
 	"- `/review` — general bug-and-correctness review (also runs automatically on PR open/sync)",
 	"- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
 	"",
 	"Notes:",
 	"- Automated reviews use `/review`'s lens on PR `opened` / `synchronize` / `reopened`.",
 	"- `/review` and `/review-security` can both leave summary comments on the same PR (different sentinels).",
+	"- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
 	"- Some security issues may appear in both passes; pick the command that matches your question.",
 	"- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");
 
 export function runSlashCommandFlow(
 	ctx: SlashContext,
-): Effect.Effect<void, Error, PrGithubSurface | ReviewQueue> {
+): Effect.Effect<void, Error, PrGithubSurface | ReviewQueue | AskQueue> {
 	return Effect.gen(function* () {
 		if (ctx.commenterId === ctx.botUserId) return;
 
@@ -73,6 +79,48 @@ export function runSlashCommandFlow(
 
 		if (command === "help") {
 			yield* postReply(helpBody);
+			return;
+		}
+
+		if (command === "ask") {
+			const question = parseAskQuestion(ctx.body);
+			if (!question) {
+				yield* postReply(ASK_USAGE_HINT);
+				return;
+			}
+
+			const headSha = yield* surface.getPullRequestHeadSha(
+				ctx.token,
+				ctx.owner,
+				ctx.repo,
+				ctx.replyTarget.prNumber,
+			);
+			const askQueue = yield* AskQueue;
+			const queueLabel = `${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:ask`;
+
+			yield* askQueue.submit(
+				queueLabel,
+				Effect.gen(function* () {
+					const result = yield* Effect.tryPromise({
+						try: () =>
+							runAskRun({
+								cfg: ctx.cfg,
+								token: ctx.token,
+								tokenExpiresAtTs: ctx.tokenExpiresAtTs,
+								tokenTtlMs: ctx.tokenTtlMs,
+								owner: ctx.owner,
+								repo: ctx.repo,
+								prNumber: ctx.replyTarget.prNumber,
+								headSha,
+								question,
+								replyTarget: ctx.replyTarget,
+								codeAnchor: ctx.codeAnchor,
+							}),
+						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+					});
+					yield* postReply(result.answer);
+				}),
+			);
 			return;
 		}
 

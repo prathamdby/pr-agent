@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { PrGithubSurface } from "../src/effect/services/prGithubSurface.js";
+import { AskQueue } from "../src/effect/services/askQueue.js";
 import { ReviewQueue } from "../src/effect/services/reviewQueue.js";
 import { runSlashCommandFlow, type SlashContext } from "../src/commands/slashCommandFlow.js";
 import * as reviewRun from "../src/agent/reviewRun.js";
+import * as askRun from "../src/agent/askRun.js";
 
 const cfg: Config = {
 	port: 0,
@@ -17,6 +19,8 @@ const cfg: Config = {
 	maxFinalizeRounds: 6,
 	maxReviewPublishAttempts: 3,
 	reviewConcurrency: 2,
+	askConcurrency: 3,
+	maxAskToolRounds: 12,
 	webhookTimeoutMs: 10000,
 	logLevel: "error",
 };
@@ -74,6 +78,31 @@ function makeReviewQueue(submitSpy?: ReturnType<typeof vi.fn>): Layer.Layer<Revi
 	);
 }
 
+function makeAskQueue(submitSpy?: ReturnType<typeof vi.fn>): Layer.Layer<AskQueue> {
+	return Layer.succeed(
+		AskQueue,
+		AskQueue.of({
+			submit: <A, E>(label: string, task: Effect.Effect<A, E>) => {
+				submitSpy?.(label);
+				return task;
+			},
+		}),
+	);
+}
+
+function provideSlashLayers(spies: SurfaceSpies, opts?: {
+	reviewSubmitSpy?: ReturnType<typeof vi.fn>;
+	askSubmitSpy?: ReturnType<typeof vi.fn>;
+	headSha?: string;
+}) {
+	return (effect: Effect.Effect<void, Error, PrGithubSurface | ReviewQueue | AskQueue>) =>
+		effect.pipe(
+			Effect.provide(makeSurface(spies, opts?.headSha)),
+			Effect.provide(makeReviewQueue(opts?.reviewSubmitSpy)),
+			Effect.provide(makeAskQueue(opts?.askSubmitSpy)),
+		);
+}
+
 function newSpies(): SurfaceSpies {
 	return {
 		acknowledgeOnPrConversation: vi.fn(),
@@ -107,8 +136,7 @@ describe("runSlashCommandFlow", () => {
 		const spies = newSpies();
 		await Effect.runPromise(
 			runSlashCommandFlow(baseCtx({ commenterId: 1, botUserId: 1, body: "/help" })).pipe(
-				Effect.provide(makeSurface(spies)),
-				Effect.provide(makeReviewQueue()),
+				provideSlashLayers(spies),
 			),
 		);
 		expect(spies.acknowledgeOnPrConversation).not.toHaveBeenCalled();
@@ -119,10 +147,7 @@ describe("runSlashCommandFlow", () => {
 	it("returns silently for non-slash bodies", async () => {
 		const spies = newSpies();
 		await Effect.runPromise(
-			runSlashCommandFlow(baseCtx({ body: "just a comment" })).pipe(
-				Effect.provide(makeSurface(spies)),
-				Effect.provide(makeReviewQueue()),
-			),
+			runSlashCommandFlow(baseCtx({ body: "just a comment" })).pipe(provideSlashLayers(spies)),
 		);
 		expect(spies.acknowledgeOnPrConversation).not.toHaveBeenCalled();
 		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
@@ -131,10 +156,7 @@ describe("runSlashCommandFlow", () => {
 	it("/help on PR conversation: acks both surfaces and posts help via issue comment", async () => {
 		const spies = newSpies();
 		await Effect.runPromise(
-			runSlashCommandFlow(baseCtx({ body: "/help" })).pipe(
-				Effect.provide(makeSurface(spies)),
-				Effect.provide(makeReviewQueue()),
-			),
+			runSlashCommandFlow(baseCtx({ body: "/help" })).pipe(provideSlashLayers(spies)),
 		);
 		expect(spies.acknowledgeOnPrConversation).toHaveBeenCalledWith("tok", "o", "r", 3);
 		expect(spies.acknowledgeOnIssueComment).toHaveBeenCalledWith("tok", "o", "r", 99);
@@ -157,10 +179,7 @@ describe("runSlashCommandFlow", () => {
 					body: "/help",
 					replyTarget: { kind: "inlineReviewThread", prNumber: 3, inReplyToCommentId: 99 },
 				}),
-			).pipe(
-				Effect.provide(makeSurface(spies)),
-				Effect.provide(makeReviewQueue()),
-			),
+			).pipe(provideSlashLayers(spies)),
 		);
 		expect(spies.acknowledgeOnReviewComment).toHaveBeenCalledWith("tok", "o", "r", 99);
 		expect(spies.replyOnInlineReviewThread).toHaveBeenCalledWith(
@@ -178,10 +197,7 @@ describe("runSlashCommandFlow", () => {
 	it("unknown command posts an ephemeral note via the right reply target", async () => {
 		const spies = newSpies();
 		await Effect.runPromise(
-			runSlashCommandFlow(baseCtx({ body: "/whatever" })).pipe(
-				Effect.provide(makeSurface(spies)),
-				Effect.provide(makeReviewQueue()),
-			),
+			runSlashCommandFlow(baseCtx({ body: "/whatever" })).pipe(provideSlashLayers(spies)),
 		);
 		expect(spies.postPrConversationComment).toHaveBeenCalledWith(
 			"tok",
@@ -201,10 +217,7 @@ describe("runSlashCommandFlow", () => {
 					body: "/help",
 					replyTarget: { kind: "inlineReviewThread", prNumber: 3, inReplyToCommentId: 99 },
 				}),
-			).pipe(
-				Effect.provide(makeSurface(spies)),
-				Effect.provide(makeReviewQueue()),
-			),
+			).pipe(provideSlashLayers(spies)),
 		);
 		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
 	});
@@ -223,8 +236,7 @@ describe("runSlashCommandFlow", () => {
 		try {
 			await Effect.runPromise(
 				runSlashCommandFlow(baseCtx({ body: "/review-security deep pass" })).pipe(
-					Effect.provide(makeSurface(spies, "deadbeef")),
-					Effect.provide(makeReviewQueue(submitSpy)),
+					provideSlashLayers(spies, { reviewSubmitSpy: submitSpy, headSha: "deadbeef" }),
 				),
 			);
 
@@ -255,8 +267,7 @@ describe("runSlashCommandFlow", () => {
 		try {
 			await Effect.runPromise(
 				runSlashCommandFlow(baseCtx({ body: "/review take a look" })).pipe(
-					Effect.provide(makeSurface(spies, "feedf00d")),
-					Effect.provide(makeReviewQueue(submitSpy)),
+					provideSlashLayers(spies, { reviewSubmitSpy: submitSpy, headSha: "feedf00d" }),
 				),
 			);
 
@@ -274,5 +285,87 @@ describe("runSlashCommandFlow", () => {
 		} finally {
 			reviewSpy.mockRestore();
 		}
+	});
+
+	it("bare /ask posts usage hint", async () => {
+		const spies = newSpies();
+		await Effect.runPromise(
+			runSlashCommandFlow(baseCtx({ body: "/ask" })).pipe(provideSlashLayers(spies)),
+		);
+		expect(spies.postPrConversationComment).toHaveBeenCalledWith(
+			"tok",
+			"o",
+			"r",
+			3,
+			expect.stringContaining("/ask"),
+		);
+		expect(spies.getPullRequestHeadSha).not.toHaveBeenCalled();
+	});
+
+	it("/ask submits runAskRun through AskQueue and posts plain reply on inline thread", async () => {
+		const spies = newSpies();
+		const askSubmitSpy = vi.fn();
+		const askSpy = vi.spyOn(askRun, "runAskRun").mockResolvedValue({
+			answer: "It replaces formatDistanceToNow to avoid hydration mismatches.",
+			replied: true,
+		});
+
+		try {
+			await Effect.runPromise(
+				runSlashCommandFlow(
+					baseCtx({
+						body: "/ask what is this for?",
+						replyTarget: { kind: "inlineReviewThread", prNumber: 3, inReplyToCommentId: 99 },
+						codeAnchor: {
+							path: "apps/web/src/components/core/sessions/session-card.tsx",
+							line: 3,
+							diffHunk: "+import { useHydrationSafeDistance } from ...",
+						},
+					}),
+				).pipe(provideSlashLayers(spies, { askSubmitSpy, headSha: "abc123" })),
+			);
+
+			expect(askSubmitSpy).toHaveBeenCalledWith("o/r#3:ask");
+			expect(askSpy).toHaveBeenCalledWith(
+				expect.objectContaining({
+					question: "what is this for?",
+					headSha: "abc123",
+					codeAnchor: expect.objectContaining({ path: expect.stringContaining("session-card") }),
+				}),
+			);
+			expect(spies.replyOnInlineReviewThread).toHaveBeenCalledWith(
+				"tok",
+				"o",
+				"r",
+				3,
+				99,
+				expect.stringContaining("hydration"),
+			);
+			expect(spies.postPrConversationComment).not.toHaveBeenCalled();
+		} finally {
+			askSpy.mockRestore();
+		}
+	});
+
+	it("/ask on PR conversation wraps answer with Question/Answer headers", async () => {
+		const spies = newSpies();
+		vi.spyOn(askRun, "runAskRun").mockResolvedValue({
+			answer: "**Question:** what changed?\n\n**Answer:**\n\nThe auth middleware.",
+			replied: true,
+		});
+
+		await Effect.runPromise(
+			runSlashCommandFlow(baseCtx({ body: "/ask what changed?" })).pipe(
+				provideSlashLayers(spies, { headSha: "sha1" }),
+			),
+		);
+
+		expect(spies.postPrConversationComment).toHaveBeenCalledWith(
+			"tok",
+			"o",
+			"r",
+			3,
+			expect.stringContaining("**Question:**"),
+		);
 	});
 });

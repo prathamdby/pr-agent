@@ -1,11 +1,13 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
 import { runFullPrReview } from "../../agent/reviewRun.js";
+import type { CodeAnchor } from "../../agent/askRun.js";
 import type { InstallationToken } from "../../github/appAuth.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { runSlashCommandFlow } from "../../commands/slashCommandFlow.js";
 import { log } from "../../log.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
+import { AskQueue } from "./askQueue.js";
 import { BotIdentity, BotIdentityLive } from "./botIdentity.js";
 import { PrGithubSurface, PrGithubSurfaceLive } from "./prGithubSurface.js";
 import { ReviewQueue } from "./reviewQueue.js";
@@ -15,6 +17,19 @@ type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["d
 type PullRequestReviewCommentData = Extract<ParsedGithubEvent, { name: "pull_request_review_comment" }>["data"];
 
 const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
+
+function codeAnchorFromReviewComment(
+	comment: PullRequestReviewCommentData["comment"],
+): CodeAnchor | undefined {
+	if (comment.path == null || comment.line == null) return undefined;
+	return {
+		path: comment.path,
+		line: comment.line,
+		startLine: comment.start_line ?? undefined,
+		side: comment.side,
+		diffHunk: comment.diff_hunk,
+	};
+}
 
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
 	WebhookHandlers,
@@ -35,6 +50,7 @@ export const WebhookHandlersCore = Layer.effect(
 		const botIdentity = yield* BotIdentity;
 		const surface = yield* PrGithubSurface;
 		const reviewQueue = yield* ReviewQueue;
+		const askQueue = yield* AskQueue;
 
 		return WebhookHandlers.of({
 			pullRequest: (cfg, installation, data) =>
@@ -104,6 +120,7 @@ export const WebhookHandlersCore = Layer.effect(
 					}).pipe(
 						Effect.provideService(PrGithubSurface, surface),
 						Effect.provideService(ReviewQueue, reviewQueue),
+						Effect.provideService(AskQueue, askQueue),
 					);
 				}),
 
@@ -132,9 +149,11 @@ export const WebhookHandlersCore = Layer.effect(
 							prNumber: data.pull_request.number,
 							inReplyToCommentId: data.comment.id,
 						},
+						codeAnchor: codeAnchorFromReviewComment(data.comment),
 					}).pipe(
 						Effect.provideService(PrGithubSurface, surface),
 						Effect.provideService(ReviewQueue, reviewQueue),
+						Effect.provideService(AskQueue, askQueue),
 					);
 				}),
 		});
