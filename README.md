@@ -39,8 +39,9 @@ GitHub App webhook service that performs automated pull request reviews using [`
 ```bash
 cp .env.example .env
 # fill secrets
-npm install
-npm run dev
+corepack enable   # Node 22+ ships Corepack; activates pnpm from package.json
+pnpm install
+pnpm dev
 ```
 
 Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
@@ -52,11 +53,11 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 
 ### Effect version gate
 
-- `npm run check:effect-versions` enforces pinned rewrite compatibility versions:
+- `pnpm run check:effect-versions` enforces pinned rewrite compatibility versions:
   - `effect@3.21.2`
   - `@effect/platform@0.96.1`
   - `@effect/platform-node@0.106.0`
-- `npm test` now runs this version gate before Vitest.
+- `pnpm test` runs this version gate before Vitest (`pretest`).
 
 ## Docker and Docker Compose
 
@@ -91,13 +92,13 @@ For exploring upstream tool shapes locally, use `~/.btca/agent/sandbox` with clo
 
 | Script        | Purpose                |
 |---------------|------------------------|
-| `npm run dev` | Run `src/index.ts`     |
-| `npm run build` | Compile to `dist/`   |
-| `npm start`   | Run compiled `dist/`   |
-| `npm run typecheck` | `tsc --noEmit`   |
-| `npm run check:effect-versions` | Verify pinned Effect deps |
-| `npm run test` | Vitest (`test/**/*.test.ts`) |
-| `npm run test:watch` | Vitest watch mode |
+| `pnpm dev` | Run `src/index.ts`     |
+| `pnpm build` | Compile to `dist/`   |
+| `pnpm start`   | Run compiled `dist/`   |
+| `pnpm typecheck` | `tsc --noEmit`   |
+| `pnpm run check:effect-versions` | Verify pinned Effect deps |
+| `pnpm test` | Vitest (`test/**/*.test.ts`) |
+| `pnpm test:watch` | Vitest watch mode |
 
 ## Security notes
 

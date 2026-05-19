@@ -3,15 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.12.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
     "dev": "node --import tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "npm run check:effect-versions && vitest run",
+    "pretest": "node scripts/check-effect-versions.mjs",
+    "test": "vitest run",
     "test:watch": "vitest",
     "check:effect-versions": "node scripts/check-effect-versions.mjs"
   },
@@ -20,9 +22,12 @@
     "@effect/platform": "0.96.1",
     "@effect/platform-node": "0.106.0",
     "@octokit/auth-app": "^8.1.2",
+    "@octokit/core": "^7.0.0",
     "@octokit/plugin-retry": "^8.1.0",
     "@octokit/plugin-throttling": "^11.0.3",
+    "@octokit/request-error": "^7.0.0",
     "@octokit/rest": "^21.1.1",
+    "@octokit/types": "^16.0.0",
     "effect": "3.21.2",
     "zod": "^4.3.6"
   },
