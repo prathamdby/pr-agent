@@ -4,7 +4,7 @@ GitHub App webhook service that performs automated pull request reviews using na
 
 ## What it does
 
-- On **`pull_request`** (`opened`, `synchronize`, `reopened`), adds 👀 (`eyes`) on the PR issue, then runs an agent loop to inspect the PR and upsert **`## PR Agent Review`** on the PR conversation when the model succeeds. A pull request review on the Files tab (with inline P0–P2 threads) is posted only when those severities are present.
+- On **`pull_request`** (`opened`, `synchronize`, `reopened`), adds 👀 (`eyes`) on the PR issue, then runs an agent loop to inspect the PR and upsert **`## PR Agent Review`** on the PR conversation when the model succeeds. A pull request review on the Files tab (with inline P0–P2 threads) is posted only when those severities are present; its review pointer body includes a collapsible **agent fix prompt** aggregating all findings for copy-paste into coding agents.
 - On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/review`, and `/review-security`, reacts with 👀 on the PR + triggering comment where applicable, and routes commands.
 - Responds **`200`** after synchronous webhook handling finishes. Automated reviews and `/review` / `/review-security` block until the queued review run completes (large models can exceed GitHub’s webhook timeouts; tune `MAX_TOOL_ROUNDS`/model latency). **`/ask`** is acknowledged inline, then runs in a background fiber—the webhook returns before the answer is posted.
 

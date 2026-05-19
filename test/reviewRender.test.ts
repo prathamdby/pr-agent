@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { renderInlineThreadBody, renderReviewSummaryComment } from "../src/agent/reviewRender.js";
+import {
+	AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+	REVIEW_POINTER_BODY,
+	renderAgentFixPrompt,
+	renderInlineThreadBody,
+	renderReviewPointerBody,
+	renderReviewSummaryComment,
+	SECURITY_REVIEW_POINTER_BODY,
+} from "../src/agent/reviewRender.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 import { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
 
@@ -144,5 +152,174 @@ describe("renderInlineThreadBody", () => {
 			fixPrompt: "In src/c.ts lines 20-22, adjust slice end index to include the last item.",
 		});
 		expect(body).toMatchSnapshot();
+	});
+});
+
+describe("renderAgentFixPrompt", () => {
+	const renderCtx = {
+		owner: "acme",
+		repo: "widgets",
+		prNumber: 42,
+		headSha: "abc123def456",
+		maxFindings: 8,
+	};
+
+	it("includes PR metadata, fixPrompt verbatim, P3 tagging, and severity-first order", () => {
+		const prompt = renderAgentFixPrompt(
+			basePayload({
+				findings: [
+					{
+						severity: "P2",
+						file: "src/b.ts",
+						startLine: 20,
+						endLine: 22,
+						title: "Off-by-one",
+						detail: "Slice excludes last item.",
+						fixPrompt: "In src/b.ts lines 20-22, adjust slice end index.",
+					},
+					{
+						severity: "P0",
+						file: "src/a.ts",
+						startLine: 5,
+						endLine: 7,
+						title: "Race on shared map",
+						detail: "Concurrent writes without lock.",
+						fixPrompt: "In src/a.ts lines 5-7, guard the map with a mutex.",
+					},
+					{
+						severity: "P3",
+						file: "README.md",
+						startLine: 1,
+						endLine: 1,
+						title: "Typo in heading",
+						detail: "minor typo",
+					},
+				],
+			}),
+			renderCtx,
+		);
+
+		expect(prompt).toMatchSnapshot();
+		expect(prompt).toContain("Repository: acme/widgets");
+		expect(prompt).toContain("Pull request: #42");
+		expect(prompt).toContain("Head SHA: abc123def456");
+		expect(prompt.indexOf("[P0] @src/a.ts")).toBeLessThan(prompt.indexOf("[P2] @src/b.ts"));
+		expect(prompt.indexOf("[P2] @src/b.ts")).toBeLessThan(prompt.indexOf("[P3 — no inline thread]"));
+		expect(prompt).toContain("In src/a.ts lines 5-7, guard the map with a mutex.");
+		expect(prompt).not.toContain("Concurrent writes without lock.");
+		expect(prompt).toContain("[P3 — no inline thread] Typo in heading");
+		expect(prompt).toContain("minor typo");
+	});
+
+	it("tags inline-omitted P0–P2 findings when severity cap truncates threads", () => {
+		const prompt = renderAgentFixPrompt(
+			basePayload({
+				findings: [
+					{
+						severity: "P1",
+						file: "b.ts",
+						startLine: 2,
+						endLine: 2,
+						title: "Hidden from inline",
+						detail: "d",
+						fixPrompt: "Fix b.ts line 2.",
+					},
+					{
+						severity: "P2",
+						file: "a.ts",
+						startLine: 1,
+						endLine: 1,
+						title: "Shown inline",
+						detail: "d",
+						fixPrompt: "Fix a.ts line 1.",
+					},
+				],
+			}),
+			{ ...renderCtx, maxFindings: 1 },
+		);
+
+		expect(prompt.indexOf("[P1]")).toBeLessThan(prompt.indexOf("[P2]"));
+		expect(prompt).toContain("[inline thread omitted — severity cap]");
+		expect(prompt.match(/\[inline thread omitted — severity cap\]/g)).toHaveLength(1);
+	});
+
+	it("uses singular line range for single-line findings", () => {
+		const prompt = renderAgentFixPrompt(
+			basePayload({
+				findings: [
+					{
+						severity: "P1",
+						file: "src/single.ts",
+						startLine: 9,
+						endLine: 9,
+						title: "Missing await",
+						detail: "d",
+						fixPrompt: "Await the promise.",
+					},
+				],
+			}),
+			renderCtx,
+		);
+
+		expect(prompt).toContain("@src/single.ts line 9");
+		expect(prompt).not.toContain("lines 9-9");
+	});
+});
+
+describe("renderReviewPointerBody", () => {
+	const renderCtx = {
+		owner: "acme",
+		repo: "widgets",
+		prNumber: 42,
+		headSha: "abc123def456",
+		maxFindings: 8,
+	};
+
+	it("wraps agent fix prompt in accordion with pointer line", () => {
+		const { body, truncated } = renderReviewPointerBody(
+			basePayload({
+				findings: [
+					{
+						severity: "P1",
+						file: "src/x.ts",
+						startLine: 4,
+						endLine: 4,
+						title: "Bug",
+						detail: "Bad logic.",
+						fixPrompt: "Fix src/x.ts line 4.",
+					},
+				],
+			}),
+			{ ...renderCtx, mode: "review" },
+		);
+
+		expect(truncated).toBe(false);
+		expect(body).toMatchSnapshot();
+		expect(body).toContain(REVIEW_POINTER_BODY);
+		expect(body).toContain("<details>");
+		expect(body).toContain(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
+		expect(body).toContain("Fix src/x.ts line 4.");
+	});
+
+	it("uses security pointer line for review-security mode", () => {
+		const { body } = renderReviewPointerBody(
+			basePayload({
+				findings: [
+					{
+						severity: "P0",
+						file: "src/auth.ts",
+						startLine: 1,
+						endLine: 3,
+						title: "Auth bypass",
+						detail: "Missing check.",
+						fixPrompt: "Add auth guard.",
+					},
+				],
+			}),
+			{ ...renderCtx, mode: "review-security" },
+		);
+
+		expect(body).toContain(SECURITY_REVIEW_POINTER_BODY);
+		expect(body).toContain("Add auth guard.");
 	});
 });

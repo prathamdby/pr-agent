@@ -1,5 +1,24 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`renderAgentFixPrompt > includes PR metadata, fixPrompt verbatim, P3 tagging, and severity-first order 1`] = `
+"Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+
+Repository: acme/widgets
+Pull request: #42
+Head SHA: abc123def456
+
+Findings:
+
+[P0] @src/a.ts lines 5-7
+In src/a.ts lines 5-7, guard the map with a mutex.
+
+[P2] @src/b.ts lines 20-22
+In src/b.ts lines 20-22, adjust slice end index.
+
+[P3 — no inline thread] Typo in heading
+minor typo"
+`;
+
 exports[`renderInlineThreadBody > P0 with fixPrompt accordion 1`] = `
 "[P0] Race on shared map
 
@@ -40,6 +59,28 @@ End index excludes last element incorrectly.
 
 \`\`\`
 In src/c.ts lines 20-22, adjust slice end index to include the last item.
+\`\`\`
+
+</details>"
+`;
+
+exports[`renderReviewPointerBody > wraps agent fix prompt in accordion with pointer line 1`] = `
+"See the structured review summary in the PR conversation.
+
+<details>
+<summary>Prompt for AI agents to fix all review findings</summary>
+
+\`\`\`
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+
+Repository: acme/widgets
+Pull request: #42
+Head SHA: abc123def456
+
+Findings:
+
+[P1] @src/x.ts line 4
+Fix src/x.ts line 4.
 \`\`\`
 
 </details>"

@@ -6,9 +6,9 @@ import {
 	upsertReviewSummaryComment,
 	type InlineReviewComment,
 } from "../github/reviewPublish.js";
-import { log } from "../log.js";
 import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
-import { renderInlineThreadBody, renderReviewSummaryComment, reviewPointerBodyForMode } from "./reviewRender.js";
+import { log } from "../log.js";
+import { renderInlineThreadBody, renderReviewPointerBody, renderReviewSummaryComment } from "./reviewRender.js";
 import {
 	normalizeReviewPayload,
 	reviewEventForFindings,
@@ -47,14 +47,35 @@ export async function publishReview(params: ReviewPublishContext & {
 		}));
 
 		if (comments.length > 0) {
+			const pointerBody = renderReviewPointerBody(payload, {
+				owner,
+				repo,
+				prNumber,
+				headSha,
+				maxFindings: cfg.maxReviewFindings,
+				mode,
+			});
+			if (pointerBody.truncated) {
+				log.warn("agent_fix_prompt_truncated", {
+					mode,
+					owner,
+					repo,
+					pr: prNumber,
+				});
+			}
 			const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-				body: reviewPointerBodyForMode(mode),
+				body: pointerBody.body,
 				event,
 				comments,
 			});
 			await params.recordPublishStep?.("inline_review", {
 				githubId: review.id,
-				meta: { url: review.url, inlineCount: comments.length, event },
+				meta: {
+					url: review.url,
+					inlineCount: comments.length,
+					event,
+					agentFixPromptTruncated: pointerBody.truncated,
+				},
 			});
 
 			log.info("review_published_inline", {

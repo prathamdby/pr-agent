@@ -50,6 +50,160 @@ export function reviewPointerBodyForMode(mode: ReviewMode): string {
 	return mode === "review-security" ? SECURITY_REVIEW_POINTER_BODY : REVIEW_POINTER_BODY;
 }
 
+export const AGENT_FIX_PROMPT_PREAMBLE =
+	"Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.";
+
+export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Prompt for AI agents to fix all review findings";
+
+const SEVERITY_RANK: Record<ReviewFinding["severity"], number> = {
+	P0: 0,
+	P1: 1,
+	P2: 2,
+	P3: 3,
+};
+
+/** GitHub review/comment body cap is 65,536; leave headroom for wrapper markup. */
+export const REVIEW_POINTER_BODY_MAX_CHARS = 60_000;
+
+const AGENT_FIX_PROMPT_TRUNCATION_SUFFIX =
+	"\n...[truncated; see inline threads and PR summary]";
+
+function formatLineRange(startLine: number, endLine: number): string {
+	return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
+}
+
+function findingIdentity(f: ReviewFinding): string {
+	return `${f.severity}|${f.file}|${f.startLine}|${f.endLine}|${f.title}`;
+}
+
+function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
+	return [...findings].sort((a, b) => {
+		const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+		if (bySeverity !== 0) return bySeverity;
+		const byFile = a.file.localeCompare(b.file);
+		if (byFile !== 0) return byFile;
+		return a.startLine - b.startLine;
+	});
+}
+
+function renderAgentFixFindingBlock(
+	finding: ReviewFinding,
+	opts: { inlinePosted: boolean },
+): string {
+	const location = `@${finding.file} ${formatLineRange(finding.startLine, finding.endLine)}`;
+	const lines: string[] = [];
+
+	if (finding.severity === "P3") {
+		lines.push(`[P3 — no inline thread] ${finding.title}`);
+		lines.push(finding.detail);
+		return lines.join("\n");
+	}
+
+	lines.push(`[${finding.severity}] ${location}`);
+	lines.push(finding.fixPrompt ?? "");
+	if (!opts.inlinePosted) {
+		lines.push("[inline thread omitted — severity cap]");
+	}
+	return lines.join("\n");
+}
+
+export function renderAgentFixPrompt(payload: ReviewPayload, ctx: RenderContext): string {
+	const inlinePosted = new Set(
+		selectInlineFindings(payload.findings, ctx.maxFindings).map(findingIdentity),
+	);
+	const sorted = sortFindingsForAgentFixPrompt(payload.findings);
+
+	const blocks = sorted.map((f) =>
+		renderAgentFixFindingBlock(f, { inlinePosted: inlinePosted.has(findingIdentity(f)) }),
+	);
+
+	return [
+		AGENT_FIX_PROMPT_PREAMBLE,
+		"",
+		`Repository: ${ctx.owner}/${ctx.repo}`,
+		`Pull request: #${ctx.prNumber}`,
+		`Head SHA: ${ctx.headSha}`,
+		"",
+		"Findings:",
+		"",
+		blocks.join("\n\n"),
+	].join("\n");
+}
+
+function truncateAgentFixPromptForPointerBody(
+	agentFixPrompt: string,
+	pointerLine: string,
+	maxBodyChars: number,
+): {
+	prompt: string;
+	truncated: boolean;
+} {
+	const wrapperOverhead =
+		pointerLine.length +
+		"\n\n<details>\n<summary></summary>\n\n```\n\n```\n\n</details>".length +
+		AGENT_FIX_PROMPT_ACCORDION_SUMMARY.length +
+		50;
+	const maxPromptChars = Math.max(0, maxBodyChars - wrapperOverhead);
+
+	if (agentFixPrompt.length <= maxPromptChars) {
+		return { prompt: agentFixPrompt, truncated: false };
+	}
+
+	const suffixBudget = AGENT_FIX_PROMPT_TRUNCATION_SUFFIX.length;
+	const cutAt = Math.max(0, maxPromptChars - suffixBudget);
+	return {
+		prompt: agentFixPrompt.slice(0, cutAt) + AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
+		truncated: true,
+	};
+}
+
+export function renderReviewPointerBody(
+	payload: ReviewPayload,
+	ctx: RenderContext & { mode: ReviewMode },
+): { body: string; truncated: boolean } {
+	const pointerLine = reviewPointerBodyForMode(ctx.mode);
+	let agentFixPrompt = renderAgentFixPrompt(payload, ctx);
+	let truncated = false;
+
+	const assembled = [
+		pointerLine,
+		"",
+		"<details>",
+		`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
+		"",
+		"```",
+		agentFixPrompt,
+		"```",
+		"",
+		"</details>",
+	].join("\n");
+
+	if (assembled.length > REVIEW_POINTER_BODY_MAX_CHARS) {
+		const result = truncateAgentFixPromptForPointerBody(
+			agentFixPrompt,
+			pointerLine,
+			REVIEW_POINTER_BODY_MAX_CHARS,
+		);
+		agentFixPrompt = result.prompt;
+		truncated = result.truncated;
+	}
+
+	const body = [
+		pointerLine,
+		"",
+		"<details>",
+		`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
+		"",
+		"```",
+		agentFixPrompt,
+		"```",
+		"",
+		"</details>",
+	].join("\n");
+
+	return { body, truncated };
+}
+
 export function renderReviewSummaryComment(
 	payload: ReviewPayload,
 	ctx: RenderContext & { summarySentinel: string },
