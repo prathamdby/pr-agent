@@ -9,7 +9,8 @@ import type { ReplyTarget } from "../commands/slashCommandFlow.js";
 import { inTransaction, pgBossDb } from "../db/postgres.js";
 import type { CodeAnchor } from "../agent/askRun.js";
 import type { ReviewMode } from "../agent/reviewSchema.js";
-import { log } from "../log.js";
+import type { RequestLogger } from "../evlog.js";
+import { recordEvent } from "../evlog.js";
 import {
 	ACK_QUEUE,
 	ASK_QUEUE,
@@ -21,6 +22,7 @@ import {
 	type AckJobData,
 	type AckTarget,
 	type AskJobData,
+	type JobCorrelation,
 	type PrRef,
 	type ReviewJobData,
 	type WebhookHeaders,
@@ -60,15 +62,30 @@ type SlashCommandInput = {
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
 	AgentWorkScheduler,
 	{
-		readonly recordIgnored: (headers: WebhookHeaders, decision: string) => Effect.Effect<void, Error>;
+		readonly recordIgnored: (
+			headers: WebhookHeaders,
+			decision: string,
+			intakeLog: RequestLogger,
+		) => Effect.Effect<void, Error>;
 		readonly submitAutomatedReview: (
 			headers: WebhookHeaders,
 			ref: PrRef,
 			action: string,
+			intakeLog: RequestLogger,
 		) => Effect.Effect<void, Error>;
-		readonly submitSlashCommand: (input: SlashCommandInput) => Effect.Effect<void, Error>;
+		readonly submitSlashCommand: (
+			input: SlashCommandInput,
+			intakeLog: RequestLogger,
+		) => Effect.Effect<void, Error>;
 	}
 >() {}
+
+function jobCorrelation(eventId: string, headers: WebhookHeaders): JobCorrelation {
+	return {
+		webhookEventId: eventId,
+		delivery: headers.delivery,
+	};
+}
 
 function bodySha(rawBody: Buffer): string {
 	return crypto.createHash("sha256").update(rawBody).digest("hex");
@@ -142,9 +159,10 @@ async function enqueueReview(
 	ref: PrRef,
 	workItemId: string,
 	lens: ReviewMode,
+	correlation: JobCorrelation,
 ): Promise<void> {
 	const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-	const data: ReviewJobData = { kind: "review", workItemId };
+	const data: ReviewJobData = { kind: "review", workItemId, ...correlation };
 	await requireBossJobSend(boss, REVIEW_QUEUE, data, {
 		db: pgBossDb(client),
 		singletonKey: reviewSingletonKey(resourceKey, lens),
@@ -152,8 +170,14 @@ async function enqueueReview(
 	});
 }
 
-async function enqueueAsk(boss: PgBoss, client: PoolClient, ref: PrRef, workItemId: string): Promise<void> {
-	const data: AskJobData = { kind: "ask", workItemId };
+async function enqueueAsk(
+	boss: PgBoss,
+	client: PoolClient,
+	ref: PrRef,
+	workItemId: string,
+	correlation: JobCorrelation,
+): Promise<void> {
+	const data: AskJobData = { kind: "ask", workItemId, ...correlation };
 	await requireBossJobSend(boss, ASK_QUEUE, data, {
 		db: pgBossDb(client),
 		priority: 50,
@@ -268,17 +292,22 @@ async function fetchActiveSameLens(client: PoolClient, resourceKey: string, lens
 
 export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 	return AgentWorkScheduler.of({
-		recordIgnored: (headers, decision) =>
+		recordIgnored: (headers, decision, intakeLog) =>
 			Effect.tryPromise({
 				try: () =>
 					inTransaction(pool, async (client) => {
 						const event = await insertWebhookEvent(client, headers, decision);
-						if (event.duplicate) log.info("deduped_delivery", { dedupeKey: dedupeKey(headers), event: headers.event });
+						if (event.duplicate) {
+							recordEvent(intakeLog, "deduped_delivery", {
+								dedupeKey: dedupeKey(headers),
+								event: headers.event,
+							});
+						}
 					}),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			}),
 
-		submitAutomatedReview: (headers, ref, action) =>
+		submitAutomatedReview: (headers, ref, action, intakeLog) =>
 			Effect.tryPromise({
 				try: () =>
 					inTransaction(pool, async (client) => {
@@ -289,9 +318,13 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 
 						const event = await insertWebhookEvent(client, headers, "automated_review_enqueued");
 						if (event.duplicate) {
-							log.info("deduped_delivery", { dedupeKey: dedupeKey(headers), event: headers.event });
+							recordEvent(intakeLog, "deduped_delivery", {
+								dedupeKey: dedupeKey(headers),
+								event: headers.event,
+							});
 							return;
 						}
+						const correlation = jobCorrelation(event.id, headers);
 
 						const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
 						const olderQueued = await client.query<{ id: string }>(
@@ -341,14 +374,21 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							prNumber: ref.prNumber,
 							targets: [{ kind: "pr", prNumber: ref.prNumber }],
 							progress: { lens: AUTOMATED_REVIEW_LENS, headSha: ref.headSha, source: "auto" },
+							...correlation,
 						});
-						await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS);
-						log.info("agent_work_enqueued", { type: "review", source: "auto", workItemId, resourceKey });
+						await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation);
+						recordEvent(intakeLog, "agent_work_enqueued", {
+							type: "review",
+							source: "auto",
+							workItemId,
+							resourceKey,
+							...correlation,
+						});
 					}),
 				catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 			}),
 
-		submitSlashCommand: (input) =>
+		submitSlashCommand: (input, intakeLog) =>
 			Effect.tryPromise({
 				try: () =>
 					inTransaction(pool, async (client) => {
@@ -360,9 +400,13 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 
 						const event = await insertWebhookEvent(client, input.headers, `slash_${command}`);
 						if (event.duplicate) {
-							log.info("deduped_delivery", { dedupeKey: dedupeKey(input.headers), event: input.headers.event });
+							recordEvent(intakeLog, "deduped_delivery", {
+								dedupeKey: dedupeKey(input.headers),
+								event: input.headers.event,
+							});
 							return;
 						}
+						const correlation = jobCorrelation(event.id, input.headers);
 
 						const ref: PrRef = {
 							owner: input.owner,
@@ -388,7 +432,11 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 						};
 
 						if (command === "help") {
-							await enqueueAck(boss, client, { ...baseAck, reply: { target: input.replyTarget, body: slashHelpBody } });
+							await enqueueAck(boss, client, {
+								...baseAck,
+								...correlation,
+								reply: { target: input.replyTarget, body: slashHelpBody },
+							});
 							return;
 						}
 
@@ -397,6 +445,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							if (askParse.kind === "too_long") {
 								await enqueueAck(boss, client, {
 									...baseAck,
+									...correlation,
 									reply: { target: input.replyTarget, body: ASK_QUESTION_TOO_LONG_HINT },
 								});
 								return;
@@ -404,6 +453,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							if (askParse.kind !== "ok") {
 								await enqueueAck(boss, client, {
 									...baseAck,
+									...correlation,
 									reply: { target: input.replyTarget, body: ASK_USAGE_HINT },
 								});
 								return;
@@ -420,9 +470,14 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 								commenterId: input.commenterId,
 								codeAnchor: input.codeAnchor,
 							});
-							await enqueueAck(boss, client, { ...baseAck, workItemId });
-							await enqueueAsk(boss, client, ref, workItemId);
-							log.info("agent_work_enqueued", { type: "ask", source: "slash", workItemId });
+							await enqueueAck(boss, client, { ...baseAck, workItemId, ...correlation });
+							await enqueueAsk(boss, client, ref, workItemId, correlation);
+							recordEvent(intakeLog, "agent_work_enqueued", {
+								type: "ask",
+								source: "slash",
+								workItemId,
+								...correlation,
+							});
 							return;
 						}
 
@@ -433,6 +488,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							if (existing) {
 								await enqueueAck(boss, client, {
 									...baseAck,
+									...correlation,
 									reply: {
 										target: input.replyTarget,
 										body: `A \`/${command}\` run is already queued or in progress for this pull request.`,
@@ -454,15 +510,24 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							await enqueueAck(boss, client, {
 								...baseAck,
 								workItemId,
+								...correlation,
 								progress: { lens, headSha: ref.headSha, source: "slash" },
 							});
-							await enqueueReview(boss, client, ref, workItemId, lens);
-							log.info("agent_work_enqueued", { type: "review", source: "slash", workItemId, resourceKey, lens });
+							await enqueueReview(boss, client, ref, workItemId, lens, correlation);
+							recordEvent(intakeLog, "agent_work_enqueued", {
+								type: "review",
+								source: "slash",
+								workItemId,
+								resourceKey,
+								lens,
+								...correlation,
+							});
 							return;
 						}
 
 						await enqueueAck(boss, client, {
 							...baseAck,
+							...correlation,
 							reply: { target: input.replyTarget, body: `Unknown command \`/${command}\`. Try \`/help\`.` },
 						});
 					}),

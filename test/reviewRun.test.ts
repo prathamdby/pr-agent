@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Config } from "../src/config.js";
-import { log } from "../src/log.js";
+import * as evlog from "../src/evlog.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
 	createIssueComment: vi.fn(async () => ({ id: 99, url: "https://example.com/issues/comments/99" })),
@@ -178,7 +178,7 @@ describe("runFullPrReview mode", () => {
 			timestamp: Date.now(),
 		}));
 
-		const infoSpy = vi.spyOn(log, "info");
+		const infoSpy = vi.spyOn(evlog, "logInfo");
 		await runFullPrReview(
 			reviewParams({
 				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
@@ -213,7 +213,7 @@ describe("runFullPrReview publish retries", () => {
 	});
 
 	it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {
-		const infoSpy = vi.spyOn(log, "info");
+		const infoSpy = vi.spyOn(evlog, "logInfo");
 
 		const result = await runFullPrReview(reviewParams());
 

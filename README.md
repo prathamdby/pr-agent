@@ -100,4 +100,5 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 - Treat `WEBHOOK_SECRET` and app private keys as production secrets.
 - **`/ask`** applies deterministic outbound redaction (tokens, host URLs, PEM blocks) before posting replies; obvious bot-internals probes get an **Ask meta refusal** without an LLM call ([ADR 0010](docs/adr/0010-ask-red-team-hardening.md)). Review publish paths are unchanged.
+- Structured logging uses [evlog](https://www.evlog.dev) with `service: pr-agent`; `LOG_LEVEL` maps to evlog `minLevel`.
 - Production logging should stay at `info` or higher to avoid logging full payloads.

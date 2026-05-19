@@ -14,7 +14,7 @@ import {
 } from "../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, runWithOperationLogger } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
 	getReviewPublishState,
@@ -46,6 +46,26 @@ import {
 
 function isTerminalPgBossAttempt(job: JobWithMetadata<ReviewJobData | AskJobData>): boolean {
 	return job.retryCount >= job.retryLimit;
+}
+
+function workerJobMeta(
+	queue: string,
+	data: { workItemId?: string; webhookEventId?: string; delivery?: string },
+	pgBossJobId?: string,
+) {
+	return {
+		method: "JOB",
+		path: `/queues/${queue}`,
+		requestId: data.delivery ?? data.workItemId ?? pgBossJobId,
+		context: {
+			role: "worker",
+			queue,
+			workItemId: data.workItemId,
+			webhookEventId: data.webhookEventId,
+			delivery: data.delivery,
+			pgBossJobId,
+		},
+	};
 }
 
 async function getInstallationToken(cfg: Config, installationId: number) {
@@ -133,7 +153,7 @@ async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<
 			const bot = await getAppBotIdentity(cfg);
 			if (bot.userId === data.commenterId) return;
 		} catch (e) {
-			log.warn("ack_bot_identity_check_failed", {
+			logWarn("ack_bot_identity_check_failed", {
 				message: e instanceof Error ? e.message : String(e),
 			});
 		}
@@ -144,7 +164,7 @@ async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<
 		try {
 			await safeReaction(installation.token, data.owner, data.repo, target);
 		} catch (e) {
-			log.warn("ack_reaction_failed", {
+			logWarn("ack_reaction_failed", {
 				owner: data.owner,
 				repo: data.repo,
 				targetKind: target.kind,
@@ -227,7 +247,7 @@ async function handleReviewJob(
 		}
 
 		const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, reviewLens);
-		log.info("agent_work_started", { type: "review", workItemId: item.id, resourceKey: item.resourceKey });
+		logInfo("agent_work_started", { type: "review", workItemId: item.id, resourceKey: item.resourceKey });
 		const result = await runFullPrReview({
 			cfg,
 			token: installation.token,
@@ -259,7 +279,7 @@ async function handleReviewJob(
 			return;
 		}
 		if (!result.published) {
-			log.warn("review_not_published", {
+			logWarn("review_not_published", {
 				owner: item.owner,
 				repo: item.repo,
 				pr: item.prNumber,
@@ -272,7 +292,7 @@ async function handleReviewJob(
 			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
 			return;
 		}
-		log.info("agent_work_completed", { type: "review", workItemId: item.id });
+		logInfo("agent_work_completed", { type: "review", workItemId: item.id });
 	} catch (e) {
 		if (await shouldSkipWork(pool, item)) {
 			await markWorkCancelled(pool, item.id);
@@ -281,7 +301,7 @@ async function handleReviewJob(
 		const message = e instanceof Error ? e.message : String(e);
 		if (!isTerminalPgBossAttempt(job)) {
 			if (await markWorkRetrying(pool, item.id, e)) {
-				log.warn("agent_work_retrying", {
+				logWarn("agent_work_retrying", {
 					type: "review",
 					workItemId: item.id,
 					message,
@@ -313,13 +333,13 @@ async function handleReviewJob(
 					reviewSummarySentinelForMode(reviewLens),
 				);
 			} catch (publishError) {
-				log.warn("review_failure_notice_failed", {
+				logWarn("review_failure_notice_failed", {
 					workItemId: item.id,
 					message: publishError instanceof Error ? publishError.message : String(publishError),
 				});
 			}
 		}
-		log.error("agent_work_failed", {
+		logError("agent_work_failed", {
 			type: "review",
 			workItemId: item.id,
 			message: sanitizeLogMessage(message),
@@ -345,7 +365,7 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
 			});
 			return;
 		} catch (e) {
-			log.warn("ask_inline_reply_failed", {
+			logWarn("ask_inline_reply_failed", {
 				owner: item.owner,
 				repo: item.repo,
 				pr: replyTarget.prNumber,
@@ -398,7 +418,7 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 			return;
 		}
 
-		log.info("agent_work_started", { type: "ask", workItemId: item.id, resourceKey: item.resourceKey });
+		logInfo("agent_work_started", { type: "ask", workItemId: item.id, resourceKey: item.resourceKey });
 		const result = await runAskRun({
 			cfg,
 			token: installation.token,
@@ -421,7 +441,7 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
 			return;
 		}
-		log.info("agent_work_completed", { type: "ask", workItemId: item.id });
+		logInfo("agent_work_completed", { type: "ask", workItemId: item.id });
 	} catch (e) {
 		if (await shouldSkipWork(pool, item)) {
 			await markWorkCancelled(pool, item.id);
@@ -430,7 +450,7 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 		const message = e instanceof Error ? e.message : String(e);
 		if (!isTerminalPgBossAttempt(job)) {
 			if (await markWorkRetrying(pool, item.id, e)) {
-				log.warn("agent_work_retrying", {
+				logWarn("agent_work_retrying", {
 					type: "ask",
 					workItemId: item.id,
 					message,
@@ -459,13 +479,13 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 					}),
 				);
 			} catch (publishError) {
-				log.warn("ask_failure_reply_failed", {
+				logWarn("ask_failure_reply_failed", {
 					workItemId: item.id,
 					message: publishError instanceof Error ? publishError.message : String(publishError),
 				});
 			}
 		}
-		log.error("agent_work_failed", {
+		logError("agent_work_failed", {
 			type: "ask",
 			workItemId: item.id,
 			message: sanitizeLogMessage(message),
@@ -483,7 +503,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 				try: async () => {
 					const workers = await Promise.all([
 						boss.work<AckJobData>(ACK_QUEUE, { localConcurrency: cfg.ackConcurrency }, async ([job]) => {
-							await handleAckJob(cfg, pool, job.data);
+							await runWithOperationLogger(workerJobMeta(ACK_QUEUE, job.data, job.id), () =>
+								handleAckJob(cfg, pool, job.data),
+							);
 						}),
 						boss.work<ReviewJobData>(
 							REVIEW_QUEUE,
@@ -494,7 +516,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 								includeMetadata: true,
 							},
 							async ([job]) => {
-								await handleReviewJob(cfg, pool, job);
+								await runWithOperationLogger(workerJobMeta(REVIEW_QUEUE, job.data, job.id), () =>
+									handleReviewJob(cfg, pool, job),
+								);
 							},
 						),
 						boss.work<AskJobData>(
@@ -506,11 +530,13 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 								includeMetadata: true,
 							},
 							async ([job]) => {
-								await handleAskJob(cfg, pool, job);
+								await runWithOperationLogger(workerJobMeta(ASK_QUEUE, job.data, job.id), () =>
+									handleAskJob(cfg, pool, job),
+								);
 							},
 						),
 					]);
-					log.info("agent_worker_started", {
+					logInfo("agent_worker_started", {
 						queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE],
 						reviewConcurrency: cfg.reviewConcurrency,
 						askConcurrency: cfg.askConcurrency,
@@ -518,7 +544,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 					});
 					for (const queue of [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE]) {
 						const stats = await boss.getQueueStats(queue);
-						log.info("agent_queue_stats", {
+						logInfo("agent_queue_stats", {
 							queue,
 							queued: stats.queuedCount,
 							active: stats.activeCount,
@@ -527,7 +553,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 					}
 					const blockedReviewKeys = await boss.getBlockedKeys(REVIEW_QUEUE);
 					if (blockedReviewKeys.length > 0) {
-						log.warn("agent_review_queue_blocked_keys", { keys: blockedReviewKeys });
+						logWarn("agent_review_queue_blocked_keys", { keys: blockedReviewKeys });
 					}
 					return workers;
 				},

@@ -1,7 +1,7 @@
 import { complete, getModel } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Message, Tool as PiTool, ToolCall } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
@@ -284,7 +284,7 @@ export async function runFullPrReview(params: {
 				call.name !== "submitReview" &&
 				githubExecutorNames.has(call.name)
 			) {
-				log.info("github_tool_circuit_short_circuit", { tool: call.name });
+				logInfo("github_tool_circuit_short_circuit", { tool: call.name });
 				context.messages.push({
 					role: "toolResult",
 					toolCallId: call.id,
@@ -299,7 +299,7 @@ export async function runFullPrReview(params: {
 			const isGithubTool = githubExecutorNames.has(call.name);
 
 			if (isGithubTool && isInstallationTokenNearExpiry(tokenExpiresAtTs)) {
-				log.warn("token_expired_before_tool", {
+				logWarn("token_expired_before_tool", {
 					tool: call.name,
 					tokenExpiresInSeconds: Math.max(
 						0,
@@ -354,7 +354,7 @@ export async function runFullPrReview(params: {
 						rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
 					) {
 						rateLimitCircuitOpen = true;
-						log.warn("review_rate_limit_circuit_open", {
+						logWarn("review_rate_limit_circuit_open", {
 							consecutiveFailures: rateLimitConsecutiveFailures,
 							owner,
 							repo,
@@ -365,7 +365,7 @@ export async function runFullPrReview(params: {
 					}
 				} else {
 					text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
-					log.warn("tool_execute_failed", { tool: call.name, message: text });
+					logWarn("tool_execute_failed", { tool: call.name, message: text });
 				}
 			}
 
@@ -405,7 +405,7 @@ export async function runFullPrReview(params: {
 
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
-				log.info("agent_round_complete_no_tools", {
+				logInfo("agent_round_complete_no_tools", {
 					mode: reviewMode,
 					round,
 					summary: assistantReplySummary(assistant).slice(0, 200),
@@ -421,7 +421,7 @@ export async function runFullPrReview(params: {
 				break;
 			}
 
-			log.info("agent_tool_round", {
+			logInfo("agent_tool_round", {
 				mode: reviewMode,
 				round,
 				tools: toolCalls.map((t) => t.name),
@@ -432,7 +432,7 @@ export async function runFullPrReview(params: {
 
 	async function runValidationRepair() {
 		if (!submitState.published && submitState.lastValidationError) {
-			log.info("review_payload_repair_attempt", {
+			logInfo("review_payload_repair_attempt", {
 				mode: reviewMode,
 				message: submitState.lastValidationError,
 			});
@@ -449,18 +449,18 @@ export async function runFullPrReview(params: {
 
 	async function runFinalizePasses() {
 		for (let f = 0; f < cfg.maxFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
-			log.warn("agent_finalize_pass", { mode: reviewMode, pass: f });
+			logWarn("agent_finalize_pass", { mode: reviewMode, pass: f });
 			const assistant = await complete(model, context);
 			lastAssistant = assistant;
 			context.messages.push(assistant);
 
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
-				log.info("agent_finalize_complete", { mode: reviewMode, pass: f });
+				logInfo("agent_finalize_complete", { mode: reviewMode, pass: f });
 				break;
 			}
 
-			log.info("agent_finalize_tool_round", {
+			logInfo("agent_finalize_tool_round", {
 				mode: reviewMode,
 				pass: f,
 				tools: toolCalls.map((t) => t.name),
@@ -480,7 +480,7 @@ export async function runFullPrReview(params: {
 		const prompt =
 			PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
 			PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
-		log.info("review_publish_retry", {
+		logInfo("review_publish_retry", {
 			mode: reviewMode,
 			attempt: attemptIndex + 1,
 			maxAttempts: cfg.maxReviewPublishAttempts,
@@ -502,7 +502,7 @@ export async function runFullPrReview(params: {
 	}
 
 	async function runMaintainerPlainTextFallback() {
-		log.warn("agent_publish_fallback", {
+		logWarn("agent_publish_fallback", {
 			mode: reviewMode,
 			publishAttempts,
 			maxAttempts: cfg.maxReviewPublishAttempts,
@@ -542,7 +542,7 @@ export async function runFullPrReview(params: {
 				body,
 				reviewSummarySentinelForMode(reviewMode),
 			);
-			log.info("review_publish_fallback_comment", {
+			logInfo("review_publish_fallback_comment", {
 				mode: reviewMode,
 				owner,
 				repo,
@@ -552,7 +552,7 @@ export async function runFullPrReview(params: {
 			});
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
-			log.warn("review_publish_fallback_comment_failed", {
+			logWarn("review_publish_fallback_comment_failed", {
 				mode: reviewMode,
 				owner,
 				repo,
@@ -572,7 +572,7 @@ export async function runFullPrReview(params: {
 	}
 
 	if (!submitState.published) {
-		log.warn("review_publish_exhausted", {
+		logWarn("review_publish_exhausted", {
 			mode: reviewMode,
 			attempts: publishAttempts,
 			maxAttempts: cfg.maxReviewPublishAttempts,

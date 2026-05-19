@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { log } from "../src/log.js";
+import * as evlog from "../src/evlog.js";
 import { buildSubmitReviewTool } from "../src/agent/submitReviewTool.js";
 import { SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
 
@@ -60,7 +60,7 @@ describe("submitReview tool", () => {
 	});
 
 	it("sets lastValidationError on malformed payload", async () => {
-		const warnSpy = vi.spyOn(log, "warn");
+		const warnSpy = vi.spyOn(evlog, "logWarn");
 		const state = { published: false, inlinePublished: false, lastValidationError: null };
 		const { executor } = buildSubmitReviewTool({
 			cfg,

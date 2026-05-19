@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { ACK_QUEUE } from "../src/agentWork/types.js";
 import { MAX_ASK_QUESTION_CHARS } from "../src/agent/askSafety.js";
@@ -45,9 +46,10 @@ describe("makeAgentWorkScheduler /ask slash", () => {
 		vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
 		const scheduler = makeAgentWorkScheduler(pool, boss);
+		const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 		const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
 
-		await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput(`/ask ${long}`)));
+		await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput(`/ask ${long}`), intakeLog));
 
 		expect(sentJobs).toHaveLength(1);
 		expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
@@ -80,8 +82,9 @@ describe("makeAgentWorkScheduler /ask slash", () => {
 		vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
 		const scheduler = makeAgentWorkScheduler(pool, boss);
+		const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
-		await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/ask")));
+		await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/ask"), intakeLog));
 
 		expect(sentJobs).toHaveLength(1);
 		expect(sentJobs[0]?.data.reply).toEqual({

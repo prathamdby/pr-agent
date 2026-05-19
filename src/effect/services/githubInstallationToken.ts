@@ -2,7 +2,7 @@ import { Clock, Context, Deferred, Effect, Layer, Ref } from "effect";
 import type { Config } from "../../config.js";
 import { mintInstallationAuth, type InstallationToken } from "../../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../../github/githubRequestError.js";
-import { log } from "../../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../../evlog.js";
 
 const FRESHNESS_BUFFER_MS = 60_000;
 
@@ -70,7 +70,7 @@ export const GithubInstallationTokenLive = Layer.effect(
                   return m;
                 });
                 yield* Deferred.succeed(action.deferred, value);
-                log.debug("minted_installation_token", { installationId, expiresAt: auth.expiresAt });
+                logDebug("minted_installation_token", { installationId, expiresAt: auth.expiresAt });
                 return value;
               });
             }),

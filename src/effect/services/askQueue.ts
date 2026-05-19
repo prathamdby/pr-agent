@@ -1,6 +1,6 @@
 import { Clock, Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
-import { log } from "../../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../../evlog.js";
 
 export class AskQueue extends Context.Tag("AskQueue")<
 	AskQueue,
@@ -27,7 +27,7 @@ export const AskQueueLive = (cfg: Pick<Config, "askConcurrency">) =>
 								const now = yield* Clock.currentTimeMillis;
 								const waitMs = now - queuedAt;
 								if (waitMs > 0) {
-									log.info("ask_queue_wait", { label, waitMs });
+									logInfo("ask_queue_wait", { label, waitMs });
 								}
 								return yield* task;
 							}),

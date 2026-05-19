@@ -4,5 +4,6 @@ export default defineConfig({
 	test: {
 		pool: "forks",
 		include: ["test/**/*.test.ts"],
+		setupFiles: ["test/setup/evlog.ts"],
 	},
 });

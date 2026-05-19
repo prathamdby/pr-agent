@@ -1,6 +1,6 @@
 import { RequestError } from "@octokit/request-error";
 import type { ResponseHeaders } from "@octokit/types";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 
 export type GithubToolErrorClassification =
 	| "token_expired"
@@ -330,7 +330,7 @@ export function logGithubToolRequestError(
 
 	if (isGithubRequestError(err)) {
 		const meta = extractGithubResponseMeta(err);
-		log.warn("github_tool_request_error", {
+		logWarn("github_tool_request_error", {
 			...base,
 			status: meta.status,
 			message: meta.message,
@@ -349,7 +349,7 @@ export function logGithubToolRequestError(
 	}
 
 	if (isGraphqlRateLimitError(err)) {
-		log.warn("github_tool_request_error", {
+		logWarn("github_tool_request_error", {
 			...base,
 			status: 0,
 			message: err instanceof Error ? err.message.slice(0, MESSAGE_TRUNCATE) : String(err),
@@ -358,7 +358,7 @@ export function logGithubToolRequestError(
 	}
 
 	if (classified.classification === "token_expired") {
-		log.warn("github_tool_request_error", {
+		logWarn("github_tool_request_error", {
 			...base,
 			status: 0,
 			message:
@@ -371,7 +371,7 @@ export function logGithubToolRequestError(
 		return;
 	}
 
-	log.warn("github_tool_request_error", {
+	logWarn("github_tool_request_error", {
 		...base,
 		status: 0,
 		message:

@@ -2,7 +2,7 @@ import { complete, getModel } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Message, Tool as PiTool, ToolCall } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { ReplyTarget } from "../commands/slashCommandFlow.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
@@ -116,7 +116,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 		params;
 
 	if (classifyAskQuestionIntent(question) === "bot_meta") {
-		log.info("ask_meta_refusal", { owner, repo, pr: prNumber });
+		logInfo("ask_meta_refusal", { owner, repo, pr: prNumber });
 		return {
 			answer: formatAskReply({ question, answer: ASK_META_REFUSAL, replyTarget }),
 			replied: true,
@@ -146,10 +146,10 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 	try {
 		await gh.executors.listPullRequestFiles({});
 		if (pathGate.prChangedPaths.size === 0) {
-			log.warn("ask_path_gate_prime_empty", { owner, repo, pr: prNumber });
+			logWarn("ask_path_gate_prime_empty", { owner, repo, pr: prNumber });
 		}
 	} catch (e) {
-		log.warn("ask_path_gate_prime_failed", {
+		logWarn("ask_path_gate_prime_failed", {
 			owner,
 			repo,
 			pr: prNumber,
@@ -201,7 +201,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 			let isError = false;
 
 			if (rateLimitCircuitOpen && githubExecutorNames.has(call.name)) {
-				log.info("github_tool_circuit_short_circuit", { tool: call.name, mode: "ask" });
+				logInfo("github_tool_circuit_short_circuit", { tool: call.name, mode: "ask" });
 				context.messages.push({
 					role: "toolResult",
 					toolCallId: call.id,
@@ -260,7 +260,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 						rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
 					) {
 						rateLimitCircuitOpen = true;
-						log.warn("ask_rate_limit_circuit_open", {
+						logWarn("ask_rate_limit_circuit_open", {
 							consecutiveFailures: rateLimitConsecutiveFailures,
 							owner,
 							repo,
@@ -271,7 +271,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 				} else {
 					const raw = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
 					text = raw;
-					log.warn("tool_execute_failed", {
+					logWarn("tool_execute_failed", {
 						tool: call.name,
 						message: sanitizeLogMessage(raw),
 						mode: "ask",
@@ -312,11 +312,11 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
-				log.info("ask_round_complete_no_tools", { round, pr: prNumber });
+				logInfo("ask_round_complete_no_tools", { round, pr: prNumber });
 				break;
 			}
 
-			log.info("ask_tool_round", { round, tools: toolCalls.map((t) => t.name), pr: prNumber });
+			logInfo("ask_tool_round", { round, tools: toolCalls.map((t) => t.name), pr: prNumber });
 			await appendToolResults(toolCalls);
 		}
 	}
@@ -350,7 +350,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
 	if (!summary && !retried) {
 		retried = true;
-		log.info("ask_retry_nudge", { owner, repo, pr: prNumber });
+		logInfo("ask_retry_nudge", { owner, repo, pr: prNumber });
 		context.messages.push({ role: "user", content: ASK_RETRY_NUDGE, timestamp: Date.now() });
 		stopLoop = false;
 		await runToolLoop(ASK_RETRY_ROUNDS, false);
@@ -359,7 +359,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 	}
 
 	if (!summary) {
-		log.warn("ask_text_only_fallback", { owner, repo, pr: prNumber });
+		logWarn("ask_text_only_fallback", { owner, repo, pr: prNumber });
 		await runTextOnlyPass(
 			"Respond with plain text only (no tool calls). Answer the question using what you found, or explain clearly what blocked a complete answer.",
 		);
@@ -371,7 +371,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 			? formatAskReply({ question, answer: summary, replyTarget })
 			: formatAskFailureReply({ question, message: ASK_FAILURE_MESSAGE, replyTarget });
 
-	log.info("ask_completed", {
+	logInfo("ask_completed", {
 		owner,
 		repo,
 		pr: prNumber,

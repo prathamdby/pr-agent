@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
 import type { Config } from "../src/config.js";
-import { initLog } from "../src/log.js";
+import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 
@@ -161,7 +161,7 @@ async function stopEffectServer(handle: Handle): Promise<void> {
 
 describe("effect webhook server (end-to-end)", () => {
 	beforeAll(() => {
-		initLog("error");
+		initEvlog("error", { silent: true });
 	});
 
 	let handle: Handle | undefined;

@@ -1,7 +1,8 @@
 import { Effect } from "effect";
 import type { Config } from "../../config.js";
-import { log } from "../../log.js";
+import { recordEvent } from "../../evlog.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
+import { IntakeLogger } from "../intakeLogger.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 
@@ -13,13 +14,14 @@ export type DispatchEffectInput = {
 
 export function dispatchGithubEventEffect(
   input: DispatchEffectInput,
-): Effect.Effect<void, Error, AgentWorkScheduler | WebhookHandlers> {
+): Effect.Effect<void, Error, AgentWorkScheduler | WebhookHandlers | IntakeLogger> {
   return Effect.gen(function* () {
     const { cfg, headers, payload } = input;
     const event = headers.event ?? "";
+    const intakeLog = yield* IntakeLogger;
 
     if (!headers.delivery) {
-      log.warn("missing_delivery_id_using_body_hash");
+      recordEvent(intakeLog, "missing_delivery_id_using_body_hash");
     }
 
     let parsed: ReturnType<typeof parseGithubPayload>;
@@ -27,7 +29,7 @@ export function dispatchGithubEventEffect(
       parsed = parseGithubPayload(event, payload);
     } catch (e) {
       if (e instanceof WebhookParseError) {
-        log.warn("webhook_parse_error", { event, message: e.message });
+        recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message });
         return;
       }
       return yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
@@ -35,8 +37,8 @@ export function dispatchGithubEventEffect(
 
     const scheduler = yield* AgentWorkScheduler;
     if (parsed.name === "ignored") {
-      log.debug("ignored_event", { event });
-      yield* scheduler.recordIgnored(headers, `ignored_event_${event || "missing"}`);
+      recordEvent(intakeLog, "ignored_event", { event });
+      yield* scheduler.recordIgnored(headers, `ignored_event_${event || "missing"}`, intakeLog);
       return;
     }
 

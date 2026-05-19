@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { Config } from "../src/config.js";
+import { createOperationLogger } from "../src/evlog.js";
 import { processWebhookHttpRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
+import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 import { Layer } from "effect";
 
@@ -66,7 +68,13 @@ describe("effect webhook program integration", () => {
           "x-github-delivery": "d1",
         },
         rawBody: body,
-      }).pipe(Effect.provide(dispatcherLayer)),
+      }).pipe(
+        Effect.provide(dispatcherLayer),
+        Effect.provideService(
+          IntakeLogger,
+          createOperationLogger({ method: "POST", path: "/webhooks", requestId: "d1" }),
+        ),
+      ),
     );
 
     expect(res.status).toBe(200);
