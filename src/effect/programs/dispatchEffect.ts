@@ -21,7 +21,7 @@ export function dispatchGithubEventEffect(
     const intakeLog = yield* IntakeLogger;
 
     if (!headers.delivery) {
-      recordEvent(intakeLog, "missing_delivery_id_using_body_hash");
+      recordEvent(intakeLog, "missing_delivery_id_using_body_hash", undefined, "warn");
     }
 
     let parsed: ReturnType<typeof parseGithubPayload>;
@@ -29,7 +29,7 @@ export function dispatchGithubEventEffect(
       parsed = parseGithubPayload(event, payload);
     } catch (e) {
       if (e instanceof WebhookParseError) {
-        recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message });
+        recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message }, "warn");
         return;
       }
       return yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
@@ -37,7 +37,7 @@ export function dispatchGithubEventEffect(
 
     const scheduler = yield* AgentWorkScheduler;
     if (parsed.name === "ignored") {
-      recordEvent(intakeLog, "ignored_event", { event });
+      recordEvent(intakeLog, "ignored_event", { event }, "debug");
       yield* scheduler.recordIgnored(headers, `ignored_event_${event || "missing"}`, intakeLog);
       return;
     }

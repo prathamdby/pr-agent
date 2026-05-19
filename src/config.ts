@@ -184,6 +184,14 @@ export function loadConfig() {
 		throw new Error('LOG_LEVEL must be one of debug, info, warn, error');
 	}
 
+	const logMaxWideEvents = Number(optionalEnv("LOG_MAX_WIDE_EVENTS", "128"));
+	if (!Number.isFinite(logMaxWideEvents) || logMaxWideEvents < 1) {
+		throw new Error("LOG_MAX_WIDE_EVENTS must be a positive number");
+	}
+
+	const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
+	const logPretty = optionalEnv("LOG_PRETTY", logPrettyDefault) === "true";
+
 	return {
 		port,
 		githubAppId,
@@ -216,6 +224,8 @@ export function loadConfig() {
 		maxPrFilesListed,
 		maxPrFilesPatchBytes,
 		logLevel,
+		logMaxWideEvents,
+		logPretty,
 	};
 }
 

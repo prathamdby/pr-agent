@@ -1,5 +1,5 @@
 import { loadConfig, type Config } from "./config.js";
-import { initEvlog, logInfo } from "./evlog.js";
+import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { startEffectWebhookServer } from "./effect/server.js";
 import { startAgentWorker } from "./worker.js";
 
@@ -13,14 +13,14 @@ function main() {
     return;
   }
 
-  initEvlog(cfg.logLevel);
+  initEvlog(cfg.logLevel, { maxWideEvents: cfg.logMaxWideEvents, pretty: cfg.logPretty });
   logInfo("boot", {
     role: cfg.role,
     provider: cfg.piProvider,
     model: cfg.piModel,
     context7_enabled: cfg.context7ApiKey.length > 0,
   });
-  logInfo("runtime_selected", { runtime: "effect" });
+  logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
     startAgentWorker(cfg);
     return;

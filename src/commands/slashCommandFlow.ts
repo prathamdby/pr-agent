@@ -168,7 +168,7 @@ export function runSlashCommandFlow(
 							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 						});
 						yield* publishAskAnswer(result.answer).pipe(Effect.uninterruptible);
-						logInfo("ask_reply_delivered", {
+						logDebug("ask_reply_delivered", {
 							owner: ctx.owner,
 							repo: ctx.repo,
 							pr: ctx.replyTarget.prNumber,
@@ -192,7 +192,7 @@ export function runSlashCommandFlow(
 				);
 
 			yield* Effect.forkDaemon(askWork);
-			logInfo("ask_dispatched", {
+			logDebug("ask_dispatched", {
 				owner: ctx.owner,
 				repo: ctx.repo,
 				pr: ctx.replyTarget.prNumber,

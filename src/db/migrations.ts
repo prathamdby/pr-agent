@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { Pool } from "pg";
-import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
+import { logInfo } from "../evlog.js";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), "migrations");
 

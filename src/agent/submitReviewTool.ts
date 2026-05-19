@@ -1,7 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../config.js";
-import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
+import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { publishReview } from "./publishReview.js";
 import {
 	reviewPayloadSchema,
@@ -66,7 +66,7 @@ export function buildSubmitReviewTool(params: {
 
 	const executor = async (args: Record<string, unknown>) => {
 		if (params.state.published) {
-			logInfo("review_submit_duplicate_ignored", {
+			logDebug("review_submit_duplicate_ignored", {
 				mode,
 				owner: params.ctx.owner,
 				repo: params.ctx.repo,
@@ -79,7 +79,10 @@ export function buildSubmitReviewTool(params: {
 		if (!parsed.success) {
 			const message = parsed.error.message;
 			params.state.lastValidationError = message;
-			logWarn("review_payload_validation_failed", { mode, message });
+			logWarn("review_payload_validation_failed", {
+				mode,
+				message: message.slice(0, 200),
+			});
 			throw new Error(`Review payload validation failed: ${message}`);
 		}
 

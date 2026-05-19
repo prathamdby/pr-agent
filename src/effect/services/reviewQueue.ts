@@ -1,6 +1,6 @@
 import { Clock, Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
-import { logInfo, logWarn, logError, logDebug } from "../../evlog.js";
+import { logDebug } from "../../evlog.js";
 
 export class ReviewQueue extends Context.Tag("ReviewQueue")<
 	ReviewQueue,
@@ -27,7 +27,7 @@ export const ReviewQueueLive = (cfg: Pick<Config, "reviewConcurrency">) =>
 								const now = yield* Clock.currentTimeMillis;
 								const waitMs = now - queuedAt;
 								if (waitMs > 0) {
-									logInfo("review_queue_wait", { label, waitMs });
+									logDebug("review_queue_wait", { label, waitMs });
 								}
 								return yield* task;
 							}),

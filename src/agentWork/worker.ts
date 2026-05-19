@@ -14,7 +14,7 @@ import {
 } from "../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
-import { logInfo, logWarn, logError, runWithOperationLogger } from "../evlog.js";
+import { logInfo, logWarn, logError, logDebug, runWithOperationLogger } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
 	getReviewPublishState,
@@ -164,7 +164,7 @@ async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<
 		try {
 			await safeReaction(installation.token, data.owner, data.repo, target);
 		} catch (e) {
-			logWarn("ack_reaction_failed", {
+			logDebug("ack_reaction_failed", {
 				owner: data.owner,
 				repo: data.repo,
 				targetKind: target.kind,
@@ -544,7 +544,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
 					});
 					for (const queue of [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE]) {
 						const stats = await boss.getQueueStats(queue);
-						logInfo("agent_queue_stats", {
+						logDebug("agent_queue_stats", {
 							queue,
 							queued: stats.queuedCount,
 							active: stats.activeCount,
