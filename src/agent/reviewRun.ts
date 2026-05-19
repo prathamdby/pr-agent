@@ -1,7 +1,7 @@
 import { complete, getModel } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Message, Tool as PiTool, ToolCall } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
+import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
@@ -284,7 +284,7 @@ export async function runFullPrReview(params: {
 				call.name !== "submitReview" &&
 				githubExecutorNames.has(call.name)
 			) {
-				logInfo("github_tool_circuit_short_circuit", { tool: call.name });
+				logDebug("github_tool_circuit_short_circuit", { tool: call.name });
 				context.messages.push({
 					role: "toolResult",
 					toolCallId: call.id,
@@ -299,7 +299,7 @@ export async function runFullPrReview(params: {
 			const isGithubTool = githubExecutorNames.has(call.name);
 
 			if (isGithubTool && isInstallationTokenNearExpiry(tokenExpiresAtTs)) {
-				logWarn("token_expired_before_tool", {
+				logDebug("token_expired_before_tool", {
 					tool: call.name,
 					tokenExpiresInSeconds: Math.max(
 						0,
@@ -365,7 +365,7 @@ export async function runFullPrReview(params: {
 					}
 				} else {
 					text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
-					logWarn("tool_execute_failed", { tool: call.name, message: text });
+					logDebug("tool_execute_failed", { tool: call.name, message: text.slice(0, 200) });
 				}
 			}
 
@@ -405,7 +405,7 @@ export async function runFullPrReview(params: {
 
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
-				logInfo("agent_round_complete_no_tools", {
+				logDebug("agent_round_complete_no_tools", {
 					mode: reviewMode,
 					round,
 					summary: assistantReplySummary(assistant).slice(0, 200),
@@ -421,7 +421,7 @@ export async function runFullPrReview(params: {
 				break;
 			}
 
-			logInfo("agent_tool_round", {
+			logDebug("agent_tool_round", {
 				mode: reviewMode,
 				round,
 				tools: toolCalls.map((t) => t.name),
@@ -432,7 +432,7 @@ export async function runFullPrReview(params: {
 
 	async function runValidationRepair() {
 		if (!submitState.published && submitState.lastValidationError) {
-			logInfo("review_payload_repair_attempt", {
+			logDebug("review_payload_repair_attempt", {
 				mode: reviewMode,
 				message: submitState.lastValidationError,
 			});
@@ -449,18 +449,18 @@ export async function runFullPrReview(params: {
 
 	async function runFinalizePasses() {
 		for (let f = 0; f < cfg.maxFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
-			logWarn("agent_finalize_pass", { mode: reviewMode, pass: f });
+			logDebug("agent_finalize_pass", { mode: reviewMode, pass: f });
 			const assistant = await complete(model, context);
 			lastAssistant = assistant;
 			context.messages.push(assistant);
 
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
-				logInfo("agent_finalize_complete", { mode: reviewMode, pass: f });
+				logDebug("agent_finalize_complete", { mode: reviewMode, pass: f });
 				break;
 			}
 
-			logInfo("agent_finalize_tool_round", {
+			logDebug("agent_finalize_tool_round", {
 				mode: reviewMode,
 				pass: f,
 				tools: toolCalls.map((t) => t.name),

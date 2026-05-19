@@ -178,7 +178,7 @@ describe("runFullPrReview mode", () => {
 			timestamp: Date.now(),
 		}));
 
-		const infoSpy = vi.spyOn(evlog, "logInfo");
+		const debugSpy = vi.spyOn(evlog, "logDebug");
 		await runFullPrReview(
 			reviewParams({
 				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
@@ -186,7 +186,7 @@ describe("runFullPrReview mode", () => {
 			}),
 		);
 
-		expect(infoSpy).toHaveBeenCalledWith(
+		expect(debugSpy).toHaveBeenCalledWith(
 			"agent_tool_round",
 			expect.objectContaining({ mode: "review-security" }),
 		);

@@ -2,7 +2,7 @@ import { Clock, Context, Deferred, Effect, Layer, Ref } from "effect";
 import type { Config } from "../../config.js";
 import { mintInstallationAuth, type InstallationToken } from "../../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../../github/githubRequestError.js";
-import { logInfo, logWarn, logError, logDebug } from "../../evlog.js";
+import { logDebug } from "../../evlog.js";
 
 const FRESHNESS_BUFFER_MS = 60_000;
 

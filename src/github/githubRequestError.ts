@@ -1,6 +1,6 @@
 import { RequestError } from "@octokit/request-error";
 import type { ResponseHeaders } from "@octokit/types";
-import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
+import { logWarn, logDebug } from "../evlog.js";
 
 export type GithubToolErrorClassification =
 	| "token_expired"
@@ -307,6 +307,11 @@ export function bumpRateLimitConsecutiveFailures(
 export const TOKEN_EXPIRED_TOOL_MESSAGE =
 	"Installation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.";
 
+function logGithubToolRequestErrorPayload(payload: Record<string, unknown>, classification: GithubToolErrorClassification): void {
+	const log = isRateLimitClassification(classification) ? logDebug : logWarn;
+	log("github_tool_request_error", payload);
+}
+
 export function logGithubToolRequestError(
 	tool: string,
 	err: unknown,
@@ -330,55 +335,67 @@ export function logGithubToolRequestError(
 
 	if (isGithubRequestError(err)) {
 		const meta = extractGithubResponseMeta(err);
-		logWarn("github_tool_request_error", {
-			...base,
-			status: meta.status,
-			message: meta.message,
-			method: meta.method,
-			url: meta.url,
-			githubRequestId: meta.githubRequestId,
-			rateLimitResource: meta.rateLimitResource,
-			rateLimitRemaining: meta.rateLimitRemaining,
-			rateLimitLimit: meta.rateLimitLimit,
-			rateLimitReset: meta.rateLimitReset,
-			rateLimitUsed: meta.rateLimitUsed,
-			retryAfterHeader: meta.retryAfterHeader,
-			octokitRetryCount: meta.octokitRetryCount,
-		});
+		logGithubToolRequestErrorPayload(
+			{
+				...base,
+				status: meta.status,
+				message: meta.message,
+				method: meta.method,
+				url: meta.url?.slice(0, 200),
+				githubRequestId: meta.githubRequestId,
+				rateLimitResource: meta.rateLimitResource,
+				rateLimitRemaining: meta.rateLimitRemaining,
+				rateLimitLimit: meta.rateLimitLimit,
+				rateLimitReset: meta.rateLimitReset,
+				rateLimitUsed: meta.rateLimitUsed,
+				retryAfterHeader: meta.retryAfterHeader,
+				octokitRetryCount: meta.octokitRetryCount,
+			},
+			classified.classification,
+		);
 		return;
 	}
 
 	if (isGraphqlRateLimitError(err)) {
-		logWarn("github_tool_request_error", {
-			...base,
-			status: 0,
-			message: err instanceof Error ? err.message.slice(0, MESSAGE_TRUNCATE) : String(err),
-		});
+		logGithubToolRequestErrorPayload(
+			{
+				...base,
+				status: 0,
+				message: err instanceof Error ? err.message.slice(0, MESSAGE_TRUNCATE) : String(err),
+			},
+			"rate_limit",
+		);
 		return;
 	}
 
 	if (classified.classification === "token_expired") {
-		logWarn("github_tool_request_error", {
+		logGithubToolRequestErrorPayload(
+			{
+				...base,
+				status: 0,
+				message:
+					err instanceof Error
+						? err.message.slice(0, MESSAGE_TRUNCATE)
+						: err == null
+							? "token near expiry guard"
+							: String(err),
+			},
+			classified.classification,
+		);
+		return;
+	}
+
+	logGithubToolRequestErrorPayload(
+		{
 			...base,
 			status: 0,
 			message:
 				err instanceof Error
 					? err.message.slice(0, MESSAGE_TRUNCATE)
-					: err == null
-						? "token near expiry guard"
-						: String(err),
-		});
-		return;
-	}
-
-	logWarn("github_tool_request_error", {
-		...base,
-		status: 0,
-		message:
-			err instanceof Error
-				? err.message.slice(0, MESSAGE_TRUNCATE)
-				: String(err),
-	});
+					: String(err),
+		},
+		classified.classification,
+	);
 }
 
 export function formatToolErrorMessage(

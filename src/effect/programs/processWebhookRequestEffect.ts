@@ -43,7 +43,7 @@ export function processWebhookHttpRequestEffect(
 
     if (req.method === "GET" && path === "/health") {
       const response = { status: 200, body: "ok", contentType: "text/plain; charset=utf-8" } satisfies WebhookResponseLike;
-      recordEvent(intakeLog, "health_check", { status: response.status });
+      recordEvent(intakeLog, "health_check", { status: response.status }, "debug");
       intakeLog.set({ webhook: { status: response.status } });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "health_check" }));
       return response;
@@ -51,7 +51,7 @@ export function processWebhookHttpRequestEffect(
 
     if (req.method !== "POST" || path !== "/webhooks") {
       const response = { status: 404, body: "" } satisfies WebhookResponseLike;
-      recordEvent(intakeLog, "route_not_found", { status: response.status });
+      recordEvent(intakeLog, "route_not_found", { status: response.status }, "debug");
       intakeLog.set({ webhook: { status: response.status } });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "route_not_found" }));
       return response;
@@ -59,7 +59,7 @@ export function processWebhookHttpRequestEffect(
 
     const sig = req.headers["x-hub-signature-256"];
     if (!verifyGithubWebhookSignature(cfg.webhookSecret, req.rawBody, sig)) {
-      recordEvent(intakeLog, "invalid_signature");
+      recordEvent(intakeLog, "invalid_signature", undefined, "warn");
       const response = { status: 401, body: "invalid signature" } satisfies WebhookResponseLike;
       intakeLog.set({ webhook: { status: response.status, signatureInvalid: true } });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_signature" }));
@@ -70,7 +70,7 @@ export function processWebhookHttpRequestEffect(
     try {
       payload = JSON.parse(req.rawBody.toString("utf8")) as Record<string, unknown>;
     } catch {
-      recordEvent(intakeLog, "invalid_json");
+      recordEvent(intakeLog, "invalid_json", undefined, "warn");
       const response = { status: 400, body: "invalid json" } satisfies WebhookResponseLike;
       intakeLog.set({ webhook: { status: response.status } });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_json" }));
@@ -88,11 +88,16 @@ export function processWebhookHttpRequestEffect(
         Effect.map(() => ({ ok: true as const })),
         Effect.catchTag("WebhookHandlerError", (err: WebhookHandlerError) =>
           Effect.sync(() => {
-            recordEvent(intakeLog, "webhook_handler_error", {
-              event: githubEvent,
-              delivery: logDelivery,
-              message: err.message,
-            });
+            recordEvent(
+              intakeLog,
+              "webhook_handler_error",
+              {
+                event: githubEvent,
+                delivery: logDelivery,
+                message: err.message,
+              },
+              "error",
+            );
             return { ok: false as const };
           }),
         ),
@@ -106,7 +111,12 @@ export function processWebhookHttpRequestEffect(
       return response;
     }
 
-    recordEvent(intakeLog, "webhook_handled", { event: githubEvent, delivery: logDelivery, ms: elapsedMs });
+    recordEvent(
+      intakeLog,
+      "webhook_handled",
+      { event: githubEvent, delivery: logDelivery, ms: elapsedMs },
+      "info",
+    );
     intakeLog.set({
       webhook: {
         status: 200,
@@ -116,12 +126,17 @@ export function processWebhookHttpRequestEffect(
       },
     });
     if (elapsedMs > cfg.webhookTimeoutMs) {
-      recordEvent(intakeLog, "webhook_timeout_budget_exceeded", {
-        event: githubEvent,
-        delivery: logDelivery,
-        ms: elapsedMs,
-        budgetMs: cfg.webhookTimeoutMs,
-      });
+      recordEvent(
+        intakeLog,
+        "webhook_timeout_budget_exceeded",
+        {
+          event: githubEvent,
+          delivery: logDelivery,
+          ms: elapsedMs,
+          budgetMs: cfg.webhookTimeoutMs,
+        },
+        "warn",
+      );
     }
     yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "webhook_handled" }));
     return { status: 200, body: "ok" } satisfies WebhookResponseLike;

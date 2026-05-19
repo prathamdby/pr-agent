@@ -2,7 +2,7 @@ import { complete, getModel } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Message, Tool as PiTool, ToolCall } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { ReplyTarget } from "../commands/slashCommandFlow.js";
-import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
+import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
@@ -146,10 +146,10 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 	try {
 		await gh.executors.listPullRequestFiles({});
 		if (pathGate.prChangedPaths.size === 0) {
-			logWarn("ask_path_gate_prime_empty", { owner, repo, pr: prNumber });
+			logDebug("ask_path_gate_prime_empty", { owner, repo, pr: prNumber });
 		}
 	} catch (e) {
-		logWarn("ask_path_gate_prime_failed", {
+		logDebug("ask_path_gate_prime_failed", {
 			owner,
 			repo,
 			pr: prNumber,
@@ -201,7 +201,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 			let isError = false;
 
 			if (rateLimitCircuitOpen && githubExecutorNames.has(call.name)) {
-				logInfo("github_tool_circuit_short_circuit", { tool: call.name, mode: "ask" });
+				logDebug("github_tool_circuit_short_circuit", { tool: call.name, mode: "ask" });
 				context.messages.push({
 					role: "toolResult",
 					toolCallId: call.id,
@@ -271,7 +271,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 				} else {
 					const raw = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
 					text = raw;
-					logWarn("tool_execute_failed", {
+					logDebug("tool_execute_failed", {
 						tool: call.name,
 						message: sanitizeLogMessage(raw),
 						mode: "ask",
@@ -312,11 +312,11 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
 			const toolCalls = collectToolCalls(assistant);
 			if (toolCalls.length === 0) {
-				logInfo("ask_round_complete_no_tools", { round, pr: prNumber });
+				logDebug("ask_round_complete_no_tools", { round, pr: prNumber });
 				break;
 			}
 
-			logInfo("ask_tool_round", { round, tools: toolCalls.map((t) => t.name), pr: prNumber });
+			logDebug("ask_tool_round", { round, tools: toolCalls.map((t) => t.name), pr: prNumber });
 			await appendToolResults(toolCalls);
 		}
 	}
@@ -350,7 +350,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
 	if (!summary && !retried) {
 		retried = true;
-		logInfo("ask_retry_nudge", { owner, repo, pr: prNumber });
+		logDebug("ask_retry_nudge", { owner, repo, pr: prNumber });
 		context.messages.push({ role: "user", content: ASK_RETRY_NUDGE, timestamp: Date.now() });
 		stopLoop = false;
 		await runToolLoop(ASK_RETRY_ROUNDS, false);

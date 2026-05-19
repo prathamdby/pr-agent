@@ -3,7 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
 import type { Config } from "../config.js";
-import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
+import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 
 // @ts-expect-error — nested @octokit/core versions between rest, retry, and throttling plugins
