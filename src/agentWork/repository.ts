@@ -51,6 +51,17 @@ export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem
 	return row ? mapWorkItem(row) : null;
 }
 
+const MAX_STORED_WORK_ERROR_LEN = 2_000;
+
+function sanitizeWorkError(error: unknown): string {
+	const raw = (error instanceof Error ? error.message : String(error)).replace(/\0/g, "");
+	return raw
+		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+		.replace(/(token|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi, "$1=[redacted]")
+		.replace(/Authorization:\s*\S+/gi, "Authorization: [redacted]")
+		.slice(0, MAX_STORED_WORK_ERROR_LEN);
+}
+
 export async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
 	const result = await pool.query(
 		`UPDATE agent_work_items
@@ -105,7 +116,7 @@ export async function updateRunningWorkHeadSha(pool: Pool, id: string, headSha: 
 }
 
 export async function markWorkFailed(pool: Pool, id: string, error: unknown): Promise<boolean> {
-	const message = error instanceof Error ? error.message : String(error);
+	const message = sanitizeWorkError(error);
 	const result = await pool.query(
 		`UPDATE agent_work_items
 		    SET status = 'failed',
@@ -121,7 +132,7 @@ export async function markWorkFailed(pool: Pool, id: string, error: unknown): Pr
 }
 
 export async function markWorkRetrying(pool: Pool, id: string, error: unknown): Promise<boolean> {
-	const message = error instanceof Error ? error.message : String(error);
+	const message = sanitizeWorkError(error);
 	const result = await pool.query(
 		`UPDATE agent_work_items
 		    SET status = 'queued',
@@ -158,6 +169,7 @@ export async function shouldSkipWork(pool: Pool, item: AgentWorkItem): Promise<b
 
 export async function getReviewPublishState(
 	pool: Pool,
+	workItemId: string,
 	resourceKey: string,
 	reviewLens: ReviewWorkPayload["mode"],
 ): Promise<{ inlinePublished: boolean; summaryPublished: boolean }> {
@@ -166,9 +178,10 @@ export async function getReviewPublishState(
 		   FROM publish_records
 		  WHERE resource_key = $1
 		    AND review_lens = $2
+		    AND work_item_id = $3
 		    AND status = 'completed'
 		    AND step IN ('inline_review', 'summary_comment')`,
-		[resourceKey, reviewLens],
+		[resourceKey, reviewLens, workItemId],
 	);
 	const steps = new Set(rows.map((r) => r.step));
 	return { inlinePublished: steps.has("inline_review"), summaryPublished: steps.has("summary_comment") };

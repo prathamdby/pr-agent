@@ -1,6 +1,6 @@
 import { Context, Deferred, Effect, Layer, Ref } from "effect";
 import type { Config } from "../../config.js";
-import { mintBotIdentity, type BotIdentity as BotIdentityValue } from "../../github/appAuth.js";
+import { getAppBotIdentity, mintBotIdentity, type BotIdentity as BotIdentityValue } from "../../github/appAuth.js";
 
 type Entry =
   | { readonly tag: "value"; readonly value: BotIdentityValue }
@@ -21,6 +21,9 @@ export class BotIdentity extends Context.Tag("BotIdentity")<
     readonly getUserId: (
       cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
       installationToken: string,
+    ) => Effect.Effect<number, Error>;
+    readonly getAppUserId: (
+      cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
     ) => Effect.Effect<number, Error>;
   }
 >() {}
@@ -79,6 +82,11 @@ export const BotIdentityLive = Layer.effect(
       resolve,
       getUserId: (cfg, installationToken) =>
         resolve(cfg, installationToken).pipe(Effect.map((identity) => identity.userId)),
+      getAppUserId: (cfg) =>
+        Effect.tryPromise({
+          try: () => getAppBotIdentity(cfg),
+          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        }).pipe(Effect.map((identity) => identity.userId)),
     });
   }),
 );

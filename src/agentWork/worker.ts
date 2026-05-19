@@ -207,7 +207,7 @@ async function handleReviewJob(
 			return;
 		}
 
-		const publishState = await getReviewPublishState(pool, item.resourceKey, item.reviewLens);
+		const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, item.reviewLens);
 		log.info("agent_work_started", { type: "review", workItemId: item.id, resourceKey: item.resourceKey });
 		const result = await runFullPrReview({
 			cfg,

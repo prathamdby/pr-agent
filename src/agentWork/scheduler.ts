@@ -28,6 +28,11 @@ import {
 const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
 /** Lens used for webhook-driven PR reviews; superseding queries key on this value. */
 const AUTOMATED_REVIEW_LENS: ReviewMode = "review";
+const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
+
+function clampStoredCommentText(text: string): string {
+	return text.replace(/\0/g, "").slice(0, MAX_STORED_COMMENT_TEXT_LEN);
+}
 
 type EventRecord = {
 	readonly id: string;
@@ -409,7 +414,9 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 								ref,
 								source: "slash",
 								lens,
-								userSupplement: `User invoked /${command} with:\n${input.body}`,
+								userSupplement: clampStoredCommentText(
+									`User invoked /${command} with:\n${input.body}`,
+								),
 								commenterId: input.commenterId,
 							});
 							await enqueueAck(boss, client, {

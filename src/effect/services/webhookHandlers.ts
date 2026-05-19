@@ -6,7 +6,6 @@ import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { BotIdentity, BotIdentityLive } from "./botIdentity.js";
-import { GithubInstallationToken, GithubInstallationTokenLive } from "./githubInstallationToken.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
@@ -42,18 +41,11 @@ export const WebhookHandlersCore = Layer.effect(
 	WebhookHandlers,
 	Effect.gen(function* () {
 		const scheduler = yield* AgentWorkScheduler;
-		const tokens = yield* GithubInstallationToken;
 		const bot = yield* BotIdentity;
 
-		const ignoreBotSlash = (
-			cfg: Config,
-			headers: WebhookHeaders,
-			installationId: number,
-			commenterId: number,
-		) =>
+		const ignoreBotSlash = (cfg: Config, headers: WebhookHeaders, commenterId: number) =>
 			Effect.gen(function* () {
-				const auth = yield* tokens.getToken(cfg, installationId);
-				const botUserId = yield* bot.getUserId(cfg, auth.token);
+				const botUserId = yield* bot.getAppUserId(cfg);
 				if (commenterId !== botUserId) return false;
 				yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command");
 				return true;
@@ -84,7 +76,7 @@ export const WebhookHandlersCore = Layer.effect(
 						yield* scheduler.recordIgnored(headers, "ignored_no_slash_command");
 						return;
 					}
-					if (yield* ignoreBotSlash(cfg, headers, data.installation.id, data.comment.user.id)) return;
+					if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
 
 					yield* scheduler.submitSlashCommand({
 						headers,
@@ -110,7 +102,7 @@ export const WebhookHandlersCore = Layer.effect(
 						yield* scheduler.recordIgnored(headers, "ignored_no_slash_command");
 						return;
 					}
-					if (yield* ignoreBotSlash(cfg, headers, data.installation.id, data.comment.user.id)) return;
+					if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
 
 					yield* scheduler.submitSlashCommand({
 						headers,
@@ -133,7 +125,4 @@ export const WebhookHandlersCore = Layer.effect(
 	}),
 );
 
-export const WebhookHandlersLive = WebhookHandlersCore.pipe(
-	Layer.provide(GithubInstallationTokenLive),
-	Layer.provide(BotIdentityLive),
-);
+export const WebhookHandlersLive = WebhookHandlersCore.pipe(Layer.provide(BotIdentityLive));

@@ -3,7 +3,6 @@ import { Cause, Effect, Exit, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { BotIdentity } from "../src/effect/services/botIdentity.js";
-import { GithubInstallationToken } from "../src/effect/services/githubInstallationToken.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 
 const cfg: Config = {
@@ -49,20 +48,15 @@ const issueCommentData = {
 } as never;
 
 function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
-	const tokens = Layer.succeed(
-		GithubInstallationToken,
-		GithubInstallationToken.of({
-			getToken: () => Effect.succeed({ token: "t", expiresAtTs: Date.now() + 60_000 }),
-		}),
-	);
 	const bot = Layer.succeed(
 		BotIdentity,
 		BotIdentity.of({
 			resolve: () => Effect.succeed({ userId: 42, login: "pr-agent[bot]" }),
 			getUserId: () => Effect.succeed(42),
+			getAppUserId: () => Effect.succeed(42),
 		}),
 	);
-	return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(tokens), Layer.provide(bot));
+	return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(bot));
 }
 
 describe("WebhookHandlers Effect resolution", () => {
