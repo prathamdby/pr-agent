@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ASK_USAGE_HINT, parseAskQuestion } from "../src/commands/parseAskQuestion.js";
+import { MAX_ASK_QUESTION_CHARS } from "../src/agent/askSafety.js";
+import {
+	ASK_QUESTION_TOO_LONG_HINT,
+	ASK_USAGE_HINT,
+	askQuestionParseFailure,
+	parseAskQuestion,
+} from "../src/commands/parseAskQuestion.js";
 
 describe("parseAskQuestion", () => {
 	it("extracts unquoted question from first line", () => {
@@ -36,5 +42,15 @@ describe("parseAskQuestion", () => {
 
 	it("exports usage hint", () => {
 		expect(ASK_USAGE_HINT).toContain("/ask");
+	});
+
+	it("returns null when question is too long", () => {
+		const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
+		expect(parseAskQuestion(`/ask ${long}`)).toBe(null);
+		expect(askQuestionParseFailure(`/ask ${long}`)).toBe("too_long");
+	});
+
+	it("exports too-long hint", () => {
+		expect(ASK_QUESTION_TOO_LONG_HINT).toContain(String(MAX_ASK_QUESTION_CHARS));
 	});
 });

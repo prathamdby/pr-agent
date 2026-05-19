@@ -15,6 +15,7 @@ import {
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { log } from "../log.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
 	getReviewPublishState,
 	getWorkItem,
@@ -321,7 +322,7 @@ async function handleReviewJob(
 		log.error("agent_work_failed", {
 			type: "review",
 			workItemId: item.id,
-			message,
+			message: sanitizeLogMessage(message),
 			pgBossRetryCount: job.retryCount,
 			pgBossRetryLimit: job.retryLimit,
 			dbAttemptCount: item.attemptCount,
@@ -467,7 +468,7 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 		log.error("agent_work_failed", {
 			type: "ask",
 			workItemId: item.id,
-			message,
+			message: sanitizeLogMessage(message),
 			pgBossRetryCount: job.retryCount,
 			pgBossRetryLimit: job.retryLimit,
 			dbAttemptCount: item.attemptCount,

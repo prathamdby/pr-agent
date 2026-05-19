@@ -32,3 +32,4 @@ This file is **domain language only** — not a specification of how the system 
 - **Code anchor** — File path, line range, and diff hunk from an inline review comment; tells an ask run which code the command issuer was looking at.
 - **Review failure notice** — A short PR conversation comment posted when a review run reaches a terminal failed state after retries, telling maintainers the review did not complete and how to retry (for example `/review`). Usually delivered by editing the existing review progress comment in place.
 - **Ask failure reply** — Plain-text failure message posted at the ask reply target when an ask run fails permanently after retries.
+- **Ask meta refusal** — A short ask answer posted without an LLM run when the question targets bot configuration, credentials, or internal instructions; distinct from an Ask run that investigates PR code.
