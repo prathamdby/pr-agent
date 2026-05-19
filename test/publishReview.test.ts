@@ -192,6 +192,26 @@ describe("publishReview", () => {
 		expect(setPullRequestLabels).not.toHaveBeenCalled();
 	});
 
+	it("calls setPullRequestLabels when effort matches but security label is stale", async () => {
+		vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
+			"Review effort 2/5",
+			"Possible security concern",
+		]);
+
+		await publishReview({
+			...baseParams,
+			publishState: { published: false, inlinePublished: false, lastValidationError: null },
+			cfg: {
+				maxReviewFindings: 8,
+				enableReviewLabelsEffort: true,
+				enableReviewLabelsSecurity: true,
+			},
+			payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
+		});
+
+		expect(setPullRequestLabels).toHaveBeenCalledWith("t", "o", "r", 1, ["Review effort 2/5"]);
+	});
+
 	it("calls setPullRequestLabels when effort label value changes", async () => {
 		vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 

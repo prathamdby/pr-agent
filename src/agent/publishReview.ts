@@ -7,7 +7,7 @@ import {
 	type InlineReviewComment,
 } from "../github/reviewPublish.js";
 import { log } from "../log.js";
-import { LABEL_REVIEW_EFFORT_PREFIX, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
+import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
 import { renderInlineThreadBody, renderReviewSummaryComment, reviewPointerBodyForMode } from "./reviewRender.js";
 import {
 	normalizeReviewPayload,
@@ -83,8 +83,10 @@ export async function publishReview(params: ReviewPublishContext & {
 		try {
 			const current = await listPullRequestLabels(token, owner, repo, prNumber);
 			if (
-				cfg.enableReviewLabelsEffort &&
-				current.includes(`${LABEL_REVIEW_EFFORT_PREFIX}${payload.estimatedEffort}/5`)
+				labelsAlreadySynced(current, payload, {
+					effort: cfg.enableReviewLabelsEffort,
+					security: cfg.enableReviewLabelsSecurity,
+				})
 			) {
 				return;
 			}

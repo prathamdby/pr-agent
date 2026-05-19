@@ -3,6 +3,22 @@ import type { ReviewPayload } from "./reviewSchema.js";
 export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 
+export function labelsAlreadySynced(
+	currentLabels: string[],
+	payload: ReviewPayload,
+	opts: { effort: boolean; security: boolean },
+): boolean {
+	if (opts.effort) {
+		const effortLabel = `${LABEL_REVIEW_EFFORT_PREFIX}${payload.estimatedEffort}/5`;
+		if (!currentLabels.includes(effortLabel)) return false;
+	}
+	if (opts.security) {
+		const wantsSecurity = payload.securityConcerns != null;
+		if (currentLabels.includes(LABEL_SECURITY_CONCERN) !== wantsSecurity) return false;
+	}
+	return true;
+}
+
 export function reviewLabelsFromPayload(
 	payload: ReviewPayload,
 	opts: { effort: boolean; security: boolean },
