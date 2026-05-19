@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
 	REVIEW_POINTER_BODY,
+	REVIEW_POINTER_BODY_MAX_CHARS,
 	renderAgentFixPrompt,
 	renderInlineThreadBody,
 	renderReviewPointerBody,
@@ -321,5 +322,28 @@ describe("renderReviewPointerBody", () => {
 
 		expect(body).toContain(SECURITY_REVIEW_POINTER_BODY);
 		expect(body).toContain("Add auth guard.");
+	});
+
+	it("truncates agent fix prompt when assembled body exceeds max chars", () => {
+		const { body, truncated } = renderReviewPointerBody(
+			basePayload({
+				findings: [
+					{
+						severity: "P1",
+						file: "src/big.ts",
+						startLine: 1,
+						endLine: 1,
+						title: "Large fix prompt",
+						detail: "d",
+						fixPrompt: "x".repeat(REVIEW_POINTER_BODY_MAX_CHARS),
+					},
+				],
+			}),
+			{ ...renderCtx, mode: "review" },
+		);
+
+		expect(truncated).toBe(true);
+		expect(body.length).toBeLessThanOrEqual(REVIEW_POINTER_BODY_MAX_CHARS);
+		expect(body).toContain("...[truncated; see inline threads and PR summary]");
 	});
 });

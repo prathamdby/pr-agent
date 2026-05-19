@@ -130,6 +130,21 @@ export function renderAgentFixPrompt(payload: ReviewPayload, ctx: RenderContext)
 	].join("\n");
 }
 
+function assembleReviewPointerBody(pointerLine: string, agentFixPrompt: string): string {
+	return [
+		pointerLine,
+		"",
+		"<details>",
+		`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
+		"",
+		"```",
+		agentFixPrompt,
+		"```",
+		"",
+		"</details>",
+	].join("\n");
+}
+
 function truncateAgentFixPromptForPointerBody(
 	agentFixPrompt: string,
 	pointerLine: string,
@@ -138,11 +153,7 @@ function truncateAgentFixPromptForPointerBody(
 	prompt: string;
 	truncated: boolean;
 } {
-	const wrapperOverhead =
-		pointerLine.length +
-		"\n\n<details>\n<summary></summary>\n\n```\n\n```\n\n</details>".length +
-		AGENT_FIX_PROMPT_ACCORDION_SUMMARY.length +
-		50;
+	const wrapperOverhead = assembleReviewPointerBody(pointerLine, "").length;
 	const maxPromptChars = Math.max(0, maxBodyChars - wrapperOverhead);
 
 	if (agentFixPrompt.length <= maxPromptChars) {
@@ -165,20 +176,8 @@ export function renderReviewPointerBody(
 	let agentFixPrompt = renderAgentFixPrompt(payload, ctx);
 	let truncated = false;
 
-	const assembled = [
-		pointerLine,
-		"",
-		"<details>",
-		`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
-		"",
-		"```",
-		agentFixPrompt,
-		"```",
-		"",
-		"</details>",
-	].join("\n");
-
-	if (assembled.length > REVIEW_POINTER_BODY_MAX_CHARS) {
+	let body = assembleReviewPointerBody(pointerLine, agentFixPrompt);
+	if (body.length > REVIEW_POINTER_BODY_MAX_CHARS) {
 		const result = truncateAgentFixPromptForPointerBody(
 			agentFixPrompt,
 			pointerLine,
@@ -186,20 +185,8 @@ export function renderReviewPointerBody(
 		);
 		agentFixPrompt = result.prompt;
 		truncated = result.truncated;
+		body = assembleReviewPointerBody(pointerLine, agentFixPrompt);
 	}
-
-	const body = [
-		pointerLine,
-		"",
-		"<details>",
-		`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
-		"",
-		"```",
-		agentFixPrompt,
-		"```",
-		"",
-		"</details>",
-	].join("\n");
 
 	return { body, truncated };
 }
