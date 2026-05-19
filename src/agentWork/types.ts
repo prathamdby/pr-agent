@@ -37,7 +37,12 @@ export type AckTarget =
 	| { readonly kind: "issueComment"; readonly commentId: number }
 	| { readonly kind: "reviewComment"; readonly commentId: number };
 
-export type AckJobData = {
+export type JobCorrelation = {
+	readonly webhookEventId?: string;
+	readonly delivery?: string;
+};
+
+export type AckJobData = JobCorrelation & {
 	readonly kind: "ack";
 	readonly workItemId?: string;
 	readonly installationId: number;
@@ -57,12 +62,12 @@ export type AckJobData = {
 	readonly commenterId?: number;
 };
 
-export type ReviewJobData = {
+export type ReviewJobData = JobCorrelation & {
 	readonly kind: "review";
 	readonly workItemId: string;
 };
 
-export type AskJobData = {
+export type AskJobData = JobCorrelation & {
 	readonly kind: "ask";
 	readonly workItemId: string;
 };
@@ -86,6 +91,7 @@ export type AskWorkPayload = {
 
 export type AgentWorkItem = PrRef & {
 	readonly id: string;
+	readonly webhookEventId: string | null;
 	readonly type: WorkType;
 	readonly source: WorkSource;
 	readonly status: WorkStatus;

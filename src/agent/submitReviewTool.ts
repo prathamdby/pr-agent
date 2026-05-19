@@ -1,7 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../config.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 import { publishReview } from "./publishReview.js";
 import {
 	reviewPayloadSchema,
@@ -66,7 +66,7 @@ export function buildSubmitReviewTool(params: {
 
 	const executor = async (args: Record<string, unknown>) => {
 		if (params.state.published) {
-			log.info("review_submit_duplicate_ignored", {
+			logInfo("review_submit_duplicate_ignored", {
 				mode,
 				owner: params.ctx.owner,
 				repo: params.ctx.repo,
@@ -79,13 +79,13 @@ export function buildSubmitReviewTool(params: {
 		if (!parsed.success) {
 			const message = parsed.error.message;
 			params.state.lastValidationError = message;
-			log.warn("review_payload_validation_failed", { mode, message });
+			logWarn("review_payload_validation_failed", { mode, message });
 			throw new Error(`Review payload validation failed: ${message}`);
 		}
 
 		params.state.lastValidationError = null;
 		if (params.shouldAbortPublish && (await params.shouldAbortPublish())) {
-			log.info("review_submit_skipped_superseded", {
+			logInfo("review_submit_skipped_superseded", {
 				mode,
 				owner: params.ctx.owner,
 				repo: params.ctx.repo,
@@ -103,7 +103,7 @@ export function buildSubmitReviewTool(params: {
 			recordPublishStep: params.recordPublishStep,
 		});
 		params.state.published = true;
-		log.info("review_published", {
+		logInfo("review_published", {
 			mode,
 			owner: params.ctx.owner,
 			repo: params.ctx.repo,

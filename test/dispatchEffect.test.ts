@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { WebhookParseError } from "../src/webhook/parseGithubPayload.js";
+import { createOperationLogger } from "../src/evlog.js";
 import { dispatchGithubEventEffect } from "../src/effect/programs/dispatchEffect.js";
+import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookHandlers } from "../src/effect/services/webhookHandlers.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import * as parseModule from "../src/webhook/parseGithubPayload.js";
@@ -54,17 +56,17 @@ function buildLayers(trace: Trace) {
 	const schedulerLayer = Layer.succeed(
 		AgentWorkScheduler,
 		AgentWorkScheduler.of({
-			recordIgnored: (headers, decision) =>
+			recordIgnored: (headers, decision, intakeLog) =>
 				Effect.sync(() => {
-					trace.recordIgnored(headers, decision);
+					trace.recordIgnored(headers, decision, intakeLog);
 				}),
-			submitAutomatedReview: (headers, ref, action) =>
+			submitAutomatedReview: (headers, ref, action, intakeLog) =>
 				Effect.sync(() => {
-					trace.submitAutomatedReview(headers, ref, action);
+					trace.submitAutomatedReview(headers, ref, action, intakeLog);
 				}),
-			submitSlashCommand: (input) =>
+			submitSlashCommand: (input, intakeLog) =>
 				Effect.sync(() => {
-					trace.submitSlashCommand(input);
+					trace.submitSlashCommand(input, intakeLog);
 				}),
 		}),
 	);
@@ -90,6 +92,14 @@ function buildLayers(trace: Trace) {
 	return Layer.mergeAll(schedulerLayer, handlersLayer);
 }
 
+function runDispatch(input: Parameters<typeof dispatchGithubEventEffect>[0], trace: Trace) {
+	const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+	return dispatchGithubEventEffect(input).pipe(
+		Effect.provide(buildLayers(trace)),
+		Effect.provideService(IntakeLogger, intakeLog),
+	);
+}
+
 function newTrace(): Trace {
 	return {
 		recordIgnored: vi.fn(),
@@ -110,11 +120,14 @@ describe("dispatchGithubEventEffect ordering", () => {
 
 		try {
 			await Effect.runPromise(
-				dispatchGithubEventEffect({
-					cfg,
-					headers: { event: "pull_request", delivery: "d0", rawBody: Buffer.from("{}") },
-					payload: {},
-				}).pipe(Effect.provide(buildLayers(trace))),
+				runDispatch(
+					{
+						cfg,
+						headers: { event: "pull_request", delivery: "d0", rawBody: Buffer.from("{}") },
+						payload: {},
+					},
+					trace,
+				),
 			);
 
 			expect(trace.recordIgnored).not.toHaveBeenCalled();
@@ -132,16 +145,20 @@ describe("dispatchGithubEventEffect ordering", () => {
 
 		try {
 			await Effect.runPromise(
-				dispatchGithubEventEffect({
-					cfg,
-					headers: { event: "ping", delivery: "d2", rawBody: Buffer.from("{}") },
-					payload: {},
-				}).pipe(Effect.provide(buildLayers(trace))),
+				runDispatch(
+					{
+						cfg,
+						headers: { event: "ping", delivery: "d2", rawBody: Buffer.from("{}") },
+						payload: {},
+					},
+					trace,
+				),
 			);
 
 			expect(trace.recordIgnored).toHaveBeenCalledWith(
 				{ event: "ping", delivery: "d2", rawBody: expect.any(Buffer) },
 				"ignored_event_ping",
+				expect.anything(),
 			);
 			expect(trace.pullRequest).not.toHaveBeenCalled();
 		} finally {
@@ -163,11 +180,14 @@ describe("dispatchGithubEventEffect ordering", () => {
 
 		try {
 			await Effect.runPromise(
-				dispatchGithubEventEffect({
-					cfg,
-					headers: { event: "pull_request", delivery: "d3", rawBody: Buffer.from("{}") },
-					payload: {},
-				}).pipe(Effect.provide(buildLayers(trace))),
+				runDispatch(
+					{
+						cfg,
+						headers: { event: "pull_request", delivery: "d3", rawBody: Buffer.from("{}") },
+						payload: {},
+					},
+					trace,
+				),
 			);
 
 			expect(trace.pullRequest).toHaveBeenCalledWith(

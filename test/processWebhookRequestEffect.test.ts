@@ -2,16 +2,19 @@ import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import type { Config } from "../src/config.js";
+import * as evlog from "../src/evlog.js";
+import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { processWebhookHttpRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 import { WebhookHandlerError } from "../src/effect/errors.js";
-import { log } from "../src/log.js";
 
 const cfg: Config = {
   port: 0,
   githubAppId: "1",
   githubAppPrivateKey: "fake",
   webhookSecret: "secret",
+  databaseUrl: "postgres://test",
+  role: "web",
   piProvider: "openai",
   piModel: "gpt-4o-mini",
   maxToolRounds: 24,
@@ -19,13 +22,36 @@ const cfg: Config = {
   maxReviewPublishAttempts: 3,
   reviewConcurrency: 2,
 	askConcurrency: 3,
+	ackConcurrency: 2,
+	queueRetryLimit: 3,
+	queueRetryDelaySeconds: 30,
+	queueRetryDelayMaxSeconds: 300,
+	queueExpireInSeconds: 3600,
+	queueHeartbeatSeconds: 60,
+	queueRetentionSeconds: 1209600,
+	queueDeleteAfterSeconds: 604800,
+	installationGroupConcurrency: 2,
 	maxAskToolRounds: 12,
   webhookTimeoutMs: 10000,
+  context7ApiKey: "",
+  maxReviewFindings: 8,
+  enableReviewLabelsEffort: true,
+  enableReviewLabelsSecurity: false,
+  maxPrFilesListed: 300,
+  maxPrFilesPatchBytes: 500000,
   logLevel: "error",
 };
 
 function sign(body: Buffer): string {
   return `sha256=${crypto.createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`;
+}
+
+function withIntake<R, E, A>(
+  effect: Effect.Effect<A, E, R | WebhookDispatcher | IntakeLogger>,
+  dispatcherLayer: Layer.Layer<WebhookDispatcher>,
+) {
+  const intakeLog = evlog.createOperationLogger({ method: "POST", path: "/webhooks" });
+  return effect.pipe(Effect.provide(dispatcherLayer), Effect.provideService(IntakeLogger, intakeLog));
 }
 
 describe("processWebhookHttpRequestEffect", () => {
@@ -38,12 +64,15 @@ describe("processWebhookHttpRequestEffect", () => {
 
   it("returns health response", async () => {
     const out = await Effect.runPromise(
-      processWebhookHttpRequestEffect(cfg, {
-        method: "GET",
-        url: "/health",
-        headers: {},
-        rawBody: Buffer.alloc(0),
-      }).pipe(Effect.provide(stubDispatcherLayer)),
+      withIntake(
+        processWebhookHttpRequestEffect(cfg, {
+          method: "GET",
+          url: "/health",
+          headers: {},
+          rawBody: Buffer.alloc(0),
+        }),
+        stubDispatcherLayer,
+      ),
     );
 
     expect(out).toEqual({ status: 200, body: "ok", contentType: "text/plain; charset=utf-8" });
@@ -52,12 +81,15 @@ describe("processWebhookHttpRequestEffect", () => {
   it("returns invalid signature", async () => {
     const body = Buffer.from("{}");
     const out = await Effect.runPromise(
-      processWebhookHttpRequestEffect(cfg, {
-        method: "POST",
-        url: "/webhooks",
-        headers: { "x-hub-signature-256": "sha256=bad" },
-        rawBody: body,
-      }).pipe(Effect.provide(stubDispatcherLayer)),
+      withIntake(
+        processWebhookHttpRequestEffect(cfg, {
+          method: "POST",
+          url: "/webhooks",
+          headers: { "x-hub-signature-256": "sha256=bad" },
+          rawBody: body,
+        }),
+        stubDispatcherLayer,
+      ),
     );
 
     expect(out).toEqual({ status: 401, body: "invalid signature" });
@@ -66,12 +98,15 @@ describe("processWebhookHttpRequestEffect", () => {
   it("returns ok for valid webhook", async () => {
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
     const out = await Effect.runPromise(
-      processWebhookHttpRequestEffect(cfg, {
-        method: "POST",
-        url: "/webhooks",
-        headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
-        rawBody: body,
-      }).pipe(Effect.provide(stubDispatcherLayer)),
+      withIntake(
+        processWebhookHttpRequestEffect(cfg, {
+          method: "POST",
+          url: "/webhooks",
+          headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+          rawBody: body,
+        }),
+        stubDispatcherLayer,
+      ),
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
@@ -85,25 +120,28 @@ describe("processWebhookHttpRequestEffect", () => {
       }),
     );
 
-    const warnSpy = vi.spyOn(log, "warn").mockImplementation(() => {});
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
     const tightCfg: Config = { ...cfg, webhookTimeoutMs: 1 };
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
     try {
       await Effect.runPromise(
-        processWebhookHttpRequestEffect(tightCfg, {
-          method: "POST",
-          url: "/webhooks",
-          headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
-          rawBody: body,
-        }).pipe(Effect.provide(slowDispatcherLayer)),
+        withIntake(
+          processWebhookHttpRequestEffect(tightCfg, {
+            method: "POST",
+            url: "/webhooks",
+            headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+            rawBody: body,
+          }),
+          slowDispatcherLayer,
+        ),
       );
 
-      const budgetWarn = warnSpy.mock.calls.find((c) => c[0] === "webhook_timeout_budget_exceeded");
+      const budgetWarn = recordSpy.mock.calls.find((c) => c[1] === "webhook_timeout_budget_exceeded");
       expect(budgetWarn).toBeDefined();
-      expect(budgetWarn?.[1]).toMatchObject({ budgetMs: 1 });
+      expect(budgetWarn?.[2]).toMatchObject({ budgetMs: 1 });
     } finally {
-      warnSpy.mockRestore();
+      recordSpy.mockRestore();
     }
   });
 
@@ -115,25 +153,28 @@ describe("processWebhookHttpRequestEffect", () => {
       }),
     );
 
-    const errorSpy = vi.spyOn(log, "error").mockImplementation(() => {});
+    const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
     try {
       const out = await Effect.runPromise(
-        processWebhookHttpRequestEffect(cfg, {
-          method: "POST",
-          url: "/webhooks",
-          headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
-          rawBody: body,
-        }).pipe(Effect.provide(failingDispatcherLayer)),
+        withIntake(
+          processWebhookHttpRequestEffect(cfg, {
+            method: "POST",
+            url: "/webhooks",
+            headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+            rawBody: body,
+          }),
+          failingDispatcherLayer,
+        ),
       );
 
       expect(out).toEqual({ status: 503, body: "service unavailable" });
-      const errLog = errorSpy.mock.calls.find((c) => c[0] === "webhook_handler_error");
+      const errLog = recordSpy.mock.calls.find((c) => c[1] === "webhook_handler_error");
       expect(errLog).toBeDefined();
-      expect(errLog?.[1]).toMatchObject({ message: "boom" });
+      expect(errLog?.[2]).toMatchObject({ message: "boom" });
     } finally {
-      errorSpy.mockRestore();
+      recordSpy.mockRestore();
     }
   });
 });

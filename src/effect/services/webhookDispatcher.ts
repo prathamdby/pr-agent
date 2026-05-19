@@ -3,6 +3,7 @@ import type { Config } from "../../config.js";
 import { AgentWorkSchedulerRuntimeLive } from "../../agentWork/runtime.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import { WebhookHandlerError } from "../errors.js";
+import { IntakeLogger } from "../intakeLogger.js";
 import { dispatchGithubEventEffect } from "../programs/dispatchEffect.js";
 import { WebhookHandlers, WebhookHandlersLive } from "./webhookHandlers.js";
 
@@ -19,7 +20,7 @@ export type DispatchInput = {
 export class WebhookDispatcher extends Context.Tag("WebhookDispatcher")<
   WebhookDispatcher,
   {
-    readonly dispatch: (input: DispatchInput) => Effect.Effect<void, WebhookHandlerError>;
+    readonly dispatch: (input: DispatchInput) => Effect.Effect<void, WebhookHandlerError, IntakeLogger>;
   }
 >() {}
 

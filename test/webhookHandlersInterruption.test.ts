@@ -3,6 +3,8 @@ import { Cause, Effect, Exit, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { BotIdentity } from "../src/effect/services/botIdentity.js";
+import { createOperationLogger } from "../src/evlog.js";
+import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 
 const cfg: Config = {
@@ -72,6 +74,7 @@ describe("WebhookHandlers Effect resolution", () => {
 
     const HandlersWithFailingScheduler = handlerTestLayers(failingScheduler);
 
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
@@ -80,7 +83,7 @@ describe("WebhookHandlers Effect resolution", () => {
           { event: "issue_comment", delivery: "d1", rawBody: Buffer.from("{}") },
           issueCommentData,
         );
-      }).pipe(Effect.provide(HandlersWithFailingScheduler)),
+      }).pipe(Effect.provide(HandlersWithFailingScheduler), Effect.provideService(IntakeLogger, intakeLog)),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -114,6 +117,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const Handlers = handlerTestLayers(scheduler);
     const nonSlash = { ...issueCommentData, comment: { id: 99, user: { id: 7 }, body: "hello" } } as never;
 
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
@@ -122,7 +126,7 @@ describe("WebhookHandlers Effect resolution", () => {
           { event: "issue_comment", delivery: "d2", rawBody: Buffer.from("{}") },
           nonSlash,
         );
-      }).pipe(Effect.provide(Handlers)),
+      }).pipe(Effect.provide(Handlers), Effect.provideService(IntakeLogger, intakeLog)),
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
@@ -150,6 +154,7 @@ describe("WebhookHandlers Effect resolution", () => {
 
     const Handlers = handlerTestLayers(scheduler);
     const botSlash = { ...issueCommentData, comment: { id: 99, user: { id: 42 }, body: "/help" } } as never;
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
@@ -159,7 +164,7 @@ describe("WebhookHandlers Effect resolution", () => {
           { event: "issue_comment", delivery: "d3", rawBody: Buffer.from("{}") },
           botSlash,
         );
-      }).pipe(Effect.provide(Handlers)),
+      }).pipe(Effect.provide(Handlers), Effect.provideService(IntakeLogger, intakeLog)),
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);

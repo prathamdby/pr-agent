@@ -3,6 +3,8 @@ import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { createServer, type Server } from "node:http";
 import type { Config } from "../config.js";
+import { createOperationLogger } from "../evlog.js";
+import { IntakeLogger } from "./intakeLogger.js";
 import { processWebhookHttpRequestEffect } from "./programs/processWebhookRequestEffect.js";
 import { WebhookDispatcher, buildWebhookDispatcherLive } from "./services/webhookDispatcher.js";
 
@@ -17,6 +19,14 @@ export function buildEffectWebhookApp(cfg: Config) {
       Effect.gen(function* () {
         const req = yield* HttpServerRequest.HttpServerRequest;
         const rawBody = Buffer.from(yield* req.arrayBuffer);
+        const path = req.url.split("?")[0] ?? req.url;
+        const intakeLog = createOperationLogger({
+          method: req.method,
+          path,
+          requestId: singleHeader(req.headers["x-github-delivery"]),
+          context: { role: "web" },
+        });
+
         const result = yield* processWebhookHttpRequestEffect(cfg, {
           method: req.method,
           url: req.url,
@@ -26,7 +36,7 @@ export function buildEffectWebhookApp(cfg: Config) {
             "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
           },
           rawBody,
-        });
+        }).pipe(Effect.provideService(IntakeLogger, intakeLog));
 
         return HttpServerResponse.text(result.body, {
           status: result.status,

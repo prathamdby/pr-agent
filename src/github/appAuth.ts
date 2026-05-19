@@ -3,7 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
 import type { Config } from "../config.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 
 // @ts-expect-error — nested @octokit/core versions between rest, retry, and throttling plugins
@@ -104,10 +104,10 @@ export async function mintBotIdentity(
 		const status = (e as { status?: number }).status;
 		if (status !== 403) throw e;
 
-		log.debug("resolved_bot_identity_fallback_jwt_slug", { githubAppId: cfg.githubAppId });
+		logDebug("resolved_bot_identity_fallback_jwt_slug", { githubAppId: cfg.githubAppId });
 		u = await resolveBotIdentityViaAppSlug(cfg);
 	}
 
-	log.debug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
+	logDebug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
 	return u;
 }

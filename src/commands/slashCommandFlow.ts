@@ -4,7 +4,7 @@ import { runAskRun, type CodeAnchor } from "../agent/askRun.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
 import { AskQueue } from "../effect/services/askQueue.js";
 import { PrGithubSurface } from "../effect/services/prGithubSurface.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 import { ReviewQueue } from "../effect/services/reviewQueue.js";
 import { ASK_USAGE_HINT, parseAskQuestion } from "./parseAskQuestion.js";
 import { parseSlashCommand } from "./parseSlashCommand.js";
@@ -108,7 +108,7 @@ export function runSlashCommandFlow(
 							.pipe(
 								Effect.catchAll((err) => {
 									const message = err instanceof Error ? err.message : String(err);
-									log.warn("ask_inline_reply_failed", {
+									logWarn("ask_inline_reply_failed", {
 										owner: ctx.owner,
 										repo: ctx.repo,
 										pr: inlineTarget.prNumber,
@@ -168,7 +168,7 @@ export function runSlashCommandFlow(
 							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
 						});
 						yield* publishAskAnswer(result.answer).pipe(Effect.uninterruptible);
-						log.info("ask_reply_delivered", {
+						logInfo("ask_reply_delivered", {
 							owner: ctx.owner,
 							repo: ctx.repo,
 							pr: ctx.replyTarget.prNumber,
@@ -180,7 +180,7 @@ export function runSlashCommandFlow(
 					Effect.tapError((err) =>
 						Effect.sync(() => {
 							const message = err instanceof Error ? err.message : String(err);
-							log.error("ask_background_failed", {
+							logError("ask_background_failed", {
 								owner: ctx.owner,
 								repo: ctx.repo,
 								pr: ctx.replyTarget.prNumber,
@@ -192,7 +192,7 @@ export function runSlashCommandFlow(
 				);
 
 			yield* Effect.forkDaemon(askWork);
-			log.info("ask_dispatched", {
+			logInfo("ask_dispatched", {
 				owner: ctx.owner,
 				repo: ctx.repo,
 				pr: ctx.replyTarget.prNumber,
@@ -230,7 +230,7 @@ export function runSlashCommandFlow(
 							userSupplement: `User invoked /${command} with:\n${ctx.body}`,
 						}).then((result) => {
 							if (!result.published) {
-								log.warn("review_not_published", {
+								logWarn("review_not_published", {
 									mode: command,
 									owner: ctx.owner,
 									repo: ctx.repo,

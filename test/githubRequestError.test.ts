@@ -11,7 +11,7 @@ import {
 	logGithubToolRequestError,
 	TOKEN_EXPIRED_TOOL_MESSAGE,
 } from "../src/github/githubRequestError.js";
-import { log } from "../src/log.js";
+import * as evlog from "../src/evlog.js";
 
 function httpError(
 	status: number,
@@ -190,7 +190,7 @@ describe("githubRequestError", () => {
 	});
 
 	it("logGithubToolRequestError emits github_tool_request_error for non-HTTP errors", () => {
-		const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+		const warn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
 		const err = new TypeError("fetch failed");
 		const classified = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
 		const logCtx = {

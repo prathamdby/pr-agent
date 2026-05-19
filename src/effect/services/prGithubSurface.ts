@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import { installationOctokit } from "../../github/appAuth.js";
-import { log } from "../../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../../evlog.js";
 
 const EYES = "eyes" as const;
 
@@ -128,7 +128,7 @@ export const PrGithubSurfaceLive = Layer.succeed(
 					comment_id: inReplyToCommentId,
 					body,
 				});
-				log.info("inline_review_reply_posted", {
+				logInfo("inline_review_reply_posted", {
 					owner,
 					repo,
 					pr: prNumber,

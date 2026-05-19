@@ -6,6 +6,7 @@ import type { AgentWorkItem, ReviewWorkPayload, WorkStatus } from "./types.js";
 
 type AgentWorkRow = {
 	id: string;
+	webhook_event_id: string | null;
 	type: "review" | "ask";
 	source: "auto" | "slash";
 	status: WorkStatus;
@@ -24,6 +25,7 @@ type AgentWorkRow = {
 function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
 	return {
 		id: row.id,
+		webhookEventId: row.webhook_event_id,
 		type: row.type,
 		source: row.source,
 		status: row.status,
@@ -43,7 +45,7 @@ function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
 export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem | null> {
 	const row = await queryOne<AgentWorkRow>(
 		pool,
-		`SELECT id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
+		`SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
 		        review_lens, resource_key, attempt_count, payload, cancel_requested_at
 		   FROM agent_work_items
 		  WHERE id = $1`,

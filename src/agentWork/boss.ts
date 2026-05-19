@@ -1,6 +1,6 @@
 import { PgBoss, type QueueOptions } from "pg-boss";
 import type { Config } from "../config.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 import {
 	ACK_DEAD_LETTER_QUEUE,
 	ACK_QUEUE,
@@ -31,8 +31,8 @@ export async function createStartedBoss(cfg: Pick<Config, "databaseUrl">): Promi
 		connectionString: cfg.databaseUrl,
 		application_name: "pr-agent",
 	});
-	boss.on("error", (error) => log.error("pg_boss_error", { message: error.message }));
-	boss.on("warning", (warning) => log.warn("pg_boss_warning", { message: warning.message }));
+	boss.on("error", (error) => logError("pg_boss_error", { message: error.message }));
+	boss.on("warning", (warning) => logWarn("pg_boss_warning", { message: warning.message }));
 	await boss.start();
 	return boss;
 }

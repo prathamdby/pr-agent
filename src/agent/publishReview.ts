@@ -7,7 +7,7 @@ import {
 	type InlineReviewComment,
 } from "../github/reviewPublish.js";
 import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
-import { log } from "../log.js";
+import { logInfo, logWarn, logError, logDebug } from "../evlog.js";
 import { renderInlineThreadBody, renderReviewPointerBody, renderReviewSummaryComment } from "./reviewRender.js";
 import {
 	normalizeReviewPayload,
@@ -56,7 +56,7 @@ export async function publishReview(params: ReviewPublishContext & {
 				mode,
 			});
 			if (pointerBody.truncated) {
-				log.warn("agent_fix_prompt_truncated", {
+				logWarn("agent_fix_prompt_truncated", {
 					mode,
 					owner,
 					repo,
@@ -78,7 +78,7 @@ export async function publishReview(params: ReviewPublishContext & {
 				},
 			});
 
-			log.info("review_published_inline", {
+			logInfo("review_published_inline", {
 				mode,
 				owner,
 				repo,
@@ -88,7 +88,7 @@ export async function publishReview(params: ReviewPublishContext & {
 				inlineCount: comments.length,
 			});
 		} else {
-			log.info("review_inline_skipped", {
+			logInfo("review_inline_skipped", {
 				reason: "no_p0_p2_findings",
 				mode,
 				owner,
@@ -119,7 +119,7 @@ export async function publishReview(params: ReviewPublishContext & {
 		githubId: summary.id,
 		meta: { updated: summary.updated },
 	});
-	log.info("review_published_summary", {
+	logInfo("review_published_summary", {
 		mode,
 		owner,
 		repo,
@@ -147,10 +147,10 @@ export async function publishReview(params: ReviewPublishContext & {
 			const next = syncReviewLabels(current, managed);
 			await setPullRequestLabels(token, owner, repo, prNumber, next);
 			await params.recordPublishStep?.("labels", { meta: { labels: next } });
-			log.info("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
+			logInfo("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
 		} catch (e) {
 			const message = e instanceof Error ? e.message : String(e);
-			log.warn("review_labels_sync_failed", { owner, repo, pr: prNumber, message });
+			logWarn("review_labels_sync_failed", { owner, repo, pr: prNumber, message });
 		}
 	}
 }
