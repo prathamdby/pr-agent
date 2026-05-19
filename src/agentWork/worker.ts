@@ -126,13 +126,28 @@ async function postReply(token: string, data: AckJobData, body: string): Promise
 
 async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
 	if (data.commenterId != null) {
-		const bot = await getAppBotIdentity(cfg);
-		if (bot.userId === data.commenterId) return;
+		try {
+			const bot = await getAppBotIdentity(cfg);
+			if (bot.userId === data.commenterId) return;
+		} catch (e) {
+			log.warn("ack_bot_identity_check_failed", {
+				message: e instanceof Error ? e.message : String(e),
+			});
+		}
 	}
 	const installation = await getInstallationToken(cfg, data.installationId);
 
 	for (const target of data.targets) {
-		await safeReaction(installation.token, data.owner, data.repo, target);
+		try {
+			await safeReaction(installation.token, data.owner, data.repo, target);
+		} catch (e) {
+			log.warn("ack_reaction_failed", {
+				owner: data.owner,
+				repo: data.repo,
+				targetKind: target.kind,
+				message: e instanceof Error ? e.message : String(e),
+			});
+		}
 	}
 
 	if (data.progress) {
@@ -266,7 +281,10 @@ async function handleReviewJob(
 			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
 			return;
 		}
-		if (!(await markWorkFailed(pool, item.id, e))) return;
+		if (!(await markWorkFailed(pool, item.id, e))) {
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
+		}
 		if (installation) {
 			const body = renderReviewFailureNotice({
 				mode: item.reviewLens,
@@ -398,7 +416,10 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
 			return;
 		}
-		if (!(await markWorkFailed(pool, item.id, e))) return;
+		if (!(await markWorkFailed(pool, item.id, e))) {
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
+		}
 		if (installation) {
 			try {
 				await publishAskAnswer(

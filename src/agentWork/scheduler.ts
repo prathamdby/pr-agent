@@ -115,6 +115,22 @@ async function enqueueAck(
 	});
 }
 
+async function releaseReviewSingletonSlot(
+	boss: PgBoss,
+	client: PoolClient,
+	resourceKey: string,
+	lens: ReviewMode,
+): Promise<void> {
+	const db = pgBossDb(client);
+	const key = reviewSingletonKey(resourceKey, lens);
+	const jobs = await boss.findJobs(REVIEW_QUEUE, { key, db });
+	for (const job of jobs) {
+		const state = job.state as string;
+		if (state === "cancelled" || state === "completed" || state === "failed") continue;
+		await boss.cancel(REVIEW_QUEUE, job.id, { db });
+	}
+}
+
 async function enqueueReview(
 	boss: PgBoss,
 	client: PoolClient,
@@ -308,6 +324,9 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							  WHERE id = ANY($2::uuid[])`,
 							[workItemId, [...olderQueued.rows, ...running.rows].map((r) => r.id)],
 						);
+						if (olderQueued.rows.length > 0 || running.rows.length > 0) {
+							await releaseReviewSingletonSlot(boss, client, resourceKey, AUTOMATED_REVIEW_LENS);
+						}
 						await enqueueAck(boss, client, {
 							kind: "ack",
 							workItemId,
