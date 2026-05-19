@@ -3,7 +3,10 @@ import { publishReview } from "../src/agent/publishReview.js";
 import * as reviewSchema from "../src/agent/reviewSchema.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 import { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
-import { SECURITY_REVIEW_POINTER_BODY } from "../src/agent/reviewRender.js";
+import {
+	AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+	SECURITY_REVIEW_POINTER_BODY,
+} from "../src/agent/reviewRender.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
 	createPullRequestReviewWithComments: vi.fn(async () => ({ id: 1, url: "https://example.com/review/1" })),
@@ -57,7 +60,7 @@ describe("publishReview", () => {
 		vi.clearAllMocks();
 	});
 
-	it("uses REQUEST_CHANGES for P1 and passes inline comments", async () => {
+	it("uses REQUEST_CHANGES for P1 and passes inline comments with agent fix prompt body", async () => {
 		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
 		await publishReview({ ...baseParams, publishState });
 
@@ -68,6 +71,7 @@ describe("publishReview", () => {
 			1,
 			expect.objectContaining({
 				event: "REQUEST_CHANGES",
+				body: expect.stringContaining(AGENT_FIX_PROMPT_ACCORDION_SUMMARY),
 				comments: [
 					expect.objectContaining({
 						path: "src/x.ts",
@@ -202,7 +206,7 @@ describe("publishReview", () => {
 		expect(upsertReviewSummaryComment).toHaveBeenCalled();
 	});
 
-	it("uses security sentinel and pointer when mode is review-security", async () => {
+	it("uses security sentinel and pointer with agent fix prompt when mode is review-security", async () => {
 		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
 		await publishReview({
 			...baseParams,
@@ -215,7 +219,18 @@ describe("publishReview", () => {
 			"o",
 			"r",
 			1,
-			expect.objectContaining({ body: SECURITY_REVIEW_POINTER_BODY }),
+			expect.objectContaining({
+				body: expect.stringContaining(SECURITY_REVIEW_POINTER_BODY),
+			}),
+		);
+		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.objectContaining({
+				body: expect.stringContaining(AGENT_FIX_PROMPT_ACCORDION_SUMMARY),
+			}),
 		);
 		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
 			"t",
