@@ -2,13 +2,14 @@
 
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+RUN corepack enable && corepack prepare pnpm@10.12.0 --activate
+COPY package.json pnpm-lock.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY tsconfig.json ./
 COPY src ./src
-RUN npm run build
+RUN pnpm run build
 
 FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
@@ -16,8 +17,9 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=7224
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+RUN corepack enable && corepack prepare pnpm@10.12.0 --activate
+COPY package.json pnpm-lock.yaml .npmrc ./
+RUN pnpm install --frozen-lockfile --prod
 
 COPY --from=build /app/dist ./dist
 
