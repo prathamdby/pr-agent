@@ -36,4 +36,8 @@ describe("sanitizeAskAnswerText", () => {
 	it("escapes newline-slash sequences", () => {
 		expect(sanitizeAskAnswerText("line\n/help")).toBe("line\n /help");
 	});
+
+	it("redacts ghp_ tokens in answers", () => {
+		expect(sanitizeAskAnswerText("key is ghp_1234567890123456789012345678901234")).toContain("[redacted]");
+	});
 });

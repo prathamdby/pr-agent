@@ -3,11 +3,18 @@ import type { AssistantMessage, Context, Message, Tool as PiTool, ToolCall } fro
 import type { Config } from "../config.js";
 import type { ReplyTarget } from "../commands/slashCommandFlow.js";
 import { log } from "../log.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "./context7Tools.js";
-import { buildGithubTools } from "./githubTools.js";
-import { filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
+import {
+	ASK_META_REFUSAL,
+	buildAskGithubTools,
+	classifyAskQuestionIntent,
+	createAskPathGate,
+	wrapTrustedContext,
+	wrapUntrustedBlock,
+} from "./askSafety.js";
 import {
 	bumpRateLimitConsecutiveFailures,
 	classifyGithubToolError,
@@ -73,35 +80,48 @@ function endsWithToolResults(messages: Message[]): boolean {
 }
 
 function buildUserContent(params: AskRunParams): string {
-	const lines = [
-		`Target repository: ${params.owner}/${params.repo}`,
-		`Pull request #: ${params.prNumber}`,
-		`Head commit SHA: ${params.headSha}`,
-		"",
-		`Question: ${params.question}`,
+	const blocks = [
+		wrapTrustedContext([
+			`Repository: ${params.owner}/${params.repo}`,
+			`Pull request: #${params.prNumber}`,
+			`Head commit SHA: ${params.headSha}`,
+		]),
+		wrapUntrustedBlock("user_question", params.question),
 	];
 
 	if (params.codeAnchor) {
 		const { path, line, startLine, side, diffHunk } = params.codeAnchor;
 		const range =
 			startLine != null && startLine !== line ? `lines ${startLine}-${line}` : `line ${line}`;
-		lines.push("", "Code anchor (where the comment was left):");
-		lines.push(`- File: ${path}`);
-		lines.push(`- ${range}${side ? ` (${side} side of diff)` : ""}`);
+		const anchorLines = [
+			`File: ${path}`,
+			`${range}${side ? ` (${side} side of diff)` : ""}`,
+		];
 		if (diffHunk?.trim()) {
-			lines.push("", "Diff hunk from the comment:", "```diff", diffHunk.trim(), "```");
+			anchorLines.push("", "Diff hunk:", "```diff", diffHunk.trim(), "```");
 		}
-		lines.push("", "Start from this anchor, then use tools to trace symbols and surrounding context.");
+		anchorLines.push("", "Start from this anchor, then use tools to trace symbols and surrounding context.");
+		blocks.push(wrapUntrustedBlock("code_anchor", anchorLines.join("\n")));
 	} else {
-		lines.push("", "Use GitHub tools to inspect the PR diff and related files, then answer the question.");
+		blocks.push(
+			"Use GitHub tools to inspect the PR diff and related files, then answer the question in user_question.",
+		);
 	}
 
-	return lines.join("\n");
+	return blocks.join("\n\n");
 }
 
 export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 	const { cfg, token, tokenExpiresAtTs, tokenTtlMs, owner, repo, prNumber, question, replyTarget } =
 		params;
+
+	if (classifyAskQuestionIntent(question) === "bot_meta") {
+		log.info("ask_meta_refusal", { owner, repo, pr: prNumber });
+		return {
+			answer: formatAskReply({ question, answer: ASK_META_REFUSAL, replyTarget }),
+			replied: true,
+		};
+	}
 
 	if (!Number.isFinite(tokenExpiresAtTs)) {
 		throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
@@ -110,16 +130,21 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 		throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
 	}
 
-	const gh = buildGithubTools(token, {
-		maxPrFilesListed: cfg.maxPrFilesListed,
-		maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
-	});
+	const pathGate = createAskPathGate();
+	const gh = buildAskGithubTools(
+		token,
+		{ owner, repo, prNumber, headSha: params.headSha },
+		{
+			maxPrFilesListed: cfg.maxPrFilesListed,
+			maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+		},
+		pathGate,
+	);
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
-	const reviewGithubExecutors = filterReviewAgentExecutors(gh.executors);
 
-	const piTools: PiTool[] = [...filterReviewAgentTools(gh.piTools), ...ctx7.piTools];
+	const piTools: PiTool[] = [...gh.piTools, ...ctx7.piTools];
 	const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
-		...reviewGithubExecutors,
+		...gh.executors,
 		...ctx7.executors,
 	};
 
@@ -149,20 +174,17 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 		owner,
 		repo,
 		prNumber,
-		mode: "ask",
+		mode: "ask" as const,
 	};
 
-	const githubExecutorNames = new Set(Object.keys(reviewGithubExecutors));
+	const githubExecutorNames = new Set(Object.keys(gh.executors));
 
 	async function appendToolResults(toolCalls: ToolCall[]) {
 		for (const call of toolCalls) {
 			let text: string;
 			let isError = false;
 
-			if (
-				rateLimitCircuitOpen &&
-				githubExecutorNames.has(call.name)
-			) {
+			if (rateLimitCircuitOpen && githubExecutorNames.has(call.name)) {
 				log.info("github_tool_circuit_short_circuit", { tool: call.name, mode: "ask" });
 				context.messages.push({
 					role: "toolResult",
@@ -231,8 +253,13 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 						circuitUserMessagePending = true;
 					}
 				} else {
-					text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
-					log.warn("tool_execute_failed", { tool: call.name, message: text, mode: "ask" });
+					const raw = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
+					text = raw;
+					log.warn("tool_execute_failed", {
+						tool: call.name,
+						message: sanitizeLogMessage(raw),
+						mode: "ask",
+					});
 				}
 			}
 

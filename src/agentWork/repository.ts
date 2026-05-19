@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import type { AgentWorkItem, ReviewWorkPayload, WorkStatus } from "./types.js";
 
 type AgentWorkRow = {
@@ -51,15 +52,9 @@ export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem
 	return row ? mapWorkItem(row) : null;
 }
 
-const MAX_STORED_WORK_ERROR_LEN = 2_000;
 
 function sanitizeWorkError(error: unknown): string {
-	const raw = (error instanceof Error ? error.message : String(error)).replace(/\0/g, "");
-	return raw
-		.replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
-		.replace(/(token|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi, "$1=[redacted]")
-		.replace(/Authorization:\s*\S+/gi, "Authorization: [redacted]")
-		.slice(0, MAX_STORED_WORK_ERROR_LEN);
+	return sanitizeLogMessage(error instanceof Error ? error.message : String(error));
 }
 
 export async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
