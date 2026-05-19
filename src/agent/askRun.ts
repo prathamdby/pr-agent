@@ -131,6 +131,9 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 	}
 
 	const pathGate = createAskPathGate();
+	if (params.codeAnchor?.path) {
+		pathGate.addPaths([params.codeAnchor.path]);
+	}
 	const gh = buildAskGithubTools(
 		token,
 		{ owner, repo, prNumber, headSha: params.headSha },
@@ -140,6 +143,16 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 		},
 		pathGate,
 	);
+	try {
+		await gh.executors.listPullRequestFiles({});
+	} catch (e) {
+		log.warn("ask_path_gate_prime_failed", {
+			owner,
+			repo,
+			pr: prNumber,
+			message: sanitizeLogMessage(e instanceof Error ? e.message : String(e)),
+		});
+	}
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
 
 	const piTools: PiTool[] = [...gh.piTools, ...ctx7.piTools];

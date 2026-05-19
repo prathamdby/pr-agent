@@ -108,6 +108,26 @@ describe("buildScopedAskExecutors", () => {
 		expect(gate.prChangedPaths.has(".env")).toBe(true);
 	});
 
+	it("allows getFileContent on sensitive PR files after listPullRequestFiles", async () => {
+		const base = {
+			listPullRequestFiles: vi.fn(async () => ({
+				files: [{ filename: ".env" }],
+			})),
+			getFileContent: vi.fn(async () => ({ content: "KEY=value" })),
+		};
+		const gate = createAskPathGate();
+		const executors = buildScopedAskExecutors(base, scope, gate);
+
+		await expect(executors.getFileContent({ path: ".env" })).rejects.toThrow(/blocked for sensitive path/);
+
+		await executors.listPullRequestFiles({});
+
+		await expect(executors.getFileContent({ path: ".env" })).resolves.toEqual({ content: "KEY=value" });
+		expect(base.getFileContent).toHaveBeenCalledWith(
+			expect.objectContaining({ owner: "acme", repo: "app", path: ".env", ref: "abc123" }),
+		);
+	});
+
 	it("redacts authorEmail in getBlame results", async () => {
 		const base = {
 			getBlame: vi.fn(async () => ({
