@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reviewEventForFindings, selectInlineFindings } from "../src/agent/reviewSchema.js";
+import { reviewEventForFindings, reviewPayloadSchema, selectInlineFindings } from "../src/agent/reviewSchema.js";
 import type { ReviewFinding } from "../src/agent/reviewSchema.js";
 
 describe("reviewEventForFindings", () => {
@@ -49,6 +49,35 @@ describe("reviewEventForFindings", () => {
 				},
 			]),
 		).toBe("COMMENT");
+	});
+});
+
+describe("reviewPayloadSchema", () => {
+	const finding = (title: string): ReviewFinding => ({
+		severity: "P2",
+		file: "x.ts",
+		startLine: 1,
+		endLine: 1,
+		title,
+		detail: "d",
+		fixPrompt: "fix",
+	});
+
+	const payload = (count: number) => ({
+		prCharacter: "Review summary.",
+		findings: Array.from({ length: count }, (_, i) => finding(`f${i}`)),
+		estimatedEffort: 3,
+		relevantTests: "partial" as const,
+		securityConcerns: null,
+		followUps: [],
+	});
+
+	it("allows up to 12 findings", () => {
+		expect(reviewPayloadSchema.safeParse(payload(12)).success).toBe(true);
+	});
+
+	it("rejects more than 12 findings", () => {
+		expect(reviewPayloadSchema.safeParse(payload(13)).success).toBe(false);
 	});
 });
 

@@ -10,10 +10,10 @@ Head SHA: abc123def456
 Findings:
 
 [P0] @src/a.ts lines 5-7
-In src/a.ts lines 5-7, guard the map with a mutex.
+Guard the map with a mutex.
 
 [P2] @src/b.ts lines 20-22
-In src/b.ts lines 20-22, adjust slice end index.
+Adjust slice end index.
 
 [P3 — no inline thread] Typo in heading
 minor typo"
@@ -28,7 +28,10 @@ Concurrent writes without lock.
 <summary>Prompt to fix</summary>
 
 \`\`\`
-In src/a.ts lines 5-7, guard the map with a mutex or use Ref.modify.
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+
+[P0] @src/a.ts lines 5-7
+Guard the map with a mutex or use Ref.modify.
 \`\`\`
 
 </details>"
@@ -43,7 +46,10 @@ Promise not awaited in handler.
 <summary>Prompt to fix</summary>
 
 \`\`\`
-In src/b.ts line 1, await the promise before returning.
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+
+[P1] @src/b.ts line 1
+Await the promise before returning.
 \`\`\`
 
 </details>"
@@ -58,7 +64,10 @@ End index excludes last element incorrectly.
 <summary>Prompt to fix</summary>
 
 \`\`\`
-In src/c.ts lines 20-22, adjust slice end index to include the last item.
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+
+[P2] @src/c.ts lines 20-22
+Adjust slice end index to include the last item.
 \`\`\`
 
 </details>"

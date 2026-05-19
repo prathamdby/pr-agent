@@ -24,6 +24,14 @@ function severityBadge(severity: ReviewFinding["severity"]): string {
 	return `**${severity}**`;
 }
 
+function renderInlineFixPrompt(finding: ReviewFinding): string {
+	return [
+		AGENT_FIX_PROMPT_PREAMBLE,
+		"",
+		renderAgentFixFindingBlock(finding, { inlinePosted: true }),
+	].join("\n");
+}
+
 export function renderInlineThreadBody(finding: ReviewFinding): string {
 	const lines = [
 		`[${finding.severity}] ${finding.title}`,
@@ -34,7 +42,7 @@ export function renderInlineThreadBody(finding: ReviewFinding): string {
 		"<summary>Prompt to fix</summary>",
 		"",
 		"```",
-		finding.fixPrompt ?? "",
+		renderInlineFixPrompt(finding),
 		"```",
 		"",
 		"</details>",
@@ -45,8 +53,14 @@ export function renderInlineThreadBody(finding: ReviewFinding): string {
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
 export const SECURITY_REVIEW_POINTER_BODY =
 	"See the security review summary in the PR conversation.";
+export const REVIEW_POINTER_LINK_TEXT = "See the review summary comment.";
+export const SECURITY_REVIEW_POINTER_LINK_TEXT = "See the security review summary comment.";
 
-export function reviewPointerBodyForMode(mode: ReviewMode): string {
+export function reviewPointerBodyForMode(mode: ReviewMode, summaryCommentUrl?: string): string {
+	if (summaryCommentUrl) {
+		const text = mode === "review-security" ? SECURITY_REVIEW_POINTER_LINK_TEXT : REVIEW_POINTER_LINK_TEXT;
+		return `[${text}](${summaryCommentUrl})`;
+	}
 	return mode === "review-security" ? SECURITY_REVIEW_POINTER_BODY : REVIEW_POINTER_BODY;
 }
 
@@ -86,7 +100,7 @@ function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding
 	});
 }
 
-function renderAgentFixFindingBlock(
+export function renderAgentFixFindingBlock(
 	finding: ReviewFinding,
 	opts: { inlinePosted: boolean },
 ): string {
@@ -170,9 +184,9 @@ function truncateAgentFixPromptForPointerBody(
 
 export function renderReviewPointerBody(
 	payload: ReviewPayload,
-	ctx: RenderContext & { mode: ReviewMode },
+	ctx: RenderContext & { mode: ReviewMode; summaryCommentUrl?: string },
 ): { body: string; truncated: boolean } {
-	const pointerLine = reviewPointerBodyForMode(ctx.mode);
+	const pointerLine = reviewPointerBodyForMode(ctx.mode, ctx.summaryCommentUrl);
 	let agentFixPrompt = renderAgentFixPrompt(payload, ctx);
 	let truncated = false;
 

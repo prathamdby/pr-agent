@@ -25,6 +25,9 @@ const CIRCUIT_OPEN_TOOL_RESULT =
 
 const PROSE_ONLY_NUDGE =
 	"You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
+const INVESTIGATION_PROSE_NUDGE =
+	"Continue investigation—complete the per-file sweep and cross-cutting passes before submitReview.";
+const MAX_INVESTIGATION_PROSE_NUDGES = 3;
 
 export type ReviewRunResult = {
 	lastAssistant: AssistantMessage;
@@ -58,13 +61,15 @@ function endsWithToolResults(messages: Message[]): boolean {
 type ToolLoopMode = {
 	toolChoice: "first-round" | "every-round" | "optional";
 	nudgeOnProseOnly?: boolean;
+	proseOnlyNudge?: string;
+	maxProseOnlyNudges?: number;
 };
 
 /** Review bot system prompt — methodology + structured submitReview contract. */
 function buildAutomatedSystemPrompt(): string {
 	return [
 		"You are a senior staff software engineer and expert code reviewer.",
-		"Your task is to review pull request code changes via available GitHub API tools—identifying high-confidence, actionable bugs—not speculative or stylistic feedback.",
+		"Your task is to perform an exhaustive, evidence-backed review of pull request code changes across the full diff—surface as many real bugs as the evidence supports, not speculative or stylistic feedback.",
 		"",
 		"## Getting started (GitHub tooling)",
 		"1. Understand context: inspect the PR body, linked issues/tickets via tools where possible, head SHA, and file list touched by this PR.",
@@ -72,6 +77,15 @@ function buildAutomatedSystemPrompt(): string {
 		"3. Do not speculate: verify suspicion with reads against the codebase or API responses reachable through tools.",
 		"",
 		githubToolingDiscipline,
+		"",
+		"## Exhaustive single-pass workflow",
+		"Complete these phases in one investigation before submitReview:",
+		"1. Inventory: call `listPullRequestFiles`, enumerate every changed file, and note truncation metadata if present.",
+		"2. Per-file sweep: inspect each changed file's patch; call `getFileContent`, `searchCode`, or `getBlame` only when needed to verify a finding, caller contract, or history-dependent behavior.",
+		"3. Cross-cutting passes: before submitting, mentally sweep the full diff for correctness/null/error paths, concurrency/resource lifecycle, security/auth boundaries, concrete failure inputs, and contract/test alignment.",
+		"4. Consolidate: merge duplicates, rank by severity, and include every verified P0/P1/P2 defect up to 12 findings; use P3 for minor or uncertain observations only.",
+		"Do not stop after the first few findings; prefer exhaustive coverage of changed files over early submit.",
+		"If the PR touches multiple files and you find zero reportable findings, explain in `prCharacter` that every visible changed file was scanned and why no P0–P3 defect was reportable.",
 		"",
 		"<!-- BEGIN_SHARED_METHODOLOGY -->",
 		"",
@@ -81,7 +95,7 @@ function buildAutomatedSystemPrompt(): string {
 		"- Security issues and performance problems",
 		"",
 		"## Bug patterns",
-		"Only flag issues you are confident about—avoid speculative or stylistic nitpicks.",
+		"Flag every issue backed by code evidence—avoid speculative or stylistic nitpicks.",
 		"High-signal patterns to actively check (only comment when evidenced in the change set):",
 		"- Null/undefined safety: dereferences on optional values, unchecked JSON payloads, unchecked .find()/array[0]/.get(), etc.",
 		"- Resource leaks: unclosed files/streams; missing cleanup on error paths",
@@ -137,9 +151,9 @@ function buildAutomatedSystemPrompt(): string {
 		"### Confidence calibration",
 		"- **[P0]**: virtually certain crash or exploit",
 		"- **[P1]**: high-confidence correctness/security",
-		"- **[P2]**: plausible bug but trigger path incompletely anchored",
+		"- **[P2]**: plausible defect with file/line evidence for the trigger path, even if not proven end-to-end",
 		"- **[P3]**: minor / low-confidence — title + link only in the conversation overview",
-		"Prefer definite bugs over maybes.",
+		"Prefer exhaustive coverage of changed files over early submit; do not stop after the first few findings.",
 		"For clear bugs and security issues, be thorough. For lower-severity concerns, be certain before flagging.",
 		"Do not flag intentional design choices or stylistic preferences unless they introduce a clear defect.",
 		"When confidence is limited but potential impact is high (e.g., data loss, security), report with an explicit note on what remains uncertain — otherwise prefer not reporting over guessing.",
@@ -147,17 +161,17 @@ function buildAutomatedSystemPrompt(): string {
 		"<!-- END_SHARED_METHODOLOGY -->",
 		"",
 		"## Review workflow",
-		"Triage clusters logically; inspect the full diff with GitHub tools before submitting.",
+		"Triage clusters logically; complete the exhaustive single-pass workflow before submitting.",
 		"",
 		"## Structured delivery (submitReview)",
-		"After investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
+		"After exhaustive investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
 		"Never call createPullRequestReview or addPullRequestComment — the server renders and publishes both surfaces.",
 		"Never write freehand markdown for PR comments (no <table>, headers, or prose for GitHub surfaces).",
 		"",
 		"ReviewPayload fields:",
 		"- prCharacter: one paragraph describing what this PR does",
-		"- findings: up to 8 items; each has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, <=80 chars), detail (why + trigger path)",
-		"- fixPrompt: required non-empty for P0/P1/P2 — a self-contained instruction for a coding AI agent (Claude Code / Cursor): name file + line range, state the bug in one sentence, fix direction in one or two sentences, mention tests/invariants; under ~60 words; do not paste buggy code back",
+		"- findings: up to 12 items; each has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, <=80 chars), detail (why + trigger path)",
+		"- fixPrompt: required non-empty for P0/P1/P2 — a self-contained instruction for a coding AI agent (Claude Code / Cursor): state the bug in one sentence, fix direction in one or two sentences, mention tests/invariants; under ~60 words; do not include file/line (the server injects that); do not paste buggy code back",
 		"- estimatedEffort: integer 1–5",
 		"- relevantTests: yes | no | partial",
 		"- securityConcerns: string or null (null if none)",
@@ -239,8 +253,8 @@ export async function runFullPrReview(params: {
 		userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
 		"",
 		reviewMode === "review-security"
-			? "Perform a deep security review of the PR diff using investigation tools, then call submitReview exactly once with a complete ReviewPayload."
-			: "Perform a full review using investigation tools, then call submitReview exactly once with a complete ReviewPayload.",
+			? "Perform an exhaustive, evidence-backed security review of the PR diff using investigation tools. Do not call submitReview until every visible changed file has been examined; then call submitReview exactly once with a complete ReviewPayload."
+			: "Perform an exhaustive, evidence-backed full review using investigation tools. Do not call submitReview until every visible changed file has been examined; then call submitReview exactly once with a complete ReviewPayload.",
 	].join("\n");
 
 	const context: Context = {
@@ -390,6 +404,7 @@ export async function runFullPrReview(params: {
 	}
 
 	async function runToolLoop(maxRounds: number, loopMode: ToolLoopMode) {
+		let proseOnlyNudges = 0;
 		for (let round = 0; round < maxRounds && !stopLoop; round++) {
 			const requireTools =
 				loopMode.toolChoice === "every-round" ||
@@ -410,10 +425,17 @@ export async function runFullPrReview(params: {
 					round,
 					summary: assistantReplySummary(assistant).slice(0, 200),
 				});
-				if (loopMode.nudgeOnProseOnly && !stopLoop && round < maxRounds - 1) {
+				const maxNudges = loopMode.maxProseOnlyNudges ?? Number.POSITIVE_INFINITY;
+				if (
+					loopMode.nudgeOnProseOnly &&
+					proseOnlyNudges < maxNudges &&
+					!stopLoop &&
+					round < maxRounds - 1
+				) {
+					proseOnlyNudges++;
 					context.messages.push({
 						role: "user",
-						content: PROSE_ONLY_NUDGE,
+						content: loopMode.proseOnlyNudge ?? PROSE_ONLY_NUDGE,
 						timestamp: Date.now(),
 					});
 					continue;
@@ -471,7 +493,12 @@ export async function runFullPrReview(params: {
 
 	async function runInvestigationPhase() {
 		stopLoop = false;
-		await runToolLoop(cfg.maxToolRounds, { toolChoice: "first-round" });
+		await runToolLoop(cfg.maxToolRounds, {
+			toolChoice: "first-round",
+			nudgeOnProseOnly: true,
+			proseOnlyNudge: INVESTIGATION_PROSE_NUDGE,
+			maxProseOnlyNudges: MAX_INVESTIGATION_PROSE_NUDGES,
+		});
 		await runFinalizePasses();
 		await runValidationRepair();
 	}

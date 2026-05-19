@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
 	AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+	REVIEW_POINTER_LINK_TEXT,
 	REVIEW_POINTER_BODY,
 	REVIEW_POINTER_BODY_MAX_CHARS,
 	renderAgentFixPrompt,
 	renderInlineThreadBody,
 	renderReviewPointerBody,
 	renderReviewSummaryComment,
+	SECURITY_REVIEW_POINTER_LINK_TEXT,
 	SECURITY_REVIEW_POINTER_BODY,
 } from "../src/agent/reviewRender.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
@@ -122,7 +124,7 @@ describe("renderInlineThreadBody", () => {
 			endLine: 7,
 			title: "Race on shared map",
 			detail: "Concurrent writes without lock.",
-			fixPrompt: "In src/a.ts lines 5-7, guard the map with a mutex or use Ref.modify.",
+			fixPrompt: "Guard the map with a mutex or use Ref.modify.",
 		});
 		expect(body).toMatchSnapshot();
 		expect(body).toContain("<details>");
@@ -137,7 +139,7 @@ describe("renderInlineThreadBody", () => {
 			endLine: 1,
 			title: "Missing await",
 			detail: "Promise not awaited in handler.",
-			fixPrompt: "In src/b.ts line 1, await the promise before returning.",
+			fixPrompt: "Await the promise before returning.",
 		});
 		expect(body).toMatchSnapshot();
 	});
@@ -150,7 +152,7 @@ describe("renderInlineThreadBody", () => {
 			endLine: 22,
 			title: "Off-by-one in slice",
 			detail: "End index excludes last element incorrectly.",
-			fixPrompt: "In src/c.ts lines 20-22, adjust slice end index to include the last item.",
+			fixPrompt: "Adjust slice end index to include the last item.",
 		});
 		expect(body).toMatchSnapshot();
 	});
@@ -176,7 +178,7 @@ describe("renderAgentFixPrompt", () => {
 						endLine: 22,
 						title: "Off-by-one",
 						detail: "Slice excludes last item.",
-						fixPrompt: "In src/b.ts lines 20-22, adjust slice end index.",
+						fixPrompt: "Adjust slice end index.",
 					},
 					{
 						severity: "P0",
@@ -185,7 +187,7 @@ describe("renderAgentFixPrompt", () => {
 						endLine: 7,
 						title: "Race on shared map",
 						detail: "Concurrent writes without lock.",
-						fixPrompt: "In src/a.ts lines 5-7, guard the map with a mutex.",
+						fixPrompt: "Guard the map with a mutex.",
 					},
 					{
 						severity: "P3",
@@ -206,7 +208,7 @@ describe("renderAgentFixPrompt", () => {
 		expect(prompt).toContain("Head SHA: abc123def456");
 		expect(prompt.indexOf("[P0] @src/a.ts")).toBeLessThan(prompt.indexOf("[P2] @src/b.ts"));
 		expect(prompt.indexOf("[P2] @src/b.ts")).toBeLessThan(prompt.indexOf("[P3 — no inline thread]"));
-		expect(prompt).toContain("In src/a.ts lines 5-7, guard the map with a mutex.");
+		expect(prompt).toContain("Guard the map with a mutex.");
 		expect(prompt).not.toContain("Concurrent writes without lock.");
 		expect(prompt).toContain("[P3 — no inline thread] Typo in heading");
 		expect(prompt).toContain("minor typo");
@@ -322,6 +324,62 @@ describe("renderReviewPointerBody", () => {
 
 		expect(body).toContain(SECURITY_REVIEW_POINTER_BODY);
 		expect(body).toContain("Add auth guard.");
+	});
+
+	it("links to the summary comment when a URL is provided", () => {
+		const { body } = renderReviewPointerBody(
+			basePayload({
+				findings: [
+					{
+						severity: "P1",
+						file: "src/x.ts",
+						startLine: 4,
+						endLine: 4,
+						title: "Bug",
+						detail: "Bad logic.",
+						fixPrompt: "Fix the branch condition.",
+					},
+				],
+			}),
+			{
+				...renderCtx,
+				mode: "review",
+				summaryCommentUrl: "https://github.com/acme/widgets/pull/42#issuecomment-123",
+			},
+		);
+
+		expect(body).toContain(
+			`[${REVIEW_POINTER_LINK_TEXT}](https://github.com/acme/widgets/pull/42#issuecomment-123)`,
+		);
+		expect(body).not.toContain(REVIEW_POINTER_BODY);
+	});
+
+	it("links to the security summary comment when a URL is provided", () => {
+		const { body } = renderReviewPointerBody(
+			basePayload({
+				findings: [
+					{
+						severity: "P0",
+						file: "src/auth.ts",
+						startLine: 1,
+						endLine: 3,
+						title: "Auth bypass",
+						detail: "Missing check.",
+						fixPrompt: "Add auth guard.",
+					},
+				],
+			}),
+			{
+				...renderCtx,
+				mode: "review-security",
+				summaryCommentUrl: "https://github.com/acme/widgets/pull/42#issuecomment-456",
+			},
+		);
+
+		expect(body).toContain(
+			`[${SECURITY_REVIEW_POINTER_LINK_TEXT}](https://github.com/acme/widgets/pull/42#issuecomment-456)`,
+		);
+		expect(body).not.toContain(SECURITY_REVIEW_POINTER_BODY);
 	});
 
 	it("truncates agent fix prompt when assembled body exceeds max chars", () => {

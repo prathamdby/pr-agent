@@ -10,6 +10,10 @@ export type InlineReviewComment = {
 
 const COMMENTS_PAGE_SIZE = 100;
 
+export function issueCommentPermalink(owner: string, repo: string, prNumber: number, commentId: number): string {
+	return `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${commentId}`;
+}
+
 export async function createPullRequestReviewWithComments(
 	token: string,
 	owner: string,
@@ -82,6 +86,22 @@ export async function createIssueComment(
 		body,
 	});
 	return { id: data.id, url: data.html_url };
+}
+
+export async function ensureReviewSummaryComment(
+	token: string,
+	owner: string,
+	repo: string,
+	prNumber: number,
+	body: string,
+	sentinel: string = REVIEW_SUMMARY_SENTINEL,
+): Promise<{ id: number; updated: boolean }> {
+	const existing = await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel);
+	if (existing) {
+		return { id: existing.id, updated: false };
+	}
+	const created = await createIssueComment(token, owner, repo, prNumber, body);
+	return { id: created.id, updated: false };
 }
 
 export async function updateIssueComment(

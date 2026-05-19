@@ -40,7 +40,7 @@ export const reviewFindingSchema = z
 
 export const reviewPayloadSchema = z.object({
 	prCharacter: z.string().min(1),
-	findings: z.array(reviewFindingSchema).max(8),
+	findings: z.array(reviewFindingSchema).max(12),
 	estimatedEffort: z.number().int().min(1).max(5),
 	relevantTests: z.enum(["yes", "no", "partial"]),
 	securityConcerns: z.string().nullable(),

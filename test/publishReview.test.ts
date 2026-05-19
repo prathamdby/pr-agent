@@ -3,13 +3,15 @@ import { publishReview } from "../src/agent/publishReview.js";
 import * as reviewSchema from "../src/agent/reviewSchema.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 import { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
-import {
-	AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-	SECURITY_REVIEW_POINTER_BODY,
-} from "../src/agent/reviewRender.js";
+import { AGENT_FIX_PROMPT_ACCORDION_SUMMARY } from "../src/agent/reviewRender.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
 	createPullRequestReviewWithComments: vi.fn(async () => ({ id: 1, url: "https://example.com/review/1" })),
+	ensureReviewSummaryComment: vi.fn(async () => ({ id: 3, updated: false })),
+	issueCommentPermalink: vi.fn(
+		(owner: string, repo: string, prNumber: number, commentId: number) =>
+			`https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${commentId}`,
+	),
 	upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
 	listPullRequestLabels: vi.fn(async () => []),
 	setPullRequestLabels: vi.fn(async () => undefined),
@@ -17,6 +19,8 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 
 import {
 	createPullRequestReviewWithComments,
+	ensureReviewSummaryComment,
+	issueCommentPermalink,
 	listPullRequestLabels,
 	setPullRequestLabels,
 	upsertReviewSummaryComment,
@@ -32,7 +36,7 @@ const payload: ReviewPayload = {
 			endLine: 4,
 			title: "Bug",
 			detail: "Bad logic.",
-			fixPrompt: "Fix src/x.ts line 4.",
+			fixPrompt: "Fix the branch condition.",
 		},
 	],
 	estimatedEffort: 2,
@@ -83,6 +87,43 @@ describe("publishReview", () => {
 		);
 		expect(upsertReviewSummaryComment).toHaveBeenCalled();
 		expect(publishState.inlinePublished).toBe(true);
+	});
+
+	it("ensures a summary placeholder before inline review and finalizes summary after inline succeeds", async () => {
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+		await publishReview({ ...baseParams, publishState });
+
+		expect(ensureReviewSummaryComment).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.stringContaining(REVIEW_SUMMARY_SENTINEL),
+			REVIEW_SUMMARY_SENTINEL,
+		);
+		expect(issueCommentPermalink).toHaveBeenCalledWith("o", "r", 1, 3);
+		const body = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4].body ?? "";
+		expect(body).toContain("[See the review summary comment.](https://github.com/o/r/pull/1#issuecomment-3)");
+		expect(
+			vi.mocked(ensureReviewSummaryComment).mock.invocationCallOrder[0],
+		).toBeLessThan(vi.mocked(createPullRequestReviewWithComments).mock.invocationCallOrder[0]!);
+		expect(
+			vi.mocked(createPullRequestReviewWithComments).mock.invocationCallOrder[0],
+		).toBeLessThan(vi.mocked(upsertReviewSummaryComment).mock.invocationCallOrder[0]!);
+	});
+
+	it("does not publish the final summary when inline review creation fails", async () => {
+		vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce(new Error("review threads down"));
+
+		await expect(
+			publishReview({
+				...baseParams,
+				publishState: { published: false, inlinePublished: false, lastValidationError: null },
+			}),
+		).rejects.toThrow("review threads down");
+
+		expect(ensureReviewSummaryComment).toHaveBeenCalled();
+		expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
 	});
 
 	it("bases review event on full findings not inline subset", async () => {
@@ -140,6 +181,7 @@ describe("publishReview", () => {
 		});
 
 		expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+		expect(ensureReviewSummaryComment).not.toHaveBeenCalled();
 		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
 			"t",
 			"o",
@@ -173,6 +215,7 @@ describe("publishReview", () => {
 		});
 
 		expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+		expect(ensureReviewSummaryComment).not.toHaveBeenCalled();
 		expect(upsertReviewSummaryComment).toHaveBeenCalled();
 		expect(publishState.inlinePublished).toBe(true);
 	});
@@ -220,7 +263,7 @@ describe("publishReview", () => {
 			"r",
 			1,
 			expect.objectContaining({
-				body: expect.stringContaining(SECURITY_REVIEW_POINTER_BODY),
+				body: expect.stringContaining("[See the security review summary comment.](https://github.com/o/r/pull/1#issuecomment-3)"),
 			}),
 		);
 		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(

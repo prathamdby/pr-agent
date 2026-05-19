@@ -161,7 +161,7 @@ export function loadConfig() {
 
 	const context7ApiKey = optionalEnv("CONTEXT7_API_KEY", "");
 
-	const maxReviewFindings = Number(optionalEnv("MAX_REVIEW_FINDINGS", "8"));
+	const maxReviewFindings = Number(optionalEnv("MAX_REVIEW_FINDINGS", "12"));
 	if (!Number.isFinite(maxReviewFindings) || maxReviewFindings < 1) {
 		throw new Error("MAX_REVIEW_FINDINGS must be a positive number");
 	}

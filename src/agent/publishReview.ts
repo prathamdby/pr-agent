@@ -1,6 +1,8 @@
 import type { Config } from "../config.js";
 import {
 	createPullRequestReviewWithComments,
+	ensureReviewSummaryComment,
+	issueCommentPermalink,
 	listPullRequestLabels,
 	setPullRequestLabels,
 	upsertReviewSummaryComment,
@@ -47,6 +49,20 @@ export async function publishReview(params: ReviewPublishContext & {
 		}));
 
 		if (comments.length > 0) {
+			const placeholderKind = mode === "review-security" ? "security review summary" : "review summary";
+			const placeholderBody = [
+				summarySentinel,
+				"",
+				`_PR Agent ${placeholderKind} is being prepared._`,
+			].join("\n");
+			const placeholder = await ensureReviewSummaryComment(
+				token,
+				owner,
+				repo,
+				prNumber,
+				placeholderBody,
+				summarySentinel,
+			);
 			const pointerBody = renderReviewPointerBody(payload, {
 				owner,
 				repo,
@@ -54,6 +70,7 @@ export async function publishReview(params: ReviewPublishContext & {
 				headSha,
 				maxFindings: cfg.maxReviewFindings,
 				mode,
+				summaryCommentUrl: issueCommentPermalink(owner, repo, prNumber, placeholder.id),
 			});
 			if (pointerBody.truncated) {
 				logWarn("agent_fix_prompt_truncated", {
