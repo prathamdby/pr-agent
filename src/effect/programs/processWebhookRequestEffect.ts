@@ -125,5 +125,18 @@ export function processWebhookHttpRequestEffect(
     }
     yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "webhook_handled" }));
     return { status: 200, body: "ok" } satisfies WebhookResponseLike;
-  });
+  }).pipe(
+    Effect.ensuring(
+      Effect.gen(function* () {
+        const intakeLog = yield* IntakeLogger;
+        if (intakeLog.getContext().emitted === true) return;
+        const lastEvent = intakeLog.getContext().lastEvent;
+        yield* Effect.promise(() =>
+          emitOperationLogger(intakeLog, {
+            event: typeof lastEvent === "string" ? lastEvent : "webhook_request_aborted",
+          }),
+        );
+      }),
+    ),
+  );
 }

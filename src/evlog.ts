@@ -42,7 +42,6 @@ export function recordEvent(
 	logger.set({
 		events,
 		lastEvent: event,
-		...(fields ?? {}),
 	});
 }
 
@@ -137,5 +136,6 @@ export async function emitOperationLogger(
 	logger: RequestLogger,
 	overrides?: Record<string, unknown>,
 ): Promise<void> {
+	logger.set({ emitted: true });
 	await logger.emit(overrides);
 }
