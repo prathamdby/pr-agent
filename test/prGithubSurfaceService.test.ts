@@ -137,7 +137,7 @@ describe("PrGithubSurface service", () => {
 	});
 
 	it("replyOnInlineReviewThread posts via pulls.createReplyForReviewComment", async () => {
-		const createReplyForReviewComment = vi.fn().mockResolvedValue({});
+		const createReplyForReviewComment = vi.fn().mockResolvedValue({ data: { id: 456 } });
 		const stub = makeOctokitStub({ createReplyForReviewComment });
 		const spy = vi.spyOn(appAuth, "installationOctokit").mockReturnValue(stub);
 

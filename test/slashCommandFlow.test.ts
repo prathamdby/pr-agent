@@ -56,7 +56,7 @@ function makeSurface(spies: SurfaceSpies, headSha = "abc"): Layer.Layer<PrGithub
 			},
 			replyOnInlineReviewThread: (...args) => {
 				spies.replyOnInlineReviewThread(...args);
-				return Effect.void;
+				return Effect.succeed({ commentId: 1001 });
 			},
 			getPullRequestHeadSha: (...args) => {
 				spies.getPullRequestHeadSha(...args);
@@ -101,6 +101,15 @@ function provideSlashLayers(spies: SurfaceSpies, opts?: {
 			Effect.provide(makeReviewQueue(opts?.reviewSubmitSpy)),
 			Effect.provide(makeAskQueue(opts?.askSubmitSpy)),
 		);
+}
+
+/** `/ask` runs in a forkDaemon; yield so background reply I/O can finish in tests. */
+function flushForkedWork<A, E, R>(effect: Effect.Effect<A, E, R>) {
+	return Effect.gen(function* () {
+		const result = yield* effect;
+		yield* Effect.sleep("50 millis");
+		return result;
+	});
 }
 
 function newSpies(): SurfaceSpies {
@@ -312,17 +321,19 @@ describe("runSlashCommandFlow", () => {
 
 		try {
 			await Effect.runPromise(
-				runSlashCommandFlow(
-					baseCtx({
-						body: "/ask what is this for?",
-						replyTarget: { kind: "inlineReviewThread", prNumber: 3, inReplyToCommentId: 99 },
-						codeAnchor: {
-							path: "apps/web/src/components/core/sessions/session-card.tsx",
-							line: 3,
-							diffHunk: "+import { useHydrationSafeDistance } from ...",
-						},
-					}),
-				).pipe(provideSlashLayers(spies, { askSubmitSpy, headSha: "abc123" })),
+				flushForkedWork(
+					runSlashCommandFlow(
+						baseCtx({
+							body: "/ask what is this for?",
+							replyTarget: { kind: "inlineReviewThread", prNumber: 3, inReplyToCommentId: 99 },
+							codeAnchor: {
+								path: "apps/web/src/components/core/sessions/session-card.tsx",
+								line: 3,
+								diffHunk: "+import { useHydrationSafeDistance } from ...",
+							},
+						}),
+					).pipe(provideSlashLayers(spies, { askSubmitSpy, headSha: "abc123" })),
+				),
 			);
 
 			expect(askSubmitSpy).toHaveBeenCalledWith("o/r#3:ask");
@@ -355,8 +366,10 @@ describe("runSlashCommandFlow", () => {
 		});
 
 		await Effect.runPromise(
-			runSlashCommandFlow(baseCtx({ body: "/ask what changed?" })).pipe(
-				provideSlashLayers(spies, { headSha: "sha1" }),
+			flushForkedWork(
+				runSlashCommandFlow(baseCtx({ body: "/ask what changed?" })).pipe(
+					provideSlashLayers(spies, { headSha: "sha1" }),
+				),
 			),
 		);
 
