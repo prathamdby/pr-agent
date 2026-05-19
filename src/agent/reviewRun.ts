@@ -184,6 +184,7 @@ export async function runFullPrReview(params: {
 		step: "inline_review" | "summary_comment" | "labels",
 		detail?: { githubId?: string | number; meta?: Record<string, unknown> },
 	) => Promise<void>;
+	shouldAbortPublish?: () => Promise<boolean>;
 }): Promise<ReviewRunResult> {
 	const { cfg, token, tokenExpiresAtTs, tokenTtlMs, owner, repo, prNumber, headSha, userSupplement } =
 		params;
@@ -213,6 +214,7 @@ export async function runFullPrReview(params: {
 		mode: reviewMode,
 		state: submitState,
 		recordPublishStep: params.recordPublishStep,
+		shouldAbortPublish: params.shouldAbortPublish,
 	});
 
 	const reviewGithubExecutors = filterReviewAgentExecutors(gh.executors);

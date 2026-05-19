@@ -93,30 +93,35 @@ export async function updateRunningWorkHeadSha(pool: Pool, id: string, headSha: 
 	return (result.rowCount ?? 0) > 0;
 }
 
-export async function markWorkFailed(pool: Pool, id: string, error: unknown): Promise<void> {
+export async function markWorkFailed(pool: Pool, id: string, error: unknown): Promise<boolean> {
 	const message = error instanceof Error ? error.message : String(error);
-	await pool.query(
+	const result = await pool.query(
 		`UPDATE agent_work_items
 		    SET status = 'failed',
 		        last_error = $2,
 		        completed_at = now(),
 		        updated_at = now()
-		  WHERE id = $1`,
+		  WHERE id = $1
+		    AND status = 'running'
+		    AND cancel_requested_at IS NULL`,
 		[id, message],
 	);
+	return (result.rowCount ?? 0) > 0;
 }
 
-export async function markWorkRetrying(pool: Pool, id: string, error: unknown): Promise<void> {
+export async function markWorkRetrying(pool: Pool, id: string, error: unknown): Promise<boolean> {
 	const message = error instanceof Error ? error.message : String(error);
-	await pool.query(
+	const result = await pool.query(
 		`UPDATE agent_work_items
 		    SET status = 'queued',
 		        last_error = $2,
 		        updated_at = now()
 		  WHERE id = $1
-		    AND status = 'running'`,
+		    AND status = 'running'
+		    AND cancel_requested_at IS NULL`,
 		[id, message],
 	);
+	return (result.rowCount ?? 0) > 0;
 }
 
 export async function markWorkCancelled(pool: Pool, id: string): Promise<void> {

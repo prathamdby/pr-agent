@@ -43,6 +43,7 @@ export function buildSubmitReviewTool(params: {
 		step: "inline_review" | "summary_comment" | "labels",
 		detail?: { githubId?: string | number; meta?: Record<string, unknown> },
 	) => Promise<void>;
+	shouldAbortPublish?: () => Promise<boolean>;
 }): {
 	piTool: PiTool;
 	executor: (args: Record<string, unknown>) => Promise<unknown>;
@@ -83,6 +84,15 @@ export function buildSubmitReviewTool(params: {
 		}
 
 		params.state.lastValidationError = null;
+		if (params.shouldAbortPublish && (await params.shouldAbortPublish())) {
+			log.info("review_submit_skipped_superseded", {
+				mode,
+				owner: params.ctx.owner,
+				repo: params.ctx.repo,
+				pr: params.ctx.prNumber,
+			});
+			throw new Error("Review publish skipped: work superseded or cancelled");
+		}
 		await publishReview({
 			token: params.token,
 			mode,

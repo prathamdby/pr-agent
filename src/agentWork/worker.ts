@@ -180,24 +180,25 @@ async function handleReviewJob(
 	}
 	if (!(await markWorkRunning(pool, item.id))) return;
 
-	const installation = await getInstallationToken(cfg, item.installationId);
-	const payload = item.payload as ReviewWorkPayload;
-	if (await maybeSkipBotWork(cfg, installation.token, item)) {
-		await markWorkCancelled(pool, item.id);
-		return;
-	}
-
-	const headSha =
-		item.headSha === "deferred-to-worker"
-			? await getPullRequestHeadSha(installation.token, item.owner, item.repo, item.prNumber)
-			: item.headSha;
-	if (!(await updateRunningWorkHeadSha(pool, item.id, headSha))) {
-		if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
-		return;
-	}
-
-	const publishState = await getReviewPublishState(pool, item.resourceKey, item.reviewLens);
+	let installation: Awaited<ReturnType<typeof getInstallationToken>> | undefined;
 	try {
+		installation = await getInstallationToken(cfg, item.installationId);
+		const payload = item.payload as ReviewWorkPayload;
+		if (await maybeSkipBotWork(cfg, installation.token, item)) {
+			await markWorkCancelled(pool, item.id);
+			return;
+		}
+
+		const headSha =
+			item.headSha === "deferred-to-worker"
+				? await getPullRequestHeadSha(installation.token, item.owner, item.repo, item.prNumber)
+				: item.headSha;
+		if (!(await updateRunningWorkHeadSha(pool, item.id, headSha))) {
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
+		}
+
+		const publishState = await getReviewPublishState(pool, item.resourceKey, item.reviewLens);
 		log.info("agent_work_started", { type: "review", workItemId: item.id, resourceKey: item.resourceKey });
 		const result = await runFullPrReview({
 			cfg,
@@ -223,6 +224,7 @@ async function handleReviewJob(
 					githubId: detail?.githubId,
 					detail: detail?.meta,
 				}),
+			shouldAbortPublish: () => shouldSkipWork(pool, item),
 		});
 		if (await shouldSkipWork(pool, item)) {
 			await markWorkCancelled(pool, item.id);
@@ -242,31 +244,38 @@ async function handleReviewJob(
 		}
 		log.info("agent_work_completed", { type: "review", workItemId: item.id });
 	} catch (e) {
+		if (await shouldSkipWork(pool, item)) {
+			await markWorkCancelled(pool, item.id);
+			return;
+		}
 		const message = e instanceof Error ? e.message : String(e);
 		if (!isTerminalPgBossAttempt(job)) {
-			await markWorkRetrying(pool, item.id, e);
-			log.warn("agent_work_retrying", { type: "review", workItemId: item.id, message });
+			if (await markWorkRetrying(pool, item.id, e)) {
+				log.warn("agent_work_retrying", { type: "review", workItemId: item.id, message });
+			}
 			throw e;
 		}
-		await markWorkFailed(pool, item.id, e);
-		const body = renderReviewFailureNotice({
-			mode: item.reviewLens,
-			retryCommand: item.reviewLens === "review-security" ? "/review-security" : "/review",
-		});
-		try {
-			await upsertReviewSummaryComment(
-				installation.token,
-				item.owner,
-				item.repo,
-				item.prNumber,
-				body,
-				reviewSummarySentinelForMode(item.reviewLens),
-			);
-		} catch (publishError) {
-			log.warn("review_failure_notice_failed", {
-				workItemId: item.id,
-				message: publishError instanceof Error ? publishError.message : String(publishError),
+		if (!(await markWorkFailed(pool, item.id, e))) return;
+		if (installation) {
+			const body = renderReviewFailureNotice({
+				mode: item.reviewLens,
+				retryCommand: item.reviewLens === "review-security" ? "/review-security" : "/review",
 			});
+			try {
+				await upsertReviewSummaryComment(
+					installation.token,
+					item.owner,
+					item.repo,
+					item.prNumber,
+					body,
+					reviewSummarySentinelForMode(item.reviewLens),
+				);
+			} catch (publishError) {
+				log.warn("review_failure_notice_failed", {
+					workItemId: item.id,
+					message: publishError instanceof Error ? publishError.message : String(publishError),
+				});
+			}
 		}
 		log.error("agent_work_failed", { type: "review", workItemId: item.id, message });
 	}
@@ -320,14 +329,25 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 	}
 	if (!(await markWorkRunning(pool, item.id))) return;
 
-	const installation = await getInstallationToken(cfg, item.installationId);
-	if (await maybeSkipBotWork(cfg, installation.token, item)) {
-		await markWorkCancelled(pool, item.id);
-		return;
-	}
+	let installation: Awaited<ReturnType<typeof getInstallationToken>> | undefined;
 	const payload = item.payload as AskWorkPayload;
-	const headSha = await getPullRequestHeadSha(installation.token, item.owner, item.repo, item.prNumber);
 	try {
+		installation = await getInstallationToken(cfg, item.installationId);
+		if (await maybeSkipBotWork(cfg, installation.token, item)) {
+			await markWorkCancelled(pool, item.id);
+			return;
+		}
+		const headSha = await getPullRequestHeadSha(
+			installation.token,
+			item.owner,
+			item.repo,
+			item.prNumber,
+		);
+		if (!(await updateRunningWorkHeadSha(pool, item.id, headSha))) {
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
+		}
+
 		log.info("agent_work_started", { type: "ask", workItemId: item.id, resourceKey: item.resourceKey });
 		const result = await runAskRun({
 			cfg,
@@ -353,28 +373,35 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 		}
 		log.info("agent_work_completed", { type: "ask", workItemId: item.id });
 	} catch (e) {
+		if (await shouldSkipWork(pool, item)) {
+			await markWorkCancelled(pool, item.id);
+			return;
+		}
 		const message = e instanceof Error ? e.message : String(e);
 		if (!isTerminalPgBossAttempt(job)) {
-			await markWorkRetrying(pool, item.id, e);
-			log.warn("agent_work_retrying", { type: "ask", workItemId: item.id, message });
+			if (await markWorkRetrying(pool, item.id, e)) {
+				log.warn("agent_work_retrying", { type: "ask", workItemId: item.id, message });
+			}
 			throw e;
 		}
-		await markWorkFailed(pool, item.id, e);
-		try {
-			await publishAskAnswer(
-				installation.token,
-				item,
-				formatAskFailureReply({
-					question: payload.question,
-					message: "PR Agent could not complete this ask after retries. Please try again later.",
-					replyTarget: payload.replyTarget,
-				}),
-			);
-		} catch (publishError) {
-			log.warn("ask_failure_reply_failed", {
-				workItemId: item.id,
-				message: publishError instanceof Error ? publishError.message : String(publishError),
-			});
+		if (!(await markWorkFailed(pool, item.id, e))) return;
+		if (installation) {
+			try {
+				await publishAskAnswer(
+					installation.token,
+					item,
+					formatAskFailureReply({
+						question: payload.question,
+						message: "PR Agent could not complete this ask after retries. Please try again later.",
+						replyTarget: payload.replyTarget,
+					}),
+				);
+			} catch (publishError) {
+				log.warn("ask_failure_reply_failed", {
+					workItemId: item.id,
+					message: publishError instanceof Error ? publishError.message : String(publishError),
+				});
+			}
 		}
 		log.error("agent_work_failed", { type: "ask", workItemId: item.id, message });
 	}
