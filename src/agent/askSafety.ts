@@ -20,7 +20,7 @@ const BOT_META_PATTERNS: readonly RegExp[] = [
 	/\b(show|reveal|print|output|dump|tell\s+me)\s+.{0,30}\b(your\s+)?(prompt|instructions|system\s+message)\b/i,
 	/\bhow\s+are\s+you\s+(deployed|hosted|configured)\b/i,
 	/\b(bot|agent)\s+(configuration|credentials|secrets|environment)\b/i,
-	/\bignore\s+(all\s+)?(previous|prior|above)\s+instructions\b/i,
+	/(?:^|\n)\s*ignore\s+(all\s+)?(previous|prior|above)\s+instructions\b/i,
 ];
 
 export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
@@ -41,7 +41,7 @@ export function wrapTrustedContext(lines: string[]): string {
 const BOT_SECRET_PATTERNS: readonly RegExp[] = [
 	/Bearer\s+\S+/gi,
 	/(token|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi,
-	/Authorization:\s*\S+/gi,
+	/\b[Aa]uthorization\s*:\s*.+/gi,
 	/\bghp_[A-Za-z0-9]{20,}\b/g,
 	/\bghs_[A-Za-z0-9]{20,}\b/g,
 	/\bsk-[A-Za-z0-9_-]{10,}\b/g,
@@ -206,7 +206,7 @@ export function buildScopedAskExecutors(
 					const files = (out as { files: Array<{ filename?: string }> }).files;
 					gate.addPaths(files.map((f) => f.filename ?? "").filter(Boolean));
 				}
-				return out;
+				return sanitizeToolResultForAsk(name, out);
 			}
 
 			const out = await fn(merged);

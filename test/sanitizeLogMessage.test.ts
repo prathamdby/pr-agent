@@ -17,7 +17,9 @@ describe("sanitizeLogMessage", () => {
 	});
 
 	it("redacts Authorization headers", () => {
-		expect(sanitizeLogMessage("Authorization: Bearer xyz")).toBe("Authorization: [redacted] [redacted]");
+		expect(sanitizeLogMessage("Authorization: Bearer xyz")).toBe("Authorization: [redacted]");
+		expect(sanitizeLogMessage("Authorization: Token abc123")).toBe("Authorization: [redacted]");
+		expect(sanitizeLogMessage("Authorization: Basic dXNlcjpwYXNz")).toBe("Authorization: [redacted]");
 	});
 
 	it("truncates to 2000 characters", () => {
