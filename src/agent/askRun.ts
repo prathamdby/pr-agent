@@ -145,6 +145,9 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 	);
 	try {
 		await gh.executors.listPullRequestFiles({});
+		if (pathGate.prChangedPaths.size === 0) {
+			log.warn("ask_path_gate_prime_empty", { owner, repo, pr: prNumber });
+		}
 	} catch (e) {
 		log.warn("ask_path_gate_prime_failed", {
 			owner,
