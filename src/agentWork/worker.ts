@@ -261,8 +261,10 @@ async function handleReviewJob(
 		if (!isTerminalPgBossAttempt(job)) {
 			if (await markWorkRetrying(pool, item.id, e)) {
 				log.warn("agent_work_retrying", { type: "review", workItemId: item.id, message });
+				throw e;
 			}
-			throw e;
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
 		}
 		if (!(await markWorkFailed(pool, item.id, e))) return;
 		if (installation) {
@@ -391,8 +393,10 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 		if (!isTerminalPgBossAttempt(job)) {
 			if (await markWorkRetrying(pool, item.id, e)) {
 				log.warn("agent_work_retrying", { type: "ask", workItemId: item.id, message });
+				throw e;
 			}
-			throw e;
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
 		}
 		if (!(await markWorkFailed(pool, item.id, e))) return;
 		if (installation) {

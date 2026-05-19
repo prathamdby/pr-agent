@@ -338,7 +338,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							repo: input.repo,
 							prNumber: input.prNumber,
 							installationId: input.installationId,
-							headSha: "",
+							headSha: "deferred-to-worker",
 						};
 						const targets: AckTarget[] = [
 							{ kind: "pr", prNumber: input.prNumber },
@@ -382,7 +382,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 								codeAnchor: input.codeAnchor,
 							});
 							await enqueueAck(boss, client, { ...baseAck, workItemId });
-							await enqueueAsk(boss, client, askRef, workItemId);
+							await enqueueAsk(boss, client, ref, workItemId);
 							log.info("agent_work_enqueued", { type: "ask", source: "slash", workItemId });
 							return;
 						}
@@ -402,11 +402,9 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 								return;
 							}
 
-							const headSha = "deferred-to-worker";
-							const reviewRef = { ...ref, headSha };
 							const workItemId = await createReviewWorkItem(client, {
 								webhookEventId: event.id,
-								ref: reviewRef,
+								ref,
 								source: "slash",
 								lens,
 								userSupplement: `User invoked /${command} with:\n${input.body}`,
@@ -415,9 +413,9 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							await enqueueAck(boss, client, {
 								...baseAck,
 								workItemId,
-								progress: { lens, headSha, source: "slash" },
+								progress: { lens, headSha: ref.headSha, source: "slash" },
 							});
-							await enqueueReview(boss, client, reviewRef, workItemId, lens);
+							await enqueueReview(boss, client, ref, workItemId, lens);
 							log.info("agent_work_enqueued", { type: "review", source: "slash", workItemId, resourceKey, lens });
 							return;
 						}
