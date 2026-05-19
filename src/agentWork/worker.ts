@@ -40,6 +40,7 @@ import {
 	type AskJobData,
 	type ReviewJobData,
 	type ReviewWorkPayload,
+	DEFERRED_HEAD_SHA,
 } from "./types.js";
 
 function isTerminalPgBossAttempt(job: JobWithMetadata<ReviewJobData | AskJobData>): boolean {
@@ -153,7 +154,7 @@ async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<
 
 	if (data.progress) {
 		const headSha =
-			data.progress.headSha === "deferred-to-worker"
+			data.progress.headSha === DEFERRED_HEAD_SHA
 				? await getPullRequestHeadSha(installation.token, data.owner, data.repo, data.prNumber)
 				: data.progress.headSha;
 		const body = renderReviewProgressComment({
@@ -216,7 +217,7 @@ async function handleReviewJob(
 		}
 
 		const headSha =
-			item.headSha === "deferred-to-worker"
+			item.headSha === DEFERRED_HEAD_SHA
 				? await getPullRequestHeadSha(installation.token, item.owner, item.repo, item.prNumber)
 				: item.headSha;
 		if (!(await updateRunningWorkHeadSha(pool, item.id, headSha))) {

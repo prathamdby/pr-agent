@@ -37,23 +37,21 @@ export async function createStartedBoss(cfg: Pick<Config, "databaseUrl">): Promi
 	return boss;
 }
 
+const deadLetterQueueOptions = (cfg: QueueConfig): QueueOptions => ({
+	retryLimit: 0,
+	retryDelay: 0,
+	retryBackoff: false,
+	deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
+	retentionSeconds: cfg.queueRetentionSeconds,
+});
+
 export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise<void> {
 	const defaults = queueDefaults(cfg);
-	await boss.createQueue(ACK_DEAD_LETTER_QUEUE, {
-		retryLimit: 0,
-		deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
-		retentionSeconds: cfg.queueRetentionSeconds,
-	});
-	await boss.createQueue(REVIEW_DEAD_LETTER_QUEUE, {
-		retryLimit: 0,
-		deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
-		retentionSeconds: cfg.queueRetentionSeconds,
-	});
-	await boss.createQueue(ASK_DEAD_LETTER_QUEUE, {
-		retryLimit: 0,
-		deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
-		retentionSeconds: cfg.queueRetentionSeconds,
-	});
+	const dlq = deadLetterQueueOptions(cfg);
+	// DLQ rows are archival only; no workers subscribe to these queue names.
+	await boss.createQueue(ACK_DEAD_LETTER_QUEUE, dlq);
+	await boss.createQueue(REVIEW_DEAD_LETTER_QUEUE, dlq);
+	await boss.createQueue(ASK_DEAD_LETTER_QUEUE, dlq);
 	await boss.createQueue(ACK_QUEUE, {
 		...defaults,
 		policy: "standard",

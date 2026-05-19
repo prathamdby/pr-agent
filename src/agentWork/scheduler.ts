@@ -13,6 +13,7 @@ import { log } from "../log.js";
 import {
 	ACK_QUEUE,
 	ASK_QUEUE,
+	DEFERRED_HEAD_SHA,
 	REVIEW_QUEUE,
 	installationGroupId,
 	prResourceKey,
@@ -26,7 +27,11 @@ import {
 } from "./types.js";
 
 const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
-/** Lens used for webhook-driven PR reviews; superseding queries key on this value. */
+/**
+ * Automated PR webhook reviews only. Superseding/cancel_requested_at applies to
+ * auto-sourced items with this lens only; slash /review-security and /ask lanes
+ * are intentionally not preempted (ADR 0009 §7).
+ */
 const AUTOMATED_REVIEW_LENS: ReviewMode = "review";
 const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 
@@ -364,7 +369,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 							repo: input.repo,
 							prNumber: input.prNumber,
 							installationId: input.installationId,
-							headSha: "deferred-to-worker",
+							headSha: DEFERRED_HEAD_SHA,
 						};
 						const targets: AckTarget[] = [
 							{ kind: "pr", prNumber: input.prNumber },
@@ -396,7 +401,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 								});
 								return;
 							}
-							const headSha = "deferred-to-worker";
+							const headSha = DEFERRED_HEAD_SHA;
 							const askRef = { ...ref, headSha };
 							const workItemId = await createAskWorkItem(client, {
 								webhookEventId: event.id,
