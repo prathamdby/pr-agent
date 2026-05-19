@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { Context, Effect } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { parseAskQuestion, ASK_QUESTION_TOO_LONG_HINT, ASK_USAGE_HINT, askQuestionParseFailure } from "../commands/parseAskQuestion.js";
+import { parseAskQuestionResult, ASK_QUESTION_TOO_LONG_HINT, ASK_USAGE_HINT } from "../commands/parseAskQuestion.js";
 import { slashHelpBody } from "../commands/slashCommandFlow.js";
 import { parseSlashCommand } from "../commands/parseSlashCommand.js";
 import type { ReplyTarget } from "../commands/slashCommandFlow.js";
@@ -393,22 +393,22 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 						}
 
 						if (command === "ask") {
-							const askFailure = askQuestionParseFailure(input.body);
-							if (askFailure === "too_long") {
+							const askParse = parseAskQuestionResult(input.body);
+							if (askParse.kind === "too_long") {
 								await enqueueAck(boss, client, {
 									...baseAck,
 									reply: { target: input.replyTarget, body: ASK_QUESTION_TOO_LONG_HINT },
 								});
 								return;
 							}
-							const question = parseAskQuestion(input.body);
-							if (!question) {
+							if (askParse.kind !== "ok") {
 								await enqueueAck(boss, client, {
 									...baseAck,
 									reply: { target: input.replyTarget, body: ASK_USAGE_HINT },
 								});
 								return;
 							}
+							const question = askParse.question;
 							const headSha = DEFERRED_HEAD_SHA;
 							const askRef = { ...ref, headSha };
 							const workItemId = await createAskWorkItem(client, {
