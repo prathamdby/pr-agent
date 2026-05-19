@@ -95,13 +95,14 @@ export function runSlashCommandFlow(
 			const publishAskAnswer = (answer: string) =>
 				Effect.gen(function* () {
 					if (ctx.replyTarget.kind === "inlineReviewThread") {
+						const inlineTarget = ctx.replyTarget;
 						yield* surface
 							.replyOnInlineReviewThread(
 								ctx.token,
 								ctx.owner,
 								ctx.repo,
-								ctx.replyTarget.prNumber,
-								ctx.replyTarget.inReplyToCommentId,
+								inlineTarget.prNumber,
+								inlineTarget.inReplyToCommentId,
 								answer,
 							)
 							.pipe(
@@ -110,8 +111,8 @@ export function runSlashCommandFlow(
 									log.warn("ask_inline_reply_failed", {
 										owner: ctx.owner,
 										repo: ctx.repo,
-										pr: ctx.replyTarget.prNumber,
-										inReplyToCommentId: ctx.replyTarget.inReplyToCommentId,
+										pr: inlineTarget.prNumber,
+										inReplyToCommentId: inlineTarget.inReplyToCommentId,
 										message,
 									});
 									const fallback = [
@@ -123,7 +124,7 @@ export function runSlashCommandFlow(
 										ctx.token,
 										ctx.owner,
 										ctx.repo,
-										ctx.replyTarget.prNumber,
+										inlineTarget.prNumber,
 										fallback,
 									);
 								}),
