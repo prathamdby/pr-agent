@@ -20,11 +20,15 @@ export type WebhookHeaders = {
 	readonly rawBody: Buffer;
 };
 
+/** Resolve at worker execution time when headSha is DEFERRED_HEAD_SHA. */
+export const DEFERRED_HEAD_SHA = "deferred-to-worker";
+
 export type PrRef = {
 	readonly owner: string;
 	readonly repo: string;
 	readonly prNumber: number;
 	readonly installationId: number;
+	/** Commit SHA, or DEFERRED_HEAD_SHA for worker-side pulls.get resolution */
 	readonly headSha: string;
 };
 
