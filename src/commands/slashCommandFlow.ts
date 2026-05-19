@@ -89,38 +89,114 @@ export function runSlashCommandFlow(
 				return;
 			}
 
-			const headSha = yield* surface.getPullRequestHeadSha(
-				ctx.token,
-				ctx.owner,
-				ctx.repo,
-				ctx.replyTarget.prNumber,
-			);
 			const askQueue = yield* AskQueue;
 			const queueLabel = `${ctx.owner}/${ctx.repo}#${ctx.replyTarget.prNumber}:ask`;
 
-			yield* askQueue.submit(
-				queueLabel,
+			const publishAskAnswer = (answer: string) =>
 				Effect.gen(function* () {
-					const result = yield* Effect.tryPromise({
-						try: () =>
-							runAskRun({
-								cfg: ctx.cfg,
-								token: ctx.token,
-								tokenExpiresAtTs: ctx.tokenExpiresAtTs,
-								tokenTtlMs: ctx.tokenTtlMs,
+					if (ctx.replyTarget.kind === "inlineReviewThread") {
+						yield* surface
+							.replyOnInlineReviewThread(
+								ctx.token,
+								ctx.owner,
+								ctx.repo,
+								ctx.replyTarget.prNumber,
+								ctx.replyTarget.inReplyToCommentId,
+								answer,
+							)
+							.pipe(
+								Effect.catchAll((err) => {
+									const message = err instanceof Error ? err.message : String(err);
+									log.warn("ask_inline_reply_failed", {
+										owner: ctx.owner,
+										repo: ctx.repo,
+										pr: ctx.replyTarget.prNumber,
+										inReplyToCommentId: ctx.replyTarget.inReplyToCommentId,
+										message,
+									});
+									const fallback = [
+										"_Could not reply in the review thread; posting here instead._",
+										"",
+										answer,
+									].join("\n");
+									return surface.postPrConversationComment(
+										ctx.token,
+										ctx.owner,
+										ctx.repo,
+										ctx.replyTarget.prNumber,
+										fallback,
+									);
+								}),
+							);
+						return;
+					}
+					yield* surface.postPrConversationComment(
+						ctx.token,
+						ctx.owner,
+						ctx.repo,
+						ctx.replyTarget.prNumber,
+						answer,
+					);
+				});
+
+			const askWork = askQueue
+				.submit(
+					queueLabel,
+					Effect.gen(function* () {
+						const headSha = yield* surface.getPullRequestHeadSha(
+							ctx.token,
+							ctx.owner,
+							ctx.repo,
+							ctx.replyTarget.prNumber,
+						);
+						const result = yield* Effect.tryPromise({
+							try: () =>
+								runAskRun({
+									cfg: ctx.cfg,
+									token: ctx.token,
+									tokenExpiresAtTs: ctx.tokenExpiresAtTs,
+									tokenTtlMs: ctx.tokenTtlMs,
+									owner: ctx.owner,
+									repo: ctx.repo,
+									prNumber: ctx.replyTarget.prNumber,
+									headSha,
+									question,
+									replyTarget: ctx.replyTarget,
+									codeAnchor: ctx.codeAnchor,
+								}),
+							catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+						});
+						yield* publishAskAnswer(result.answer).pipe(Effect.uninterruptible);
+						log.info("ask_reply_delivered", {
+							owner: ctx.owner,
+							repo: ctx.repo,
+							pr: ctx.replyTarget.prNumber,
+							inline: ctx.replyTarget.kind === "inlineReviewThread",
+						});
+					}),
+				)
+				.pipe(
+					Effect.tapError((err) =>
+						Effect.sync(() => {
+							const message = err instanceof Error ? err.message : String(err);
+							log.error("ask_background_failed", {
 								owner: ctx.owner,
 								repo: ctx.repo,
-								prNumber: ctx.replyTarget.prNumber,
-								headSha,
-								question,
-								replyTarget: ctx.replyTarget,
-								codeAnchor: ctx.codeAnchor,
-							}),
-						catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-					});
-					yield* postReply(result.answer);
-				}),
-			);
+								pr: ctx.replyTarget.prNumber,
+								message,
+							});
+						}),
+					),
+					Effect.catchAll(() => Effect.void),
+				);
+
+			yield* Effect.forkDaemon(askWork);
+			log.info("ask_dispatched", {
+				owner: ctx.owner,
+				repo: ctx.repo,
+				pr: ctx.replyTarget.prNumber,
+				label: queueLabel,
+			});
 			return;
 		}
 

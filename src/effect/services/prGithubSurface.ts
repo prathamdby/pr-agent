@@ -1,5 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import { installationOctokit } from "../../github/appAuth.js";
+import { log } from "../../log.js";
 
 const EYES = "eyes" as const;
 
@@ -60,7 +61,7 @@ export class PrGithubSurface extends Context.Tag("PrGithubSurface")<
 			prNumber: number,
 			inReplyToCommentId: number,
 			body: string,
-		) => Effect.Effect<void, Error>;
+		) => Effect.Effect<{ commentId: number }, Error>;
 		readonly getPullRequestHeadSha: (
 			apiToken: string,
 			owner: string,
@@ -120,13 +121,21 @@ export const PrGithubSurfaceLive = Layer.succeed(
 		replyOnInlineReviewThread: (apiToken, owner, repo, prNumber, inReplyToCommentId, body) =>
 			tryRest(async () => {
 				const octokit = installationOctokit(apiToken);
-				await octokit.rest.pulls.createReplyForReviewComment({
+				const { data } = await octokit.rest.pulls.createReplyForReviewComment({
 					owner,
 					repo,
 					pull_number: prNumber,
 					comment_id: inReplyToCommentId,
 					body,
 				});
+				log.info("inline_review_reply_posted", {
+					owner,
+					repo,
+					pr: prNumber,
+					inReplyToCommentId,
+					replyCommentId: data.id,
+				});
+				return { commentId: data.id };
 			}),
 
 		getPullRequestHeadSha: (apiToken, owner, repo, prNumber) =>
