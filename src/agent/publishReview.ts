@@ -42,22 +42,33 @@ export async function publishReview(params: ReviewPublishContext & {
 			body: renderInlineThreadBody(f),
 		}));
 
-		const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-			body: reviewPointerBodyForMode(mode),
-			event,
-			comments: comments.length > 0 ? comments : undefined,
-		});
+		if (comments.length > 0) {
+			const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
+				body: reviewPointerBodyForMode(mode),
+				event,
+				comments,
+			});
+
+			log.info("review_published_inline", {
+				mode,
+				owner,
+				repo,
+				pr: prNumber,
+				reviewId: review.id,
+				event,
+				inlineCount: comments.length,
+			});
+		} else {
+			log.info("review_inline_skipped", {
+				reason: "no_p0_p2_findings",
+				mode,
+				owner,
+				repo,
+				pr: prNumber,
+			});
+		}
 
 		publishState.inlinePublished = true;
-		log.info("review_published_inline", {
-			mode,
-			owner,
-			repo,
-			pr: prNumber,
-			reviewId: review.id,
-			event,
-			inlineCount: comments.length,
-		});
 	}
 
 	const summaryBody = renderReviewSummaryComment(payload, {

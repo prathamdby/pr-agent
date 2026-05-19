@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReview } from "../src/agent/publishReview.js";
 import * as reviewSchema from "../src/agent/reviewSchema.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
-import { SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
 import { SECURITY_REVIEW_POINTER_BODY } from "../src/agent/reviewRender.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
@@ -120,6 +120,57 @@ describe("publishReview", () => {
 			expect.objectContaining({ event: "REQUEST_CHANGES" }),
 		);
 		spy.mockRestore();
+	});
+
+	it.each([
+		{ label: "general", mode: undefined, sentinel: REVIEW_SUMMARY_SENTINEL },
+		{ label: "security", mode: "review-security" as const, sentinel: SECURITY_REVIEW_SUMMARY_SENTINEL },
+	])("skips PR review when there are no P0–P2 findings ($label)", async ({ mode, sentinel }) => {
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+
+		await publishReview({
+			...baseParams,
+			...(mode ? { mode } : {}),
+			publishState,
+			payload: { ...payload, findings: [] },
+		});
+
+		expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.stringContaining(sentinel),
+			sentinel,
+		);
+		expect(publishState.inlinePublished).toBe(true);
+	});
+
+	it("skips PR review when only P3 findings", async () => {
+		const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+
+		await publishReview({
+			...baseParams,
+			publishState,
+			payload: {
+				...payload,
+				findings: [
+					{
+						severity: "P3",
+						file: "README.md",
+						startLine: 1,
+						endLine: 1,
+						title: "Typo",
+						detail: "minor",
+					},
+				],
+			},
+		});
+
+		expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+		expect(upsertReviewSummaryComment).toHaveBeenCalled();
+		expect(publishState.inlinePublished).toBe(true);
 	});
 
 	it("uses COMMENT when only P2 findings", async () => {
