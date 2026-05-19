@@ -1,22 +1,22 @@
 # pr-agent
 
-GitHub App webhook service that performs automated pull request reviews using [`@github-tools/sdk`](https://github.com/vercel-labs/github-tools) (GitHub REST as tools) + [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai) (LLM + tool loop), per the tracked plan document.
+GitHub App webhook service that performs automated pull request reviews using native **Octokit** REST tools ([`src/agent/githubTools.ts`](src/agent/githubTools.ts)) and [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai) (LLM + tool loop).
 
 ## What it does
 
 - On **`pull_request`** (`opened`, `synchronize`, `reopened`), adds 👀 (`eyes`) on the PR issue, then runs an agent loop to inspect the PR and upsert **`## PR Agent Review`** on the PR conversation when the model succeeds. A pull request review on the Files tab (with inline P0–P2 threads) is posted only when those severities are present.
 - On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/review`, and `/review-security`, reacts with 👀 on the PR + triggering comment where applicable, and routes commands.
-- Responds **`200`** only **after inline processing completes** — large models can exceed GitHub’s webhook timeouts; operators should tune `MAX_TOOL_ROUNDS`/model latency or revisit async delivery (tracked as a scaling concern in the plan).
+- Responds **`200`** after synchronous webhook handling finishes. Automated reviews and `/review` / `/review-security` block until the queued review run completes (large models can exceed GitHub’s webhook timeouts; tune `MAX_TOOL_ROUNDS`/model latency). **`/ask`** is acknowledged inline, then runs in a background fiber—the webhook returns before the answer is posted.
 
 ## Behaviour details
 
 - **Payload boundary:** each subscribed `X-GitHub-Event` type is validated with **minimal Zod** shapes before deduplication; malformed payloads are logged and skipped without consuming the dedupe slot (so GitHub retries can succeed after fixes or transient issues).
 - **Slash commands** are detected on the **first non-empty line** only, and are **case-sensitive** (`/review` works; `/Review` does not). `/ask <question>` answers one question about the PR or a specific diff line.
 - **Webhook deduplication** uses `X-GitHub-Delivery` when present; if that header is missing, the server falls back to **SHA-256(raw body)** so identical retries still collapse.
-- **Agent loop:** after the main `MAX_TOOL_ROUNDS` limit, the service runs up to **`MAX_FINALIZE_ROUNDS`** additional model turns if the conversation still ends with pending `toolResult` messages, then—if still stuck—forces one **text-only** completion (tools cleared) so the webhook does not end with an unfinished tool chain.
+- **Agent loop (reviews):** capped at **`MAX_TOOL_ROUNDS`** (tools required on the first round). If the conversation still ends on pending `toolResult` messages, up to **`MAX_FINALIZE_ROUNDS`** extra model turns run (tools may still be used). If **`submitReview`** never succeeds, publish-recovery nudges run up to **`MAX_REVIEW_PUBLISH_ATTEMPTS`**, then a plain-text fallback comment may be posted when structured publish is exhausted.
 - **Review concurrency:** full review runs are bounded by **`REVIEW_CONCURRENCY`** (default `2`), enforced by an Effect `Semaphore` Layer (`ReviewQueue`), so bursts of webhook deliveries cannot start unbounded concurrent LLM/tool loops. Per-process (in-memory); multi-replica deployments are at-least-once.
-- **Upstream tools:** `@github-tools/sdk` targets the Vercel AI ecosystem; errors mentioning workflow/durable/approval may mean a tool is not viable in plain Node—check logs; you may need fewer presets or direct REST for that action.
-- **Library docs lookup:** the review agent also gets two Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api` to verify upstream API claims before flagging findings. Anonymous calls work for public libraries with rate limits; set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [docs/adr/0003-context7-docs-tool.md](docs/adr/0003-context7-docs-tool.md) for why the SDK is bypassed.
+- **GitHub tools:** eleven investigation tools plus two delivery-shaped tools are defined in [`src/agent/githubTools.ts`](src/agent/githubTools.ts); the agent cannot call `addPullRequestComment` or `createPullRequestReview`—the server publishes via `submitReview` instead (see [docs/adr/0004-native-pi-ai-toolset.md](docs/adr/0004-native-pi-ai-toolset.md)).
+- **Library docs lookup:** review and ask agents get two Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api` to verify upstream API claims. Anonymous calls work for public libraries with rate limits; set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [docs/adr/0003-context7-docs-tool.md](docs/adr/0003-context7-docs-tool.md).
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
 - **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Uses the same `ReviewQueue` and `MAX_TOOL_ROUNDS` as `/review`; large PRs may need a higher `MAX_TOOL_ROUNDS`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
 - **`/ask`** — interactive Q&A about PR code (PR conversation or inline diff comment). Uses a separate `AskQueue` (`ASK_CONCURRENCY`, default `3`) and `MAX_ASK_TOOL_ROUNDS` (default `12`). Inline replies are plain text; PR conversation replies repeat the question in a short wrapper. See [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
@@ -48,12 +48,12 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 
 ### Runtime
 
-- Runtime is Effect TS by default and is the only production boot path.
-- Webhook handlers, PR-surface I/O (acknowledgement reactions, PR conversation / inline review thread comments, head SHA lookup), and the review queue are all Effect Layers (`WebhookHandlers`, `PrGithubSurface`, `ReviewQueue`). The dispatcher wires them together; no Promise glue at the seams.
+- Runtime is Effect TS and is the only production boot path.
+- Webhook handlers, PR-surface I/O (acknowledgement reactions, PR conversation / inline review thread comments, head SHA lookup), and the review and ask queues are Effect Layers (`WebhookHandlers`, `PrGithubSurface`, `ReviewQueue`, `AskQueue`). The dispatcher wires them together.
 
 ### Effect version gate
 
-- `pnpm run check:effect-versions` enforces pinned rewrite compatibility versions:
+- `pnpm run check:effect-versions` enforces pinned versions:
   - `effect@3.21.2`
   - `@effect/platform@0.96.1`
   - `@effect/platform-node@0.106.0`
@@ -84,10 +84,6 @@ Alternate env file path (CI or smoke):
 PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 ```
 
-## BTCA reference clones
-
-For exploring upstream tool shapes locally, use `~/.btca/agent/sandbox` with clones of `vercel-labs/github-tools` and `earendil-works/pi` (see project plan).
-
 ## Scripts
 
 | Script        | Purpose                |
@@ -103,5 +99,5 @@ For exploring upstream tool shapes locally, use `~/.btca/agent/sandbox` with clo
 ## Security notes
 
 - Treat `WEBHOOK_SECRET` and app private keys as production secrets.
-- The LLM is instructed not to paste secrets; there is **no** deterministic outbound redaction layer in v1 (see plan).
-- Production logging should stay at `info` or higher to avoid logging full payloads (see plan).
+- The LLM is instructed not to paste secrets; there is **no** deterministic outbound redaction layer in v1.
+- Production logging should stay at `info` or higher to avoid logging full payloads.
