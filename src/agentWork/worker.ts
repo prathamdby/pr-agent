@@ -19,6 +19,7 @@ import {
 	markWorkRunning,
 	recordPublishStep,
 	shouldSkipWork,
+	updateRunningWorkHeadSha,
 } from "./repository.js";
 import { renderReviewFailureNotice, renderReviewProgressComment } from "./progressComment.js";
 import {
@@ -190,10 +191,10 @@ async function handleReviewJob(
 		item.headSha === "deferred-to-worker"
 			? await getPullRequestHeadSha(installation.token, item.owner, item.repo, item.prNumber)
 			: item.headSha;
-	await pool.query("UPDATE agent_work_items SET head_sha = $2, updated_at = now() WHERE id = $1", [
-		item.id,
-		headSha,
-	]);
+	if (!(await updateRunningWorkHeadSha(pool, item.id, headSha))) {
+		if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+		return;
+	}
 
 	const publishState = await getReviewPublishState(pool, item.resourceKey, item.reviewLens);
 	try {
@@ -235,7 +236,10 @@ async function handleReviewJob(
 				publishAttempts: result.publishAttempts,
 			});
 		}
-		await markWorkCompleted(pool, item.id);
+		if (!(await markWorkCompleted(pool, item.id))) {
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
+		}
 		log.info("agent_work_completed", { type: "review", workItemId: item.id });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
@@ -265,7 +269,6 @@ async function handleReviewJob(
 			});
 		}
 		log.error("agent_work_failed", { type: "review", workItemId: item.id, message });
-		throw e;
 	}
 }
 
@@ -311,6 +314,10 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 	const data = job.data;
 	const item = await getWorkItem(pool, data.workItemId);
 	if (!item || item.type !== "ask") return;
+	if (await shouldSkipWork(pool, item)) {
+		await markWorkCancelled(pool, item.id);
+		return;
+	}
 	if (!(await markWorkRunning(pool, item.id))) return;
 
 	const installation = await getInstallationToken(cfg, item.installationId);
@@ -335,8 +342,15 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 			replyTarget: payload.replyTarget,
 			codeAnchor: payload.codeAnchor,
 		});
+		if (await shouldSkipWork(pool, item)) {
+			await markWorkCancelled(pool, item.id);
+			return;
+		}
 		await publishAskAnswer(installation.token, item, result.answer);
-		await markWorkCompleted(pool, item.id);
+		if (!(await markWorkCompleted(pool, item.id))) {
+			if (await shouldSkipWork(pool, item)) await markWorkCancelled(pool, item.id);
+			return;
+		}
 		log.info("agent_work_completed", { type: "ask", workItemId: item.id });
 	} catch (e) {
 		const message = e instanceof Error ? e.message : String(e);
@@ -363,7 +377,6 @@ async function handleAskJob(cfg: Config, pool: Pool, job: JobWithMetadata<AskJob
 			});
 		}
 		log.error("agent_work_failed", { type: "ask", workItemId: item.id, message });
-		throw e;
 	}
 }
 

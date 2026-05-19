@@ -83,13 +83,25 @@ async function insertWebhookEvent(
 	return inserted ? { id: inserted, duplicate: false } : { id: "", duplicate: true };
 }
 
+async function requireBossJobSend(
+	boss: PgBoss,
+	queue: string,
+	data: object,
+	options: Parameters<PgBoss["send"]>[2],
+): Promise<void> {
+	const jobId = await boss.send(queue, data, options);
+	if (jobId == null) {
+		throw new Error(`pg-boss did not enqueue ${queue} job`);
+	}
+}
+
 async function enqueueAck(
 	boss: PgBoss,
 	client: PoolClient,
 	data: AckJobData,
 	priority = 100,
 ): Promise<void> {
-	await boss.send(ACK_QUEUE, data, {
+	await requireBossJobSend(boss, ACK_QUEUE, data, {
 		db: pgBossDb(client),
 		priority,
 		group: { id: installationGroupId(data.installationId) },
@@ -105,7 +117,7 @@ async function enqueueReview(
 ): Promise<void> {
 	const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
 	const data: ReviewJobData = { kind: "review", workItemId };
-	await boss.send(REVIEW_QUEUE, data, {
+	await requireBossJobSend(boss, REVIEW_QUEUE, data, {
 		db: pgBossDb(client),
 		singletonKey: reviewSingletonKey(resourceKey, lens),
 		group: { id: installationGroupId(ref.installationId) },
@@ -114,7 +126,7 @@ async function enqueueReview(
 
 async function enqueueAsk(boss: PgBoss, client: PoolClient, ref: PrRef, workItemId: string): Promise<void> {
 	const data: AskJobData = { kind: "ask", workItemId };
-	await boss.send(ASK_QUEUE, data, {
+	await requireBossJobSend(boss, ASK_QUEUE, data, {
 		db: pgBossDb(client),
 		priority: 50,
 		group: { id: installationGroupId(ref.installationId) },

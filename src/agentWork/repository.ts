@@ -66,15 +66,31 @@ export async function markWorkRunning(pool: Pool, id: string): Promise<boolean> 
 	return (result.rowCount ?? 0) > 0;
 }
 
-export async function markWorkCompleted(pool: Pool, id: string): Promise<void> {
-	await pool.query(
+export async function markWorkCompleted(pool: Pool, id: string): Promise<boolean> {
+	const result = await pool.query(
 		`UPDATE agent_work_items
 		    SET status = 'completed',
 		        completed_at = now(),
 		        updated_at = now()
-		  WHERE id = $1`,
+		  WHERE id = $1
+		    AND status = 'running'
+		    AND cancel_requested_at IS NULL`,
 		[id],
 	);
+	return (result.rowCount ?? 0) > 0;
+}
+
+export async function updateRunningWorkHeadSha(pool: Pool, id: string, headSha: string): Promise<boolean> {
+	const result = await pool.query(
+		`UPDATE agent_work_items
+		    SET head_sha = $2,
+		        updated_at = now()
+		  WHERE id = $1
+		    AND status = 'running'
+		    AND cancel_requested_at IS NULL`,
+		[id, headSha],
+	);
+	return (result.rowCount ?? 0) > 0;
 }
 
 export async function markWorkFailed(pool: Pool, id: string, error: unknown): Promise<void> {
