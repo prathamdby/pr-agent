@@ -135,7 +135,7 @@ export function processWebhookHttpRequestEffect(
           emitOperationLogger(intakeLog, {
             event: typeof lastEvent === "string" ? lastEvent : "webhook_request_aborted",
           }),
-        );
+        ).pipe(Effect.catchAll(() => Effect.void));
       }),
     ),
   );

@@ -1,6 +1,7 @@
 import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
+import crypto from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
@@ -23,7 +24,7 @@ export function buildEffectWebhookApp(cfg: Config) {
         const intakeLog = createOperationLogger({
           method: req.method,
           path,
-          requestId: singleHeader(req.headers["x-github-delivery"]),
+          requestId: singleHeader(req.headers["x-github-delivery"]) ?? crypto.randomUUID(),
           context: { role: "web" },
         });
 

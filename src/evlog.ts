@@ -127,7 +127,11 @@ export async function runWithOperationLogger<T>(
 			opLog.error(e instanceof Error ? e : new Error(String(e)));
 			throw e;
 		} finally {
-			await opLog.emit();
+			try {
+				await opLog.emit();
+			} catch {
+				// Do not mask the error thrown from fn()
+			}
 		}
 	});
 }
