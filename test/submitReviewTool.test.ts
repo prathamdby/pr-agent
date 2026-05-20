@@ -17,7 +17,6 @@ const cfg = {
 	piProvider: "openai" as const,
 	piModel: "gpt-4o-mini",
 	maxToolRounds: 1,
-	maxFinalizeRounds: 0,
 	maxReviewPublishAttempts: 3,
 	reviewConcurrency: 1,
 	askConcurrency: 3,
@@ -69,7 +68,7 @@ describe("submitReview tool", () => {
 			state,
 		});
 
-		await expect(executor({ prCharacter: "x" })).rejects.toThrow(/validation failed/i);
+		await expect(executor({ prCharacter: "x" })).rejects.toThrow(/ReviewPayload validation failed/i);
 		expect(state.lastValidationError).toBeTruthy();
 		expect(state.published).toBe(false);
 		warnSpy.mockRestore();

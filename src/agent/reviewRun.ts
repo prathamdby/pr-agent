@@ -7,8 +7,23 @@ import { buildGithubTools } from "./githubTools.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderStructuredPublishFallback } from "../agentWork/progressComment.js";
 import { automatedSecuritySystemPrompt, githubToolingDiscipline } from "./securityPrompt.js";
-import { buildSubmitReviewTool, filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "./reviewSchema.js";
+import {
+	buildSubmitReviewTool,
+	filterReviewAgentExecutors,
+	filterReviewAgentTools,
+	type SubmitReviewState,
+} from "./submitReviewTool.js";
+import {
+	fixPromptFieldContract,
+	PRE_SUBMIT_USER_MESSAGE,
+	singlePassReviewContract,
+	VALIDATION_REPAIR_ROUNDS,
+} from "./reviewPromptBlocks.js";
+import {
+	REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
+	reviewSummarySentinelForMode,
+	type ReviewMode,
+} from "./reviewSchema.js";
 import {
 	bumpRateLimitConsecutiveFailures,
 	classifyGithubToolError,
@@ -56,7 +71,7 @@ function endsWithToolResults(messages: Message[]): boolean {
 }
 
 type ToolLoopMode = {
-	toolChoice: "first-round" | "every-round" | "optional";
+	toolChoice: "first-round" | "every-round" | "optional" | "required";
 	nudgeOnProseOnly?: boolean;
 };
 
@@ -149,6 +164,8 @@ function buildAutomatedSystemPrompt(): string {
 		"## Review workflow",
 		"Triage clusters logically; inspect the full diff with GitHub tools before submitting.",
 		"",
+		singlePassReviewContract,
+		"",
 		"## Structured delivery (submitReview)",
 		"After investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
 		"Never call createPullRequestReview or addPullRequestComment — the server renders and publishes both surfaces.",
@@ -157,7 +174,7 @@ function buildAutomatedSystemPrompt(): string {
 		"ReviewPayload fields:",
 		"- prCharacter: one paragraph describing what this PR does",
 		"- findings: up to 8 items; each has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, <=80 chars), detail (why + trigger path)",
-		"- fixPrompt: required non-empty for P0/P1/P2 — a self-contained instruction for a coding AI agent (Claude Code / Cursor): name file + line range, state the bug in one sentence, fix direction in one or two sentences, mention tests/invariants; under ~60 words; do not paste buggy code back",
+		`- ${fixPromptFieldContract}`,
 		"- estimatedEffort: integer 1–5",
 		"- relevantTests: yes | no | partial",
 		"- securityConcerns: string or null (null if none)",
@@ -179,6 +196,8 @@ export async function runFullPrReview(params: {
 	headSha: string;
 	mode?: ReviewMode;
 	userSupplement?: string;
+	shouldLinkToSummary?: boolean;
+	summaryCommentIdHint?: number | null;
 	initialPublishState?: { published?: boolean; inlinePublished?: boolean };
 	recordPublishStep?: (
 		step: "inline_review" | "summary_comment" | "labels",
@@ -201,7 +220,7 @@ export async function runFullPrReview(params: {
 		maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
 	});
 	const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
-	const submitState = {
+	const submitState: SubmitReviewState = {
 		published: params.initialPublishState?.published ?? false,
 		inlinePublished: params.initialPublishState?.inlinePublished ?? false,
 		lastValidationError: null,
@@ -213,6 +232,8 @@ export async function runFullPrReview(params: {
 		ctx: publishCtx,
 		mode: reviewMode,
 		state: submitState,
+		shouldLinkToSummary: params.shouldLinkToSummary,
+		summaryCommentIdHint: params.summaryCommentIdHint,
 		recordPublishStep: params.recordPublishStep,
 		shouldAbortPublish: params.shouldAbortPublish,
 	});
@@ -393,6 +414,7 @@ export async function runFullPrReview(params: {
 		for (let round = 0; round < maxRounds && !stopLoop; round++) {
 			const requireTools =
 				loopMode.toolChoice === "every-round" ||
+				loopMode.toolChoice === "required" ||
 				(loopMode.toolChoice === "first-round" && round === 0);
 
 			const assistant = await complete(
@@ -431,48 +453,52 @@ export async function runFullPrReview(params: {
 	}
 
 	async function runValidationRepair() {
-		if (!submitState.published && submitState.lastValidationError) {
+		for (let repair = 0; repair < VALIDATION_REPAIR_ROUNDS && !submitState.published; repair++) {
+			const validationError = submitState.lastValidationError;
+			if (!validationError) break;
 			logDebug("review_payload_repair_attempt", {
 				mode: reviewMode,
-				message: submitState.lastValidationError,
+				repair,
+				message: validationError.slice(0, 200),
 			});
+			const err = validationError;
+			submitState.lastValidationError = null;
 			context.messages.push({
 				role: "user",
-				content: `Your submitReview payload failed validation: ${submitState.lastValidationError}. Fix the payload and call submitReview again.`,
+				content: [
+					err,
+					"Fix the payload and call submitReview again with a complete ReviewPayload.",
+					`Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
+				].join("\n\n"),
 				timestamp: Date.now(),
 			});
-			submitState.lastValidationError = null;
 			stopLoop = false;
-			await runToolLoop(1, { toolChoice: "optional" });
-		}
-	}
-
-	async function runFinalizePasses() {
-		for (let f = 0; f < cfg.maxFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
-			logDebug("agent_finalize_pass", { mode: reviewMode, pass: f });
-			const assistant = await complete(model, context);
-			lastAssistant = assistant;
-			context.messages.push(assistant);
-
-			const toolCalls = collectToolCalls(assistant);
-			if (toolCalls.length === 0) {
-				logDebug("agent_finalize_complete", { mode: reviewMode, pass: f });
-				break;
-			}
-
-			logDebug("agent_finalize_tool_round", {
-				mode: reviewMode,
-				pass: f,
-				tools: toolCalls.map((t) => t.name),
-			});
-			await appendToolResults(toolCalls);
+			await runToolLoop(1, { toolChoice: "required", nudgeOnProseOnly: true });
 		}
 	}
 
 	async function runInvestigationPhase() {
 		stopLoop = false;
 		await runToolLoop(cfg.maxToolRounds, { toolChoice: "first-round" });
-		await runFinalizePasses();
+
+		if (!submitState.published && !stopLoop) {
+			if (endsWithToolResults(context.messages)) {
+				context.messages.push({
+					role: "user",
+					content: PRE_SUBMIT_USER_MESSAGE,
+					timestamp: Date.now(),
+				});
+				await runToolLoop(2, { toolChoice: "required", nudgeOnProseOnly: true });
+			} else {
+				context.messages.push({
+					role: "user",
+					content: PROSE_ONLY_NUDGE,
+					timestamp: Date.now(),
+				});
+				await runToolLoop(1, { toolChoice: "required", nudgeOnProseOnly: true });
+			}
+		}
+
 		await runValidationRepair();
 	}
 
@@ -480,10 +506,12 @@ export async function runFullPrReview(params: {
 		const prompt =
 			PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
 			PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
+		const isLastAttempt = attemptIndex >= cfg.maxReviewPublishAttempts - 1;
 		logInfo("review_publish_retry", {
 			mode: reviewMode,
 			attempt: attemptIndex + 1,
 			maxAttempts: cfg.maxReviewPublishAttempts,
+			submitOnly: isLastAttempt,
 			owner,
 			repo,
 			pr: prNumber,
@@ -491,13 +519,21 @@ export async function runFullPrReview(params: {
 		stopLoop = false;
 		context.messages.push({
 			role: "user",
-			content: prompt,
+			content: [
+				prompt,
+				`Minimal valid ReviewPayload example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
+			].join("\n\n"),
 			timestamp: Date.now(),
 		});
+		const savedTools = context.tools;
+		if (isLastAttempt) {
+			context.tools = [submitTool];
+		}
 		await runToolLoop(PUBLISH_RECOVERY_ROUNDS, {
 			toolChoice: "every-round",
 			nudgeOnProseOnly: true,
 		});
+		context.tools = savedTools;
 		await runValidationRepair();
 	}
 

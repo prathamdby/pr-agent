@@ -33,16 +33,41 @@ export async function createPullRequestReviewWithComments(
 	return { id: data.id, url: data.html_url };
 }
 
+export type IssueCommentRef = { id: number; url: string };
+
+export async function getIssueCommentIfSentinel(
+	token: string,
+	owner: string,
+	repo: string,
+	commentId: number,
+	sentinel: string,
+): Promise<IssueCommentRef | null> {
+	const octokit = installationOctokit(token);
+	try {
+		const { data } = await octokit.rest.issues.getComment({
+			owner,
+			repo,
+			comment_id: commentId,
+		});
+		if (!(data.body ?? "").startsWith(sentinel)) return null;
+		return { id: data.id, url: data.html_url };
+	} catch (e: unknown) {
+		const status = (e as { status?: number }).status;
+		if (status === 404) return null;
+		throw e;
+	}
+}
+
 export async function findIssueCommentBySentinel(
 	token: string,
 	owner: string,
 	repo: string,
 	issueNumber: number,
 	sentinel: string,
-): Promise<{ id: number } | null> {
+): Promise<IssueCommentRef | null> {
 	const octokit = installationOctokit(token);
 	let page = 1;
-	let lastMatch: { id: number } | null = null;
+	let lastMatch: IssueCommentRef | null = null;
 
 	for (;;) {
 		const { data } = await octokit.rest.issues.listComments({
@@ -56,7 +81,7 @@ export async function findIssueCommentBySentinel(
 
 		for (const c of data) {
 			if ((c.body ?? "").startsWith(sentinel)) {
-				lastMatch = { id: c.id };
+				lastMatch = { id: c.id, url: c.html_url };
 			}
 		}
 
@@ -65,6 +90,23 @@ export async function findIssueCommentBySentinel(
 	}
 
 	return lastMatch;
+}
+
+/** Resolves a verified summary/progress comment URL; never returns an unverified stored id. */
+export async function resolveVerifiedSummaryCommentUrl(
+	token: string,
+	owner: string,
+	repo: string,
+	prNumber: number,
+	sentinel: string,
+	hintCommentId?: number | null,
+): Promise<string | undefined> {
+	if (hintCommentId != null) {
+		const verified = await getIssueCommentIfSentinel(token, owner, repo, hintCommentId, sentinel);
+		if (verified) return verified.url;
+	}
+	const found = await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel);
+	return found?.url;
 }
 
 export async function createIssueComment(

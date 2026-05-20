@@ -84,11 +84,6 @@ export function loadConfig() {
 		throw new Error("MAX_TOOL_ROUNDS must be a positive number");
 	}
 
-	const maxFinalizeRounds = Number(optionalEnv("MAX_FINALIZE_ROUNDS", "6"));
-	if (!Number.isFinite(maxFinalizeRounds) || maxFinalizeRounds < 0) {
-		throw new Error("MAX_FINALIZE_ROUNDS must be zero or a positive number");
-	}
-
 	const maxReviewPublishAttempts = Number(optionalEnv("MAX_REVIEW_PUBLISH_ATTEMPTS", "3"));
 	if (!Number.isFinite(maxReviewPublishAttempts) || maxReviewPublishAttempts < 1) {
 		throw new Error("MAX_REVIEW_PUBLISH_ATTEMPTS must be a positive number");
@@ -154,6 +149,11 @@ export function loadConfig() {
 		throw new Error("MAX_ASK_TOOL_ROUNDS must be a positive number");
 	}
 
+	const maxAskFinalizeRounds = Number(optionalEnv("MAX_ASK_FINALIZE_ROUNDS", "2"));
+	if (!Number.isFinite(maxAskFinalizeRounds) || maxAskFinalizeRounds < 0) {
+		throw new Error("MAX_ASK_FINALIZE_ROUNDS must be zero or a positive number");
+	}
+
 	const webhookTimeoutMs = Number(optionalEnv("WEBHOOK_TIMEOUT_MS", "10000"));
 	if (!Number.isFinite(webhookTimeoutMs) || webhookTimeoutMs < 1) {
 		throw new Error("WEBHOOK_TIMEOUT_MS must be a positive number");
@@ -202,7 +202,6 @@ export function loadConfig() {
 		piProvider,
 		piModel,
 		maxToolRounds,
-		maxFinalizeRounds,
 		maxReviewPublishAttempts,
 		reviewConcurrency,
 		askConcurrency,
@@ -216,6 +215,7 @@ export function loadConfig() {
 		queueDeleteAfterSeconds,
 		installationGroupConcurrency,
 		maxAskToolRounds,
+		maxAskFinalizeRounds,
 		webhookTimeoutMs,
 		context7ApiKey,
 		maxReviewFindings,

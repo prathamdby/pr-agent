@@ -57,6 +57,123 @@ export type ReviewPublishContext = {
 	headSha: string;
 };
 
+export const REVIEW_PAYLOAD_MINIMAL_EXAMPLE = {
+	prCharacter: "Adds retry logic to the webhook dispatcher.",
+	findings: [
+		{
+			severity: "P1",
+			file: "src/handler.ts",
+			startLine: 42,
+			endLine: 42,
+			title: "Missing await on promise",
+			detail: "The handler returns before the async work completes.",
+			fixPrompt: "Await the promise before returning so errors propagate.",
+		},
+	],
+	estimatedEffort: 2,
+	relevantTests: "partial",
+	securityConcerns: null,
+	followUps: [],
+} as const;
+
+const SEVERITY_ALIAS: Record<string, ReviewFinding["severity"]> = {
+	CRITICAL: "P0",
+	HIGH: "P1",
+	MEDIUM: "P2",
+	LOW: "P3",
+	P0: "P0",
+	P1: "P1",
+	P2: "P2",
+	P3: "P3",
+};
+
+function coercePositiveInt(value: unknown): number | undefined {
+	if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+	if (typeof value === "string" && value.trim() !== "") {
+		const n = Number(value);
+		if (Number.isFinite(n)) return Math.trunc(n);
+	}
+	return undefined;
+}
+
+function coerceSeverity(value: unknown): ReviewFinding["severity"] | undefined {
+	if (typeof value !== "string") return undefined;
+	const key = value.trim().toUpperCase();
+	return SEVERITY_ALIAS[key];
+}
+
+function coerceFinding(raw: unknown): unknown {
+	if (typeof raw !== "object" || raw == null) return raw;
+	const f = { ...(raw as Record<string, unknown>) };
+	if ("severity" in f) {
+		const coerced = coerceSeverity(f.severity);
+		if (coerced) f.severity = coerced;
+	}
+	if ("startLine" in f) {
+		const n = coercePositiveInt(f.startLine);
+		if (n != null && n > 0) f.startLine = n;
+	}
+	if ("endLine" in f) {
+		const n = coercePositiveInt(f.endLine);
+		if (n != null && n > 0) f.endLine = n;
+	}
+	if ("file" in f && typeof f.file === "string") f.file = f.file.trim();
+	if ("title" in f && typeof f.title === "string") f.title = f.title.trim();
+	if ("detail" in f && typeof f.detail === "string") f.detail = f.detail.trim();
+	if ("fixPrompt" in f) {
+		if (typeof f.fixPrompt === "string") {
+			const trimmed = f.fixPrompt.trim();
+			if (trimmed.length === 0) delete f.fixPrompt;
+			else f.fixPrompt = trimmed;
+		}
+	}
+	return f;
+}
+
+export function coerceReviewPayloadInput(raw: unknown): { value: unknown; coerced: boolean } {
+	if (typeof raw !== "object" || raw == null) return { value: raw, coerced: false };
+	const input = { ...(raw as Record<string, unknown>) };
+	let coerced = false;
+
+	if ("prCharacter" in input && typeof input.prCharacter === "string") {
+		input.prCharacter = input.prCharacter.trim();
+		coerced = true;
+	}
+	if ("estimatedEffort" in input) {
+		const n = coercePositiveInt(input.estimatedEffort);
+		if (n != null && n !== input.estimatedEffort) {
+			input.estimatedEffort = n;
+			coerced = true;
+		}
+	}
+	if ("securityConcerns" in input && typeof input.securityConcerns === "string") {
+		input.securityConcerns = input.securityConcerns.trim();
+		coerced = true;
+	}
+	if (Array.isArray(input.findings)) {
+		input.findings = input.findings.map((item) => {
+			const next = coerceFinding(item);
+			if (next !== item) coerced = true;
+			return next;
+		});
+	}
+
+	return { value: input, coerced };
+}
+
+export function formatReviewValidationError(error: z.ZodError): string {
+	const lines = ["ReviewPayload validation failed:"];
+	for (const issue of error.issues) {
+		const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+		lines.push(`- ${path}: ${issue.message}`);
+	}
+	lines.push(
+		"Required top-level fields: prCharacter, findings (max 8), estimatedEffort (1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max 5).",
+	);
+	lines.push("Each P0/P1/P2 finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
+	return lines.join("\n");
+}
+
 const SEVERITY_RANK: Record<ReviewFinding["severity"], number> = {
 	P0: 0,
 	P1: 1,

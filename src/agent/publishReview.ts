@@ -2,6 +2,7 @@ import type { Config } from "../config.js";
 import {
 	createPullRequestReviewWithComments,
 	listPullRequestLabels,
+	resolveVerifiedSummaryCommentUrl,
 	setPullRequestLabels,
 	upsertReviewSummaryComment,
 	type InlineReviewComment,
@@ -26,6 +27,8 @@ export async function publishReview(params: ReviewPublishContext & {
 	cfg: Pick<Config, "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
 	payload: ReviewPayload;
 	publishState: SubmitReviewState;
+	shouldLinkToSummary?: boolean;
+	summaryCommentIdHint?: number | null;
 	recordPublishStep?: (
 		step: "inline_review" | "summary_comment" | "labels",
 		detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -38,22 +41,39 @@ export async function publishReview(params: ReviewPublishContext & {
 	const inlineFindings = selectInlineFindings(payload.findings, cfg.maxReviewFindings);
 	const event = reviewEventForFindings(payload.findings);
 
+	const renderCtx = {
+		owner,
+		repo,
+		prNumber,
+		headSha,
+		maxFindings: cfg.maxReviewFindings,
+	};
+
+	let summaryCommentUrl: string | undefined;
+	if (params.shouldLinkToSummary) {
+		summaryCommentUrl = await resolveVerifiedSummaryCommentUrl(
+			token,
+			owner,
+			repo,
+			prNumber,
+			summarySentinel,
+			params.summaryCommentIdHint,
+		);
+	}
+
 	if (!publishState.inlinePublished) {
 		const comments: InlineReviewComment[] = inlineFindings.map((f) => ({
 			path: f.file,
 			line: f.startLine,
 			side: "RIGHT" as const,
-			body: renderInlineThreadBody(f),
+			body: renderInlineThreadBody(f, renderCtx),
 		}));
 
 		if (comments.length > 0) {
 			const pointerBody = renderReviewPointerBody(payload, {
-				owner,
-				repo,
-				prNumber,
-				headSha,
-				maxFindings: cfg.maxReviewFindings,
+				...renderCtx,
 				mode,
+				summaryCommentUrl,
 			});
 			if (pointerBody.truncated) {
 				logDebug("agent_fix_prompt_truncated", {
@@ -106,11 +126,7 @@ export async function publishReview(params: ReviewPublishContext & {
 	}
 
 	const summaryBody = renderReviewSummaryComment(payload, {
-		owner,
-		repo,
-		prNumber,
-		headSha,
-		maxFindings: cfg.maxReviewFindings,
+		...renderCtx,
 		summarySentinel,
 	});
 

@@ -113,45 +113,65 @@ describe("renderReviewSummaryComment", () => {
 	});
 });
 
+const inlineCtx = {
+	owner: "acme",
+	repo: "widgets",
+	prNumber: 42,
+	headSha: "abc123def456",
+	maxFindings: 8,
+};
+
 describe("renderInlineThreadBody", () => {
 	it("P0 with fixPrompt accordion", () => {
-		const body = renderInlineThreadBody({
-			severity: "P0",
-			file: "src/a.ts",
-			startLine: 5,
-			endLine: 7,
-			title: "Race on shared map",
-			detail: "Concurrent writes without lock.",
-			fixPrompt: "In src/a.ts lines 5-7, guard the map with a mutex or use Ref.modify.",
-		});
+		const body = renderInlineThreadBody(
+			{
+				severity: "P0",
+				file: "src/a.ts",
+				startLine: 5,
+				endLine: 7,
+				title: "Race on shared map",
+				detail: "Concurrent writes without lock.",
+				fixPrompt: "Guard the map with a mutex or use Ref.modify.",
+			},
+			inlineCtx,
+		);
 		expect(body).toMatchSnapshot();
 		expect(body).toContain("<details>");
 		expect(body).toContain("Prompt to fix");
+		expect(body).toContain("Repository: acme/widgets");
+		expect(body).toContain("[P0] @src/a.ts lines 5-7");
+		expect(body).toContain("Guard the map with a mutex");
 	});
 
 	it("P1 with fixPrompt accordion", () => {
-		const body = renderInlineThreadBody({
-			severity: "P1",
-			file: "src/b.ts",
-			startLine: 1,
-			endLine: 1,
-			title: "Missing await",
-			detail: "Promise not awaited in handler.",
-			fixPrompt: "In src/b.ts line 1, await the promise before returning.",
-		});
+		const body = renderInlineThreadBody(
+			{
+				severity: "P1",
+				file: "src/b.ts",
+				startLine: 1,
+				endLine: 1,
+				title: "Missing await",
+				detail: "Promise not awaited in handler.",
+				fixPrompt: "Await the promise before returning.",
+			},
+			inlineCtx,
+		);
 		expect(body).toMatchSnapshot();
 	});
 
 	it("P2 with fixPrompt accordion", () => {
-		const body = renderInlineThreadBody({
-			severity: "P2",
-			file: "src/c.ts",
-			startLine: 20,
-			endLine: 22,
-			title: "Off-by-one in slice",
-			detail: "End index excludes last element incorrectly.",
-			fixPrompt: "In src/c.ts lines 20-22, adjust slice end index to include the last item.",
-		});
+		const body = renderInlineThreadBody(
+			{
+				severity: "P2",
+				file: "src/c.ts",
+				startLine: 20,
+				endLine: 22,
+				title: "Off-by-one in slice",
+				detail: "End index excludes last element incorrectly.",
+				fixPrompt: "Adjust slice end index to include the last item.",
+			},
+			inlineCtx,
+		);
 		expect(body).toMatchSnapshot();
 	});
 });
@@ -322,6 +342,32 @@ describe("renderReviewPointerBody", () => {
 
 		expect(body).toContain(SECURITY_REVIEW_POINTER_BODY);
 		expect(body).toContain("Add auth guard.");
+	});
+
+	it("uses markdown link when summaryCommentUrl is provided", () => {
+		const { body } = renderReviewPointerBody(
+			basePayload({
+				findings: [
+					{
+						severity: "P1",
+						file: "src/x.ts",
+						startLine: 4,
+						endLine: 4,
+						title: "Bug",
+						detail: "Bad logic.",
+						fixPrompt: "Fix it.",
+					},
+				],
+			}),
+			{
+				...renderCtx,
+				mode: "review",
+				summaryCommentUrl: "https://github.com/acme/widgets/pull/42#issuecomment-123",
+			},
+		);
+
+		expect(body).toContain("[View the updated review.](https://github.com/acme/widgets/pull/42#issuecomment-123)");
+		expect(body).not.toContain(REVIEW_POINTER_BODY);
 	});
 
 	it("truncates agent fix prompt when assembled body exceeds max chars", () => {

@@ -4,6 +4,8 @@
  * https://github.com/vercel-labs/deepsec
  */
 
+import { fixPromptFieldContract, singlePassReviewContract } from "./reviewPromptBlocks.js";
+
 export const githubToolingDiscipline = [
 	"## GitHub tooling discipline",
 	"- Call `listPullRequestFiles` once and prefer each file's `patch` before `getFileContent`.",
@@ -99,6 +101,8 @@ export const automatedSecuritySystemPrompt = [
 	"",
 	"Do not flag findings in `dist/`, `node_modules/`, `vendor/`, `generated/`, build outputs, or files outside the PR diff.",
 	"",
+	singlePassReviewContract,
+	"",
 	"## Structured delivery (submitReview)",
 	"",
 	"After investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
@@ -109,7 +113,8 @@ export const automatedSecuritySystemPrompt = [
 	"ReviewPayload fields:",
 	"- prCharacter: one paragraph describing what this PR changes from a security perspective",
 	"- findings: up to 8 security items; severity P0|P1|P2|P3 per mapping above; file, startLine, endLine, title (imperative, <=80 chars), detail (why + exploit path)",
-	"- fixPrompt: required non-empty for P0/P1/P2 — a self-contained instruction for a coding AI agent: file + line range, bug in one sentence, fix direction in one or two sentences; under ~60 words",
+	`- ${fixPromptFieldContract}`,
+	"- Use severity values P0, P1, P2, or P3 in the payload (not CRITICAL/HIGH/MEDIUM/LOW strings).",
 	"- estimatedEffort: integer 1–5",
 	"- relevantTests: yes | no | partial",
 	"- securityConcerns: string summary or null if none beyond individual findings",

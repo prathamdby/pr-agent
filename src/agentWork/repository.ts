@@ -174,6 +174,50 @@ export async function shouldSkipWork(pool: Pool, item: AgentWorkItem): Promise<b
 	return !row || row.status === "superseded" || row.status === "cancelled" || row.cancel_requested_at != null;
 }
 
+export async function hasPriorCompletedSummaryPublish(
+	pool: Pool,
+	resourceKey: string,
+	reviewLens: ReviewWorkPayload["mode"],
+	excludeWorkItemId: string,
+): Promise<boolean> {
+	const row = await queryOne<{ exists: number }>(
+		pool,
+		`SELECT 1 AS exists
+		   FROM publish_records
+		  WHERE resource_key = $1
+		    AND review_lens = $2
+		    AND step = 'summary_comment'
+		    AND status = 'completed'
+		    AND work_item_id <> $3
+		  LIMIT 1`,
+		[resourceKey, reviewLens, excludeWorkItemId],
+	);
+	return row != null;
+}
+
+export async function getSummaryCommentGithubId(
+	pool: Pool,
+	resourceKey: string,
+	reviewLens: ReviewWorkPayload["mode"],
+): Promise<number | null> {
+	const row = await queryOne<{ github_id: string }>(
+		pool,
+		`SELECT github_id
+		   FROM publish_records
+		  WHERE resource_key = $1
+		    AND review_lens = $2
+		    AND step IN ('summary_comment', 'progress_comment')
+		    AND status = 'completed'
+		    AND github_id IS NOT NULL
+		  ORDER BY updated_at DESC
+		  LIMIT 1`,
+		[resourceKey, reviewLens],
+	);
+	if (!row?.github_id) return null;
+	const id = Number(row.github_id);
+	return Number.isFinite(id) ? id : null;
+}
+
 export async function getReviewPublishState(
 	pool: Pool,
 	workItemId: string,
