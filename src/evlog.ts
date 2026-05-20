@@ -104,7 +104,11 @@ function recordOrGlobal(
     return;
   }
   if (!isLevelEnabled(level)) return;
-  globalFn({ event, ...meta });
+  if (meta === undefined) {
+    globalFn({ event });
+  } else {
+    globalFn({ event, ...meta });
+  }
 }
 
 export function logDebug(event: string, meta?: Record<string, unknown>): void {
