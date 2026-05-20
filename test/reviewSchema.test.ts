@@ -109,6 +109,28 @@ describe("coerceReviewPayloadInput", () => {
 			expect(parsed.data.estimatedEffort).toBe(3);
 		}
 	});
+
+	it("preserves finding reference when no finding field changes", () => {
+		const finding = {
+			severity: "P1",
+			file: "a.ts",
+			startLine: 10,
+			endLine: 10,
+			title: "t",
+			detail: "d",
+			fixPrompt: "fix",
+		};
+		const { value } = coerceReviewPayloadInput({
+			prCharacter: "x",
+			findings: [finding],
+			estimatedEffort: 2,
+			relevantTests: "no",
+			securityConcerns: null,
+			followUps: [],
+		});
+		const out = value as { findings: unknown[] };
+		expect(out.findings[0]).toBe(finding);
+	});
 });
 
 describe("formatReviewValidationError", () => {

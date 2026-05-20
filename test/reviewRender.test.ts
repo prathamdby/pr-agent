@@ -174,6 +174,23 @@ describe("renderInlineThreadBody", () => {
 		);
 		expect(body).toMatchSnapshot();
 	});
+
+	it("escapes triple backticks in fixPrompt inside accordion fence", () => {
+		const body = renderInlineThreadBody(
+			{
+				severity: "P1",
+				file: "src/b.ts",
+				startLine: 1,
+				endLine: 1,
+				title: "Fence break",
+				detail: "Model returned markdown fences.",
+				fixPrompt: "Wrap with ```ts and close with ```",
+			},
+			inlineCtx,
+		);
+		expect(body).toContain("\\`\\`\\`ts");
+		expect(body).not.toContain("Wrap with ```ts");
+	});
 });
 
 describe("renderAgentFixPrompt", () => {

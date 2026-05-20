@@ -9,6 +9,11 @@ function escapeTableCell(text: string): string {
 	return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
+/** Prevent model-authored text from closing a surrounding markdown code fence. */
+function escapeCodeFenceBreakers(text: string): string {
+	return text.replace(/```/g, "\\`\\`\\`");
+}
+
 function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
 	const lineAnchor = startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
 	return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
@@ -98,7 +103,7 @@ export function renderFindingFixBlock(
 	}
 
 	lines.push(`[${finding.severity}] ${location}`);
-	lines.push(finding.fixPrompt ?? "");
+	lines.push(finding.fixPrompt ? escapeCodeFenceBreakers(finding.fixPrompt) : "");
 	if (!opts.inlinePosted) {
 		lines.push("[inline thread omitted — severity cap]");
 	}

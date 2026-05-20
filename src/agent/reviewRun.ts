@@ -473,7 +473,10 @@ export async function runFullPrReview(params: {
 				timestamp: Date.now(),
 			});
 			stopLoop = false;
+			const savedTools = context.tools;
+			context.tools = [submitTool];
 			await runToolLoop(1, { toolChoice: "required", nudgeOnProseOnly: true });
+			context.tools = savedTools;
 		}
 	}
 

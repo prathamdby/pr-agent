@@ -104,30 +104,71 @@ function coerceSeverity(value: unknown): ReviewFinding["severity"] | undefined {
 
 function coerceFinding(raw: unknown): unknown {
 	if (typeof raw !== "object" || raw == null) return raw;
-	const f = { ...(raw as Record<string, unknown>) };
-	if ("severity" in f) {
-		const coerced = coerceSeverity(f.severity);
-		if (coerced) f.severity = coerced;
-	}
-	if ("startLine" in f) {
-		const n = coercePositiveInt(f.startLine);
-		if (n != null && n > 0) f.startLine = n;
-	}
-	if ("endLine" in f) {
-		const n = coercePositiveInt(f.endLine);
-		if (n != null && n > 0) f.endLine = n;
-	}
-	if ("file" in f && typeof f.file === "string") f.file = f.file.trim();
-	if ("title" in f && typeof f.title === "string") f.title = f.title.trim();
-	if ("detail" in f && typeof f.detail === "string") f.detail = f.detail.trim();
-	if ("fixPrompt" in f) {
-		if (typeof f.fixPrompt === "string") {
-			const trimmed = f.fixPrompt.trim();
-			if (trimmed.length === 0) delete f.fixPrompt;
-			else f.fixPrompt = trimmed;
+	const r = raw as Record<string, unknown>;
+	let mutated = false;
+	let f: Record<string, unknown> = r;
+
+	const touch = (): void => {
+		if (!mutated) {
+			f = { ...r };
+			mutated = true;
+		}
+	};
+
+	if ("severity" in r) {
+		const coerced = coerceSeverity(r.severity);
+		if (coerced && coerced !== r.severity) {
+			touch();
+			f.severity = coerced;
 		}
 	}
-	return f;
+	if ("startLine" in r) {
+		const n = coercePositiveInt(r.startLine);
+		if (n != null && n > 0 && n !== r.startLine) {
+			touch();
+			f.startLine = n;
+		}
+	}
+	if ("endLine" in r) {
+		const n = coercePositiveInt(r.endLine);
+		if (n != null && n > 0 && n !== r.endLine) {
+			touch();
+			f.endLine = n;
+		}
+	}
+	if ("file" in r && typeof r.file === "string") {
+		const trimmed = r.file.trim();
+		if (trimmed !== r.file) {
+			touch();
+			f.file = trimmed;
+		}
+	}
+	if ("title" in r && typeof r.title === "string") {
+		const trimmed = r.title.trim();
+		if (trimmed !== r.title) {
+			touch();
+			f.title = trimmed;
+		}
+	}
+	if ("detail" in r && typeof r.detail === "string") {
+		const trimmed = r.detail.trim();
+		if (trimmed !== r.detail) {
+			touch();
+			f.detail = trimmed;
+		}
+	}
+	if ("fixPrompt" in r && typeof r.fixPrompt === "string") {
+		const trimmed = r.fixPrompt.trim();
+		if (trimmed.length === 0) {
+			touch();
+			delete f.fixPrompt;
+		} else if (trimmed !== r.fixPrompt) {
+			touch();
+			f.fixPrompt = trimmed;
+		}
+	}
+
+	return mutated ? f : raw;
 }
 
 export function coerceReviewPayloadInput(raw: unknown): { value: unknown; coerced: boolean } {
