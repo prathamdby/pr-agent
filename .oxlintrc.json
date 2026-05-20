@@ -5,7 +5,9 @@
     "correctness": "error",
     "suspicious": "warn"
   },
-  "rules": {},
+  "rules": {
+    "typescript/no-unsafe-type-assertion": "off"
+  },
   "env": {
     "node": true
   },
@@ -28,7 +30,10 @@
         "eslint/no-unsafe-optional-chaining": "off",
         "typescript/no-misused-spread": "off",
         "typescript/no-base-to-string": "off",
-        "typescript/unbound-method": "off"
+        "typescript/unbound-method": "off",
+        "eslint/no-underscore-dangle": "off",
+        "eslint/no-shadow": "off",
+        "unicorn/consistent-function-scoping": "off"
       }
     }
   ]

@@ -266,6 +266,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
             rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
           ) {
             rateLimitCircuitOpen = true;
+            stopLoop = true;
             logWarn("ask_rate_limit_circuit_open", {
               consecutiveFailures: rateLimitConsecutiveFailures,
               owner,
