@@ -131,6 +131,29 @@ describe("coerceReviewPayloadInput", () => {
 		const out = value as { findings: unknown[] };
 		expect(out.findings[0]).toBe(finding);
 	});
+
+	it("trims securityConcerns only when whitespace changes the value", () => {
+		const trimmed = coerceReviewPayloadInput({
+			prCharacter: "x",
+			findings: [],
+			estimatedEffort: 1,
+			relevantTests: "no",
+			securityConcerns: "  timing issue  ",
+			followUps: [],
+		});
+		expect((trimmed.value as { securityConcerns: string }).securityConcerns).toBe("timing issue");
+		expect(trimmed.coerced).toBe(true);
+
+		const alreadyTrimmed = coerceReviewPayloadInput({
+			prCharacter: "x",
+			findings: [],
+			estimatedEffort: 1,
+			relevantTests: "no",
+			securityConcerns: "plain",
+			followUps: [],
+		});
+		expect((alreadyTrimmed.value as { securityConcerns: string }).securityConcerns).toBe("plain");
+	});
 });
 
 describe("formatReviewValidationError", () => {

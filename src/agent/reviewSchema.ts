@@ -188,8 +188,11 @@ export function coerceReviewPayloadInput(raw: unknown): { value: unknown; coerce
 		}
 	}
 	if ("securityConcerns" in input && typeof input.securityConcerns === "string") {
-		input.securityConcerns = input.securityConcerns.trim();
-		coerced = true;
+		const trimmed = input.securityConcerns.trim();
+		if (trimmed !== input.securityConcerns) {
+			input.securityConcerns = trimmed;
+			coerced = true;
+		}
 	}
 	if (Array.isArray(input.findings)) {
 		input.findings = input.findings.map((item) => {
