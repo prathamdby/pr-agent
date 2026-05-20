@@ -3,15 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.12.0",
-  "engines": {
-    "node": ">=22.12"
-  },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "dev": "node --import tsx src/index.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.build.json",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "fmt": "oxfmt",
+    "fmt:check": "oxfmt --check",
+    "check:code": "pnpm run typecheck && pnpm run lint && pnpm run fmt:check",
     "pretest": "node scripts/check-effect-versions.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -37,8 +38,15 @@
   "devDependencies": {
     "@types/node": "^22.13.14",
     "@types/pg": "^8.20.0",
+    "oxfmt": "^0.49.0",
+    "oxlint": "^1.64.0",
+    "oxlint-tsgolint": "^0.22.1",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2",
     "vitest": "^3.2.4"
-  }
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "packageManager": "pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800"
 }

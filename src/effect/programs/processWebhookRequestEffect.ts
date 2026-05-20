@@ -42,7 +42,11 @@ export function processWebhookHttpRequestEffect(
     });
 
     if (req.method === "GET" && path === "/health") {
-      const response = { status: 200, body: "ok", contentType: "text/plain; charset=utf-8" } satisfies WebhookResponseLike;
+      const response = {
+        status: 200,
+        body: "ok",
+        contentType: "text/plain; charset=utf-8",
+      } satisfies WebhookResponseLike;
       recordEvent(intakeLog, "health_check", { status: response.status }, "debug");
       intakeLog.set({ webhook: { status: response.status } });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "health_check" }));
@@ -107,7 +111,9 @@ export function processWebhookHttpRequestEffect(
     if (!result.ok) {
       const response = { status: 503, body: "service unavailable" } satisfies WebhookResponseLike;
       intakeLog.set({ webhook: { status: response.status, elapsedMs, handlerFailed: true } });
-      yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "webhook_handler_error" }));
+      yield* Effect.promise(() =>
+        emitOperationLogger(intakeLog, { event: "webhook_handler_error" }),
+      );
       return response;
     }
 

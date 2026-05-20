@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "vitest"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "warn"
+  },
+  "rules": {},
+  "env": {
+    "node": true
+  },
+  "ignorePatterns": ["dist/**", "test/__snapshots__/**", "coverage/**"],
+  "options": {
+    "typeAware": true,
+    "typeCheck": false
+  },
+  "overrides": [
+    {
+      "files": ["test/**/*.ts"],
+      "env": { "vitest": true },
+      "rules": {
+        "typescript/no-floating-promises": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "vitest/require-mock-type-parameters": "off",
+        "vitest/no-conditional-expect": "off",
+        "vitest/expect-expect": "off",
+        "vitest/require-to-throw-message": "off",
+        "eslint/no-unsafe-optional-chaining": "off",
+        "typescript/no-misused-spread": "off",
+        "typescript/no-base-to-string": "off",
+        "typescript/unbound-method": "off"
+      }
+    }
+  ]
+}

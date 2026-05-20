@@ -20,17 +20,17 @@ const cfg: Config = {
   maxAskFinalizeRounds: 6,
   maxReviewPublishAttempts: 3,
   reviewConcurrency: 2,
-	askConcurrency: 1,
-	ackConcurrency: 2,
-	queueRetryLimit: 3,
-	queueRetryDelaySeconds: 30,
-	queueRetryDelayMaxSeconds: 300,
-	queueExpireInSeconds: 3600,
-	queueHeartbeatSeconds: 60,
-	queueRetentionSeconds: 1209600,
-	queueDeleteAfterSeconds: 604800,
-	installationGroupConcurrency: 2,
-	maxAskToolRounds: 12,
+  askConcurrency: 1,
+  ackConcurrency: 2,
+  queueRetryLimit: 3,
+  queueRetryDelaySeconds: 30,
+  queueRetryDelayMaxSeconds: 300,
+  queueExpireInSeconds: 3600,
+  queueHeartbeatSeconds: 60,
+  queueRetentionSeconds: 1209600,
+  queueDeleteAfterSeconds: 604800,
+  installationGroupConcurrency: 2,
+  maxAskToolRounds: 12,
   webhookTimeoutMs: 10000,
   context7ApiKey: "",
   maxReviewFindings: 8,
@@ -50,15 +50,15 @@ const issueCommentData = {
 } as never;
 
 function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
-	const bot = Layer.succeed(
-		BotIdentity,
-		BotIdentity.of({
-			resolve: () => Effect.succeed({ userId: 42, login: "pr-agent[bot]" }),
-			getUserId: () => Effect.succeed(42),
-			getAppUserId: () => Effect.succeed(42),
-		}),
-	);
-	return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(bot));
+  const bot = Layer.succeed(
+    BotIdentity,
+    BotIdentity.of({
+      resolve: () => Effect.succeed({ userId: 42, login: "pr-agent[bot]" }),
+      getUserId: () => Effect.succeed(42),
+      getAppUserId: () => Effect.succeed(42),
+    }),
+  );
+  return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(bot));
 }
 
 describe("WebhookHandlers Effect resolution", () => {
@@ -83,7 +83,10 @@ describe("WebhookHandlers Effect resolution", () => {
           { event: "issue_comment", delivery: "d1", rawBody: Buffer.from("{}") },
           issueCommentData,
         );
-      }).pipe(Effect.provide(HandlersWithFailingScheduler), Effect.provideService(IntakeLogger, intakeLog)),
+      }).pipe(
+        Effect.provide(HandlersWithFailingScheduler),
+        Effect.provideService(IntakeLogger, intakeLog),
+      ),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -91,7 +94,7 @@ describe("WebhookHandlers Effect resolution", () => {
       const failure = Cause.failureOption(exit.cause);
       expect(failure._tag).toBe("Some");
       if (failure._tag === "Some") {
-        expect((failure.value as Error).message).toBe("scheduler failed");
+        expect(failure.value.message).toBe("scheduler failed");
       }
     }
   });
@@ -115,7 +118,10 @@ describe("WebhookHandlers Effect resolution", () => {
     );
 
     const Handlers = handlerTestLayers(scheduler);
-    const nonSlash = { ...issueCommentData, comment: { id: 99, user: { id: 7 }, body: "hello" } } as never;
+    const nonSlash = {
+      ...issueCommentData,
+      comment: { id: 99, user: { id: 7 }, body: "hello" },
+    } as never;
 
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
     const exit = await Effect.runPromiseExit(
@@ -153,7 +159,10 @@ describe("WebhookHandlers Effect resolution", () => {
     );
 
     const Handlers = handlerTestLayers(scheduler);
-    const botSlash = { ...issueCommentData, comment: { id: 99, user: { id: 42 }, body: "/help" } } as never;
+    const botSlash = {
+      ...issueCommentData,
+      comment: { id: 99, user: { id: 42 }, body: "/help" },
+    } as never;
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     const exit = await Effect.runPromiseExit(

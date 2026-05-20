@@ -1,6 +1,10 @@
 import { Context, Deferred, Effect, Layer, Ref } from "effect";
 import type { Config } from "../../config.js";
-import { getAppBotIdentity, mintBotIdentity, type BotIdentity as BotIdentityValue } from "../../github/appAuth.js";
+import {
+  getAppBotIdentity,
+  mintBotIdentity,
+  type BotIdentity as BotIdentityValue,
+} from "../../github/appAuth.js";
 
 type Entry =
   | { readonly tag: "value"; readonly value: BotIdentityValue }
@@ -41,13 +45,16 @@ export const BotIdentityLive = Layer.effect(
         const candidate = yield* Deferred.make<BotIdentityValue, Error>();
 
         // Atomic check-and-claim: return existing value, attach to in-flight Deferred, or claim the mint.
-        const action = yield* Ref.modify(store, (map): readonly [StoreAction, Map<string, Entry>] => {
-          const hit = map.get(cfg.githubAppId);
-          if (hit && hit.tag === "value") return [{ tag: "hit", value: hit.value }, map];
-          if (hit && hit.tag === "pending") return [{ tag: "wait", deferred: hit.deferred }, map];
-          map.set(cfg.githubAppId, { tag: "pending", deferred: candidate });
-          return [{ tag: "claim", deferred: candidate }, map];
-        });
+        const action = yield* Ref.modify(
+          store,
+          (map): readonly [StoreAction, Map<string, Entry>] => {
+            const hit = map.get(cfg.githubAppId);
+            if (hit && hit.tag === "value") return [{ tag: "hit", value: hit.value }, map];
+            if (hit && hit.tag === "pending") return [{ tag: "wait", deferred: hit.deferred }, map];
+            map.set(cfg.githubAppId, { tag: "pending", deferred: candidate });
+            return [{ tag: "claim", deferred: candidate }, map];
+          },
+        );
 
         if (action.tag === "hit") return action.value;
         if (action.tag === "wait") return yield* Deferred.await(action.deferred);

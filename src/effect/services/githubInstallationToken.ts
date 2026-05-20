@@ -36,17 +36,20 @@ export const GithubInstallationTokenLive = Layer.effect(
           const now = yield* Clock.currentTimeMillis;
           const candidate = yield* Deferred.make<InstallationToken, Error>();
 
-          const action = yield* Ref.modify(store, (map): readonly [StoreAction, Map<number, Entry>] => {
-            const hit = map.get(installationId);
-            if (hit && hit.tag === "value" && hit.token.expiresAtTs - FRESHNESS_BUFFER_MS > now) {
-              return [{ tag: "hit", token: hit.token }, map];
-            }
-            if (hit && hit.tag === "pending") {
-              return [{ tag: "wait", deferred: hit.deferred }, map];
-            }
-            map.set(installationId, { tag: "pending", deferred: candidate });
-            return [{ tag: "claim", deferred: candidate }, map];
-          });
+          const action = yield* Ref.modify(
+            store,
+            (map): readonly [StoreAction, Map<number, Entry>] => {
+              const hit = map.get(installationId);
+              if (hit && hit.tag === "value" && hit.token.expiresAtTs - FRESHNESS_BUFFER_MS > now) {
+                return [{ tag: "hit", token: hit.token }, map];
+              }
+              if (hit && hit.tag === "pending") {
+                return [{ tag: "wait", deferred: hit.deferred }, map];
+              }
+              map.set(installationId, { tag: "pending", deferred: candidate });
+              return [{ tag: "claim", deferred: candidate }, map];
+            },
+          );
 
           if (action.tag === "hit") return action.token;
           if (action.tag === "wait") return yield* Deferred.await(action.deferred);
@@ -70,7 +73,10 @@ export const GithubInstallationTokenLive = Layer.effect(
                   return m;
                 });
                 yield* Deferred.succeed(action.deferred, value);
-                logDebug("minted_installation_token", { installationId, expiresAt: auth.expiresAt });
+                logDebug("minted_installation_token", {
+                  installationId,
+                  expiresAt: auth.expiresAt,
+                });
                 return value;
               });
             }),

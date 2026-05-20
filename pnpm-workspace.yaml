@@ -1,0 +1,8 @@
+packages:
+  - "."
+
+minimumReleaseAge: 10080
+
+# pg@8.21.0 pulls pg-cloudflare@1.4.0; exclude until it ages past the gate.
+minimumReleaseAgeExclude:
+  - pg-cloudflare

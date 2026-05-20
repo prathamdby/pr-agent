@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { Clock, Effect, Layer, TestClock, TestContext } from "effect";
+import { Clock, Effect, TestClock, TestContext } from "effect";
 import * as appAuth from "../src/github/appAuth.js";
 import {
   GithubInstallationToken,
@@ -30,7 +30,9 @@ describe("GithubInstallationToken service", () => {
     });
 
     try {
-      const [a, b] = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
+      const [a, b] = await Effect.runPromise(
+        program.pipe(Effect.provide(GithubInstallationTokenLive)),
+      );
       expect(a.token).toBe("tok-a");
       expect(b.token).toBe("tok-a");
       expect(spy).toHaveBeenCalledTimes(1);
@@ -76,15 +78,16 @@ describe("GithubInstallationToken service", () => {
   });
 
   it("caches per installation id (different ids both mint)", async () => {
-    const spy = vi
-      .spyOn(appAuth, "mintInstallationAuth")
-      .mockImplementation(async (_cfg, id) => ({
-        type: "token",
-        tokenType: "installation",
-        token: `tok-${id}`,
-        expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-        installationId: id,
-      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>));
+    const spy = vi.spyOn(appAuth, "mintInstallationAuth").mockImplementation(
+      async (_cfg, id) =>
+        ({
+          type: "token",
+          tokenType: "installation",
+          token: `tok-${id}`,
+          expiresAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          installationId: id,
+        }) as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>,
+    );
 
     const program = Effect.gen(function* () {
       const svc = yield* GithubInstallationToken;
@@ -95,7 +98,9 @@ describe("GithubInstallationToken service", () => {
     });
 
     try {
-      const [a, b, aAgain] = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
+      const [a, b, aAgain] = await Effect.runPromise(
+        program.pipe(Effect.provide(GithubInstallationTokenLive)),
+      );
       expect(a.token).toBe("tok-1");
       expect(b.token).toBe("tok-2");
       expect(aAgain.token).toBe("tok-1");
@@ -126,7 +131,9 @@ describe("GithubInstallationToken service", () => {
     });
 
     try {
-      const results = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
+      const results = await Effect.runPromise(
+        program.pipe(Effect.provide(GithubInstallationTokenLive)),
+      );
       expect(results.every((r) => r.token === "tok-42")).toBe(true);
       expect(calls).toBe(1);
       expect(spy).toHaveBeenCalledTimes(1);
@@ -183,7 +190,9 @@ describe("GithubInstallationToken service", () => {
     });
 
     try {
-      const [first, second] = await Effect.runPromise(program.pipe(Effect.provide(GithubInstallationTokenLive)));
+      const [first, second] = await Effect.runPromise(
+        program.pipe(Effect.provide(GithubInstallationTokenLive)),
+      );
       expect(first._tag).toBe("Left");
       expect(second.token).toBe("tok-5");
       expect(calls).toBe(2);

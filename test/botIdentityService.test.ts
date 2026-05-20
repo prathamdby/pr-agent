@@ -5,7 +5,9 @@ import { BotIdentity, BotIdentityLive } from "../src/effect/services/botIdentity
 
 describe("BotIdentity service", () => {
   it("caches by GitHub App id across calls", async () => {
-    const spy = vi.spyOn(appAuth, "mintBotIdentity").mockResolvedValue({ userId: 42, login: "app[bot]" });
+    const spy = vi
+      .spyOn(appAuth, "mintBotIdentity")
+      .mockResolvedValue({ userId: 42, login: "app[bot]" });
 
     const program = Effect.gen(function* () {
       const svc = yield* BotIdentity;
@@ -25,9 +27,10 @@ describe("BotIdentity service", () => {
   });
 
   it("separates cache per githubAppId", async () => {
-    const spy = vi
-      .spyOn(appAuth, "mintBotIdentity")
-      .mockImplementation(async (cfg) => ({ userId: cfg.githubAppId === "A" ? 1 : 2, login: cfg.githubAppId }));
+    const spy = vi.spyOn(appAuth, "mintBotIdentity").mockImplementation(async (cfg) => ({
+      userId: cfg.githubAppId === "A" ? 1 : 2,
+      login: cfg.githubAppId,
+    }));
 
     const program = Effect.gen(function* () {
       const svc = yield* BotIdentity;
@@ -85,13 +88,17 @@ describe("BotIdentity service", () => {
 
     const program = Effect.gen(function* () {
       const svc = yield* BotIdentity;
-      const first = yield* Effect.either(svc.getUserId({ githubAppId: "Y", githubAppPrivateKey: "k" }, "tY"));
+      const first = yield* Effect.either(
+        svc.getUserId({ githubAppId: "Y", githubAppPrivateKey: "k" }, "tY"),
+      );
       const second = yield* svc.getUserId({ githubAppId: "Y", githubAppPrivateKey: "k" }, "tY");
       return [first, second] as const;
     });
 
     try {
-      const [first, second] = await Effect.runPromise(program.pipe(Effect.provide(BotIdentityLive)));
+      const [first, second] = await Effect.runPromise(
+        program.pipe(Effect.provide(BotIdentityLive)),
+      );
       expect(first._tag).toBe("Left");
       expect(second).toBe(7);
       expect(calls).toBe(2);

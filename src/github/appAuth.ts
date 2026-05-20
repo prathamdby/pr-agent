@@ -10,44 +10,48 @@ import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
 
-export type CachedInstallationToken = InstallationAccessTokenAuthentication & { expiresAtTs: number };
+export type CachedInstallationToken = InstallationAccessTokenAuthentication & {
+  expiresAtTs: number;
+};
 export type BotIdentity = { userId: number; login: string };
 
 export type InstallationToken = {
-	readonly token: string;
-	readonly expiresAtTs: number;
-	/** Observed TTL at mint (ms); used for token_age_seconds in logs */
-	readonly ttlMs: number;
+  readonly token: string;
+  readonly expiresAtTs: number;
+  /** Observed TTL at mint (ms); used for token_age_seconds in logs */
+  readonly ttlMs: number;
 };
 
 export async function mintInstallationAuth(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-	installationId: number,
+  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+  installationId: number,
 ): Promise<InstallationAccessTokenAuthentication> {
-	const auth = createAppAuth({
-		appId: cfg.githubAppId,
-		privateKey: cfg.githubAppPrivateKey,
-	});
-	return auth({
-		type: "installation",
-		installationId,
-	});
+  const auth = createAppAuth({
+    appId: cfg.githubAppId,
+    privateKey: cfg.githubAppPrivateKey,
+  });
+  return auth({
+    type: "installation",
+    installationId,
+  });
 }
 
 export function installationOctokit(token: string): InstallationOctokit {
-	return new ThrottledOctokit({
-		auth: token,
-		throttle: { onRateLimit, onSecondaryRateLimit },
-	});
+  return new ThrottledOctokit({
+    auth: token,
+    throttle: { onRateLimit, onSecondaryRateLimit },
+  });
 }
 
-async function mintAppJwtToken(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<string> {
-	const authFn = createAppAuth({
-		appId: cfg.githubAppId,
-		privateKey: cfg.githubAppPrivateKey,
-	});
-	const appAuth = await authFn({ type: "app" });
-	return appAuth.token;
+async function mintAppJwtToken(
+  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+): Promise<string> {
+  const authFn = createAppAuth({
+    appId: cfg.githubAppId,
+    privateKey: cfg.githubAppPrivateKey,
+  });
+  const appAuth = await authFn({ type: "app" });
+  return appAuth.token;
 }
 
 /**
@@ -57,33 +61,35 @@ const appBotIdentityByAppId = new Map<string, BotIdentity>();
 
 /** Resolve the app's bot user id without minting an installation token. */
 export async function getAppBotIdentity(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
 ): Promise<BotIdentity> {
-	const cached = appBotIdentityByAppId.get(cfg.githubAppId);
-	if (cached) return cached;
-	const identity = await resolveBotIdentityViaAppSlug(cfg);
-	appBotIdentityByAppId.set(cfg.githubAppId, identity);
-	return identity;
+  const cached = appBotIdentityByAppId.get(cfg.githubAppId);
+  if (cached) return cached;
+  const identity = await resolveBotIdentityViaAppSlug(cfg);
+  appBotIdentityByAppId.set(cfg.githubAppId, identity);
+  return identity;
 }
 
-async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">): Promise<BotIdentity> {
-	const jwtToken = await mintAppJwtToken(cfg);
-	const jwtOctokit = new ThrottledOctokit({
-		auth: jwtToken,
-		throttle: { onRateLimit, onSecondaryRateLimit },
-	});
-	const { data } = await jwtOctokit.rest.apps.getAuthenticated();
-	if (!data?.slug) {
-		throw new Error("GitHub App /app response missing slug (cannot resolve bot user)");
-	}
-	const slug = data.slug;
-	const anon = new ThrottledOctokit({
-		throttle: { onRateLimit, onSecondaryRateLimit },
-	});
-	const { data: user } = await anon.rest.users.getByUsername({
-		username: `${slug}[bot]`,
-	});
-	return { userId: user.id, login: user.login };
+async function resolveBotIdentityViaAppSlug(
+  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+): Promise<BotIdentity> {
+  const jwtToken = await mintAppJwtToken(cfg);
+  const jwtOctokit = new ThrottledOctokit({
+    auth: jwtToken,
+    throttle: { onRateLimit, onSecondaryRateLimit },
+  });
+  const { data } = await jwtOctokit.rest.apps.getAuthenticated();
+  if (!data?.slug) {
+    throw new Error("GitHub App /app response missing slug (cannot resolve bot user)");
+  }
+  const slug = data.slug;
+  const anon = new ThrottledOctokit({
+    throttle: { onRateLimit, onSecondaryRateLimit },
+  });
+  const { data: user } = await anon.rest.users.getByUsername({
+    username: `${slug}[bot]`,
+  });
+  return { userId: user.id, login: user.login };
 }
 
 /**
@@ -92,22 +98,22 @@ async function resolveBotIdentityViaAppSlug(cfg: Pick<Config, "githubAppId" | "g
  * `BotIdentity` Effect service.
  */
 export async function mintBotIdentity(
-	cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-	installationToken: string,
+  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+  installationToken: string,
 ): Promise<BotIdentity> {
-	const o = installationOctokit(installationToken);
-	let u: BotIdentity;
-	try {
-		const { data } = await o.rest.users.getAuthenticated();
-		u = { userId: data.id, login: data.login };
-	} catch (e: unknown) {
-		const status = (e as { status?: number }).status;
-		if (status !== 403) throw e;
+  const o = installationOctokit(installationToken);
+  let u: BotIdentity;
+  try {
+    const { data } = await o.rest.users.getAuthenticated();
+    u = { userId: data.id, login: data.login };
+  } catch (e: unknown) {
+    const status = (e as { status?: number }).status;
+    if (status !== 403) throw e;
 
-		logDebug("resolved_bot_identity_fallback_jwt_slug", { githubAppId: cfg.githubAppId });
-		u = await resolveBotIdentityViaAppSlug(cfg);
-	}
+    logDebug("resolved_bot_identity_fallback_jwt_slug", { githubAppId: cfg.githubAppId });
+    u = await resolveBotIdentityViaAppSlug(cfg);
+  }
 
-	logDebug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
-	return u;
+  logDebug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
+  return u;
 }

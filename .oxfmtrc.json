@@ -1,0 +1,7 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "ignorePatterns": ["dist/**", "test/__snapshots__/**"],
+  "printWidth": 100,
+  "semi": true,
+  "singleQuote": false
+}

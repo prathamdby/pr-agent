@@ -30,7 +30,9 @@ describe("DeliveryDedupe service", () => {
       const second = yield* svc.seenOrMark(key);
       return [first, second] as const;
     });
-    const [first, second] = await Effect.runPromise(program.pipe(Effect.provide(DeliveryDedupeLive)));
+    const [first, second] = await Effect.runPromise(
+      program.pipe(Effect.provide(DeliveryDedupeLive)),
+    );
     expect(first).toBe(false);
     expect(second).toBe(true);
   });
@@ -83,8 +85,8 @@ describe("DeliveryDedupe service", () => {
     });
 
     const results = await Effect.runPromise(program.pipe(Effect.provide(DeliveryDedupeLive)));
-    const winners = results.filter((r) => r === false).length;
+    const winners = results.filter((r) => !r).length;
     expect(winners).toBe(1);
-    expect(results.filter((r) => r === true).length).toBe(callers - 1);
+    expect(results.filter((r) => r).length).toBe(callers - 1);
   });
 });

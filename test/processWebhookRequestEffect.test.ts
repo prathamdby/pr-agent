@@ -21,17 +21,17 @@ const cfg: Config = {
   maxAskFinalizeRounds: 6,
   maxReviewPublishAttempts: 3,
   reviewConcurrency: 2,
-	askConcurrency: 3,
-	ackConcurrency: 2,
-	queueRetryLimit: 3,
-	queueRetryDelaySeconds: 30,
-	queueRetryDelayMaxSeconds: 300,
-	queueExpireInSeconds: 3600,
-	queueHeartbeatSeconds: 60,
-	queueRetentionSeconds: 1209600,
-	queueDeleteAfterSeconds: 604800,
-	installationGroupConcurrency: 2,
-	maxAskToolRounds: 12,
+  askConcurrency: 3,
+  ackConcurrency: 2,
+  queueRetryLimit: 3,
+  queueRetryDelaySeconds: 30,
+  queueRetryDelayMaxSeconds: 300,
+  queueExpireInSeconds: 3600,
+  queueHeartbeatSeconds: 60,
+  queueRetentionSeconds: 1209600,
+  queueDeleteAfterSeconds: 604800,
+  installationGroupConcurrency: 2,
+  maxAskToolRounds: 12,
   webhookTimeoutMs: 10000,
   context7ApiKey: "",
   maxReviewFindings: 8,
@@ -51,7 +51,10 @@ function withIntake<R, E, A>(
   dispatcherLayer: Layer.Layer<WebhookDispatcher>,
 ) {
   const intakeLog = evlog.createOperationLogger({ method: "POST", path: "/webhooks" });
-  return effect.pipe(Effect.provide(dispatcherLayer), Effect.provideService(IntakeLogger, intakeLog));
+  return effect.pipe(
+    Effect.provide(dispatcherLayer),
+    Effect.provideService(IntakeLogger, intakeLog),
+  );
 }
 
 describe("processWebhookHttpRequestEffect", () => {
@@ -137,7 +140,9 @@ describe("processWebhookHttpRequestEffect", () => {
         ),
       );
 
-      const budgetWarn = recordSpy.mock.calls.find((c) => c[1] === "webhook_timeout_budget_exceeded");
+      const budgetWarn = recordSpy.mock.calls.find(
+        (c) => c[1] === "webhook_timeout_budget_exceeded",
+      );
       expect(budgetWarn).toBeDefined();
       expect(budgetWarn?.[2]).toMatchObject({ budgetMs: 1 });
     } finally {
@@ -149,7 +154,8 @@ describe("processWebhookHttpRequestEffect", () => {
     const failingDispatcherLayer = Layer.succeed(
       WebhookDispatcher,
       WebhookDispatcher.of({
-        dispatch: () => Effect.fail(new WebhookHandlerError({ cause: new Error("boom"), message: "boom" })),
+        dispatch: () =>
+          Effect.fail(new WebhookHandlerError({ cause: new Error("boom"), message: "boom" })),
       }),
     );
 
