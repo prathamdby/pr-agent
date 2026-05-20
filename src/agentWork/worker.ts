@@ -18,7 +18,9 @@ import { logInfo, logWarn, logError, logDebug, runWithOperationLogger } from "..
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
 	getReviewPublishState,
+	getSummaryCommentGithubId,
 	getWorkItem,
+	hasPriorCompletedSummaryPublish,
 	markWorkCancelled,
 	markWorkCompleted,
 	markWorkFailed,
@@ -247,6 +249,15 @@ async function handleReviewJob(
 		}
 
 		const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, reviewLens);
+		const shouldLinkToSummary = await hasPriorCompletedSummaryPublish(
+			pool,
+			item.resourceKey,
+			reviewLens,
+			item.id,
+		);
+		const summaryCommentIdHint = shouldLinkToSummary
+			? await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens)
+			: null;
 		logInfo("agent_work_started", { type: "review", workItemId: item.id, resourceKey: item.resourceKey });
 		const result = await runFullPrReview({
 			cfg,
@@ -259,6 +270,8 @@ async function handleReviewJob(
 			headSha,
 			mode: reviewLens,
 			userSupplement: payload.userSupplement,
+			shouldLinkToSummary,
+			summaryCommentIdHint,
 			initialPublishState: {
 				inlinePublished: publishState.inlinePublished,
 				published: publishState.summaryPublished,

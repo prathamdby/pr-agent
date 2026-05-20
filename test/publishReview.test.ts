@@ -10,6 +10,7 @@ import {
 
 vi.mock("../src/github/reviewPublish.js", () => ({
 	createPullRequestReviewWithComments: vi.fn(async () => ({ id: 1, url: "https://example.com/review/1" })),
+	resolveVerifiedSummaryCommentUrl: vi.fn(async () => undefined),
 	upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
 	listPullRequestLabels: vi.fn(async () => []),
 	setPullRequestLabels: vi.fn(async () => undefined),
@@ -18,6 +19,7 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 import {
 	createPullRequestReviewWithComments,
 	listPullRequestLabels,
+	resolveVerifiedSummaryCommentUrl,
 	setPullRequestLabels,
 	upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
@@ -293,6 +295,51 @@ describe("publishReview", () => {
 		});
 
 		expect(setPullRequestLabels).toHaveBeenCalledWith("t", "o", "r", 1, ["bug", "Review effort 4/5"]);
+	});
+
+	it("links pointer when shouldLinkToSummary and comment verifies", async () => {
+		vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(
+			"https://github.com/o/r/pull/1#issuecomment-99",
+		);
+
+		await publishReview({
+			...baseParams,
+			shouldLinkToSummary: true,
+			summaryCommentIdHint: 99,
+			publishState: { published: false, inlinePublished: false, lastValidationError: null },
+		});
+
+		expect(resolveVerifiedSummaryCommentUrl).toHaveBeenCalled();
+		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.objectContaining({
+				body: expect.stringContaining("[View the updated review.](https://github.com/o/r/pull/1#issuecomment-99)"),
+			}),
+		);
+		expect(upsertReviewSummaryComment).toHaveBeenCalled();
+	});
+
+	it("falls back to plain pointer when shouldLinkToSummary but no verified comment", async () => {
+		vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(undefined);
+
+		await publishReview({
+			...baseParams,
+			shouldLinkToSummary: true,
+			publishState: { published: false, inlinePublished: false, lastValidationError: null },
+		});
+
+		expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+			"t",
+			"o",
+			"r",
+			1,
+			expect.objectContaining({
+				body: expect.stringContaining("See the structured review summary in the PR conversation."),
+			}),
+		);
 	});
 
 	it("does not fail publish when label sync throws", async () => {

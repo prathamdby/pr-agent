@@ -18,7 +18,7 @@ const testCfg: Config = {
 	piProvider: "openai",
 	piModel: "gpt-4o-mini",
 	maxToolRounds: 24,
-	maxFinalizeRounds: 6,
+	maxAskFinalizeRounds: 6,
 	maxReviewPublishAttempts: 3,
 	reviewConcurrency: 2,
 	askConcurrency: 1,

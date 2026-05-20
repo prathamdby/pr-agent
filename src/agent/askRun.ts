@@ -322,7 +322,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 	}
 
 	async function runFinalizePasses() {
-		for (let f = 0; f < cfg.maxFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
+		for (let f = 0; f < cfg.maxAskFinalizeRounds && endsWithToolResults(context.messages) && !stopLoop; f++) {
 			const assistant = await complete(model, context);
 			lastAssistant = assistant;
 			context.messages.push(assistant);

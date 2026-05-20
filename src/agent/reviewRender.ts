@@ -9,9 +9,23 @@ function escapeTableCell(text: string): string {
 	return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
 }
 
+/** Prevent model-authored text from closing a surrounding markdown code fence. */
+function escapeCodeFenceBreakers(text: string): string {
+	return text.replace(/```/g, "\\`\\`\\`");
+}
+
 function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
 	const lineAnchor = startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
 	return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
+}
+
+export function issueCommentUrl(
+	owner: string,
+	repo: string,
+	prNumber: number,
+	commentId: number,
+): string {
+	return `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${commentId}`;
 }
 
 function effortBar(n: number): string {
@@ -24,30 +38,19 @@ function severityBadge(severity: ReviewFinding["severity"]): string {
 	return `**${severity}**`;
 }
 
-export function renderInlineThreadBody(finding: ReviewFinding): string {
-	const lines = [
-		`[${finding.severity}] ${finding.title}`,
-		"",
-		finding.detail,
-		"",
-		"<details>",
-		"<summary>Prompt to fix</summary>",
-		"",
-		"```",
-		finding.fixPrompt ?? "",
-		"```",
-		"",
-		"</details>",
-	];
-	return lines.join("\n");
-}
-
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
 export const SECURITY_REVIEW_POINTER_BODY =
 	"See the security review summary in the PR conversation.";
 
 export function reviewPointerBodyForMode(mode: ReviewMode): string {
 	return mode === "review-security" ? SECURITY_REVIEW_POINTER_BODY : REVIEW_POINTER_BODY;
+}
+
+export function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
+	if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
+	return mode === "review-security"
+		? `[View the updated security review.](${summaryCommentUrl})`
+		: `[View the updated review.](${summaryCommentUrl})`;
 }
 
 export const AGENT_FIX_PROMPT_PREAMBLE =
@@ -86,7 +89,7 @@ function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding
 	});
 }
 
-function renderAgentFixFindingBlock(
+export function renderFindingFixBlock(
 	finding: ReviewFinding,
 	opts: { inlinePosted: boolean },
 ): string {
@@ -100,10 +103,47 @@ function renderAgentFixFindingBlock(
 	}
 
 	lines.push(`[${finding.severity}] ${location}`);
-	lines.push(finding.fixPrompt ?? "");
+	lines.push(finding.fixPrompt ? escapeCodeFenceBreakers(finding.fixPrompt) : "");
 	if (!opts.inlinePosted) {
 		lines.push("[inline thread omitted — severity cap]");
 	}
+	return lines.join("\n");
+}
+
+function renderAgentFixFindingBlock(
+	finding: ReviewFinding,
+	opts: { inlinePosted: boolean },
+): string {
+	return renderFindingFixBlock(finding, opts);
+}
+
+export function renderSingleFindingAgentFixPrompt(finding: ReviewFinding, ctx: RenderContext): string {
+	return [
+		AGENT_FIX_PROMPT_PREAMBLE,
+		"",
+		`Repository: ${ctx.owner}/${ctx.repo}`,
+		`Pull request: #${ctx.prNumber}`,
+		`Head SHA: ${ctx.headSha}`,
+		"",
+		renderFindingFixBlock(finding, { inlinePosted: true }),
+	].join("\n");
+}
+
+export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
+	const lines = [
+		`[${finding.severity}] ${finding.title}`,
+		"",
+		finding.detail,
+		"",
+		"<details>",
+		"<summary>Prompt to fix</summary>",
+		"",
+		"```",
+		renderSingleFindingAgentFixPrompt(finding, ctx),
+		"```",
+		"",
+		"</details>",
+	];
 	return lines.join("\n");
 }
 
@@ -170,9 +210,9 @@ function truncateAgentFixPromptForPointerBody(
 
 export function renderReviewPointerBody(
 	payload: ReviewPayload,
-	ctx: RenderContext & { mode: ReviewMode },
+	ctx: RenderContext & { mode: ReviewMode; summaryCommentUrl?: string },
 ): { body: string; truncated: boolean } {
-	const pointerLine = reviewPointerBodyForMode(ctx.mode);
+	const pointerLine = renderReviewPointerLine(ctx.mode, ctx.summaryCommentUrl);
 	let agentFixPrompt = renderAgentFixPrompt(payload, ctx);
 	let truncated = false;
 
