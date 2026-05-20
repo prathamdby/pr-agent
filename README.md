@@ -87,15 +87,22 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 ## Scripts
 
-| Script        | Purpose                |
-|---------------|------------------------|
-| `pnpm dev` | Run `src/index.ts`     |
-| `pnpm build` | Compile to `dist/`   |
-| `pnpm start`   | Run compiled `dist/`   |
-| `pnpm typecheck` | `tsc --noEmit`   |
-| `pnpm run check:effect-versions` | Verify pinned Effect deps |
-| `pnpm test` | Vitest (`test/**/*.test.ts`) |
-| `pnpm test:watch` | Vitest watch mode |
+| Script                           | Purpose                            |
+| -------------------------------- | ---------------------------------- |
+| `pnpm dev`                       | Run `src/index.ts`                 |
+| `pnpm build`                     | Compile to `dist/`                 |
+| `pnpm start`                     | Run compiled `dist/`               |
+| `pnpm typecheck`                 | `tsc --noEmit` (`src/` only)       |
+| `pnpm lint`                      | Type-aware Oxlint                  |
+| `pnpm lint:fix`                  | Oxlint with safe fixes             |
+| `pnpm fmt`                       | Format with Oxfmt                  |
+| `pnpm fmt:check`                 | Check formatting                   |
+| `pnpm check:code`                | `typecheck` + `lint` + `fmt:check` |
+| `pnpm run check:effect-versions` | Verify pinned Effect deps          |
+| `pnpm test`                      | Vitest (`test/**/*.test.ts`)       |
+| `pnpm test:watch`                | Vitest watch mode                  |
+
+Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs; `pg-cloudflare` is excluded as a fresh transitive dependency of `pg`.
 
 ## Security notes
 

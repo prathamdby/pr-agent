@@ -3,29 +3,32 @@ import type { Config } from "../src/config.js";
 import * as evlog from "../src/evlog.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
-	createIssueComment: vi.fn(async () => ({ id: 99, url: "https://example.com/issues/comments/99" })),
-	upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
+  createIssueComment: vi.fn(async () => ({
+    id: 99,
+    url: "https://example.com/issues/comments/99",
+  })),
+  upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
 }));
 
 vi.mock("@earendil-works/pi-ai", () => ({
-	getModel: vi.fn(() => ({})),
-	complete: vi.fn(async () => ({
-		role: "assistant" as const,
-		content: [{ type: "text" as const, text: "analysis without submitReview" }],
-		api: "test",
-		provider: "test",
-		model: "test",
-		usage: {
-			input: 0,
-			output: 0,
-			cacheRead: 0,
-			cacheWrite: 0,
-			totalTokens: 0,
-			cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-		},
-		stopReason: "stop" as const,
-		timestamp: Date.now(),
-	})),
+  getModel: vi.fn(() => ({})),
+  complete: vi.fn(async () => ({
+    role: "assistant" as const,
+    content: [{ type: "text" as const, text: "analysis without submitReview" }],
+    api: "test",
+    provider: "test",
+    model: "test",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: "stop" as const,
+    timestamp: Date.now(),
+  })),
 }));
 
 import { complete } from "@earendil-works/pi-ai";
@@ -34,220 +37,220 @@ import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { runFullPrReview } from "../src/agent/reviewRun.js";
 
 const cfg = {
-	port: 0,
-	githubAppId: "1",
-	githubAppPrivateKey: "k",
-	webhookSecret: "s",
-	piProvider: "openai",
-	piModel: "gpt-4o-mini",
-	maxToolRounds: 2,
-	maxReviewPublishAttempts: 3,
-	reviewConcurrency: 1,
-	askConcurrency: 3,
-	maxAskToolRounds: 12,
-	maxAskFinalizeRounds: 2,
-	webhookTimeoutMs: 10_000,
-	logLevel: "error",
-	maxReviewFindings: 8,
-	enableReviewLabelsEffort: false,
-	enableReviewLabelsSecurity: false,
-	maxPrFilesListed: 300,
-	maxPrFilesPatchBytes: 500_000,
+  port: 0,
+  githubAppId: "1",
+  githubAppPrivateKey: "k",
+  webhookSecret: "s",
+  piProvider: "openai",
+  piModel: "gpt-4o-mini",
+  maxToolRounds: 2,
+  maxReviewPublishAttempts: 3,
+  reviewConcurrency: 1,
+  askConcurrency: 3,
+  maxAskToolRounds: 12,
+  maxAskFinalizeRounds: 2,
+  webhookTimeoutMs: 10_000,
+  logLevel: "error",
+  maxReviewFindings: 8,
+  enableReviewLabelsEffort: false,
+  enableReviewLabelsSecurity: false,
+  maxPrFilesListed: 300,
+  maxPrFilesPatchBytes: 500_000,
 } satisfies Config;
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;
 
 function reviewParams(
-	overrides: Partial<Parameters<typeof runFullPrReview>[0]> = {},
+  overrides: Partial<Parameters<typeof runFullPrReview>[0]> = {},
 ): Parameters<typeof runFullPrReview>[0] {
-	return {
-		cfg,
-		token: "t",
-		tokenExpiresAtTs: farFutureTokenExpiry,
-		tokenTtlMs: 3_600_000,
-		owner: "o",
-		repo: "r",
-		prNumber: 1,
-		headSha: "sha",
-		...overrides,
-	};
+  return {
+    cfg,
+    token: "t",
+    tokenExpiresAtTs: farFutureTokenExpiry,
+    tokenTtlMs: 3_600_000,
+    owner: "o",
+    repo: "r",
+    prNumber: 1,
+    headSha: "sha",
+    ...overrides,
+  };
 }
 
 const defaultCompleteResult = () => ({
-	role: "assistant" as const,
-	content: [{ type: "text" as const, text: "analysis without submitReview" }],
-	api: "test",
-	provider: "test",
-	model: "test",
-	usage: {
-		input: 0,
-		output: 0,
-		cacheRead: 0,
-		cacheWrite: 0,
-		totalTokens: 0,
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-	},
-	stopReason: "stop" as const,
-	timestamp: Date.now(),
+  role: "assistant" as const,
+  content: [{ type: "text" as const, text: "analysis without submitReview" }],
+  api: "test",
+  provider: "test",
+  model: "test",
+  usage: {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+  },
+  stopReason: "stop" as const,
+  timestamp: Date.now(),
 });
 
 describe("runFullPrReview mode", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-		vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
-	});
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
+  });
 
-	it("requires finite tokenExpiresAtTs", async () => {
-		await expect(runFullPrReview(reviewParams({ tokenExpiresAtTs: NaN }))).rejects.toThrow(
-			/tokenExpiresAtTs/,
-		);
-	});
+  it("requires finite tokenExpiresAtTs", async () => {
+    await expect(runFullPrReview(reviewParams({ tokenExpiresAtTs: NaN }))).rejects.toThrow(
+      /tokenExpiresAtTs/,
+    );
+  });
 
-	it("selects security system prompt when mode is review-security", async () => {
-		await runFullPrReview(
-			reviewParams({
-				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-				mode: "review-security",
-			}),
-		);
+  it("selects security system prompt when mode is review-security", async () => {
+    await runFullPrReview(
+      reviewParams({
+        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        mode: "review-security",
+      }),
+    );
 
-		const context = vi.mocked(complete).mock.calls[0]![1] as { systemPrompt: string };
-		expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
-	});
+    const context = vi.mocked(complete).mock.calls[0][1] as { systemPrompt: string };
+    expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
+  });
 
-	it("selects general system prompt by default", async () => {
-		await runFullPrReview(
-			reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 } }),
-		);
+  it("selects general system prompt by default", async () => {
+    await runFullPrReview(
+      reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 } }),
+    );
 
-		const context = vi.mocked(complete).mock.calls[0]![1] as { systemPrompt: string };
-		expect(context.systemPrompt).toContain("senior staff software engineer");
-		expect(context.systemPrompt).not.toBe(automatedSecuritySystemPrompt);
-	});
+    const context = vi.mocked(complete).mock.calls[0][1] as { systemPrompt: string };
+    expect(context.systemPrompt).toContain("senior staff software engineer");
+    expect(context.systemPrompt).not.toBe(automatedSecuritySystemPrompt);
+  });
 
-	it("requires tools on round 0 for both modes when tools are available", async () => {
-		for (const mode of ["review", "review-security"] as const) {
-			vi.mocked(complete).mockClear();
-			await runFullPrReview(
-				reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 }, mode }),
-			);
-			expect(vi.mocked(complete).mock.calls[0]![2]).toEqual({ toolChoice: "required" });
-		}
-	});
+  it("requires tools on round 0 for both modes when tools are available", async () => {
+    for (const mode of ["review", "review-security"] as const) {
+      vi.mocked(complete).mockClear();
+      await runFullPrReview(
+        reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 }, mode }),
+      );
+      expect(vi.mocked(complete).mock.calls[0][2]).toEqual({ toolChoice: "required" });
+    }
+  });
 
-	it("includes mode on agent_tool_round when tools run", async () => {
-		vi.mocked(complete).mockImplementationOnce(async () => ({
-			role: "assistant" as const,
-			content: [
-				{
-					type: "toolCall" as const,
-					id: "c1",
-					name: "getPullRequest",
-					arguments: { owner: "o", repo: "r", pullNumber: 1 },
-				},
-			],
-			api: "test",
-			provider: "test",
-			model: "test",
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			stopReason: "toolUse" as const,
-			timestamp: Date.now(),
-		}));
-		vi.mocked(complete).mockImplementation(async () => ({
-			role: "assistant" as const,
-			content: [{ type: "text" as const, text: "done" }],
-			api: "test",
-			provider: "test",
-			model: "test",
-			usage: {
-				input: 0,
-				output: 0,
-				cacheRead: 0,
-				cacheWrite: 0,
-				totalTokens: 0,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-			},
-			stopReason: "stop" as const,
-			timestamp: Date.now(),
-		}));
+  it("includes mode on agent_tool_round when tools run", async () => {
+    vi.mocked(complete).mockImplementationOnce(async () => ({
+      role: "assistant" as const,
+      content: [
+        {
+          type: "toolCall" as const,
+          id: "c1",
+          name: "getPullRequest",
+          arguments: { owner: "o", repo: "r", pullNumber: 1 },
+        },
+      ],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "toolUse" as const,
+      timestamp: Date.now(),
+    }));
+    vi.mocked(complete).mockImplementation(async () => ({
+      role: "assistant" as const,
+      content: [{ type: "text" as const, text: "done" }],
+      api: "test",
+      provider: "test",
+      model: "test",
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: "stop" as const,
+      timestamp: Date.now(),
+    }));
 
-		const debugSpy = vi.spyOn(evlog, "logDebug");
-		await runFullPrReview(
-			reviewParams({
-				cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-				mode: "review-security",
-			}),
-		);
+    const debugSpy = vi.spyOn(evlog, "logDebug");
+    await runFullPrReview(
+      reviewParams({
+        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        mode: "review-security",
+      }),
+    );
 
-		expect(debugSpy).toHaveBeenCalledWith(
-			"agent_tool_round",
-			expect.objectContaining({ mode: "review-security" }),
-		);
-	});
+    expect(debugSpy).toHaveBeenCalledWith(
+      "agent_tool_round",
+      expect.objectContaining({ mode: "review-security" }),
+    );
+  });
 
-	it("uses security fallback heading when security publish is exhausted", async () => {
-		await runFullPrReview(reviewParams({ mode: "review-security" }));
+  it("uses security fallback heading when security publish is exhausted", async () => {
+    await runFullPrReview(reviewParams({ mode: "review-security" }));
 
-		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-			"t",
-			"o",
-			"r",
-			1,
-			expect.stringContaining("## PR Agent Security Review"),
-			"## PR Agent Security Review",
-		);
-	});
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.stringContaining("## PR Agent Security Review"),
+      "## PR Agent Security Review",
+    );
+  });
 });
 
 describe("runFullPrReview publish retries", () => {
-	beforeEach(() => {
-		vi.clearAllMocks();
-		vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
-	});
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
+  });
 
-	it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {
-		const infoSpy = vi.spyOn(evlog, "logInfo");
+  it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {
+    const infoSpy = vi.spyOn(evlog, "logInfo");
 
-		const result = await runFullPrReview(reviewParams());
+    const result = await runFullPrReview(reviewParams());
 
-		expect(result.published).toBe(false);
-		expect(result.publishAttempts).toBe(3);
-		expect(infoSpy).toHaveBeenCalledWith(
-			"review_publish_retry",
-			expect.objectContaining({ attempt: 2, maxAttempts: 3 }),
-		);
-		expect(infoSpy).toHaveBeenCalledWith(
-			"review_publish_retry",
-			expect.objectContaining({ attempt: 3, maxAttempts: 3 }),
-		);
-	});
+    expect(result.published).toBe(false);
+    expect(result.publishAttempts).toBe(3);
+    expect(infoSpy).toHaveBeenCalledWith(
+      "review_publish_retry",
+      expect.objectContaining({ attempt: 2, maxAttempts: 3 }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      "review_publish_retry",
+      expect.objectContaining({ attempt: 3, maxAttempts: 3 }),
+    );
+  });
 
-	it("posts a maintainer-visible fallback comment when publish is exhausted", async () => {
-		const result = await runFullPrReview(reviewParams());
+  it("posts a maintainer-visible fallback comment when publish is exhausted", async () => {
+    const result = await runFullPrReview(reviewParams());
 
-		expect(result.published).toBe(false);
-		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-			"t",
-			"o",
-			"r",
-			1,
-			expect.stringContaining("Structured publish failed"),
-			"## PR Agent Review",
-		);
-		expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-			"t",
-			"o",
-			"r",
-			1,
-			expect.stringContaining("analysis without submitReview"),
-			"## PR Agent Review",
-		);
-	});
+    expect(result.published).toBe(false);
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.stringContaining("Structured publish failed"),
+      "## PR Agent Review",
+    );
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.stringContaining("analysis without submitReview"),
+      "## PR Agent Review",
+    );
+  });
 });

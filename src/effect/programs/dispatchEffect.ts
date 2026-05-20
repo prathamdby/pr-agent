@@ -32,7 +32,8 @@ export function dispatchGithubEventEffect(
         recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message }, "warn");
         return;
       }
-      return yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
+      yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
+      return;
     }
 
     const scheduler = yield* AgentWorkScheduler;

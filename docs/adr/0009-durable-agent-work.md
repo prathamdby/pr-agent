@@ -38,4 +38,3 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 ## Reversal
 
 The change is reversible by routing `WebhookHandlers` back through `ReviewQueue`/`AskQueue` and disabling `ROLE=worker`, but that reintroduces request-fiber-owned reviews and non-durable delivery.
-

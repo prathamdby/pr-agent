@@ -7,7 +7,7 @@ const REQUIRED = {
 };
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+const deps = { ...pkg.dependencies, ...pkg.devDependencies };
 
 const mismatches = Object.entries(REQUIRED)
   .map(([name, expected]) => {

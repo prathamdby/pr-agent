@@ -10,133 +10,152 @@ import { BotIdentity, BotIdentityLive } from "./botIdentity.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
-type PullRequestReviewCommentData = Extract<ParsedGithubEvent, { name: "pull_request_review_comment" }>["data"];
+type PullRequestReviewCommentData = Extract<
+  ParsedGithubEvent,
+  { name: "pull_request_review_comment" }
+>["data"];
 
 function codeAnchorFromReviewComment(
-	comment: PullRequestReviewCommentData["comment"],
+  comment: PullRequestReviewCommentData["comment"],
 ): CodeAnchor | undefined {
-	if (comment.path == null || comment.line == null) return undefined;
-	return {
-		path: comment.path,
-		line: comment.line,
-		startLine: comment.start_line ?? undefined,
-		side: comment.side,
-		diffHunk: comment.diff_hunk,
-	};
+  if (comment.path == null || comment.line == null) return undefined;
+  return {
+    path: comment.path,
+    line: comment.line,
+    startLine: comment.start_line ?? undefined,
+    side: comment.side,
+    diffHunk: comment.diff_hunk,
+  };
 }
 
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
-	WebhookHandlers,
-	{
-		readonly pullRequest: (cfg: Config, headers: WebhookHeaders, data: PullRequestData) => Effect.Effect<void, Error, IntakeLogger>;
-		readonly issueComment: (cfg: Config, headers: WebhookHeaders, data: IssueCommentData) => Effect.Effect<void, Error, IntakeLogger>;
-		readonly pullRequestReviewComment: (
-			cfg: Config,
-			headers: WebhookHeaders,
-			data: PullRequestReviewCommentData,
-		) => Effect.Effect<void, Error, IntakeLogger>;
-	}
+  WebhookHandlers,
+  {
+    readonly pullRequest: (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: PullRequestData,
+    ) => Effect.Effect<void, Error, IntakeLogger>;
+    readonly issueComment: (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: IssueCommentData,
+    ) => Effect.Effect<void, Error, IntakeLogger>;
+    readonly pullRequestReviewComment: (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: PullRequestReviewCommentData,
+    ) => Effect.Effect<void, Error, IntakeLogger>;
+  }
 >() {}
 
 export const WebhookHandlersCore = Layer.effect(
-	WebhookHandlers,
-	Effect.gen(function* () {
-		const scheduler = yield* AgentWorkScheduler;
-		const bot = yield* BotIdentity;
+  WebhookHandlers,
+  Effect.gen(function* () {
+    const scheduler = yield* AgentWorkScheduler;
+    const bot = yield* BotIdentity;
 
-		const ignoreBotSlash = (cfg: Config, headers: WebhookHeaders, commenterId: number) =>
-			Effect.gen(function* () {
-				const intakeLog = yield* IntakeLogger;
-				const botUserId = yield* bot.getAppUserId(cfg);
-				if (commenterId !== botUserId) return false;
-				yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
-				return true;
-			});
+    const ignoreBotSlash = (cfg: Config, headers: WebhookHeaders, commenterId: number) =>
+      Effect.gen(function* () {
+        const intakeLog = yield* IntakeLogger;
+        const botUserId = yield* bot.getAppUserId(cfg);
+        if (commenterId !== botUserId) return false;
+        yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
+        return true;
+      });
 
-		return WebhookHandlers.of({
-			pullRequest: (_cfg, headers, data) =>
-				Effect.gen(function* () {
-					const intakeLog = yield* IntakeLogger;
-					yield* scheduler.submitAutomatedReview(
-						headers,
-						{
-							owner: data.repository.owner.login,
-							repo: data.repository.name,
-							prNumber: data.pull_request.number,
-							headSha: data.pull_request.head.sha,
-							installationId: data.installation.id,
-						},
-						data.action ?? "",
-						intakeLog,
-					);
-				}),
+    return WebhookHandlers.of({
+      pullRequest: (_cfg, headers, data) =>
+        Effect.gen(function* () {
+          const intakeLog = yield* IntakeLogger;
+          yield* scheduler.submitAutomatedReview(
+            headers,
+            {
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              prNumber: data.pull_request.number,
+              headSha: data.pull_request.head.sha,
+              installationId: data.installation.id,
+            },
+            data.action ?? "",
+            intakeLog,
+          );
+        }),
 
-			issueComment: (cfg, headers, data) =>
-				Effect.gen(function* () {
-					const intakeLog = yield* IntakeLogger;
-					if (data.action !== "created") {
-						yield* scheduler.recordIgnored(headers, `ignored_issue_comment_${data.action}`, intakeLog);
-						return;
-					}
-					const body = data.comment.body ?? "";
-					if (!parseSlashCommand(body)) {
-						yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
-						return;
-					}
-					if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
+      issueComment: (cfg, headers, data) =>
+        Effect.gen(function* () {
+          const intakeLog = yield* IntakeLogger;
+          if (data.action !== "created") {
+            yield* scheduler.recordIgnored(
+              headers,
+              `ignored_issue_comment_${data.action}`,
+              intakeLog,
+            );
+            return;
+          }
+          const body = data.comment.body ?? "";
+          if (!parseSlashCommand(body)) {
+            yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+            return;
+          }
+          if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
 
-					yield* scheduler.submitSlashCommand(
-						{
-							headers,
-							installationId: data.installation.id,
-							owner: data.repository.owner.login,
-							repo: data.repository.name,
-							prNumber: data.issue.number,
-							commenterId: data.comment.user.id,
-							commentId: data.comment.id,
-							body,
-							replyTarget: { kind: "prConversation", prNumber: data.issue.number },
-						},
-						intakeLog,
-					);
-				}),
+          yield* scheduler.submitSlashCommand(
+            {
+              headers,
+              installationId: data.installation.id,
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              prNumber: data.issue.number,
+              commenterId: data.comment.user.id,
+              commentId: data.comment.id,
+              body,
+              replyTarget: { kind: "prConversation", prNumber: data.issue.number },
+            },
+            intakeLog,
+          );
+        }),
 
-			pullRequestReviewComment: (cfg, headers, data) =>
-				Effect.gen(function* () {
-					const intakeLog = yield* IntakeLogger;
-					if (data.action !== "created") {
-						yield* scheduler.recordIgnored(headers, `ignored_review_comment_${data.action}`, intakeLog);
-						return;
-					}
-					const body = data.comment.body ?? "";
-					if (!parseSlashCommand(body)) {
-						yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
-						return;
-					}
-					if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
+      pullRequestReviewComment: (cfg, headers, data) =>
+        Effect.gen(function* () {
+          const intakeLog = yield* IntakeLogger;
+          if (data.action !== "created") {
+            yield* scheduler.recordIgnored(
+              headers,
+              `ignored_review_comment_${data.action}`,
+              intakeLog,
+            );
+            return;
+          }
+          const body = data.comment.body ?? "";
+          if (!parseSlashCommand(body)) {
+            yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+            return;
+          }
+          if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
 
-					yield* scheduler.submitSlashCommand(
-						{
-							headers,
-							installationId: data.installation.id,
-							owner: data.repository.owner.login,
-							repo: data.repository.name,
-							prNumber: data.pull_request.number,
-							commenterId: data.comment.user.id,
-							commentId: data.comment.id,
-							body,
-							replyTarget: {
-								kind: "inlineReviewThread",
-								prNumber: data.pull_request.number,
-								inReplyToCommentId: data.comment.id,
-							},
-							codeAnchor: codeAnchorFromReviewComment(data.comment),
-						},
-						intakeLog,
-					);
-				}),
-		});
-	}),
+          yield* scheduler.submitSlashCommand(
+            {
+              headers,
+              installationId: data.installation.id,
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              prNumber: data.pull_request.number,
+              commenterId: data.comment.user.id,
+              commentId: data.comment.id,
+              body,
+              replyTarget: {
+                kind: "inlineReviewThread",
+                prNumber: data.pull_request.number,
+                inReplyToCommentId: data.comment.id,
+              },
+              codeAnchor: codeAnchorFromReviewComment(data.comment),
+            },
+            intakeLog,
+          );
+        }),
+    });
+  }),
 );
 
 export const WebhookHandlersLive = WebhookHandlersCore.pipe(Layer.provide(BotIdentityLive));

@@ -1,172 +1,190 @@
 import type { Config } from "../config.js";
 import {
-	createPullRequestReviewWithComments,
-	listPullRequestLabels,
-	resolveVerifiedSummaryCommentUrl,
-	setPullRequestLabels,
-	upsertReviewSummaryComment,
-	type InlineReviewComment,
+  createPullRequestReviewWithComments,
+  listPullRequestLabels,
+  resolveVerifiedSummaryCommentUrl,
+  setPullRequestLabels,
+  upsertReviewSummaryComment,
+  type InlineReviewComment,
 } from "../github/reviewPublish.js";
 import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
 import { logWarn, logDebug } from "../evlog.js";
-import { renderInlineThreadBody, renderReviewPointerBody, renderReviewSummaryComment } from "./reviewRender.js";
 import {
-	normalizeReviewPayload,
-	reviewEventForFindings,
-	reviewSummarySentinelForMode,
-	selectInlineFindings,
-	type ReviewMode,
-	type ReviewPayload,
-	type ReviewPublishContext,
+  renderInlineThreadBody,
+  renderReviewPointerBody,
+  renderReviewSummaryComment,
+} from "./reviewRender.js";
+import {
+  normalizeReviewPayload,
+  reviewEventForFindings,
+  reviewSummarySentinelForMode,
+  selectInlineFindings,
+  type ReviewMode,
+  type ReviewPayload,
+  type ReviewPublishContext,
 } from "./reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
 
-export async function publishReview(params: ReviewPublishContext & {
-	token: string;
-	mode?: ReviewMode;
-	cfg: Pick<Config, "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
-	payload: ReviewPayload;
-	publishState: SubmitReviewState;
-	shouldLinkToSummary?: boolean;
-	summaryCommentIdHint?: number | null;
-	recordPublishStep?: (
-		step: "inline_review" | "summary_comment" | "labels",
-		detail?: { githubId?: string | number; meta?: Record<string, unknown> },
-	) => Promise<void>;
-}): Promise<void> {
-	const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
-	const mode = params.mode ?? "review";
-	const summarySentinel = reviewSummarySentinelForMode(mode);
-	const payload = normalizeReviewPayload(raw);
-	const inlineFindings = selectInlineFindings(payload.findings, cfg.maxReviewFindings);
-	const event = reviewEventForFindings(payload.findings);
+export async function publishReview(
+  params: ReviewPublishContext & {
+    token: string;
+    mode?: ReviewMode;
+    cfg: Pick<
+      Config,
+      "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity"
+    >;
+    payload: ReviewPayload;
+    publishState: SubmitReviewState;
+    shouldLinkToSummary?: boolean;
+    summaryCommentIdHint?: number | null;
+    recordPublishStep?: (
+      step: "inline_review" | "summary_comment" | "labels",
+      detail?: { githubId?: string | number; meta?: Record<string, unknown> },
+    ) => Promise<void>;
+  },
+): Promise<void> {
+  const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
+  const mode = params.mode ?? "review";
+  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const payload = normalizeReviewPayload(raw);
+  const inlineFindings = selectInlineFindings(payload.findings, cfg.maxReviewFindings);
+  const event = reviewEventForFindings(payload.findings);
 
-	const renderCtx = {
-		owner,
-		repo,
-		prNumber,
-		headSha,
-		maxFindings: cfg.maxReviewFindings,
-	};
+  const renderCtx = {
+    owner,
+    repo,
+    prNumber,
+    headSha,
+    maxFindings: cfg.maxReviewFindings,
+  };
 
-	let summaryCommentUrl: string | undefined;
-	if (params.shouldLinkToSummary) {
-		summaryCommentUrl = await resolveVerifiedSummaryCommentUrl(
-			token,
-			owner,
-			repo,
-			prNumber,
-			summarySentinel,
-			params.summaryCommentIdHint,
-		);
-	}
+  let summaryCommentUrl: string | undefined;
+  if (params.shouldLinkToSummary) {
+    summaryCommentUrl = await resolveVerifiedSummaryCommentUrl(
+      token,
+      owner,
+      repo,
+      prNumber,
+      summarySentinel,
+      params.summaryCommentIdHint,
+    );
+  }
 
-	if (!publishState.inlinePublished) {
-		const comments: InlineReviewComment[] = inlineFindings.map((f) => ({
-			path: f.file,
-			line: f.startLine,
-			side: "RIGHT" as const,
-			body: renderInlineThreadBody(f, renderCtx),
-		}));
+  if (!publishState.inlinePublished) {
+    const comments: InlineReviewComment[] = inlineFindings.map((f) => ({
+      path: f.file,
+      line: f.startLine,
+      side: "RIGHT" as const,
+      body: renderInlineThreadBody(f, renderCtx),
+    }));
 
-		if (comments.length > 0) {
-			const pointerBody = renderReviewPointerBody(payload, {
-				...renderCtx,
-				mode,
-				summaryCommentUrl,
-			});
-			if (pointerBody.truncated) {
-				logDebug("agent_fix_prompt_truncated", {
-					mode,
-					owner,
-					repo,
-					pr: prNumber,
-				});
-			}
-			const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-				body: pointerBody.body,
-				event,
-				comments,
-			});
-			await params.recordPublishStep?.("inline_review", {
-				githubId: review.id,
-				meta: {
-					url: review.url,
-					inlineCount: comments.length,
-					event,
-					agentFixPromptTruncated: pointerBody.truncated,
-				},
-			});
+    if (comments.length > 0) {
+      const pointerBody = renderReviewPointerBody(payload, {
+        ...renderCtx,
+        mode,
+        summaryCommentUrl,
+      });
+      if (pointerBody.truncated) {
+        logDebug("agent_fix_prompt_truncated", {
+          mode,
+          owner,
+          repo,
+          pr: prNumber,
+        });
+      }
+      const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
+        body: pointerBody.body,
+        event,
+        comments,
+      });
+      await params.recordPublishStep?.("inline_review", {
+        githubId: review.id,
+        meta: {
+          url: review.url,
+          inlineCount: comments.length,
+          event,
+          agentFixPromptTruncated: pointerBody.truncated,
+        },
+      });
 
-			logDebug("review_published_inline", {
-				mode,
-				owner,
-				repo,
-				pr: prNumber,
-				reviewId: review.id,
-				event,
-				inlineCount: comments.length,
-			});
-		} else {
-			logDebug("review_inline_skipped", {
-				reason: "no_p0_p2_findings",
-				mode,
-				owner,
-				repo,
-				pr: prNumber,
-			});
-		}
+      logDebug("review_published_inline", {
+        mode,
+        owner,
+        repo,
+        pr: prNumber,
+        reviewId: review.id,
+        event,
+        inlineCount: comments.length,
+      });
+    } else {
+      logDebug("review_inline_skipped", {
+        reason: "no_p0_p2_findings",
+        mode,
+        owner,
+        repo,
+        pr: prNumber,
+      });
+    }
 
-		publishState.inlinePublished = true;
-		if (comments.length === 0) {
-			await params.recordPublishStep?.("inline_review", {
-				meta: { inlineCount: 0, reason: "no_p0_p2_findings" },
-			});
-		}
-	}
+    publishState.inlinePublished = true;
+    if (comments.length === 0) {
+      await params.recordPublishStep?.("inline_review", {
+        meta: { inlineCount: 0, reason: "no_p0_p2_findings" },
+      });
+    }
+  }
 
-	const summaryBody = renderReviewSummaryComment(payload, {
-		...renderCtx,
-		summarySentinel,
-	});
+  const summaryBody = renderReviewSummaryComment(payload, {
+    ...renderCtx,
+    summarySentinel,
+  });
 
-	const summary = await upsertReviewSummaryComment(token, owner, repo, prNumber, summaryBody, summarySentinel);
-	await params.recordPublishStep?.("summary_comment", {
-		githubId: summary.id,
-		meta: { updated: summary.updated },
-	});
-	logDebug("review_published_summary", {
-		mode,
-		owner,
-		repo,
-		pr: prNumber,
-		commentId: summary.id,
-		updated: summary.updated,
-	});
+  const summary = await upsertReviewSummaryComment(
+    token,
+    owner,
+    repo,
+    prNumber,
+    summaryBody,
+    summarySentinel,
+  );
+  await params.recordPublishStep?.("summary_comment", {
+    githubId: summary.id,
+    meta: { updated: summary.updated },
+  });
+  logDebug("review_published_summary", {
+    mode,
+    owner,
+    repo,
+    pr: prNumber,
+    commentId: summary.id,
+    updated: summary.updated,
+  });
 
-	if (cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity) {
-		try {
-			const current = await listPullRequestLabels(token, owner, repo, prNumber);
-			if (
-				labelsAlreadySynced(current, payload, {
-					effort: cfg.enableReviewLabelsEffort,
-					security: cfg.enableReviewLabelsSecurity,
-				})
-			) {
-				await params.recordPublishStep?.("labels", { meta: { labels: current, alreadySynced: true } });
-				return;
-			}
-			const managed = reviewLabelsFromPayload(payload, {
-				effort: cfg.enableReviewLabelsEffort,
-				security: cfg.enableReviewLabelsSecurity,
-			});
-			const next = syncReviewLabels(current, managed);
-			await setPullRequestLabels(token, owner, repo, prNumber, next);
-			await params.recordPublishStep?.("labels", { meta: { labels: next } });
-			logDebug("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
-		} catch (e) {
-			const message = e instanceof Error ? e.message : String(e);
-			logWarn("review_labels_sync_failed", { owner, repo, pr: prNumber, message });
-		}
-	}
+  if (cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity) {
+    try {
+      const current = await listPullRequestLabels(token, owner, repo, prNumber);
+      if (
+        labelsAlreadySynced(current, payload, {
+          effort: cfg.enableReviewLabelsEffort,
+          security: cfg.enableReviewLabelsSecurity,
+        })
+      ) {
+        await params.recordPublishStep?.("labels", {
+          meta: { labels: current, alreadySynced: true },
+        });
+        return;
+      }
+      const managed = reviewLabelsFromPayload(payload, {
+        effort: cfg.enableReviewLabelsEffort,
+        security: cfg.enableReviewLabelsSecurity,
+      });
+      const next = syncReviewLabels(current, managed);
+      await setPullRequestLabels(token, owner, repo, prNumber, next);
+      await params.recordPublishStep?.("labels", { meta: { labels: next } });
+      logDebug("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      logWarn("review_labels_sync_failed", { owner, repo, pr: prNumber, message });
+    }
+  }
 }

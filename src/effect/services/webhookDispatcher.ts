@@ -20,7 +20,9 @@ export type DispatchInput = {
 export class WebhookDispatcher extends Context.Tag("WebhookDispatcher")<
   WebhookDispatcher,
   {
-    readonly dispatch: (input: DispatchInput) => Effect.Effect<void, WebhookHandlerError, IntakeLogger>;
+    readonly dispatch: (
+      input: DispatchInput,
+    ) => Effect.Effect<void, WebhookHandlerError, IntakeLogger>;
   }
 >() {}
 
