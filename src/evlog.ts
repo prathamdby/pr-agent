@@ -84,7 +84,11 @@ export function recordEvent(
     return;
   }
 
-  events.push({ event, level, ...fields, at: Date.now() });
+  if (fields === undefined) {
+    events.push({ event, level, at: Date.now() });
+  } else {
+    events.push({ event, level, ...fields, at: Date.now() });
+  }
   logger.set({ lastEvent: event });
 }
 
@@ -168,7 +172,7 @@ async function emitPrepared(
 ): Promise<void> {
   filterEventsInPlace(logger);
   logger.set({ emitted: true });
-  void logger.emit(overrides);
+  await Promise.resolve(logger.emit(overrides));
 }
 
 export async function runWithOperationLogger<T>(

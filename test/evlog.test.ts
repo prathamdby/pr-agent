@@ -52,6 +52,17 @@ describe("evlog wide events", () => {
     expect((logger.getContext().events as unknown[]).length).toBe(10);
   });
 
+  it("recordEvent accepts undefined fields without throwing", () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+    expect(() => evlog.recordEvent(logger, "no_fields")).not.toThrow();
+    expect(() => evlog.recordEvent(logger, "explicit_undefined", undefined)).not.toThrow();
+    const events = logger.getContext().events as Array<Record<string, unknown>>;
+    expect(events).toHaveLength(2);
+    expect(events[0]?.event).toBe("no_fields");
+    expect(events[1]?.event).toBe("explicit_undefined");
+  });
+
   it("recordEvent skips debug-level entries when LOG_LEVEL is info", () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
