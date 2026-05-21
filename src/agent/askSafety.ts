@@ -1,6 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { buildGithubTools } from "./githubTools.js";
-import { filterReviewAgentExecutors, filterReviewAgentTools } from "./submitReviewTool.js";
 
 export type AskQuestionIntent = "code" | "bot_meta";
 
@@ -237,7 +236,7 @@ export function buildAskGithubTools(
 } {
   const gh = buildGithubTools(token, limits);
   return {
-    piTools: filterReviewAgentTools(gh.piTools),
-    executors: buildScopedAskExecutors(filterReviewAgentExecutors(gh.executors), scope, gate),
+    piTools: gh.piTools,
+    executors: buildScopedAskExecutors(gh.executors, scope, gate),
   };
 }

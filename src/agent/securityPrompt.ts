@@ -111,7 +111,6 @@ export const automatedSecuritySystemPrompt = [
   "## Structured delivery (submitReview)",
   "",
   "After investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
-  "Never call createPullRequestReview or addPullRequestComment — the server renders and publishes inline review threads and a PR conversation summary under `## PR Agent Security Review`.",
   "Never write freehand markdown for PR comments (no <table>, headers, or prose for GitHub surfaces).",
   "Do not report refactors, style changes, or non-security improvements.",
   "",
