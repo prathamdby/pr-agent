@@ -48,13 +48,11 @@ function buildWithStub(stub: ReturnType<typeof makeOctokitStub>) {
 }
 
 describe("buildGithubTools — surface", () => {
-  it("exposes exactly 13 tools", () => {
+  it("exposes exactly 11 tools", () => {
     const { piTools } = buildWithStub(makeOctokitStub());
-    expect(piTools).toHaveLength(13);
+    expect(piTools).toHaveLength(11);
     expect(piTools.map((t) => t.name).toSorted()).toEqual(
       [
-        "addPullRequestComment",
-        "createPullRequestReview",
         "getBlame",
         "getCommit",
         "getFileContent",
@@ -82,8 +80,6 @@ describe("buildGithubTools — surface", () => {
     ["getRepository", ["owner", "repo"]],
     ["listBranches", ["owner", "repo"]],
     ["searchCode", ["query"]],
-    ["addPullRequestComment", ["owner", "repo", "pullNumber", "body"]],
-    ["createPullRequestReview", ["owner", "repo", "pullNumber", "event", "body"]],
   ])("%s parameters declare object type and required fields", (name, required) => {
     const { piTools } = buildWithStub(makeOctokitStub());
     const tool = piTools.find((t) => t.name === name)!;
@@ -627,28 +623,6 @@ describe("buildGithubTools — happy paths", () => {
     expect(out.items[0]).toMatchObject({ repositoryFullName: "o/r" });
     expect(out.items[0]).not.toHaveProperty("repository");
   });
-
-  it("addPullRequestComment posts via issues.createComment and returns authorLogin", async () => {
-    const issuesCreateComment = vi.fn().mockResolvedValue({
-      data: { id: 99, html_url: "u", body: "hi", user: { login: "octocat" }, created_at: "t" },
-    });
-    const { executors } = buildWithStub(makeOctokitStub({ issuesCreateComment }));
-
-    const out = (await executors.addPullRequestComment({
-      owner: "o",
-      repo: "r",
-      pullNumber: 3,
-      body: "hi",
-    })) as { authorLogin: string; id: number };
-
-    expect(issuesCreateComment).toHaveBeenCalledWith({
-      owner: "o",
-      repo: "r",
-      issue_number: 3,
-      body: "hi",
-    });
-    expect(out).toMatchObject({ id: 99, authorLogin: "octocat" });
-  });
 });
 
 describe("getFileContent — three branches", () => {
@@ -883,97 +857,4 @@ describe("getBlame — branches and error paths", () => {
       executors.getBlame({ owner: "o", repo: "r", path: "f.ts", ref: "bogus" }),
     ).rejects.toThrow(/did not resolve to a commit/);
   });
-});
-
-describe("createPullRequestReview — comments + event variants", () => {
-  function mockedReview() {
-    return vi.fn().mockResolvedValue({
-      data: {
-        id: 1,
-        state: "COMMENTED",
-        body: "b",
-        html_url: "u",
-        user: { login: "octocat" },
-        submitted_at: "t",
-      },
-    });
-  }
-
-  it("forwards inline comments when provided", async () => {
-    const pullsCreateReview = mockedReview();
-    const { executors } = buildWithStub(makeOctokitStub({ pullsCreateReview }));
-
-    await executors.createPullRequestReview({
-      owner: "o",
-      repo: "r",
-      pullNumber: 3,
-      event: "REQUEST_CHANGES",
-      body: "fix",
-      comments: [{ path: "f.ts", body: "nit", line: 5, side: "RIGHT" }],
-    });
-
-    expect(pullsCreateReview).toHaveBeenCalledWith({
-      owner: "o",
-      repo: "r",
-      pull_number: 3,
-      body: "fix",
-      event: "REQUEST_CHANGES",
-      comments: [{ path: "f.ts", body: "nit", line: 5, side: "RIGHT" }],
-    });
-  });
-
-  it("omits comments when not provided", async () => {
-    const pullsCreateReview = mockedReview();
-    const { executors } = buildWithStub(makeOctokitStub({ pullsCreateReview }));
-
-    await executors.createPullRequestReview({
-      owner: "o",
-      repo: "r",
-      pullNumber: 3,
-      event: "COMMENT",
-      body: "no actionable findings on changed lines",
-    });
-
-    expect(pullsCreateReview).toHaveBeenCalledWith({
-      owner: "o",
-      repo: "r",
-      pull_number: 3,
-      body: "no actionable findings on changed lines",
-      event: "COMMENT",
-      comments: undefined,
-    });
-  });
-
-  it("rejects calls without body (schema.parse throws before Octokit is hit)", async () => {
-    const pullsCreateReview = mockedReview();
-    const { executors } = buildWithStub(makeOctokitStub({ pullsCreateReview }));
-
-    await expect(
-      executors.createPullRequestReview({
-        owner: "o",
-        repo: "r",
-        pullNumber: 3,
-        event: "COMMENT",
-      }),
-    ).rejects.toThrow();
-    expect(pullsCreateReview).not.toHaveBeenCalled();
-  });
-
-  it.each(["APPROVE", "REQUEST_CHANGES", "COMMENT"] as const)(
-    "forwards event=%s",
-    async (event) => {
-      const pullsCreateReview = mockedReview();
-      const { executors } = buildWithStub(makeOctokitStub({ pullsCreateReview }));
-
-      await executors.createPullRequestReview({
-        owner: "o",
-        repo: "r",
-        pullNumber: 3,
-        event,
-        body: "summary",
-      });
-
-      expect(pullsCreateReview).toHaveBeenCalledWith(expect.objectContaining({ event }));
-    },
-  );
 });

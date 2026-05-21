@@ -3,11 +3,15 @@ import { z } from "zod";
 import { parseCommentableRightLineRanges } from "./reviewDiffIndex.js";
 import { installationOctokit } from "../github/appAuth.js";
 
-type ReviewTool = {
+type ReviewTool<TSchema extends z.ZodType = z.ZodType> = {
   readonly description: string;
-  readonly schema: z.ZodType;
-  readonly run: (parsed: any) => Promise<unknown>;
+  readonly schema: TSchema;
+  readonly run: (parsed: z.infer<TSchema>) => Promise<unknown>;
 };
+
+function defineTool<TSchema extends z.ZodType>(tool: ReviewTool<TSchema>): ReviewTool<TSchema> {
+  return tool;
+}
 
 function toPiTool(name: string, t: ReviewTool): PiTool {
   return {
@@ -202,7 +206,7 @@ export function buildGithubTools(
   const octokit = installationOctokit(token);
   const fileLimits = limits ?? { maxPrFilesListed: 300, maxPrFilesPatchBytes: 500_000 };
 
-  const getPullRequest: ReviewTool = {
+  const getPullRequest = defineTool({
     description: "Get detailed information about a specific pull request",
     schema: z.object({
       owner: z.string().describe("Repository owner"),
@@ -231,9 +235,9 @@ export function buildGithubTools(
         mergedAt: data.merged_at,
       };
     },
-  };
+  });
 
-  const listPullRequests: ReviewTool = {
+  const listPullRequests = defineTool({
     description: "List pull requests for a GitHub repository",
     schema: z.object({
       owner: z.string().describe("Repository owner"),
@@ -260,9 +264,9 @@ export function buildGithubTools(
         updatedAt: pr.updated_at,
       }));
     },
-  };
+  });
 
-  const listPullRequestFiles: ReviewTool = {
+  const listPullRequestFiles = defineTool({
     description: "List files changed in a pull request, including diff status and patch content",
     schema: z.object({
       owner: z.string().describe("Repository owner"),
@@ -288,9 +292,9 @@ export function buildGithubTools(
         warning: result.warning,
       };
     },
-  };
+  });
 
-  const listPullRequestReviews: ReviewTool = {
+  const listPullRequestReviews = defineTool({
     description: "List reviews on a pull request (approvals, change requests, and comments)",
     schema: z.object({
       owner: z.string().describe("Repository owner"),
@@ -316,9 +320,9 @@ export function buildGithubTools(
         submittedAt: review.submitted_at,
       }));
     },
-  };
+  });
 
-  const getFileContent: ReviewTool = {
+  const getFileContent = defineTool({
     description: "Get the content of a file from a GitHub repository",
     schema: z.object({
       owner: z.string().describe("Repository owner"),
@@ -359,9 +363,9 @@ export function buildGithubTools(
         content,
       };
     },
-  };
+  });
 
-  const listCommits: ReviewTool = {
+  const listCommits = defineTool({
     description:
       "List commits for a GitHub repository. Filter by file path to see commits that touched a file. For line-by-line attribution at a given ref, use getBlame instead.",
     schema: z.object({
@@ -394,9 +398,9 @@ export function buildGithubTools(
         url: commit.html_url,
       }));
     },
-  };
+  });
 
-  const getCommit: ReviewTool = {
+  const getCommit = defineTool({
     description:
       "Get detailed information about a specific commit, including the list of files changed with additions and deletions",
     schema: z.object({
@@ -426,9 +430,9 @@ export function buildGithubTools(
         })),
       };
     },
-  };
+  });
 
-  const getBlame: ReviewTool = {
+  const getBlame = defineTool({
     description:
       "Line-level git blame for a file at a commit-like ref (branch, tag, or SHA). Returns contiguous ranges mapping lines to the commits that last modified them — use this to see who introduced a line and when (GitHub GraphQL API).",
     schema: z.object({
@@ -514,9 +518,9 @@ export function buildGithubTools(
         ranges,
       };
     },
-  };
+  });
 
-  const getRepository: ReviewTool = {
+  const getRepository = defineTool({
     description:
       "Get information about a GitHub repository including description, stars, forks, language, and default branch",
     schema: z.object({
@@ -540,9 +544,9 @@ export function buildGithubTools(
         updatedAt: data.updated_at,
       };
     },
-  };
+  });
 
-  const listBranches: ReviewTool = {
+  const listBranches = defineTool({
     description: "List branches in a GitHub repository",
     schema: z.object({
       owner: z.string().describe("Repository owner"),
@@ -553,9 +557,9 @@ export function buildGithubTools(
       const { data } = await octokit.rest.repos.listBranches({ owner, repo, per_page: perPage });
       return data.map((branch) => ({ name: branch.name, sha: branch.commit.sha }));
     },
-  };
+  });
 
-  const searchCode: ReviewTool = {
+  const searchCode = defineTool({
     description:
       'Search for code in GitHub repositories. Use qualifiers like "repo:owner/name" to scope the search.',
     schema: z.object({
@@ -579,82 +583,7 @@ export function buildGithubTools(
         })),
       };
     },
-  };
-
-  const addPullRequestComment: ReviewTool = {
-    description: "Add a comment to a pull request",
-    schema: z.object({
-      owner: z.string().describe("Repository owner"),
-      repo: z.string().describe("Repository name"),
-      pullNumber: z.number().describe("Pull request number"),
-      body: z.string().describe("Comment text (supports Markdown)"),
-    }),
-    run: async ({ owner, repo, pullNumber, body }) => {
-      const { data } = await octokit.rest.issues.createComment({
-        owner,
-        repo,
-        issue_number: pullNumber,
-        body,
-      });
-      return {
-        id: data.id,
-        url: data.html_url,
-        body: data.body,
-        authorLogin: data.user?.login,
-        createdAt: data.created_at,
-      };
-    },
-  };
-
-  const createPullRequestReview: ReviewTool = {
-    description:
-      "Submit a pull request review — approve, request changes, or comment with optional inline comments on specific lines",
-    schema: z.object({
-      owner: z.string().describe("Repository owner"),
-      repo: z.string().describe("Repository name"),
-      pullNumber: z.number().describe("Pull request number"),
-      body: z
-        .string()
-        .describe(
-          "Review body text (supports Markdown). Required by GitHub for COMMENT and REQUEST_CHANGES events; provide a short summary for APPROVE as well.",
-        ),
-      event: z
-        .enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"])
-        .describe("Review action: approve, request changes, or comment"),
-      comments: z
-        .array(
-          z.object({
-            path: z.string().describe("File path relative to the repository root"),
-            body: z.string().describe("Inline comment text"),
-            line: z.number().optional().describe("Line number in the file to comment on"),
-            side: z
-              .enum(["LEFT", "RIGHT"])
-              .optional()
-              .describe("Which side of the diff to comment on (LEFT = base, RIGHT = head)"),
-          }),
-        )
-        .optional()
-        .describe("Inline review comments on specific files and lines"),
-    }),
-    run: async ({ owner, repo, pullNumber, body, event, comments }) => {
-      const { data } = await octokit.rest.pulls.createReview({
-        owner,
-        repo,
-        pull_number: pullNumber,
-        body,
-        event,
-        comments,
-      });
-      return {
-        id: data.id,
-        state: data.state,
-        body: data.body,
-        url: data.html_url,
-        authorLogin: data.user?.login,
-        submittedAt: data.submitted_at,
-      };
-    },
-  };
+  });
 
   const tools: Record<string, ReviewTool> = {
     getPullRequest,
@@ -668,8 +597,6 @@ export function buildGithubTools(
     getRepository,
     listBranches,
     searchCode,
-    addPullRequestComment,
-    createPullRequestReview,
   };
   const entries = Object.entries(tools);
 

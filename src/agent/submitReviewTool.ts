@@ -15,24 +15,8 @@ import {
   type ReviewPublishContext,
 } from "./reviewSchema.js";
 
-const DELIVERY_TOOL_NAMES = new Set(["createPullRequestReview", "addPullRequestComment"]);
-
 export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
   "Review publish budget exhausted for this run. Do not call submitReview again.";
-
-export function filterReviewAgentTools<T extends { name: string }>(tools: T[]): T[] {
-  return tools.filter((t) => !DELIVERY_TOOL_NAMES.has(t.name));
-}
-
-export function filterReviewAgentExecutors(
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
-): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
-  const out: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {};
-  for (const [name, fn] of Object.entries(executors)) {
-    if (!DELIVERY_TOOL_NAMES.has(name)) out[name] = fn;
-  }
-  return out;
-}
 
 export type SubmitReviewState = {
   published: boolean;
@@ -83,7 +67,6 @@ export function buildSubmitReviewTool(params: {
       "Submit the completed structured review exactly once.",
       "Pass a ReviewPayload object matching the schema.",
       `This publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
-      "Do not call createPullRequestReview or addPullRequestComment.",
       "Fields: prCharacter (string), findings (array, max 8), estimatedEffort (integer 1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (string array, max 5).",
       "Each finding: severity P0|P1|P2|P3, file, startLine, endLine, title, detail; fixPrompt required for P0/P1/P2.",
       `Minimal valid example: ${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE)}`,
