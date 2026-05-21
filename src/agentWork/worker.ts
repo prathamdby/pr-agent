@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
-import type { JobWithMetadata, PgBoss } from "pg-boss";
+import type { JobWithMetadata, Job, PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
@@ -355,17 +355,28 @@ async function handleAskJob(
   });
 }
 
-type QueueDispatch<T> = (job: JobWithMetadata<T>) => Promise<void>;
-
-function registerQueue<T>(
+function registerPlainQueue<T>(
   boss: PgBoss,
   queue: string,
   options: Parameters<PgBoss["work"]>[1],
-  dispatch: QueueDispatch<T>,
+  dispatch: (job: Job<T>) => Promise<void>,
 ): Promise<unknown> {
   return boss.work<T>(queue, options, async ([job]) => {
     await runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
-      dispatch(job as JobWithMetadata<T>),
+      dispatch(job),
+    );
+  });
+}
+
+function registerMetadataQueue<T>(
+  boss: PgBoss,
+  queue: string,
+  options: Omit<Parameters<PgBoss["work"]>[1], "includeMetadata">,
+  dispatch: (job: JobWithMetadata<T>) => Promise<void>,
+): Promise<unknown> {
+  return boss.work<T>(queue, { ...options, includeMetadata: true }, async ([job]) => {
+    await runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
+      dispatch(job),
     );
   });
 }
@@ -376,33 +387,27 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
       Effect.tryPromise({
         try: async () => {
           const heartbeatRefresh = Math.max(1, Math.floor(cfg.queueHeartbeatSeconds / 2));
+          const durableQueueOptions = {
+            groupConcurrency: cfg.installationGroupConcurrency,
+            heartbeatRefreshSeconds: heartbeatRefresh,
+          };
           await Promise.all([
-            registerQueue<AckJobData>(
+            registerPlainQueue<AckJobData>(
               boss,
               ACK_QUEUE,
               { localConcurrency: cfg.ackConcurrency },
               (job) => handleAckJob(cfg, pool, job.data),
             ),
-            registerQueue<ReviewJobData>(
+            registerMetadataQueue<ReviewJobData>(
               boss,
               REVIEW_QUEUE,
-              {
-                localConcurrency: cfg.reviewConcurrency,
-                groupConcurrency: cfg.installationGroupConcurrency,
-                heartbeatRefreshSeconds: heartbeatRefresh,
-                includeMetadata: true,
-              },
+              { localConcurrency: cfg.reviewConcurrency, ...durableQueueOptions },
               (job) => handleReviewJob(cfg, pool, job),
             ),
-            registerQueue<AskJobData>(
+            registerMetadataQueue<AskJobData>(
               boss,
               ASK_QUEUE,
-              {
-                localConcurrency: cfg.askConcurrency,
-                groupConcurrency: cfg.installationGroupConcurrency,
-                heartbeatRefreshSeconds: heartbeatRefresh,
-                includeMetadata: true,
-              },
+              { localConcurrency: cfg.askConcurrency, ...durableQueueOptions },
               (job) => handleAskJob(cfg, pool, job),
             ),
           ]);
