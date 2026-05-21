@@ -23,6 +23,7 @@ import {
   createSubmitReviewState,
   filterReviewAgentExecutors,
   filterReviewAgentTools,
+  PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
   type SubmitReviewState,
 } from "./submitReviewTool.js";
 import {
@@ -423,8 +424,11 @@ export async function runFullPrReview(params: {
           }
         } else {
           if (call.name === "submitReview") {
+            const msg = e instanceof Error ? e.message : String(e);
             text =
-              "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.";
+              msg === PUBLISH_BUDGET_EXHAUSTED_MESSAGE
+                ? msg
+                : "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.";
           } else {
             text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
           }

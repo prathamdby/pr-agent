@@ -6,6 +6,8 @@ import {
   ingestListPullRequestFilesResult,
 } from "../src/agent/reviewDiffIndex.js";
 
+import { cachedDiffForFiles } from "./helpers/reviewPublishTestHelpers.js";
+
 describe("reviewDiffIndex", () => {
   it("parses added and context RIGHT lines from unified diff", () => {
     const patch = [
@@ -54,5 +56,25 @@ describe("reviewDiffIndex", () => {
       files: [{ filename: "src/x.ts", patchOmitted: true }],
     });
     expect(resolveInlineAnchorLine(index, "src/x.ts", 1, 1)).toBeNull();
+  });
+
+  it("does not treat gap lines as commentable when patch skips them", () => {
+    const patch = [
+      "@@ -5,1 +5,1 @@",
+      "+code at line 5",
+      "@@ -7,1 +7,1 @@",
+      "+code at line 7",
+    ].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([
+      [5, 5],
+      [7, 7],
+    ]);
+  });
+
+  it("cachedDiffForLines omits gap lines from commentable ranges", () => {
+    const index = cachedDiffForFiles([{ file: "src/x.ts", lines: [5, 7] }]);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 5, 5)).toBe(5);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 7, 7)).toBe(7);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 6, 6)).toBeNull();
   });
 });

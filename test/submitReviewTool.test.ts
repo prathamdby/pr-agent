@@ -96,7 +96,6 @@ describe("submitReview tool", () => {
       followUps: [],
     };
 
-    await expect(executor(valid)).rejects.toThrow(/Review publish failed/i);
     await expect(executor(valid)).rejects.toThrow(/publish budget exhausted/i);
     expect(publishReview).toHaveBeenCalledTimes(1);
     expect(state.publishCallsExhausted).toBe(true);

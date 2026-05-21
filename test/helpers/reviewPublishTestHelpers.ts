@@ -67,11 +67,29 @@ export function cachedDiffForFiles(
 }
 
 function buildPatchForRightLines(lines: number[]): string {
-  const start = Math.min(...lines);
-  const end = Math.max(...lines);
-  const hunkLines: string[] = [];
-  for (let line = start; line <= end; line++) {
-    hunkLines.push(lines.includes(line) ? `+code at line ${line}` : ` context at line ${line}`);
+  if (lines.length === 0) {
+    return "@@ -1,0 +1,0 @@";
   }
-  return `@@ -${start},1 +${start},${hunkLines.length} @@\n${hunkLines.join("\n")}`;
+
+  const sorted = [...new Set(lines)].toSorted((a, b) => a - b);
+  const runs: number[][] = [];
+  let run = [sorted[0]!];
+  for (let i = 1; i < sorted.length; i++) {
+    const line = sorted[i]!;
+    if (line === run[run.length - 1]! + 1) {
+      run.push(line);
+      continue;
+    }
+    runs.push(run);
+    run = [line];
+  }
+  runs.push(run);
+
+  return runs
+    .map((runLines) => {
+      const start = runLines[0]!;
+      const hunkLines = runLines.map((line) => `+code at line ${line}`);
+      return `@@ -${start},${runLines.length} +${start},${runLines.length} @@\n${hunkLines.join("\n")}`;
+    })
+    .join("\n");
 }

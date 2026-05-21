@@ -172,7 +172,9 @@ export function buildSubmitReviewTool(params: {
         params.state.publishCallsExhausted = true;
       }
       throw new Error(
-        "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
+        params.state.publishCallsExhausted
+          ? PUBLISH_BUDGET_EXHAUSTED_MESSAGE
+          : "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
       );
     }
 
