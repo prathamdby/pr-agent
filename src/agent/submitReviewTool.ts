@@ -129,14 +129,29 @@ export function buildSubmitReviewTool(params: {
     }
 
     params.state.lastValidationError = null;
-    if (params.shouldAbortPublish && (await params.shouldAbortPublish())) {
-      logInfo("review_submit_skipped_superseded", {
-        mode,
-        owner: params.ctx.owner,
-        repo: params.ctx.repo,
-        pr: params.ctx.prNumber,
-      });
-      throw new Error("Review publish skipped: work superseded or cancelled");
+    if (params.shouldAbortPublish) {
+      let shouldAbort = false;
+      try {
+        shouldAbort = await params.shouldAbortPublish();
+      } catch (e) {
+        logWarn("review_submit_abort_check_failed", {
+          mode,
+          owner: params.ctx.owner,
+          repo: params.ctx.repo,
+          pr: params.ctx.prNumber,
+          message: e instanceof Error ? e.message : String(e),
+        });
+        shouldAbort = true;
+      }
+      if (shouldAbort) {
+        logInfo("review_submit_skipped_superseded", {
+          mode,
+          owner: params.ctx.owner,
+          repo: params.ctx.repo,
+          pr: params.ctx.prNumber,
+        });
+        throw new Error("Review publish skipped: work superseded or cancelled");
+      }
     }
 
     if (params.state.publishCallCount >= params.cfg.maxReviewPublishCalls) {
@@ -175,6 +190,7 @@ export function buildSubmitReviewTool(params: {
         params.state.publishCallsExhausted
           ? PUBLISH_BUDGET_EXHAUSTED_MESSAGE
           : "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
+        { cause: e },
       );
     }
 

@@ -1,4 +1,9 @@
-import type { ReviewFinding, ReviewPayload, ReviewPublishContext, ReviewMode } from "./reviewSchema.js";
+import type {
+  ReviewFinding,
+  ReviewPayload,
+  ReviewPublishContext,
+  ReviewMode,
+} from "./reviewSchema.js";
 import { sanitizePublicReviewFields } from "./publicOutputSanitizer.js";
 import type { InlinePlacement } from "./reviewLocationValidation.js";
 
@@ -185,8 +190,19 @@ export function renderAgentFixPrompt(
   const sorted = sortFindingsForAgentFixPrompt(payload.findings);
 
   const blocks = sorted.map((f) => {
+    const safe = sanitizePublicReviewFields({
+      title: f.title,
+      detail: f.detail,
+      fixPrompt: f.fixPrompt,
+    });
+    const sanitizedFinding = {
+      ...f,
+      title: safe.title ?? f.title,
+      detail: safe.detail ?? f.detail,
+      fixPrompt: safe.fixPrompt ?? f.fixPrompt,
+    };
     const placement = placementByKey.get(findingIdentity(f));
-    return renderAgentFixFindingBlock(f, {
+    return renderAgentFixFindingBlock(sanitizedFinding, {
       inlinePosted: placement?.inlinePosted ?? false,
       inlineCapEligible: placement?.inlineCapEligible,
     });
@@ -337,15 +353,20 @@ export function renderReviewSummaryComment(
     rows.push("");
     rows.push(safeFinding.detail ?? f.detail);
     if (safeFinding.fixPrompt && safeFinding.fixPrompt.length > 0) {
-      rows.push("");
-      rows.push("<details>");
-      rows.push("<summary>Prompt to fix</summary>");
-      rows.push("");
-      rows.push("```");
-      rows.push(escapeCodeFenceBreakers(safeFinding.fixPrompt));
-      rows.push("```");
-      rows.push("");
-      rows.push("</details>");
+      if (placement.inlinePosted) {
+        rows.push("");
+        rows.push("_See inline thread for fix prompt._");
+      } else {
+        rows.push("");
+        rows.push("<details>");
+        rows.push("<summary>Prompt to fix</summary>");
+        rows.push("");
+        rows.push("```");
+        rows.push(escapeCodeFenceBreakers(safeFinding.fixPrompt));
+        rows.push("```");
+        rows.push("");
+        rows.push("</details>");
+      }
     }
     rows.push("");
   }

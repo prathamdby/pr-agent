@@ -16,7 +16,13 @@ import {
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
 } from "../src/agent/reviewSchema.js";
-import { testPlacementsFromPayload, planInlineFromPayload, cachedDiffForFiles, cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  testPlacementsFromPayload,
+  planInlineFromPayload,
+  cachedDiffForFiles,
+  cachedDiffForLines,
+  testPlacements,
+} from "./helpers/reviewPublishTestHelpers.js";
 
 const ctx = {
   owner: "acme",
@@ -59,8 +65,7 @@ describe("renderReviewSummaryComment", () => {
           endLine: 12,
           title: "Null deref on empty payload",
           detail: "payload is used before guard",
-          fixPrompt:
-            "In src/index.ts lines 10-12, add a null check before dereferencing payload.",
+          fixPrompt: "In src/index.ts lines 10-12, add a null check before dereferencing payload.",
         },
         {
           severity: "P3",
@@ -81,11 +86,37 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("payload is used before guard");
     expect(body).toContain("Typo in heading");
     expect(body).toContain("Inline thread posted");
-    expect(body).toContain("Prompt to fix");
+    expect(body).toContain("See inline thread for fix prompt");
+    expect(body).not.toContain("<summary>Prompt to fix</summary>");
+  });
+
+  it("shows fix prompt details for summary-only findings", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix src/x.ts line 4.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
+    });
+    expect(body).toContain("Summary only");
+    expect(body).toContain("<summary>Prompt to fix</summary>");
+    expect(body).toContain("Fix src/x.ts line 4.");
   });
 
   it("(c) securityConcerns set", () => {
-    const payload = basePayload({ securityConcerns: "Webhook secret compared without timing-safe equal." });
+    const payload = basePayload({
+      securityConcerns: "Webhook secret compared without timing-safe equal.",
+    });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: testPlacementsFromPayload(payload),
@@ -390,6 +421,48 @@ describe("renderReviewPointerBody", () => {
     headSha: "abc123def456",
     maxFindings: 8,
   };
+
+  it("redacts banned fix prompt text without removing the pointer wrapper", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Call submitReview after fixing.",
+        },
+        {
+          severity: "P2",
+          file: "src/y.ts",
+          startLine: 2,
+          endLine: 2,
+          title: "Other",
+          detail: "Also bad.",
+          fixPrompt: "Fix src/y.ts line 2.",
+        },
+      ],
+    });
+    const { body } = renderReviewPointerBody(payload, {
+      ...renderCtx,
+      mode: "review",
+      placements: planInlineFromPayload(
+        payload,
+        renderCtx.maxFindings,
+        cachedDiffForFiles([
+          { file: "src/x.ts", lines: [4] },
+          { file: "src/y.ts", lines: [2] },
+        ]),
+      ),
+    });
+
+    expect(body).toContain(REVIEW_POINTER_BODY);
+    expect(body).toContain("[redacted internal details]");
+    expect(body).toContain("Fix src/y.ts line 2.");
+    expect(body).not.toBe("[redacted internal details]");
+  });
 
   it("wraps agent fix prompt in accordion with pointer line", () => {
     const payload = basePayload({

@@ -101,6 +101,31 @@ describe("submitReview tool", () => {
     expect(state.publishCallsExhausted).toBe(true);
   });
 
+  it("treats abort-check failures as superseded publish", async () => {
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      state,
+      shouldAbortPublish: async () => {
+        throw new Error("db unavailable");
+      },
+    });
+    const valid = {
+      prCharacter: "Does things.",
+      findings: [],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+
+    await expect(executor(valid)).rejects.toThrow(/superseded or cancelled/i);
+    expect(publishReview).not.toHaveBeenCalled();
+    expect(state.publishCallCount).toBe(0);
+  });
+
   it("mentions the security summary sentinel in the tool description", () => {
     const { piTool } = buildSubmitReviewTool({
       cfg,

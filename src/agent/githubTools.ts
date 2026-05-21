@@ -281,9 +281,7 @@ export function buildGithubTools(
         files: result.files.map((file) => ({
           ...file,
           commentableRightLineRanges:
-            file.patch && !file.patchOmitted
-              ? parseCommentableRightLineRanges(file.patch)
-              : [],
+            file.patch && !file.patchOmitted ? parseCommentableRightLineRanges(file.patch) : [],
         })),
         truncated: result.truncated,
         omittedCount: result.omittedCount,

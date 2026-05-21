@@ -21,7 +21,6 @@ import {
   planInlinePlacements,
   type CachedPrDiffIndex,
 } from "./reviewLocationValidation.js";
-import { sanitizePublicReviewText } from "./publicOutputSanitizer.js";
 import {
   normalizeReviewPayload,
   reviewEventForFindings,
@@ -55,10 +54,24 @@ export async function publishReview(
   const mode = params.mode ?? "review";
   const summarySentinel = reviewSummarySentinelForMode(mode);
   const payload = normalizeReviewPayload(raw);
-  const placements = planInlinePlacements(payload.findings, cfg.maxReviewFindings, params.cachedDiffIndex);
+  const placements = planInlinePlacements(
+    payload.findings,
+    cfg.maxReviewFindings,
+    params.cachedDiffIndex,
+  );
   const inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
   let summaryPlacements = placements;
+  const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
+  if (diffCacheEmpty) {
+    logDebug("review_diff_cache_empty", {
+      mode,
+      owner,
+      repo,
+      pr: prNumber,
+      truncated: params.cachedDiffIndex?.truncated ?? false,
+    });
+  }
 
   const renderCtx = {
     owner,
@@ -93,7 +106,7 @@ export async function publishReview(
       path: p.finding.file,
       line: p.inlineLine!,
       side: "RIGHT" as const,
-      body: sanitizePublicReviewText(renderInlineThreadBody(p.finding, renderCtx)),
+      body: renderInlineThreadBody(p.finding, renderCtx),
     }));
 
     if (comments.length > 0) {
@@ -113,7 +126,7 @@ export async function publishReview(
       }
       try {
         const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-          body: sanitizePublicReviewText(pointerBody.body),
+          body: pointerBody.body,
           event,
           comments,
           commitId: headSha,
@@ -159,7 +172,7 @@ export async function publishReview(
       const body = renderRepeatNoBugsReviewBody(mode, summaryCommentUrl);
       try {
         const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-          body: sanitizePublicReviewText(body),
+          body,
           event: "COMMENT",
           commitId: headSha,
         });
@@ -191,6 +204,7 @@ export async function publishReview(
     } else {
       logDebug("review_inline_skipped", {
         reason: "no_valid_inline_anchors",
+        diffCacheEmpty,
         mode,
         owner,
         repo,

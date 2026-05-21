@@ -10,12 +10,9 @@ import { cachedDiffForFiles } from "./helpers/reviewPublishTestHelpers.js";
 
 describe("reviewDiffIndex", () => {
   it("parses added and context RIGHT lines from unified diff", () => {
-    const patch = [
-      "@@ -10,3 +10,4 @@",
-      " context line",
-      "+added line",
-      " unchanged context",
-    ].join("\n");
+    const patch = ["@@ -10,3 +10,4 @@", " context line", "+added line", " unchanged context"].join(
+      "\n",
+    );
 
     expect(parseCommentableRightLineRanges(patch)).toEqual([[10, 12]]);
   });
@@ -59,12 +56,9 @@ describe("reviewDiffIndex", () => {
   });
 
   it("does not treat gap lines as commentable when patch skips them", () => {
-    const patch = [
-      "@@ -5,1 +5,1 @@",
-      "+code at line 5",
-      "@@ -7,1 +7,1 @@",
-      "+code at line 7",
-    ].join("\n");
+    const patch = ["@@ -5,1 +5,1 @@", "+code at line 5", "@@ -7,1 +7,1 @@", "+code at line 7"].join(
+      "\n",
+    );
     expect(parseCommentableRightLineRanges(patch)).toEqual([
       [5, 5],
       [7, 7],

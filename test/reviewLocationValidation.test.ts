@@ -4,7 +4,10 @@ import {
   isLineResolutionPublishError,
   planInlinePlacements,
 } from "../src/agent/reviewLocationValidation.js";
-import { createCachedPrDiffIndex, ingestListPullRequestFilesResult } from "../src/agent/reviewDiffIndex.js";
+import {
+  createCachedPrDiffIndex,
+  ingestListPullRequestFilesResult,
+} from "../src/agent/reviewDiffIndex.js";
 
 describe("reviewLocationValidation", () => {
   it("marks invalid anchors as summary-only", () => {

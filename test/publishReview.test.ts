@@ -10,7 +10,11 @@ import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/agent/reviewRender.js";
-import { cachedDiffForFiles, cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  cachedDiffForFiles,
+  cachedDiffForLines,
+  testPublishState,
+} from "./helpers/reviewPublishTestHelpers.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   createPullRequestReviewWithComments: vi.fn(async () => ({
@@ -488,7 +492,7 @@ describe("publishReview", () => {
       expect.not.stringContaining("Line could not be resolved"),
       REVIEW_SUMMARY_SENTINEL,
     );
-    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4] as string;
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("Summary only");
     expect(summaryBody).not.toContain("Inline thread posted");
     expect(publishState.inlinePublished).toBe(true);

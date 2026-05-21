@@ -39,6 +39,9 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     if (rawLine.startsWith("-") && !rawLine.startsWith("---")) {
       continue;
     }
+    if (rawLine.length > 0) {
+      rightLine++;
+    }
   }
 
   return compressLineRanges([...lines].toSorted((a, b) => a - b));
@@ -47,10 +50,10 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
 function compressLineRanges(sortedLines: number[]): CommentableRightLineRanges {
   if (sortedLines.length === 0) return [];
   const ranges: CommentableRightLineRanges = [];
-  let start = sortedLines[0]!;
+  let start = sortedLines[0];
   let prev = start;
   for (let i = 1; i < sortedLines.length; i++) {
-    const line = sortedLines[i]!;
+    const line = sortedLines[i];
     if (line === prev + 1) {
       prev = line;
       continue;

@@ -4,7 +4,11 @@
  * https://github.com/vercel-labs/deepsec
  */
 
-import { fixPromptFieldContract, publicOutputContract, singlePassReviewContract } from "./reviewPromptBlocks.js";
+import {
+  fixPromptFieldContract,
+  publicOutputContract,
+  singlePassReviewContract,
+} from "./reviewPromptBlocks.js";
 
 export const githubToolingDiscipline = [
   "## GitHub tooling discipline",

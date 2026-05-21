@@ -73,10 +73,11 @@ function buildPatchForRightLines(lines: number[]): string {
 
   const sorted = [...new Set(lines)].toSorted((a, b) => a - b);
   const runs: number[][] = [];
-  let run = [sorted[0]!];
+  let run = [sorted[0]];
   for (let i = 1; i < sorted.length; i++) {
-    const line = sorted[i]!;
-    if (line === run[run.length - 1]! + 1) {
+    const line = sorted[i];
+    const runEnd = run[run.length - 1];
+    if (runEnd != null && line === runEnd + 1) {
       run.push(line);
       continue;
     }
@@ -87,7 +88,7 @@ function buildPatchForRightLines(lines: number[]): string {
 
   return runs
     .map((runLines) => {
-      const start = runLines[0]!;
+      const start = runLines[0];
       const hunkLines = runLines.map((line) => `+code at line ${line}`);
       return `@@ -${start},${runLines.length} +${start},${runLines.length} @@\n${hunkLines.join("\n")}`;
     })

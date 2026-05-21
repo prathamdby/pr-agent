@@ -37,9 +37,12 @@ export function sanitizePublicReviewFields(fields: {
   return {
     title: fields.title == null ? fields.title : sanitizePublicReviewText(fields.title),
     detail: fields.detail == null ? fields.detail : sanitizePublicReviewText(fields.detail),
-    fixPrompt: fields.fixPrompt == null ? fields.fixPrompt : sanitizePublicReviewText(fields.fixPrompt),
+    fixPrompt:
+      fields.fixPrompt == null ? fields.fixPrompt : sanitizePublicReviewText(fields.fixPrompt),
     prCharacter:
-      fields.prCharacter == null ? fields.prCharacter : sanitizePublicReviewText(fields.prCharacter),
+      fields.prCharacter == null
+        ? fields.prCharacter
+        : sanitizePublicReviewText(fields.prCharacter),
     securityConcerns:
       fields.securityConcerns == null
         ? fields.securityConcerns

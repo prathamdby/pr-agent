@@ -7,7 +7,9 @@ import {
 describe("publicOutputSanitizer", () => {
   it("redacts internal publish failure phrases", () => {
     expect(
-      sanitizePublicReviewText("Structured publish failed after 3/3 attempt(s). Check server logs."),
+      sanitizePublicReviewText(
+        "Structured publish failed after 3/3 attempt(s). Check server logs.",
+      ),
     ).toBe("[redacted internal details]");
   });
 
