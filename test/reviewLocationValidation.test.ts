@@ -87,4 +87,23 @@ describe("reviewLocationValidation", () => {
     expect(isLineResolutionPublishError(new Error("Line could not be resolved"))).toBe(true);
     expect(isLineResolutionPublishError(new Error("Validation Failed: 422"))).toBe(false);
   });
+
+  it("does not mark duplicate-key findings as cap-eligible when only one is selected", () => {
+    const shared = {
+      severity: "P1" as const,
+      file: "src/x.ts",
+      startLine: 4,
+      endLine: 4,
+      title: "Same title",
+    };
+    const findings = [
+      { ...shared, detail: "first", fixPrompt: "fix first" },
+      { ...shared, detail: "second", fixPrompt: "fix second" },
+    ];
+
+    const placements = planInlinePlacements(findings, 1, createCachedPrDiffIndex());
+
+    expect(placements[0]?.inlineCapEligible).toBe(true);
+    expect(placements[1]?.inlineCapEligible).toBe(false);
+  });
 });

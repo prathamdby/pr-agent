@@ -39,6 +39,9 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     if (rawLine.startsWith("-") && !rawLine.startsWith("---")) {
       continue;
     }
+    if (rawLine.startsWith("\\")) {
+      continue;
+    }
     if (rawLine.length > 0) {
       rightLine++;
     }

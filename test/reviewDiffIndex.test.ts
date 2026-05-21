@@ -65,6 +65,11 @@ describe("reviewDiffIndex", () => {
     ]);
   });
 
+  it("ignores no-newline marker lines when advancing right-side line numbers", () => {
+    const patch = ["@@ -4,1 +4,2 @@", "+added", "\\ No newline at end of file"].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([[4, 4]]);
+  });
+
   it("cachedDiffForLines omits gap lines from commentable ranges", () => {
     const index = cachedDiffForFiles([{ file: "src/x.ts", lines: [5, 7] }]);
     expect(resolveInlineAnchorLine(index, "src/x.ts", 5, 5)).toBe(5);

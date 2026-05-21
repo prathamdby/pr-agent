@@ -22,10 +22,14 @@ export function planInlinePlacements(
   diffIndex: CachedPrDiffIndex | undefined,
 ): InlinePlacement[] {
   const inlineCandidates = selectInlineFindings(findings, maxInlineFindings);
-  const inlineCapSet = new Set(inlineCandidates.map(findingKey));
+  const inlineCapIndices = new Set<number>();
+  for (const candidate of inlineCandidates) {
+    const index = findings.indexOf(candidate);
+    if (index >= 0) inlineCapIndices.add(index);
+  }
 
-  return findings.map((finding) => {
-    if (!inlineCapSet.has(findingKey(finding))) {
+  return findings.map((finding, index) => {
+    if (!inlineCapIndices.has(index)) {
       return { finding, inlineLine: null, inlinePosted: false, inlineCapEligible: false };
     }
     const inlineLine = resolveInlineAnchorLine(
@@ -49,10 +53,6 @@ export function downgradePlacementsAfterInlineFailure(
   return placements.map((placement) =>
     placement.inlinePosted ? { ...placement, inlinePosted: false } : placement,
   );
-}
-
-function findingKey(finding: ReviewFinding): string {
-  return `${finding.severity}|${finding.file}|${finding.startLine}|${finding.endLine}|${finding.title}`;
 }
 
 export function isLineResolutionPublishError(error: unknown): boolean {

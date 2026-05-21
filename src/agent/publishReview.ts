@@ -96,9 +96,10 @@ export async function publishReview(
   const publishMetaBase = {
     inlineCount: inlineFindings.length,
     summaryOnlyCount: placements.filter((p) => !p.inlinePosted).length,
-    invalidAnchorCount: placements.filter(
-      (p) => p.inlineLine == null && p.finding.severity !== "P3",
+    severityCapExcluded: placements.filter(
+      (p) => !p.inlineCapEligible && p.inlineLine == null && p.finding.severity !== "P3",
     ).length,
+    anchorUnresolved: placements.filter((p) => p.inlineCapEligible && p.inlineLine == null).length,
   };
 
   if (!publishState.inlinePublished) {

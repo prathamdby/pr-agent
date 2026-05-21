@@ -91,10 +91,6 @@ function formatLineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
 }
 
-function findingIdentity(f: ReviewFinding): string {
-  return `${f.severity}|${f.file}|${f.startLine}|${f.endLine}|${f.title}`;
-}
-
 function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
   return [...findings].toSorted((a, b) => {
     const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
@@ -186,7 +182,7 @@ export function renderAgentFixPrompt(
   ctx: RenderContext,
   placements: readonly InlinePlacement[],
 ): string {
-  const placementByKey = new Map(placements.map((p) => [findingIdentity(p.finding), p]));
+  const placementByFinding = new Map(placements.map((p) => [p.finding, p]));
   const sorted = sortFindingsForAgentFixPrompt(payload.findings);
 
   const blocks = sorted.map((f) => {
@@ -201,7 +197,7 @@ export function renderAgentFixPrompt(
       detail: safe.detail ?? f.detail,
       fixPrompt: safe.fixPrompt ?? f.fixPrompt,
     };
-    const placement = placementByKey.get(findingIdentity(f));
+    const placement = placementByFinding.get(f);
     return renderAgentFixFindingBlock(sanitizedFinding, {
       inlinePosted: placement?.inlinePosted ?? false,
       inlineCapEligible: placement?.inlineCapEligible,
