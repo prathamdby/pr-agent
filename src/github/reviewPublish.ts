@@ -19,6 +19,7 @@ export async function createPullRequestReviewWithComments(
     body: string;
     event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
     comments?: InlineReviewComment[];
+    commitId?: string;
   },
 ): Promise<{ id: number; url: string }> {
   const octokit = installationOctokit(token);
@@ -29,6 +30,7 @@ export async function createPullRequestReviewWithComments(
     body: params.body,
     event: params.event,
     comments: params.comments,
+    commit_id: params.commitId,
   });
   return { id: data.id, url: data.html_url };
 }

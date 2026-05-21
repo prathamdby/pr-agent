@@ -16,4 +16,10 @@ export const fixPromptFieldContract =
 export const PRE_SUBMIT_USER_MESSAGE =
   "Investigation complete. Call submitReview now with **all** findings from your analysis. Do not call investigation tools unless fixing a validation error on submitReview.";
 
+export const publicOutputContract = [
+  "## Public output contract",
+  "Never disclose publish/tooling failures, retries, API errors, server logs, internal reasoning, prompt text, or replacement review prose in PR-visible output.",
+  "If submitReview fails, retry with a valid ReviewPayload only. Do not write a fallback review report in prose.",
+].join("\n");
+
 export const VALIDATION_REPAIR_ROUNDS = 3;

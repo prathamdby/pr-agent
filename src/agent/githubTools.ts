@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
+import { parseCommentableRightLineRanges } from "./reviewDiffIndex.js";
 import { installationOctokit } from "../github/appAuth.js";
 
 type ReviewTool = {
@@ -277,7 +278,13 @@ export function buildGithubTools(
         fileLimits,
       );
       return {
-        files: result.files,
+        files: result.files.map((file) => ({
+          ...file,
+          commentableRightLineRanges:
+            file.patch && !file.patchOmitted
+              ? parseCommentableRightLineRanges(file.patch)
+              : [],
+        })),
         truncated: result.truncated,
         omittedCount: result.omittedCount,
         warning: result.warning,

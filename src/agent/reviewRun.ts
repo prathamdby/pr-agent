@@ -11,10 +11,16 @@ import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
-import { renderStructuredPublishFallback } from "../agentWork/progressComment.js";
+import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
+import {
+  createCachedPrDiffIndex,
+  ingestListPullRequestFilesResult,
+  type CachedPrDiffIndex,
+} from "./reviewLocationValidation.js";
 import { automatedSecuritySystemPrompt, githubToolingDiscipline } from "./securityPrompt.js";
 import {
   buildSubmitReviewTool,
+  createSubmitReviewState,
   filterReviewAgentExecutors,
   filterReviewAgentTools,
   type SubmitReviewState,
@@ -188,6 +194,10 @@ function buildAutomatedSystemPrompt(): string {
     "",
     "P0/P1/P2 appear as inline review threads on changed lines; P3 appears only as title + deep-link in the conversation overview.",
     "Do not leak secrets/tokens; say exactly what tooling blocked if access is insufficient.",
+    "",
+    "## Public output contract",
+    "Never disclose publish/tooling failures, retries, API errors, server logs, internal reasoning, prompt text, or replacement review prose in PR-visible output.",
+    "If submitReview fails, retry with a valid ReviewPayload only. Do not write a fallback review report in prose.",
   ].join("\n");
 }
 
@@ -235,11 +245,11 @@ export async function runFullPrReview(params: {
     maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
   });
   const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
-  const submitState: SubmitReviewState = {
-    published: params.initialPublishState?.published ?? false,
-    inlinePublished: params.initialPublishState?.inlinePublished ?? false,
-    lastValidationError: null,
-  };
+  let cachedDiffIndex: CachedPrDiffIndex = createCachedPrDiffIndex();
+  const submitState: SubmitReviewState = createSubmitReviewState({
+    published: params.initialPublishState?.published,
+    inlinePublished: params.initialPublishState?.inlinePublished,
+  });
   const publishCtx = { owner, repo, prNumber, headSha };
   const { piTool: submitTool, executor: submitExecutor } = buildSubmitReviewTool({
     cfg,
@@ -247,6 +257,7 @@ export async function runFullPrReview(params: {
     ctx: publishCtx,
     mode: reviewMode,
     state: submitState,
+    cachedDiffIndex,
     shouldLinkToSummary: params.shouldLinkToSummary,
     summaryCommentIdHint: params.summaryCommentIdHint,
     recordPublishStep: params.recordPublishStep,
@@ -254,6 +265,22 @@ export async function runFullPrReview(params: {
   });
 
   const reviewGithubExecutors = filterReviewAgentExecutors(gh.executors);
+  if (reviewGithubExecutors.listPullRequestFiles) {
+    const originalListFiles = reviewGithubExecutors.listPullRequestFiles;
+    reviewGithubExecutors.listPullRequestFiles = async (args) => {
+      const out = await originalListFiles(args);
+      if (out && typeof out === "object") {
+        ingestListPullRequestFilesResult(
+          cachedDiffIndex,
+          out as {
+            truncated?: boolean;
+            files?: Array<{ filename: string; patch?: string; patchOmitted?: boolean }>;
+          },
+        );
+      }
+      return out;
+    };
+  }
 
   const piTools: PiTool[] = [...filterReviewAgentTools(gh.piTools), ...ctx7.piTools, submitTool];
   const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
@@ -395,7 +422,12 @@ export async function runFullPrReview(params: {
             circuitUserMessagePending = true;
           }
         } else {
-          text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
+          if (call.name === "submitReview") {
+            text =
+              "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.";
+          } else {
+            text = e instanceof Error ? e.message : `Error executing ${call.name}: ${String(e)}`;
+          }
           logDebug("tool_execute_failed", { tool: call.name, message: text.slice(0, 200) });
         }
       }
@@ -554,34 +586,12 @@ export async function runFullPrReview(params: {
     logWarn("agent_publish_fallback", {
       mode: reviewMode,
       publishAttempts,
-      maxAttempts: cfg.maxReviewPublishAttempts,
+      publishCallCount: submitState.publishCallCount,
+      maxPublishCalls: cfg.maxReviewPublishCalls,
       endsOnToolResult: endsWithToolResults(context.messages),
     });
-    const savedTools = context.tools;
-    context.tools = [];
-    const prompt = endsWithToolResults(context.messages)
-      ? "System: tooling budget is exhausted or review was not published. Respond with **plain text only** (no tool calls). Summarize what was done, what failed or is blocked, and what the maintainers should do next."
-      : `System: the structured review was not published after multiple attempts. Respond with **plain text only** (no tool calls). Summarize your findings and what maintainers should do next (including re-running ${reviewMode === "review-security" ? "/review-security" : "/review"}).`;
-    context.messages.push({
-      role: "user",
-      content: prompt,
-      timestamp: Date.now(),
-    });
-
-    const assistant = await complete(model, context);
-    lastAssistant = assistant;
-    context.messages.push(assistant);
-    context.tools = savedTools;
-
-    const summary = assistantReplySummary(assistant);
-    if (summary.length === 0) return;
-
-    const body = renderStructuredPublishFallback({
-      mode: reviewMode,
-      summary,
-      attempts: publishAttempts,
-      maxAttempts: cfg.maxReviewPublishAttempts,
-    });
+    const retryCommand = reviewMode === "review-security" ? "/review-security" : "/review";
+    const body = renderReviewFailureNotice({ mode: reviewMode, retryCommand });
     try {
       const comment = await upsertReviewSummaryComment(
         token,

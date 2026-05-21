@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { publishReview } from "./publishReview.js";
+import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
 import {
   coerceReviewPayloadInput,
   formatReviewValidationError,
@@ -15,6 +16,9 @@ import {
 } from "./reviewSchema.js";
 
 const DELIVERY_TOOL_NAMES = new Set(["createPullRequestReview", "addPullRequestComment"]);
+
+export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
+  "Review publish budget exhausted for this run. Do not call submitReview again.";
 
 export function filterReviewAgentTools<T extends { name: string }>(tools: T[]): T[] {
   return tools.filter((t) => !DELIVERY_TOOL_NAMES.has(t.name));
@@ -34,7 +38,21 @@ export type SubmitReviewState = {
   published: boolean;
   inlinePublished: boolean;
   lastValidationError: string | null;
+  publishCallCount: number;
+  publishCallsExhausted: boolean;
 };
+
+export function createSubmitReviewState(
+  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished">>,
+): SubmitReviewState {
+  return {
+    published: initial?.published ?? false,
+    inlinePublished: initial?.inlinePublished ?? false,
+    lastValidationError: null,
+    publishCallCount: 0,
+    publishCallsExhausted: false,
+  };
+}
 
 export function buildSubmitReviewTool(params: {
   cfg: Config;
@@ -42,6 +60,7 @@ export function buildSubmitReviewTool(params: {
   ctx: ReviewPublishContext;
   mode?: ReviewMode;
   state: SubmitReviewState;
+  cachedDiffIndex?: CachedPrDiffIndex;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
   recordPublishStep?: (
@@ -83,6 +102,16 @@ export function buildSubmitReviewTool(params: {
       return { ok: true, duplicate: true };
     }
 
+    if (params.state.publishCallsExhausted) {
+      logDebug("review_submit_budget_exhausted_ignored", {
+        mode,
+        owner: params.ctx.owner,
+        repo: params.ctx.repo,
+        pr: params.ctx.prNumber,
+      });
+      throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
+    }
+
     const { value: coercedArgs, coerced } = coerceReviewPayloadInput(args);
     if (coerced) {
       logDebug("review_payload_coerced", { mode, owner: params.ctx.owner, repo: params.ctx.repo });
@@ -109,17 +138,44 @@ export function buildSubmitReviewTool(params: {
       });
       throw new Error("Review publish skipped: work superseded or cancelled");
     }
-    await publishReview({
-      token: params.token,
-      mode,
-      cfg: params.cfg,
-      ...params.ctx,
-      payload: parsed.data,
-      publishState: params.state,
-      shouldLinkToSummary: params.shouldLinkToSummary,
-      summaryCommentIdHint: params.summaryCommentIdHint,
-      recordPublishStep: params.recordPublishStep,
-    });
+
+    if (params.state.publishCallCount >= params.cfg.maxReviewPublishCalls) {
+      params.state.publishCallsExhausted = true;
+      throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
+    }
+
+    params.state.publishCallCount += 1;
+
+    try {
+      await publishReview({
+        token: params.token,
+        mode,
+        cfg: params.cfg,
+        ...params.ctx,
+        payload: parsed.data,
+        publishState: params.state,
+        cachedDiffIndex: params.cachedDiffIndex,
+        shouldLinkToSummary: params.shouldLinkToSummary,
+        summaryCommentIdHint: params.summaryCommentIdHint,
+        recordPublishStep: params.recordPublishStep,
+      });
+    } catch (e) {
+      logWarn("review_publish_failed", {
+        mode,
+        owner: params.ctx.owner,
+        repo: params.ctx.repo,
+        pr: params.ctx.prNumber,
+        message: e instanceof Error ? e.message : String(e),
+        publishCallCount: params.state.publishCallCount,
+      });
+      if (params.state.publishCallCount >= params.cfg.maxReviewPublishCalls) {
+        params.state.publishCallsExhausted = true;
+      }
+      throw new Error(
+        "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
+      );
+    }
+
     params.state.published = true;
     const severities = parsed.data.findings.map((f) => f.severity);
     logInfo("review_published", {

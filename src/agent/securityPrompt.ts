@@ -4,11 +4,12 @@
  * https://github.com/vercel-labs/deepsec
  */
 
-import { fixPromptFieldContract, singlePassReviewContract } from "./reviewPromptBlocks.js";
+import { fixPromptFieldContract, publicOutputContract, singlePassReviewContract } from "./reviewPromptBlocks.js";
 
 export const githubToolingDiscipline = [
   "## GitHub tooling discipline",
-  "- Call `listPullRequestFiles` once and prefer each file's `patch` before `getFileContent`.",
+  "- Call `listPullRequestFiles` first and prefer each file's `patch` and `commentableRightLineRanges` before `getFileContent`.",
+  "- Anchor findings to lines present in `commentableRightLineRanges`; if unsure, the server will keep the finding in the summary only.",
   "- Call `searchCode` and `getBlame` only when a finding genuinely depends on them (Search API ~30 req/min; GraphQL points are separate).",
   "- If a tool result includes rate-limit cooldown text, do not issue further GitHub tools until the cooldown elapses; call submitReview with your current analysis.",
 ].join("\n");
@@ -122,4 +123,6 @@ export const automatedSecuritySystemPrompt = [
   "",
   "P0/P1/P2 appear as inline review threads on changed lines; P3 appears only as title + deep-link in the security summary overview.",
   "Do not leak secrets/tokens; say exactly what tooling blocked if access is insufficient.",
+  "",
+  publicOutputContract,
 ].join("\n");

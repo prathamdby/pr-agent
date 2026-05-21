@@ -89,6 +89,11 @@ export function loadConfig() {
     throw new Error("MAX_REVIEW_PUBLISH_ATTEMPTS must be a positive number");
   }
 
+  const maxReviewPublishCalls = Number(optionalEnv("MAX_REVIEW_PUBLISH_CALLS", "2"));
+  if (!Number.isFinite(maxReviewPublishCalls) || maxReviewPublishCalls < 1) {
+    throw new Error("MAX_REVIEW_PUBLISH_CALLS must be a positive number");
+  }
+
   const reviewConcurrency = Number(optionalEnv("REVIEW_CONCURRENCY", "2"));
   if (!Number.isFinite(reviewConcurrency) || reviewConcurrency < 1) {
     throw new Error("REVIEW_CONCURRENCY must be a positive number");
@@ -204,6 +209,7 @@ export function loadConfig() {
     piModel,
     maxToolRounds,
     maxReviewPublishAttempts,
+    maxReviewPublishCalls,
     reviewConcurrency,
     askConcurrency,
     ackConcurrency,
