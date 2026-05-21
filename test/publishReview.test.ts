@@ -361,6 +361,65 @@ describe("publishReview", () => {
     );
   });
 
+  it("posts repeat no-bugs COMMENT review when shouldLinkToSummary and zero findings", async () => {
+    vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(
+      "https://github.com/o/r/pull/1#issuecomment-99",
+    );
+    const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+
+    await publishReview({
+      ...baseParams,
+      shouldLinkToSummary: true,
+      summaryCommentIdHint: 99,
+      publishState,
+      payload: { ...payload, findings: [] },
+    });
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.objectContaining({
+        event: "COMMENT",
+        body: "No bugs found, [see the updated review](https://github.com/o/r/pull/1#issuecomment-99).",
+      }),
+    );
+    const callArgs = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4];
+    expect(callArgs).not.toHaveProperty("comments");
+    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(publishState.inlinePublished).toBe(true);
+  });
+
+  it("does not post repeat no-bugs review when shouldLinkToSummary but P3-only findings", async () => {
+    vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(
+      "https://github.com/o/r/pull/1#issuecomment-99",
+    );
+
+    await publishReview({
+      ...baseParams,
+      shouldLinkToSummary: true,
+      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      payload: {
+        ...payload,
+        findings: [
+          {
+            severity: "P3",
+            file: "README.md",
+            startLine: 1,
+            endLine: 1,
+            title: "Typo",
+            detail: "minor",
+          },
+        ],
+      },
+    });
+
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+  });
+
   it("does not fail publish when label sync throws", async () => {
     vi.mocked(setPullRequestLabels).mockRejectedValueOnce(new Error("labels forbidden"));
 

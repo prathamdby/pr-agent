@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+  REPEAT_NO_BUGS_PREFIX,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
   renderAgentFixPrompt,
   renderInlineThreadBody,
+  renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
   renderReviewSummaryComment,
   SECURITY_REVIEW_POINTER_BODY,
@@ -416,5 +418,29 @@ describe("renderReviewPointerBody", () => {
     expect(truncated).toBe(true);
     expect(body.length).toBeLessThanOrEqual(REVIEW_POINTER_BODY_MAX_CHARS);
     expect(body).toContain("...[truncated; see inline threads and PR summary]");
+  });
+});
+
+describe("renderRepeatNoBugsReviewBody", () => {
+  const url = "https://github.com/acme/widgets/pull/42#issuecomment-123";
+
+  it("links to summary when URL is verified (general)", () => {
+    const body = renderRepeatNoBugsReviewBody("review", url);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
+  });
+
+  it("links to summary when URL is verified (security)", () => {
+    const body = renderRepeatNoBugsReviewBody("review-security", url);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${url}).`);
+  });
+
+  it("falls back to plain pointer when URL is missing (general)", () => {
+    const body = renderRepeatNoBugsReviewBody("review");
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
+  });
+
+  it("falls back to plain pointer when URL is missing (security)", () => {
+    const body = renderRepeatNoBugsReviewBody("review-security");
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${SECURITY_REVIEW_POINTER_BODY}`);
   });
 });

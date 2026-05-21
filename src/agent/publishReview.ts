@@ -11,6 +11,7 @@ import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "
 import { logWarn, logDebug } from "../evlog.js";
 import {
   renderInlineThreadBody,
+  renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
   renderReviewSummaryComment,
 } from "./reviewRender.js";
@@ -116,6 +117,28 @@ export async function publishReview(
         event,
         inlineCount: comments.length,
       });
+    } else if (params.shouldLinkToSummary && payload.findings.length === 0) {
+      const body = renderRepeatNoBugsReviewBody(mode, summaryCommentUrl);
+      const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
+        body,
+        event: "COMMENT",
+      });
+      await params.recordPublishStep?.("inline_review", {
+        githubId: review.id,
+        meta: {
+          url: review.url,
+          inlineCount: 0,
+          repeatNoBugs: true,
+          event: "COMMENT",
+        },
+      });
+      logDebug("review_published_repeat_no_bugs", {
+        mode,
+        owner,
+        repo,
+        pr: prNumber,
+        reviewId: review.id,
+      });
     } else {
       logDebug("review_inline_skipped", {
         reason: "no_p0_p2_findings",
@@ -127,7 +150,7 @@ export async function publishReview(
     }
 
     publishState.inlinePublished = true;
-    if (comments.length === 0) {
+    if (comments.length === 0 && !(params.shouldLinkToSummary && payload.findings.length === 0)) {
       await params.recordPublishStep?.("inline_review", {
         meta: { inlineCount: 0, reason: "no_p0_p2_findings" },
       });

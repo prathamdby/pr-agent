@@ -58,6 +58,17 @@ export function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: st
     : `[View the updated review.](${summaryCommentUrl})`;
 }
 
+export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
+
+export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
+  if (summaryCommentUrl) {
+    return mode === "review-security"
+      ? `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`
+      : `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
+  }
+  return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
+}
+
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.";
 
