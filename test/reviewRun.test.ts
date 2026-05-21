@@ -45,6 +45,7 @@ const cfg = {
   piModel: "gpt-4o-mini",
   maxToolRounds: 2,
   maxReviewPublishAttempts: 3,
+  maxReviewPublishCalls: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
   maxAskToolRounds: 12,
@@ -198,14 +199,12 @@ describe("runFullPrReview mode", () => {
   it("uses security fallback heading when security publish is exhausted", async () => {
     await runFullPrReview(reviewParams({ mode: "review-security" }));
 
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.stringContaining("## PR Agent Security Review"),
-      "## PR Agent Security Review",
-    );
+    const body = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4] as string;
+    expect(body).toContain("## PR Agent Security Review");
+    expect(body).toContain("could not complete");
+    expect(body).not.toMatch(/structured publish/i);
+    expect(body).not.toMatch(/server logs/i);
+    expect(body).not.toContain("analysis without submitReview");
   });
 });
 
@@ -232,25 +231,18 @@ describe("runFullPrReview publish retries", () => {
     );
   });
 
-  it("posts a maintainer-visible fallback comment when publish is exhausted", async () => {
+  it("posts a deterministic fallback comment when publish is exhausted", async () => {
     const result = await runFullPrReview(reviewParams());
 
     expect(result.published).toBe(false);
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.stringContaining("Structured publish failed"),
-      "## PR Agent Review",
-    );
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.stringContaining("analysis without submitReview"),
-      "## PR Agent Review",
-    );
+    const body = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4] as string;
+    expect(body).toContain("## PR Agent Review");
+    expect(body).toContain("could not complete");
+    expect(body).toContain("/review");
+    expect(body).not.toMatch(/structured publish/i);
+    expect(body).not.toMatch(/server logs/i);
+    expect(body).not.toMatch(/\d+\/\d+ attempt/i);
+    expect(body).not.toContain("analysis without submitReview");
+    expect(body).not.toContain("Line could not be resolved");
   });
 });

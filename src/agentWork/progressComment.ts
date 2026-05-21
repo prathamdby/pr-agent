@@ -23,26 +23,14 @@ export function renderReviewFailureNotice(params: {
   return [
     reviewSummarySentinelForMode(params.mode),
     "",
-    `_PR Agent ${params.mode === "review-security" ? "security review" : "review"} failed after retries._`,
+    `_PR Agent could not complete this ${params.mode === "review-security" ? "security review" : "review"}._`,
     "",
     `Please retry with \`${params.retryCommand}\`.`,
   ].join("\n");
 }
 
-export function renderStructuredPublishFallback(params: {
-  mode: ReviewMode;
-  summary: string;
-  attempts: number;
-  maxAttempts: number;
-}): string {
+/** @deprecated Use renderReviewFailureNotice — kept for callers migrating off structured publish wording. */
+export function renderStructuredPublishFallback(params: { mode: ReviewMode }): string {
   const retryCommand = params.mode === "review-security" ? "/review-security" : "/review";
-  return [
-    reviewSummarySentinelForMode(params.mode),
-    "",
-    `_Structured publish failed after ${params.attempts}/${params.maxAttempts} attempt(s)._`,
-    "",
-    `Re-run \`${retryCommand}\` or check server logs.`,
-    "",
-    params.summary,
-  ].join("\n");
+  return renderReviewFailureNotice({ mode: params.mode, retryCommand });
 }

@@ -10,6 +10,11 @@ import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/agent/reviewRender.js";
+import {
+  cachedDiffForFiles,
+  cachedDiffForLines,
+  testPublishState,
+} from "./helpers/reviewPublishTestHelpers.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   createPullRequestReviewWithComments: vi.fn(async () => ({
@@ -69,8 +74,12 @@ describe("publishReview", () => {
   });
 
   it("uses REQUEST_CHANGES for P1 and passes inline comments with agent fix prompt body", async () => {
-    const publishState = { published: false, inlinePublished: false, lastValidationError: null };
-    await publishReview({ ...baseParams, publishState });
+    const publishState = testPublishState();
+    await publishReview({
+      ...baseParams,
+      publishState,
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
 
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
       "t",
@@ -80,6 +89,7 @@ describe("publishReview", () => {
       expect.objectContaining({
         event: "REQUEST_CHANGES",
         body: expect.stringContaining(AGENT_FIX_PROMPT_ACCORDION_SUMMARY),
+        commitId: "sha",
         comments: [
           expect.objectContaining({
             path: "src/x.ts",
@@ -118,7 +128,11 @@ describe("publishReview", () => {
 
     await publishReview({
       ...baseParams,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForFiles([
+        { file: "a.ts", lines: [1] },
+        { file: "b.ts", lines: [2] },
+      ]),
       cfg: {
         maxReviewFindings: 1,
         enableReviewLabelsEffort: false,
@@ -146,7 +160,7 @@ describe("publishReview", () => {
       sentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
     },
   ])("skips PR review when there are no P0–P2 findings ($label)", async ({ mode, sentinel }) => {
-    const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+    const publishState = testPublishState();
 
     await publishReview({
       ...baseParams,
@@ -168,7 +182,7 @@ describe("publishReview", () => {
   });
 
   it("skips PR review when only P3 findings", async () => {
-    const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+    const publishState = testPublishState();
 
     await publishReview({
       ...baseParams,
@@ -196,7 +210,8 @@ describe("publishReview", () => {
   it("uses COMMENT when only P2 findings", async () => {
     await publishReview({
       ...baseParams,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       payload: {
         ...payload,
         findings: [{ ...payload.findings[0], severity: "P2" }],
@@ -213,7 +228,7 @@ describe("publishReview", () => {
   });
 
   it("skips inline review when inlinePublished is already true", async () => {
-    const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+    const publishState = testPublishState();
     publishState.inlinePublished = true;
 
     await publishReview({ ...baseParams, publishState });
@@ -223,11 +238,12 @@ describe("publishReview", () => {
   });
 
   it("uses security sentinel and pointer with agent fix prompt when mode is review-security", async () => {
-    const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+    const publishState = testPublishState();
     await publishReview({
       ...baseParams,
       mode: "review-security",
       publishState,
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
@@ -263,7 +279,7 @@ describe("publishReview", () => {
 
     await publishReview({
       ...baseParams,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
       cfg: {
         maxReviewFindings: 8,
         enableReviewLabelsEffort: true,
@@ -282,7 +298,7 @@ describe("publishReview", () => {
 
     await publishReview({
       ...baseParams,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
       cfg: {
         maxReviewFindings: 8,
         enableReviewLabelsEffort: true,
@@ -299,7 +315,7 @@ describe("publishReview", () => {
 
     await publishReview({
       ...baseParams,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
       cfg: {
         maxReviewFindings: 8,
         enableReviewLabelsEffort: true,
@@ -323,7 +339,8 @@ describe("publishReview", () => {
       ...baseParams,
       shouldLinkToSummary: true,
       summaryCommentIdHint: 99,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
     expect(resolveVerifiedSummaryCommentUrl).toHaveBeenCalled();
@@ -347,7 +364,8 @@ describe("publishReview", () => {
     await publishReview({
       ...baseParams,
       shouldLinkToSummary: true,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
@@ -365,7 +383,7 @@ describe("publishReview", () => {
     vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(
       "https://github.com/o/r/pull/1#issuecomment-99",
     );
-    const publishState = { published: false, inlinePublished: false, lastValidationError: null };
+    const publishState = testPublishState();
 
     await publishReview({
       ...baseParams,
@@ -400,7 +418,7 @@ describe("publishReview", () => {
     await publishReview({
       ...baseParams,
       shouldLinkToSummary: true,
-      publishState: { published: false, inlinePublished: false, lastValidationError: null },
+      publishState: testPublishState(),
       payload: {
         ...payload,
         findings: [
@@ -426,7 +444,7 @@ describe("publishReview", () => {
     await expect(
       publishReview({
         ...baseParams,
-        publishState: { published: false, inlinePublished: false, lastValidationError: null },
+        publishState: testPublishState(),
         cfg: {
           maxReviewFindings: 8,
           enableReviewLabelsEffort: true,
@@ -436,5 +454,47 @@ describe("publishReview", () => {
     ).resolves.toBeUndefined();
 
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
+  });
+
+  it("publishes summary when inline anchors are invalid", async () => {
+    const publishState = testPublishState();
+    await publishReview({ ...baseParams, publishState });
+
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.stringContaining("Summary only"),
+      REVIEW_SUMMARY_SENTINEL,
+    );
+    expect(publishState.inlinePublished).toBe(true);
+  });
+
+  it("publishes summary when GitHub rejects inline review", async () => {
+    vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce(
+      new Error("Line could not be resolved"),
+    );
+    const publishState = testPublishState();
+
+    await publishReview({
+      ...baseParams,
+      publishState,
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
+
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.not.stringContaining("Line could not be resolved"),
+      REVIEW_SUMMARY_SENTINEL,
+    );
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(summaryBody).toContain("Summary only");
+    expect(summaryBody).not.toContain("Inline thread posted");
+    expect(publishState.inlinePublished).toBe(true);
   });
 });

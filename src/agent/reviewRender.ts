@@ -4,7 +4,8 @@ import type {
   ReviewPublishContext,
   ReviewMode,
 } from "./reviewSchema.js";
-import { isInlineSeverity, selectInlineFindings } from "./reviewSchema.js";
+import { sanitizePublicReviewFields } from "./publicOutputSanitizer.js";
+import type { InlinePlacement } from "./reviewLocationValidation.js";
 
 export type RenderContext = ReviewPublishContext & {
   maxFindings: number;
@@ -90,10 +91,6 @@ function formatLineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
 }
 
-function findingIdentity(f: ReviewFinding): string {
-  return `${f.severity}|${f.file}|${f.startLine}|${f.endLine}|${f.title}`;
-}
-
 function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
   return [...findings].toSorted((a, b) => {
     const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
@@ -106,7 +103,7 @@ function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding
 
 export function renderFindingFixBlock(
   finding: ReviewFinding,
-  opts: { inlinePosted: boolean },
+  opts: { inlinePosted: boolean; inlineCapEligible?: boolean },
 ): string {
   const location = `@${finding.file} ${formatLineRange(finding.startLine, finding.endLine)}`;
   const lines: string[] = [];
@@ -120,14 +117,18 @@ export function renderFindingFixBlock(
   lines.push(`[${finding.severity}] ${location}`);
   lines.push(finding.fixPrompt ? escapeCodeFenceBreakers(finding.fixPrompt) : "");
   if (!opts.inlinePosted) {
-    lines.push("[inline thread omitted — severity cap]");
+    lines.push(
+      opts.inlineCapEligible === false
+        ? "[inline thread omitted — severity cap]"
+        : "[inline thread omitted — summary only]",
+    );
   }
   return lines.join("\n");
 }
 
 function renderAgentFixFindingBlock(
   finding: ReviewFinding,
-  opts: { inlinePosted: boolean },
+  opts: { inlinePosted: boolean; inlineCapEligible?: boolean },
 ): string {
   return renderFindingFixBlock(finding, opts);
 }
@@ -148,16 +149,27 @@ export function renderSingleFindingAgentFixPrompt(
 }
 
 export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
+  const safe = sanitizePublicReviewFields({
+    title: finding.title,
+    detail: finding.detail,
+    fixPrompt: finding.fixPrompt,
+  });
+  const sanitizedFinding = {
+    ...finding,
+    title: safe.title ?? finding.title,
+    detail: safe.detail ?? finding.detail,
+    fixPrompt: safe.fixPrompt ?? finding.fixPrompt,
+  };
   const lines = [
-    `[${finding.severity}] ${finding.title}`,
+    `[${sanitizedFinding.severity}] ${sanitizedFinding.title}`,
     "",
-    finding.detail,
+    sanitizedFinding.detail,
     "",
     "<details>",
     "<summary>Prompt to fix</summary>",
     "",
     "```",
-    renderSingleFindingAgentFixPrompt(finding, ctx),
+    renderSingleFindingAgentFixPrompt(sanitizedFinding, ctx),
     "```",
     "",
     "</details>",
@@ -165,15 +177,32 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
   return lines.join("\n");
 }
 
-export function renderAgentFixPrompt(payload: ReviewPayload, ctx: RenderContext): string {
-  const inlinePosted = new Set(
-    selectInlineFindings(payload.findings, ctx.maxFindings).map(findingIdentity),
-  );
+export function renderAgentFixPrompt(
+  payload: ReviewPayload,
+  ctx: RenderContext,
+  placements: readonly InlinePlacement[],
+): string {
+  const placementByFinding = new Map(placements.map((p) => [p.finding, p]));
   const sorted = sortFindingsForAgentFixPrompt(payload.findings);
 
-  const blocks = sorted.map((f) =>
-    renderAgentFixFindingBlock(f, { inlinePosted: inlinePosted.has(findingIdentity(f)) }),
-  );
+  const blocks = sorted.map((f) => {
+    const safe = sanitizePublicReviewFields({
+      title: f.title,
+      detail: f.detail,
+      fixPrompt: f.fixPrompt,
+    });
+    const sanitizedFinding = {
+      ...f,
+      title: safe.title ?? f.title,
+      detail: safe.detail ?? f.detail,
+      fixPrompt: safe.fixPrompt ?? f.fixPrompt,
+    };
+    const placement = placementByFinding.get(f);
+    return renderAgentFixFindingBlock(sanitizedFinding, {
+      inlinePosted: placement?.inlinePosted ?? false,
+      inlineCapEligible: placement?.inlineCapEligible,
+    });
+  });
 
   return [
     AGENT_FIX_PROMPT_PREAMBLE,
@@ -228,10 +257,14 @@ function truncateAgentFixPromptForPointerBody(
 
 export function renderReviewPointerBody(
   payload: ReviewPayload,
-  ctx: RenderContext & { mode: ReviewMode; summaryCommentUrl?: string },
+  ctx: RenderContext & {
+    mode: ReviewMode;
+    summaryCommentUrl?: string;
+    placements: readonly InlinePlacement[];
+  },
 ): { body: string; truncated: boolean } {
   const pointerLine = renderReviewPointerLine(ctx.mode, ctx.summaryCommentUrl);
-  let agentFixPrompt = renderAgentFixPrompt(payload, ctx);
+  let agentFixPrompt = renderAgentFixPrompt(payload, ctx, ctx.placements);
   let truncated = false;
 
   let body = assembleReviewPointerBody(pointerLine, agentFixPrompt);
@@ -251,55 +284,88 @@ export function renderReviewPointerBody(
 
 export function renderReviewSummaryComment(
   payload: ReviewPayload,
-  ctx: RenderContext & { summarySentinel: string },
+  ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
 ): string {
-  const inlineCandidates = payload.findings.filter((f) => isInlineSeverity(f.severity));
-  const shown = selectInlineFindings(payload.findings, ctx.maxFindings);
-  const p3 = payload.findings.filter((f) => f.severity === "P3");
-  const truncated = inlineCandidates.length > shown.length;
+  const safePayload = sanitizePublicReviewFields({
+    prCharacter: payload.prCharacter,
+    securityConcerns: payload.securityConcerns,
+    followUps: payload.followUps,
+  });
+  const sortedPlacements = [...ctx.placements].toSorted((a, b) => {
+    const bySeverity = SEVERITY_RANK[a.finding.severity] - SEVERITY_RANK[b.finding.severity];
+    if (bySeverity !== 0) return bySeverity;
+    const byFile = a.finding.file.localeCompare(b.finding.file);
+    if (byFile !== 0) return byFile;
+    return a.finding.startLine - b.finding.startLine;
+  });
 
   const rows: string[] = [];
   rows.push(ctx.summarySentinel);
   rows.push("");
-  rows.push(escapeTableCell(payload.prCharacter.trim()));
+  rows.push(escapeTableCell((safePayload.prCharacter ?? payload.prCharacter).trim()));
   rows.push("");
   rows.push("| | |");
   rows.push("| --- | --- |");
-
-  if (shown.length === 0) {
-    rows.push("| Focus | No P0–P2 findings |");
-  } else {
-    for (const f of shown) {
-      const link = blobLineUrl(ctx, f.file, f.startLine, f.endLine);
-      rows.push(`| ${severityBadge(f.severity)} | [${f.title}](${link}) |`);
-    }
-    if (truncated) {
-      rows.push(
-        `| | Showing ${shown.length} of ${inlineCandidates.length} P0–P2 findings (truncated; lowest severity dropped first). |`,
-      );
-    }
-  }
-
-  if (p3.length > 0) {
-    rows.push("| P3 | |");
-    for (const f of p3) {
-      const link = blobLineUrl(ctx, f.file, f.startLine, f.endLine);
-      rows.push(`| | [${f.title}](${link}) |`);
-    }
-  }
-
   rows.push(`| Effort | ${effortBar(payload.estimatedEffort)} (${payload.estimatedEffort}/5) |`);
   rows.push(`| Relevant tests | ${payload.relevantTests} |`);
   rows.push(
-    `| Security | ${payload.securityConcerns != null ? escapeTableCell(payload.securityConcerns) : "No security concerns identified"} |`,
+    `| Security | ${
+      safePayload.securityConcerns != null
+        ? escapeTableCell(safePayload.securityConcerns)
+        : "No security concerns identified"
+    } |`,
   );
 
-  if (payload.followUps.length > 0) {
+  const followUps = safePayload.followUps ?? payload.followUps;
+  if (followUps.length > 0) {
     rows.push("| Follow-ups | |");
-    for (const item of payload.followUps) {
+    for (const item of followUps) {
       rows.push(`| | ${escapeTableCell(item)} |`);
     }
   }
 
-  return rows.join("\n");
+  if (sortedPlacements.length === 0) {
+    rows.push("");
+    rows.push("_No findings._");
+    return rows.join("\n");
+  }
+
+  rows.push("");
+  rows.push("### Findings");
+  rows.push("");
+
+  for (const placement of sortedPlacements) {
+    const f = placement.finding;
+    const safeFinding = sanitizePublicReviewFields({
+      title: f.title,
+      detail: f.detail,
+      fixPrompt: f.fixPrompt,
+    });
+    const link = blobLineUrl(ctx, f.file, f.startLine, f.endLine);
+    const marker = placement.inlinePosted ? "Inline thread posted" : "Summary only";
+    rows.push(`#### ${severityBadge(f.severity)} [${safeFinding.title ?? f.title}](${link})`);
+    rows.push("");
+    rows.push(`_${marker}_ · \`${f.file}\` · ${formatLineRange(f.startLine, f.endLine)}`);
+    rows.push("");
+    rows.push(safeFinding.detail ?? f.detail);
+    if (safeFinding.fixPrompt && safeFinding.fixPrompt.length > 0) {
+      if (placement.inlinePosted) {
+        rows.push("");
+        rows.push("_See inline thread for fix prompt._");
+      } else {
+        rows.push("");
+        rows.push("<details>");
+        rows.push("<summary>Prompt to fix</summary>");
+        rows.push("");
+        rows.push("```");
+        rows.push(escapeCodeFenceBreakers(safeFinding.fixPrompt));
+        rows.push("```");
+        rows.push("");
+        rows.push("</details>");
+      }
+    }
+    rows.push("");
+  }
+
+  return rows.join("\n").trimEnd();
 }

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
-import { buildSubmitReviewTool } from "../src/agent/submitReviewTool.js";
+import { buildSubmitReviewTool, createSubmitReviewState } from "../src/agent/submitReviewTool.js";
 import { SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
 
 vi.mock("../src/agent/publishReview.js", () => ({
@@ -18,6 +18,7 @@ const cfg = {
   piModel: "gpt-4o-mini",
   maxToolRounds: 1,
   maxReviewPublishAttempts: 3,
+  maxReviewPublishCalls: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
   maxAskToolRounds: 12,
@@ -35,7 +36,7 @@ describe("submitReview tool", () => {
   });
 
   it("ignores duplicate submitReview after publish", async () => {
-    const state = { published: false, inlinePublished: false, lastValidationError: null };
+    const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
@@ -60,7 +61,7 @@ describe("submitReview tool", () => {
 
   it("sets lastValidationError on malformed payload", async () => {
     const warnSpy = vi.spyOn(evlog, "logWarn");
-    const state = { published: false, inlinePublished: false, lastValidationError: null };
+    const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
@@ -73,7 +74,56 @@ describe("submitReview tool", () => {
     );
     expect(state.lastValidationError).toBeTruthy();
     expect(state.published).toBe(false);
+    expect(publishReview).not.toHaveBeenCalled();
     warnSpy.mockRestore();
+  });
+
+  it("caps valid publish executions at maxReviewPublishCalls", async () => {
+    vi.mocked(publishReview).mockRejectedValue(new Error("publish failed"));
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg: { ...cfg, maxReviewPublishCalls: 1 },
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      state,
+    });
+    const valid = {
+      prCharacter: "Does things.",
+      findings: [],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+
+    await expect(executor(valid)).rejects.toThrow(/publish budget exhausted/i);
+    expect(publishReview).toHaveBeenCalledTimes(1);
+    expect(state.publishCallsExhausted).toBe(true);
+  });
+
+  it("treats abort-check failures as superseded publish", async () => {
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      state,
+      shouldAbortPublish: async () => {
+        throw new Error("db unavailable");
+      },
+    });
+    const valid = {
+      prCharacter: "Does things.",
+      findings: [],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+
+    await expect(executor(valid)).rejects.toThrow(/superseded or cancelled/i);
+    expect(publishReview).not.toHaveBeenCalled();
+    expect(state.publishCallCount).toBe(0);
   });
 
   it("mentions the security summary sentinel in the tool description", () => {
@@ -82,7 +132,7 @@ describe("submitReview tool", () => {
       token: "tok",
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
       mode: "review-security",
-      state: { published: false, inlinePublished: false, lastValidationError: null },
+      state: createSubmitReviewState(),
     });
     expect(piTool.description).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
   });

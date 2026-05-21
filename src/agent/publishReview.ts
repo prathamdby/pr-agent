@@ -16,10 +16,15 @@ import {
   renderReviewSummaryComment,
 } from "./reviewRender.js";
 import {
+  downgradePlacementsAfterInlineFailure,
+  isLineResolutionPublishError,
+  planInlinePlacements,
+  type CachedPrDiffIndex,
+} from "./reviewLocationValidation.js";
+import {
   normalizeReviewPayload,
   reviewEventForFindings,
   reviewSummarySentinelForMode,
-  selectInlineFindings,
   type ReviewMode,
   type ReviewPayload,
   type ReviewPublishContext,
@@ -36,6 +41,7 @@ export async function publishReview(
     >;
     payload: ReviewPayload;
     publishState: SubmitReviewState;
+    cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
     summaryCommentIdHint?: number | null;
     recordPublishStep?: (
@@ -48,8 +54,24 @@ export async function publishReview(
   const mode = params.mode ?? "review";
   const summarySentinel = reviewSummarySentinelForMode(mode);
   const payload = normalizeReviewPayload(raw);
-  const inlineFindings = selectInlineFindings(payload.findings, cfg.maxReviewFindings);
+  const placements = planInlinePlacements(
+    payload.findings,
+    cfg.maxReviewFindings,
+    params.cachedDiffIndex,
+  );
+  const inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
+  let summaryPlacements = placements;
+  const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
+  if (diffCacheEmpty) {
+    logDebug("review_diff_cache_empty", {
+      mode,
+      owner,
+      repo,
+      pr: prNumber,
+      truncated: params.cachedDiffIndex?.truncated ?? false,
+    });
+  }
 
   const renderCtx = {
     owner,
@@ -71,12 +93,21 @@ export async function publishReview(
     );
   }
 
+  const publishMetaBase = {
+    inlineCount: inlineFindings.length,
+    summaryOnlyCount: placements.filter((p) => !p.inlinePosted).length,
+    severityCapExcluded: placements.filter(
+      (p) => !p.inlineCapEligible && p.inlineLine == null && p.finding.severity !== "P3",
+    ).length,
+    anchorUnresolved: placements.filter((p) => p.inlineCapEligible && p.inlineLine == null).length,
+  };
+
   if (!publishState.inlinePublished) {
-    const comments: InlineReviewComment[] = inlineFindings.map((f) => ({
-      path: f.file,
-      line: f.startLine,
+    const comments: InlineReviewComment[] = inlineFindings.map((p) => ({
+      path: p.finding.file,
+      line: p.inlineLine!,
       side: "RIGHT" as const,
-      body: renderInlineThreadBody(f, renderCtx),
+      body: renderInlineThreadBody(p.finding, renderCtx),
     }));
 
     if (comments.length > 0) {
@@ -84,6 +115,7 @@ export async function publishReview(
         ...renderCtx,
         mode,
         summaryCommentUrl,
+        placements,
       });
       if (pointerBody.truncated) {
         logDebug("agent_fix_prompt_truncated", {
@@ -93,73 +125,108 @@ export async function publishReview(
           pr: prNumber,
         });
       }
-      const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-        body: pointerBody.body,
-        event,
-        comments,
-      });
-      await params.recordPublishStep?.("inline_review", {
-        githubId: review.id,
-        meta: {
-          url: review.url,
-          inlineCount: comments.length,
+      try {
+        const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
+          body: pointerBody.body,
           event,
-          agentFixPromptTruncated: pointerBody.truncated,
-        },
-      });
-
-      logDebug("review_published_inline", {
-        mode,
-        owner,
-        repo,
-        pr: prNumber,
-        reviewId: review.id,
-        event,
-        inlineCount: comments.length,
-      });
+          comments,
+          commitId: headSha,
+        });
+        await params.recordPublishStep?.("inline_review", {
+          githubId: review.id,
+          meta: {
+            url: review.url,
+            event,
+            agentFixPromptTruncated: pointerBody.truncated,
+            ...publishMetaBase,
+          },
+        });
+        logDebug("review_published_inline", {
+          mode,
+          owner,
+          repo,
+          pr: prNumber,
+          reviewId: review.id,
+          event,
+          inlineCount: comments.length,
+        });
+      } catch (e) {
+        logWarn("review_inline_publish_failed", {
+          mode,
+          owner,
+          repo,
+          pr: prNumber,
+          message: e instanceof Error ? e.message : String(e),
+          lineResolution: isLineResolutionPublishError(e),
+          ...publishMetaBase,
+        });
+        summaryPlacements = downgradePlacementsAfterInlineFailure(placements);
+        await params.recordPublishStep?.("inline_review", {
+          meta: {
+            reason: "inline_publish_failed",
+            lineResolutionFallback: isLineResolutionPublishError(e),
+            ...publishMetaBase,
+          },
+        });
+      }
     } else if (params.shouldLinkToSummary && payload.findings.length === 0) {
       const body = renderRepeatNoBugsReviewBody(mode, summaryCommentUrl);
-      const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-        body,
-        event: "COMMENT",
-      });
-      await params.recordPublishStep?.("inline_review", {
-        githubId: review.id,
-        meta: {
-          url: review.url,
-          inlineCount: 0,
-          repeatNoBugs: true,
+      try {
+        const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
+          body,
           event: "COMMENT",
-        },
-      });
-      logDebug("review_published_repeat_no_bugs", {
-        mode,
-        owner,
-        repo,
-        pr: prNumber,
-        reviewId: review.id,
-      });
+          commitId: headSha,
+        });
+        await params.recordPublishStep?.("inline_review", {
+          githubId: review.id,
+          meta: {
+            url: review.url,
+            inlineCount: 0,
+            repeatNoBugs: true,
+            event: "COMMENT",
+          },
+        });
+        logDebug("review_published_repeat_no_bugs", {
+          mode,
+          owner,
+          repo,
+          pr: prNumber,
+          reviewId: review.id,
+        });
+      } catch (e) {
+        logWarn("review_repeat_no_bugs_publish_failed", {
+          mode,
+          owner,
+          repo,
+          pr: prNumber,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
     } else {
       logDebug("review_inline_skipped", {
-        reason: "no_p0_p2_findings",
+        reason: "no_valid_inline_anchors",
+        diffCacheEmpty,
         mode,
         owner,
         repo,
         pr: prNumber,
+        ...publishMetaBase,
+      });
+      await params.recordPublishStep?.("inline_review", {
+        meta: {
+          reason: "no_valid_inline_anchors",
+          ...publishMetaBase,
+        },
       });
     }
 
     publishState.inlinePublished = true;
-    if (comments.length === 0 && !(params.shouldLinkToSummary && payload.findings.length === 0)) {
-      await params.recordPublishStep?.("inline_review", {
-        meta: { inlineCount: 0, reason: "no_p0_p2_findings" },
-      });
-    }
   }
 
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
     summarySentinel,
+    placements: summaryPlacements,
   });
 
   const summary = await upsertReviewSummaryComment(
@@ -172,7 +239,7 @@ export async function publishReview(
   );
   await params.recordPublishStep?.("summary_comment", {
     githubId: summary.id,
-    meta: { updated: summary.updated },
+    meta: { updated: summary.updated, ...publishMetaBase },
   });
   logDebug("review_published_summary", {
     mode,
