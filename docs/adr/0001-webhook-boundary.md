@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for dedupe persistence and dispatch side effects (no installation token on the web fiber).
 
 ## Context
 
@@ -11,14 +11,20 @@ GitHub App webhooks are untyped JSON at the HTTP boundary. The service must vali
 ## Decision
 
 1. **Per-event Zod schemas** live under `src/webhook/payloads/`, composed with `z.strictObject` where practical so unexpected keys signal GitHub payload drift during development.
-2. **Dispatch order** is fixed: **parse + validate → dedupe → (if event is handled) installation token → handlers**. **Ignored** `X-GitHub-Event` values skip the token call—no handler runs, so minting an installation token would only add latency and failure modes (e.g. local smoke tests without real GitHub credentials). Parse failures **do not** consume the in-memory dedupe slot, so a retry after a transient validation error is not dropped as a “duplicate.”
-3. **Vitest** exercises pure seams (`deliveryDedupe`, `verifySignature`, `parseSlashCommand`, `parseGithubPayload`, dispatch ordering).
+2. **Dispatch order** is fixed: **parse + validate → (on handled events) transactional Postgres dedupe + enqueue → HTTP response**. **Ignored** `X-GitHub-Event` values record an ignored decision without enqueueing agent work. Parse failures **do not** insert a `webhook_events` row, so a retry after a transient validation error is not dropped as a “duplicate.” The web fiber does **not** mint an installation token; workers mint tokens at job execution time ([ADR 0009](0009-durable-agent-work.md)).
+3. **Vitest** exercises pure seams (`verifySignature`, `parseSlashCommand`, `parseGithubPayload`, durable intake via `AgentWorkScheduler`, dispatch ordering). The legacy in-memory `DeliveryDedupe` service remains tested in isolation but is not used on the production webhook path.
 
 ## Consequences
 
 - Adding a new webhook field requires updating the relevant Zod schema; this is intentional visibility into contract changes.
-- **In-memory dedupe** is per process and marks a delivery **before** the handler finishes. If the handler throws after dedupe, a retry with the same `X-GitHub-Delivery` may still be suppressed; improving that (e.g. commit dedupe only after success) is a separate change. Multiple replicas can each process the same delivery once; operators should assume at-least-once semantics at the webhook level.
+- **Durable dedupe** uses `webhook_events.dedupe_key` (`delivery:` header or `body:` SHA-256). Duplicate deliveries return **`200`** without creating duplicate work items. Intake failure returns **`503`** so GitHub may redeliver.
+- Worker execution remains **at-least-once**; `publish_records` and work-item status guard publish side effects under retries.
+
+## Current implementation (2025-05)
+
+- [`dispatchGithubEventEffect`](../../src/effect/programs/dispatchEffect.ts): parse → `AgentWorkScheduler` / `WebhookHandlers`.
+- [`makeAgentWorkScheduler`](../../src/agentWork/scheduler.ts): `INSERT … ON CONFLICT (dedupe_key) DO NOTHING` in the same transaction as work-item creation and pg-boss enqueue.
 
 ## Reversal
 
-Changing the boundary (e.g. replacing Zod, moving parse after dedupe, or shared cross-process dedupe) should be discussed explicitly because it affects correctness under retries and load-balanced deployments.
+Changing the boundary (e.g. replacing Zod, moving parse after dedupe, or returning to in-memory dedupe) should be discussed explicitly because it affects correctness under retries and load-balanced deployments.

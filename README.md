@@ -2,25 +2,29 @@
 
 GitHub App webhook service that performs automated pull request reviews using native **Octokit** REST tools ([`src/agent/githubTools.ts`](src/agent/githubTools.ts)) and [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai) (LLM + tool loop).
 
+Durable agent work (Postgres intake + pg-boss workers) is described in [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md). Operations runbooks: [docs/agent-work-ops.md](docs/agent-work-ops.md). Domain terms: [CONTEXT.md](CONTEXT.md).
+
 ## What it does
 
-- On **`pull_request`** (`opened`, `synchronize`, `reopened`), adds 👀 (`eyes`) on the PR issue, then runs an agent loop to inspect the PR and upsert **`## PR Agent Review`** on the PR conversation when the model succeeds. A pull request review on the Files tab (with inline P0–P2 threads) is posted only when those severities are present; its review pointer body includes a collapsible **agent fix prompt** aggregating all findings for copy-paste into coding agents.
-- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/review`, and `/review-security`, reacts with 👀 on the PR + triggering comment where applicable, and routes commands.
-- Responds **`200`** after synchronous webhook handling finishes. Automated reviews and `/review` / `/review-security` block until the queued review run completes (large models can exceed GitHub’s webhook timeouts; tune `MAX_TOOL_ROUNDS`/model latency). **`/ask`** is acknowledged inline, then runs in a background fiber—the webhook returns before the answer is posted.
+- On **`pull_request`** (`opened`, `synchronize`, `reopened`), enqueues an automated general review. A worker adds 👀 (`eyes`) on the PR issue, posts a progress stub, runs an agent loop, and upserts **`## PR Agent Review`** on the PR conversation when the model succeeds. A pull request review on the Files tab (with inline P0–P2 threads) is posted only when those severities are present; its review pointer body includes a collapsible **agent fix prompt** aggregating all findings for copy-paste into coding agents.
+- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/review`, and `/review-security`, enqueues work, and routes commands. Reactions and replies are published by workers, not on the webhook fiber.
+- Responds **`200`** after **durable intake commits** to Postgres and pg-boss jobs are enqueued (or **`503`** if intake cannot commit — GitHub may redeliver). **Reactions, progress comments, reviews, and ask answers** run in **`ROLE=worker`** and may appear **seconds after** the HTTP response. The webhook does **not** wait for LLM runs to finish.
 
 ## Behaviour details
 
-- **Payload boundary:** each subscribed `X-GitHub-Event` type is validated with **minimal Zod** shapes before deduplication; malformed payloads are logged and skipped without consuming the dedupe slot (so GitHub retries can succeed after fixes or transient issues).
+- **Payload boundary:** each subscribed `X-GitHub-Event` type is validated with **minimal Zod** shapes before deduplication; malformed payloads are logged and skipped **without** inserting a dedupe row (so GitHub retries can succeed after fixes or transient issues).
 - **Slash commands** are detected on the **first non-empty line** only, and are **case-sensitive** (`/review` works; `/Review` does not). `/ask <question>` answers one question about the PR or a specific diff line.
-- **Webhook deduplication** uses `X-GitHub-Delivery` when present; if that header is missing, the server falls back to **SHA-256(raw body)** so identical retries still collapse.
+- **Webhook deduplication** is **durable**: `webhook_events.dedupe_key` uses `X-GitHub-Delivery` when present, otherwise **SHA-256(raw body)**. Duplicate deliveries return **`200`** without creating duplicate work items.
+- **Auto-review superseding:** on `pull_request` **`synchronize`**, newer automated general-lens work **supersedes** queued auto-reviews for the same PR and requests cooperative cancel on an in-flight auto-review (slash-command reviews are not superseded).
 - **Agent loop (reviews):** capped at **`MAX_TOOL_ROUNDS`** (tools required on the first round). Each run is a **single-pass review**: one investigation sweep, then one **`submitReview`** with up to eight findings. If **`submitReview`** never succeeds, publish-recovery nudges run up to **`MAX_REVIEW_PUBLISH_ATTEMPTS`**, then a plain-text fallback comment may be posted when structured publish is exhausted.
 - **Review pointer link:** on the second and later review runs per PR and lens, the Files-tab pointer links to the existing PR conversation summary comment when it can be verified; the first completed summary for that lens uses plain text only.
-- **Review concurrency:** full review runs are bounded by **`REVIEW_CONCURRENCY`** (default `2`), enforced by an Effect `Semaphore` Layer (`ReviewQueue`), so bursts of webhook deliveries cannot start unbounded concurrent LLM/tool loops. Per-process (in-memory); multi-replica deployments are at-least-once.
-- **GitHub tools:** eleven investigation tools plus two delivery-shaped tools are defined in [`src/agent/githubTools.ts`](src/agent/githubTools.ts); the agent cannot call `addPullRequestComment` or `createPullRequestReview`—the server publishes via `submitReview` instead (see [docs/adr/0004-native-pi-ai-toolset.md](docs/adr/0004-native-pi-ai-toolset.md)).
+- **Worker concurrency:** review, ask, and acknowledgement jobs are capped per process by **`REVIEW_CONCURRENCY`** (default `2`), **`ASK_CONCURRENCY`** (default `1`), and **`ACK_CONCURRENCY`** (default `2`) via pg-boss worker `localConcurrency` ([`src/agentWork/worker.ts`](src/agentWork/worker.ts)). Multi-replica deployments remain **at-least-once** at the worker layer.
+- **GitHub tools:** **11** investigation tools in [`src/agent/githubTools.ts`](src/agent/githubTools.ts), plus **2** Context7 doc tools; the server publishes only via **`submitReview`** (no agent-callable comment/review delivery tools). See [docs/adr/0004-native-pi-ai-toolset.md](docs/adr/0004-native-pi-ai-toolset.md).
 - **Library docs lookup:** review and ask agents get two Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api` to verify upstream API claims. Anonymous calls work for public libraries with rate limits; set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [docs/adr/0003-context7-docs-tool.md](docs/adr/0003-context7-docs-tool.md).
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
-- **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Uses the same `ReviewQueue` and `MAX_TOOL_ROUNDS` as `/review`; large PRs may need a higher `MAX_TOOL_ROUNDS`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
-- **`/ask`** — interactive Q&A about PR code (PR conversation or inline diff comment). Uses a separate `AskQueue` (`ASK_CONCURRENCY`, default `3`), `MAX_ASK_TOOL_ROUNDS` (default `12`), and `MAX_ASK_FINALIZE_ROUNDS` (default `2`) for extra model turns when the tool loop ends on tool results. Inline replies are plain text; PR conversation replies repeat the question in a short wrapper. See [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
+- **`WEBHOOK_TIMEOUT_MS`** (default `10000`) is a **logging-only** budget on webhook intake duration; it does not cancel worker jobs.
+- **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Uses the same review worker lane and **`MAX_TOOL_ROUNDS`** as `/review`; large PRs may need a higher `MAX_TOOL_ROUNDS`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
+- **`/ask`** — interactive Q&A about PR code (PR conversation or inline diff comment). Runs on the **`agent-work-ask`** pg-boss queue with **`ASK_CONCURRENCY`** (default `1`), **`MAX_ASK_TOOL_ROUNDS`** (default `12`), and **`MAX_ASK_FINALIZE_ROUNDS`** (default `2`) for extra model turns when the tool loop ends on tool results. Inline replies are plain text; PR conversation replies repeat the question in a short wrapper. See [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
 
 ## Large PRs and GitHub rate limits
 
@@ -37,20 +41,31 @@ GitHub App webhook service that performs automated pull request reviews using na
 
 ## Local development
 
+`DATABASE_URL` is **required** for both `ROLE=web` and `ROLE=worker` ([`src/config.ts`](src/config.ts)).
+
 ```bash
-cp .env.example .env
-# fill secrets
-corepack enable   # Node 22+ ships Corepack; activates pnpm from package.json
+docker compose up postgres   # or: docker compose up for the full stack
+cp .env.example .env         # GITHUB_*, WEBHOOK_SECRET, DATABASE_URL, provider keys
+corepack enable              # Node 22+ ships Corepack; activates pnpm from package.json
 pnpm install
-pnpm dev
+
+# terminal 1 — webhooks only enqueue work
+ROLE=web DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
+
+# terminal 2 — reactions, reviews, asks
+ROLE=worker DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
 ```
+
+`pnpm dev` with **`ROLE=web` alone** accepts webhooks but **does not run reviews or asks** without a worker. See [docs/agent-work-ops.md](docs/agent-work-ops.md) for queue inspection and recovery.
 
 Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
 
 ### Runtime
 
-- Runtime is Effect TS and is the only production boot path.
-- Webhook handlers, PR-surface I/O (acknowledgement reactions, PR conversation / inline review thread comments, head SHA lookup), and the review and ask queues are Effect Layers (`WebhookHandlers`, `PrGithubSurface`, `ReviewQueue`, `AskQueue`). The dispatcher wires them together.
+- Production boot is Effect TS with a **web/worker split** (`ROLE` env).
+- **Web:** [`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts) → [`WebhookDispatcher`](src/effect/services/webhookDispatcher.ts) → [`WebhookHandlers`](src/effect/services/webhookHandlers.ts) + [`AgentWorkScheduler`](src/agentWork/scheduler.ts) (Postgres + pg-boss enqueue).
+- **Worker:** [`AgentWorkerRuntimeLive`](src/agentWork/runtime.ts) consumes acknowledgement, review, and ask queues.
+- **Legacy (tests only):** [`slashCommandFlow`](src/commands/slashCommandFlow.ts), [`ReviewQueue`](src/effect/services/reviewQueue.ts), and [`AskQueue`](src/effect/services/askQueue.ts) are **not** wired into the production webhook dispatcher; they remain for unit tests of slash handling and in-process concurrency caps.
 
 ### Effect version gate
 
@@ -62,15 +77,17 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 
 ## Docker and Docker Compose
 
-- **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in [docker-compose.yml](docker-compose.yml) and [`.env.example`](.env.example)).
+- **Stack:** [docker-compose.yml](docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
+- **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](.env.example)).
 - **Health:** `GET /health` returns `200` and plain `ok` (used by `HEALTHCHECK` in the image and by Compose).
 - **Webhook URL** (when Compose maps default ports): **`http://<host>:7224/webhooks`** — same path as bare Node.
-- **Provider API keys** (for example **`OPENAI_API_KEY`**) are **not** read by [`src/config.ts`](src/config.ts); Pi AI loads them from the environment. Set them in `.env` beside the GitHub fields or the container will boot but **`/review`** and automated reviews fail at runtime.
+- **`DATABASE_URL`** is set in Compose for both app services (`postgres://pr_agent:pr_agent@postgres:5432/pr_agent`).
+- **Provider API keys** (for example **`OPENAI_API_KEY`**) are **not** read by [`src/config.ts`](src/config.ts); Pi AI loads them from the environment. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.
 - **Secrets:** never commit `.env`; keep Compose files off public pastebins.
 
 ```bash
 cp .env.example .env
-# Set real GITHUB_* , WEBHOOK_SECRET , and OPENAI_API_KEY (or keys for your PI_PROVIDER )
+# Set real GITHUB_*, WEBHOOK_SECRET, DATABASE_URL (if not using Compose defaults), and OPENAI_API_KEY (or keys for your PI_PROVIDER)
 docker compose build
 docker compose up
 ```
@@ -89,7 +106,7 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 | Script                           | Purpose                            |
 | -------------------------------- | ---------------------------------- |
-| `pnpm dev`                       | Run `src/index.ts`                 |
+| `pnpm dev`                       | Run `src/index.ts` (`ROLE` env)    |
 | `pnpm build`                     | Compile to `dist/`                 |
 | `pnpm start`                     | Run compiled `dist/`               |
 | `pnpm typecheck`                 | `tsc --noEmit` (`src/` only)       |

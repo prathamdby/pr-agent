@@ -24,7 +24,7 @@ Both concepts wanted the same shape — an Effect `Layer` exposing a `Context.Ta
 
 3. **`buildWebhookDispatcherLive(cfg)`** replaces the prior `WebhookDispatcherLive` constant so that cfg can flow into `ReviewQueueLive(cfg)`. Three tests that referenced the constant were updated accordingly.
 
-4. **ADR-0001 dispatch order** (parse → dedupe → token → handlers) is unchanged.
+4. **ADR-0001 parse-first boundary** is unchanged; durable dedupe and worker-time tokens are defined in [ADR 0009](0009-durable-agent-work.md).
 
 ## Consequences
 
@@ -35,6 +35,8 @@ Both concepts wanted the same shape — an Effect `Layer` exposing a `Context.Ta
 - **`runFullPrReview` is still Promise-based.** Inside the new Effect handlers it is wrapped in `Effect.tryPromise`. Effect cancellation does **not** propagate into the Pi-AI tool loop. This was already true before this change; flagged here so it is not later miscredited as a regression.
 
 - **Webhook handlers are uniformly Effect.** `src/webhook/handlers/*.ts` is gone; the three handler bodies live inline inside `WebhookHandlersCore` (`src/effect/services/webhookHandlers.ts`). The slash flow lives in `src/commands/slashCommandFlow.ts` parameterised by a `ReplyTarget` variant, removing the prior mirror-image duplication between `issueComment.ts` and `pullRequestReviewComment.ts`.
+
+- **Production slash routing (ADR 0009).** Webhook slash commands are handled by [`AgentWorkScheduler`](../../src/agentWork/scheduler.ts), not `slashCommandFlow`. `slashCommandFlow`, `ReviewQueue`, and `AskQueue` remain for unit tests of slash parsing and in-process concurrency caps.
 
 - **In-process semantics preserved.** Both seams remain per-process. ADR-0001's at-least-once delivery acceptance under multi-replica deployment is unchanged.
 

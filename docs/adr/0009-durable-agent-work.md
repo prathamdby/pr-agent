@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Operator-facing summary: [README.md](../../README.md) (What it does, Local development, Docker). Runbooks: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 
