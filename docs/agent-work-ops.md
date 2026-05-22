@@ -1,5 +1,7 @@
 # Durable Agent Work Operations
 
+See also [README.md](../README.md) (local development and Docker). Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
+
 ## Services
 
 - `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly.
@@ -27,7 +29,9 @@ Worker startup logs `agent_queue_stats` for each queue and `agent_review_queue_b
 
 ## Local Development
 
-Start Postgres with Compose, then run the web or worker role against it:
+For end-to-end behavior (reviews and asks), run the full stack: `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`). Web-only accepts webhooks but does not execute agent work.
+
+To run processes on the host against Compose Postgres:
 
 ```sh
 docker compose up postgres
