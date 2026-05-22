@@ -7,7 +7,7 @@ import type {
   ToolCall,
 } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { ReplyTarget } from "../commands/slashCommandFlow.js";
+import type { ReplyTarget } from "../commands/replyTarget.js";
 import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
@@ -29,18 +29,14 @@ import {
   logGithubToolRequestError,
 } from "../github/githubRequestError.js";
 
-const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
-const CIRCUIT_OPEN_USER_MESSAGE =
-  "Stop GitHub tool calls; answer the question now using what you already found in this conversation.";
-const CIRCUIT_OPEN_TOOL_RESULT =
-  "Rate-limit circuit open: further GitHub investigation tools are blocked for this ask run. Answer the question with your current analysis.";
-
-const ASK_RETRY_ROUNDS = 4;
-const ASK_RETRY_NUDGE =
-  "Answer the question now in plain text based on your investigation above. Do not call more tools unless absolutely required to fix a factual gap.";
-
-const ASK_FAILURE_MESSAGE =
-  "I could not put together a confident answer from the PR and repo tools available. Try rephrasing the question, narrowing it to a file or symbol, or run `/review` for a full pass.";
+import {
+  ASK_CIRCUIT_OPEN_TOOL_RESULT,
+  ASK_CIRCUIT_OPEN_USER_MESSAGE,
+  ASK_FAILURE_MESSAGE,
+  ASK_RETRY_NUDGE,
+  ASK_RETRY_ROUNDS,
+  RATE_LIMIT_CIRCUIT_THRESHOLD,
+} from "../settings/index.js";
 
 export type CodeAnchor = {
   path: string;
@@ -212,7 +208,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
           role: "toolResult",
           toolCallId: call.id,
           toolName: call.name,
-          content: [{ type: "text", text: CIRCUIT_OPEN_TOOL_RESULT }],
+          content: [{ type: "text", text: ASK_CIRCUIT_OPEN_TOOL_RESULT }],
           isError: true,
           timestamp: Date.now(),
         });
@@ -300,7 +296,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       circuitUserMessagePending = false;
       context.messages.push({
         role: "user",
-        content: CIRCUIT_OPEN_USER_MESSAGE,
+        content: ASK_CIRCUIT_OPEN_USER_MESSAGE,
         timestamp: Date.now(),
       });
     }

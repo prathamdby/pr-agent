@@ -1,7 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
-const CONTEXT7_BASE_URL = "https://context7.com/api";
+import { CONTEXT7_BASE_URL } from "../settings/index.js";
 
 const resolveLibraryIdSchema = z.object({
   libraryName: z

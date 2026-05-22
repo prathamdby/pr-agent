@@ -22,4 +22,4 @@ export const publicOutputContract = [
   "If submitReview fails, retry with a valid ReviewPayload only. Do not write a fallback review report in prose.",
 ].join("\n");
 
-export const VALIDATION_REPAIR_ROUNDS = 3;
+export { VALIDATION_REPAIR_ROUNDS } from "../settings/index.js";

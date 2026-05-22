@@ -1,7 +1,18 @@
 import { z } from "zod";
+import {
+  DEFAULT_MAX_REVIEW_FINDINGS,
+  MAX_REVIEW_FOLLOW_UPS,
+  REVIEW_EFFORT_MAX,
+  REVIEW_EFFORT_MIN,
+  REVIEW_SEVERITY_RANK,
+  REVIEW_SUMMARY_SENTINEL,
+  SECURITY_REVIEW_SUMMARY_SENTINEL,
+} from "../settings/index.js";
 
-export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
-export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
+export {
+  REVIEW_SUMMARY_SENTINEL,
+  SECURITY_REVIEW_SUMMARY_SENTINEL,
+} from "../settings/index.js";
 
 export type ReviewMode = "review" | "review-security";
 
@@ -38,14 +49,18 @@ export const reviewFindingSchema = z
     }
   });
 
-export const reviewPayloadSchema = z.object({
-  prCharacter: z.string().min(1),
-  findings: z.array(reviewFindingSchema).max(8),
-  estimatedEffort: z.number().int().min(1).max(5),
-  relevantTests: z.enum(["yes", "no", "partial"]),
-  securityConcerns: z.string().nullable(),
-  followUps: z.array(z.string()).max(5),
-});
+export function createReviewPayloadSchema(maxFindings: number) {
+  return z.object({
+    prCharacter: z.string().min(1),
+    findings: z.array(reviewFindingSchema).max(maxFindings),
+    estimatedEffort: z.number().int().min(REVIEW_EFFORT_MIN).max(REVIEW_EFFORT_MAX),
+    relevantTests: z.enum(["yes", "no", "partial"]),
+    securityConcerns: z.string().nullable(),
+    followUps: z.array(z.string()).max(MAX_REVIEW_FOLLOW_UPS),
+  });
+}
+
+export const reviewPayloadSchema = createReviewPayloadSchema(DEFAULT_MAX_REVIEW_FINDINGS);
 
 export type ReviewFinding = z.infer<typeof reviewFindingSchema>;
 export type ReviewPayload = z.infer<typeof reviewPayloadSchema>;
@@ -205,27 +220,23 @@ export function coerceReviewPayloadInput(raw: unknown): { value: unknown; coerce
   return { value: input, coerced };
 }
 
-export function formatReviewValidationError(error: z.ZodError): string {
+export function formatReviewValidationError(
+  error: z.ZodError,
+  maxFindings: number = DEFAULT_MAX_REVIEW_FINDINGS,
+): string {
   const lines = ["ReviewPayload validation failed:"];
   for (const issue of error.issues) {
     const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    "Required top-level fields: prCharacter, findings (max 8), estimatedEffort (1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max 5).",
+    `Required top-level fields: prCharacter, findings (max ${maxFindings}), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
   lines.push(
     "Each P0/P1/P2 finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.",
   );
   return lines.join("\n");
 }
-
-const SEVERITY_RANK: Record<ReviewFinding["severity"], number> = {
-  P0: 0,
-  P1: 1,
-  P2: 2,
-  P3: 3,
-};
 
 export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
   return severity === "P0" || severity === "P1" || severity === "P2";
@@ -236,7 +247,7 @@ export function selectInlineFindings(
   maxFindings: number,
 ): ReviewFinding[] {
   const inline = findings.filter((f) => isInlineSeverity(f.severity));
-  inline.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
+  inline.sort((a, b) => REVIEW_SEVERITY_RANK[a.severity] - REVIEW_SEVERITY_RANK[b.severity]);
   return inline.slice(0, maxFindings);
 }
 

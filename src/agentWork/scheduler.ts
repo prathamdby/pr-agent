@@ -7,9 +7,14 @@ import {
   ASK_QUESTION_TOO_LONG_HINT,
   ASK_USAGE_HINT,
 } from "../commands/parseAskQuestion.js";
-import { slashHelpBody } from "../commands/slashCommandFlow.js";
+import type { ReplyTarget } from "../commands/replyTarget.js";
 import { parseSlashCommand } from "../commands/parseSlashCommand.js";
-import type { ReplyTarget } from "../commands/slashCommandFlow.js";
+import {
+  AUTOMATED_PR_ACTIONS,
+  AUTOMATED_REVIEW_LENS,
+  MAX_STORED_COMMENT_TEXT_LEN,
+  SLASH_HELP_BODY,
+} from "../settings/index.js";
 import { inTransaction, pgBossDb } from "../db/postgres.js";
 import type { CodeAnchor } from "../agent/askRun.js";
 import type { ReviewMode } from "../agent/reviewSchema.js";
@@ -31,15 +36,6 @@ import {
   type ReviewJobData,
   type WebhookHeaders,
 } from "./types.js";
-
-const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
-/**
- * Automated PR webhook reviews only. Superseding/cancel_requested_at applies to
- * auto-sourced items with this lens only; slash /review-security and /ask lanes
- * are intentionally not preempted (ADR 0009 §7).
- */
-const AUTOMATED_REVIEW_LENS: ReviewMode = "review";
-const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 
 function clampStoredCommentText(text: string): string {
   return text.split("\u0000").join("").slice(0, MAX_STORED_COMMENT_TEXT_LEN);
@@ -450,7 +446,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
               await enqueueAck(boss, client, {
                 ...baseAck,
                 ...correlation,
-                reply: { target: input.replyTarget, body: slashHelpBody },
+                reply: { target: input.replyTarget, body: SLASH_HELP_BODY },
               });
               return;
             }

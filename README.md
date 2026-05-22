@@ -15,12 +15,12 @@ GitHub App webhook service that performs automated pull request reviews using na
 - **Webhook deduplication** uses `X-GitHub-Delivery` when present; if that header is missing, the server falls back to **SHA-256(raw body)** so identical retries still collapse.
 - **Agent loop (reviews):** capped at **`MAX_TOOL_ROUNDS`** (tools required on the first round). Each run is a **single-pass review**: one investigation sweep, then one **`submitReview`** with up to eight findings. If **`submitReview`** never succeeds, publish-recovery nudges run up to **`MAX_REVIEW_PUBLISH_ATTEMPTS`**, then a plain-text fallback comment may be posted when structured publish is exhausted.
 - **Review pointer link:** on the second and later review runs per PR and lens, the Files-tab pointer links to the existing PR conversation summary comment when it can be verified; the first completed summary for that lens uses plain text only.
-- **Review concurrency:** full review runs are bounded by **`REVIEW_CONCURRENCY`** (default `2`), enforced by an Effect `Semaphore` Layer (`ReviewQueue`), so bursts of webhook deliveries cannot start unbounded concurrent LLM/tool loops. Per-process (in-memory); multi-replica deployments are at-least-once.
+- **Review concurrency:** full review runs are bounded by **`REVIEW_CONCURRENCY`** (default `2`) via pg-boss worker `localConcurrency` on the review queue ([`src/agentWork/worker.ts`](src/agentWork/worker.ts)). Durable intake is Postgres + pg-boss ([ADR 0009](docs/adr/0009-durable-agent-work.md)).
 - **GitHub tools:** eleven investigation tools plus two delivery-shaped tools are defined in [`src/agent/githubTools.ts`](src/agent/githubTools.ts); the agent cannot call `addPullRequestComment` or `createPullRequestReview`—the server publishes via `submitReview` instead (see [docs/adr/0004-native-pi-ai-toolset.md](docs/adr/0004-native-pi-ai-toolset.md)).
 - **Library docs lookup:** review and ask agents get two Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api` to verify upstream API claims. Anonymous calls work for public libraries with rate limits; set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [docs/adr/0003-context7-docs-tool.md](docs/adr/0003-context7-docs-tool.md).
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
-- **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Uses the same `ReviewQueue` and `MAX_TOOL_ROUNDS` as `/review`; large PRs may need a higher `MAX_TOOL_ROUNDS`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
-- **`/ask`** — interactive Q&A about PR code (PR conversation or inline diff comment). Uses a separate `AskQueue` (`ASK_CONCURRENCY`, default `3`), `MAX_ASK_TOOL_ROUNDS` (default `12`), and `MAX_ASK_FINALIZE_ROUNDS` (default `2`) for extra model turns when the tool loop ends on tool results. Inline replies are plain text; PR conversation replies repeat the question in a short wrapper. See [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
+- **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Same review worker queue and `MAX_TOOL_ROUNDS` as `/review`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
+- **`/ask`** — interactive Q&A about PR code (PR conversation or inline diff comment). Uses a separate pg-boss ask queue (`ASK_CONCURRENCY`, default `1`), `MAX_ASK_TOOL_ROUNDS` (default `12`), and `MAX_ASK_FINALIZE_ROUNDS` (default `2`). See [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
 
 ## Large PRs and GitHub rate limits
 
@@ -39,7 +39,7 @@ GitHub App webhook service that performs automated pull request reviews using na
 
 ```bash
 cp .env.example .env
-# fill secrets
+# fill secrets — see docs/configuration.md for every knob
 corepack enable   # Node 22+ ships Corepack; activates pnpm from package.json
 pnpm install
 pnpm dev
@@ -50,7 +50,9 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 ### Runtime
 
 - Runtime is Effect TS and is the only production boot path.
-- Webhook handlers, PR-surface I/O (acknowledgement reactions, PR conversation / inline review thread comments, head SHA lookup), and the review and ask queues are Effect Layers (`WebhookHandlers`, `PrGithubSurface`, `ReviewQueue`, `AskQueue`). The dispatcher wires them together.
+- **`ROLE=web`** — HTTP `/health` and `/webhooks`; durable intake via `AgentWorkScheduler` (Postgres + pg-boss).
+- **`ROLE=worker`** — consumes ack, review, and ask pg-boss queues; PR-surface I/O and LLM runs happen on worker fibers ([`src/agentWork/worker.ts`](src/agentWork/worker.ts)).
+- All tunables: [docs/configuration.md](docs/configuration.md). Agent rules: [AGENTS.md](AGENTS.md).
 
 ### Effect version gate
 

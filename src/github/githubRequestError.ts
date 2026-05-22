@@ -12,12 +12,20 @@ export type GithubToolErrorClassification =
 
 export type RetryAfterSource = "header" | "x-ratelimit-reset" | "default" | "plugin-fallback";
 
-const TOKEN_FRESHNESS_BUFFER_MS = 60_000;
-const DEFAULT_COOLDOWN_SECONDS = 60;
-const MESSAGE_TRUNCATE = 500;
+import {
+  BAD_CREDENTIALS_MESSAGE,
+  DEFAULT_COOLDOWN_SECONDS,
+  INSTALLATION_TOKEN_FALLBACK_TTL_MS,
+  MESSAGE_TRUNCATE,
+  SECONDARY_RATE_MESSAGE,
+  TOKEN_EXPIRED_TOOL_MESSAGE,
+  TOKEN_FRESHNESS_BUFFER_MS,
+} from "../settings/index.js";
 
-const SECONDARY_RATE_MESSAGE = /\bsecondary rate\b/i;
-const BAD_CREDENTIALS_MESSAGE = /bad credentials/i;
+export {
+  INSTALLATION_TOKEN_FALLBACK_TTL_MS,
+  TOKEN_EXPIRED_TOOL_MESSAGE,
+} from "../settings/index.js";
 
 export type InstallationTokenContext = {
   readonly expiresAtTs: number;
@@ -73,9 +81,6 @@ function headerString(headers: ResponseHeaders | undefined, name: string): strin
   if (v === undefined || v === null) return undefined;
   return String(v);
 }
-
-// GitHub installation tokens are valid for one hour; use when expiresAt is missing at mint.
-export const INSTALLATION_TOKEN_FALLBACK_TTL_MS = 60 * 60 * 1000;
 
 // GitHub does not return issued-at; infer from expiresAt using min(observed TTL, 1h cap)
 const MAX_ASSUMED_INSTALLATION_TOKEN_TTL_MS = INSTALLATION_TOKEN_FALLBACK_TTL_MS;
@@ -296,9 +301,6 @@ export function bumpRateLimitConsecutiveFailures(
   if (classification === "token_expired") return consecutive;
   return isRateLimitClassification(classification) ? consecutive + 1 : 0;
 }
-
-export const TOKEN_EXPIRED_TOOL_MESSAGE =
-  "Installation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.";
 
 function logGithubToolRequestErrorPayload(
   payload: Record<string, unknown>,

@@ -1,4 +1,4 @@
-const MAX_LOG_MESSAGE_LEN = 2_000;
+import { MAX_LOG_MESSAGE_LEN } from "../settings/index.js";
 
 export function sanitizeLogMessage(raw: string): string {
   return raw

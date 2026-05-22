@@ -8,7 +8,7 @@ export type InlineReviewComment = {
   body: string;
 };
 
-const COMMENTS_PAGE_SIZE = 100;
+import { COMMENTS_PAGE_SIZE } from "../settings/index.js";
 
 export async function createPullRequestReviewWithComments(
   token: string,

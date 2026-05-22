@@ -1,7 +1,13 @@
+import {
+  LABEL_REVIEW_EFFORT_PREFIX,
+  LABEL_SECURITY_CONCERN,
+} from "../settings/index.js";
 import type { ReviewPayload } from "./reviewSchema.js";
 
-export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
-export const LABEL_SECURITY_CONCERN = "Possible security concern";
+export {
+  LABEL_REVIEW_EFFORT_PREFIX,
+  LABEL_SECURITY_CONCERN,
+} from "../settings/index.js";
 
 export function labelsAlreadySynced(
   currentLabels: string[],

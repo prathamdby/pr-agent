@@ -1,5 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
+import {
+  DEFAULT_MAX_PR_FILES_LISTED,
+  DEFAULT_MAX_PR_FILES_PATCH_BYTES,
+} from "../settings/index.js";
 import { parseCommentableRightLineRanges } from "./reviewDiffIndex.js";
 import { installationOctokit } from "../github/appAuth.js";
 
@@ -198,13 +202,16 @@ async function listPullRequestFilesPaginated(
 
 export function buildGithubTools(
   token: string,
-  limits?: { maxPrFilesListed: number; maxPrFilesPatchBytes: number },
+  limits: { maxPrFilesListed: number; maxPrFilesPatchBytes: number } = {
+    maxPrFilesListed: DEFAULT_MAX_PR_FILES_LISTED,
+    maxPrFilesPatchBytes: DEFAULT_MAX_PR_FILES_PATCH_BYTES,
+  },
 ): {
   piTools: PiTool[];
   executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
   const octokit = installationOctokit(token);
-  const fileLimits = limits ?? { maxPrFilesListed: 300, maxPrFilesPatchBytes: 500_000 };
+  const fileLimits = limits;
 
   const getPullRequest = defineTool({
     description: "Get detailed information about a specific pull request",

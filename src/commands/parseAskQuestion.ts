@@ -1,4 +1,12 @@
-import { MAX_ASK_QUESTION_CHARS } from "../agent/askSafety.js";
+import {
+  ASK_USAGE_HINT,
+  MAX_ASK_QUESTION_CHARS,
+  askQuestionTooLongHint,
+} from "../settings/index.js";
+
+export { ASK_USAGE_HINT } from "../settings/index.js";
+
+export const ASK_QUESTION_TOO_LONG_HINT = askQuestionTooLongHint();
 
 /**
  * Extract the question from `/ask ...` on the first non-empty line.
@@ -44,8 +52,3 @@ export function askQuestionParseFailure(body: string): "missing" | "too_long" | 
   if (result.kind === "missing" || result.kind === "too_long") return result.kind;
   return null;
 }
-
-export const ASK_USAGE_HINT =
-  "Usage: `/ask <your question>` — ask about this PR or a specific line of code.";
-
-export const ASK_QUESTION_TOO_LONG_HINT = `Your question exceeds the ${MAX_ASK_QUESTION_CHARS} character limit. Shorten it or reference files by path instead of pasting large blocks.`;

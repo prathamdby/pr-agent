@@ -25,7 +25,16 @@ import {
   PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
   type SubmitReviewState,
 } from "./submitReviewTool.js";
-import { PRE_SUBMIT_USER_MESSAGE, VALIDATION_REPAIR_ROUNDS } from "./reviewPromptBlocks.js";
+import {
+  PROSE_ONLY_NUDGE,
+  PUBLISH_RECOVERY_PROMPTS,
+  PUBLISH_RECOVERY_ROUNDS,
+  RATE_LIMIT_CIRCUIT_THRESHOLD,
+  REVIEW_CIRCUIT_OPEN_TOOL_RESULT,
+  REVIEW_CIRCUIT_OPEN_USER_MESSAGE,
+  VALIDATION_REPAIR_ROUNDS,
+} from "../settings/index.js";
+import { PRE_SUBMIT_USER_MESSAGE } from "./reviewPromptBlocks.js";
 import {
   REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
   reviewSummarySentinelForMode,
@@ -39,28 +48,11 @@ import {
   logGithubToolRequestError,
 } from "../github/githubRequestError.js";
 
-const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
-const CIRCUIT_OPEN_USER_MESSAGE =
-  "Stop GitHub tool calls; call submitReview now with your current analysis from the conversation above.";
-const CIRCUIT_OPEN_TOOL_RESULT =
-  "Rate-limit circuit open: further GitHub investigation tools are blocked for this review run. Call submitReview now.";
-
-const PROSE_ONLY_NUDGE =
-  "You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
-
 export type ReviewRunResult = {
   lastAssistant: AssistantMessage;
   published: boolean;
   publishAttempts: number;
 };
-
-const PUBLISH_RECOVERY_ROUNDS = 4;
-
-const PUBLISH_RECOVERY_PROMPTS = [
-  "You ended with a text reply but never called submitReview. Call submitReview exactly once now with a complete ReviewPayload based on your analysis above. Do not continue investigating unless required to fix payload validation.",
-  "The structured review was still not published. You must call submitReview now with a valid ReviewPayload. No prose-only replies.",
-  "Final publish attempt: call submitReview immediately with your ReviewPayload. This is required to complete the review.",
-] as const;
 
 function collectToolCalls(message: AssistantMessage): ToolCall[] {
   return message.content.filter((p): p is ToolCall => p.type === "toolCall");
@@ -231,7 +223,7 @@ export async function runFullPrReview(params: {
           role: "toolResult",
           toolCallId: call.id,
           toolName: call.name,
-          content: [{ type: "text", text: CIRCUIT_OPEN_TOOL_RESULT }],
+          content: [{ type: "text", text: REVIEW_CIRCUIT_OPEN_TOOL_RESULT }],
           isError: true,
           timestamp: Date.now(),
         });
@@ -330,7 +322,7 @@ export async function runFullPrReview(params: {
       circuitUserMessagePending = false;
       context.messages.push({
         role: "user",
-        content: CIRCUIT_OPEN_USER_MESSAGE,
+        content: REVIEW_CIRCUIT_OPEN_USER_MESSAGE,
         timestamp: Date.now(),
       });
     }

@@ -2,13 +2,13 @@
 
 ## Status
 
-Accepted.
+Accepted. Ask runs are executed by pg-boss workers ([ADR 0009](0009-durable-agent-work.md)); the `AskQueue` Effect semaphore described below is superseded for production.
 
 ## Context
 
 Contributors and reviewers need to ask ad hoc questions about PR code (for example, "what is this hook for?") without triggering a full review. Upstream [qodo-pr-agent](https://github.com/qodo-ai/pr-agent) implements `/ask` as a single LLM call with the PR diff (or selected diff hunk for inline comments) embedded in the prompt.
 
-This repo already runs reviews through a Pi-AI tool loop with native GitHub REST tools ([ADR 0004](0004-native-pi-ai-toolset.md)) and bounded concurrency via Effect Layers ([ADR 0002](0002-effect-surface-and-queue-layers.md)).
+This repo already runs reviews through a Pi-AI tool loop with native GitHub REST tools ([ADR 0004](0004-native-pi-ai-toolset.md)) and bounded concurrency via durable workers ([ADR 0009](0009-durable-agent-work.md)).
 
 ## Decision
 

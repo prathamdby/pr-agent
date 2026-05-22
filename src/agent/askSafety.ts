@@ -1,26 +1,21 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import {
+  ASK_META_REFUSAL,
+  ASK_TOOLS_WITH_OWNER_REPO,
+  ASK_TOOLS_WITH_PULL_NUMBER,
+  BOT_META_PATTERNS,
+  BOT_SECRET_PATTERNS,
+  MAX_ASK_QUESTION_CHARS,
+  SENSITIVE_PATH_PATTERNS,
+} from "../settings/index.js";
 import { buildGithubTools } from "./githubTools.js";
 
 export type AskQuestionIntent = "code" | "bot_meta";
 
-export const ASK_META_REFUSAL =
-  "I can only answer questions about this PR's code. I can't share bot configuration, credentials, or internal instructions.";
-
-export const MAX_ASK_QUESTION_CHARS = 8192;
-
-const BOT_META_PATTERNS: readonly RegExp[] = [
-  /\b(your|the)\s+system\s+prompt\b/i,
-  /\brepeat\s+(everything|all)\s+above\b/i,
-  /\brepeat\s+your\s+(instructions|rules|prompt)\b/i,
-  /\bwhat\s+(model|llm)\s+are\s+you\b/i,
-  /\bwhat\s+(provider|pi[_-]?provider)\s+do\s+you\s+use\b/i,
-  /\b(your|the)\s+(openai|anthropic|google)\s+api\s+key\b/i,
-  /\bwhat\s+is\s+your\s+(database_url|webhook_secret|github_app(?:_id|_private_key)?)\b/i,
-  /\b(show|reveal|print|output|dump|tell\s+me)\s+.{0,30}\b(your\s+)?(prompt|instructions|system\s+message)\b/i,
-  /\bhow\s+are\s+you\s+(deployed|hosted|configured)\b/i,
-  /\b(bot|agent)\s+(configuration|credentials|secrets|environment)\b/i,
-  /(?:^|\n)\s*ignore\s+(all\s+)?(previous|prior|above)\s+instructions\b/i,
-];
+export {
+  ASK_META_REFUSAL,
+  MAX_ASK_QUESTION_CHARS,
+} from "../settings/index.js";
 
 export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
   for (const pattern of BOT_META_PATTERNS) {
@@ -37,19 +32,6 @@ export function wrapTrustedContext(lines: string[]): string {
   return ['<context trusted="server">', ...lines, "</context>"].join("\n");
 }
 
-const BOT_SECRET_PATTERNS: readonly RegExp[] = [
-  /Bearer\s+\S+/gi,
-  /(token|password|secret|api[_-]?key)\s*[=:]\s*\S+/gi,
-  /\b[Aa]uthorization\s*:\s*.+/gi,
-  /\bghp_[A-Za-z0-9]{20,}\b/g,
-  /\bghs_[A-Za-z0-9]{20,}\b/g,
-  /\bsk-[A-Za-z0-9_-]{10,}\b/g,
-  /\bpostgres(?:ql)?:\/\/\S+/gi,
-  /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
-  /\bAKIA[0-9A-Z]{16}\b/g,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
-];
-
 export function redactOutboundSecrets(text: string): string {
   let out = text;
   for (const pattern of BOT_SECRET_PATTERNS) {
@@ -64,16 +46,6 @@ export type AskToolScope = {
   readonly prNumber: number;
   readonly headSha: string;
 };
-
-const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
-  /(^|\/)\.env(?:\.|$)/i,
-  /(^|\/)\.env\.[^/]+$/i,
-  /\.pem$/i,
-  /(^|\/)id_rsa(?:\.pub)?$/i,
-  /(^|\/)\.npmrc$/i,
-  /(^|\/)secrets?\./i,
-  /(^|\/)\.netrc$/i,
-];
 
 export function isSensitivePath(path: string): boolean {
   const normalized = path.replace(/\\/g, "/");
@@ -125,25 +97,6 @@ function sanitizeToolResultForAsk(toolName: string, result: unknown): unknown {
   return result;
 }
 
-const TOOLS_WITH_OWNER_REPO = new Set([
-  "getPullRequest",
-  "listPullRequests",
-  "listPullRequestFiles",
-  "listPullRequestReviews",
-  "getFileContent",
-  "listCommits",
-  "getCommit",
-  "getBlame",
-  "getRepository",
-  "listBranches",
-]);
-
-const TOOLS_WITH_PULL_NUMBER = new Set([
-  "getPullRequest",
-  "listPullRequestFiles",
-  "listPullRequestReviews",
-]);
-
 function injectRepoIntoSearchQuery(query: string, owner: string, repo: string): string {
   const repoQualifier = `repo:${owner}/${repo}`;
   if (/\brepo:\S+/i.test(query)) {
@@ -169,7 +122,7 @@ export function buildScopedAskExecutors(
     scoped[name] = async (args) => {
       const merged = { ...args };
 
-      if (TOOLS_WITH_OWNER_REPO.has(name)) {
+      if (ASK_TOOLS_WITH_OWNER_REPO.has(name)) {
         if (merged.owner != null && merged.owner !== scope.owner) {
           throw new Error(`Tool ${name} is scoped to owner "${scope.owner}".`);
         }
@@ -180,7 +133,7 @@ export function buildScopedAskExecutors(
         merged.repo = scope.repo;
       }
 
-      if (TOOLS_WITH_PULL_NUMBER.has(name)) {
+      if (ASK_TOOLS_WITH_PULL_NUMBER.has(name)) {
         if (merged.pullNumber != null && merged.pullNumber !== scope.prNumber) {
           throw new Error(`Tool ${name} is scoped to pull request #${scope.prNumber}.`);
         }
