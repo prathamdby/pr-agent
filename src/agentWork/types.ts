@@ -1,14 +1,26 @@
 import type { Config } from "../config.js";
 import type { CodeAnchor } from "../agent/askRun.js";
 import type { ReviewMode } from "../agent/reviewSchema.js";
-import type { ReplyTarget } from "../commands/slashCommandFlow.js";
+import type { ReplyTarget } from "../commands/replyTarget.js";
+import {
+  ACK_DEAD_LETTER_QUEUE,
+  ACK_QUEUE,
+  ASK_DEAD_LETTER_QUEUE,
+  ASK_QUEUE,
+  DEFERRED_HEAD_SHA,
+  REVIEW_DEAD_LETTER_QUEUE,
+  REVIEW_QUEUE,
+} from "../settings/index.js";
 
-export const ACK_QUEUE = "agent-work-ack";
-export const REVIEW_QUEUE = "agent-work-review";
-export const ASK_QUEUE = "agent-work-ask";
-export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
-export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
-export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
+export {
+  ACK_DEAD_LETTER_QUEUE,
+  ACK_QUEUE,
+  ASK_DEAD_LETTER_QUEUE,
+  ASK_QUEUE,
+  DEFERRED_HEAD_SHA,
+  REVIEW_DEAD_LETTER_QUEUE,
+  REVIEW_QUEUE,
+} from "../settings/index.js";
 
 export type WorkType = "review" | "ask";
 export type WorkSource = "auto" | "slash";
@@ -19,9 +31,6 @@ export type WebhookHeaders = {
   readonly event?: string;
   readonly rawBody: Buffer;
 };
-
-/** Resolve at worker execution time when headSha is DEFERRED_HEAD_SHA. */
-export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export type PrRef = {
   readonly owner: string;

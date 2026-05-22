@@ -1,3 +1,13 @@
+import {
+  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+  AGENT_FIX_PROMPT_PREAMBLE,
+  AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
+  REPEAT_NO_BUGS_PREFIX,
+  REVIEW_POINTER_BODY,
+  REVIEW_POINTER_BODY_MAX_CHARS,
+  REVIEW_SEVERITY_RANK,
+  SECURITY_REVIEW_POINTER_BODY,
+} from "../settings/index.js";
 import type {
   ReviewFinding,
   ReviewPayload,
@@ -6,6 +16,16 @@ import type {
 } from "./reviewSchema.js";
 import { sanitizePublicReviewFields } from "./publicOutputSanitizer.js";
 import type { InlinePlacement } from "./reviewLocationValidation.js";
+
+export {
+  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+  AGENT_FIX_PROMPT_PREAMBLE,
+  AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
+  REPEAT_NO_BUGS_PREFIX,
+  REVIEW_POINTER_BODY,
+  REVIEW_POINTER_BODY_MAX_CHARS,
+  SECURITY_REVIEW_POINTER_BODY,
+} from "../settings/index.js";
 
 export type RenderContext = ReviewPublishContext & {
   maxFindings: number;
@@ -44,10 +64,6 @@ function severityBadge(severity: ReviewFinding["severity"]): string {
   return `**${severity}**`;
 }
 
-export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
-export const SECURITY_REVIEW_POINTER_BODY =
-  "See the security review summary in the PR conversation.";
-
 export function reviewPointerBodyForMode(mode: ReviewMode): string {
   return mode === "review-security" ? SECURITY_REVIEW_POINTER_BODY : REVIEW_POINTER_BODY;
 }
@@ -59,8 +75,6 @@ export function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: st
     : `[View the updated review.](${summaryCommentUrl})`;
 }
 
-export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
-
 export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
     return mode === "review-security"
@@ -70,30 +84,13 @@ export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl
   return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
 }
 
-export const AGENT_FIX_PROMPT_PREAMBLE =
-  "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.";
-
-export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Prompt for AI agents to fix all review findings";
-
-const SEVERITY_RANK: Record<ReviewFinding["severity"], number> = {
-  P0: 0,
-  P1: 1,
-  P2: 2,
-  P3: 3,
-};
-
-/** GitHub review/comment body cap is 65,536; leave headroom for wrapper markup. */
-export const REVIEW_POINTER_BODY_MAX_CHARS = 60_000;
-
-const AGENT_FIX_PROMPT_TRUNCATION_SUFFIX = "\n...[truncated; see inline threads and PR summary]";
-
 function formatLineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
 }
 
 function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
   return [...findings].toSorted((a, b) => {
-    const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+    const bySeverity = REVIEW_SEVERITY_RANK[a.severity] - REVIEW_SEVERITY_RANK[b.severity];
     if (bySeverity !== 0) return bySeverity;
     const byFile = a.file.localeCompare(b.file);
     if (byFile !== 0) return byFile;
@@ -292,7 +289,7 @@ export function renderReviewSummaryComment(
     followUps: payload.followUps,
   });
   const sortedPlacements = [...ctx.placements].toSorted((a, b) => {
-    const bySeverity = SEVERITY_RANK[a.finding.severity] - SEVERITY_RANK[b.finding.severity];
+    const bySeverity = REVIEW_SEVERITY_RANK[a.finding.severity] - REVIEW_SEVERITY_RANK[b.finding.severity];
     if (bySeverity !== 0) return bySeverity;
     const byFile = a.finding.file.localeCompare(b.finding.file);
     if (byFile !== 0) return byFile;

@@ -2,7 +2,9 @@ import type { Octokit } from "@octokit/core";
 import type { EndpointDefaults } from "@octokit/types";
 import { logDebug } from "../evlog.js";
 
-export const PRIMARY_RATE_LIMIT_MAX_RETRIES = 2;
+import { PRIMARY_RATE_LIMIT_MAX_RETRIES } from "../settings/index.js";
+
+export { PRIMARY_RATE_LIMIT_MAX_RETRIES } from "../settings/index.js";
 
 export function onRateLimit(
   retryAfter: number,

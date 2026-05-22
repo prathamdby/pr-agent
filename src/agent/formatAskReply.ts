@@ -1,4 +1,4 @@
-import type { ReplyTarget } from "../commands/slashCommandFlow.js";
+import type { ReplyTarget } from "../commands/replyTarget.js";
 import { redactOutboundSecrets } from "./askSafety.js";
 
 /** Prevent model output lines from being parsed as slash commands by GitHub. */

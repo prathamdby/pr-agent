@@ -4,10 +4,11 @@ import type { Config } from "../config.js";
 import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { publishReview } from "./publishReview.js";
 import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
+import { PUBLISH_BUDGET_EXHAUSTED_MESSAGE } from "../settings/index.js";
 import {
   coerceReviewPayloadInput,
+  createReviewPayloadSchema,
   formatReviewValidationError,
-  reviewPayloadSchema,
   REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   REVIEW_SUMMARY_SENTINEL,
@@ -15,8 +16,7 @@ import {
   type ReviewPublishContext,
 } from "./reviewSchema.js";
 
-export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
-  "Review publish budget exhausted for this run. Do not call submitReview again.";
+export { PUBLISH_BUDGET_EXHAUSTED_MESSAGE } from "../settings/index.js";
 
 export type SubmitReviewState = {
   published: boolean;
@@ -56,8 +56,9 @@ export function buildSubmitReviewTool(params: {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
 } {
-  const submitSchema = reviewPayloadSchema;
+  const submitSchema = createReviewPayloadSchema(params.cfg.maxReviewFindings);
   const mode = params.mode ?? "review";
+  const maxFindings = params.cfg.maxReviewFindings;
 
   const summarySentinel =
     mode === "review-security" ? SECURITY_REVIEW_SUMMARY_SENTINEL : REVIEW_SUMMARY_SENTINEL;
@@ -67,7 +68,7 @@ export function buildSubmitReviewTool(params: {
       "Submit the completed structured review exactly once.",
       "Pass a ReviewPayload object matching the schema.",
       `This publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
-      "Fields: prCharacter (string), findings (array, max 8), estimatedEffort (integer 1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (string array, max 5).",
+      `Fields: prCharacter (string), findings (array, max ${maxFindings}), estimatedEffort (integer 1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (string array, max 5).`,
       "Each finding: severity P0|P1|P2|P3, file, startLine, endLine, title, detail; fixPrompt required for P0/P1/P2.",
       `Minimal valid example: ${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE)}`,
     ].join(" "),
@@ -102,7 +103,7 @@ export function buildSubmitReviewTool(params: {
 
     const parsed = submitSchema.safeParse(coercedArgs);
     if (!parsed.success) {
-      const message = formatReviewValidationError(parsed.error);
+      const message = formatReviewValidationError(parsed.error, maxFindings);
       params.state.lastValidationError = message;
       logWarn("review_payload_validation_failed", {
         mode,

@@ -2,7 +2,7 @@
 
 GitHub App webhook service that performs automated pull request reviews using native **Octokit** REST tools ([`src/agent/githubTools.ts`](src/agent/githubTools.ts)) and [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai) (LLM + tool loop).
 
-Durable agent work (Postgres intake + pg-boss workers) is described in [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md). Operations runbooks: [docs/agent-work-ops.md](docs/agent-work-ops.md). Domain terms: [CONTEXT.md](CONTEXT.md).
+Durable agent work (Postgres intake + pg-boss workers) is described in [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md). Operations runbooks: [docs/agent-work-ops.md](docs/agent-work-ops.md). Domain terms: [CONTEXT.md](CONTEXT.md). All tunables: [docs/configuration.md](docs/configuration.md).
 
 ## What it does
 
@@ -45,7 +45,7 @@ Durable agent work (Postgres intake + pg-boss workers) is described in [docs/adr
 
 ```bash
 docker compose up postgres   # or: docker compose up for the full stack
-cp .env.example .env         # GITHUB_*, WEBHOOK_SECRET, DATABASE_URL, provider keys
+cp .env.example .env         # GITHUB_*, WEBHOOK_SECRET, DATABASE_URL, provider keys — see docs/configuration.md
 corepack enable              # Node 22+ ships Corepack; activates pnpm from package.json
 pnpm install
 
@@ -64,8 +64,8 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 
 - Production boot is Effect TS with a **web/worker split** (`ROLE` env).
 - **Web:** [`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts) → [`WebhookDispatcher`](src/effect/services/webhookDispatcher.ts) → [`WebhookHandlers`](src/effect/services/webhookHandlers.ts) + [`AgentWorkScheduler`](src/agentWork/scheduler.ts) (Postgres + pg-boss enqueue).
-- **Worker:** [`AgentWorkerRuntimeLive`](src/agentWork/runtime.ts) consumes acknowledgement, review, and ask queues.
-- **Legacy (tests only):** [`slashCommandFlow`](src/commands/slashCommandFlow.ts), [`ReviewQueue`](src/effect/services/reviewQueue.ts), and [`AskQueue`](src/effect/services/askQueue.ts) are **not** wired into the production webhook dispatcher; they remain for unit tests of slash handling and in-process concurrency caps.
+- **Worker:** [`AgentWorkerRuntimeLive`](src/agentWork/runtime.ts) consumes acknowledgement, review, and ask queues; PR-surface I/O and LLM runs happen on worker fibers.
+- Maintainer rules for tunables: [AGENTS.md](AGENTS.md).
 
 ### Effect version gate
 

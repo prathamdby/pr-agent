@@ -3,7 +3,9 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { logInfo } from "../evlog.js";
 
-const MIGRATIONS_DIR = path.join(process.cwd(), "migrations");
+import { MIGRATIONS_DIR_NAME } from "../settings/index.js";
+
+const MIGRATIONS_DIR = path.join(process.cwd(), MIGRATIONS_DIR_NAME);
 
 export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`

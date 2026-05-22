@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. Production concurrency and execution use pg-boss workers ([ADR 0009](0009-durable-agent-work.md)); references to `ReviewQueue` in this ADR describe the pre-0009 in-memory path only.
 
 ## Context
 

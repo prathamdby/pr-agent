@@ -4,7 +4,7 @@ import { mintInstallationAuth, type InstallationToken } from "../../github/appAu
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../../github/githubRequestError.js";
 import { logDebug } from "../../evlog.js";
 
-const FRESHNESS_BUFFER_MS = 60_000;
+import { TOKEN_FRESHNESS_BUFFER_MS } from "../../settings/index.js";
 
 type Entry =
   | { readonly tag: "value"; readonly token: InstallationToken }
@@ -40,7 +40,7 @@ export const GithubInstallationTokenLive = Layer.effect(
             store,
             (map): readonly [StoreAction, Map<number, Entry>] => {
               const hit = map.get(installationId);
-              if (hit && hit.tag === "value" && hit.token.expiresAtTs - FRESHNESS_BUFFER_MS > now) {
+              if (hit && hit.tag === "value" && hit.token.expiresAtTs - TOKEN_FRESHNESS_BUFFER_MS > now) {
                 return [{ tag: "hit", token: hit.token }, map];
               }
               if (hit && hit.tag === "pending") {

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for execution, concurrency, and webhook response timing.
+Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for execution, concurrency, and webhook response timing. The in-process `AskQueue` Effect semaphore described in early revisions is removed; production uses pg-boss workers only.
 
 ## Context
 
@@ -37,7 +37,6 @@ This repo already runs reviews through a Pi-AI tool loop with native GitHub REST
 ## Current implementation (2025-05)
 
 - Production routing: [`AgentWorkScheduler.submitSlashCommand`](../../src/agentWork/scheduler.ts) → `agent-work-ask` job → [`runAskRun`](../../src/agent/askRun.ts) in the worker.
-- [`slashCommandFlow`](../../src/commands/slashCommandFlow.ts) + in-process `AskQueue` are retained for unit tests only.
 
 ## Reversal
 

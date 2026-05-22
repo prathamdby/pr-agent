@@ -21,7 +21,9 @@ const LEVEL_RANK: Record<WideEventLevel, number> = {
   error: 3,
 };
 
-export const DEFAULT_MAX_WIDE_EVENTS = 128;
+import { DEFAULT_LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
+
+export const DEFAULT_MAX_WIDE_EVENTS = DEFAULT_LOG_MAX_WIDE_EVENTS;
 
 let globalMinLevel: WideEventLevel = "info";
 let globalMaxWideEvents = DEFAULT_MAX_WIDE_EVENTS;

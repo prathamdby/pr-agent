@@ -1,21 +1,9 @@
-const PUBLIC_OUTPUT_BANNED_PATTERNS: RegExp[] = [
-  /\bsystem prompt\b/i,
-  /\btooling budget\b/i,
-  /\bserver logs\b/i,
-  /Line could not be resolved/i,
-  /\bsubmitReview\b/i,
-  /\bstructured publish\b/i,
-  /\bmanual review\b/i,
-  /\bGitHub API\b/i,
-  /\bDATABASE_URL\b/,
-  /\bOPENAI_API_KEY\b/,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  /\b\d+\/\d+ attempt\(s\)\b/i,
-  /\bBEGIN_SHARED_METHODOLOGY\b/,
-  /\bSingle-pass review contract\b/i,
-];
+import {
+  PUBLIC_OUTPUT_BANNED_PATTERNS,
+  PUBLIC_OUTPUT_REDACTION,
+} from "../settings/index.js";
 
-export const PUBLIC_OUTPUT_REDACTION = "[redacted internal details]";
+export { PUBLIC_OUTPUT_REDACTION } from "../settings/index.js";
 
 export function containsBannedPublicOutput(text: string): boolean {
   return PUBLIC_OUTPUT_BANNED_PATTERNS.some((pattern) => pattern.test(text));
