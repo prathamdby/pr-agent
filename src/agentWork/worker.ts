@@ -17,6 +17,7 @@ import {
   shouldSkipWork,
 } from "./repository.js";
 import { mintInstallationToken, runDurableWorkItem } from "./durableJob.js";
+import { GITHUB_REACTION_EYES } from "../settings/index.js";
 import { renderReviewFailureNotice, renderReviewProgressComment } from "./progressComment.js";
 import {
   ACK_QUEUE,
@@ -76,21 +77,21 @@ async function safeReaction(
         owner,
         repo,
         issue_number: target.prNumber,
-        content: "eyes",
+        content: GITHUB_REACTION_EYES,
       });
     } else if (target.kind === "issueComment") {
       await octokit.rest.reactions.createForIssueComment({
         owner,
         repo,
         comment_id: target.commentId,
-        content: "eyes",
+        content: GITHUB_REACTION_EYES,
       });
     } else {
       await octokit.rest.reactions.createForPullRequestReviewComment({
         owner,
         repo,
         comment_id: target.commentId,
-        content: "eyes",
+        content: GITHUB_REACTION_EYES,
       });
     }
   } catch (e: unknown) {

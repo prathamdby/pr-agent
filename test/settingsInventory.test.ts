@@ -6,6 +6,7 @@ import {
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
   DEFAULT_MAX_REVIEW_FINDINGS,
   ENV,
+  EXTERNAL_ENV,
 } from "../src/settings/index.js";
 
 const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
@@ -33,9 +34,16 @@ describe("settings inventory", () => {
 
   it(".env.example documents every loadConfig env key", () => {
     const content = fs.readFileSync(ENV_EXAMPLE_PATH, "utf8");
-    const documented = new Set(parseEnvExampleKeys(content));
+    const documented = parseEnvExampleKeys(content);
+    const documentedSet = new Set(documented);
+    const cataloguedKeys = new Set([...Object.values(ENV), ...Object.values(EXTERNAL_ENV)]);
+
     for (const key of Object.values(ENV)) {
-      expect(documented.has(key), `missing ${key} in .env.example`).toBe(true);
+      expect(documentedSet.has(key), `missing ${key} in .env.example`).toBe(true);
+    }
+
+    for (const key of documented) {
+      expect(cataloguedKeys.has(key), `${key} in .env.example is not catalogued`).toBe(true);
     }
   });
 
