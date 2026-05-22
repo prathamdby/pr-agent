@@ -6,7 +6,7 @@ Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for async
 
 ## Context
 
-Large PR reviews drive many GitHub REST/GraphQL tool calls in a single synchronous webhook. Production observed sustained `Bad credentials` errors during bursts; root cause was not proven, but the failure mode matches rate-limit / secondary-limit pressure (see [issue #9](https://github.com/prathamdby/pr-agent/issues/9)).
+Large PR reviews drive many GitHub REST/GraphQL tool calls in a single **review run** (pg-boss worker job). Production observed sustained `Bad credentials` errors during bursts; root cause was not proven, but the failure mode matches rate-limit / secondary-limit pressure (see [issue #9](https://github.com/prathamdby/pr-agent/issues/9)).
 
 `@octokit/plugin-retry` alone does not pace requests or honor `Retry-After` for secondary limits.
 

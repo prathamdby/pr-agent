@@ -18,9 +18,13 @@ Operators may run both passes on the same PR. Overwriting the general summary wi
 
 3. **Publish failure fallback.** Security mode uses a matching fallback heading (`## PR Agent Security Review — could not publish structured output`).
 
-4. **Shared pipeline.** Same `ReviewPayload` schema, `submitReview` tool, `ReviewQueue`, and `MAX_TOOL_ROUNDS` — only the system prompt and publish surfaces differ (`mode: "review" | "review-security"`).
+4. **Shared pipeline.** Same `ReviewPayload` schema, `submitReview` tool, durable **review worker lane** (`agent-work-review` queue), and `MAX_TOOL_ROUNDS` — only the system prompt and publish surfaces differ (`mode: "review" | "review-security"`).
 
 5. **No auto-trigger.** Security runs never fire on `pull_request` webhooks.
+
+## Current implementation (2025-05)
+
+- Slash `/review-security` and general reviews share [`runFullPrReview`](../../src/agent/reviewRun.ts) but enqueue as separate work items per lens ([`scheduler.ts`](../../src/agentWork/scheduler.ts)); see [ADR 0009](0009-durable-agent-work.md).
 
 ## Consequences
 
