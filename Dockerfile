@@ -2,9 +2,15 @@
 
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 RUN corepack enable && corepack prepare pnpm@10.12.0 --activate
 COPY package.json pnpm-lock.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
+
+FROM deps AS prod-deps
+RUN pnpm prune --prod
 
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.build.json ./
@@ -18,10 +24,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=7224
 
-RUN corepack enable && corepack prepare pnpm@10.12.0 --activate
-COPY package.json pnpm-lock.yaml .npmrc ./
-RUN pnpm install --frozen-lockfile --prod
-
+COPY package.json ./
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 
