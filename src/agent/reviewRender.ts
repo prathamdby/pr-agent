@@ -1,8 +1,13 @@
 import {
-  escapeTableCell,
-  escapeTableCellContent,
+  escapeTablePlainCell,
   escapeTableHtml,
   renderGitHubAlert,
+  renderKeyValueTable,
+  renderTableCode,
+  renderTableEm,
+  renderTableLink,
+  renderTableLocationMeta,
+  renderTableStrong,
 } from "../github/markdownFormat.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -67,6 +72,11 @@ export function issueCommentUrl(
 export function formatEffortLabel(effort: number): string {
   const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
   return `${word} · \`${effort}/5\``;
+}
+
+function formatEffortLabelHtml(effort: number): string {
+  const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
+  return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
 }
 
 export function reviewPointerBodyForMode(mode: ReviewMode): string {
@@ -174,21 +184,28 @@ type SanitizedFindingFields = {
   fixPrompt?: string;
 };
 
-function renderFindingTableCell(
+function renderFindingTableCellHtml(
   placement: InlinePlacement,
   ctx: RenderContext,
   safeFinding: SanitizedFindingFields,
 ): string {
   const f = placement.finding;
-  const link = blobLineUrl(ctx, f.file, f.startLine, f.endLine);
+  const link =
+    placement.inlinePosted && placement.inlineCommentUrl
+      ? placement.inlineCommentUrl
+      : blobLineUrl(ctx, f.file, f.startLine, f.endLine);
   const marker = placement.inlinePosted ? "On the diff" : "Summary only";
-  const meta = `_${escapeTableCell(marker)} · \`${escapeTableHtml(f.file)}\` · ${formatLineRange(f.startLine, f.endLine)}_`;
-  const parts = [`**[${escapeTableCell(safeFinding.title)}](${link})**`, meta];
+  const parts = [
+    renderTableLink(safeFinding.title, link),
+    renderTableLocationMeta(marker, f.file, formatLineRange(f.startLine, f.endLine)),
+  ];
   if (!placement.inlinePosted) {
-    parts.push(escapeTableCellContent(safeFinding.detail));
+    parts.push(escapeTablePlainCell(safeFinding.detail));
   }
   parts.push(
-    `_${placement.inlinePosted ? REVIEW_FINDING_FOOTNOTE_INLINE : REVIEW_FINDING_FOOTNOTE_SUMMARY}_`,
+    renderTableEm(
+      placement.inlinePosted ? REVIEW_FINDING_FOOTNOTE_INLINE : REVIEW_FINDING_FOOTNOTE_SUMMARY,
+    ),
   );
   return parts.join("<br>");
 }
@@ -357,14 +374,15 @@ export function renderReviewSummaryComment(
     ),
   );
   rows.push("");
-  rows.push("| | |");
-  rows.push("| --- | --- |");
-  rows.push(`| **Effort** | ${formatEffortLabel(payload.estimatedEffort)} |`);
+
+  const tableRows: Array<[string, string]> = [
+    [renderTableStrong("Effort"), formatEffortLabelHtml(payload.estimatedEffort)],
+  ];
 
   const summaryOnlyAccordions: string[] = [];
 
   if (sortedPlacements.length === 0) {
-    rows.push(`| **Findings** | ${REVIEW_FINDINGS_NONE} |`);
+    tableRows.push([renderTableStrong("Findings"), escapeTableHtml(REVIEW_FINDINGS_NONE)]);
   } else {
     for (const placement of sortedPlacements) {
       const safeFinding = sanitizePublicReviewFields({
@@ -377,9 +395,10 @@ export function renderReviewSummaryComment(
         detail: safeFinding.detail ?? placement.finding.detail,
         fixPrompt: safeFinding.fixPrompt ?? placement.finding.fixPrompt,
       };
-      rows.push(
-        `| **${placement.finding.severity}** | ${renderFindingTableCell(placement, ctx, sanitized)} |`,
-      );
+      tableRows.push([
+        renderTableStrong(placement.finding.severity),
+        renderFindingTableCellHtml(placement, ctx, sanitized),
+      ]);
       if (
         !placement.inlinePosted &&
         sanitized.fixPrompt != null &&
@@ -396,19 +415,20 @@ export function renderReviewSummaryComment(
     }
   }
 
-  rows.push(`| **Relevant tests** | ${payload.relevantTests} |`);
-  rows.push(
-    `| **Security** | ${
-      safePayload.securityConcerns != null
-        ? escapeTableCell(safePayload.securityConcerns)
-        : REVIEW_SECURITY_DEFAULT
-    } |`,
-  );
+  tableRows.push([renderTableStrong("Relevant tests"), escapeTableHtml(payload.relevantTests)]);
+  tableRows.push([
+    renderTableStrong("Security"),
+    safePayload.securityConcerns != null
+      ? escapeTablePlainCell(safePayload.securityConcerns)
+      : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
+  ]);
 
   const followUps = safePayload.followUps ?? payload.followUps;
   for (const item of followUps) {
-    rows.push(`| **Follow-ups** | ${escapeTableCell(item)} |`);
+    tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);
   }
+
+  rows.push(renderKeyValueTable(tableRows));
 
   if (summaryOnlyAccordions.length > 0) {
     rows.push("");

@@ -230,6 +230,7 @@ async function handleReviewJob(
         initialPublishState: {
           inlinePublished: publishState.inlinePublished,
           published: publishState.summaryPublished,
+          inlineReviewId: publishState.inlineReviewId,
         },
         recordPublishStep: (step, detail) =>
           recordPublishStep(pool, {

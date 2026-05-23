@@ -35,7 +35,11 @@ export async function runCursorFullPrReview(params: {
   userSupplement?: string;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
-  initialPublishState?: { published?: boolean; inlinePublished?: boolean };
+  initialPublishState?: {
+    published?: boolean;
+    inlinePublished?: boolean;
+    inlineReviewId?: number | null;
+  };
   recordPublishStep?: (
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -63,6 +67,7 @@ export async function runCursorFullPrReview(params: {
   const submitState: SubmitReviewState = createSubmitReviewState({
     published: params.initialPublishState?.published,
     inlinePublished: params.initialPublishState?.inlinePublished,
+    inlineReviewId: params.initialPublishState?.inlineReviewId,
   });
   const publishCtx = { owner, repo, prNumber, headSha };
 

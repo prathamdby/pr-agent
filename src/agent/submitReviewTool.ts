@@ -21,17 +21,19 @@ export { PUBLISH_BUDGET_EXHAUSTED_MESSAGE } from "../settings/index.js";
 export type SubmitReviewState = {
   published: boolean;
   inlinePublished: boolean;
+  inlineReviewId: number | null;
   lastValidationError: string | null;
   publishCallCount: number;
   publishCallsExhausted: boolean;
 };
 
 export function createSubmitReviewState(
-  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished">>,
+  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished" | "inlineReviewId">>,
 ): SubmitReviewState {
   return {
     published: initial?.published ?? false,
     inlinePublished: initial?.inlinePublished ?? false,
+    inlineReviewId: initial?.inlineReviewId ?? null,
     lastValidationError: null,
     publishCallCount: 0,
     publishCallsExhausted: false,

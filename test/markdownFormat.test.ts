@@ -4,6 +4,9 @@ import {
   escapeTableCell,
   escapeTableCellContent,
   renderGitHubAlert,
+  renderKeyValueTable,
+  renderTableLink,
+  renderTableStrong,
 } from "../src/github/markdownFormat.js";
 
 describe("markdownFormat", () => {
@@ -21,5 +24,23 @@ describe("markdownFormat", () => {
 
   it("renderGitHubAlert wraps body in alert syntax", () => {
     expect(renderGitHubAlert("NOTE", "hello")).toBe("> [!NOTE]\n> hello");
+  });
+
+  it("renderTableLink escapes title and href for HTML", () => {
+    const html = renderTableLink("Bug <x>", 'https://example.com?q="1"');
+    expect(html).toContain("&lt;x&gt;");
+    expect(html).toContain("&quot;");
+    expect(html).not.toContain('href="https://example.com?q="1""');
+  });
+
+  it("renderKeyValueTable omits GFM header row", () => {
+    const table = renderKeyValueTable([
+      [renderTableStrong("Effort"), "Moderate · <code>2/5</code>"],
+      [renderTableStrong("P1"), "plain value"],
+    ]);
+    expect(table).not.toContain("| | |");
+    expect(table).toContain("<table>");
+    expect(table).toContain("<strong>Effort</strong>");
+    expect(table).toContain("<code>2/5</code>");
   });
 });

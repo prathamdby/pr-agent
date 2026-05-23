@@ -13,6 +13,8 @@ export type InlinePlacement = {
   readonly inlineLine: number | null;
   readonly inlinePosted: boolean;
   readonly inlineCapEligible: boolean;
+  /** Set at publish time when the inline thread exists on the Files tab. */
+  readonly inlineCommentUrl?: string;
 };
 
 export {
