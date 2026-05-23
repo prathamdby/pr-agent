@@ -1,10 +1,23 @@
 import {
+  escapeTableCell,
+  escapeTableCellContent,
+  escapeTableHtml,
+  renderGitHubAlert,
+} from "../github/markdownFormat.js";
+import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   AGENT_FIX_PROMPT_PREAMBLE,
   AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
   REPEAT_NO_BUGS_PREFIX,
+  REVIEW_EFFORT_WORDS,
+  REVIEW_FINDING_FOOTNOTE_INLINE,
+  REVIEW_FINDING_FOOTNOTE_SUMMARY,
+  REVIEW_FINDINGS_NONE,
+  REVIEW_OVERVIEW_ALERT,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
+  REVIEW_POINTER_NOTE_LEAD,
+  REVIEW_SECURITY_DEFAULT,
   REVIEW_SEVERITY_RANK,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
@@ -24,16 +37,13 @@ export {
   REPEAT_NO_BUGS_PREFIX,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
+  REVIEW_POINTER_NOTE_LEAD,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 
 export type RenderContext = ReviewPublishContext & {
   maxFindings: number;
 };
-
-function escapeTableCell(text: string): string {
-  return text.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
-}
 
 /** Prevent model-authored text from closing a surrounding markdown code fence. */
 function escapeCodeFenceBreakers(text: string): string {
@@ -54,14 +64,9 @@ export function issueCommentUrl(
   return `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${commentId}`;
 }
 
-function effortBar(n: number): string {
-  const filled = "🔵".repeat(n);
-  const empty = "⚪".repeat(5 - n);
-  return filled + empty;
-}
-
-function severityBadge(severity: ReviewFinding["severity"]): string {
-  return `**${severity}**`;
+export function formatEffortLabel(effort: number): string {
+  const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
+  return `${word} · \`${effort}/5\``;
 }
 
 export function reviewPointerBodyForMode(mode: ReviewMode): string {
@@ -88,14 +93,22 @@ function formatLineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
 }
 
+function compareFindingsBySeverityFileLine(a: ReviewFinding, b: ReviewFinding): number {
+  const bySeverity = REVIEW_SEVERITY_RANK[a.severity] - REVIEW_SEVERITY_RANK[b.severity];
+  if (bySeverity !== 0) return bySeverity;
+  const byFile = a.file.localeCompare(b.file);
+  if (byFile !== 0) return byFile;
+  return a.startLine - b.startLine;
+}
+
+function sortPlacements(placements: readonly InlinePlacement[]): InlinePlacement[] {
+  return [...placements].toSorted((a, b) =>
+    compareFindingsBySeverityFileLine(a.finding, b.finding),
+  );
+}
+
 function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
-  return [...findings].toSorted((a, b) => {
-    const bySeverity = REVIEW_SEVERITY_RANK[a.severity] - REVIEW_SEVERITY_RANK[b.severity];
-    if (bySeverity !== 0) return bySeverity;
-    const byFile = a.file.localeCompare(b.file);
-    if (byFile !== 0) return byFile;
-    return a.startLine - b.startLine;
-  });
+  return [...findings].toSorted(compareFindingsBySeverityFileLine);
 }
 
 export function renderFindingFixBlock(
@@ -123,13 +136,6 @@ export function renderFindingFixBlock(
   return lines.join("\n");
 }
 
-function renderAgentFixFindingBlock(
-  finding: ReviewFinding,
-  opts: { inlinePosted: boolean; inlineCapEligible?: boolean },
-): string {
-  return renderFindingFixBlock(finding, opts);
-}
-
 export function renderSingleFindingAgentFixPrompt(
   finding: ReviewFinding,
   ctx: RenderContext,
@@ -145,6 +151,48 @@ export function renderSingleFindingAgentFixPrompt(
   ].join("\n");
 }
 
+function renderSummaryOnlyFixAccordion(
+  severity: ReviewFinding["severity"],
+  title: string,
+  fixPrompt: string,
+): string[] {
+  return [
+    "<details>",
+    `<summary>Prompt to fix — ${severity} · ${escapeTableHtml(title)}</summary>`,
+    "",
+    "```",
+    escapeCodeFenceBreakers(fixPrompt),
+    "```",
+    "",
+    "</details>",
+  ];
+}
+
+type SanitizedFindingFields = {
+  title: string;
+  detail: string;
+  fixPrompt?: string;
+};
+
+function renderFindingTableCell(
+  placement: InlinePlacement,
+  ctx: RenderContext,
+  safeFinding: SanitizedFindingFields,
+): string {
+  const f = placement.finding;
+  const link = blobLineUrl(ctx, f.file, f.startLine, f.endLine);
+  const marker = placement.inlinePosted ? "On the diff" : "Summary only";
+  const meta = `_${escapeTableCell(marker)} · \`${escapeTableHtml(f.file)}\` · ${formatLineRange(f.startLine, f.endLine)}_`;
+  const parts = [`**[${escapeTableCell(safeFinding.title)}](${link})**`, meta];
+  if (!placement.inlinePosted) {
+    parts.push(escapeTableCellContent(safeFinding.detail));
+  }
+  parts.push(
+    `_${placement.inlinePosted ? REVIEW_FINDING_FOOTNOTE_INLINE : REVIEW_FINDING_FOOTNOTE_SUMMARY}_`,
+  );
+  return parts.join("<br>");
+}
+
 export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
   const safe = sanitizePublicReviewFields({
     title: finding.title,
@@ -158,7 +206,9 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
     fixPrompt: safe.fixPrompt ?? finding.fixPrompt,
   };
   const lines = [
-    `[${sanitizedFinding.severity}] ${sanitizedFinding.title}`,
+    `**${sanitizedFinding.severity}** · **${sanitizedFinding.title}**`,
+    "",
+    `\`${sanitizedFinding.file}\` · ${formatLineRange(sanitizedFinding.startLine, sanitizedFinding.endLine)}`,
     "",
     sanitizedFinding.detail,
     "",
@@ -195,7 +245,7 @@ export function renderAgentFixPrompt(
       fixPrompt: safe.fixPrompt ?? f.fixPrompt,
     };
     const placement = placementByFinding.get(f);
-    return renderAgentFixFindingBlock(sanitizedFinding, {
+    return renderFindingFixBlock(sanitizedFinding, {
       inlinePosted: placement?.inlinePosted ?? false,
       inlineCapEligible: placement?.inlineCapEligible,
     });
@@ -212,6 +262,13 @@ export function renderAgentFixPrompt(
     "",
     blocks.join("\n\n"),
   ].join("\n");
+}
+
+function renderPointerLead(mode: ReviewMode, summaryCommentUrl?: string): string {
+  if (summaryCommentUrl) {
+    return renderReviewPointerLine(mode, summaryCommentUrl);
+  }
+  return renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_POINTER_NOTE_LEAD);
 }
 
 function assembleReviewPointerBody(pointerLine: string, agentFixPrompt: string): string {
@@ -260,7 +317,7 @@ export function renderReviewPointerBody(
     placements: readonly InlinePlacement[];
   },
 ): { body: string; truncated: boolean } {
-  const pointerLine = renderReviewPointerLine(ctx.mode, ctx.summaryCommentUrl);
+  const pointerLine = renderPointerLead(ctx.mode, ctx.summaryCommentUrl);
   let agentFixPrompt = renderAgentFixPrompt(payload, ctx, ctx.placements);
   let truncated = false;
 
@@ -288,80 +345,74 @@ export function renderReviewSummaryComment(
     securityConcerns: payload.securityConcerns,
     followUps: payload.followUps,
   });
-  const sortedPlacements = [...ctx.placements].toSorted((a, b) => {
-    const bySeverity = REVIEW_SEVERITY_RANK[a.finding.severity] - REVIEW_SEVERITY_RANK[b.finding.severity];
-    if (bySeverity !== 0) return bySeverity;
-    const byFile = a.finding.file.localeCompare(b.finding.file);
-    if (byFile !== 0) return byFile;
-    return a.finding.startLine - b.finding.startLine;
-  });
+  const sortedPlacements = sortPlacements(ctx.placements);
 
   const rows: string[] = [];
   rows.push(ctx.summarySentinel);
   rows.push("");
-  rows.push(escapeTableCell((safePayload.prCharacter ?? payload.prCharacter).trim()));
+  rows.push(
+    renderGitHubAlert(
+      REVIEW_OVERVIEW_ALERT,
+      (safePayload.prCharacter ?? payload.prCharacter).trim(),
+    ),
+  );
   rows.push("");
   rows.push("| | |");
   rows.push("| --- | --- |");
-  rows.push(`| Effort | ${effortBar(payload.estimatedEffort)} (${payload.estimatedEffort}/5) |`);
-  rows.push(`| Relevant tests | ${payload.relevantTests} |`);
+  rows.push(`| **Effort** | ${formatEffortLabel(payload.estimatedEffort)} |`);
+
+  const summaryOnlyAccordions: string[] = [];
+
+  if (sortedPlacements.length === 0) {
+    rows.push(`| **Findings** | ${REVIEW_FINDINGS_NONE} |`);
+  } else {
+    for (const placement of sortedPlacements) {
+      const safeFinding = sanitizePublicReviewFields({
+        title: placement.finding.title,
+        detail: placement.finding.detail,
+        fixPrompt: placement.finding.fixPrompt,
+      });
+      const sanitized = {
+        title: safeFinding.title ?? placement.finding.title,
+        detail: safeFinding.detail ?? placement.finding.detail,
+        fixPrompt: safeFinding.fixPrompt ?? placement.finding.fixPrompt,
+      };
+      rows.push(
+        `| **${placement.finding.severity}** | ${renderFindingTableCell(placement, ctx, sanitized)} |`,
+      );
+      if (
+        !placement.inlinePosted &&
+        sanitized.fixPrompt != null &&
+        sanitized.fixPrompt.length > 0
+      ) {
+        summaryOnlyAccordions.push(
+          ...renderSummaryOnlyFixAccordion(
+            placement.finding.severity,
+            sanitized.title,
+            sanitized.fixPrompt,
+          ),
+        );
+      }
+    }
+  }
+
+  rows.push(`| **Relevant tests** | ${payload.relevantTests} |`);
   rows.push(
-    `| Security | ${
+    `| **Security** | ${
       safePayload.securityConcerns != null
         ? escapeTableCell(safePayload.securityConcerns)
-        : "No security concerns identified"
+        : REVIEW_SECURITY_DEFAULT
     } |`,
   );
 
   const followUps = safePayload.followUps ?? payload.followUps;
-  if (followUps.length > 0) {
-    rows.push("| Follow-ups | |");
-    for (const item of followUps) {
-      rows.push(`| | ${escapeTableCell(item)} |`);
-    }
+  for (const item of followUps) {
+    rows.push(`| **Follow-ups** | ${escapeTableCell(item)} |`);
   }
 
-  if (sortedPlacements.length === 0) {
+  if (summaryOnlyAccordions.length > 0) {
     rows.push("");
-    rows.push("_No findings._");
-    return rows.join("\n");
-  }
-
-  rows.push("");
-  rows.push("### Findings");
-  rows.push("");
-
-  for (const placement of sortedPlacements) {
-    const f = placement.finding;
-    const safeFinding = sanitizePublicReviewFields({
-      title: f.title,
-      detail: f.detail,
-      fixPrompt: f.fixPrompt,
-    });
-    const link = blobLineUrl(ctx, f.file, f.startLine, f.endLine);
-    const marker = placement.inlinePosted ? "Inline thread posted" : "Summary only";
-    rows.push(`#### ${severityBadge(f.severity)} [${safeFinding.title ?? f.title}](${link})`);
-    rows.push("");
-    rows.push(`_${marker}_ · \`${f.file}\` · ${formatLineRange(f.startLine, f.endLine)}`);
-    rows.push("");
-    rows.push(safeFinding.detail ?? f.detail);
-    if (safeFinding.fixPrompt && safeFinding.fixPrompt.length > 0) {
-      if (placement.inlinePosted) {
-        rows.push("");
-        rows.push("_See inline thread for fix prompt._");
-      } else {
-        rows.push("");
-        rows.push("<details>");
-        rows.push("<summary>Prompt to fix</summary>");
-        rows.push("");
-        rows.push("```");
-        rows.push(escapeCodeFenceBreakers(safeFinding.fixPrompt));
-        rows.push("```");
-        rows.push("");
-        rows.push("</details>");
-      }
-    }
-    rows.push("");
+    rows.push(...summaryOnlyAccordions);
   }
 
   return rows.join("\n").trimEnd();

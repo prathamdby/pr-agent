@@ -1,18 +1,29 @@
+import { renderGitHubAlert } from "../github/markdownFormat.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../agent/reviewSchema.js";
+import {
+  REVIEW_FAILURE_ALERT,
+  REVIEW_OVERVIEW_ALERT,
+  REVIEW_PROGRESS_NOTE,
+  REVIEW_PROGRESS_SOURCE_AUTO,
+  REVIEW_PROGRESS_SOURCE_SLASH,
+} from "../settings/index.js";
 
 export function renderReviewProgressComment(params: {
   mode: ReviewMode;
   headSha: string;
   source: "auto" | "slash";
 }): string {
-  const lens = params.mode === "review-security" ? "security review" : "review";
+  const sourceLabel =
+    params.source === "auto" ? REVIEW_PROGRESS_SOURCE_AUTO : REVIEW_PROGRESS_SOURCE_SLASH;
   return [
     reviewSummarySentinelForMode(params.mode),
     "",
-    `_PR Agent ${lens} in progress._`,
+    renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_PROGRESS_NOTE),
     "",
-    `Head SHA: \`${params.headSha}\``,
-    `Source: ${params.source === "auto" ? "automated pull request event" : "slash command"}`,
+    "| | |",
+    "| --- | --- |",
+    `| **Head** | \`${params.headSha}\` |`,
+    `| **Source** | ${sourceLabel} |`,
   ].join("\n");
 }
 
@@ -23,9 +34,10 @@ export function renderReviewFailureNotice(params: {
   return [
     reviewSummarySentinelForMode(params.mode),
     "",
-    `_PR Agent could not complete this ${params.mode === "review-security" ? "security review" : "review"}._`,
-    "",
-    `Please retry with \`${params.retryCommand}\`.`,
+    renderGitHubAlert(
+      REVIEW_FAILURE_ALERT,
+      `Review did not finish. Run \`${params.retryCommand}\` to try again.`,
+    ),
   ].join("\n");
 }
 

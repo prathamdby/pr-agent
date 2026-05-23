@@ -23,10 +23,31 @@ export const SECURITY_REVIEW_POINTER_BODY =
 export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.";
-export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Prompt for AI agents to fix all review findings";
+export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Fix all findings (agent prompt)";
 export const REVIEW_POINTER_BODY_MAX_CHARS = 60_000;
 export const AGENT_FIX_PROMPT_TRUNCATION_SUFFIX =
   "\n...[truncated; see inline threads and PR summary]";
+
+/** Review comment formatting (GitHub markdown). */
+/** Effort 2–3 both map to "Moderate" on the 1–5 scale. */
+export const REVIEW_EFFORT_WORDS = [
+  "Light",
+  "Moderate",
+  "Moderate",
+  "Substantial",
+  "Heavy",
+] as const;
+export const REVIEW_OVERVIEW_ALERT = "NOTE";
+export const REVIEW_FAILURE_ALERT = "CAUTION";
+export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
+export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
+export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
+export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
+export const REVIEW_POINTER_NOTE_LEAD =
+  "Full review is in the PR conversation. Expand below to copy fixes for your coding agent.";
+export const REVIEW_SECURITY_DEFAULT = "No security concerns identified";
+export const REVIEW_PROGRESS_SOURCE_AUTO = "Pull request update";
+export const REVIEW_PROGRESS_SOURCE_SLASH = "slash command";
 
 export const MAX_REVIEW_FOLLOW_UPS = 5;
 export const REVIEW_EFFORT_MIN = 1;
