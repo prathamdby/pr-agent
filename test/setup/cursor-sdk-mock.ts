@@ -11,7 +11,10 @@ class MockCursorAgentError extends Error {
 
 vi.mock("@cursor/sdk", () => ({
   Agent: {
-    create: vi.fn(),
+    create: vi.fn(async () => ({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: vi.fn(),
+    })),
   },
   CursorAgentError: MockCursorAgentError,
 }));

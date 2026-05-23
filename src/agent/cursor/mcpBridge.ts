@@ -84,17 +84,11 @@ async function runWithAbortSignal<T>(run: () => Promise<T>, signal: AbortSignal)
   });
 }
 
-function listenOnEphemeralPort(server: HttpServer, attempt: number): Promise<void> {
+function listenOnEphemeralPort(server: HttpServer): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: NodeJS.ErrnoException) => {
       server.off("listening", onListening);
       server.off("error", onError);
-      if (error.code === "EADDRINUSE" && attempt < CURSOR_MAX_PORT_RETRIES) {
-        void closeHttpServer(server)
-          .then(() => listenOnEphemeralPort(server, attempt + 1))
-          .then(resolve, reject);
-        return;
-      }
       reject(error);
     };
     const onListening = () => {
@@ -106,6 +100,24 @@ function listenOnEphemeralPort(server: HttpServer, attempt: number): Promise<voi
     server.once("listening", onListening);
     server.listen(0, CURSOR_MCP_BIND_HOST);
   });
+}
+
+async function bindEphemeralHttpServer(
+  createServerInstance: () => HttpServer,
+  attempt = 0,
+): Promise<HttpServer> {
+  const server = createServerInstance();
+  try {
+    await listenOnEphemeralPort(server);
+    return server;
+  } catch (error) {
+    await closeHttpServer(server).catch(() => undefined);
+    const errno = error as NodeJS.ErrnoException;
+    if (errno.code === "EADDRINUSE" && attempt < CURSOR_MAX_PORT_RETRIES) {
+      return bindEphemeralHttpServer(createServerInstance, attempt + 1);
+    }
+    throw error;
+  }
 }
 
 export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBridgeHandle> {
@@ -177,23 +189,24 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
 
   await mcpServer.connect(transport);
 
-  const httpServer = createServer((req, res) => {
-    if (!checkBearerAuth(req, bearerToken)) {
-      res.writeHead(401, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "Unauthorized" }));
-      return;
-    }
-    const url = req.url ?? "";
-    if (!url.startsWith(endpointPath)) {
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "Not found" }));
-      return;
-    }
-    void transport.handleRequest(req, res).catch(() => undefined);
-  });
+  const createHttpServer = (): HttpServer =>
+    createServer((req, res) => {
+      if (!checkBearerAuth(req, bearerToken)) {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Unauthorized" }));
+        return;
+      }
+      const url = req.url ?? "";
+      if (!url.startsWith(endpointPath)) {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Not found" }));
+        return;
+      }
+      void transport.handleRequest(req, res).catch(() => undefined);
+    });
 
   let startTimeoutId: ReturnType<typeof setTimeout> | undefined;
-  const startTimeout = new Promise<void>((_, reject) => {
+  const startDeadline = new Promise<never>((_, reject) => {
     startTimeoutId = setTimeout(
       () =>
         reject(
@@ -204,8 +217,9 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       CURSOR_MCP_SERVER_START_TIMEOUT_MS,
     );
   });
+  let httpServer: HttpServer;
   try {
-    await Promise.race([listenOnEphemeralPort(httpServer, 0), startTimeout]);
+    httpServer = await Promise.race([bindEphemeralHttpServer(createHttpServer), startDeadline]);
   } finally {
     if (startTimeoutId !== undefined) clearTimeout(startTimeoutId);
   }

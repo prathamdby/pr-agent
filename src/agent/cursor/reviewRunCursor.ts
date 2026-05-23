@@ -55,6 +55,10 @@ export async function runCursorFullPrReview(params: {
     userSupplement,
   } = params;
 
+  if (!Number.isFinite(tokenExpiresAtTs)) {
+    throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+  }
+
   let cachedDiffIndex: CachedPrDiffIndex = createCachedPrDiffIndex();
   const submitState: SubmitReviewState = createSubmitReviewState({
     published: params.initialPublishState?.published,
@@ -83,6 +87,7 @@ export async function runCursorFullPrReview(params: {
     buildSubmitReviewTool({
       cfg,
       token: refreshableGh.getToken(),
+      getToken: () => refreshableGh.getToken(),
       ctx: publishCtx,
       mode: reviewMode,
       state: submitState,

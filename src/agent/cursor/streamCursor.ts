@@ -66,6 +66,7 @@ export const streamCursor: StreamFunction<"cursor-sdk", StreamOptions> = (
     const partial = makeInitialMessage(model);
     const runContext = getCursorRunContext(context);
     let bridgeDispose: (() => Promise<void>) | undefined;
+    let agent: Awaited<ReturnType<typeof Agent.create>> | undefined;
 
     try {
       stream.push({ type: "start", partial });
@@ -91,7 +92,7 @@ export const streamCursor: StreamFunction<"cursor-sdk", StreamOptions> = (
       const textDeltas: string[] = [];
       let abortListener: (() => void) | undefined;
 
-      await using agent = await Agent.create({
+      agent = await Agent.create({
         apiKey,
         model: { id: model.id },
         local: {
@@ -178,6 +179,12 @@ export const streamCursor: StreamFunction<"cursor-sdk", StreamOptions> = (
       stream.push({ type: "error", reason: "error", error: partial });
     } finally {
       detachCursorRunContext(context);
+      if (agent) {
+        const dispose = agent[Symbol.asyncDispose];
+        if (typeof dispose === "function") {
+          await Promise.resolve(dispose.call(agent)).catch(() => undefined);
+        }
+      }
       if (bridgeDispose) {
         await bridgeDispose().catch(() => undefined);
       }

@@ -67,6 +67,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
 }));
 
 import { complete } from "@earendil-works/pi-ai";
+import { buildSubmitReviewTool } from "../src/agent/submitReviewTool.js";
 import { runFullPrReview } from "../src/agent/reviewRun.js";
 
 const cursorCfg = {
@@ -100,6 +101,21 @@ describe("runFullPrReview cursor provider", () => {
     vi.clearAllMocks();
   });
 
+  it("rejects non-finite tokenExpiresAtTs", async () => {
+    await expect(
+      runFullPrReview({
+        cfg: cursorCfg,
+        token: "t",
+        tokenExpiresAtTs: NaN,
+        tokenTtlMs: 3_600_000,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+      }),
+    ).rejects.toThrow(/tokenExpiresAtTs/);
+  });
+
   it("uses one complete call and security lens prompt for review-security", async () => {
     const result = await runFullPrReview({
       cfg: cursorCfg,
@@ -118,5 +134,8 @@ describe("runFullPrReview cursor provider", () => {
     expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
     expect(result.publishAttempts).toBe(1);
     expect(result.published).toBe(false);
+    expect(vi.mocked(buildSubmitReviewTool)).toHaveBeenCalledWith(
+      expect.objectContaining({ getToken: expect.any(Function) }),
+    );
   });
 });
