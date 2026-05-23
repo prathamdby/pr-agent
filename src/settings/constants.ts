@@ -161,6 +161,13 @@ export const GITHUB_REACTION_EYES = "eyes" as const;
 /** Context7 integration. */
 export const CONTEXT7_BASE_URL = "https://context7.com/api";
 
+/** Cursor SDK MCP bridge (inline provider). */
+export const CURSOR_MCP_BIND_HOST = "127.0.0.1";
+export const CURSOR_MCP_TOKEN_BYTES = 32;
+export const CURSOR_MCP_SERVER_START_TIMEOUT_MS = 5_000;
+export const CURSOR_MAX_PORT_RETRIES = 5;
+export const CURSOR_MCP_SERVER_NAME = "pr-agent";
+
 /** Public-output sanitizer. */
 export const PUBLIC_OUTPUT_BANNED_PATTERNS: RegExp[] = [
   /\bsystem prompt\b/i,

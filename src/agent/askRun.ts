@@ -13,6 +13,7 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "./context7Tools.js";
+import { isCursorProvider } from "./cursor/models.js";
 import {
   ASK_META_REFUSAL,
   buildAskGithubTools,
@@ -58,6 +59,7 @@ export type AskRunParams = {
   question: string;
   replyTarget: ReplyTarget;
   codeAnchor?: CodeAnchor;
+  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
 };
 
 export type AskRunResult = {
@@ -130,6 +132,11 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   }
   if (!Number.isFinite(tokenTtlMs) || tokenTtlMs <= 0) {
     throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
+  }
+
+  if (isCursorProvider(cfg.piProvider)) {
+    const { runCursorAskRun } = await import("./cursor/askRunCursor.js");
+    return runCursorAskRun(params);
   }
 
   const pathGate = createAskPathGate();

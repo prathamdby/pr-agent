@@ -4,6 +4,7 @@ import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_CONTEXT7_API_KEY,
+  DEFAULT_CURSOR_API_KEY,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
@@ -104,12 +105,19 @@ export function loadConfig() {
   const piProviderRaw = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
   const providers = getProviders() as readonly string[];
-  if (!providers.includes(piProviderRaw)) {
+  const isCursorProvider = piProviderRaw === "cursor";
+  if (!isCursorProvider && !providers.includes(piProviderRaw)) {
     throw new Error(
       `PI_PROVIDER "${piProviderRaw}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
     );
   }
+  // Extension provider registered at worker boot via registerApiProvider (cursor-sdk api).
   const piProvider = piProviderRaw as KnownProvider;
+
+  const cursorApiKey = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
+  if (isCursorProvider && !cursorApiKey.trim()) {
+    throw new Error(`Missing required environment variable: ${ENV.CURSOR_API_KEY}`);
+  }
 
   const maxToolRounds = Number(optionalEnv(ENV.MAX_TOOL_ROUNDS, String(DEFAULT_MAX_TOOL_ROUNDS)));
   if (!Number.isFinite(maxToolRounds) || maxToolRounds < 1) {
@@ -298,6 +306,7 @@ export function loadConfig() {
     maxAskFinalizeRounds,
     webhookTimeoutMs,
     context7ApiKey,
+    cursorApiKey,
     maxReviewFindings,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,

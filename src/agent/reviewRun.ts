@@ -12,6 +12,7 @@ import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
+import { isCursorProvider } from "./cursor/models.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
@@ -93,6 +94,7 @@ export async function runFullPrReview(params: {
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
+  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
 }): Promise<ReviewRunResult> {
   const {
     cfg,
@@ -112,6 +114,11 @@ export async function runFullPrReview(params: {
     throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
   }
   const reviewMode = params.mode ?? "review";
+
+  if (isCursorProvider(cfg.piProvider)) {
+    const { runCursorFullPrReview } = await import("./cursor/reviewRunCursor.js");
+    return runCursorFullPrReview({ ...params, reviewMode });
+  }
 
   const gh = buildGithubTools(token, {
     maxPrFilesListed: cfg.maxPrFilesListed,

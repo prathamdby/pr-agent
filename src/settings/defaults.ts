@@ -29,6 +29,7 @@ export const DEFAULT_MAX_ASK_FINALIZE_ROUNDS = 2;
 export const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
 
 export const DEFAULT_CONTEXT7_API_KEY = "";
+export const DEFAULT_CURSOR_API_KEY = "";
 
 export const DEFAULT_MAX_REVIEW_FINDINGS = 8;
 export const DEFAULT_ENABLE_REVIEW_LABELS_EFFORT = true;

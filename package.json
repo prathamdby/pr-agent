@@ -19,9 +19,11 @@
     "check:effect-versions": "node scripts/check-effect-versions.mjs"
   },
   "dependencies": {
+    "@cursor/sdk": "^1.0.13",
     "@earendil-works/pi-ai": "^0.74.0",
     "@effect/platform": "0.96.1",
     "@effect/platform-node": "0.106.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/auth-app": "^8.1.2",
     "@octokit/core": "^7.0.0",
     "@octokit/plugin-retry": "^8.1.0",

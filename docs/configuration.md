@@ -26,8 +26,9 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | App private key | `GITHUB_APP_PRIVATE_KEY` | — | required PEM |
 | Webhook HMAC secret | `WEBHOOK_SECRET` | — | required |
 | Postgres URL | `DATABASE_URL` | — | required |
-| LLM provider | `PI_PROVIDER` | `openai` | pi-ai registry id |
-| LLM model | `PI_MODEL` | `gpt-4o-mini` | |
+| LLM provider | `PI_PROVIDER` | `openai` | pi-ai registry id; use `cursor` for Cursor SDK |
+| LLM model | `PI_MODEL` | `gpt-4o-mini` | For `cursor`, e.g. `composer-2.5`, `auto` |
+| Cursor API key | `CURSOR_API_KEY` | empty | required when `PI_PROVIDER=cursor` |
 | Review tool rounds | `MAX_TOOL_ROUNDS` | `24` | per review run |
 | Publish recovery attempts | `MAX_REVIEW_PUBLISH_ATTEMPTS` | `3` | when submitReview never succeeds |
 | Publish execution budget | `MAX_REVIEW_PUBLISH_CALLS` | `2` | valid submitReview publishes per run |
@@ -140,6 +141,16 @@ These are related but not wired together on INSERT today.
 | `PRIMARY_RATE_LIMIT_MAX_RETRIES` | 2 |
 | `COMMENTS_PAGE_SIZE` | 100 |
 | `GITHUB_REACTION_EYES` | eyes |
+
+### Cursor SDK bridge
+
+| Symbol | Default |
+|--------|---------|
+| `CURSOR_MCP_BIND_HOST` | 127.0.0.1 |
+| `CURSOR_MCP_TOKEN_BYTES` | 32 |
+| `CURSOR_MCP_SERVER_START_TIMEOUT_MS` | 5000 |
+| `CURSOR_MAX_PORT_RETRIES` | 5 |
+| `CURSOR_MCP_SERVER_NAME` | pr-agent |
 
 ### Other
 

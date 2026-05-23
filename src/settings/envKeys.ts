@@ -34,6 +34,7 @@ export const ENV = {
   LOG_LEVEL: "LOG_LEVEL",
   LOG_MAX_WIDE_EVENTS: "LOG_MAX_WIDE_EVENTS",
   LOG_PRETTY: "LOG_PRETTY",
+  CURSOR_API_KEY: "CURSOR_API_KEY",
 } as const;
 
 /** Pi-ai provider secrets (read by `@earendil-works/pi-ai`, not `loadConfig()`). */
