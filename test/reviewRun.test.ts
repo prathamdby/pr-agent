@@ -201,7 +201,7 @@ describe("runFullPrReview mode", () => {
 
     const body = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4] as string;
     expect(body).toContain("## PR Agent Security Review");
-    expect(body).toContain("could not complete");
+    expect(body).toContain("Review did not finish");
     expect(body).not.toMatch(/structured publish/i);
     expect(body).not.toMatch(/server logs/i);
     expect(body).not.toContain("analysis without submitReview");
@@ -237,7 +237,7 @@ describe("runFullPrReview publish retries", () => {
     expect(result.published).toBe(false);
     const body = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4] as string;
     expect(body).toContain("## PR Agent Review");
-    expect(body).toContain("could not complete");
+    expect(body).toContain("Review did not finish");
     expect(body).toContain("/review");
     expect(body).not.toMatch(/structured publish/i);
     expect(body).not.toMatch(/server logs/i);

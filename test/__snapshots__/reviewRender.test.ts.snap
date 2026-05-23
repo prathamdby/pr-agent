@@ -20,7 +20,9 @@ minor typo"
 `;
 
 exports[`renderInlineThreadBody > P0 with fixPrompt accordion 1`] = `
-"[P0] Race on shared map
+"**P0** · **Race on shared map**
+
+\`src/a.ts\` · lines 5-7
 
 Concurrent writes without lock.
 
@@ -42,7 +44,9 @@ Guard the map with a mutex or use Ref.modify.
 `;
 
 exports[`renderInlineThreadBody > P1 with fixPrompt accordion 1`] = `
-"[P1] Missing await
+"**P1** · **Missing await**
+
+\`src/b.ts\` · line 1
 
 Promise not awaited in handler.
 
@@ -64,7 +68,9 @@ Await the promise before returning.
 `;
 
 exports[`renderInlineThreadBody > P2 with fixPrompt accordion 1`] = `
-"[P2] Off-by-one in slice
+"**P2** · **Off-by-one in slice**
+
+\`src/c.ts\` · lines 20-22
 
 End index excludes last element incorrectly.
 
@@ -86,10 +92,11 @@ Adjust slice end index to include the last item.
 `;
 
 exports[`renderReviewPointerBody > wraps agent fix prompt in accordion with pointer line 1`] = `
-"See the structured review summary in the PR conversation.
+"> [!NOTE]
+> Full review is in the PR conversation. Expand below to copy fixes for your coding agent.
 
 <details>
-<summary>Prompt for AI agents to fix all review findings</summary>
+<summary>Fix all findings (agent prompt)</summary>
 
 \`\`\`
 Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.

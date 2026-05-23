@@ -8,7 +8,7 @@ import {
 } from "../src/agent/reviewSchema.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-  SECURITY_REVIEW_POINTER_BODY,
+  REVIEW_POINTER_NOTE_LEAD,
 } from "../src/agent/reviewRender.js";
 import {
   cachedDiffForFiles,
@@ -252,7 +252,7 @@ describe("publishReview", () => {
       "r",
       1,
       expect.objectContaining({
-        body: expect.stringContaining(SECURITY_REVIEW_POINTER_BODY),
+        body: expect.stringContaining(REVIEW_POINTER_NOTE_LEAD),
       }),
     );
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
@@ -374,7 +374,7 @@ describe("publishReview", () => {
       "r",
       1,
       expect.objectContaining({
-        body: expect.stringContaining("See the structured review summary in the PR conversation."),
+        body: expect.stringContaining(REVIEW_POINTER_NOTE_LEAD),
       }),
     );
   });

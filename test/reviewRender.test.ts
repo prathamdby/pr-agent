@@ -4,6 +4,7 @@ import {
   REPEAT_NO_BUGS_PREFIX,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
+  REVIEW_POINTER_NOTE_LEAD,
   renderAgentFixPrompt,
   renderInlineThreadBody,
   renderRepeatNoBugsReviewBody,
@@ -11,6 +12,7 @@ import {
   renderReviewSummaryComment,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/agent/reviewRender.js";
+import { REVIEW_FINDINGS_NONE, REVIEW_FINDING_FOOTNOTE_INLINE } from "../src/settings/index.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
@@ -52,7 +54,10 @@ describe("renderReviewSummaryComment", () => {
       placements: testPlacementsFromPayload(basePayload()),
     });
     expect(body).toContain("## PR Agent Review");
-    expect(body).toContain("_No findings._");
+    expect(body).toContain("[!NOTE]");
+    expect(body).toContain(REVIEW_FINDINGS_NONE);
+    expect(body).not.toContain("_No findings._");
+    expect(body).not.toContain("### Findings");
   });
 
   it("(b) P0 + P3 mix", () => {
@@ -79,14 +84,18 @@ describe("renderReviewSummaryComment", () => {
     });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: [
+        ...testPlacements([payload.findings[0]!]),
+        ...testPlacements([payload.findings[1]!], { inlinePosted: false }),
+      ],
     });
     expect(body).toContain("**P0**");
     expect(body).toContain("Null deref on empty payload");
-    expect(body).toContain("payload is used before guard");
+    expect(body).not.toContain("payload is used before guard");
     expect(body).toContain("Typo in heading");
-    expect(body).toContain("Inline thread posted");
-    expect(body).toContain("See inline thread for fix prompt");
+    expect(body).toContain("minor");
+    expect(body).toContain("Summary only");
+    expect(body).toContain(REVIEW_FINDING_FOOTNOTE_INLINE);
     expect(body).not.toContain("<summary>Prompt to fix</summary>");
   });
 
@@ -130,7 +139,8 @@ describe("renderReviewSummaryComment", () => {
       ...ctx,
       placements: testPlacementsFromPayload(payload),
     });
-    expect(body).toContain("Adds auth \\| breaks table");
+    expect(body).toContain("[!NOTE]");
+    expect(body).toContain("Adds auth | breaks table");
   });
 
   it("uses security sentinel when requested", () => {
@@ -174,7 +184,7 @@ describe("renderReviewSummaryComment", () => {
     });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
 
     expect(body).toContain("Safe overview.");
@@ -458,7 +468,8 @@ describe("renderReviewPointerBody", () => {
       ),
     });
 
-    expect(body).toContain(REVIEW_POINTER_BODY);
+    expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
+    expect(body).toContain("[!NOTE]");
     expect(body).toContain("[redacted internal details]");
     expect(body).toContain("Fix src/y.ts line 2.");
     expect(body).not.toBe("[redacted internal details]");
@@ -490,7 +501,8 @@ describe("renderReviewPointerBody", () => {
 
     expect(truncated).toBe(false);
     expect(body).toMatchSnapshot();
-    expect(body).toContain(REVIEW_POINTER_BODY);
+    expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
+    expect(body).toContain("[!NOTE]");
     expect(body).toContain("<details>");
     expect(body).toContain(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
     expect(body).toContain("Fix src/x.ts line 4.");
@@ -516,7 +528,7 @@ describe("renderReviewPointerBody", () => {
       placements: planInlineFromPayload(payload, renderCtx.maxFindings),
     });
 
-    expect(body).toContain(SECURITY_REVIEW_POINTER_BODY);
+    expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
     expect(body).toContain("Add auth guard.");
   });
 
@@ -544,7 +556,7 @@ describe("renderReviewPointerBody", () => {
     expect(body).toContain(
       "[View the updated review.](https://github.com/acme/widgets/pull/42#issuecomment-123)",
     );
-    expect(body).not.toContain(REVIEW_POINTER_BODY);
+    expect(body).not.toContain(REVIEW_POINTER_NOTE_LEAD);
   });
 
   it("truncates agent fix prompt when assembled body exceeds max chars", () => {

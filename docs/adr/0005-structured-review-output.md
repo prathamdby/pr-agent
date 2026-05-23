@@ -11,7 +11,7 @@ The review agent previously instructed the model to submit a GitHub pull request
 ## Decision
 
 1. **`ReviewPayload`** (Zod) is the single source of truth per review run, emitted via a **`submitReview`** pseudo-tool exactly once.
-2. **Server-side renderers** (`reviewRender.ts`) produce inline thread bodies (P0–P2, with `Prompt to fix` accordion), the **review pointer body** (Files-tab pull request review header with an aggregate **agent fix prompt** accordion), and the **review summary comment** (sentinel `## PR Agent Review`, table overview with deep-links only—no duplicated finding bodies).
+2. **Server-side renderers** (`reviewRender.ts`) produce inline thread bodies (P0–P2, with `Prompt to fix` accordion), the **review pointer body** (Files-tab pull request review header with an aggregate **agent fix prompt** accordion), and the **review summary comment** (sentinel `## PR Agent Review`, overview alert plus a unified table: effort, finding rows keyed by severity, tests, security, and follow-ups). Finding rows for inline-posted severities list title, location, and a footnote only; **detail text appears in the summary table only for summary-only placements**.
 3. **Publish** (`publishReview.ts` + `github/reviewPublish.ts`) calls Octokit directly; `createPullRequestReview` / `addPullRequestComment` are **filtered out** of the review agent tool list.
 4. **Phase 3:** summary comment upsert by sentinel; optional idempotent labels (`Review effort N/5`, `Possible security concern`) behind config flags.
 5. **Strict bugs only** — no suggestions/improvements framing; `fixPrompt` is for coding agents, not human refactor advice.
