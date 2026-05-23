@@ -1,4 +1,4 @@
-import { renderGitHubAlert } from "../agent/reviewRender.js";
+import { renderGitHubAlert } from "../github/markdownFormat.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../agent/reviewSchema.js";
 import {
   REVIEW_FAILURE_ALERT,

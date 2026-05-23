@@ -118,8 +118,82 @@ describe("renderReviewSummaryComment", () => {
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
     expect(body).toContain("Summary only");
-    expect(body).toContain("<summary>Prompt to fix</summary>");
+    expect(body).toContain("<summary>Prompt to fix — P1 · Bug</summary>");
     expect(body).toContain("Fix src/x.ts line 4.");
+  });
+
+  it("escapes pipes and newlines in summary-only detail table cells", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad | logic\nsecond line",
+          fixPrompt: "Fix it.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
+    });
+    expect(body).toContain("Bad \\| logic second line");
+    expect(body).toMatch(/\| \*\*P1\*\* \|/);
+  });
+
+  it("escapes pipes in finding title inside table cells", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P2",
+          file: "src/x.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Bug | typo",
+          detail: "minor",
+          fixPrompt: "Fix title.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
+    });
+    expect(body).toContain("[Bug \\| typo]");
+  });
+
+  it("labels summary-only accordions by severity and title", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "First",
+          detail: "d1",
+          fixPrompt: "fix 1",
+        },
+        {
+          severity: "P2",
+          file: "src/b.ts",
+          startLine: 2,
+          endLine: 2,
+          title: "Second",
+          detail: "d2",
+          fixPrompt: "fix 2",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
+    });
+    expect(body).toContain("<summary>Prompt to fix — P1 · First</summary>");
+    expect(body).toContain("<summary>Prompt to fix — P2 · Second</summary>");
   });
 
   it("(c) securityConcerns set", () => {

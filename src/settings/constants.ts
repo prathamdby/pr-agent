@@ -29,6 +29,7 @@ export const AGENT_FIX_PROMPT_TRUNCATION_SUFFIX =
   "\n...[truncated; see inline threads and PR summary]";
 
 /** Review comment formatting (GitHub markdown). */
+/** Effort 2–3 both map to "Moderate" on the 1–5 scale. */
 export const REVIEW_EFFORT_WORDS = [
   "Light",
   "Moderate",
