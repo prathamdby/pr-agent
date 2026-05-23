@@ -57,7 +57,7 @@ export async function listPullRequestReviewCommentsForReview(
     pull_number: pullNumber,
     review_id: reviewId,
   });
-  return data.flatMap((comment) => {
+  const parsed = data.flatMap((comment) => {
     if (comment.path == null || comment.line == null) return [];
     return [
       {
@@ -68,24 +68,38 @@ export async function listPullRequestReviewCommentsForReview(
       },
     ];
   });
+  return parsed.toSorted((a, b) => a.id - b.id);
 }
 
 function reviewCommentAnchorKey(path: string, line: number): string {
   return `${path}:${line}`;
 }
 
-/** Match GitHub review comments to planned inline placements by path and posted line. */
+/** Match GitHub review comments to inline placements in placement order (FIFO per anchor). */
 export function enrichPlacementsWithInlineCommentUrls(
   placements: readonly InlinePlacement[],
   comments: readonly PublishedReviewComment[],
 ): InlinePlacement[] {
-  const byAnchor = new Map(
-    comments.map((c) => [reviewCommentAnchorKey(c.path, c.line), c.url] as const),
-  );
+  const commentsByAnchor = new Map<string, PublishedReviewComment[]>();
+  for (const comment of comments) {
+    const key = reviewCommentAnchorKey(comment.path, comment.line);
+    const bucket = commentsByAnchor.get(key) ?? [];
+    bucket.push(comment);
+    commentsByAnchor.set(key, bucket);
+  }
+
+  const anchorUseIndex = new Map<string, number>();
+
   return placements.map((placement) => {
     if (!placement.inlinePosted || placement.inlineLine == null) return placement;
-    const url = byAnchor.get(reviewCommentAnchorKey(placement.finding.file, placement.inlineLine));
-    return url ? { ...placement, inlineCommentUrl: url } : placement;
+    const key = reviewCommentAnchorKey(placement.finding.file, placement.inlineLine);
+    const bucket = commentsByAnchor.get(key);
+    if (!bucket || bucket.length === 0) return placement;
+    const index = anchorUseIndex.get(key) ?? 0;
+    const comment = bucket[index];
+    if (!comment) return placement;
+    anchorUseIndex.set(key, index + 1);
+    return { ...placement, inlineCommentUrl: comment.url };
   });
 }
 

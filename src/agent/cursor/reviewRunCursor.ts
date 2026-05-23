@@ -35,7 +35,6 @@ export async function runCursorFullPrReview(params: {
   userSupplement?: string;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
-  inlineReviewIdHint?: number | null;
   initialPublishState?: {
     published?: boolean;
     inlinePublished?: boolean;
@@ -100,7 +99,6 @@ export async function runCursorFullPrReview(params: {
       cachedDiffIndex,
       shouldLinkToSummary: params.shouldLinkToSummary,
       summaryCommentIdHint: params.summaryCommentIdHint,
-      inlineReviewIdHint: params.inlineReviewIdHint,
       recordPublishStep: params.recordPublishStep,
       shouldAbortPublish: params.shouldAbortPublish,
     });

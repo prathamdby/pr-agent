@@ -45,6 +45,30 @@ describe("enrichPlacementsWithInlineCommentUrls", () => {
     );
   });
 
+  it("pairs multiple comments at the same anchor in placement order", () => {
+    const first = finding({ title: "First" });
+    const second = finding({ title: "Second" });
+    const enriched = enrichPlacementsWithInlineCommentUrls(
+      [placement(first), placement(second)],
+      [
+        {
+          path: "src/x.ts",
+          line: 4,
+          id: 10,
+          url: "https://github.com/acme/widgets/pull/42#discussion_r10",
+        },
+        {
+          path: "src/x.ts",
+          line: 4,
+          id: 20,
+          url: "https://github.com/acme/widgets/pull/42#discussion_r20",
+        },
+      ],
+    );
+    expect(enriched[0]?.inlineCommentUrl).toContain("discussion_r10");
+    expect(enriched[1]?.inlineCommentUrl).toContain("discussion_r20");
+  });
+
   it("leaves summary-only placements unchanged", () => {
     const f = finding({ file: "README.md", startLine: 1, endLine: 1 });
     const [enriched] = enrichPlacementsWithInlineCommentUrls(

@@ -87,7 +87,6 @@ export async function runFullPrReview(params: {
   userSupplement?: string;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
-  inlineReviewIdHint?: number | null;
   initialPublishState?: {
     published?: boolean;
     inlinePublished?: boolean;
@@ -145,7 +144,6 @@ export async function runFullPrReview(params: {
     cachedDiffIndex,
     shouldLinkToSummary: params.shouldLinkToSummary,
     summaryCommentIdHint: params.summaryCommentIdHint,
-    inlineReviewIdHint: params.inlineReviewIdHint,
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
   });

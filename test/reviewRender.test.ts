@@ -190,7 +190,7 @@ describe("renderReviewSummaryComment", () => {
       ...ctx,
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
-    expect(body).toContain(">Bug | typo</a>");
+    expect(body).toContain("Bug | typo</a>");
   });
 
   it("labels summary-only accordions by severity and title", () => {

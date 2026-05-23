@@ -1,4 +1,10 @@
-import { renderGitHubAlert, renderKeyValueTable } from "../github/markdownFormat.js";
+import {
+  escapeTableHtml,
+  renderGitHubAlert,
+  renderKeyValueTable,
+  renderTableCode,
+  renderTableStrong,
+} from "../github/markdownFormat.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../agent/reviewSchema.js";
 import {
   REVIEW_FAILURE_ALERT,
@@ -21,8 +27,8 @@ export function renderReviewProgressComment(params: {
     renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_PROGRESS_NOTE),
     "",
     renderKeyValueTable([
-      ["**Head**", `\`${params.headSha}\``],
-      ["**Source**", sourceLabel],
+      [renderTableStrong("Head"), renderTableCode(params.headSha)],
+      [renderTableStrong("Source"), escapeTableHtml(sourceLabel)],
     ]),
   ].join("\n");
 }

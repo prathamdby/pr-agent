@@ -46,7 +46,6 @@ export async function publishReview(
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
     summaryCommentIdHint?: number | null;
-    inlineReviewIdHint?: number | null;
     recordPublishStep?: (
       step: "inline_review" | "summary_comment" | "labels",
       detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -65,7 +64,7 @@ export async function publishReview(
   const inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
   let summaryPlacements = placements;
-  let inlineReviewId = params.inlineReviewIdHint ?? publishState.inlineReviewId;
+  let inlineReviewId = publishState.inlineReviewId;
   const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
   if (diffCacheEmpty) {
     logDebug("review_diff_cache_empty", {

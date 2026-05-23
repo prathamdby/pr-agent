@@ -50,7 +50,6 @@ export function buildSubmitReviewTool(params: {
   cachedDiffIndex?: CachedPrDiffIndex;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
-  inlineReviewIdHint?: number | null;
   recordPublishStep?: (
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -160,7 +159,6 @@ export function buildSubmitReviewTool(params: {
         cachedDiffIndex: params.cachedDiffIndex,
         shouldLinkToSummary: params.shouldLinkToSummary,
         summaryCommentIdHint: params.summaryCommentIdHint,
-        inlineReviewIdHint: params.inlineReviewIdHint,
         recordPublishStep: params.recordPublishStep,
       });
     } catch (e) {
