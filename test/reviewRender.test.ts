@@ -196,6 +196,27 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("<summary>Prompt to fix — P2 · Second</summary>");
   });
 
+  it("HTML-escapes summary-only accordion titles", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Bug <script>",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
+    });
+    expect(body).toContain("<summary>Prompt to fix — P1 · Bug &lt;script&gt;</summary>");
+  });
+
   it("(c) securityConcerns set", () => {
     const payload = basePayload({
       securityConcerns: "Webhook secret compared without timing-safe equal.",

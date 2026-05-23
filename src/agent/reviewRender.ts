@@ -151,10 +151,14 @@ export function renderSingleFindingAgentFixPrompt(
   ].join("\n");
 }
 
-function renderSummaryOnlyFixAccordion(finding: ReviewFinding, fixPrompt: string): string[] {
+function renderSummaryOnlyFixAccordion(
+  severity: ReviewFinding["severity"],
+  title: string,
+  fixPrompt: string,
+): string[] {
   return [
     "<details>",
-    `<summary>Prompt to fix — ${finding.severity} · ${escapeTableCell(finding.title)}</summary>`,
+    `<summary>Prompt to fix — ${severity} · ${escapeTableHtml(title)}</summary>`,
     "",
     "```",
     escapeCodeFenceBreakers(fixPrompt),
@@ -382,7 +386,11 @@ export function renderReviewSummaryComment(
         sanitized.fixPrompt.length > 0
       ) {
         summaryOnlyAccordions.push(
-          ...renderSummaryOnlyFixAccordion(placement.finding, sanitized.fixPrompt),
+          ...renderSummaryOnlyFixAccordion(
+            placement.finding.severity,
+            sanitized.title,
+            sanitized.fixPrompt,
+          ),
         );
       }
     }
