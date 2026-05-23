@@ -62,13 +62,37 @@ function checkBearerAuth(req: IncomingMessage, token: string): boolean {
   return checkMcpBearerAuth(Array.isArray(header) ? header[0] : header, token);
 }
 
+function closeHttpServer(server: HttpServer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+    server.closeIdleConnections?.();
+  });
+}
+
+async function runWithAbortSignal<T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    throw new Error("MCP tool call aborted");
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => {
+      reject(new Error("MCP tool call aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void run()
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 function listenOnEphemeralPort(server: HttpServer, attempt: number): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: NodeJS.ErrnoException) => {
       server.off("listening", onListening);
       server.off("error", onError);
       if (error.code === "EADDRINUSE" && attempt < CURSOR_MAX_PORT_RETRIES) {
-        listenOnEphemeralPort(server, attempt + 1).then(resolve).catch(reject);
+        void closeHttpServer(server)
+          .then(() => listenOnEphemeralPort(server, attempt + 1))
+          .then(resolve, reject);
         return;
       }
       reject(error);
@@ -111,13 +135,6 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     }
 
     const toolName = request.params.name;
-    const exec = options.executors[toolName];
-    if (!exec) {
-      return {
-        content: [{ type: "text", text: `Unknown tool: ${toolName}` }],
-        isError: true,
-      };
-    }
 
     const abortController = new AbortController();
     pendingCalls.add(abortController);
@@ -130,13 +147,23 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
         throw new Error("MCP tool call aborted");
       }
       if (options.refreshBeforeTool) {
-        await options.refreshBeforeTool(toolName);
+        await runWithAbortSignal(
+          () => options.refreshBeforeTool!(toolName),
+          abortController.signal,
+        );
+      }
+      const exec = options.executors[toolName];
+      if (!exec) {
+        return {
+          content: [{ type: "text", text: `Unknown tool: ${toolName}` }],
+          isError: true,
+        };
       }
       const args =
         request.params.arguments && typeof request.params.arguments === "object"
           ? (request.params.arguments as Record<string, unknown>)
           : {};
-      const out = await exec(args);
+      const out = await runWithAbortSignal(() => exec(args), abortController.signal);
       return executorResultToMcp(out);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

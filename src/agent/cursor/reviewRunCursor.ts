@@ -94,19 +94,17 @@ export async function runCursorFullPrReview(params: {
     });
 
   let submitBundle = buildSubmit();
-  const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
-    ...refreshableGh.bundle.executors,
-    ...ctx7.executors,
-    submitReview: async (args) => {
-      if (submitState.published) {
-        return {
-          ok: true,
-          alreadyPublished: true,
-          message: "Stop further investigation; the review has been published.",
-        };
-      }
-      return submitBundle.executor(args);
-    },
+  const executors = refreshableGh.bundle.executors;
+  Object.assign(executors, ctx7.executors);
+  executors.submitReview = async (args) => {
+    if (submitState.published) {
+      return {
+        ok: true,
+        alreadyPublished: true,
+        message: "Stop further investigation; the review has been published.",
+      };
+    }
+    return submitBundle.executor(args);
   };
 
   const piTools: PiTool[] = [

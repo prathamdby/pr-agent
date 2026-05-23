@@ -50,7 +50,8 @@ export async function runCursorAskRun(params: AskRunParams): Promise<AskRunResul
 
   const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
   const piTools: PiTool[] = [...refreshableGh.bundle.piTools, ...ctx7.piTools];
-  const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
+  const executors = refreshableGh.bundle.executors;
+  Object.assign(executors, ctx7.executors);
   const model = getCursorModel(cfg.piModel);
 
   const context: Context = {
