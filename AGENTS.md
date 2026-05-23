@@ -24,3 +24,22 @@ Do not add magic numbers or env default strings in feature modules; import from 
 ## Prompt prose
 
 Long investigator prompt blocks stay in `src/agent/*Prompt*.ts`. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
+
+## Cursor Cloud specific instructions
+
+### Services overview
+
+| Service | How to run | Notes |
+|---------|-----------|-------|
+| Postgres 16 | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles |
+| Web (webhook intake) | `ROLE=web node --env-file=.env --import tsx src/index.ts` | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
+| Worker (reviews/asks) | `ROLE=worker node --env-file=.env --import tsx src/index.ts` | Needs a running web role to receive work |
+
+### Gotchas
+
+- **`pnpm dev` does not load `.env`** — the app has no dotenv dependency. Use `node --env-file=.env --import tsx src/index.ts` (with `ROLE=web` or `ROLE=worker` set in `.env` or the shell) instead of `pnpm dev` when you need `.env` values.
+- **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key** — `loadConfig()` calls `crypto.createPrivateKey()` and throws on placeholders. For local-only dev, generate a throwaway key: `openssl genrsa 2048 > key.pem` and set the `.env` value to the escaped content.
+- **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`.
+- **Tests (`pnpm test`)** are pure unit/integration tests and do not need Postgres or any running service.
+- **Lint/fmt commands**: `pnpm lint` (oxlint, type-aware), `pnpm typecheck` (tsc), `pnpm fmt:check` (oxfmt). Combined: `pnpm check:code`.
+- **Ignored build scripts warning** from pnpm is expected — transitive deps like `esbuild` and `protobufjs` have build scripts that are not approved. This does not affect runtime.
