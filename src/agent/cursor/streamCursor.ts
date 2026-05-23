@@ -83,7 +83,6 @@ export const streamCursor: StreamFunction<"cursor-sdk", StreamOptions> = (
         tools: context.tools ?? [],
         executors: runContext.executors,
         signal: options?.signal,
-        submitReviewPublished: runContext.submitReviewPublished,
         refreshBeforeTool: runContext.refreshBeforeTool,
       });
       bridgeDispose = bridge.dispose;

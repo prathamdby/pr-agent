@@ -13,7 +13,6 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "./context7Tools.js";
-import { isCursorProvider } from "./cursor/models.js";
 import {
   ASK_META_REFUSAL,
   buildAskGithubTools,
@@ -83,7 +82,7 @@ function endsWithToolResults(messages: Message[]): boolean {
   return messages[messages.length - 1]?.role === "toolResult";
 }
 
-function buildUserContent(params: AskRunParams): string {
+export function buildAskUserContent(params: AskRunParams): string {
   const blocks = [
     wrapTrustedContext([
       `Repository: ${params.owner}/${params.repo}`,
@@ -134,7 +133,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
   }
 
-  if (isCursorProvider(cfg.piProvider)) {
+  if (cfg.piProvider === "cursor") {
     const { runCursorAskRun } = await import("./cursor/askRunCursor.js");
     return runCursorAskRun(params);
   }
@@ -179,7 +178,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     messages: [
       {
         role: "user",
-        content: buildUserContent(params),
+        content: buildAskUserContent(params),
         timestamp: Date.now(),
       },
     ],

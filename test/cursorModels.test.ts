@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assertCursorModelId,
   CURSOR_API,
   CURSOR_PROVIDER,
   getCursorModel,
@@ -16,8 +17,8 @@ describe("cursor models", () => {
     expect(model.provider).toBe(CURSOR_PROVIDER);
   });
 
-  it("falls back to composer-2.5 for unknown ids", () => {
-    const model = getCursorModel("not-a-real-model");
-    expect(model.id).toBe("composer-2.5");
+  it("rejects unknown model ids", () => {
+    expect(() => assertCursorModelId("not-a-real-model")).toThrow(/not a supported Cursor model/);
+    expect(() => getCursorModel("not-a-real-model")).toThrow(/Unknown Cursor model/);
   });
 });

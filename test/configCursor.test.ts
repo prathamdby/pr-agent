@@ -25,12 +25,25 @@ describe("loadConfig cursor provider", () => {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
       PI_PROVIDER: "cursor",
+      PI_MODEL: "composer-2.5",
       CURSOR_API_KEY: "cursor_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
     const cfg = loadConfig();
     expect(cfg.piProvider).toBe("cursor");
     expect(cfg.cursorApiKey).toBe("cursor_test_key");
+  });
+
+  it("rejects unknown PI_MODEL when PI_PROVIDER=cursor", async () => {
+    process.env = {
+      ...BASE_ENV,
+      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      PI_PROVIDER: "cursor",
+      PI_MODEL: "not-a-real-model",
+      CURSOR_API_KEY: "cursor_test_key",
+    };
+    const { loadConfig } = await import("../src/config.js");
+    expect(() => loadConfig()).toThrow(/not a supported Cursor model/);
   });
 
   it("rejects PI_PROVIDER=cursor without CURSOR_API_KEY", async () => {

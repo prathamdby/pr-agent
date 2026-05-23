@@ -1,29 +1,11 @@
 import { describe, expect, it } from "vitest";
-import {
-  checkMcpBearerAuth,
-  createMcpBridge,
-  resolveSubmitReviewToolResult,
-} from "../src/agent/cursor/mcpBridge.js";
+import { checkMcpBearerAuth, createMcpBridge } from "../src/agent/cursor/mcpBridge.js";
 
 describe("checkMcpBearerAuth", () => {
   it("accepts matching bearer token", () => {
     expect(checkMcpBearerAuth("Bearer abc123", "abc123")).toBe(true);
     expect(checkMcpBearerAuth("Bearer wrong", "abc123")).toBe(false);
     expect(checkMcpBearerAuth(undefined, "abc123")).toBe(false);
-  });
-});
-
-describe("resolveSubmitReviewToolResult", () => {
-  it("short-circuits when already published", async () => {
-    const result = await resolveSubmitReviewToolResult(true, async () => {
-      throw new Error("should not run");
-    });
-    expect(result).toMatchObject({ alreadyPublished: true });
-  });
-
-  it("runs executor when not yet published", async () => {
-    const result = await resolveSubmitReviewToolResult(false, async () => ({ ok: true }));
-    expect(result).toEqual({ ok: true });
   });
 });
 

@@ -8,8 +8,8 @@ import { buildContext7Tools } from "../context7Tools.js";
 import { buildGithubTools } from "../githubTools.js";
 import {
   createCachedPrDiffIndex,
-  ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
+  wrapListPullRequestFilesDiffIngestion,
 } from "../reviewLocationValidation.js";
 import { automatedSecuritySystemPrompt } from "../securityPrompt.js";
 import { buildAutomatedSystemPrompt } from "../reviewSystemPrompt.js";
@@ -20,15 +20,8 @@ import {
 } from "../submitReviewTool.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
 import type { ReviewRunResult } from "../reviewRun.js";
-import {
-  attachCursorRunContext,
-  detachCursorRunContext,
-  getCursorModel,
-} from "./index.js";
-import {
-  createRefreshableToolExecutors,
-  patchExecutor,
-} from "./refreshableGithubTools.js";
+import { attachCursorRunContext, getCursorModel } from "./index.js";
+import { createRefreshableToolExecutors } from "./refreshableGithubTools.js";
 
 export async function runCursorFullPrReview(params: {
   cfg: Config;
@@ -78,22 +71,10 @@ export async function runCursorFullPrReview(params: {
         maxPrFilesListed: cfg.maxPrFilesListed,
         maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
       });
-      return { piTools: gh.piTools, executors: gh.executors };
+      const executors = { ...gh.executors };
+      wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
+      return { piTools: gh.piTools, executors };
     },
-  });
-
-  patchExecutor(refreshableGh.bundle.executors, "listPullRequestFiles", (original) => async (args) => {
-    const out = await original(args);
-    if (out && typeof out === "object") {
-      ingestListPullRequestFilesResult(
-        cachedDiffIndex,
-        out as {
-          truncated?: boolean;
-          files?: Array<{ filename: string; patch?: string; patchOmitted?: boolean }>;
-        },
-      );
-    }
-    return out;
   });
 
   const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
@@ -164,7 +145,6 @@ export async function runCursorFullPrReview(params: {
   attachCursorRunContext(context, {
     executors,
     apiKey: cfg.cursorApiKey,
-    submitReviewPublished: () => submitState.published,
     refreshBeforeTool: async (toolName) => {
       if (refreshableGh.githubExecutorNames.has(toolName) || toolName === "submitReview") {
         await refreshableGh.refreshBeforeTool("getPullRequest");
@@ -177,12 +157,7 @@ export async function runCursorFullPrReview(params: {
 
   logInfo("cursor_review_started", { owner, repo, pr: prNumber, mode: reviewMode, model: model.id });
 
-  let lastAssistant: AssistantMessage;
-  try {
-    lastAssistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
-  } finally {
-    detachCursorRunContext(context);
-  }
+  const lastAssistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
 
   if (!submitState.published) {
     logWarn("cursor_review_not_published", {

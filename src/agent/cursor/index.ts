@@ -1,5 +1,12 @@
 export { registerCursorProvider, isCursorProviderRegistered } from "./register.js";
-export { getCursorModel, isCursorProvider, listCursorModelIds, CURSOR_API, CURSOR_PROVIDER } from "./models.js";
+export {
+  assertCursorModelId,
+  getCursorModel,
+  isCursorProvider,
+  listCursorModelIds,
+  CURSOR_API,
+  CURSOR_PROVIDER,
+} from "./models.js";
 export {
   attachCursorRunContext,
   detachCursorRunContext,

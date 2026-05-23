@@ -5,7 +5,6 @@ export type CursorExecutor = (args: Record<string, unknown>) => Promise<unknown>
 export type CursorRunContext = {
   readonly executors: Record<string, CursorExecutor>;
   readonly apiKey: string;
-  readonly submitReviewPublished?: () => boolean;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
 };
 

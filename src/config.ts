@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { getProviders, type KnownProvider } from "@earendil-works/pi-ai";
+import { assertCursorModelId } from "./agent/cursor/models.js";
 import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_ASK_CONCURRENCY,
@@ -112,12 +113,16 @@ export function loadConfig() {
     );
   }
   // Extension provider registered at worker boot via registerApiProvider (cursor-sdk api).
-  const piProvider = piProviderRaw as KnownProvider;
+  const piProvider = piProviderRaw as KnownProvider | "cursor";
 
-  const cursorApiKey = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
-  if (isCursorProvider && !cursorApiKey.trim()) {
+  const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
+  if (isCursorProvider && !cursorApiKeyRaw.trim()) {
     throw new Error(`Missing required environment variable: ${ENV.CURSOR_API_KEY}`);
   }
+  if (isCursorProvider) {
+    assertCursorModelId(piModel);
+  }
+  const cursorApiKey = isCursorProvider ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
 
   const maxToolRounds = Number(optionalEnv(ENV.MAX_TOOL_ROUNDS, String(DEFAULT_MAX_TOOL_ROUNDS)));
   if (!Number.isFinite(maxToolRounds) || maxToolRounds < 1) {

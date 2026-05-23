@@ -69,16 +69,18 @@ function compressLineRanges(sortedLines: number[]): CommentableRightLineRanges {
   return ranges;
 }
 
+export type ListPullRequestFilesToolResult = {
+  truncated?: boolean;
+  files?: Array<{
+    filename: string;
+    patch?: string;
+    patchOmitted?: boolean;
+  }>;
+};
+
 export function ingestListPullRequestFilesResult(
   index: CachedPrDiffIndex,
-  result: {
-    truncated?: boolean;
-    files?: Array<{
-      filename: string;
-      patch?: string;
-      patchOmitted?: boolean;
-    }>;
-  },
+  result: ListPullRequestFilesToolResult,
 ): void {
   if (result.truncated) {
     index.truncated = true;
@@ -89,6 +91,21 @@ export function ingestListPullRequestFilesResult(
       !patchOmitted && file.patch ? parseCommentableRightLineRanges(file.patch) : [];
     index.files.set(file.filename, { patchOmitted, commentableRightLineRanges });
   }
+}
+
+export function wrapListPullRequestFilesDiffIngestion(
+  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
+  cachedDiffIndex: CachedPrDiffIndex,
+): void {
+  const original = executors.listPullRequestFiles;
+  if (!original) return;
+  executors.listPullRequestFiles = async (args) => {
+    const out = await original(args);
+    if (out && typeof out === "object") {
+      ingestListPullRequestFilesResult(cachedDiffIndex, out as ListPullRequestFilesToolResult);
+    }
+    return out;
+  };
 }
 
 function lineInRanges(line: number, ranges: CommentableRightLineRanges): boolean {

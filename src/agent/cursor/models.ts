@@ -19,8 +19,6 @@ const CURSOR_MODEL_CATALOG: readonly CursorCatalogEntry[] = [
   { id: "auto", contextWindow: 200_000, maxTokens: 16_384 },
 ] as const;
 
-const DEFAULT_CURSOR_MODEL_ID = "composer-2.5";
-
 function buildCursorModel(entry: CursorCatalogEntry): Model<typeof CURSOR_API> {
   return {
     id: entry.id,
@@ -40,12 +38,26 @@ const catalogById = new Map<string, Model<typeof CURSOR_API>>(
   CURSOR_MODEL_CATALOG.map((entry) => [entry.id, buildCursorModel(entry)]),
 );
 
-export function getCursorModel(modelId: string): Model<typeof CURSOR_API> {
-  return catalogById.get(modelId) ?? catalogById.get(DEFAULT_CURSOR_MODEL_ID)!;
-}
-
 export function listCursorModelIds(): string[] {
   return [...catalogById.keys()];
+}
+
+export function assertCursorModelId(modelId: string): void {
+  const id = modelId.trim();
+  if (!catalogById.has(id)) {
+    throw new Error(
+      `PI_MODEL "${modelId}" is not a supported Cursor model. Supported: ${listCursorModelIds().join(", ")}`,
+    );
+  }
+}
+
+export function getCursorModel(modelId: string): Model<typeof CURSOR_API> {
+  const id = modelId.trim();
+  const model = catalogById.get(id);
+  if (!model) {
+    throw new Error(`Unknown Cursor model id: ${id}`);
+  }
+  return model;
 }
 
 export function isCursorProvider(provider: string): boolean {

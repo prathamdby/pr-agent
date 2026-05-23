@@ -1,56 +1,15 @@
-import type { Config } from "../../config.js";
 import { logDebug, logInfo } from "../../evlog.js";
 import { complete } from "@earendil-works/pi-ai";
 import type { AssistantMessage, Context, Tool as PiTool } from "@earendil-works/pi-ai";
-import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { buildAskSystemPrompt } from "../askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "../formatAskReply.js";
 import { buildContext7Tools } from "../context7Tools.js";
-import {
-  buildAskGithubTools,
-  createAskPathGate,
-  wrapTrustedContext,
-  wrapUntrustedBlock,
-} from "../askSafety.js";
+import { buildAskGithubTools, createAskPathGate } from "../askSafety.js";
 import { ASK_FAILURE_MESSAGE } from "../../settings/index.js";
-import type { AskRunParams, AskRunResult, CodeAnchor } from "../askRun.js";
-import {
-  attachCursorRunContext,
-  detachCursorRunContext,
-  getCursorModel,
-} from "./index.js";
+import { buildAskUserContent, type AskRunParams, type AskRunResult } from "../askRun.js";
+import { attachCursorRunContext, getCursorModel } from "./index.js";
 import { createRefreshableToolExecutors } from "./refreshableGithubTools.js";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
-
-function buildUserContent(params: AskRunParams): string {
-  const blocks = [
-    wrapTrustedContext([
-      `Repository: ${params.owner}/${params.repo}`,
-      `Pull request: #${params.prNumber}`,
-      `Head commit SHA: ${params.headSha}`,
-    ]),
-    wrapUntrustedBlock("user_question", params.question),
-  ];
-  if (params.codeAnchor) {
-    const { path, line, startLine, side, diffHunk } = params.codeAnchor;
-    const range =
-      startLine != null && startLine !== line ? `lines ${startLine}-${line}` : `line ${line}`;
-    const anchorLines = [`File: ${path}`, `${range}${side ? ` (${side} side of diff)` : ""}`];
-    if (diffHunk?.trim()) {
-      anchorLines.push("", "Diff hunk:", "```diff", diffHunk.trim(), "```");
-    }
-    anchorLines.push(
-      "",
-      "Start from this anchor, then use tools to trace symbols and surrounding context.",
-    );
-    blocks.push(wrapUntrustedBlock("code_anchor", anchorLines.join("\n")));
-  } else {
-    blocks.push(
-      "Use GitHub tools to inspect the PR diff and related files, then answer the question in user_question.",
-    );
-  }
-  return blocks.join("\n\n");
-}
 
 export async function runCursorAskRun(params: AskRunParams): Promise<AskRunResult> {
   const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, question, replyTarget } = params;
@@ -99,7 +58,7 @@ export async function runCursorAskRun(params: AskRunParams): Promise<AskRunResul
     messages: [
       {
         role: "user",
-        content: buildUserContent(params),
+        content: buildAskUserContent(params),
         timestamp: Date.now(),
       },
     ],
@@ -114,12 +73,9 @@ export async function runCursorAskRun(params: AskRunParams): Promise<AskRunResul
 
   logInfo("cursor_ask_started", { owner, repo, pr: prNumber, model: model.id });
 
-  let lastAssistant: AssistantMessage;
-  try {
-    lastAssistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
-  } finally {
-    detachCursorRunContext(context);
-  }
+  const lastAssistant: AssistantMessage = await complete(model, context, {
+    apiKey: cfg.cursorApiKey,
+  });
 
   const summary = lastAssistant.content
     .filter((p): p is { type: "text"; text: string } => p.type === "text")

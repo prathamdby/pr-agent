@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { createServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server as HttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { McpServerConfig } from "@cursor/sdk";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
@@ -24,7 +24,6 @@ export type McpBridgeOptions = {
   readonly tools: readonly PiTool[];
   readonly executors: Record<string, CursorExecutor>;
   readonly signal?: AbortSignal;
-  readonly submitReviewPublished?: () => boolean;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
 };
 
@@ -41,23 +40,6 @@ export function checkMcpBearerAuth(
   const [scheme, value] = authorizationHeader.split(" ", 2);
   return scheme?.toLowerCase() === "bearer" && value === token;
 }
-
-export function resolveSubmitReviewToolResult(
-  alreadyPublished: boolean,
-  execute: () => Promise<unknown>,
-): Promise<unknown> {
-  if (alreadyPublished) {
-    return Promise.resolve({
-      ok: true,
-      alreadyPublished: true,
-      message: SUBMIT_REVIEW_ALREADY_PUBLISHED_MESSAGE,
-    });
-  }
-  return execute();
-}
-
-const SUBMIT_REVIEW_ALREADY_PUBLISHED_MESSAGE =
-  "Stop further investigation; the review has been published.";
 
 function piToolToMcpTool(tool: PiTool): McpTool {
   return {
@@ -84,6 +66,7 @@ function listenOnEphemeralPort(server: HttpServer, attempt: number): Promise<voi
   return new Promise((resolve, reject) => {
     const onError = (error: NodeJS.ErrnoException) => {
       server.off("listening", onListening);
+      server.off("error", onError);
       if (error.code === "EADDRINUSE" && attempt < CURSOR_MAX_PORT_RETRIES) {
         listenOnEphemeralPort(server, attempt + 1).then(resolve).catch(reject);
         return;
@@ -92,6 +75,7 @@ function listenOnEphemeralPort(server: HttpServer, attempt: number): Promise<voi
     };
     const onListening = () => {
       server.off("error", onError);
+      server.off("listening", onListening);
       resolve();
     };
     server.once("error", onError);
@@ -133,12 +117,6 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
         content: [{ type: "text", text: `Unknown tool: ${toolName}` }],
         isError: true,
       };
-    }
-
-    if (toolName === "submitReview" && options.submitReviewPublished?.()) {
-      return executorResultToMcp(
-        await resolveSubmitReviewToolResult(true, async () => ({ ok: true })),
-      );
     }
 
     const abortController = new AbortController();
@@ -184,16 +162,26 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       res.end(JSON.stringify({ error: "Not found" }));
       return;
     }
-    void transport.handleRequest(req, res);
+    void transport.handleRequest(req, res).catch(() => undefined);
   });
 
+  let startTimeoutId: ReturnType<typeof setTimeout> | undefined;
   const startTimeout = new Promise<void>((_, reject) => {
-    setTimeout(
-      () => reject(new Error(`MCP bridge HTTP server did not start within ${CURSOR_MCP_SERVER_START_TIMEOUT_MS}ms`)),
+    startTimeoutId = setTimeout(
+      () =>
+        reject(
+          new Error(
+            `MCP bridge HTTP server did not start within ${CURSOR_MCP_SERVER_START_TIMEOUT_MS}ms`,
+          ),
+        ),
       CURSOR_MCP_SERVER_START_TIMEOUT_MS,
     );
   });
-  await Promise.race([listenOnEphemeralPort(httpServer, 0), startTimeout]);
+  try {
+    await Promise.race([listenOnEphemeralPort(httpServer, 0), startTimeout]);
+  } finally {
+    if (startTimeoutId !== undefined) clearTimeout(startTimeoutId);
+  }
 
   const address = httpServer.address() as AddressInfo | null;
   if (!address?.port) {
@@ -233,5 +221,3 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
 
   return { mcpServers, dispose };
 }
-
-export { SUBMIT_REVIEW_ALREADY_PUBLISHED_MESSAGE };

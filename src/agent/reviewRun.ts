@@ -12,11 +12,10 @@ import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
-import { isCursorProvider } from "./cursor/models.js";
 import {
   createCachedPrDiffIndex,
-  ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
+  wrapListPullRequestFilesDiffIngestion,
 } from "./reviewLocationValidation.js";
 import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
 import { buildAutomatedSystemPrompt } from "./reviewSystemPrompt.js";
@@ -115,7 +114,7 @@ export async function runFullPrReview(params: {
   }
   const reviewMode = params.mode ?? "review";
 
-  if (isCursorProvider(cfg.piProvider)) {
+  if (cfg.piProvider === "cursor") {
     const { runCursorFullPrReview } = await import("./cursor/reviewRunCursor.js");
     return runCursorFullPrReview({ ...params, reviewMode });
   }
@@ -145,22 +144,7 @@ export async function runFullPrReview(params: {
   });
 
   const reviewGithubExecutors = { ...gh.executors };
-  if (reviewGithubExecutors.listPullRequestFiles) {
-    const originalListFiles = reviewGithubExecutors.listPullRequestFiles;
-    reviewGithubExecutors.listPullRequestFiles = async (args) => {
-      const out = await originalListFiles(args);
-      if (out && typeof out === "object") {
-        ingestListPullRequestFilesResult(
-          cachedDiffIndex,
-          out as {
-            truncated?: boolean;
-            files?: Array<{ filename: string; patch?: string; patchOmitted?: boolean }>;
-          },
-        );
-      }
-      return out;
-    };
-  }
+  wrapListPullRequestFilesDiffIngestion(reviewGithubExecutors, cachedDiffIndex);
 
   const piTools: PiTool[] = [...gh.piTools, ...ctx7.piTools, submitTool];
   const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {
