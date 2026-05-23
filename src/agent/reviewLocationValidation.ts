@@ -4,6 +4,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   resolveInlineAnchorLine,
+  wrapListPullRequestFilesDiffIngestion,
   type CachedPrDiffIndex,
 } from "./reviewDiffIndex.js";
 
@@ -14,7 +15,12 @@ export type InlinePlacement = {
   readonly inlineCapEligible: boolean;
 };
 
-export { createCachedPrDiffIndex, ingestListPullRequestFilesResult, type CachedPrDiffIndex };
+export {
+  createCachedPrDiffIndex,
+  ingestListPullRequestFilesResult,
+  wrapListPullRequestFilesDiffIngestion,
+  type CachedPrDiffIndex,
+};
 
 export function planInlinePlacements(
   findings: ReviewFinding[],

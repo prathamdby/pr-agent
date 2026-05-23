@@ -21,6 +21,7 @@ Durable agent work (Postgres intake + pg-boss workers) is described in [docs/adr
 - **Worker concurrency:** review, ask, and acknowledgement jobs are capped per process by **`REVIEW_CONCURRENCY`** (default `2`), **`ASK_CONCURRENCY`** (default `1`), and **`ACK_CONCURRENCY`** (default `2`) via pg-boss worker `localConcurrency` ([`src/agentWork/worker.ts`](src/agentWork/worker.ts)). Multi-replica deployments remain **at-least-once** at the worker layer.
 - **GitHub tools:** **11** investigation tools in [`src/agent/githubTools.ts`](src/agent/githubTools.ts), plus **2** Context7 doc tools; the server publishes only via **`submitReview`** (no agent-callable comment/review delivery tools). See [docs/adr/0004-native-pi-ai-toolset.md](docs/adr/0004-native-pi-ai-toolset.md).
 - **Library docs lookup:** review and ask agents get two Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api` to verify upstream API claims. Anonymous calls work for public libraries with rate limits; set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [docs/adr/0003-context7-docs-tool.md](docs/adr/0003-context7-docs-tool.md).
+- **Cursor provider:** set **`PI_PROVIDER=cursor`**, **`CURSOR_API_KEY`**, and **`PI_MODEL`** (e.g. `composer-2.5`). Worker registers pi-ai api `cursor-sdk` and runs Cursor local agents with an HTTP MCP bridge to pr-agent's GitHub/Context7/submitReview tools. See [docs/adr/0013-cursor-sdk-provider.md](docs/adr/0013-cursor-sdk-provider.md).
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
 - **`WEBHOOK_TIMEOUT_MS`** (default `10000`) is a **logging-only** budget on webhook intake duration; it does not cancel worker jobs.
 - **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Uses the same review worker lane and **`MAX_TOOL_ROUNDS`** as `/review`; large PRs may need a higher `MAX_TOOL_ROUNDS`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
@@ -82,7 +83,7 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 - **Health:** `GET /health` returns `200` and plain `ok` (used by `HEALTHCHECK` in the image and by Compose).
 - **Webhook URL** (when Compose maps default ports): **`http://<host>:7224/webhooks`** — same path as bare Node.
 - **`DATABASE_URL`** is set in Compose for both app services (`postgres://pr_agent:pr_agent@postgres:5432/pr_agent`).
-- **Provider API keys** (for example **`OPENAI_API_KEY`**) are **not** read by [`src/config.ts`](src/config.ts); Pi AI loads them from the environment. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.
+- **Provider API keys** (for example **`OPENAI_API_KEY`** or **`CURSOR_API_KEY`** when `PI_PROVIDER=cursor`) are **not** fully read by [`src/config.ts`](src/config.ts) except `CURSOR_API_KEY` when the Cursor provider is selected; other Pi AI secrets load from the environment. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.
 - **Secrets:** never commit `.env`; keep Compose files off public pastebins.
 
 ```bash

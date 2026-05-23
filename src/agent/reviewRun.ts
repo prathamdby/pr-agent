@@ -14,8 +14,8 @@ import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
 import {
   createCachedPrDiffIndex,
-  ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
+  wrapListPullRequestFilesDiffIngestion,
 } from "./reviewLocationValidation.js";
 import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
 import { buildAutomatedSystemPrompt } from "./reviewSystemPrompt.js";
@@ -93,6 +93,7 @@ export async function runFullPrReview(params: {
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
+  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
 }): Promise<ReviewRunResult> {
   const {
     cfg,
@@ -112,6 +113,11 @@ export async function runFullPrReview(params: {
     throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
   }
   const reviewMode = params.mode ?? "review";
+
+  if (cfg.piProvider === "cursor") {
+    const { runCursorFullPrReview } = await import("./cursor/reviewRunCursor.js");
+    return runCursorFullPrReview({ ...params, reviewMode });
+  }
 
   const gh = buildGithubTools(token, {
     maxPrFilesListed: cfg.maxPrFilesListed,
@@ -138,22 +144,7 @@ export async function runFullPrReview(params: {
   });
 
   const reviewGithubExecutors = { ...gh.executors };
-  if (reviewGithubExecutors.listPullRequestFiles) {
-    const originalListFiles = reviewGithubExecutors.listPullRequestFiles;
-    reviewGithubExecutors.listPullRequestFiles = async (args) => {
-      const out = await originalListFiles(args);
-      if (out && typeof out === "object") {
-        ingestListPullRequestFilesResult(
-          cachedDiffIndex,
-          out as {
-            truncated?: boolean;
-            files?: Array<{ filename: string; patch?: string; patchOmitted?: boolean }>;
-          },
-        );
-      }
-      return out;
-    };
-  }
+  wrapListPullRequestFilesDiffIngestion(reviewGithubExecutors, cachedDiffIndex);
 
   const piTools: PiTool[] = [...gh.piTools, ...ctx7.piTools, submitTool];
   const executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {

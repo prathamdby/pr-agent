@@ -2,8 +2,7 @@ import { loadConfig, type Config } from "./config.js";
 import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { startEffectWebhookServer } from "./effect/server.js";
 import { startAgentWorker } from "./worker.js";
-
-function main() {
+async function main() {
   let cfg: Config;
   try {
     cfg = loadConfig();
@@ -19,13 +18,19 @@ function main() {
     provider: cfg.piProvider,
     model: cfg.piModel,
     context7_enabled: cfg.context7ApiKey.length > 0,
+    cursor_enabled: cfg.piProvider === "cursor",
   });
   logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
+    if (cfg.piProvider === "cursor") {
+      const { registerCursorProvider } = await import("./agent/cursor/register.js");
+      registerCursorProvider();
+      logInfo("cursor_provider_registered", { api: "cursor-sdk" });
+    }
     startAgentWorker(cfg);
     return;
   }
   startEffectWebhookServer(cfg);
 }
 
-main();
+void main();

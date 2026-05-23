@@ -58,6 +58,7 @@ export type AskRunParams = {
   question: string;
   replyTarget: ReplyTarget;
   codeAnchor?: CodeAnchor;
+  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
 };
 
 export type AskRunResult = {
@@ -81,7 +82,7 @@ function endsWithToolResults(messages: Message[]): boolean {
   return messages[messages.length - 1]?.role === "toolResult";
 }
 
-function buildUserContent(params: AskRunParams): string {
+export function buildAskUserContent(params: AskRunParams): string {
   const blocks = [
     wrapTrustedContext([
       `Repository: ${params.owner}/${params.repo}`,
@@ -132,6 +133,11 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
   }
 
+  if (cfg.piProvider === "cursor") {
+    const { runCursorAskRun } = await import("./cursor/askRunCursor.js");
+    return runCursorAskRun(params);
+  }
+
   const pathGate = createAskPathGate();
   if (params.codeAnchor?.path) {
     pathGate.addPaths([params.codeAnchor.path]);
@@ -172,7 +178,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     messages: [
       {
         role: "user",
-        content: buildUserContent(params),
+        content: buildAskUserContent(params),
         timestamp: Date.now(),
       },
     ],

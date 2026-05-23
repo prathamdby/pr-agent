@@ -199,7 +199,7 @@ async function handleReviewJob(
       item.headSha === DEFERRED_HEAD_SHA
         ? getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber)
         : Promise.resolve(item.headSha),
-    execute: async (item, { installation, headSha }) => {
+    execute: async (item, env) => {
       const reviewLens = item.reviewLens!;
       const payload = item.payload as ReviewWorkPayload;
       const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, reviewLens);
@@ -212,6 +212,8 @@ async function handleReviewJob(
       const summaryCommentIdHint = shouldLinkToSummary
         ? await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens)
         : null;
+      let installation = env.installation;
+      const headSha = env.headSha;
       const result = await runFullPrReview({
         cfg,
         token: installation.token,
@@ -239,6 +241,11 @@ async function handleReviewJob(
             detail: detail?.meta,
           }),
         shouldAbortPublish: () => shouldSkipWork(pool, item),
+        refreshInstallationToken: async () => {
+          const fresh = await mintInstallationToken(cfg, item.installationId);
+          installation = fresh;
+          return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+        },
       });
       if (!result.published) {
         logWarn("review_not_published", {
@@ -322,7 +329,9 @@ async function handleAskJob(
     type: "ask",
     resolveHeadSha: (token, item) =>
       getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber),
-    execute: async (item, { installation, headSha }) => {
+    execute: async (item, env) => {
+      let installation = env.installation;
+      const headSha = env.headSha;
       const payload = item.payload as AskWorkPayload;
       const result = await runAskRun({
         cfg,
@@ -336,6 +345,11 @@ async function handleAskJob(
         question: payload.question,
         replyTarget: payload.replyTarget,
         codeAnchor: payload.codeAnchor,
+        refreshInstallationToken: async () => {
+          const fresh = await mintInstallationToken(cfg, item.installationId);
+          installation = fresh;
+          return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+        },
       });
       await publishAskAnswer(installation.token, item, result.answer);
       return {};
