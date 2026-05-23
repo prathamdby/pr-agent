@@ -87,7 +87,12 @@ export async function runFullPrReview(params: {
   userSupplement?: string;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
-  initialPublishState?: { published?: boolean; inlinePublished?: boolean };
+  inlineReviewIdHint?: number | null;
+  initialPublishState?: {
+    published?: boolean;
+    inlinePublished?: boolean;
+    inlineReviewId?: number | null;
+  };
   recordPublishStep?: (
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -128,6 +133,7 @@ export async function runFullPrReview(params: {
   const submitState: SubmitReviewState = createSubmitReviewState({
     published: params.initialPublishState?.published,
     inlinePublished: params.initialPublishState?.inlinePublished,
+    inlineReviewId: params.initialPublishState?.inlineReviewId,
   });
   const publishCtx = { owner, repo, prNumber, headSha };
   const { piTool: submitTool, executor: submitExecutor } = buildSubmitReviewTool({
@@ -139,6 +145,7 @@ export async function runFullPrReview(params: {
     cachedDiffIndex,
     shouldLinkToSummary: params.shouldLinkToSummary,
     summaryCommentIdHint: params.summaryCommentIdHint,
+    inlineReviewIdHint: params.inlineReviewIdHint,
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
   });

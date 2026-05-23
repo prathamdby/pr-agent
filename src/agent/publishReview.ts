@@ -1,7 +1,9 @@
 import type { Config } from "../config.js";
 import {
   createPullRequestReviewWithComments,
+  enrichPlacementsWithInlineCommentUrls,
   listPullRequestLabels,
+  listPullRequestReviewCommentsForReview,
   resolveVerifiedSummaryCommentUrl,
   setPullRequestLabels,
   upsertReviewSummaryComment,
@@ -44,6 +46,7 @@ export async function publishReview(
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
     summaryCommentIdHint?: number | null;
+    inlineReviewIdHint?: number | null;
     recordPublishStep?: (
       step: "inline_review" | "summary_comment" | "labels",
       detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -62,6 +65,7 @@ export async function publishReview(
   const inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
   let summaryPlacements = placements;
+  let inlineReviewId = params.inlineReviewIdHint ?? publishState.inlineReviewId;
   const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
   if (diffCacheEmpty) {
     logDebug("review_diff_cache_empty", {
@@ -132,6 +136,8 @@ export async function publishReview(
           comments,
           commitId: headSha,
         });
+        inlineReviewId = review.id;
+        publishState.inlineReviewId = review.id;
         await params.recordPublishStep?.("inline_review", {
           githubId: review.id,
           meta: {
@@ -221,6 +227,31 @@ export async function publishReview(
     }
 
     publishState.inlinePublished = true;
+  }
+
+  if (inlineReviewId != null) {
+    try {
+      const reviewComments = await listPullRequestReviewCommentsForReview(
+        token,
+        owner,
+        repo,
+        prNumber,
+        inlineReviewId,
+      );
+      summaryPlacements = enrichPlacementsWithInlineCommentUrls(
+        summaryPlacements,
+        reviewComments,
+      );
+    } catch (e) {
+      logWarn("review_inline_comment_urls_failed", {
+        mode,
+        owner,
+        repo,
+        pr: prNumber,
+        reviewId: inlineReviewId,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
   }
 
   const summaryBody = renderReviewSummaryComment(payload, {

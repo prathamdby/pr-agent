@@ -3,6 +3,7 @@ import {
   escapeTableCellContent,
   escapeTableHtml,
   renderGitHubAlert,
+  renderKeyValueTable,
 } from "../github/markdownFormat.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -180,7 +181,10 @@ function renderFindingTableCell(
   safeFinding: SanitizedFindingFields,
 ): string {
   const f = placement.finding;
-  const link = blobLineUrl(ctx, f.file, f.startLine, f.endLine);
+  const link =
+    placement.inlinePosted && placement.inlineCommentUrl
+      ? placement.inlineCommentUrl
+      : blobLineUrl(ctx, f.file, f.startLine, f.endLine);
   const marker = placement.inlinePosted ? "On the diff" : "Summary only";
   const meta = `_${escapeTableCell(marker)} · \`${escapeTableHtml(f.file)}\` · ${formatLineRange(f.startLine, f.endLine)}_`;
   const parts = [`**[${escapeTableCell(safeFinding.title)}](${link})**`, meta];
@@ -357,14 +361,15 @@ export function renderReviewSummaryComment(
     ),
   );
   rows.push("");
-  rows.push("| | |");
-  rows.push("| --- | --- |");
-  rows.push(`| **Effort** | ${formatEffortLabel(payload.estimatedEffort)} |`);
+
+  const tableRows: Array<[string, string]> = [
+    ["**Effort**", formatEffortLabel(payload.estimatedEffort)],
+  ];
 
   const summaryOnlyAccordions: string[] = [];
 
   if (sortedPlacements.length === 0) {
-    rows.push(`| **Findings** | ${REVIEW_FINDINGS_NONE} |`);
+    tableRows.push(["**Findings**", REVIEW_FINDINGS_NONE]);
   } else {
     for (const placement of sortedPlacements) {
       const safeFinding = sanitizePublicReviewFields({
@@ -377,9 +382,10 @@ export function renderReviewSummaryComment(
         detail: safeFinding.detail ?? placement.finding.detail,
         fixPrompt: safeFinding.fixPrompt ?? placement.finding.fixPrompt,
       };
-      rows.push(
-        `| **${placement.finding.severity}** | ${renderFindingTableCell(placement, ctx, sanitized)} |`,
-      );
+      tableRows.push([
+        `**${placement.finding.severity}**`,
+        renderFindingTableCell(placement, ctx, sanitized),
+      ]);
       if (
         !placement.inlinePosted &&
         sanitized.fixPrompt != null &&
@@ -396,19 +402,20 @@ export function renderReviewSummaryComment(
     }
   }
 
-  rows.push(`| **Relevant tests** | ${payload.relevantTests} |`);
-  rows.push(
-    `| **Security** | ${
-      safePayload.securityConcerns != null
-        ? escapeTableCell(safePayload.securityConcerns)
-        : REVIEW_SECURITY_DEFAULT
-    } |`,
-  );
+  tableRows.push(["**Relevant tests**", payload.relevantTests]);
+  tableRows.push([
+    "**Security**",
+    safePayload.securityConcerns != null
+      ? escapeTableCell(safePayload.securityConcerns)
+      : REVIEW_SECURITY_DEFAULT,
+  ]);
 
   const followUps = safePayload.followUps ?? payload.followUps;
   for (const item of followUps) {
-    rows.push(`| **Follow-ups** | ${escapeTableCell(item)} |`);
+    tableRows.push(["**Follow-ups**", escapeTableCell(item)]);
   }
+
+  rows.push(renderKeyValueTable(tableRows));
 
   if (summaryOnlyAccordions.length > 0) {
     rows.push("");

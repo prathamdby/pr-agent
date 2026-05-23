@@ -32,8 +32,10 @@ describe("progressComment fallback wording", () => {
     });
     expect(body).toContain("[!NOTE]");
     expect(body).toContain(REVIEW_PROGRESS_NOTE);
-    expect(body).toContain("**Head**");
-    expect(body).toContain("`abc123`");
+    expect(body).toContain("<strong>Head</strong>");
+    expect(body).toContain("<code>abc123</code>");
     expect(body).toContain("Pull request update");
+    expect(body).not.toContain("| | |");
+    expect(body).toContain("<table>");
   });
 });

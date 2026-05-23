@@ -21,17 +21,19 @@ export { PUBLISH_BUDGET_EXHAUSTED_MESSAGE } from "../settings/index.js";
 export type SubmitReviewState = {
   published: boolean;
   inlinePublished: boolean;
+  inlineReviewId: number | null;
   lastValidationError: string | null;
   publishCallCount: number;
   publishCallsExhausted: boolean;
 };
 
 export function createSubmitReviewState(
-  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished">>,
+  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished" | "inlineReviewId">>,
 ): SubmitReviewState {
   return {
     published: initial?.published ?? false,
     inlinePublished: initial?.inlinePublished ?? false,
+    inlineReviewId: initial?.inlineReviewId ?? null,
     lastValidationError: null,
     publishCallCount: 0,
     publishCallsExhausted: false,
@@ -48,6 +50,7 @@ export function buildSubmitReviewTool(params: {
   cachedDiffIndex?: CachedPrDiffIndex;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
+  inlineReviewIdHint?: number | null;
   recordPublishStep?: (
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -157,6 +160,7 @@ export function buildSubmitReviewTool(params: {
         cachedDiffIndex: params.cachedDiffIndex,
         shouldLinkToSummary: params.shouldLinkToSummary,
         summaryCommentIdHint: params.summaryCommentIdHint,
+        inlineReviewIdHint: params.inlineReviewIdHint,
         recordPublishStep: params.recordPublishStep,
       });
     } catch (e) {

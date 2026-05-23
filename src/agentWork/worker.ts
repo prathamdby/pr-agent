@@ -227,9 +227,11 @@ async function handleReviewJob(
         userSupplement: payload.userSupplement,
         shouldLinkToSummary,
         summaryCommentIdHint,
+        inlineReviewIdHint: publishState.inlineReviewId,
         initialPublishState: {
           inlinePublished: publishState.inlinePublished,
           published: publishState.summaryPublished,
+          inlineReviewId: publishState.inlineReviewId,
         },
         recordPublishStep: (step, detail) =>
           recordPublishStep(pool, {

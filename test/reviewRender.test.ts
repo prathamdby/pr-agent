@@ -55,9 +55,37 @@ describe("renderReviewSummaryComment", () => {
     });
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain("[!NOTE]");
+    expect(body).not.toContain("| | |");
+    expect(body).toContain("<table>");
     expect(body).toContain(REVIEW_FINDINGS_NONE);
     expect(body).not.toContain("_No findings._");
     expect(body).not.toContain("### Findings");
+  });
+
+  it("links inline findings to review comment URLs when provided", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+      ],
+    });
+    const placements = testPlacements(payload.findings).map((p) => ({
+      ...p,
+      inlineCommentUrl: "https://github.com/acme/widgets/pull/42#discussion_r99",
+    }));
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements,
+    });
+    expect(body).toContain("#discussion_r99");
+    expect(body).not.toContain("/blob/abc123def456/");
   });
 
   it("(b) P0 + P3 mix", () => {
@@ -89,7 +117,7 @@ describe("renderReviewSummaryComment", () => {
         ...testPlacements([payload.findings[1]!], { inlinePosted: false }),
       ],
     });
-    expect(body).toContain("**P0**");
+    expect(body).toContain("<strong>P0</strong>");
     expect(body).toContain("Null deref on empty payload");
     expect(body).not.toContain("payload is used before guard");
     expect(body).toContain("Typo in heading");
@@ -140,8 +168,8 @@ describe("renderReviewSummaryComment", () => {
       ...ctx,
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
-    expect(body).toContain("Bad \\| logic second line");
-    expect(body).toMatch(/\| \*\*P1\*\* \|/);
+    expect(body).toContain("Bad | logic second line");
+    expect(body).toContain("<strong>P1</strong>");
   });
 
   it("escapes pipes in finding title inside table cells", () => {
@@ -162,7 +190,7 @@ describe("renderReviewSummaryComment", () => {
       ...ctx,
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
-    expect(body).toContain("[Bug \\| typo]");
+    expect(body).toContain(">Bug | typo</a>");
   });
 
   it("labels summary-only accordions by severity and title", () => {
@@ -258,8 +286,8 @@ describe("renderReviewSummaryComment", () => {
       ...ctx,
       placements: testPlacementsFromPayload(payload),
     });
-    expect(body).toContain("foo \\| bar");
-    expect(body).toContain("baz \\| qux");
+    expect(body).toContain("foo | bar");
+    expect(body).toContain("baz | qux");
   });
 
   it("redacts banned finding text without replacing the entire summary body", () => {

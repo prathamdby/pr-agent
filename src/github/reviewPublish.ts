@@ -1,3 +1,4 @@
+import type { InlinePlacement } from "../agent/reviewLocationValidation.js";
 import { installationOctokit } from "./appAuth.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../agent/reviewSchema.js";
 
@@ -33,6 +34,59 @@ export async function createPullRequestReviewWithComments(
     commit_id: params.commitId,
   });
   return { id: data.id, url: data.html_url };
+}
+
+export type PublishedReviewComment = {
+  path: string;
+  line: number;
+  id: number;
+  url: string;
+};
+
+export async function listPullRequestReviewCommentsForReview(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  reviewId: number,
+): Promise<PublishedReviewComment[]> {
+  const octokit = installationOctokit(token);
+  const { data } = await octokit.rest.pulls.listCommentsForReview({
+    owner,
+    repo,
+    pull_number: pullNumber,
+    review_id: reviewId,
+  });
+  return data.flatMap((comment) => {
+    if (comment.path == null || comment.line == null) return [];
+    return [
+      {
+        path: comment.path,
+        line: comment.line,
+        id: comment.id,
+        url: comment.html_url,
+      },
+    ];
+  });
+}
+
+function reviewCommentAnchorKey(path: string, line: number): string {
+  return `${path}:${line}`;
+}
+
+/** Match GitHub review comments to planned inline placements by path and posted line. */
+export function enrichPlacementsWithInlineCommentUrls(
+  placements: readonly InlinePlacement[],
+  comments: readonly PublishedReviewComment[],
+): InlinePlacement[] {
+  const byAnchor = new Map(
+    comments.map((c) => [reviewCommentAnchorKey(c.path, c.line), c.url] as const),
+  );
+  return placements.map((placement) => {
+    if (!placement.inlinePosted || placement.inlineLine == null) return placement;
+    const url = byAnchor.get(reviewCommentAnchorKey(placement.finding.file, placement.inlineLine));
+    return url ? { ...placement, inlineCommentUrl: url } : placement;
+  });
 }
 
 export type IssueCommentRef = { id: number; url: string };

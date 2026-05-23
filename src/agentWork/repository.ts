@@ -231,9 +231,13 @@ export async function getReviewPublishState(
   workItemId: string,
   resourceKey: string,
   reviewLens: ReviewWorkPayload["mode"],
-): Promise<{ inlinePublished: boolean; summaryPublished: boolean }> {
-  const { rows } = await pool.query<{ step: string }>(
-    `SELECT step
+): Promise<{
+  inlinePublished: boolean;
+  summaryPublished: boolean;
+  inlineReviewId: number | null;
+}> {
+  const { rows } = await pool.query<{ step: string; github_id: string | null }>(
+    `SELECT step, github_id
 		   FROM publish_records
 		  WHERE resource_key = $1
 		    AND review_lens = $2
@@ -243,9 +247,15 @@ export async function getReviewPublishState(
     [resourceKey, reviewLens, workItemId],
   );
   const steps = new Set(rows.map((r) => r.step));
+  const inlineRow = rows.find((r) => r.step === "inline_review");
+  const inlineReviewId =
+    inlineRow?.github_id != null && Number.isFinite(Number(inlineRow.github_id))
+      ? Number(inlineRow.github_id)
+      : null;
   return {
     inlinePublished: steps.has("inline_review"),
     summaryPublished: steps.has("summary_comment"),
+    inlineReviewId,
   };
 }
 

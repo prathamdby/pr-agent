@@ -16,20 +16,33 @@ import {
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
 
-vi.mock("../src/github/reviewPublish.js", () => ({
-  createPullRequestReviewWithComments: vi.fn(async () => ({
-    id: 1,
-    url: "https://example.com/review/1",
-  })),
-  resolveVerifiedSummaryCommentUrl: vi.fn(async () => undefined),
-  upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
-  listPullRequestLabels: vi.fn(async () => []),
-  setPullRequestLabels: vi.fn(async () => undefined),
-}));
+vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
+  return {
+    ...actual,
+    createPullRequestReviewWithComments: vi.fn(async () => ({
+      id: 1,
+      url: "https://example.com/review/1",
+    })),
+    listPullRequestReviewCommentsForReview: vi.fn(async () => [
+      {
+        path: "src/x.ts",
+        line: 4,
+        id: 99,
+        url: "https://github.com/o/r/pull/1#discussion_r99",
+      },
+    ]),
+    resolveVerifiedSummaryCommentUrl: vi.fn(async () => undefined),
+    upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
+    listPullRequestLabels: vi.fn(async () => []),
+    setPullRequestLabels: vi.fn(async () => undefined),
+  };
+});
 
 import {
   createPullRequestReviewWithComments,
   listPullRequestLabels,
+  listPullRequestReviewCommentsForReview,
   resolveVerifiedSummaryCommentUrl,
   setPullRequestLabels,
   upsertReviewSummaryComment,
@@ -99,8 +112,13 @@ describe("publishReview", () => {
         ],
       }),
     );
+    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith("t", "o", "r", 1, 1);
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(summaryBody).toContain("#discussion_r99");
+    expect(summaryBody).not.toContain("/blob/sha/");
     expect(publishState.inlinePublished).toBe(true);
+    expect(publishState.inlineReviewId).toBe(1);
   });
 
   it("bases review event on full findings not inline subset", async () => {
@@ -235,6 +253,17 @@ describe("publishReview", () => {
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
+  });
+
+  it("still resolves inline comment URLs when inline review was published earlier", async () => {
+    const publishState = testPublishState({ inlinePublished: true, inlineReviewId: 1 });
+
+    await publishReview({ ...baseParams, publishState, cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]) });
+
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith("t", "o", "r", 1, 1);
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(summaryBody).toContain("#discussion_r99");
   });
 
   it("uses security sentinel and pointer with agent fix prompt when mode is review-security", async () => {
