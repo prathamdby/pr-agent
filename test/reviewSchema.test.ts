@@ -157,13 +157,15 @@ describe("coerceReviewPayloadInput", () => {
 });
 
 describe("formatReviewValidationError", () => {
-  it("lists field paths in bullet form", () => {
+  it("lists field paths in bullet form with failureKind", () => {
     const parsed = reviewPayloadSchema.safeParse({ prCharacter: "x" });
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
-      const msg = formatReviewValidationError(parsed.error);
-      expect(msg).toContain("ReviewPayload validation failed:");
-      expect(msg).toContain("findings");
+      const formatted = formatReviewValidationError(parsed.error);
+      expect(formatted.message).toContain("ReviewPayload validation failed:");
+      expect(formatted.message).toContain("findings");
+      expect(formatted.paths).toContain("findings");
+      expect(formatted.failureKind).toBeTruthy();
     }
   });
 });

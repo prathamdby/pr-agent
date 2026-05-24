@@ -18,43 +18,47 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 
 ## Environment (`loadConfig`)
 
-| Name                      | Env var                          | Default                  | Notes                                          |
-| ------------------------- | -------------------------------- | ------------------------ | ---------------------------------------------- |
-| HTTP port                 | `PORT`                           | `3000` (7224 in Compose) |                                                |
-| Process role              | `ROLE`                           | `web`                    | `web` or `worker`                              |
-| GitHub App ID             | `GITHUB_APP_ID`                  | —                        | required                                       |
-| App private key           | `GITHUB_APP_PRIVATE_KEY`         | —                        | required PEM                                   |
-| Webhook HMAC secret       | `WEBHOOK_SECRET`                 | —                        | required                                       |
-| Postgres URL              | `DATABASE_URL`                   | —                        | required                                       |
-| LLM provider              | `PI_PROVIDER`                    | `openai`                 | pi-ai registry id; use `cursor` for Cursor SDK |
-| LLM model                 | `PI_MODEL`                       | `gpt-4o-mini`            | For `cursor`, e.g. `composer-2.5`, `auto`      |
-| Cursor API key            | `CURSOR_API_KEY`                 | empty                    | required when `PI_PROVIDER=cursor`             |
-| Review tool rounds        | `MAX_TOOL_ROUNDS`                | `24`                     | per review run                                 |
-| Publish recovery attempts | `MAX_REVIEW_PUBLISH_ATTEMPTS`    | `3`                      | when submitReview never succeeds               |
-| Publish execution budget  | `MAX_REVIEW_PUBLISH_CALLS`       | `2`                      | valid submitReview publishes per run           |
-| Review worker concurrency | `REVIEW_CONCURRENCY`             | `2`                      | pg-boss review queue workers                   |
-| Ask worker concurrency    | `ASK_CONCURRENCY`                | `1`                      | pg-boss ask queue workers                      |
-| Ack worker concurrency    | `ACK_CONCURRENCY`                | `2`                      | reactions + progress stub                      |
-| Installation group cap    | `INSTALLATION_GROUP_CONCURRENCY` | `2`                      | pg-boss group policy                           |
-| Queue retry limit         | `QUEUE_RETRY_LIMIT`              | `3`                      | pg-boss job retries                            |
-| Queue retry delay         | `QUEUE_RETRY_DELAY_SECONDS`      | `30`                     |                                                |
-| Queue retry delay max     | `QUEUE_RETRY_DELAY_MAX_SECONDS`  | `300`                    |                                                |
-| Job expire                | `QUEUE_EXPIRE_IN_SECONDS`        | `3600`                   |                                                |
-| Job heartbeat             | `QUEUE_HEARTBEAT_SECONDS`        | `60`                     | min 10                                         |
-| Job retention             | `QUEUE_RETENTION_SECONDS`        | `1209600`                |                                                |
-| Job delete after          | `QUEUE_DELETE_AFTER_SECONDS`     | `604800`                 |                                                |
-| Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`            | `12`                     |                                                |
-| Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`        | `2`                      |                                                |
-| Webhook time budget       | `WEBHOOK_TIMEOUT_MS`             | `10000`                  | log warning only                               |
-| Context7 API key          | `CONTEXT7_API_KEY`               | empty                    | optional                                       |
-| Max review findings       | `MAX_REVIEW_FINDINGS`            | `8`                      | Zod schema + publish cap                       |
-| Label effort              | `ENABLE_REVIEW_LABELS_EFFORT`    | `true`                   |                                                |
-| Label security            | `ENABLE_REVIEW_LABELS_SECURITY`  | `false`                  |                                                |
-| Max PR files listed       | `MAX_PR_FILES_LISTED`            | `300`                    | listPullRequestFiles                           |
-| Max PR patch bytes        | `MAX_PR_FILES_PATCH_BYTES`       | `500000`                 |                                                |
-| Log level                 | `LOG_LEVEL`                      | `info`                   |                                                |
-| Max wide sub-events       | `LOG_MAX_WIDE_EVENTS`            | `128`                    |                                                |
-| Pretty logs               | `LOG_PRETTY`                     | dev `true`, prod `false` |                                                |
+| Name                      | Env var                                   | Default                  | Notes                                              |
+| ------------------------- | ----------------------------------------- | ------------------------ | -------------------------------------------------- |
+| HTTP port                 | `PORT`                                    | `3000` (7224 in Compose) |                                                    |
+| Process role              | `ROLE`                                    | `web`                    | `web` or `worker`                                  |
+| GitHub App ID             | `GITHUB_APP_ID`                           | —                        | required                                           |
+| App private key           | `GITHUB_APP_PRIVATE_KEY`                  | —                        | required PEM                                       |
+| Webhook HMAC secret       | `WEBHOOK_SECRET`                          | —                        | required                                           |
+| Postgres URL              | `DATABASE_URL`                            | —                        | required                                           |
+| LLM provider              | `PI_PROVIDER`                             | `openai`                 | pi-ai registry id; use `cursor` for Cursor SDK     |
+| LLM model                 | `PI_MODEL`                                | `gpt-4o-mini`            | For `cursor`, e.g. `composer-2.5`, `auto`          |
+| Cursor API key            | `CURSOR_API_KEY`                          | empty                    | required when `PI_PROVIDER=cursor`                 |
+| Review tool rounds        | `MAX_TOOL_ROUNDS`                         | `24`                     | per review run                                     |
+| Publish recovery attempts | `MAX_REVIEW_PUBLISH_ATTEMPTS`             | `3`                      | when submitReview never succeeds                   |
+| Publish execution budget  | `MAX_REVIEW_PUBLISH_CALLS`                | `2`                      | valid submitReview publishes per run               |
+| Review worker concurrency | `REVIEW_CONCURRENCY`                      | `2`                      | pg-boss review queue workers                       |
+| Ask worker concurrency    | `ASK_CONCURRENCY`                         | `1`                      | pg-boss ask queue workers                          |
+| Ack worker concurrency    | `ACK_CONCURRENCY`                         | `2`                      | reactions + progress stub                          |
+| Installation group cap    | `INSTALLATION_GROUP_CONCURRENCY`          | `2`                      | pg-boss group policy                               |
+| Queue retry limit         | `QUEUE_RETRY_LIMIT`                       | `3`                      | pg-boss job retries                                |
+| Queue retry delay         | `QUEUE_RETRY_DELAY_SECONDS`               | `30`                     |                                                    |
+| Queue retry delay max     | `QUEUE_RETRY_DELAY_MAX_SECONDS`           | `300`                    |                                                    |
+| Job expire                | `QUEUE_EXPIRE_IN_SECONDS`                 | `3600`                   |                                                    |
+| Job heartbeat             | `QUEUE_HEARTBEAT_SECONDS`                 | `60`                     | min 10                                             |
+| Job retention             | `QUEUE_RETENTION_SECONDS`                 | `1209600`                |                                                    |
+| Job delete after          | `QUEUE_DELETE_AFTER_SECONDS`              | `604800`                 |                                                    |
+| Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`                     | `12`                     |                                                    |
+| Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                 | `2`                      |                                                    |
+| Webhook time budget       | `WEBHOOK_TIMEOUT_MS`                      | `10000`                  | log warning only                                   |
+| Context7 API key          | `CONTEXT7_API_KEY`                        | empty                    | optional                                           |
+| Max review findings       | `MAX_REVIEW_FINDINGS`                     | `8`                      | Zod schema + publish cap                           |
+| Label effort              | `ENABLE_REVIEW_LABELS_EFFORT`             | `true`                   |                                                    |
+| Label security            | `ENABLE_REVIEW_LABELS_SECURITY`           | `false`                  |                                                    |
+| Max PR files listed       | `MAX_PR_FILES_LISTED`                     | `300`                    | listPullRequestFiles                               |
+| Max PR patch bytes        | `MAX_PR_FILES_PATCH_BYTES`                | `500000`                 |                                                    |
+| Review anchor menu inject | `REVIEW_INJECT_ANCHOR_MENU`               | `true`                   | inject commentable line ranges before submitReview |
+| Require diff cache submit | `REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT` | `true`                   | block submitReview when diff index empty           |
+| Anchor menu max files     | `REVIEW_ANCHOR_MENU_MAX_FILES`            | `40`                     | cap files in anchor menu block                     |
+| Anchor menu max ranges    | `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE`  | `20`                     | cap ranges per file in anchor menu                 |
+| Log level                 | `LOG_LEVEL`                               | `info`                   |                                                    |
+| Max wide sub-events       | `LOG_MAX_WIDE_EVENTS`                     | `128`                    |                                                    |
+| Pretty logs               | `LOG_PRETTY`                              | dev `true`, prod `false` |                                                    |
 
 ### External (pi-ai)
 

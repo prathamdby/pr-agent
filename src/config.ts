@@ -30,6 +30,10 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_REVIEW_CONCURRENCY,
+  DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES,
+  DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
+  DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
+  DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   DEFAULT_ROLE,
   DEFAULT_WEBHOOK_TIMEOUT_MS,
   ENV,
@@ -288,6 +292,32 @@ export function loadConfig() {
   const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
   const logPretty = optionalEnv(ENV.LOG_PRETTY, logPrettyDefault) === "true";
 
+  const reviewInjectAnchorMenu =
+    optionalEnv(ENV.REVIEW_INJECT_ANCHOR_MENU, String(DEFAULT_REVIEW_INJECT_ANCHOR_MENU)) ===
+    "true";
+  const reviewRequireDiffCacheBeforeSubmit =
+    optionalEnv(
+      ENV.REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
+      String(DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT),
+    ) === "true";
+
+  const reviewAnchorMenuMaxFiles = Number(
+    optionalEnv(ENV.REVIEW_ANCHOR_MENU_MAX_FILES, String(DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES)),
+  );
+  if (!Number.isFinite(reviewAnchorMenuMaxFiles) || reviewAnchorMenuMaxFiles < 1) {
+    throw new Error("REVIEW_ANCHOR_MENU_MAX_FILES must be a positive number");
+  }
+
+  const reviewAnchorMenuMaxRangesPerFile = Number(
+    optionalEnv(
+      ENV.REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
+      String(DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE),
+    ),
+  );
+  if (!Number.isFinite(reviewAnchorMenuMaxRangesPerFile) || reviewAnchorMenuMaxRangesPerFile < 1) {
+    throw new Error("REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE must be a positive number");
+  }
+
   return {
     port,
     githubAppId,
@@ -324,6 +354,10 @@ export function loadConfig() {
     logLevel,
     logMaxWideEvents,
     logPretty,
+    reviewInjectAnchorMenu,
+    reviewRequireDiffCacheBeforeSubmit,
+    reviewAnchorMenuMaxFiles,
+    reviewAnchorMenuMaxRangesPerFile,
   };
 }
 

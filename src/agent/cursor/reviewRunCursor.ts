@@ -21,6 +21,12 @@ import {
 import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
 import { buildReviewRunUserContent } from "../reviewUserMessage.js";
 import type { ReviewRunResult } from "../reviewRun.js";
+import {
+  initReviewRunMetrics,
+  logReviewRunCompleted,
+  recordReviewMetric,
+  setReviewRunMetricFields,
+} from "../reviewRunMetrics.js";
 import { attachCursorRunContext, getCursorModel } from "./index.js";
 import { createRefreshableToolExecutors } from "./refreshableGithubTools.js";
 
@@ -163,6 +169,9 @@ export async function runCursorFullPrReview(params: {
     },
   });
 
+  initReviewRunMetrics({ provider: "cursor", model: model.id, mode: reviewMode });
+  recordReviewMetric({ kind: "phase_enter", phase: "investigation" });
+
   logInfo("cursor_review_started", {
     owner,
     repo,
@@ -174,6 +183,7 @@ export async function runCursorFullPrReview(params: {
   const lastAssistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
 
   if (!submitState.published) {
+    recordReviewMetric({ kind: "phase_enter", phase: "plaintext_fallback" });
     logWarn("cursor_review_not_published", {
       mode: reviewMode,
       owner,
@@ -202,6 +212,9 @@ export async function runCursorFullPrReview(params: {
       });
     }
   }
+
+  setReviewRunMetricFields({ published: submitState.published, publishAttempts: 1 });
+  logReviewRunCompleted();
 
   return { lastAssistant, published: submitState.published, publishAttempts: 1 };
 }

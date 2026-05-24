@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Config } from "../src/config.js";
+import * as evlog from "../src/evlog.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
@@ -92,6 +93,11 @@ const cursorCfg = {
   enableReviewLabelsSecurity: false,
   maxPrFilesListed: 300,
   maxPrFilesPatchBytes: 500_000,
+  reviewInjectAnchorMenu: true,
+  reviewRequireDiffCacheBeforeSubmit: true,
+  reviewAnchorMenuMaxFiles: 40,
+  reviewAnchorMenuMaxRangesPerFile: 20,
+  context7ApiKey: "",
 } satisfies Config;
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;
@@ -137,5 +143,30 @@ describe("runFullPrReview cursor provider", () => {
     expect(vi.mocked(buildSubmitReviewTool)).toHaveBeenCalledWith(
       expect.objectContaining({ getToken: expect.any(Function) }),
     );
+  });
+
+  it("emits review_run_completed with provider cursor", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const infoSpy = vi.spyOn(evlog, "logInfo");
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      await runFullPrReview({
+        cfg: cursorCfg,
+        token: "t",
+        tokenExpiresAtTs: farFutureTokenExpiry,
+        tokenTtlMs: 3_600_000,
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+      });
+    });
+    expect(infoSpy).toHaveBeenCalledWith(
+      "review_run_completed",
+      expect.objectContaining({
+        provider: "cursor",
+        model: cursorCfg.piModel,
+      }),
+    );
+    infoSpy.mockRestore();
   });
 });

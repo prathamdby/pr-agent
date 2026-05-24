@@ -5,7 +5,11 @@ import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { publishReview } from "./publishReview.js";
 import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
 import { prepareReviewPayloadForPublish } from "./reviewPrePublish.js";
-import { PUBLISH_BUDGET_EXHAUSTED_MESSAGE } from "../settings/index.js";
+import {
+  PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
+  REVIEW_DIFF_CACHE_REQUIRED_MESSAGE,
+} from "../settings/index.js";
+import { recordReviewMetric } from "./reviewRunMetrics.js";
 import {
   coerceReviewPayloadInput,
   createReviewPayloadSchema,
@@ -101,23 +105,40 @@ export function buildSubmitReviewTool(params: {
       throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
     }
 
-    const { value: coercedArgs, coerced } = coerceReviewPayloadInput(args);
+    if (params.cfg.reviewRequireDiffCacheBeforeSubmit && params.cachedDiffIndex?.files.size === 0) {
+      recordReviewMetric({ kind: "diff_cache_empty_at_submit" });
+      throw new Error(REVIEW_DIFF_CACHE_REQUIRED_MESSAGE);
+    }
+
+    const { value: coercedArgs, coerced, coercions } = coerceReviewPayloadInput(args);
     if (coerced) {
-      logDebug("review_payload_coerced", { mode, owner: params.ctx.owner, repo: params.ctx.repo });
+      logDebug("review_payload_coerced", {
+        mode,
+        owner: params.ctx.owner,
+        repo: params.ctx.repo,
+        coercions,
+      });
     }
 
     const parsed = submitSchema.safeParse(coercedArgs);
     if (!parsed.success) {
-      const message = formatReviewValidationError(parsed.error, maxFindings);
-      params.state.lastValidationError = message;
+      const formatted = formatReviewValidationError(parsed.error, maxFindings);
+      params.state.lastValidationError = formatted.message;
+      recordReviewMetric({
+        kind: "validation_failed",
+        failureKind: formatted.failureKind,
+        paths: formatted.paths,
+      });
       logWarn("review_payload_validation_failed", {
         mode,
-        message: message.slice(0, 200),
+        failureKind: formatted.failureKind,
+        message: formatted.message.slice(0, 200),
       });
-      throw new Error(message);
+      throw new Error(formatted.message);
     }
 
     params.state.lastValidationError = null;
+    recordReviewMetric({ kind: "submit_validated", coercions });
 
     const prepared = prepareReviewPayloadForPublish({
       payload: parsed.data,
@@ -127,9 +148,17 @@ export function buildSubmitReviewTool(params: {
     });
     if (!prepared.ok) {
       params.state.lastValidationError = prepared.error;
+      if (prepared.anchorFailures.length > 0) {
+        recordReviewMetric({
+          kind: "anchor_failure",
+          count: prepared.anchorFailures.length,
+          files: prepared.anchorFailures.map((f) => f.file),
+        });
+      }
       logWarn("review_payload_semantic_validation_failed", {
         mode,
         message: prepared.error.slice(0, 200),
+        anchorFailureCount: prepared.anchorFailures.length,
       });
       throw new Error(prepared.error);
     }
@@ -165,6 +194,7 @@ export function buildSubmitReviewTool(params: {
     }
 
     params.state.publishCallCount += 1;
+    recordReviewMetric({ kind: "publish_attempted" });
 
     try {
       await publishReview({
@@ -203,6 +233,11 @@ export function buildSubmitReviewTool(params: {
 
     params.state.published = true;
     const severities = parsed.data.findings.map((f) => f.severity);
+    recordReviewMetric({
+      kind: "published",
+      findingsCount: parsed.data.findings.length,
+      severities,
+    });
     logInfo("review_published", {
       mode,
       owner: params.ctx.owner,

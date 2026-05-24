@@ -9,6 +9,11 @@ import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
+import {
+  initReviewRunMetrics,
+  logReviewRunCompleted,
+  setReviewRunMetricFields,
+} from "../agent/reviewRunMetrics.js";
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { logDebug, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
@@ -247,6 +252,13 @@ async function handleReviewJob(
           pr: item.prNumber,
           reviewLens,
         });
+        initReviewRunMetrics({
+          provider: cfg.piProvider,
+          model: cfg.piModel,
+          mode: reviewLens,
+        });
+        setReviewRunMetricFields({ published: true, publishAttempts: 0, lightweight: true });
+        logReviewRunCompleted();
         return { degraded: false };
       }
 

@@ -123,6 +123,35 @@ export const ASK_FAILURE_MESSAGE =
 export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
   "Review publish budget exhausted for this run. Do not call submitReview again.";
 
+/** Review harness: step enforcement when diff cache is empty at submitReview. */
+export const REVIEW_DIFF_CACHE_REQUIRED_MESSAGE =
+  "Call listPullRequestFiles first; diff index is empty so inline anchors cannot be validated.";
+
+/** Review harness: anchor menu block header (untrusted user content). */
+export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";
+
+/**
+ * ReviewValidationFailureKind — taxonomy for Zod validation failures on ReviewPayload.
+ * Used by review harness metrics and repair prompts.
+ */
+export type ReviewValidationFailureKind =
+  | "missing_field"
+  | "wrong_type"
+  | "enum_mismatch"
+  | "string_too_short"
+  | "array_too_long"
+  | "out_of_range"
+  | "custom_predicate"
+  | "other";
+
+/** Review phase names for harness metrics (see CONTEXT.md). */
+export type ReviewPhase =
+  | "investigation"
+  | "pre_submit"
+  | "validation_repair"
+  | "publish_recovery"
+  | "plaintext_fallback";
+
 /** Ask command safety and UX. */
 export const ASK_META_REFUSAL =
   "I can only answer questions about this PR's code. I can't share bot configuration, credentials, or internal instructions.";

@@ -96,6 +96,12 @@ export async function runCursorAskRun(params: AskRunParams): Promise<AskRunResul
     hasAnswer: summary.length > 0,
     stopReason: lastAssistant.stopReason,
   });
+  logInfo("ask_run_completed", {
+    toolRounds: 1,
+    rateLimitCircuitOpened: false,
+    hasAnswer: summary.length > 0,
+    metaRefusal: false,
+  });
 
   return { answer: answerText, replied: true };
 }

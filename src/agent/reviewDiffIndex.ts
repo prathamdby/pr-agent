@@ -1,3 +1,6 @@
+import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../settings/index.js";
+import { wrapUntrustedBlock } from "./askSafety.js";
+
 export type CommentableRightLineRanges = Array<[number, number]>;
 
 export type CachedPrFileDiff = {
@@ -131,4 +134,42 @@ export function resolveInlineAnchorLine(
     if (lineInRanges(line, entry.commentableRightLineRanges)) return line;
   }
   return null;
+}
+
+function formatRangePair([start, end]: [number, number]): string {
+  return start === end ? `${start}` : `${start}-${end}`;
+}
+
+export function renderAnchorMenuBlock(
+  index: CachedPrDiffIndex,
+  caps: { maxFiles: number; maxRangesPerFile: number },
+): string {
+  if (index.files.size === 0) return "";
+
+  const entries = [...index.files.entries()].filter(
+    ([, file]) => !file.patchOmitted && file.commentableRightLineRanges.length > 0,
+  );
+  if (entries.length === 0) return "";
+
+  const lines = [
+    "Use these commentable RIGHT-side line ranges when setting startLine/endLine on findings:",
+  ];
+  const shown = entries.slice(0, caps.maxFiles);
+  for (const [filename, file] of shown) {
+    const ranges = file.commentableRightLineRanges.slice(0, caps.maxRangesPerFile);
+    const formatted = ranges.map(formatRangePair).join(", ");
+    const rangeSuffix =
+      file.commentableRightLineRanges.length > caps.maxRangesPerFile
+        ? ` …${file.commentableRightLineRanges.length - caps.maxRangesPerFile} more ranges`
+        : "";
+    lines.push(`- ${filename}: ${formatted}${rangeSuffix}`);
+  }
+  if (entries.length > caps.maxFiles) {
+    lines.push(`…${entries.length - caps.maxFiles} more files`);
+  }
+  if (index.truncated) {
+    lines.push("(Change set was truncated; some files may be missing from this menu.)");
+  }
+
+  return wrapUntrustedBlock(REVIEW_ANCHOR_MENU_BLOCK_LABEL, lines.join("\n"));
 }

@@ -2,6 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
 import { buildSubmitReviewTool, createSubmitReviewState } from "../src/agent/submitReviewTool.js";
 import { SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
+import {
+  createCachedPrDiffIndex,
+  ingestListPullRequestFilesResult,
+} from "../src/agent/reviewDiffIndex.js";
+import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/agent/reviewRunMetrics.js";
+import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
 
 vi.mock("../src/agent/publishReview.js", () => ({
   publishReview: vi.fn(async () => undefined),
@@ -28,6 +34,10 @@ const cfg = {
   enableReviewLabelsEffort: false,
   enableReviewLabelsSecurity: false,
   logLevel: "info" as const,
+  reviewInjectAnchorMenu: true,
+  reviewRequireDiffCacheBeforeSubmit: true,
+  reviewAnchorMenuMaxFiles: 40,
+  reviewAnchorMenuMaxRangesPerFile: 20,
 };
 
 describe("submitReview tool", () => {
@@ -135,5 +145,85 @@ describe("submitReview tool", () => {
       state: createSubmitReviewState(),
     });
     expect(piTool.description).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
+  });
+
+  it("blocks submit when diff cache is empty and enforcement is enabled", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const valid = {
+      prCharacter: "Does things.",
+      findings: [],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
+      initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
+      const state = createSubmitReviewState();
+      const { executor } = buildSubmitReviewTool({
+        cfg,
+        token: "tok",
+        ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+        state,
+        cachedDiffIndex: createCachedPrDiffIndex(),
+      });
+      await expect(executor(valid)).rejects.toThrow(REVIEW_DIFF_CACHE_REQUIRED_MESSAGE);
+      expect(snapshotReviewRunMetrics()?.diffCacheEmptyAtFirstSubmit).toBe(true);
+      expect(publishReview).not.toHaveBeenCalled();
+    });
+  });
+
+  it("returns aggregated anchor repair message for multiple invalid findings", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        { filename: "a.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") },
+        { filename: "b.ts", patch: ["@@ -2,1 +2,2 @@", " x", "+y"].join("\n") },
+      ],
+    });
+    const payload = {
+      prCharacter: "Does things.",
+      findings: [
+        {
+          severity: "P1" as const,
+          file: "a.ts",
+          startLine: 99,
+          endLine: 99,
+          title: "Bad a",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+        {
+          severity: "P1" as const,
+          file: "b.ts",
+          startLine: 88,
+          endLine: 88,
+          title: "Bad b",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+      ],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
+      initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
+      const state = createSubmitReviewState();
+      const { executor } = buildSubmitReviewTool({
+        cfg,
+        token: "tok",
+        ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+        state,
+        cachedDiffIndex: index,
+      });
+      await expect(executor(payload)).rejects.toThrow(/Inline anchor validation failed/);
+      expect(state.lastValidationError).toContain("findings[0]");
+      expect(state.lastValidationError).toContain("findings[1]");
+      expect(snapshotReviewRunMetrics()?.anchorFailureCount).toBe(2);
+      expect(publishReview).not.toHaveBeenCalled();
+    });
   });
 });
