@@ -34,13 +34,22 @@ function validatePlacementAnchor(
   if (!diffIndex) return null;
   const { finding } = placement;
   const entry = diffIndex.files.get(finding.file);
-  if (entry?.patchOmitted) return null;
+  if (!entry) {
+    if (diffIndex.truncated) return null;
+    return {
+      file: finding.file,
+      startLine: finding.startLine,
+      endLine: finding.endLine,
+      index,
+    };
+  }
+  if (entry.patchOmitted || entry.commentableRightLineRanges.length === 0) return null;
   return {
     file: finding.file,
     startLine: finding.startLine,
     endLine: finding.endLine,
     index,
-    suggestedRanges: entry?.commentableRightLineRanges,
+    suggestedRanges: entry.commentableRightLineRanges,
   };
 }
 

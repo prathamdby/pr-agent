@@ -133,6 +133,93 @@ describe("validateReviewPayload", () => {
     ).toBe(true);
   });
 
+  it("accepts P1 findings on deletion-only patches with no commentable lines", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: ["@@ -10,2 +10,0 @@", " context", "-deleted line"].join("\n"),
+        },
+      ],
+    });
+
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "src/x.ts",
+              startLine: 10,
+              endLine: 10,
+              title: "Deletion only",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+        }),
+        cachedDiffIndex: index,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("accepts cap-eligible P1 when diff cache is truncated and file is absent", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      truncated: true,
+      files: [{ filename: "a.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") }],
+    });
+
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "missing.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "Truncated away",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+        }),
+        cachedDiffIndex: index,
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects cap-eligible P1 when file is absent from non-truncated diff cache", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [{ filename: "a.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") }],
+    });
+
+    const result = validateReviewPayload({
+      payload: basePayload({
+        findings: [
+          {
+            severity: "P1",
+            file: "missing.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Not in PR",
+            detail: "d",
+            fixPrompt: "fix",
+          },
+        ],
+      }),
+      cachedDiffIndex: index,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.anchorFailures).toHaveLength(1);
+      expect(result.anchorFailures[0]?.file).toBe("missing.ts");
+    }
+  });
+
   it("aggregates multiple anchor failures with suggested ranges", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {
