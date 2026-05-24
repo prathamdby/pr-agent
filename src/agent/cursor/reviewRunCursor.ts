@@ -19,6 +19,7 @@ import {
   type SubmitReviewState,
 } from "../submitReviewTool.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
+import { buildReviewRunUserContent } from "../reviewUserMessage.js";
 import type { ReviewRunResult } from "../reviewRun.js";
 import { attachCursorRunContext, getCursorModel } from "./index.js";
 import { createRefreshableToolExecutors } from "./refreshableGithubTools.js";
@@ -46,6 +47,8 @@ export async function runCursorFullPrReview(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  trustedContext?: string;
+  storedInlineFingerprints?: readonly string[];
 }): Promise<ReviewRunResult> {
   const {
     cfg,
@@ -57,6 +60,7 @@ export async function runCursorFullPrReview(params: {
     headSha,
     reviewMode,
     userSupplement,
+    trustedContext,
   } = params;
 
   if (!Number.isFinite(tokenExpiresAtTs)) {
@@ -101,6 +105,7 @@ export async function runCursorFullPrReview(params: {
       summaryCommentIdHint: params.summaryCommentIdHint,
       recordPublishStep: params.recordPublishStep,
       shouldAbortPublish: params.shouldAbortPublish,
+      storedInlineFingerprints: params.storedInlineFingerprints,
     });
 
   let submitBundle = buildSubmit();
@@ -124,16 +129,15 @@ export async function runCursorFullPrReview(params: {
   ];
   const model = getCursorModel(cfg.piModel);
 
-  const userContent = [
-    `Target repository: ${owner}/${repo}`,
-    `Pull request #: ${prNumber}`,
-    `Head commit SHA: ${headSha}`,
-    userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
-    "",
-    reviewMode === "review-security"
-      ? "Perform a deep security review of the PR diff using investigation tools, then call submitReview exactly once with a complete ReviewPayload."
-      : "Perform a full review using investigation tools, then call submitReview exactly once with a complete ReviewPayload.",
-  ].join("\n");
+  const userContent = buildReviewRunUserContent({
+    owner,
+    repo,
+    prNumber,
+    headSha,
+    reviewMode,
+    userSupplement,
+    trustedContext,
+  });
 
   const context: Context = {
     systemPrompt:

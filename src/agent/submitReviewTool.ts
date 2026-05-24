@@ -4,6 +4,7 @@ import type { Config } from "../config.js";
 import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { publishReview } from "./publishReview.js";
 import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
+import { prepareReviewPayloadForPublish } from "./reviewPrePublish.js";
 import { PUBLISH_BUDGET_EXHAUSTED_MESSAGE } from "../settings/index.js";
 import {
   coerceReviewPayloadInput,
@@ -55,6 +56,7 @@ export function buildSubmitReviewTool(params: {
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
+  storedInlineFingerprints?: readonly string[];
 }): {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
@@ -116,6 +118,22 @@ export function buildSubmitReviewTool(params: {
     }
 
     params.state.lastValidationError = null;
+
+    const prepared = prepareReviewPayloadForPublish({
+      payload: parsed.data,
+      mode,
+      cachedDiffIndex: params.cachedDiffIndex,
+      maxInlineFindings: params.cfg.maxReviewFindings,
+    });
+    if (!prepared.ok) {
+      params.state.lastValidationError = prepared.error;
+      logWarn("review_payload_semantic_validation_failed", {
+        mode,
+        message: prepared.error.slice(0, 200),
+      });
+      throw new Error(prepared.error);
+    }
+
     if (params.shouldAbortPublish) {
       let shouldAbort = false;
       try {
@@ -154,12 +172,14 @@ export function buildSubmitReviewTool(params: {
         mode,
         cfg: params.cfg,
         ...params.ctx,
-        payload: parsed.data,
+        payload: prepared.prepared.payload,
+        dedupedFindingCount: prepared.prepared.dedupedCount,
         publishState: params.state,
         cachedDiffIndex: params.cachedDiffIndex,
         shouldLinkToSummary: params.shouldLinkToSummary,
         summaryCommentIdHint: params.summaryCommentIdHint,
         recordPublishStep: params.recordPublishStep,
+        storedInlineFingerprints: params.storedInlineFingerprints,
       });
     } catch (e) {
       logWarn("review_publish_failed", {

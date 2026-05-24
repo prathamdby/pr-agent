@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { publishReview } from "../src/agent/publishReview.js";
+import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import * as reviewSchema from "../src/agent/reviewSchema.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 import {
@@ -15,6 +15,7 @@ import {
   cachedDiffForLines,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
+import { fingerprintFinding } from "../src/agent/reviewFindingFingerprint.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -88,7 +89,7 @@ describe("publishReview", () => {
 
   it("uses REQUEST_CHANGES for P1 and passes inline comments with agent fix prompt body", async () => {
     const publishState = testPublishState();
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
@@ -121,6 +122,43 @@ describe("publishReview", () => {
     expect(publishState.inlineReviewId).toBe(1);
   });
 
+  it("suppresses inline review when stored fingerprint matches", async () => {
+    const finding = payload.findings[0]!;
+    const stored = fingerprintFinding(finding, "review");
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      storedInlineFingerprints: [stored],
+    });
+
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(summaryBody).toContain("Summary only");
+    expect(summaryBody).toContain("Bug");
+  });
+
+  it("preserves stored fingerprints on inline_review step when all inline suppressed", async () => {
+    const finding = payload.findings[0]!;
+    const stored = fingerprintFinding(finding, "review");
+    const recordPublishStep = vi.fn(async () => undefined);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      storedInlineFingerprints: [stored],
+      recordPublishStep,
+    });
+
+    const inlineStep = recordPublishStep.mock.calls.find(([step]) => step === "inline_review");
+    expect(inlineStep).toBeDefined();
+    const meta = inlineStep?.[1]?.meta as { fingerprints?: string[] } | undefined;
+    expect(meta?.fingerprints).toEqual([stored]);
+  });
+
   it("bases review event on full findings not inline subset", async () => {
     const spy = vi.spyOn(reviewSchema, "reviewEventForFindings");
     const findings: ReviewPayload["findings"] = [
@@ -144,7 +182,7 @@ describe("publishReview", () => {
       },
     ];
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cachedDiffIndex: cachedDiffForFiles([
@@ -159,7 +197,7 @@ describe("publishReview", () => {
       payload: { ...payload, findings },
     });
 
-    expect(spy).toHaveBeenCalledWith(findings);
+    expect(spy).toHaveBeenCalledWith([findings[1], findings[0]]);
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
       "t",
       "o",
@@ -180,7 +218,7 @@ describe("publishReview", () => {
   ])("skips PR review when there are no P0–P2 findings ($label)", async ({ mode, sentinel }) => {
     const publishState = testPublishState();
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       ...(mode ? { mode } : {}),
       publishState,
@@ -202,7 +240,7 @@ describe("publishReview", () => {
   it("skips PR review when only P3 findings", async () => {
     const publishState = testPublishState();
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState,
       payload: {
@@ -226,7 +264,7 @@ describe("publishReview", () => {
   });
 
   it("uses COMMENT when only P2 findings", async () => {
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
@@ -249,7 +287,7 @@ describe("publishReview", () => {
     const publishState = testPublishState();
     publishState.inlinePublished = true;
 
-    await publishReview({ ...baseParams, publishState });
+    await publishReviewForTest({ ...baseParams, publishState });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
@@ -258,7 +296,7 @@ describe("publishReview", () => {
   it("still resolves inline comment URLs when inline review was published earlier", async () => {
     const publishState = testPublishState({ inlinePublished: true, inlineReviewId: 1 });
 
-    await publishReview({ ...baseParams, publishState, cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]) });
+    await publishReviewForTest({ ...baseParams, publishState, cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]) });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith("t", "o", "r", 1, 1);
@@ -268,7 +306,7 @@ describe("publishReview", () => {
 
   it("uses security sentinel and pointer with agent fix prompt when mode is review-security", async () => {
     const publishState = testPublishState();
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       mode: "review-security",
       publishState,
@@ -306,7 +344,7 @@ describe("publishReview", () => {
   it("skips setPullRequestLabels when exact effort label already exists", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
@@ -325,7 +363,7 @@ describe("publishReview", () => {
       "Possible security concern",
     ]);
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
@@ -342,7 +380,7 @@ describe("publishReview", () => {
   it("calls setPullRequestLabels when effort label value changes", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
@@ -364,7 +402,7 @@ describe("publishReview", () => {
       "https://github.com/o/r/pull/1#issuecomment-99",
     );
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       shouldLinkToSummary: true,
       summaryCommentIdHint: 99,
@@ -390,7 +428,7 @@ describe("publishReview", () => {
   it("falls back to plain pointer when shouldLinkToSummary but no verified comment", async () => {
     vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(undefined);
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       shouldLinkToSummary: true,
       publishState: testPublishState(),
@@ -414,7 +452,7 @@ describe("publishReview", () => {
     );
     const publishState = testPublishState();
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       shouldLinkToSummary: true,
       summaryCommentIdHint: 99,
@@ -444,7 +482,7 @@ describe("publishReview", () => {
       "https://github.com/o/r/pull/1#issuecomment-99",
     );
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       shouldLinkToSummary: true,
       publishState: testPublishState(),
@@ -471,7 +509,7 @@ describe("publishReview", () => {
     vi.mocked(setPullRequestLabels).mockRejectedValueOnce(new Error("labels forbidden"));
 
     await expect(
-      publishReview({
+      publishReviewForTest({
         ...baseParams,
         publishState: testPublishState(),
         cfg: {
@@ -487,7 +525,7 @@ describe("publishReview", () => {
 
   it("publishes summary when inline anchors are invalid", async () => {
     const publishState = testPublishState();
-    await publishReview({ ...baseParams, publishState });
+    await publishReviewForTest({ ...baseParams, publishState });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
@@ -507,7 +545,7 @@ describe("publishReview", () => {
     );
     const publishState = testPublishState();
 
-    await publishReview({
+    await publishReviewForTest({
       ...baseParams,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),

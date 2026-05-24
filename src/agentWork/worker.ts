@@ -5,12 +5,16 @@ import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
+import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
+import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
+import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { logDebug, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import {
   getReviewPublishState,
+  getStoredInlineFingerprints,
   getSummaryCommentGithubId,
   hasPriorCompletedSummaryPublish,
   recordPublishStep,
@@ -214,6 +218,38 @@ async function handleReviewJob(
         : null;
       let installation = env.installation;
       const headSha = env.headSha;
+
+      const preflight = await fetchReviewPreflightMetadata(
+        installation.token,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        { maxPrFilesListed: cfg.maxPrFilesListed },
+      );
+      const storedInlineFingerprints = await getStoredInlineFingerprints(
+        pool,
+        item.resourceKey,
+        reviewLens,
+      );
+      const trustedContext = buildTrustedReviewContextBlock(preflight);
+
+      if (
+        await tryLightweightAutoReviewCompletion(pool, {
+          item,
+          reviewLens,
+          token: installation.token,
+          preflight,
+        })
+      ) {
+        logInfo("review_lightweight_completion", {
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+          reviewLens,
+        });
+        return { degraded: false };
+      }
+
       const result = await runFullPrReview({
         cfg,
         token: installation.token,
@@ -225,6 +261,8 @@ async function handleReviewJob(
         headSha,
         mode: reviewLens,
         userSupplement: payload.userSupplement,
+        trustedContext,
+        storedInlineFingerprints,
         shouldLinkToSummary,
         summaryCommentIdHint,
         initialPublishState: {

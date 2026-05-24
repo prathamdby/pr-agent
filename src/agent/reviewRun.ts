@@ -40,6 +40,7 @@ import {
   reviewSummarySentinelForMode,
   type ReviewMode,
 } from "./reviewSchema.js";
+import { buildReviewRunUserContent } from "./reviewUserMessage.js";
 import {
   bumpRateLimitConsecutiveFailures,
   classifyGithubToolError,
@@ -98,6 +99,8 @@ export async function runFullPrReview(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  trustedContext?: string;
+  storedInlineFingerprints?: readonly string[];
 }): Promise<ReviewRunResult> {
   const {
     cfg,
@@ -109,6 +112,7 @@ export async function runFullPrReview(params: {
     prNumber,
     headSha,
     userSupplement,
+    trustedContext,
   } = params;
   if (!Number.isFinite(tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
@@ -146,6 +150,7 @@ export async function runFullPrReview(params: {
     summaryCommentIdHint: params.summaryCommentIdHint,
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
+    storedInlineFingerprints: params.storedInlineFingerprints,
   });
 
   const reviewGithubExecutors = { ...gh.executors };
@@ -160,16 +165,15 @@ export async function runFullPrReview(params: {
 
   const model = getModel(cfg.piProvider, cfg.piModel as never);
 
-  const userContent = [
-    `Target repository: ${owner}/${repo}`,
-    `Pull request #: ${prNumber}`,
-    `Head commit SHA: ${headSha}`,
-    userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
-    "",
-    reviewMode === "review-security"
-      ? "Perform a deep security review of the PR diff using investigation tools, then call submitReview exactly once with a complete ReviewPayload."
-      : "Perform a full review using investigation tools, then call submitReview exactly once with a complete ReviewPayload.",
-  ].join("\n");
+  const userContent = buildReviewRunUserContent({
+    owner,
+    repo,
+    prNumber,
+    headSha,
+    reviewMode,
+    userSupplement,
+    trustedContext,
+  });
 
   const context: Context = {
     systemPrompt:

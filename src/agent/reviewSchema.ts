@@ -4,10 +4,10 @@ import {
   MAX_REVIEW_FOLLOW_UPS,
   REVIEW_EFFORT_MAX,
   REVIEW_EFFORT_MIN,
-  REVIEW_SEVERITY_RANK,
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
 } from "../settings/index.js";
+import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 
 export {
   REVIEW_SUMMARY_SENTINEL,
@@ -247,7 +247,7 @@ export function selectInlineFindings(
   maxFindings: number,
 ): ReviewFinding[] {
   const inline = findings.filter((f) => isInlineSeverity(f.severity));
-  inline.sort((a, b) => REVIEW_SEVERITY_RANK[a.severity] - REVIEW_SEVERITY_RANK[b.severity]);
+  inline.sort(compareReviewFindingsBySeverityFileLine);
   return inline.slice(0, maxFindings);
 }
 

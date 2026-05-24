@@ -49,6 +49,34 @@ export const REVIEW_SECURITY_DEFAULT = "No security concerns identified";
 export const REVIEW_PROGRESS_SOURCE_AUTO = "Pull request update";
 export const REVIEW_PROGRESS_SOURCE_SLASH = "slash command";
 
+/** Lightweight review completion (docs-only auto-review skip). */
+export const LIGHTWEIGHT_REVIEW_COMPLETION_LEAD =
+  "No deep review run: this automated review was skipped because the change set is documentation-only.";
+export const LIGHTWEIGHT_REVIEW_COMPLETION_REASON = "Documentation-only change set";
+export const LIGHTWEIGHT_REVIEW_COMPLETION_HINT = "Use /review for a full review.";
+
+/** Review budget tier thresholds (advisory hints only). */
+export const REVIEW_SIZE_TIER_SMALL_MAX_FILES = 10;
+export const REVIEW_SIZE_TIER_MEDIUM_MAX_FILES = 50;
+export const REVIEW_SIZE_TIER_LARGE_MIN_CHANGES = 2000;
+
+/** Risk path hints for trusted review context (prompt guidance). */
+export const REVIEW_RISK_PATH_PATTERNS: Readonly<
+  Record<"auth" | "migration" | "config" | "security" | "test", readonly RegExp[]>
+> = {
+  auth: [/(^|\/)auth(?:\/|$)/i, /(^|\/)login(?:\/|$)/i, /(^|\/)session(?:\/|$)/i],
+  migration: [/(^|\/)migrations?\//i, /\.sql$/i],
+  config: [
+    /(^|\/)\.env/i,
+    /(^|\/)config(?:\/|\.)/i,
+    /(^|\/)settings(?:\/|\.)/i,
+    /\.ya?ml$/i,
+    /\.json$/i,
+  ],
+  security: [/(^|\/)security(?:\/|$)/i, /(^|\/)crypto(?:\/|$)/i, /(^|\/)secrets?\//i],
+  test: [/(^|\/)test(?:s)?\//i, /\.test\.[a-z]+$/i, /\.spec\.[a-z]+$/i],
+};
+
 export const MAX_REVIEW_FOLLOW_UPS = 5;
 export const REVIEW_EFFORT_MIN = 1;
 export const REVIEW_EFFORT_MAX = 5;
