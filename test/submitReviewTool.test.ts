@@ -197,6 +197,42 @@ describe("submitReview tool", () => {
     expect(publishReview).toHaveBeenCalledTimes(1);
   });
 
+  it("allows submit with invalid anchors when enforcement is waived", async () => {
+    const state = createSubmitReviewState();
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [{ filename: "a.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") }],
+    });
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      state,
+      cachedDiffIndex: index,
+      canEnforceDiffCacheBeforeSubmit: () => false,
+    });
+    const payload = {
+      prCharacter: "Does things.",
+      findings: [
+        {
+          severity: "P1" as const,
+          file: "a.ts",
+          startLine: 99,
+          endLine: 99,
+          title: "Bad anchor",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+      ],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+    await executor(payload);
+    expect(publishReview).toHaveBeenCalledTimes(1);
+  });
+
   it("allows submit when diff cache is ingested but has no files", async () => {
     const state = createSubmitReviewState();
     const index = createCachedPrDiffIndex();
@@ -210,7 +246,17 @@ describe("submitReview tool", () => {
     });
     const valid = {
       prCharacter: "Does things.",
-      findings: [],
+      findings: [
+        {
+          severity: "P1" as const,
+          file: "src/x.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Zero-file PR",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+      ],
       estimatedEffort: 1,
       relevantTests: "no" as const,
       securityConcerns: null,

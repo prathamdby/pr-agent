@@ -164,6 +164,30 @@ describe("validateReviewPayload", () => {
     ).toBe(true);
   });
 
+  it("accepts cap-eligible P1 when diff cache is ingested with zero files", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, { files: [] });
+
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "src/x.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "Zero-file PR",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+        }),
+        cachedDiffIndex: index,
+      }).ok,
+    ).toBe(true);
+  });
+
   it("accepts cap-eligible P1 when diff cache is truncated and file is absent", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {

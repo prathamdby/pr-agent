@@ -28,7 +28,9 @@ function validatePlacementAnchor(
   placement: InlinePlacement,
   index: number,
   diffIndex: CachedPrDiffIndex | undefined,
+  enforceInlineAnchorValidation: boolean,
 ): AnchorFailure | null {
+  if (!enforceInlineAnchorValidation) return null;
   if (!placement.inlineCapEligible) return null;
   if (placement.inlineLine != null) return null;
   if (!diffIndex) return null;
@@ -36,6 +38,7 @@ function validatePlacementAnchor(
   const entry = diffIndex.files.get(finding.file);
   if (!entry) {
     if (diffIndex.truncated) return null;
+    if (diffIndex.listPullRequestFilesIngested && diffIndex.files.size === 0) return null;
     return {
       file: finding.file,
       startLine: finding.startLine,
@@ -74,6 +77,7 @@ export function validateReviewPayload(params: {
   payload: ReviewPayload;
   cachedDiffIndex?: CachedPrDiffIndex;
   maxInlineFindings?: number;
+  enforceInlineAnchorValidation?: boolean;
 }): ReviewPayloadValidationResult {
   const overviewFields: Array<[string, string | null | undefined]> = [
     ["prCharacter", params.payload.prCharacter],
@@ -98,6 +102,7 @@ export function validateReviewPayload(params: {
     }
   }
 
+  const enforceInlineAnchorValidation = params.enforceInlineAnchorValidation ?? true;
   const placements = planInlinePlacements(
     params.payload.findings,
     params.maxInlineFindings ?? DEFAULT_MAX_REVIEW_FINDINGS,
@@ -105,7 +110,12 @@ export function validateReviewPayload(params: {
   );
   const anchorFailures: AnchorFailure[] = [];
   for (const [index, placement] of placements.entries()) {
-    const anchorError = validatePlacementAnchor(placement, index, params.cachedDiffIndex);
+    const anchorError = validatePlacementAnchor(
+      placement,
+      index,
+      params.cachedDiffIndex,
+      enforceInlineAnchorValidation,
+    );
     if (anchorError) anchorFailures.push(anchorError);
   }
 

@@ -106,11 +106,13 @@ export function buildSubmitReviewTool(params: {
       throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
     }
 
+    const enforceDiffAndAnchors = params.canEnforceDiffCacheBeforeSubmit?.() ?? true;
+
     if (
       params.cfg.reviewRequireDiffCacheBeforeSubmit &&
       params.cachedDiffIndex &&
       !params.cachedDiffIndex.listPullRequestFilesIngested &&
-      (params.canEnforceDiffCacheBeforeSubmit?.() ?? true)
+      enforceDiffAndAnchors
     ) {
       recordReviewMetric({ kind: "diff_cache_empty_at_submit" });
       throw new Error(REVIEW_DIFF_CACHE_REQUIRED_MESSAGE);
@@ -151,6 +153,7 @@ export function buildSubmitReviewTool(params: {
       mode,
       cachedDiffIndex: params.cachedDiffIndex,
       maxInlineFindings: params.cfg.maxReviewFindings,
+      enforceInlineAnchorValidation: enforceDiffAndAnchors,
     });
     if (!prepared.ok) {
       params.state.lastValidationError = prepared.error;

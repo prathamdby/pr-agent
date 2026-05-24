@@ -15,6 +15,7 @@ export function prepareReviewPayloadForPublish(params: {
   mode: ReviewMode;
   cachedDiffIndex?: CachedPrDiffIndex;
   maxInlineFindings?: number;
+  enforceInlineAnchorValidation?: boolean;
 }):
   | { ok: true; prepared: PreparedReviewPayload }
   | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
@@ -27,6 +28,7 @@ export function prepareReviewPayloadForPublish(params: {
     payload,
     cachedDiffIndex: params.cachedDiffIndex,
     maxInlineFindings: params.maxInlineFindings,
+    enforceInlineAnchorValidation: params.enforceInlineAnchorValidation,
   });
   if (!validation.ok) {
     return {
