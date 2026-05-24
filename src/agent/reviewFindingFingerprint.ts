@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { InlinePlacement } from "./reviewLocationValidation.js";
 import type { ReviewFinding, ReviewMode } from "./reviewSchema.js";
 
-function normalizeFingerprintText(text: string): string {
+export function normalizeFindingSubstance(text: string): string {
   return text
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, " ")
@@ -16,8 +16,8 @@ export function fingerprintFinding(finding: ReviewFinding, mode: ReviewMode): st
     finding.file,
     String(finding.startLine),
     String(finding.endLine),
-    normalizeFingerprintText(finding.title),
-    normalizeFingerprintText(finding.detail),
+    normalizeFindingSubstance(finding.title),
+    normalizeFindingSubstance(finding.detail),
   ].join("|");
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 16);
 }

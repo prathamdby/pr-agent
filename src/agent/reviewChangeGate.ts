@@ -35,7 +35,6 @@ export function isDocsOnlyPath(filename: string): boolean {
   const base = path.basename(filename);
   const lower = filename.toLowerCase();
 
-  if (lower.endsWith(".md")) return true;
   if (isDocsDirPath(filename, base)) return true;
   if (isRootDocBasename(base)) return true;
   if (lower.startsWith(".github/") && lower.endsWith(".md")) return true;

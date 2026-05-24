@@ -3,7 +3,41 @@ import { dedupeReviewFindings } from "../src/agent/reviewFindingDedup.js";
 import type { ReviewFinding } from "../src/agent/reviewSchema.js";
 
 describe("dedupeReviewFindings", () => {
-  it("drops overlapping findings on the same file", () => {
+  it("drops overlapping findings with the same substance on the same file", () => {
+    const first: ReviewFinding = {
+      severity: "P0",
+      file: "src/a.ts",
+      startLine: 10,
+      endLine: 12,
+      title: "Race",
+      detail: "d1",
+      fixPrompt: "fix 1",
+    };
+    const second: ReviewFinding = {
+      severity: "P1",
+      file: "src/a.ts",
+      startLine: 11,
+      endLine: 13,
+      title: "Race",
+      detail: "d1",
+      fixPrompt: "fix 2",
+    };
+    const third: ReviewFinding = {
+      severity: "P2",
+      file: "src/b.ts",
+      startLine: 1,
+      endLine: 1,
+      title: "Other file",
+      detail: "d3",
+      fixPrompt: "fix 3",
+    };
+    const deduped = dedupeReviewFindings([second, third, first]);
+    expect(deduped).toHaveLength(2);
+    expect(deduped[0]?.severity).toBe("P0");
+    expect(deduped.some((f) => f.file === "src/b.ts")).toBe(true);
+  });
+
+  it("keeps overlapping lines when title or detail differs", () => {
     const first: ReviewFinding = {
       severity: "P0",
       file: "src/a.ts",
@@ -22,19 +56,7 @@ describe("dedupeReviewFindings", () => {
       detail: "d2",
       fixPrompt: "fix 2",
     };
-    const third: ReviewFinding = {
-      severity: "P2",
-      file: "src/b.ts",
-      startLine: 1,
-      endLine: 1,
-      title: "Other file",
-      detail: "d3",
-      fixPrompt: "fix 3",
-    };
-    const deduped = dedupeReviewFindings([second, third, first]);
-    expect(deduped).toHaveLength(2);
-    expect(deduped[0]?.severity).toBe("P0");
-    expect(deduped.some((f) => f.file === "src/b.ts")).toBe(true);
+    expect(dedupeReviewFindings([second, first])).toHaveLength(2);
   });
 
   it("keeps non-overlapping lines on the same file", () => {

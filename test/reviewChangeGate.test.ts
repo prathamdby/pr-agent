@@ -13,6 +13,7 @@ describe("isDocsOnlyPath", () => {
   it("rejects code and config paths", () => {
     expect(isDocsOnlyPath(".env.example")).toBe(false);
     expect(isDocsOnlyPath("src/index.ts")).toBe(false);
+    expect(isDocsOnlyPath("src/notes.md")).toBe(false);
     expect(isDocsOnlyPath(".github/workflows/ci.yml")).toBe(false);
     expect(isDocsOnlyPath("package.json")).toBe(false);
   });
