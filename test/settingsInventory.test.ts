@@ -51,16 +51,16 @@ describe("settings inventory", () => {
     const content = fs.readFileSync(ENV_EXAMPLE_PATH, "utf8");
     const documented = parseEnvExampleKeys(content);
     const readExample = (key: string): string | undefined => {
-      const line = content
-        .split("\n")
-        .find((l) => l.trim().startsWith(`${key}=`));
+      const line = content.split("\n").find((l) => l.trim().startsWith(`${key}=`));
       if (!line) return undefined;
       return line.split("=")[1]?.trim();
     };
 
     expect(readExample(ENV.MAX_REVIEW_FINDINGS)).toBe(String(DEFAULT_MAX_REVIEW_FINDINGS));
     expect(readExample(ENV.MAX_PR_FILES_LISTED)).toBe(String(DEFAULT_MAX_PR_FILES_LISTED));
-    expect(readExample(ENV.MAX_PR_FILES_PATCH_BYTES)).toBe(String(DEFAULT_MAX_PR_FILES_PATCH_BYTES));
+    expect(readExample(ENV.MAX_PR_FILES_PATCH_BYTES)).toBe(
+      String(DEFAULT_MAX_PR_FILES_PATCH_BYTES),
+    );
     expect(documented.length).toBeGreaterThan(20);
   });
 });

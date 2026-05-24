@@ -1,22 +1,15 @@
 import {
   type Api,
   type AssistantMessage,
-  type AssistantMessageEventStream,
-  type Context,
   createAssistantMessageEventStream,
   type Model,
-  type SimpleStreamOptions,
   type StreamFunction,
-  type StreamOptions,
 } from "@earendil-works/pi-ai";
 import { Agent, CursorAgentError } from "@cursor/sdk";
 import { approximateCursorUsage, buildCursorPrompt } from "./promptBuilder.js";
 import { createMcpBridge } from "./mcpBridge.js";
 import { detachCursorRunContext, getCursorRunContext } from "./runContext.js";
-import {
-  formatCursorRunError,
-  formatCursorStartupError,
-} from "./errors.js";
+import { formatCursorRunError, formatCursorStartupError } from "./errors.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
   return {
@@ -55,11 +48,7 @@ function extractFinalText(result: unknown, streamedText: string): string {
   return "";
 }
 
-export const streamCursor: StreamFunction<"cursor-sdk", StreamOptions> = (
-  model,
-  context,
-  options,
-) => {
+export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, options) => {
   const stream = createAssistantMessageEventStream();
 
   void (async () => {
@@ -121,9 +110,7 @@ export const streamCursor: StreamFunction<"cursor-sdk", StreamOptions> = (
             if (update.type === "text-delta" && "text" in update && update.text) {
               const delta = update.text;
               textDeltas.push(delta);
-              const index = partial.content.findIndex(
-                (block) => block.type === "text",
-              );
+              const index = partial.content.findIndex((block) => block.type === "text");
               if (index >= 0 && partial.content[index]?.type === "text") {
                 partial.content[index].text += delta;
               } else {
@@ -195,7 +182,7 @@ export const streamCursor: StreamFunction<"cursor-sdk", StreamOptions> = (
   return stream;
 };
 
-export const streamSimpleCursor: StreamFunction<"cursor-sdk", SimpleStreamOptions> = streamCursor;
+export const streamSimpleCursor: StreamFunction<"cursor-sdk"> = streamCursor;
 
 export function registerCursorStreamProvider(): void {
   // re-export hook for tests

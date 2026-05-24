@@ -9,10 +9,7 @@ import {
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 
-export {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../settings/index.js";
+export { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
 export type ReviewMode = "review" | "review-security";
 

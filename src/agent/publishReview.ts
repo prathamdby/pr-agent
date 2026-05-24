@@ -276,10 +276,7 @@ export async function publishReview(
         prNumber,
         inlineReviewId,
       );
-      summaryPlacements = enrichPlacementsWithInlineCommentUrls(
-        summaryPlacements,
-        reviewComments,
-      );
+      summaryPlacements = enrichPlacementsWithInlineCommentUrls(summaryPlacements, reviewComments);
     } catch (e) {
       logWarn("review_inline_comment_urls_failed", {
         mode,

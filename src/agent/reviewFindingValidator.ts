@@ -1,7 +1,11 @@
 import { DEFAULT_MAX_REVIEW_FINDINGS } from "../settings/index.js";
 import { containsInternalFailurePhrasing } from "./publicOutputSanitizer.js";
 import type { ReviewPayload } from "./reviewSchema.js";
-import { planInlinePlacements, type CachedPrDiffIndex, type InlinePlacement } from "./reviewLocationValidation.js";
+import {
+  planInlinePlacements,
+  type CachedPrDiffIndex,
+  type InlinePlacement,
+} from "./reviewLocationValidation.js";
 
 function validatePlacementAnchor(placement: InlinePlacement, index: number): string | null {
   if (!placement.inlinePosted) return null;

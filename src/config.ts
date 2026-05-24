@@ -160,7 +160,9 @@ export function loadConfig() {
     throw new Error("ACK_CONCURRENCY must be a positive number");
   }
 
-  const queueRetryLimit = Number(optionalEnv(ENV.QUEUE_RETRY_LIMIT, String(DEFAULT_QUEUE_RETRY_LIMIT)));
+  const queueRetryLimit = Number(
+    optionalEnv(ENV.QUEUE_RETRY_LIMIT, String(DEFAULT_QUEUE_RETRY_LIMIT)),
+  );
   if (!Number.isFinite(queueRetryLimit) || queueRetryLimit < 0) {
     throw new Error("QUEUE_RETRY_LIMIT must be zero or a positive number");
   }
@@ -248,8 +250,10 @@ export function loadConfig() {
     optionalEnv(ENV.ENABLE_REVIEW_LABELS_EFFORT, String(DEFAULT_ENABLE_REVIEW_LABELS_EFFORT)) ===
     "true";
   const enableReviewLabelsSecurity =
-    optionalEnv(ENV.ENABLE_REVIEW_LABELS_SECURITY, String(DEFAULT_ENABLE_REVIEW_LABELS_SECURITY)) ===
-    "true";
+    optionalEnv(
+      ENV.ENABLE_REVIEW_LABELS_SECURITY,
+      String(DEFAULT_ENABLE_REVIEW_LABELS_SECURITY),
+    ) === "true";
 
   const maxPrFilesListed = Number(
     optionalEnv(ENV.MAX_PR_FILES_LISTED, String(DEFAULT_MAX_PR_FILES_LISTED)),

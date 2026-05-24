@@ -173,7 +173,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       }
       const args =
         request.params.arguments && typeof request.params.arguments === "object"
-          ? (request.params.arguments as Record<string, unknown>)
+          ? request.params.arguments
           : {};
       const out = await runWithAbortSignal(() => exec(args), abortController.signal);
       return executorResultToMcp(out);

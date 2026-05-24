@@ -9,12 +9,7 @@ function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: numbe
 function isDuplicateFinding(existing: ReviewFinding, candidate: ReviewFinding): boolean {
   if (existing.file !== candidate.file) return false;
   if (
-    !rangesOverlap(
-      existing.startLine,
-      existing.endLine,
-      candidate.startLine,
-      candidate.endLine,
-    )
+    !rangesOverlap(existing.startLine, existing.endLine, candidate.startLine, candidate.endLine)
   ) {
     return false;
   }

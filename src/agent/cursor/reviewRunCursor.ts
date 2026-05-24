@@ -3,7 +3,7 @@ import { logInfo, logWarn } from "../../evlog.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "../../agentWork/progressComment.js";
 import { complete } from "@earendil-works/pi-ai";
-import type { AssistantMessage, Context, Tool as PiTool } from "@earendil-works/pi-ai";
+import type { Context, Tool as PiTool } from "@earendil-works/pi-ai";
 import { buildContext7Tools } from "../context7Tools.js";
 import { buildGithubTools } from "../githubTools.js";
 import {
@@ -122,11 +122,7 @@ export async function runCursorFullPrReview(params: {
     return submitBundle.executor(args);
   };
 
-  const piTools: PiTool[] = [
-    ...refreshableGh.bundle.piTools,
-    ...ctx7.piTools,
-    submitBundle.piTool,
-  ];
+  const piTools: PiTool[] = [...refreshableGh.bundle.piTools, ...ctx7.piTools, submitBundle.piTool];
   const model = getCursorModel(cfg.piModel);
 
   const userContent = buildReviewRunUserContent({
@@ -167,7 +163,13 @@ export async function runCursorFullPrReview(params: {
     },
   });
 
-  logInfo("cursor_review_started", { owner, repo, pr: prNumber, mode: reviewMode, model: model.id });
+  logInfo("cursor_review_started", {
+    owner,
+    repo,
+    pr: prNumber,
+    mode: reviewMode,
+    model: model.id,
+  });
 
   const lastAssistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
 

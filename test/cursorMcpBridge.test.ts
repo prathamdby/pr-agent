@@ -32,7 +32,7 @@ describe("createMcpBridge", () => {
     });
     try {
       const config = bridge.mcpServers["pr-agent"];
-      const res = await fetch(config!.url!, { method: "POST" });
+      const res = await fetch(config.url, { method: "POST" });
       expect(res.status).toBe(401);
     } finally {
       await bridge.dispose();

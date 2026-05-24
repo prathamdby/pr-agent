@@ -2,16 +2,6 @@ import type { Config } from "../config.js";
 import type { CodeAnchor } from "../agent/askRun.js";
 import type { ReviewMode } from "../agent/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
-import {
-  ACK_DEAD_LETTER_QUEUE,
-  ACK_QUEUE,
-  ASK_DEAD_LETTER_QUEUE,
-  ASK_QUEUE,
-  DEFERRED_HEAD_SHA,
-  REVIEW_DEAD_LETTER_QUEUE,
-  REVIEW_QUEUE,
-} from "../settings/index.js";
-
 export {
   ACK_DEAD_LETTER_QUEUE,
   ACK_QUEUE,

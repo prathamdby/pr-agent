@@ -11,11 +11,11 @@ Code entry points:
 
 ## When you change a knob
 
-| Change | Update |
-|--------|--------|
-| New or renamed env var | `envKeys.ts`, `defaults.ts`, `config.ts`, `.env.example`, `docs/configuration.md` |
-| New or changed code constant | `constants.ts`, `docs/configuration.md` |
-| Default value only | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md` |
+| Change                       | Update                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| New or renamed env var       | `envKeys.ts`, `defaults.ts`, `config.ts`, `.env.example`, `docs/configuration.md` |
+| New or changed code constant | `constants.ts`, `docs/configuration.md`                                           |
+| Default value only           | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md`      |
 
 Do not add magic numbers or env default strings in feature modules; import from `src/settings/`.
 
@@ -29,11 +29,11 @@ Long investigator prompt blocks stay in `src/agent/*Prompt*.ts`. Only numeric li
 
 ### Services overview
 
-| Service | How to run | Notes |
-|---------|-----------|-------|
-| Postgres 16 | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles |
-| Web (webhook intake) | `ROLE=web node --env-file=.env --import tsx src/index.ts` | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
-| Worker (reviews/asks) | `ROLE=worker node --env-file=.env --import tsx src/index.ts` | Needs a running web role to receive work |
+| Service               | How to run                                                                                                                                               | Notes                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Postgres 16           | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                       |
+| Web (webhook intake)  | `ROLE=web node --env-file=.env --import tsx src/index.ts`                                                                                                | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
+| Worker (reviews/asks) | `ROLE=worker node --env-file=.env --import tsx src/index.ts`                                                                                             | Needs a running web role to receive work                     |
 
 ### Gotchas
 

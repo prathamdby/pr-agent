@@ -26,8 +26,7 @@ export function createRefreshableToolExecutors(params: {
   let built = params.build(activeToken);
   const executorStore: Record<string, CursorExecutor> = { ...built.executors };
   let bundle: ToolExecutorBundle = { piTools: built.piTools, executors: executorStore };
-  const githubExecutorNames =
-    params.githubToolNames ?? new Set(Object.keys(executorStore));
+  const githubExecutorNames = params.githubToolNames ?? new Set(Object.keys(executorStore));
 
   const refreshBeforeTool = async (toolName: string): Promise<void> => {
     if (!githubExecutorNames.has(toolName)) return;

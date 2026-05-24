@@ -1,7 +1,4 @@
-import {
-  PUBLIC_OUTPUT_BANNED_PATTERNS,
-  PUBLIC_OUTPUT_REDACTION,
-} from "../settings/index.js";
+import { PUBLIC_OUTPUT_BANNED_PATTERNS, PUBLIC_OUTPUT_REDACTION } from "../settings/index.js";
 import type { ReviewPayload } from "./reviewSchema.js";
 
 export { PUBLIC_OUTPUT_REDACTION } from "../settings/index.js";

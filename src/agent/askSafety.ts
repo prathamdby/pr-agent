@@ -1,21 +1,16 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import {
-  ASK_META_REFUSAL,
   ASK_TOOLS_WITH_OWNER_REPO,
   ASK_TOOLS_WITH_PULL_NUMBER,
   BOT_META_PATTERNS,
   BOT_SECRET_PATTERNS,
-  MAX_ASK_QUESTION_CHARS,
   SENSITIVE_PATH_PATTERNS,
 } from "../settings/index.js";
 import { buildGithubTools } from "./githubTools.js";
 
 export type AskQuestionIntent = "code" | "bot_meta";
 
-export {
-  ASK_META_REFUSAL,
-  MAX_ASK_QUESTION_CHARS,
-} from "../settings/index.js";
+export { ASK_META_REFUSAL, MAX_ASK_QUESTION_CHARS } from "../settings/index.js";
 
 export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
   for (const pattern of BOT_META_PATTERNS) {

@@ -114,8 +114,8 @@ describe("renderReviewSummaryComment", () => {
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: [
-        ...testPlacements([payload.findings[0]!]),
-        ...testPlacements([payload.findings[1]!], { inlinePosted: false }),
+        ...testPlacements([payload.findings[0]]),
+        ...testPlacements([payload.findings[1]], { inlinePosted: false }),
       ],
     });
     expect(body).toContain("<strong>P0</strong>");

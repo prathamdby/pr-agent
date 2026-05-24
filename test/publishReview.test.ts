@@ -123,7 +123,7 @@ describe("publishReview", () => {
   });
 
   it("suppresses inline review when stored fingerprint matches", async () => {
-    const finding = payload.findings[0]!;
+    const finding = payload.findings[0];
     const stored = fingerprintFinding(finding, "review");
 
     await publishReviewForTest({
@@ -141,7 +141,7 @@ describe("publishReview", () => {
   });
 
   it("preserves stored fingerprints on inline_review step when all inline suppressed", async () => {
-    const finding = payload.findings[0]!;
+    const finding = payload.findings[0];
     const stored = fingerprintFinding(finding, "review");
     const recordPublishStep = vi.fn(async () => undefined);
 
@@ -296,7 +296,11 @@ describe("publishReview", () => {
   it("still resolves inline comment URLs when inline review was published earlier", async () => {
     const publishState = testPublishState({ inlinePublished: true, inlineReviewId: 1 });
 
-    await publishReviewForTest({ ...baseParams, publishState, cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]) });
+    await publishReviewForTest({
+      ...baseParams,
+      publishState,
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith("t", "o", "r", 1, 1);

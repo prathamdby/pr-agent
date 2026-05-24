@@ -39,7 +39,8 @@ describe("validateReviewPayload", () => {
               startLine: 1,
               endLine: 1,
               title: "submitReview retry path missing guard",
-              detail: "The submitReview handler should check publish budget before calling GitHub API.",
+              detail:
+                "The submitReview handler should check publish budget before calling GitHub API.",
               fixPrompt: "Add a guard in submitReview before createPullRequestReviewWithComments.",
             },
           ],

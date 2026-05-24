@@ -11,7 +11,9 @@ export function buildTrustedReviewContextBlock(metadata: ReviewPreflightMetadata
     truncated: metadata.truncated,
   });
 
-  return [formatReviewPathProfileBlock(pathProfile), "", formatReviewSizeBudgetBlock(sizeBudget)].join(
-    "\n",
-  );
+  return [
+    formatReviewPathProfileBlock(pathProfile),
+    "",
+    formatReviewSizeBudgetBlock(sizeBudget),
+  ].join("\n");
 }

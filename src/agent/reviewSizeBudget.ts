@@ -52,7 +52,9 @@ export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget): string {
     lines.push("- Change set truncated: treat coverage as partial and note limits in prCharacter.");
   }
   if (budget.tier === "large") {
-    lines.push("- Large PR: prioritize high-risk paths and P0-P2 findings with clear trigger paths.");
+    lines.push(
+      "- Large PR: prioritize high-risk paths and P0-P2 findings with clear trigger paths.",
+    );
   }
   return lines.join("\n");
 }

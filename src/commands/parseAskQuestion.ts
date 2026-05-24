@@ -1,8 +1,4 @@
-import {
-  ASK_USAGE_HINT,
-  MAX_ASK_QUESTION_CHARS,
-  askQuestionTooLongHint,
-} from "../settings/index.js";
+import { MAX_ASK_QUESTION_CHARS, askQuestionTooLongHint } from "../settings/index.js";
 
 export { ASK_USAGE_HINT } from "../settings/index.js";
 

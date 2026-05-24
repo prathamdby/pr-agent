@@ -49,7 +49,10 @@ export function buildCursorPrompt(context: Context): { text: string; inputChars:
   return { text, inputChars: text.length };
 }
 
-export function approximateCursorUsage(inputChars: number, outputChars: number): {
+export function approximateCursorUsage(
+  inputChars: number,
+  outputChars: number,
+): {
   input: number;
   output: number;
   totalTokens: number;

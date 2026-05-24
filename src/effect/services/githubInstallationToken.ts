@@ -40,7 +40,11 @@ export const GithubInstallationTokenLive = Layer.effect(
             store,
             (map): readonly [StoreAction, Map<number, Entry>] => {
               const hit = map.get(installationId);
-              if (hit && hit.tag === "value" && hit.token.expiresAtTs - TOKEN_FRESHNESS_BUFFER_MS > now) {
+              if (
+                hit &&
+                hit.tag === "value" &&
+                hit.token.expiresAtTs - TOKEN_FRESHNESS_BUFFER_MS > now
+              ) {
                 return [{ tag: "hit", token: hit.token }, map];
               }
               if (hit && hit.tag === "pending") {

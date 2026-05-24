@@ -32,14 +32,17 @@ function placement(
 describe("enrichPlacementsWithInlineCommentUrls", () => {
   it("attaches html_url for matching path and posted line", () => {
     const f = finding();
-    const [enriched] = enrichPlacementsWithInlineCommentUrls([placement(f)], [
-      {
-        path: "src/x.ts",
-        line: 4,
-        id: 99,
-        url: "https://github.com/acme/widgets/pull/42#discussion_r99",
-      },
-    ]);
+    const [enriched] = enrichPlacementsWithInlineCommentUrls(
+      [placement(f)],
+      [
+        {
+          path: "src/x.ts",
+          line: 4,
+          id: 99,
+          url: "https://github.com/acme/widgets/pull/42#discussion_r99",
+        },
+      ],
+    );
     expect(enriched?.inlineCommentUrl).toBe(
       "https://github.com/acme/widgets/pull/42#discussion_r99",
     );
