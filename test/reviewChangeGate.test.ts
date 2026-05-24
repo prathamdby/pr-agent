@@ -22,6 +22,16 @@ describe("isDocsOnlyPath", () => {
     expect(isDocsOnlyPath("license-check.sh")).toBe(false);
     expect(isDocsOnlyPath("changelog-generator.js")).toBe(false);
   });
+
+  it("rejects non-documentation files under docs/", () => {
+    expect(isDocsOnlyPath("docs/run.sh")).toBe(false);
+    expect(isDocsOnlyPath("docs/snippets/helper.ts")).toBe(false);
+  });
+
+  it("accepts markdown and mdx under docs/", () => {
+    expect(isDocsOnlyPath("docs/guide.md")).toBe(true);
+    expect(isDocsOnlyPath("docs/reference.mdx")).toBe(true);
+  });
 });
 
 describe("evaluateTrivialChangeExemption", () => {

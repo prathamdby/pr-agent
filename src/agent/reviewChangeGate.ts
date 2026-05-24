@@ -16,6 +16,12 @@ export type TrivialChangeGateResult =
   | { readonly exempt: false; readonly reason: "truncated" | "empty" | "not_docs_only" };
 
 const ROOT_DOC_STEM = /^(readme|license|changelog)$/i;
+const DOCS_DIR_EXTENSIONS = new Set([".md", ".mdx"]);
+
+function isDocsDirPath(filename: string, base: string): boolean {
+  if (!filename.toLowerCase().startsWith("docs/")) return false;
+  return DOCS_DIR_EXTENSIONS.has(path.extname(base).toLowerCase());
+}
 
 function isRootDocBasename(base: string): boolean {
   const ext = path.extname(base).toLowerCase();
@@ -30,7 +36,7 @@ export function isDocsOnlyPath(filename: string): boolean {
   const lower = filename.toLowerCase();
 
   if (lower.endsWith(".md")) return true;
-  if (lower.startsWith("docs/")) return true;
+  if (isDocsDirPath(filename, base)) return true;
   if (isRootDocBasename(base)) return true;
   if (lower.startsWith(".github/") && lower.endsWith(".md")) return true;
 
