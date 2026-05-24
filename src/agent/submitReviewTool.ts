@@ -123,6 +123,7 @@ export function buildSubmitReviewTool(params: {
       payload: parsed.data,
       mode,
       cachedDiffIndex: params.cachedDiffIndex,
+      maxInlineFindings: params.cfg.maxReviewFindings,
     });
     if (!prepared.ok) {
       params.state.lastValidationError = prepared.error;

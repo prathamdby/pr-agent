@@ -19,6 +19,7 @@ export async function publishReviewForTest(
     payload: params.payload,
     mode,
     cachedDiffIndex: params.cachedDiffIndex,
+    maxInlineFindings: params.cfg.maxReviewFindings,
   });
   if (!prepared.ok) {
     throw new Error(prepared.error);

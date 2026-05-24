@@ -12,6 +12,7 @@ export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
   mode: ReviewMode;
   cachedDiffIndex?: CachedPrDiffIndex;
+  maxInlineFindings?: number;
 }): { ok: true; prepared: PreparedReviewPayload } | { ok: false; error: string } {
   const normalized = normalizeReviewPayload(params.payload);
   const deduped = dedupeReviewFindings(normalized.findings);
@@ -21,6 +22,7 @@ export function prepareReviewPayloadForPublish(params: {
   const validationError = validateReviewPayload({
     payload,
     cachedDiffIndex: params.cachedDiffIndex,
+    maxInlineFindings: params.maxInlineFindings,
   });
   if (validationError) {
     return { ok: false, error: validationError };

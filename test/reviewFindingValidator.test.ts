@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { validateReviewPayload } from "../src/agent/reviewFindingValidator.js";
+import {
+  createCachedPrDiffIndex,
+  ingestListPullRequestFilesResult,
+} from "../src/agent/reviewDiffIndex.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
@@ -37,6 +41,102 @@ describe("validateReviewPayload", () => {
             },
           ],
         }),
+      }),
+    ).toBeNull();
+  });
+
+  it("accepts P1 findings with no inline anchor when placement is summary-only", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: ["@@ -4,1 +4,2 @@", " context", "+added"].join("\n"),
+        },
+      ],
+    });
+
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "src/x.ts",
+              startLine: 99,
+              endLine: 99,
+              title: "Off diff",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+        }),
+        cachedDiffIndex: index,
+      }),
+    ).toBeNull();
+  });
+
+  it("accepts P1 findings on patchOmitted files", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [{ filename: "src/x.ts", patchOmitted: true }],
+    });
+
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "src/x.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "Large file",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+        }),
+        cachedDiffIndex: index,
+      }),
+    ).toBeNull();
+  });
+
+  it("accepts cap-excluded P1 findings without validating anchors", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        { filename: "a.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") },
+        { filename: "b.ts", patch: ["@@ -2,1 +2,2 @@", " x", "+y"].join("\n") },
+      ],
+    });
+
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "a.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "First inline",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+            {
+              severity: "P1",
+              file: "b.ts",
+              startLine: 99,
+              endLine: 99,
+              title: "Over cap, bad anchor",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+        }),
+        cachedDiffIndex: index,
+        maxInlineFindings: 1,
       }),
     ).toBeNull();
   });

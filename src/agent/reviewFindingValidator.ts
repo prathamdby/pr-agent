@@ -1,7 +1,7 @@
+import { DEFAULT_MAX_REVIEW_FINDINGS } from "../settings/index.js";
 import { containsBannedPublicOutput } from "./publicOutputSanitizer.js";
 import type { ReviewFinding, ReviewPayload } from "./reviewSchema.js";
-import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
-import { resolveInlineAnchorLine } from "./reviewDiffIndex.js";
+import { planInlinePlacements, type CachedPrDiffIndex, type InlinePlacement } from "./reviewLocationValidation.js";
 
 function validateFindingPublicFields(finding: ReviewFinding, index: number): string | null {
   const fields: Array<[string, string | undefined]> = [
@@ -17,28 +17,17 @@ function validateFindingPublicFields(finding: ReviewFinding, index: number): str
   return null;
 }
 
-function validateFindingAnchor(
-  finding: ReviewFinding,
-  index: number,
-  cachedDiffIndex?: CachedPrDiffIndex,
-): string | null {
-  if (finding.severity === "P3") return null;
-  if (cachedDiffIndex == null || cachedDiffIndex.files.size === 0) return null;
-  const anchor = resolveInlineAnchorLine(
-    cachedDiffIndex,
-    finding.file,
-    finding.startLine,
-    finding.endLine,
-  );
-  if (anchor == null) {
-    return `findings[${index}] has no commentable anchor on the PR diff for ${finding.file}:${finding.startLine}`;
-  }
-  return null;
+function validatePlacementAnchor(placement: InlinePlacement, index: number): string | null {
+  if (!placement.inlinePosted) return null;
+  if (placement.inlineLine != null) return null;
+  const { finding } = placement;
+  return `findings[${index}] has no commentable anchor on the PR diff for ${finding.file}:${finding.startLine}`;
 }
 
 export function validateReviewPayload(params: {
   payload: ReviewPayload;
   cachedDiffIndex?: CachedPrDiffIndex;
+  maxInlineFindings?: number;
 }): string | null {
   const overviewFields: Array<[string, string | null | undefined]> = [
     ["prCharacter", params.payload.prCharacter],
@@ -58,7 +47,15 @@ export function validateReviewPayload(params: {
   for (const [index, finding] of params.payload.findings.entries()) {
     const publicError = validateFindingPublicFields(finding, index);
     if (publicError) return publicError;
-    const anchorError = validateFindingAnchor(finding, index, params.cachedDiffIndex);
+  }
+
+  const placements = planInlinePlacements(
+    params.payload.findings,
+    params.maxInlineFindings ?? DEFAULT_MAX_REVIEW_FINDINGS,
+    params.cachedDiffIndex,
+  );
+  for (const [index, placement] of placements.entries()) {
+    const anchorError = validatePlacementAnchor(placement, index);
     if (anchorError) return anchorError;
   }
 
