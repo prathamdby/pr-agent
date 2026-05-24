@@ -105,7 +105,11 @@ export function buildSubmitReviewTool(params: {
       throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
     }
 
-    if (params.cfg.reviewRequireDiffCacheBeforeSubmit && params.cachedDiffIndex?.files.size === 0) {
+    if (
+      params.cfg.reviewRequireDiffCacheBeforeSubmit &&
+      params.cachedDiffIndex &&
+      !params.cachedDiffIndex.listPullRequestFilesIngested
+    ) {
       recordReviewMetric({ kind: "diff_cache_empty_at_submit" });
       throw new Error(REVIEW_DIFF_CACHE_REQUIRED_MESSAGE);
     }

@@ -43,6 +43,7 @@ const cfg = {
 describe("submitReview tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(publishReview).mockResolvedValue(undefined);
   });
 
   it("ignores duplicate submitReview after publish", async () => {
@@ -147,7 +148,7 @@ describe("submitReview tool", () => {
     expect(piTool.description).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
   });
 
-  it("blocks submit when diff cache is empty and enforcement is enabled", async () => {
+  it("blocks submit when listPullRequestFiles was not ingested", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     const valid = {
       prCharacter: "Does things.",
@@ -171,6 +172,29 @@ describe("submitReview tool", () => {
       expect(snapshotReviewRunMetrics()?.diffCacheEmptyAtFirstSubmit).toBe(true);
       expect(publishReview).not.toHaveBeenCalled();
     });
+  });
+
+  it("allows submit when diff cache is ingested but has no files", async () => {
+    const state = createSubmitReviewState();
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, { files: [] });
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      state,
+      cachedDiffIndex: index,
+    });
+    const valid = {
+      prCharacter: "Does things.",
+      findings: [],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+    await executor(valid);
+    expect(publishReview).toHaveBeenCalledTimes(1);
   });
 
   it("returns aggregated anchor repair message for multiple invalid findings", async () => {

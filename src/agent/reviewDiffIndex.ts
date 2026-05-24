@@ -11,10 +11,11 @@ export type CachedPrFileDiff = {
 export type CachedPrDiffIndex = {
   truncated: boolean;
   files: Map<string, CachedPrFileDiff>;
+  listPullRequestFilesIngested: boolean;
 };
 
 export function createCachedPrDiffIndex(): CachedPrDiffIndex {
-  return { truncated: false, files: new Map() };
+  return { truncated: false, files: new Map(), listPullRequestFilesIngested: false };
 }
 
 /** Parse unified diff patch into contiguous RIGHT-side line ranges (additions + context). */
@@ -85,6 +86,7 @@ export function ingestListPullRequestFilesResult(
   index: CachedPrDiffIndex,
   result: ListPullRequestFilesToolResult,
 ): void {
+  index.listPullRequestFilesIngested = true;
   if (result.truncated) {
     index.truncated = true;
   }
@@ -104,6 +106,7 @@ export function wrapListPullRequestFilesDiffIngestion(
   if (!original) return;
   executors.listPullRequestFiles = async (args) => {
     const out = await original(args);
+    cachedDiffIndex.listPullRequestFilesIngested = true;
     if (out && typeof out === "object") {
       ingestListPullRequestFilesResult(cachedDiffIndex, out as ListPullRequestFilesToolResult);
     }
