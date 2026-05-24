@@ -29,6 +29,15 @@ export function sanitizePublicReviewText(text: string): string {
   return containsBannedPublicOutput(text) ? PUBLIC_OUTPUT_REDACTION : text;
 }
 
+type SanitizedPublicFields = {
+  title?: string;
+  detail?: string;
+  fixPrompt?: string;
+  prCharacter?: string;
+  securityConcerns?: string | null;
+  followUps?: string[];
+};
+
 export function sanitizePublicReviewFields(fields: {
   title?: string;
   detail?: string;
@@ -36,7 +45,7 @@ export function sanitizePublicReviewFields(fields: {
   prCharacter?: string;
   securityConcerns?: string | null;
   followUps?: readonly string[];
-}): typeof fields {
+}): SanitizedPublicFields {
   return {
     title: fields.title == null ? fields.title : sanitizePublicReviewText(fields.title),
     detail: fields.detail == null ? fields.detail : sanitizePublicReviewText(fields.detail),
