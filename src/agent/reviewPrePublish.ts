@@ -1,5 +1,6 @@
 import { dedupeReviewFindings } from "./reviewFindingDedup.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
+import { sanitizeReviewPayload } from "./publicOutputSanitizer.js";
 import { normalizeReviewPayload, type ReviewMode, type ReviewPayload } from "./reviewSchema.js";
 import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
 
@@ -16,7 +17,7 @@ export function prepareReviewPayloadForPublish(params: {
 }): { ok: true; prepared: PreparedReviewPayload } | { ok: false; error: string } {
   const normalized = normalizeReviewPayload(params.payload);
   const deduped = dedupeReviewFindings(normalized.findings);
-  const payload: ReviewPayload = { ...normalized, findings: deduped };
+  const payload = sanitizeReviewPayload({ ...normalized, findings: deduped });
   const dedupedCount = normalized.findings.length - deduped.length;
 
   const validationError = validateReviewPayload({

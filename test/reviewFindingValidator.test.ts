@@ -19,11 +19,33 @@ function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
 }
 
 describe("validateReviewPayload", () => {
-  it("rejects banned public-output phrasing", () => {
+  it("rejects internal failure phrasing on overview fields", () => {
     const error = validateReviewPayload({
-      payload: basePayload({ prCharacter: "submitReview failed internally" }),
+      payload: basePayload({
+        prCharacter: "Structured publish failed after 3/3 attempt(s). Check server logs.",
+      }),
     });
     expect(error).toMatch(/prCharacter/);
+  });
+
+  it("accepts findings that mention repository symbols matching banned patterns", () => {
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "src/submitReviewTool.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "submitReview retry path missing guard",
+              detail: "The submitReview handler should check publish budget before calling GitHub API.",
+              fixPrompt: "Add a guard in submitReview before createPullRequestReviewWithComments.",
+            },
+          ],
+        }),
+      }),
+    ).toBeNull();
   });
 
   it("accepts clean payloads without diff cache", () => {

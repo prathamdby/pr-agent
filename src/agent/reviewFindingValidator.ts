@@ -1,21 +1,7 @@
 import { DEFAULT_MAX_REVIEW_FINDINGS } from "../settings/index.js";
-import { containsBannedPublicOutput } from "./publicOutputSanitizer.js";
-import type { ReviewFinding, ReviewPayload } from "./reviewSchema.js";
+import { containsInternalFailurePhrasing } from "./publicOutputSanitizer.js";
+import type { ReviewPayload } from "./reviewSchema.js";
 import { planInlinePlacements, type CachedPrDiffIndex, type InlinePlacement } from "./reviewLocationValidation.js";
-
-function validateFindingPublicFields(finding: ReviewFinding, index: number): string | null {
-  const fields: Array<[string, string | undefined]> = [
-    ["title", finding.title],
-    ["detail", finding.detail],
-    ["fixPrompt", finding.fixPrompt],
-  ];
-  for (const [name, value] of fields) {
-    if (value != null && containsBannedPublicOutput(value)) {
-      return `findings[${index}].${name} contains banned public-output phrasing`;
-    }
-  }
-  return null;
-}
 
 function validatePlacementAnchor(placement: InlinePlacement, index: number): string | null {
   if (!placement.inlinePosted) return null;
@@ -34,19 +20,14 @@ export function validateReviewPayload(params: {
     ["securityConcerns", params.payload.securityConcerns],
   ];
   for (const [name, value] of overviewFields) {
-    if (value != null && containsBannedPublicOutput(value)) {
+    if (value != null && containsInternalFailurePhrasing(value)) {
       return `${name} contains banned public-output phrasing`;
     }
   }
   for (const [index, item] of params.payload.followUps.entries()) {
-    if (containsBannedPublicOutput(item)) {
+    if (containsInternalFailurePhrasing(item)) {
       return `followUps[${index}] contains banned public-output phrasing`;
     }
-  }
-
-  for (const [index, finding] of params.payload.findings.entries()) {
-    const publicError = validateFindingPublicFields(finding, index);
-    if (publicError) return publicError;
   }
 
   const placements = planInlinePlacements(
