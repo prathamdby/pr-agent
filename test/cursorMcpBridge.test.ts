@@ -72,6 +72,31 @@ describe("createMcpBridge", () => {
     });
   });
 
+  it("records tool_call failures for unknown tools", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/mcp" }, async () => {
+      initReviewRunMetrics({ provider: "cursor", model: "composer-2.5", mode: "review" });
+      const bridge = await createMcpBridge({
+        tools: [{ name: "noop", description: "noop", parameters: { type: "object" } }],
+        executors: { noop: async () => "ok" },
+      });
+      try {
+        const config = bridge.mcpServers["pr-agent"];
+        const transport = new StreamableHTTPClientTransport(new URL(config.url), {
+          requestInit: { headers: config.headers },
+        });
+        const client = new Client({ name: "test", version: "1.0.0" });
+        await client.connect(transport);
+        const result = await client.callTool({ name: "missing", arguments: {} });
+        expect(result.isError).toBe(true);
+        expect(snapshotReviewRunMetrics()).toMatchObject({ toolCallCount: 1, toolCallErrors: 1 });
+        await client.close();
+      } finally {
+        await bridge.dispose();
+      }
+    });
+  });
+
   it("completes tool RPC without operation logger", async () => {
     const bridge = await createMcpBridge({
       tools: [{ name: "noop", description: "noop", parameters: { type: "object" } }],

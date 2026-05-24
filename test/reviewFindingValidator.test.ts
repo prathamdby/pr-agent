@@ -293,6 +293,40 @@ describe("validateReviewPayload", () => {
     }
   });
 
+  it("caps suggested ranges in anchor repair message", () => {
+    const index = createCachedPrDiffIndex();
+    index.listPullRequestFilesIngested = true;
+    index.files.set("a.ts", {
+      patchOmitted: false,
+      commentableRightLineRanges: Array.from({ length: 25 }, (_, i): [number, number] => [
+        i + 1,
+        i + 1,
+      ]),
+    });
+
+    const result = validateReviewPayload({
+      payload: basePayload({
+        findings: [
+          {
+            severity: "P1",
+            file: "a.ts",
+            startLine: 99,
+            endLine: 99,
+            title: "Bad a",
+            detail: "d",
+            fixPrompt: "fix",
+          },
+        ],
+      }),
+      cachedDiffIndex: index,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("…5 more ranges");
+      expect(result.message).not.toContain("25");
+    }
+  });
+
   it("accepts cap-excluded P1 findings without validating anchors", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {

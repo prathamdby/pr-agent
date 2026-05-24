@@ -113,10 +113,12 @@ const SEVERITY_INTEGER_MAP: Record<number, ReviewFinding["severity"]> = {
 };
 
 function coercePositiveInt(value: unknown): number | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.trunc(value);
+  if (typeof value === "number" && Number.isInteger(value)) return value;
   if (typeof value === "string" && value.trim() !== "") {
-    const n = Number(value);
-    if (Number.isFinite(n)) return Math.trunc(n);
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return undefined;
+    const n = Number(trimmed);
+    if (Number.isSafeInteger(n)) return n;
   }
   return undefined;
 }
@@ -129,8 +131,8 @@ function stripWholeStringCodeFence(value: string): { text: string; stripped: boo
 }
 
 function coerceSeverity(value: unknown): ReviewFinding["severity"] | undefined {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return SEVERITY_INTEGER_MAP[Math.trunc(value)];
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return SEVERITY_INTEGER_MAP[value];
   }
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();

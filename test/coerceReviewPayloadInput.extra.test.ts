@@ -29,6 +29,29 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
     }
   });
 
+  it("does not coerce decimal line numbers", () => {
+    const { value, coercions } = coerceReviewPayloadInput({
+      prCharacter: "x",
+      findings: [
+        {
+          severity: "P1",
+          file: "a.ts",
+          line: "42.9",
+          title: "t",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+      ],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(coercions).not.toContain("finding_line_to_start_end");
+    const parsed = reviewPayloadSchema.safeParse(value);
+    expect(parsed.success).toBe(false);
+  });
+
   it("maps lines array to startLine/endLine", () => {
     const { coercions } = coerceReviewPayloadInput({
       prCharacter: "x",

@@ -97,8 +97,7 @@ export async function runCursorAskRun(params: AskRunParams): Promise<AskRunResul
     stopReason: lastAssistant.stopReason,
   });
   logInfo("ask_run_completed", {
-    toolRounds: 1,
-    rateLimitCircuitOpened: false,
+    provider: "cursor",
     hasAnswer: summary.length > 0,
     metaRefusal: false,
   });

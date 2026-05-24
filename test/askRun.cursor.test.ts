@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Config } from "../src/config.js";
+import * as evlog from "../src/evlog.js";
 
 vi.mock("../src/agent/askSafety.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agent/askSafety.js")>();
@@ -78,6 +79,7 @@ describe("runAskRun cursor provider", () => {
   });
 
   it("returns assistant text from a single complete call", async () => {
+    const logSpy = vi.spyOn(evlog, "logInfo");
     const result = await runAskRun({
       cfg: cursorCfg,
       token: "t",
@@ -94,5 +96,9 @@ describe("runAskRun cursor provider", () => {
     expect(vi.mocked(complete)).toHaveBeenCalledTimes(1);
     expect(result.replied).toBe(true);
     expect(result.answer).toContain("validates input");
+    const askCompleted = logSpy.mock.calls.find(([event]) => event === "ask_run_completed")?.[1];
+    expect(askCompleted).toMatchObject({ provider: "cursor", hasAnswer: true });
+    expect(askCompleted).not.toHaveProperty("toolRounds");
+    expect(askCompleted).not.toHaveProperty("rateLimitCircuitOpened");
   });
 });

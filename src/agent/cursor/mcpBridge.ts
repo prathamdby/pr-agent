@@ -149,15 +149,16 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
   }));
 
   mcpServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const toolName = request.params.name;
+    const toolStarted = Date.now();
+
     if (disposed) {
+      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
       return {
         content: [{ type: "text", text: "MCP bridge disposed" }],
         isError: true,
       };
     }
-
-    const toolName = request.params.name;
-    const toolStarted = Date.now();
 
     const abortController = new AbortController();
     pendingCalls.add(abortController);
@@ -177,6 +178,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       }
       const exec = options.executors[toolName];
       if (!exec) {
+        safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
         return {
           content: [{ type: "text", text: `Unknown tool: ${toolName}` }],
           isError: true,

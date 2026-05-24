@@ -1,4 +1,7 @@
-import { DEFAULT_MAX_REVIEW_FINDINGS } from "../settings/index.js";
+import {
+  DEFAULT_MAX_REVIEW_FINDINGS,
+  DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
+} from "../settings/index.js";
 import { containsInternalFailurePhrasing } from "./publicOutputSanitizer.js";
 import type { ReviewPayload } from "./reviewSchema.js";
 import {
@@ -23,6 +26,19 @@ export type ReviewPayloadValidationResult =
       readonly message: string;
       readonly anchorFailures: readonly AnchorFailure[];
     };
+
+function formatRangePair([start, end]: [number, number]): string {
+  return start === end ? `${start}` : `${start}-${end}`;
+}
+
+function formatSuggestedRanges(ranges: CommentableRightLineRanges): string {
+  const shown = ranges.slice(0, DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE);
+  const suffix =
+    ranges.length > DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE
+      ? ` …${ranges.length - DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE} more ranges`
+      : "";
+  return `${shown.map(formatRangePair).join(", ")}${suffix}`;
+}
 
 function validatePlacementAnchor(
   placement: InlinePlacement,
@@ -63,10 +79,11 @@ export function formatAnchorFailureRepairMessage(failures: readonly AnchorFailur
       `- findings[${failure.index}] ${failure.file}:${failure.startLine}-${failure.endLine} has no commentable anchor on the PR diff`,
     );
     if (failure.suggestedRanges && failure.suggestedRanges.length > 0) {
-      const ranges = failure.suggestedRanges.map(([s, e]: [number, number]) =>
-        s === e ? `${s}` : `${s}-${e}`,
+      lines.push(
+        `  Commentable RIGHT-side lines for ${failure.file}: ${formatSuggestedRanges(
+          failure.suggestedRanges,
+        )}`,
       );
-      lines.push(`  Commentable RIGHT-side lines for ${failure.file}: ${ranges.join(", ")}`);
     }
   }
   lines.push("Fix all listed findings and call submitReview again with a complete ReviewPayload.");
