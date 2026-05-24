@@ -172,6 +172,7 @@ export function buildSubmitReviewTool(params: {
         cfg: params.cfg,
         ...params.ctx,
         payload: prepared.prepared.payload,
+        dedupedFindingCount: prepared.prepared.dedupedCount,
         publishState: params.state,
         cachedDiffIndex: params.cachedDiffIndex,
         shouldLinkToSummary: params.shouldLinkToSummary,

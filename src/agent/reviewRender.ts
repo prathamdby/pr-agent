@@ -26,9 +26,9 @@ import {
   REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
   REVIEW_SECURITY_DEFAULT,
-  REVIEW_SEVERITY_RANK,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
+import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import type {
   ReviewFinding,
   ReviewPayload,
@@ -124,22 +124,14 @@ function formatLineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
 }
 
-function compareFindingsBySeverityFileLine(a: ReviewFinding, b: ReviewFinding): number {
-  const bySeverity = REVIEW_SEVERITY_RANK[a.severity] - REVIEW_SEVERITY_RANK[b.severity];
-  if (bySeverity !== 0) return bySeverity;
-  const byFile = a.file.localeCompare(b.file);
-  if (byFile !== 0) return byFile;
-  return a.startLine - b.startLine;
-}
-
 function sortPlacements(placements: readonly InlinePlacement[]): InlinePlacement[] {
   return [...placements].toSorted((a, b) =>
-    compareFindingsBySeverityFileLine(a.finding, b.finding),
+    compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
   );
 }
 
 function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
-  return [...findings].toSorted(compareFindingsBySeverityFileLine);
+  return [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
 }
 
 export function renderFindingFixBlock(

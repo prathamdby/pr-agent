@@ -17,6 +17,7 @@ export function fingerprintFinding(finding: ReviewFinding, mode: ReviewMode): st
     String(finding.startLine),
     String(finding.endLine),
     normalizeFingerprintText(finding.title),
+    normalizeFingerprintText(finding.detail),
   ].join("|");
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 16);
 }

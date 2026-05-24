@@ -29,6 +29,11 @@ describe("fingerprintFinding", () => {
       fingerprintFinding(finding, "review-security"),
     );
   });
+
+  it("differs when detail changes", () => {
+    const other = { ...finding, detail: "different substance" };
+    expect(fingerprintFinding(finding, "review")).not.toBe(fingerprintFinding(other, "review"));
+  });
 });
 
 describe("parseStoredInlineFingerprints", () => {

@@ -40,6 +40,7 @@ import {
   reviewSummarySentinelForMode,
   type ReviewMode,
 } from "./reviewSchema.js";
+import { buildReviewRunUserContent } from "./reviewUserMessage.js";
 import {
   bumpRateLimitConsecutiveFailures,
   classifyGithubToolError,
@@ -164,17 +165,15 @@ export async function runFullPrReview(params: {
 
   const model = getModel(cfg.piProvider, cfg.piModel as never);
 
-  const userContent = [
-    `Target repository: ${owner}/${repo}`,
-    `Pull request #: ${prNumber}`,
-    `Head commit SHA: ${headSha}`,
-    userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
-    trustedContext ? `\n${trustedContext}\n` : "",
-    "",
-    reviewMode === "review-security"
-      ? "Perform a deep security review of the PR diff using investigation tools, then call submitReview exactly once with a complete ReviewPayload."
-      : "Perform a full review using investigation tools, then call submitReview exactly once with a complete ReviewPayload.",
-  ].join("\n");
+  const userContent = buildReviewRunUserContent({
+    owner,
+    repo,
+    prNumber,
+    headSha,
+    reviewMode,
+    userSupplement,
+    trustedContext,
+  });
 
   const context: Context = {
     systemPrompt:

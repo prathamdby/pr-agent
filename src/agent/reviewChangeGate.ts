@@ -1,5 +1,7 @@
 /** Docs-only trivial change exemption for automated reviews. */
 
+import path from "node:path";
+
 export type PreflightFileEntry = {
   readonly filename: string;
 };
@@ -9,19 +11,13 @@ export type TrivialChangeGateInput = {
   readonly truncated: boolean;
 };
 
-export type TrivialChangeGateResult = {
-  readonly exempt: boolean;
-  readonly reason?: "truncated" | "empty" | "not_docs_only";
-};
-
-function basename(path: string): string {
-  const parts = path.split("/");
-  return parts[parts.length - 1] ?? path;
-}
+export type TrivialChangeGateResult =
+  | { readonly exempt: true }
+  | { readonly exempt: false; readonly reason: "truncated" | "empty" | "not_docs_only" };
 
 /** Strict docs-only allowlist per ADR 0014. */
 export function isDocsOnlyPath(filename: string): boolean {
-  const base = basename(filename);
+  const base = path.basename(filename);
   const lower = filename.toLowerCase();
 
   if (lower.endsWith(".md")) return true;
@@ -48,5 +44,5 @@ export function evaluateTrivialChangeExemption(
       return { exempt: false, reason: "not_docs_only" };
     }
   }
-  return { exempt: true };
+  return { exempt: true as const };
 }

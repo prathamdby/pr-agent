@@ -24,19 +24,30 @@ import {
   type CachedPrDiffIndex,
 } from "./reviewLocationValidation.js";
 import {
-  fingerprintFinding,
   mergeInlineFingerprintRecords,
   suppressInlinePlacementsByFingerprint,
 } from "./reviewFindingFingerprint.js";
-import { prepareReviewPayloadForPublish } from "./reviewPrePublish.js";
 import {
   reviewEventForFindings,
   reviewSummarySentinelForMode,
+  type ReviewFinding,
   type ReviewMode,
   type ReviewPayload,
   type ReviewPublishContext,
 } from "./reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
+
+function fingerprintsForInlineReviewStep(params: {
+  storedInlineFingerprints: readonly string[];
+  inlinePostedFindings: readonly ReviewFinding[];
+  mode: ReviewMode;
+}): string[] {
+  return mergeInlineFingerprintRecords(
+    params.storedInlineFingerprints,
+    params.inlinePostedFindings,
+    params.mode,
+  );
+}
 
 export async function publishReview(
   params: ReviewPublishContext & {
@@ -47,6 +58,8 @@ export async function publishReview(
       "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity"
     >;
     payload: ReviewPayload;
+    /** Set when payload was already normalized, deduped, and validated by submitReview. */
+    dedupedFindingCount?: number;
     publishState: SubmitReviewState;
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
@@ -58,19 +71,16 @@ export async function publishReview(
     storedInlineFingerprints?: readonly string[];
   },
 ): Promise<void> {
-  const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
+  const { token, owner, repo, prNumber, headSha, cfg, payload, publishState } = params;
   const mode = params.mode ?? "review";
   const summarySentinel = reviewSummarySentinelForMode(mode);
-
-  const prepared = prepareReviewPayloadForPublish({
-    payload: raw,
-    mode,
-    cachedDiffIndex: params.cachedDiffIndex,
-  });
-  if (!prepared.ok) {
-    throw new Error(prepared.error);
-  }
-  const payload = prepared.prepared.payload;
+  const storedInlineFingerprints = params.storedInlineFingerprints ?? [];
+  const inlineReviewFingerprints = (inlinePostedFindings: readonly ReviewFinding[]) =>
+    fingerprintsForInlineReviewStep({
+      storedInlineFingerprints,
+      inlinePostedFindings,
+      mode,
+    });
 
   let placements = planInlinePlacements(
     payload.findings,
@@ -80,7 +90,7 @@ export async function publishReview(
   const suppression = suppressInlinePlacementsByFingerprint(
     placements,
     mode,
-    params.storedInlineFingerprints ?? [],
+    storedInlineFingerprints,
   );
   placements = suppression.placements;
   const inlineFindings = placements.filter((p) => p.inlinePosted);
@@ -125,7 +135,7 @@ export async function publishReview(
       (p) => !p.inlineCapEligible && p.inlineLine == null && p.finding.severity !== "P3",
     ).length,
     anchorUnresolved: placements.filter((p) => p.inlineCapEligible && p.inlineLine == null).length,
-    dedupedFindingCount: prepared.prepared.dedupedCount,
+    dedupedFindingCount: params.dedupedFindingCount ?? 0,
     suppressedInlineCount: suppression.suppressedInlineCount,
   };
 
@@ -162,18 +172,13 @@ export async function publishReview(
         inlineReviewId = review.id;
         publishState.inlineReviewId = review.id;
         const inlinePostedFindings = inlineFindings.map((placement) => placement.finding);
-        const fingerprints = mergeInlineFingerprintRecords(
-          params.storedInlineFingerprints ?? [],
-          inlinePostedFindings,
-          mode,
-        );
         await params.recordPublishStep?.("inline_review", {
           githubId: review.id,
           meta: {
             url: review.url,
             event,
             agentFixPromptTruncated: pointerBody.truncated,
-            fingerprints,
+            fingerprints: inlineReviewFingerprints(inlinePostedFindings),
             ...publishMetaBase,
           },
         });
@@ -201,6 +206,7 @@ export async function publishReview(
           meta: {
             reason: "inline_publish_failed",
             lineResolutionFallback: isLineResolutionPublishError(e),
+            fingerprints: inlineReviewFingerprints([]),
             ...publishMetaBase,
           },
         });
@@ -220,6 +226,7 @@ export async function publishReview(
             inlineCount: 0,
             repeatNoBugs: true,
             event: "COMMENT",
+            fingerprints: inlineReviewFingerprints([]),
           },
         });
         logDebug("review_published_repeat_no_bugs", {
@@ -251,6 +258,7 @@ export async function publishReview(
       await params.recordPublishStep?.("inline_review", {
         meta: {
           reason: "no_valid_inline_anchors",
+          fingerprints: inlineReviewFingerprints([]),
           ...publishMetaBase,
         },
       });

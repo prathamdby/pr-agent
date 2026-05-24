@@ -1,12 +1,34 @@
+import { publishReview } from "../../src/agent/publishReview.js";
+import { prepareReviewPayloadForPublish } from "../../src/agent/reviewPrePublish.js";
 import type { InlinePlacement } from "../../src/agent/reviewLocationValidation.js";
 import { planInlinePlacements } from "../../src/agent/reviewLocationValidation.js";
-import type { ReviewFinding, ReviewPayload } from "../../src/agent/reviewSchema.js";
+import type { ReviewFinding, ReviewMode, ReviewPayload } from "../../src/agent/reviewSchema.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
 } from "../../src/agent/reviewDiffIndex.js";
 import { createSubmitReviewState } from "../../src/agent/submitReviewTool.js";
+
+/** Runs pre-publish pipeline then publishReview (matches submitReview path). */
+export async function publishReviewForTest(
+  params: Parameters<typeof publishReview>[0] & { mode?: ReviewMode },
+): Promise<void> {
+  const mode = params.mode ?? "review";
+  const prepared = prepareReviewPayloadForPublish({
+    payload: params.payload,
+    mode,
+    cachedDiffIndex: params.cachedDiffIndex,
+  });
+  if (!prepared.ok) {
+    throw new Error(prepared.error);
+  }
+  await publishReview({
+    ...params,
+    payload: prepared.prepared.payload,
+    dedupedFindingCount: prepared.prepared.dedupedCount,
+  });
+}
 
 export function testPublishState(
   overrides: Partial<ReturnType<typeof createSubmitReviewState>> = {},

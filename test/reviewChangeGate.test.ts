@@ -24,8 +24,8 @@ describe("evaluateTrivialChangeExemption", () => {
       evaluateTrivialChangeExemption({
         files: [{ filename: "README.md" }, { filename: "docs/guide.md" }],
         truncated: false,
-      }).exempt,
-    ).toBe(true);
+      }),
+    ).toEqual({ exempt: true });
   });
 
   it("rejects truncated change sets", () => {

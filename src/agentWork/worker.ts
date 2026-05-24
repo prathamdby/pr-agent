@@ -257,7 +257,7 @@ async function handleReviewJob(
             githubId: summary.id,
             detail: {
               lightweightCompletion: true,
-              trivialReason: trivial.reason ?? "docs_only",
+              trivialReason: "docs_only",
             },
           });
           logInfo("review_lightweight_completion", {
