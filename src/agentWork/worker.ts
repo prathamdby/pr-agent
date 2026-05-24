@@ -5,11 +5,10 @@ import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
-import { evaluateTrivialChangeExemption } from "../agent/reviewChangeGate.js";
 import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
-import { renderLightweightReviewCompletion } from "../agent/reviewRender.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
+import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { logDebug, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
@@ -234,40 +233,21 @@ async function handleReviewJob(
       );
       const trustedContext = buildTrustedReviewContextBlock(preflight);
 
-      if (item.source === "auto") {
-        const trivial = evaluateTrivialChangeExemption({
-          files: preflight.files,
-          truncated: preflight.truncated,
+      if (
+        await tryLightweightAutoReviewCompletion(pool, {
+          item,
+          reviewLens,
+          token: installation.token,
+          preflight,
+        })
+      ) {
+        logInfo("review_lightweight_completion", {
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+          reviewLens,
         });
-        if (trivial.exempt) {
-          const body = renderLightweightReviewCompletion(reviewLens);
-          const summary = await upsertReviewSummaryComment(
-            installation.token,
-            item.owner,
-            item.repo,
-            item.prNumber,
-            body,
-            reviewSummarySentinelForMode(reviewLens),
-          );
-          await recordPublishStep(pool, {
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
-            reviewLens,
-            step: "summary_comment",
-            githubId: summary.id,
-            detail: {
-              lightweightCompletion: true,
-              trivialReason: "docs_only",
-            },
-          });
-          logInfo("review_lightweight_completion", {
-            owner: item.owner,
-            repo: item.repo,
-            pr: item.prNumber,
-            reviewLens,
-          });
-          return { degraded: false };
-        }
+        return { degraded: false };
       }
 
       const result = await runFullPrReview({
