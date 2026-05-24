@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { prepareReviewPayloadForPublish } from "../src/agent/reviewPrePublish.js";
-import { PUBLIC_OUTPUT_REDACTION } from "../src/agent/publicOutputSanitizer.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 
 describe("prepareReviewPayloadForPublish", () => {
@@ -41,7 +40,7 @@ describe("prepareReviewPayloadForPublish", () => {
     expect(result.prepared.dedupedCount).toBe(1);
   });
 
-  it("sanitizes finding fields that match banned public-output patterns", () => {
+  it("passes finding detail with internal failure phrasing through after secret scrub", () => {
     const payload: ReviewPayload = {
       prCharacter: "Test.",
       findings: [
@@ -50,7 +49,7 @@ describe("prepareReviewPayloadForPublish", () => {
           file: "src/a.ts",
           startLine: 1,
           endLine: 1,
-          title: "Leaked structured publish failure",
+          title: "Echoed failure",
           detail: "Structured publish failed after 1/3 attempt(s).",
           fixPrompt: "Fix the handler.",
         },
@@ -64,6 +63,51 @@ describe("prepareReviewPayloadForPublish", () => {
     const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.prepared.payload.findings[0]?.detail).toBe(PUBLIC_OUTPUT_REDACTION);
+    expect(result.prepared.payload.findings[0]?.detail).toBe(
+      "Structured publish failed after 1/3 attempt(s).",
+    );
+  });
+
+  it("rejects overview with internal failure phrasing instead of redacting", () => {
+    const payload: ReviewPayload = {
+      prCharacter: "Structured publish failed after 3/3 attempt(s). Check server logs.",
+      findings: [],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    };
+
+    const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error).toMatch(/prCharacter/);
+  });
+
+  it("scrubs secret assignments in prepared payload", () => {
+    const payload: ReviewPayload = {
+      prCharacter: "Test.",
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Secret in detail",
+          detail: "Found DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent",
+          fixPrompt: "Rotate credentials.",
+        },
+      ],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    };
+
+    const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.prepared.payload.findings[0]?.detail).toContain("[redacted]");
+    expect(result.prepared.payload.findings[0]?.detail).not.toContain("postgres://");
   });
 });

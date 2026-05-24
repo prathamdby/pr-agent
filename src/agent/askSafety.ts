@@ -3,10 +3,12 @@ import {
   ASK_TOOLS_WITH_OWNER_REPO,
   ASK_TOOLS_WITH_PULL_NUMBER,
   BOT_META_PATTERNS,
-  BOT_SECRET_PATTERNS,
   SENSITIVE_PATH_PATTERNS,
 } from "../settings/index.js";
+import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
 import { buildGithubTools } from "./githubTools.js";
+
+export { redactOutboundSecrets };
 
 export type AskQuestionIntent = "code" | "bot_meta";
 
@@ -25,14 +27,6 @@ export function wrapUntrustedBlock(label: string, text: string): string {
 
 export function wrapTrustedContext(lines: string[]): string {
   return ['<context trusted="server">', ...lines, "</context>"].join("\n");
-}
-
-export function redactOutboundSecrets(text: string): string {
-  let out = text;
-  for (const pattern of BOT_SECRET_PATTERNS) {
-    out = out.replace(pattern, "[redacted]");
-  }
-  return out;
 }
 
 export type AskToolScope = {

@@ -291,7 +291,7 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("baz | qux");
   });
 
-  it("redacts banned finding text without replacing the entire summary body", () => {
+  it("renders finding text mentioning submitReview without redaction", () => {
     const payload = basePayload({
       prCharacter: "Safe overview.",
       findings: [
@@ -312,8 +312,8 @@ describe("renderReviewSummaryComment", () => {
     });
 
     expect(body).toContain("Safe overview.");
-    expect(body).toContain("[redacted internal details]");
-    expect(body).not.toBe("[redacted internal details]");
+    expect(body).toContain("Uses submitReview internally.");
+    expect(body).not.toContain("[redacted internal details]");
   });
 });
 
@@ -556,7 +556,7 @@ describe("renderReviewPointerBody", () => {
     maxFindings: 8,
   };
 
-  it("redacts banned fix prompt text without removing the pointer wrapper", () => {
+  it("renders fix prompt text mentioning submitReview without redaction", () => {
     const payload = basePayload({
       findings: [
         {
@@ -594,9 +594,9 @@ describe("renderReviewPointerBody", () => {
 
     expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
     expect(body).toContain("[!NOTE]");
-    expect(body).toContain("[redacted internal details]");
+    expect(body).toContain("Call submitReview after fixing.");
     expect(body).toContain("Fix src/y.ts line 2.");
-    expect(body).not.toBe("[redacted internal details]");
+    expect(body).not.toContain("[redacted internal details]");
   });
 
   it("wraps agent fix prompt in accordion with pointer line", () => {

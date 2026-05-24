@@ -142,14 +142,14 @@ These are related but not wired together on INSERT today.
 
 ### Ask safety
 
-| Symbol                                                     | Default            |
-| ---------------------------------------------------------- | ------------------ |
-| `MAX_ASK_QUESTION_CHARS`                                   | 8192               |
-| `ASK_META_REFUSAL`                                         | meta-probe reply   |
-| `BOT_META_PATTERNS`                                        | regex set          |
-| `BOT_SECRET_PATTERNS`                                      | outbound redaction |
-| `SENSITIVE_PATH_PATTERNS`                                  | path gate          |
-| `ASK_TOOLS_WITH_OWNER_REPO` / `ASK_TOOLS_WITH_PULL_NUMBER` | tool scope sets    |
+| Symbol                                                     | Default                                   |
+| ---------------------------------------------------------- | ----------------------------------------- |
+| `MAX_ASK_QUESTION_CHARS`                                   | 8192                                      |
+| `ASK_META_REFUSAL`                                         | meta-probe reply                          |
+| `BOT_META_PATTERNS`                                        | regex set                                 |
+| `BOT_SECRET_PATTERNS`                                      | outbound redaction (ask + review publish) |
+| `SENSITIVE_PATH_PATTERNS`                                  | path gate                                 |
+| `ASK_TOOLS_WITH_OWNER_REPO` / `ASK_TOOLS_WITH_PULL_NUMBER` | tool scope sets                           |
 
 ### GitHub API
 
@@ -174,12 +174,11 @@ These are related but not wired together on INSERT today.
 
 ### Other
 
-| Symbol                          | Role         |
-| ------------------------------- | ------------ |
-| `CONTEXT7_BASE_URL`             | Context7 API |
-| `PUBLIC_OUTPUT_BANNED_PATTERNS` | sanitizer    |
-| `MAX_LOG_MESSAGE_LEN`           | 2000         |
-| `SLASH_HELP_BODY`               | `/help` text |
-| `MIGRATIONS_DIR_NAME`           | `migrations` |
+| Symbol                | Role         |
+| --------------------- | ------------ |
+| `CONTEXT7_BASE_URL`   | Context7 API |
+| `MAX_LOG_MESSAGE_LEN` | 2000         |
+| `SLASH_HELP_BODY`     | `/help` text |
+| `MIGRATIONS_DIR_NAME` | `migrations` |
 
 Prompt prose (investigator contracts) remains in `src/agent/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.
