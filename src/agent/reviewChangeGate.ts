@@ -15,6 +15,15 @@ export type TrivialChangeGateResult =
   | { readonly exempt: true }
   | { readonly exempt: false; readonly reason: "truncated" | "empty" | "not_docs_only" };
 
+const ROOT_DOC_STEM = /^(readme|license|changelog)$/i;
+
+function isRootDocBasename(base: string): boolean {
+  const ext = path.extname(base).toLowerCase();
+  if (ext !== "" && ext !== ".md") return false;
+  const stem = ext ? base.slice(0, base.length - ext.length) : base;
+  return ROOT_DOC_STEM.test(stem);
+}
+
 /** Strict docs-only allowlist per ADR 0014. */
 export function isDocsOnlyPath(filename: string): boolean {
   const base = path.basename(filename);
@@ -22,9 +31,7 @@ export function isDocsOnlyPath(filename: string): boolean {
 
   if (lower.endsWith(".md")) return true;
   if (lower.startsWith("docs/")) return true;
-  if (/^readme/i.test(base)) return true;
-  if (/^license/i.test(base)) return true;
-  if (/^changelog/i.test(base)) return true;
+  if (isRootDocBasename(base)) return true;
   if (lower.startsWith(".github/") && lower.endsWith(".md")) return true;
 
   return false;

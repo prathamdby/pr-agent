@@ -16,6 +16,12 @@ describe("isDocsOnlyPath", () => {
     expect(isDocsOnlyPath(".github/workflows/ci.yml")).toBe(false);
     expect(isDocsOnlyPath("package.json")).toBe(false);
   });
+
+  it("rejects readme/license/changelog basename prefix on code files", () => {
+    expect(isDocsOnlyPath("README.ts")).toBe(false);
+    expect(isDocsOnlyPath("license-check.sh")).toBe(false);
+    expect(isDocsOnlyPath("changelog-generator.js")).toBe(false);
+  });
 });
 
 describe("evaluateTrivialChangeExemption", () => {
