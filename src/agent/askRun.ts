@@ -120,6 +120,12 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
   if (classifyAskQuestionIntent(question) === "bot_meta") {
     logInfo("ask_meta_refusal", { owner, repo, pr: prNumber });
+    logInfo("ask_run_completed", {
+      toolRounds: 0,
+      rateLimitCircuitOpened: false,
+      hasAnswer: true,
+      metaRefusal: true,
+    });
     return {
       answer: formatAskReply({ question, answer: ASK_META_REFUSAL, replyTarget }),
       replied: true,
@@ -191,6 +197,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   let rateLimitCircuitOpen = false;
   let circuitUserMessagePending = false;
   let retried = false;
+  let toolRounds = 0;
 
   const logCtx = {
     expiresAtTs: tokenExpiresAtTs,
@@ -310,6 +317,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
   async function runToolLoop(maxRounds: number, requireToolsFirstRound: boolean) {
     for (let round = 0; round < maxRounds && !stopLoop; round++) {
+      toolRounds += 1;
       const requireTools = requireToolsFirstRound && round === 0;
       const assistant = await complete(
         model,
@@ -390,6 +398,12 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     pr: prNumber,
     hasAnswer: summary.length > 0,
     inline: replyTarget.kind === "inlineReviewThread",
+  });
+  logInfo("ask_run_completed", {
+    toolRounds,
+    rateLimitCircuitOpened: rateLimitCircuitOpen,
+    hasAnswer: summary.length > 0,
+    metaRefusal: false,
   });
 
   return { answer: answerText, replied: true };

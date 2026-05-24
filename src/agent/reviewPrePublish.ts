@@ -1,4 +1,5 @@
 import { dedupeReviewFindings } from "./reviewFindingDedup.js";
+import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
 import { sanitizeReviewPayload } from "./publicOutputSanitizer.js";
 import { normalizeReviewPayload, type ReviewMode, type ReviewPayload } from "./reviewSchema.js";
@@ -14,19 +15,27 @@ export function prepareReviewPayloadForPublish(params: {
   mode: ReviewMode;
   cachedDiffIndex?: CachedPrDiffIndex;
   maxInlineFindings?: number;
-}): { ok: true; prepared: PreparedReviewPayload } | { ok: false; error: string } {
+  enforceInlineAnchorValidation?: boolean;
+}):
+  | { ok: true; prepared: PreparedReviewPayload }
+  | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
   const normalized = normalizeReviewPayload(params.payload);
   const deduped = dedupeReviewFindings(normalized.findings);
   const payload = sanitizeReviewPayload({ ...normalized, findings: deduped });
   const dedupedCount = normalized.findings.length - deduped.length;
 
-  const validationError = validateReviewPayload({
+  const validation = validateReviewPayload({
     payload,
     cachedDiffIndex: params.cachedDiffIndex,
     maxInlineFindings: params.maxInlineFindings,
+    enforceInlineAnchorValidation: params.enforceInlineAnchorValidation,
   });
-  if (validationError) {
-    return { ok: false, error: validationError };
+  if (!validation.ok) {
+    return {
+      ok: false,
+      error: validation.message,
+      anchorFailures: validation.anchorFailures,
+    };
   }
 
   return {

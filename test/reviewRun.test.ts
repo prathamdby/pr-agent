@@ -57,6 +57,11 @@ const cfg = {
   enableReviewLabelsSecurity: false,
   maxPrFilesListed: 300,
   maxPrFilesPatchBytes: 500_000,
+  reviewInjectAnchorMenu: true,
+  reviewRequireDiffCacheBeforeSubmit: true,
+  reviewAnchorMenuMaxFiles: 40,
+  reviewAnchorMenuMaxRangesPerFile: 20,
+  context7ApiKey: "",
 } satisfies Config;
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;
@@ -244,5 +249,25 @@ describe("runFullPrReview publish retries", () => {
     expect(body).not.toMatch(/\d+\/\d+ attempt/i);
     expect(body).not.toContain("analysis without submitReview");
     expect(body).not.toContain("Line could not be resolved");
+  });
+
+  it("emits review_run_completed with ambient metrics snapshot", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const infoSpy = vi.spyOn(evlog, "logInfo");
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      await runFullPrReview(
+        reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 } }),
+      );
+    });
+    expect(infoSpy).toHaveBeenCalledWith(
+      "review_run_completed",
+      expect.objectContaining({
+        provider: cfg.piProvider,
+        model: cfg.piModel,
+        mode: "review",
+        published: false,
+      }),
+    );
+    infoSpy.mockRestore();
   });
 });

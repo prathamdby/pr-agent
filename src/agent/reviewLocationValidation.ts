@@ -3,6 +3,7 @@ import { selectInlineFindings } from "./reviewSchema.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
+  renderAnchorMenuBlock,
   resolveInlineAnchorLine,
   wrapListPullRequestFilesDiffIngestion,
   type CachedPrDiffIndex,
@@ -20,6 +21,7 @@ export type InlinePlacement = {
 export {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
+  renderAnchorMenuBlock,
   wrapListPullRequestFilesDiffIngestion,
   type CachedPrDiffIndex,
 };

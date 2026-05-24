@@ -14,9 +14,16 @@ import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
 import {
   createCachedPrDiffIndex,
+  renderAnchorMenuBlock,
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
 } from "./reviewLocationValidation.js";
+import {
+  initReviewRunMetrics,
+  logReviewRunCompleted,
+  recordReviewMetric,
+  setReviewRunMetricFields,
+} from "./reviewRunMetrics.js";
 import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
 import { buildAutomatedSystemPrompt } from "./reviewSystemPrompt.js";
 import {
@@ -33,6 +40,7 @@ import {
   REVIEW_CIRCUIT_OPEN_TOOL_RESULT,
   REVIEW_CIRCUIT_OPEN_USER_MESSAGE,
   VALIDATION_REPAIR_ROUNDS,
+  type ReviewPhase,
 } from "../settings/index.js";
 import { PRE_SUBMIT_USER_MESSAGE } from "./reviewPromptBlocks.js";
 import {
@@ -124,8 +132,11 @@ export async function runFullPrReview(params: {
 
   if (cfg.piProvider === "cursor") {
     const { runCursorFullPrReview } = await import("./cursor/reviewRunCursor.js");
+    initReviewRunMetrics({ provider: "cursor", model: cfg.piModel, mode: reviewMode });
     return runCursorFullPrReview({ ...params, reviewMode });
   }
+
+  initReviewRunMetrics({ provider: cfg.piProvider, model: cfg.piModel, mode: reviewMode });
 
   const gh = buildGithubTools(token, {
     maxPrFilesListed: cfg.maxPrFilesListed,
@@ -138,6 +149,7 @@ export async function runFullPrReview(params: {
     inlinePublished: params.initialPublishState?.inlinePublished,
     inlineReviewId: params.initialPublishState?.inlineReviewId,
   });
+  let rateLimitCircuitOpen = false;
   const publishCtx = { owner, repo, prNumber, headSha };
   const { piTool: submitTool, executor: submitExecutor } = buildSubmitReviewTool({
     cfg,
@@ -146,6 +158,7 @@ export async function runFullPrReview(params: {
     mode: reviewMode,
     state: submitState,
     cachedDiffIndex,
+    canEnforceDiffCacheBeforeSubmit: () => !rateLimitCircuitOpen,
     shouldLinkToSummary: params.shouldLinkToSummary,
     summaryCommentIdHint: params.summaryCommentIdHint,
     recordPublishStep: params.recordPublishStep,
@@ -194,7 +207,6 @@ export async function runFullPrReview(params: {
   let stopLoop = false;
   let publishAttempts = 0;
   let rateLimitConsecutiveFailures = 0;
-  let rateLimitCircuitOpen = false;
   let circuitUserMessagePending = false;
 
   const logCtx = {
@@ -233,6 +245,7 @@ export async function runFullPrReview(params: {
       const isGithubTool = githubExecutorNames.has(call.name);
 
       if (isGithubTool && isInstallationTokenNearExpiry(tokenExpiresAtTs)) {
+        recordReviewMetric({ kind: "token_near_expiry_guard" });
         logDebug("token_expired_before_tool", {
           tool: call.name,
           tokenExpiresInSeconds: Math.max(0, Math.floor((tokenExpiresAtTs - Date.now()) / 1000)),
@@ -258,8 +271,15 @@ export async function runFullPrReview(params: {
       try {
         const exec = executors[call.name];
         if (!exec) throw new Error(`Unknown tool: ${call.name}`);
+        const toolStarted = Date.now();
         const out = await exec(call.arguments);
         text = typeof out === "string" ? out : JSON.stringify(out, null, 2);
+        recordReviewMetric({
+          kind: "tool_call",
+          name: call.name,
+          ok: true,
+          durationMs: Date.now() - toolStarted,
+        });
         if (call.name === "submitReview" && submitState.published) {
           stopLoop = true;
         }
@@ -268,6 +288,7 @@ export async function runFullPrReview(params: {
         }
       } catch (e) {
         isError = true;
+        recordReviewMetric({ kind: "tool_call", name: call.name, ok: false });
         if (isGithubTool) {
           const classified = classifyGithubToolError(e, {
             expiresAtTs: tokenExpiresAtTs,
@@ -285,6 +306,7 @@ export async function runFullPrReview(params: {
             rateLimitConsecutiveFailures >= RATE_LIMIT_CIRCUIT_THRESHOLD
           ) {
             rateLimitCircuitOpen = true;
+            recordReviewMetric({ kind: "rate_limit_circuit_opened" });
             logWarn("review_rate_limit_circuit_open", {
               consecutiveFailures: rateLimitConsecutiveFailures,
               owner,
@@ -328,7 +350,8 @@ export async function runFullPrReview(params: {
     }
   }
 
-  async function runToolLoop(maxRounds: number, loopMode: ToolLoopMode) {
+  async function runToolLoop(maxRounds: number, loopMode: ToolLoopMode, phase: ReviewPhase) {
+    recordReviewMetric({ kind: "phase_enter", phase });
     for (let round = 0; round < maxRounds && !stopLoop; round++) {
       const requireTools =
         loopMode.toolChoice === "every-round" ||
@@ -345,6 +368,7 @@ export async function runFullPrReview(params: {
 
       const toolCalls = collectToolCalls(assistant);
       if (toolCalls.length === 0) {
+        recordReviewMetric({ kind: "prose_only", phase });
         logDebug("agent_round_complete_no_tools", {
           mode: reviewMode,
           round,
@@ -371,6 +395,7 @@ export async function runFullPrReview(params: {
   }
 
   async function runValidationRepair() {
+    recordReviewMetric({ kind: "phase_enter", phase: "validation_repair" });
     for (let repair = 0; repair < VALIDATION_REPAIR_ROUNDS && !submitState.published; repair++) {
       const validationError = submitState.lastValidationError;
       if (!validationError) break;
@@ -393,14 +418,33 @@ export async function runFullPrReview(params: {
       stopLoop = false;
       const savedTools = context.tools;
       context.tools = [submitTool];
-      await runToolLoop(1, { toolChoice: "required", nudgeOnProseOnly: true });
+      await runToolLoop(1, { toolChoice: "required", nudgeOnProseOnly: true }, "validation_repair");
       context.tools = savedTools;
     }
   }
 
   async function runInvestigationPhase() {
     stopLoop = false;
-    await runToolLoop(cfg.maxToolRounds, { toolChoice: "first-round" });
+    await runToolLoop(cfg.maxToolRounds, { toolChoice: "first-round" }, "investigation");
+
+    if (
+      cfg.reviewInjectAnchorMenu &&
+      cachedDiffIndex.files.size > 0 &&
+      !submitState.published &&
+      !stopLoop
+    ) {
+      const anchorMenu = renderAnchorMenuBlock(cachedDiffIndex, {
+        maxFiles: cfg.reviewAnchorMenuMaxFiles,
+        maxRangesPerFile: cfg.reviewAnchorMenuMaxRangesPerFile,
+      });
+      if (anchorMenu) {
+        context.messages.push({
+          role: "user",
+          content: anchorMenu,
+          timestamp: Date.now(),
+        });
+      }
+    }
 
     if (!submitState.published && !stopLoop) {
       if (endsWithToolResults(context.messages)) {
@@ -409,14 +453,14 @@ export async function runFullPrReview(params: {
           content: PRE_SUBMIT_USER_MESSAGE,
           timestamp: Date.now(),
         });
-        await runToolLoop(2, { toolChoice: "required", nudgeOnProseOnly: true });
+        await runToolLoop(2, { toolChoice: "required", nudgeOnProseOnly: true }, "pre_submit");
       } else {
         context.messages.push({
           role: "user",
           content: PROSE_ONLY_NUDGE,
           timestamp: Date.now(),
         });
-        await runToolLoop(1, { toolChoice: "required", nudgeOnProseOnly: true });
+        await runToolLoop(1, { toolChoice: "required", nudgeOnProseOnly: true }, "pre_submit");
       }
     }
 
@@ -424,6 +468,7 @@ export async function runFullPrReview(params: {
   }
 
   async function runPublishRecoveryPhase(attemptIndex: number) {
+    recordReviewMetric({ kind: "phase_enter", phase: "publish_recovery" });
     const prompt =
       PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
       PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
@@ -450,15 +495,20 @@ export async function runFullPrReview(params: {
     if (isLastAttempt) {
       context.tools = [submitTool];
     }
-    await runToolLoop(PUBLISH_RECOVERY_ROUNDS, {
-      toolChoice: "every-round",
-      nudgeOnProseOnly: true,
-    });
+    await runToolLoop(
+      PUBLISH_RECOVERY_ROUNDS,
+      {
+        toolChoice: "every-round",
+        nudgeOnProseOnly: true,
+      },
+      "publish_recovery",
+    );
     context.tools = savedTools;
     await runValidationRepair();
   }
 
   async function runMaintainerPlainTextFallback() {
+    recordReviewMetric({ kind: "phase_enter", phase: "plaintext_fallback" });
     logWarn("agent_publish_fallback", {
       mode: reviewMode,
       publishAttempts,
@@ -526,8 +576,13 @@ export async function runFullPrReview(params: {
   }
 
   if (!lastAssistant) {
+    setReviewRunMetricFields({ published: submitState.published, publishAttempts });
+    logReviewRunCompleted();
     throw new Error("Agent produced no assistant message");
   }
+
+  setReviewRunMetricFields({ published: submitState.published, publishAttempts });
+  logReviewRunCompleted();
 
   return { lastAssistant, published: submitState.published, publishAttempts };
 }

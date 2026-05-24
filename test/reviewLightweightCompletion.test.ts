@@ -46,7 +46,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
   it("does not publish summary when shouldSkipWork is true", async () => {
     vi.mocked(shouldSkipWork).mockResolvedValue(true);
 
-    const handled = await tryLightweightAutoReviewCompletion(pool, {
+    const result = await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem(),
       reviewLens: "review",
       token: "tok",
@@ -58,13 +58,13 @@ describe("tryLightweightAutoReviewCompletion", () => {
       },
     });
 
-    expect(handled).toBe(true);
+    expect(result).toEqual({ handled: true, published: false, reason: "skipped" });
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
   it("publishes summary when trivial and work is not skipped", async () => {
-    const handled = await tryLightweightAutoReviewCompletion(pool, {
+    const result = await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem(),
       reviewLens: "review",
       token: "tok",
@@ -76,7 +76,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       },
     });
 
-    expect(handled).toBe(true);
+    expect(result).toEqual({ handled: true, published: true, summaryId: 42 });
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
     expect(recordPublishStep).toHaveBeenCalledWith(
       pool,

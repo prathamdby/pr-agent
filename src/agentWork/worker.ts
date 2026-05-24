@@ -9,6 +9,11 @@ import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
+import {
+  initReviewRunMetrics,
+  logReviewRunCompleted,
+  setReviewRunMetricFields,
+} from "../agent/reviewRunMetrics.js";
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { logDebug, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
@@ -233,20 +238,31 @@ async function handleReviewJob(
       );
       const trustedContext = buildTrustedReviewContextBlock(preflight);
 
-      if (
-        await tryLightweightAutoReviewCompletion(pool, {
-          item,
-          reviewLens,
-          token: installation.token,
-          preflight,
-        })
-      ) {
+      const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
+        item,
+        reviewLens,
+        token: installation.token,
+        preflight,
+      });
+      if (lightweightResult.handled) {
         logInfo("review_lightweight_completion", {
           owner: item.owner,
           repo: item.repo,
           pr: item.prNumber,
           reviewLens,
+          published: lightweightResult.published,
         });
+        initReviewRunMetrics({
+          provider: cfg.piProvider,
+          model: cfg.piModel,
+          mode: reviewLens,
+        });
+        setReviewRunMetricFields({
+          published: lightweightResult.published,
+          publishAttempts: 0,
+          lightweight: true,
+        });
+        logReviewRunCompleted();
         return { degraded: false };
       }
 

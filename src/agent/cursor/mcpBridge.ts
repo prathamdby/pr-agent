@@ -19,6 +19,16 @@ import {
   CURSOR_MAX_PORT_RETRIES,
 } from "../../settings/index.js";
 import type { CursorExecutor } from "./runContext.js";
+import { logDebug } from "../../evlog.js";
+import { recordReviewMetric } from "../reviewRunMetrics.js";
+
+function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
+  try {
+    recordReviewMetric(event);
+  } catch {
+    logDebug("review_metric_record_failed", { kind: event.kind });
+  }
+}
 
 export type McpBridgeOptions = {
   readonly tools: readonly PiTool[];
@@ -139,14 +149,16 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
   }));
 
   mcpServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+    const toolName = request.params.name;
+    const toolStarted = Date.now();
+
     if (disposed) {
+      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
       return {
         content: [{ type: "text", text: "MCP bridge disposed" }],
         isError: true,
       };
     }
-
-    const toolName = request.params.name;
 
     const abortController = new AbortController();
     pendingCalls.add(abortController);
@@ -166,6 +178,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       }
       const exec = options.executors[toolName];
       if (!exec) {
+        safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
         return {
           content: [{ type: "text", text: `Unknown tool: ${toolName}` }],
           isError: true,
@@ -176,9 +189,16 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
           ? request.params.arguments
           : {};
       const out = await runWithAbortSignal(() => exec(args), abortController.signal);
+      safeRecordReviewMetric({
+        kind: "tool_call",
+        name: toolName,
+        ok: true,
+        durationMs: Date.now() - toolStarted,
+      });
       return executorResultToMcp(out);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
+      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
       return executorResultToMcp(message, true);
     } finally {
       extra.signal?.removeEventListener("abort", linkAbort);
