@@ -174,6 +174,29 @@ describe("submitReview tool", () => {
     });
   });
 
+  it("allows submit when diff cache enforcement is waived", async () => {
+    const state = createSubmitReviewState();
+    const index = createCachedPrDiffIndex();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      state,
+      cachedDiffIndex: index,
+      canEnforceDiffCacheBeforeSubmit: () => false,
+    });
+    const valid = {
+      prCharacter: "Does things.",
+      findings: [],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+    await executor(valid);
+    expect(publishReview).toHaveBeenCalledTimes(1);
+  });
+
   it("allows submit when diff cache is ingested but has no files", async () => {
     const state = createSubmitReviewState();
     const index = createCachedPrDiffIndex();

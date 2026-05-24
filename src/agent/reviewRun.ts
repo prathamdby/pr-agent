@@ -149,6 +149,7 @@ export async function runFullPrReview(params: {
     inlinePublished: params.initialPublishState?.inlinePublished,
     inlineReviewId: params.initialPublishState?.inlineReviewId,
   });
+  let rateLimitCircuitOpen = false;
   const publishCtx = { owner, repo, prNumber, headSha };
   const { piTool: submitTool, executor: submitExecutor } = buildSubmitReviewTool({
     cfg,
@@ -157,6 +158,7 @@ export async function runFullPrReview(params: {
     mode: reviewMode,
     state: submitState,
     cachedDiffIndex,
+    canEnforceDiffCacheBeforeSubmit: () => !rateLimitCircuitOpen,
     shouldLinkToSummary: params.shouldLinkToSummary,
     summaryCommentIdHint: params.summaryCommentIdHint,
     recordPublishStep: params.recordPublishStep,
@@ -205,7 +207,6 @@ export async function runFullPrReview(params: {
   let stopLoop = false;
   let publishAttempts = 0;
   let rateLimitConsecutiveFailures = 0;
-  let rateLimitCircuitOpen = false;
   let circuitUserMessagePending = false;
 
   const logCtx = {

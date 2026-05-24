@@ -7,6 +7,11 @@ import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 
+export type LightweightAutoReviewResult =
+  | { readonly handled: false }
+  | { readonly handled: true; readonly published: false; readonly reason: "skipped" }
+  | { readonly handled: true; readonly published: true; readonly summaryId: number | string };
+
 /** Auto-review docs-only path: publish lightweight summary or skip when work is cancelled. */
 export async function tryLightweightAutoReviewCompletion(
   pool: Pool,
@@ -16,16 +21,18 @@ export async function tryLightweightAutoReviewCompletion(
     token: string;
     preflight: ReviewPreflightMetadata;
   },
-): Promise<boolean> {
-  if (params.item.source !== "auto") return false;
+): Promise<LightweightAutoReviewResult> {
+  if (params.item.source !== "auto") return { handled: false };
 
   const trivial = evaluateTrivialChangeExemption({
     files: params.preflight.files,
     truncated: params.preflight.truncated,
   });
-  if (!trivial.exempt) return false;
+  if (!trivial.exempt) return { handled: false };
 
-  if (await shouldSkipWork(pool, params.item)) return true;
+  if (await shouldSkipWork(pool, params.item)) {
+    return { handled: true, published: false, reason: "skipped" };
+  }
 
   const body = renderLightweightReviewCompletion(params.reviewLens);
   const summary = await upsertReviewSummaryComment(
@@ -47,5 +54,5 @@ export async function tryLightweightAutoReviewCompletion(
       trivialReason: "docs_only",
     },
   });
-  return true;
+  return { handled: true, published: true, summaryId: summary.id };
 }

@@ -53,6 +53,7 @@ export function buildSubmitReviewTool(params: {
   mode?: ReviewMode;
   state: SubmitReviewState;
   cachedDiffIndex?: CachedPrDiffIndex;
+  canEnforceDiffCacheBeforeSubmit?: () => boolean;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
   recordPublishStep?: (
@@ -108,7 +109,8 @@ export function buildSubmitReviewTool(params: {
     if (
       params.cfg.reviewRequireDiffCacheBeforeSubmit &&
       params.cachedDiffIndex &&
-      !params.cachedDiffIndex.listPullRequestFilesIngested
+      !params.cachedDiffIndex.listPullRequestFilesIngested &&
+      (params.canEnforceDiffCacheBeforeSubmit?.() ?? true)
     ) {
       recordReviewMetric({ kind: "diff_cache_empty_at_submit" });
       throw new Error(REVIEW_DIFF_CACHE_REQUIRED_MESSAGE);

@@ -238,26 +238,30 @@ async function handleReviewJob(
       );
       const trustedContext = buildTrustedReviewContextBlock(preflight);
 
-      if (
-        await tryLightweightAutoReviewCompletion(pool, {
-          item,
-          reviewLens,
-          token: installation.token,
-          preflight,
-        })
-      ) {
+      const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
+        item,
+        reviewLens,
+        token: installation.token,
+        preflight,
+      });
+      if (lightweightResult.handled) {
         logInfo("review_lightweight_completion", {
           owner: item.owner,
           repo: item.repo,
           pr: item.prNumber,
           reviewLens,
+          published: lightweightResult.published,
         });
         initReviewRunMetrics({
           provider: cfg.piProvider,
           model: cfg.piModel,
           mode: reviewLens,
         });
-        setReviewRunMetricFields({ published: true, publishAttempts: 0, lightweight: true });
+        setReviewRunMetricFields({
+          published: lightweightResult.published,
+          publishAttempts: 0,
+          lightweight: true,
+        });
         logReviewRunCompleted();
         return { degraded: false };
       }
