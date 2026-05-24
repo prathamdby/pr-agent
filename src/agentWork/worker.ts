@@ -5,12 +5,17 @@ import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
+import { evaluateTrivialChangeExemption } from "../agent/reviewChangeGate.js";
+import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
+import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
+import { renderLightweightReviewCompletion } from "../agent/reviewRender.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { logDebug, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import {
   getReviewPublishState,
+  getStoredInlineFingerprints,
   getSummaryCommentGithubId,
   hasPriorCompletedSummaryPublish,
   recordPublishStep,
@@ -214,6 +219,57 @@ async function handleReviewJob(
         : null;
       let installation = env.installation;
       const headSha = env.headSha;
+
+      const preflight = await fetchReviewPreflightMetadata(
+        installation.token,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        { maxPrFilesListed: cfg.maxPrFilesListed },
+      );
+      const storedInlineFingerprints = await getStoredInlineFingerprints(
+        pool,
+        item.resourceKey,
+        reviewLens,
+      );
+      const trustedContext = buildTrustedReviewContextBlock(preflight);
+
+      if (item.source === "auto") {
+        const trivial = evaluateTrivialChangeExemption({
+          files: preflight.files,
+          truncated: preflight.truncated,
+        });
+        if (trivial.exempt) {
+          const body = renderLightweightReviewCompletion(reviewLens);
+          const summary = await upsertReviewSummaryComment(
+            installation.token,
+            item.owner,
+            item.repo,
+            item.prNumber,
+            body,
+            reviewSummarySentinelForMode(reviewLens),
+          );
+          await recordPublishStep(pool, {
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            reviewLens,
+            step: "summary_comment",
+            githubId: summary.id,
+            detail: {
+              lightweightCompletion: true,
+              trivialReason: trivial.reason ?? "docs_only",
+            },
+          });
+          logInfo("review_lightweight_completion", {
+            owner: item.owner,
+            repo: item.repo,
+            pr: item.prNumber,
+            reviewLens,
+          });
+          return { degraded: false };
+        }
+      }
+
       const result = await runFullPrReview({
         cfg,
         token: installation.token,
@@ -225,6 +281,8 @@ async function handleReviewJob(
         headSha,
         mode: reviewLens,
         userSupplement: payload.userSupplement,
+        trustedContext,
+        storedInlineFingerprints,
         shouldLinkToSummary,
         summaryCommentIdHint,
         initialPublishState: {

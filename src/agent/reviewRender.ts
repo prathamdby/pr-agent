@@ -13,6 +13,9 @@ import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   AGENT_FIX_PROMPT_PREAMBLE,
   AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
+  LIGHTWEIGHT_REVIEW_COMPLETION_HINT,
+  LIGHTWEIGHT_REVIEW_COMPLETION_LEAD,
+  LIGHTWEIGHT_REVIEW_COMPLETION_REASON,
   REPEAT_NO_BUGS_PREFIX,
   REVIEW_EFFORT_WORDS,
   REVIEW_FINDING_FOOTNOTE_INLINE,
@@ -32,6 +35,7 @@ import type {
   ReviewPublishContext,
   ReviewMode,
 } from "./reviewSchema.js";
+import { reviewSummarySentinelForMode } from "./reviewSchema.js";
 import { sanitizePublicReviewFields } from "./publicOutputSanitizer.js";
 import type { InlinePlacement } from "./reviewLocationValidation.js";
 
@@ -97,6 +101,23 @@ export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl
       : `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
   }
   return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
+}
+
+export function renderLightweightReviewCompletion(mode: ReviewMode): string {
+  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const rows: string[] = [];
+  rows.push(summarySentinel);
+  rows.push("");
+  rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, LIGHTWEIGHT_REVIEW_COMPLETION_LEAD));
+  rows.push("");
+  rows.push(
+    renderKeyValueTable([
+      [renderTableStrong("Review"), escapeTableHtml("Skipped")],
+      [renderTableStrong("Reason"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_REASON)],
+      [renderTableStrong("Next step"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_HINT)],
+    ]),
+  );
+  return rows.join("\n").trimEnd();
 }
 
 function formatLineRange(startLine: number, endLine: number): string {

@@ -107,6 +107,9 @@ These are related but not wired together on INSERT today.
 | `REVIEW_OVERVIEW_ALERT` / `REVIEW_FAILURE_ALERT`                     | GitHub alert types (`NOTE`, `CAUTION`)                 |
 | `REVIEW_PROGRESS_NOTE`                                               | In-progress NOTE body                                  |
 | `REVIEW_PROGRESS_SOURCE_AUTO` / `REVIEW_PROGRESS_SOURCE_SLASH`       | Progress table source labels                           |
+| `LIGHTWEIGHT_REVIEW_COMPLETION_*`                                    | Docs-only auto-review skip copy                        |
+| `REVIEW_SIZE_TIER_*`                                                 | Advisory small/medium/large tier thresholds            |
+| `REVIEW_RISK_PATH_PATTERNS`                                          | Path categories for trusted review context           |
 | `REVIEW_FINDING_FOOTNOTE_INLINE` / `REVIEW_FINDING_FOOTNOTE_SUMMARY` | Finding row footnotes                                  |
 | `REVIEW_FINDINGS_NONE`                                               | Empty findings table cell                              |
 | `REVIEW_SECURITY_DEFAULT`                                            | Default security row when null                         |

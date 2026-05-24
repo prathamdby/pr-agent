@@ -24,7 +24,12 @@ import {
   type CachedPrDiffIndex,
 } from "./reviewLocationValidation.js";
 import {
-  normalizeReviewPayload,
+  fingerprintFinding,
+  mergeInlineFingerprintRecords,
+  suppressInlinePlacementsByFingerprint,
+} from "./reviewFindingFingerprint.js";
+import { prepareReviewPayloadForPublish } from "./reviewPrePublish.js";
+import {
   reviewEventForFindings,
   reviewSummarySentinelForMode,
   type ReviewMode,
@@ -50,17 +55,34 @@ export async function publishReview(
       step: "inline_review" | "summary_comment" | "labels",
       detail?: { githubId?: string | number; meta?: Record<string, unknown> },
     ) => Promise<void>;
+    storedInlineFingerprints?: readonly string[];
   },
 ): Promise<void> {
   const { token, owner, repo, prNumber, headSha, cfg, payload: raw, publishState } = params;
   const mode = params.mode ?? "review";
   const summarySentinel = reviewSummarySentinelForMode(mode);
-  const payload = normalizeReviewPayload(raw);
-  const placements = planInlinePlacements(
+
+  const prepared = prepareReviewPayloadForPublish({
+    payload: raw,
+    mode,
+    cachedDiffIndex: params.cachedDiffIndex,
+  });
+  if (!prepared.ok) {
+    throw new Error(prepared.error);
+  }
+  const payload = prepared.prepared.payload;
+
+  let placements = planInlinePlacements(
     payload.findings,
     cfg.maxReviewFindings,
     params.cachedDiffIndex,
   );
+  const suppression = suppressInlinePlacementsByFingerprint(
+    placements,
+    mode,
+    params.storedInlineFingerprints ?? [],
+  );
+  placements = suppression.placements;
   const inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
   let summaryPlacements = placements;
@@ -103,6 +125,8 @@ export async function publishReview(
       (p) => !p.inlineCapEligible && p.inlineLine == null && p.finding.severity !== "P3",
     ).length,
     anchorUnresolved: placements.filter((p) => p.inlineCapEligible && p.inlineLine == null).length,
+    dedupedFindingCount: prepared.prepared.dedupedCount,
+    suppressedInlineCount: suppression.suppressedInlineCount,
   };
 
   if (!publishState.inlinePublished) {
@@ -137,12 +161,19 @@ export async function publishReview(
         });
         inlineReviewId = review.id;
         publishState.inlineReviewId = review.id;
+        const inlinePostedFindings = inlineFindings.map((placement) => placement.finding);
+        const fingerprints = mergeInlineFingerprintRecords(
+          params.storedInlineFingerprints ?? [],
+          inlinePostedFindings,
+          mode,
+        );
         await params.recordPublishStep?.("inline_review", {
           githubId: review.id,
           meta: {
             url: review.url,
             event,
             agentFixPromptTruncated: pointerBody.truncated,
+            fingerprints,
             ...publishMetaBase,
           },
         });

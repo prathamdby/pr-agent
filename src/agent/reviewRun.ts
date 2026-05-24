@@ -98,6 +98,8 @@ export async function runFullPrReview(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  trustedContext?: string;
+  storedInlineFingerprints?: readonly string[];
 }): Promise<ReviewRunResult> {
   const {
     cfg,
@@ -109,6 +111,7 @@ export async function runFullPrReview(params: {
     prNumber,
     headSha,
     userSupplement,
+    trustedContext,
   } = params;
   if (!Number.isFinite(tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
@@ -146,6 +149,7 @@ export async function runFullPrReview(params: {
     summaryCommentIdHint: params.summaryCommentIdHint,
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
+    storedInlineFingerprints: params.storedInlineFingerprints,
   });
 
   const reviewGithubExecutors = { ...gh.executors };
@@ -165,6 +169,7 @@ export async function runFullPrReview(params: {
     `Pull request #: ${prNumber}`,
     `Head commit SHA: ${headSha}`,
     userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
+    trustedContext ? `\n${trustedContext}\n` : "",
     "",
     reviewMode === "review-security"
       ? "Perform a deep security review of the PR diff using investigation tools, then call submitReview exactly once with a complete ReviewPayload."

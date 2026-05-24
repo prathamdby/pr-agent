@@ -1,5 +1,6 @@
 import {
   fixPromptFieldContract,
+  pathAndSizeGuidance,
   publicOutputContract,
   singlePassReviewContract,
 } from "./reviewPromptBlocks.js";
@@ -111,6 +112,8 @@ export function buildAutomatedSystemPrompt(): string {
     "",
     "P0/P1/P2 appear as inline review threads on changed lines; P3 appears only as title + deep-link in the conversation overview.",
     "Do not leak secrets/tokens; say exactly what tooling blocked if access is insufficient.",
+    "",
+    pathAndSizeGuidance,
     "",
     publicOutputContract,
   ].join("\n");

@@ -22,4 +22,11 @@ export const publicOutputContract = [
   "If submitReview fails, retry with a valid ReviewPayload only. Do not write a fallback review report in prose.",
 ].join("\n");
 
+export const pathAndSizeGuidance = [
+  "## Path and size guidance",
+  "When trusted context blocks are present in the user message, use them to prioritize investigation order.",
+  "Inspect auth, migration, config, and security paths before docs and tests.",
+  "On large or truncated pull requests, focus on high-confidence P0-P2 findings with clear trigger paths.",
+].join("\n");
+
 export { VALIDATION_REPAIR_ROUNDS } from "../settings/index.js";

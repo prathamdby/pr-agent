@@ -15,6 +15,7 @@ import {
   cachedDiffForLines,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
+import { fingerprintFinding } from "../src/agent/reviewFindingFingerprint.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -121,6 +122,24 @@ describe("publishReview", () => {
     expect(publishState.inlineReviewId).toBe(1);
   });
 
+  it("suppresses inline review when stored fingerprint matches", async () => {
+    const finding = payload.findings[0]!;
+    const stored = fingerprintFinding(finding, "review");
+
+    await publishReview({
+      ...baseParams,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      storedInlineFingerprints: [stored],
+    });
+
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(summaryBody).toContain("Summary only");
+    expect(summaryBody).toContain("Bug");
+  });
+
   it("bases review event on full findings not inline subset", async () => {
     const spy = vi.spyOn(reviewSchema, "reviewEventForFindings");
     const findings: ReviewPayload["findings"] = [
@@ -159,7 +178,7 @@ describe("publishReview", () => {
       payload: { ...payload, findings },
     });
 
-    expect(spy).toHaveBeenCalledWith(findings);
+    expect(spy).toHaveBeenCalledWith([findings[1], findings[0]]);
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
       "t",
       "o",

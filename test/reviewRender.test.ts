@@ -7,6 +7,7 @@ import {
   REVIEW_POINTER_NOTE_LEAD,
   renderAgentFixPrompt,
   renderInlineThreadBody,
+  renderLightweightReviewCompletion,
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
   renderReviewSummaryComment,
@@ -729,5 +730,22 @@ describe("renderRepeatNoBugsReviewBody", () => {
   it("falls back to plain pointer when URL is missing (security)", () => {
     const body = renderRepeatNoBugsReviewBody("review-security");
     expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${SECURITY_REVIEW_POINTER_BODY}`);
+  });
+});
+
+describe("renderLightweightReviewCompletion", () => {
+  it("preserves sentinel, alert, and table structure", () => {
+    const body = renderLightweightReviewCompletion("review");
+    expect(body).toContain("## PR Agent Review");
+    expect(body).toContain("[!NOTE]");
+    expect(body).toContain("<table>");
+    expect(body).not.toContain("| | |");
+    expect(body).not.toContain("—");
+    expect(body).toContain("Use /review for a full review.");
+  });
+
+  it("uses security sentinel for security lens", () => {
+    const body = renderLightweightReviewCompletion("review-security");
+    expect(body).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
   });
 });

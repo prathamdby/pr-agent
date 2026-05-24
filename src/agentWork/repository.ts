@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { parseStoredInlineFingerprints } from "../agent/reviewFindingFingerprint.js";
 import type { AgentWorkItem, ReviewWorkPayload, WorkStatus } from "./types.js";
 
 type AgentWorkRow = {
@@ -257,6 +258,29 @@ export async function getReviewPublishState(
     summaryPublished: steps.has("summary_comment"),
     inlineReviewId,
   };
+}
+
+export async function getStoredInlineFingerprints(
+  pool: Pool,
+  resourceKey: string,
+  reviewLens: ReviewWorkPayload["mode"],
+): Promise<string[]> {
+  const { rows } = await pool.query<{ detail: Record<string, unknown> }>(
+    `SELECT detail
+       FROM publish_records
+      WHERE resource_key = $1
+        AND review_lens = $2
+        AND step = 'inline_review'
+        AND status = 'completed'`,
+    [resourceKey, reviewLens],
+  );
+  const merged = new Set<string>();
+  for (const row of rows) {
+    for (const fingerprint of parseStoredInlineFingerprints(row.detail).fingerprints) {
+      merged.add(fingerprint);
+    }
+  }
+  return [...merged];
 }
 
 export async function recordPublishStep(
