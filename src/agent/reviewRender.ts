@@ -36,7 +36,6 @@ import type {
   ReviewMode,
 } from "./reviewSchema.js";
 import { reviewSummarySentinelForMode } from "./reviewSchema.js";
-import { sanitizePublicReviewFields } from "./publicOutputSanitizer.js";
 import type { InlinePlacement } from "./reviewLocationValidation.js";
 
 export {
@@ -191,7 +190,7 @@ function renderSummaryOnlyFixAccordion(
   ];
 }
 
-type SanitizedFindingFields = {
+type FindingTableFields = {
   title: string;
   detail: string;
   fixPrompt?: string;
@@ -200,7 +199,7 @@ type SanitizedFindingFields = {
 function renderFindingTableCellHtml(
   placement: InlinePlacement,
   ctx: RenderContext,
-  safeFinding: SanitizedFindingFields,
+  findingFields: FindingTableFields,
 ): string {
   const f = placement.finding;
   const link =
@@ -209,11 +208,11 @@ function renderFindingTableCellHtml(
       : blobLineUrl(ctx, f.file, f.startLine, f.endLine);
   const marker = placement.inlinePosted ? "On the diff" : "Summary only";
   const parts = [
-    renderTableLink(safeFinding.title, link),
+    renderTableLink(findingFields.title, link),
     renderTableLocationMeta(marker, f.file, formatLineRange(f.startLine, f.endLine)),
   ];
   if (!placement.inlinePosted) {
-    parts.push(escapeTablePlainCell(safeFinding.detail));
+    parts.push(escapeTablePlainCell(findingFields.detail));
   }
   parts.push(
     renderTableEm(
@@ -224,29 +223,18 @@ function renderFindingTableCellHtml(
 }
 
 export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
-  const safe = sanitizePublicReviewFields({
-    title: finding.title,
-    detail: finding.detail,
-    fixPrompt: finding.fixPrompt,
-  });
-  const sanitizedFinding = {
-    ...finding,
-    title: safe.title ?? finding.title,
-    detail: safe.detail ?? finding.detail,
-    fixPrompt: safe.fixPrompt ?? finding.fixPrompt,
-  };
   const lines = [
-    `**${sanitizedFinding.severity}** · **${sanitizedFinding.title}**`,
+    `**${finding.severity}** · **${finding.title}**`,
     "",
-    `\`${sanitizedFinding.file}\` · ${formatLineRange(sanitizedFinding.startLine, sanitizedFinding.endLine)}`,
+    `\`${finding.file}\` · ${formatLineRange(finding.startLine, finding.endLine)}`,
     "",
-    sanitizedFinding.detail,
+    finding.detail,
     "",
     "<details>",
     "<summary>Prompt to fix</summary>",
     "",
     "```",
-    renderSingleFindingAgentFixPrompt(sanitizedFinding, ctx),
+    renderSingleFindingAgentFixPrompt(finding, ctx),
     "```",
     "",
     "</details>",
@@ -263,19 +251,8 @@ export function renderAgentFixPrompt(
   const sorted = sortFindingsForAgentFixPrompt(payload.findings);
 
   const blocks = sorted.map((f) => {
-    const safe = sanitizePublicReviewFields({
-      title: f.title,
-      detail: f.detail,
-      fixPrompt: f.fixPrompt,
-    });
-    const sanitizedFinding = {
-      ...f,
-      title: safe.title ?? f.title,
-      detail: safe.detail ?? f.detail,
-      fixPrompt: safe.fixPrompt ?? f.fixPrompt,
-    };
     const placement = placementByFinding.get(f);
-    return renderFindingFixBlock(sanitizedFinding, {
+    return renderFindingFixBlock(f, {
       inlinePosted: placement?.inlinePosted ?? false,
       inlineCapEligible: placement?.inlineCapEligible,
     });
@@ -370,22 +347,12 @@ export function renderReviewSummaryComment(
   payload: ReviewPayload,
   ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
 ): string {
-  const safePayload = sanitizePublicReviewFields({
-    prCharacter: payload.prCharacter,
-    securityConcerns: payload.securityConcerns,
-    followUps: payload.followUps,
-  });
   const sortedPlacements = sortPlacements(ctx.placements);
 
   const rows: string[] = [];
   rows.push(ctx.summarySentinel);
   rows.push("");
-  rows.push(
-    renderGitHubAlert(
-      REVIEW_OVERVIEW_ALERT,
-      (safePayload.prCharacter ?? payload.prCharacter).trim(),
-    ),
-  );
+  rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, payload.prCharacter.trim()));
   rows.push("");
 
   const tableRows: Array<[string, string]> = [
@@ -398,31 +365,18 @@ export function renderReviewSummaryComment(
     tableRows.push([renderTableStrong("Findings"), escapeTableHtml(REVIEW_FINDINGS_NONE)]);
   } else {
     for (const placement of sortedPlacements) {
-      const safeFinding = sanitizePublicReviewFields({
-        title: placement.finding.title,
-        detail: placement.finding.detail,
-        fixPrompt: placement.finding.fixPrompt,
-      });
-      const sanitized = {
-        title: safeFinding.title ?? placement.finding.title,
-        detail: safeFinding.detail ?? placement.finding.detail,
-        fixPrompt: safeFinding.fixPrompt ?? placement.finding.fixPrompt,
-      };
+      const f = placement.finding;
       tableRows.push([
-        renderTableStrong(placement.finding.severity),
-        renderFindingTableCellHtml(placement, ctx, sanitized),
+        renderTableStrong(f.severity),
+        renderFindingTableCellHtml(placement, ctx, {
+          title: f.title,
+          detail: f.detail,
+          fixPrompt: f.fixPrompt,
+        }),
       ]);
-      if (
-        !placement.inlinePosted &&
-        sanitized.fixPrompt != null &&
-        sanitized.fixPrompt.length > 0
-      ) {
+      if (!placement.inlinePosted && f.fixPrompt != null && f.fixPrompt.length > 0) {
         summaryOnlyAccordions.push(
-          ...renderSummaryOnlyFixAccordion(
-            placement.finding.severity,
-            sanitized.title,
-            sanitized.fixPrompt,
-          ),
+          ...renderSummaryOnlyFixAccordion(f.severity, f.title, f.fixPrompt),
         );
       }
     }
@@ -431,13 +385,12 @@ export function renderReviewSummaryComment(
   tableRows.push([renderTableStrong("Relevant tests"), escapeTableHtml(payload.relevantTests)]);
   tableRows.push([
     renderTableStrong("Security"),
-    safePayload.securityConcerns != null
-      ? escapeTablePlainCell(safePayload.securityConcerns)
+    payload.securityConcerns != null
+      ? escapeTablePlainCell(payload.securityConcerns)
       : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
   ]);
 
-  const followUps = safePayload.followUps ?? payload.followUps;
-  for (const item of followUps) {
+  for (const item of payload.followUps) {
     tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);
   }
 

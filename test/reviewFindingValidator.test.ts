@@ -32,6 +32,28 @@ describe("validateReviewPayload", () => {
     }
   });
 
+  it("accepts overview mentioning structured publish without failure wording", () => {
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          prCharacter: "This PR improves structured publish reliability and adds metrics.",
+        }),
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects followUps with internal failure phrasing", () => {
+    const result = validateReviewPayload({
+      payload: basePayload({
+        followUps: ["Structured publish failed after 2/3 attempt(s)."],
+      }),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toMatch(/followUps\[0\]/);
+    }
+  });
+
   it("accepts findings that mention repository symbols matching banned patterns", () => {
     expect(
       validateReviewPayload({

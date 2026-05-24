@@ -1,7 +1,7 @@
 import { dedupeReviewFindings } from "./reviewFindingDedup.js";
 import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
-import { sanitizeReviewPayload } from "./publicOutputSanitizer.js";
+import { redactReviewPayloadSecrets } from "./reviewPublicOutput.js";
 import { normalizeReviewPayload, type ReviewMode, type ReviewPayload } from "./reviewSchema.js";
 import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
 
@@ -21,11 +21,11 @@ export function prepareReviewPayloadForPublish(params: {
   | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
   const normalized = normalizeReviewPayload(params.payload);
   const deduped = dedupeReviewFindings(normalized.findings);
-  const payload = sanitizeReviewPayload({ ...normalized, findings: deduped });
+  const candidate = { ...normalized, findings: deduped };
   const dedupedCount = normalized.findings.length - deduped.length;
 
   const validation = validateReviewPayload({
-    payload,
+    payload: candidate,
     cachedDiffIndex: params.cachedDiffIndex,
     maxInlineFindings: params.maxInlineFindings,
     enforceInlineAnchorValidation: params.enforceInlineAnchorValidation,
@@ -38,6 +38,7 @@ export function prepareReviewPayloadForPublish(params: {
     };
   }
 
+  const payload = redactReviewPayloadSecrets(candidate);
   return {
     ok: true,
     prepared: { payload, dedupedCount },

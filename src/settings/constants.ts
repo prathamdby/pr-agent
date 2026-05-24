@@ -190,6 +190,8 @@ export const BOT_SECRET_PATTERNS: readonly RegExp[] = [
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+  /\bDATABASE_URL\s*=\s*\S+/gi,
+  /\b(?:OPENAI|CURSOR|CONTEXT7)_API_KEY\s*=\s*\S+/gi,
 ];
 
 export const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
@@ -245,26 +247,6 @@ export const CURSOR_MCP_TOKEN_BYTES = 32;
 export const CURSOR_MCP_SERVER_START_TIMEOUT_MS = 5_000;
 export const CURSOR_MAX_PORT_RETRIES = 5;
 export const CURSOR_MCP_SERVER_NAME = "pr-agent";
-
-/** Public-output sanitizer. */
-export const PUBLIC_OUTPUT_BANNED_PATTERNS: RegExp[] = [
-  /\bsystem prompt\b/i,
-  /\btooling budget\b/i,
-  /\bserver logs\b/i,
-  /Line could not be resolved/i,
-  /\bsubmitReview\b/i,
-  /\bstructured publish\b/i,
-  /\bmanual review\b/i,
-  /\bGitHub API\b/i,
-  /\bDATABASE_URL\b/,
-  /\bOPENAI_API_KEY\b/,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-  /\b\d+\/\d+ attempt\(s\)\b/i,
-  /\bBEGIN_SHARED_METHODOLOGY\b/,
-  /\bSingle-pass review contract\b/i,
-];
-
-export const PUBLIC_OUTPUT_REDACTION = "[redacted internal details]";
 
 /** Logging. */
 export const MAX_LOG_MESSAGE_LEN = 2_000;

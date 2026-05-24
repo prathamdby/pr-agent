@@ -1,5 +1,7 @@
 # ADR 0012 — Cached diff validation and summary-first publish
 
+> **Changelog:** §6 revised 2026-05-25 — narrowed **Public-output sanitizer** after false-positive whole-field redaction on normal review prose (see PR #38).
+
 ## Status
 
 Accepted.
@@ -20,7 +22,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 
 5. **Publish execution budget** — Cap valid `submitReview` publish executions with `MAX_REVIEW_PUBLISH_CALLS` (default 2), separate from model recovery phases.
 
-6. **Public-output sanitizer** — Redact internal/tooling phrases from PR-visible review text at the renderer boundary.
+6. **Public-output sanitizer** — At the pre-publish boundary (`prepareReviewPayloadForPublish`), replace credential- and assignment-shaped substrings in PR-visible review text with `[redacted]` (shared `BOT_SECRET_PATTERNS` via `redactOutboundSecrets`). Do not whole-field redact code-review vocabulary (`submitReview`, `GitHub API`, etc.). Internal failure phrasing on overview fields (`prCharacter`, `securityConcerns`, `followUps`) is rejected by **Review payload** validation (repair loop), not silently redacted. Finding fields are not checked for internal phrasing.
 
 ## Consequences
 
@@ -28,6 +30,7 @@ Structured review publish could fail when GitHub rejected inline review anchors 
 - Inline thread count may be lower on large or patch-omitted diffs; summary markers show `Inline thread posted` vs `Summary only`.
 - Cached diff may be stale if the PR head moves during a long run; `commit_id: headSha` reduces but does not eliminate that risk.
 - ADR 0005’s “summary does not duplicate inline bodies” assumption is relaxed: the summary now includes compact details for all findings.
+- Findings and overviews may mention repository symbols and tooling names; only secret-shaped substrings are scrubbed at publish.
 
 ## Reversal
 

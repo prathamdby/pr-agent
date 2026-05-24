@@ -2,7 +2,6 @@ import {
   DEFAULT_MAX_REVIEW_FINDINGS,
   DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
 } from "../settings/index.js";
-import { containsInternalFailurePhrasing } from "./publicOutputSanitizer.js";
 import type { ReviewPayload } from "./reviewSchema.js";
 import {
   planInlinePlacements,
@@ -10,6 +9,20 @@ import {
   type InlinePlacement,
 } from "./reviewLocationValidation.js";
 import type { CommentableRightLineRanges } from "./reviewDiffIndex.js";
+
+/** Overview/followUp leakage — reject before publish (repair loop), not substring scrub. */
+const INTERNAL_FAILURE_PHRASING: RegExp[] = [
+  /\bstructured publish\b.*\bfailed\b/is,
+  /\b\d+\/\d+ attempt\(s\)\b/i,
+  /\bcheck server logs\b/i,
+  /\btooling budget\b.*\b(exhausted|exceeded)\b/i,
+  /\bBEGIN_SHARED_METHODOLOGY\b/,
+  /\bSingle-pass review contract\b/i,
+];
+
+export function containsInternalFailurePhrasing(text: string): boolean {
+  return INTERNAL_FAILURE_PHRASING.some((pattern) => pattern.test(text));
+}
 
 export type AnchorFailure = {
   readonly file: string;
