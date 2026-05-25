@@ -20,7 +20,8 @@
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.13",
-    "@earendil-works/pi-ai": "^0.74.0",
+    "@earendil-works/pi-ai": "^0.75.3",
+    "@earendil-works/pi-coding-agent": "^0.75.3",
     "@effect/platform": "0.96.1",
     "@effect/platform-node": "0.106.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -48,7 +49,7 @@
     "vitest": "^3.2.4"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=22.19.0"
   },
   "packageManager": "pnpm@10.33.4+sha512.1c67b3b359b2d408119ba1ed289f34b8fc3c6873412bec6fd264fbdc82489e510fcbecb9ce9d22dae7f3b76269d8441046014bdca53b9979cd7a561ad631b800",
   "pnpm": {
