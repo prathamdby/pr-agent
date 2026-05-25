@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { approximateCursorUsage, buildCursorPrompt } from "../src/agent/providers/cursor/promptBuilder.js";
+import {
+  approximateCursorUsage,
+  buildCursorPrompt,
+} from "../src/agent/providers/cursor/promptBuilder.js";
 
 describe("buildCursorPrompt", () => {
   it("includes system prompt and user message", () => {

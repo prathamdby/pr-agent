@@ -54,7 +54,11 @@ export async function runPiCodingAskRun(params: AskRunParams): Promise<AskRunRes
     if (!answer) {
       const retry = await session.send(ASK_FAILURE_MESSAGE);
       return {
-        answer: formatAskReply({ question, answer: retry.text.trim() || ASK_FAILURE_MESSAGE, replyTarget }),
+        answer: formatAskReply({
+          question,
+          answer: retry.text.trim() || ASK_FAILURE_MESSAGE,
+          replyTarget,
+        }),
         replied: true,
       };
     }

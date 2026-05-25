@@ -76,9 +76,9 @@ describe("local PR workspace", () => {
         );
         expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
         expect(workspace.diffIndex.listPullRequestFilesIngested).toBe(true);
-        expect(workspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length).toBeGreaterThan(
-          0,
-        );
+        expect(
+          workspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
+        ).toBeGreaterThan(0);
         expect(() => assertWorkspacePath(workspace.agentCwd, "../escape")).toThrow(/traversal/);
       } finally {
         await workspace.cleanup();

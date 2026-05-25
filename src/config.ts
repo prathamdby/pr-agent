@@ -136,7 +136,9 @@ export function loadConfig() {
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
   const providers = getProviders() as readonly string[];
   if (piProviderRaw === "cursor") {
-    throw new Error("PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.");
+    throw new Error(
+      "PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.",
+    );
   }
   if (!providers.includes(piProviderRaw)) {
     throw new Error(

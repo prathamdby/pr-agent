@@ -19,10 +19,7 @@ import {
   type SubmitReviewState,
 } from "../../submitReviewTool.js";
 import { PRE_SUBMIT_USER_MESSAGE } from "../../reviewPromptBlocks.js";
-import {
-  PUBLISH_RECOVERY_PROMPTS,
-  PROSE_ONLY_NUDGE,
-} from "../../../settings/index.js";
+import { PUBLISH_RECOVERY_PROMPTS, PROSE_ONLY_NUDGE } from "../../../settings/index.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../../reviewSchema.js";
 import { buildReviewRunUserContent } from "../../reviewUserMessage.js";
 import type { ReviewRunResult } from "../../reviewRun.js";
@@ -127,7 +124,9 @@ export async function runPiCodingFullPrReview(params: {
     cfg,
     cwd: params.cwd,
     systemPrompt:
-      reviewMode === "review-security" ? automatedSecuritySystemPrompt : buildAutomatedSystemPrompt(),
+      reviewMode === "review-security"
+        ? automatedSecuritySystemPrompt
+        : buildAutomatedSystemPrompt(),
     tools,
     executors,
   });
@@ -145,7 +144,8 @@ export async function runPiCodingFullPrReview(params: {
     lastText = (await session.send(userContent)).text;
     if (!submitState.published) {
       recordReviewMetric({ kind: "prose_only", phase: "pre_submit" });
-      lastText = (await session.send([PROSE_ONLY_NUDGE, PRE_SUBMIT_USER_MESSAGE].join("\n\n"))).text;
+      lastText = (await session.send([PROSE_ONLY_NUDGE, PRE_SUBMIT_USER_MESSAGE].join("\n\n")))
+        .text;
     }
     for (const prompt of PUBLISH_RECOVERY_PROMPTS) {
       if (submitState.published) break;
@@ -184,6 +184,15 @@ export async function runPiCodingFullPrReview(params: {
   }
   setReviewRunMetricFields({ published: submitState.published, publishAttempts: 1 });
   logReviewRunCompleted();
-  logInfo("pi_coding_review_completed", { owner, repo, pr: prNumber, published: submitState.published });
-  return { lastAssistant: assistantFromText(cfg, lastText), published: submitState.published, publishAttempts: 1 };
+  logInfo("pi_coding_review_completed", {
+    owner,
+    repo,
+    pr: prNumber,
+    published: submitState.published,
+  });
+  return {
+    lastAssistant: assistantFromText(cfg, lastText),
+    published: submitState.published,
+    publishAttempts: 1,
+  };
 }

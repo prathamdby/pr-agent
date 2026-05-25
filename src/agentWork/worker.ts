@@ -265,91 +265,91 @@ async function handleReviewJob(
         );
         const trustedContext = buildTrustedReviewContextBlock(preflight);
 
-      const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
-        item,
-        reviewLens,
-        token: installation.token,
-        preflight,
-      });
-      if (lightweightResult.handled) {
-        logInfo("review_lightweight_completion", {
-          owner: item.owner,
-          repo: item.repo,
-          pr: item.prNumber,
+        const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
+          item,
           reviewLens,
-          published: lightweightResult.published,
+          token: installation.token,
+          preflight,
         });
-        initReviewRunMetrics({
-          provider: cfg.piProvider,
-          model: cfg.piModel,
-          mode: reviewLens,
-        });
-        setReviewRunMetricFields({
-          published: lightweightResult.published,
-          publishAttempts: 0,
-          lightweight: true,
-        });
-        logReviewRunCompleted();
-        return { degraded: false };
-      }
-
-      const result = await runFullPrReview({
-        cfg,
-        token: installation.token,
-        tokenExpiresAtTs: installation.expiresAtTs,
-        tokenTtlMs: installation.ttlMs,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        headSha,
-        mode: reviewLens,
-        userSupplement: payload.userSupplement,
-        trustedContext,
-        storedInlineFingerprints,
-        cwd: workspace.agentCwd,
-        workspace,
-        shouldLinkToSummary,
-        summaryCommentIdHint,
-        initialPublishState: {
-          inlinePublished: publishState.inlinePublished,
-          published: publishState.summaryPublished,
-          inlineReviewId: publishState.inlineReviewId,
-        },
-        recordPublishStep: (step, detail) =>
-          recordPublishStep(pool, {
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
+        if (lightweightResult.handled) {
+          logInfo("review_lightweight_completion", {
+            owner: item.owner,
+            repo: item.repo,
+            pr: item.prNumber,
             reviewLens,
-            step,
-            githubId: detail?.githubId,
-            detail: detail?.meta,
-          }),
-        shouldAbortPublish: async () => {
-          if (await shouldSkipWork(pool, item)) return true;
-          const latestHeadSha = await getPullRequestHeadSha(
-            installation.token,
-            item.owner,
-            item.repo,
-            item.prNumber,
-          );
-          return latestHeadSha !== headSha;
-        },
-        refreshInstallationToken: async () => {
-          const fresh = await mintInstallationToken(cfg, item.installationId);
-          installation = fresh;
-          return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
-        },
-      });
-      if (!result.published) {
-        logWarn("review_not_published", {
+            published: lightweightResult.published,
+          });
+          initReviewRunMetrics({
+            provider: cfg.piProvider,
+            model: cfg.piModel,
+            mode: reviewLens,
+          });
+          setReviewRunMetricFields({
+            published: lightweightResult.published,
+            publishAttempts: 0,
+            lightweight: true,
+          });
+          logReviewRunCompleted();
+          return { degraded: false };
+        }
+
+        const result = await runFullPrReview({
+          cfg,
+          token: installation.token,
+          tokenExpiresAtTs: installation.expiresAtTs,
+          tokenTtlMs: installation.ttlMs,
           owner: item.owner,
           repo: item.repo,
-          pr: item.prNumber,
-          publishAttempts: result.publishAttempts,
-          publishDegraded: true,
+          prNumber: item.prNumber,
+          headSha,
+          mode: reviewLens,
+          userSupplement: payload.userSupplement,
+          trustedContext,
+          storedInlineFingerprints,
+          cwd: workspace.agentCwd,
+          workspace,
+          shouldLinkToSummary,
+          summaryCommentIdHint,
+          initialPublishState: {
+            inlinePublished: publishState.inlinePublished,
+            published: publishState.summaryPublished,
+            inlineReviewId: publishState.inlineReviewId,
+          },
+          recordPublishStep: (step, detail) =>
+            recordPublishStep(pool, {
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+              reviewLens,
+              step,
+              githubId: detail?.githubId,
+              detail: detail?.meta,
+            }),
+          shouldAbortPublish: async () => {
+            if (await shouldSkipWork(pool, item)) return true;
+            const latestHeadSha = await getPullRequestHeadSha(
+              installation.token,
+              item.owner,
+              item.repo,
+              item.prNumber,
+            );
+            return latestHeadSha !== headSha;
+          },
+          refreshInstallationToken: async () => {
+            const fresh = await mintInstallationToken(cfg, item.installationId);
+            installation = fresh;
+            return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+          },
         });
-      }
-      return { degraded: !result.published };
+        if (!result.published) {
+          logWarn("review_not_published", {
+            owner: item.owner,
+            repo: item.repo,
+            pr: item.prNumber,
+            publishAttempts: result.publishAttempts,
+            publishDegraded: true,
+          });
+        }
+        return { degraded: !result.published };
       } finally {
         await workspace.cleanup();
       }

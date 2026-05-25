@@ -100,7 +100,7 @@ async function createAskpass(rootDir: string): Promise<string> {
     askpass,
     [
       "#!/bin/sh",
-      "case \"$1\" in",
+      'case "$1" in',
       "  *Username*) printf '%s\\n' x-access-token ;;",
       "  *Password*) printf '%s\\n' \"$GIT_ASKPASS_TOKEN\" ;;",
       "  *) printf '%s\\n' \"$GIT_ASKPASS_TOKEN\" ;;",
@@ -119,11 +119,13 @@ function parseNameStatus(output: string): LocalPrChangedFile[] {
     const [rawStatus, firstPath, secondPath] = line.split("\t");
     const statusCode = rawStatus?.[0] ?? "";
     if (statusCode === "R") {
-      if (firstPath && secondPath) files.push({ status: "renamed", oldPath: firstPath, path: secondPath });
+      if (firstPath && secondPath)
+        files.push({ status: "renamed", oldPath: firstPath, path: secondPath });
       continue;
     }
     if (statusCode === "C") {
-      if (firstPath && secondPath) files.push({ status: "copied", oldPath: firstPath, path: secondPath });
+      if (firstPath && secondPath)
+        files.push({ status: "copied", oldPath: firstPath, path: secondPath });
       continue;
     }
     const path = firstPath;
@@ -237,7 +239,14 @@ export async function prepareLocalPrWorkspace(
 
   async function getDiffForPath(path: string): Promise<string> {
     const normalized = path.replace(/\\/g, "/");
-    const { stdout } = await git(["diff", "--find-renames", "--unified=3", `${baseSha}...${headSha}`, "--", normalized]);
+    const { stdout } = await git([
+      "diff",
+      "--find-renames",
+      "--unified=3",
+      `${baseSha}...${headSha}`,
+      "--",
+      normalized,
+    ]);
     return stdout.length > cfg.localWorkspaceMaxDiffBytes
       ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[diff truncated]`
       : stdout;
@@ -258,7 +267,12 @@ export async function prepareLocalPrWorkspace(
       `+refs/pull/${prNumber}/head:refs/remotes/origin/pr-${prNumber}`,
     ]);
     await git(["cat-file", "-e", `${headSha}^{commit}`]);
-    const nameStatus = await git(["diff", "--name-status", "--find-renames", `${baseSha}...${headSha}`]);
+    const nameStatus = await git([
+      "diff",
+      "--name-status",
+      "--find-renames",
+      `${baseSha}...${headSha}`,
+    ]);
     changedFiles = parseNameStatus(nameStatus.stdout);
     const filesForIndex = [];
     for (const file of changedFiles) {

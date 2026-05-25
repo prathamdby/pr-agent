@@ -123,6 +123,8 @@ export function buildLocalWorkspaceTools(workspace: LocalPrWorkspace): {
   };
   return {
     piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)])),
+    executors: Object.fromEntries(
+      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
+    ),
   };
 }
