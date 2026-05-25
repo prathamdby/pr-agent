@@ -1,6 +1,6 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "ignorePatterns": ["dist/**", "test/__snapshots__/**"],
+  "ignorePatterns": ["dist/**", "test/__snapshots__/**", "pr-agent.md"],
   "printWidth": 100,
   "semi": true,
   "singleQuote": false
