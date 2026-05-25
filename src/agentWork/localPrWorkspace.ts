@@ -232,7 +232,14 @@ export async function prepareLocalPrWorkspace(
     await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
     await git(["remote", "add", "origin", remoteUrl]);
     await git(["fetch", "--no-tags", "--depth=1", "origin", baseSha]);
-    await git(["fetch", "--no-tags", "--depth=1", "origin", `+refs/pull/${prNumber}/head:refs/remotes/origin/pr-${prNumber}`]);
+    const prDepth = String(Math.max(2, Math.min(cfg.localWorkspaceMaxBlameDeepenCommits, 50)));
+    await git([
+      "fetch",
+      "--no-tags",
+      `--depth=${prDepth}`,
+      "origin",
+      `+refs/pull/${prNumber}/head:refs/remotes/origin/pr-${prNumber}`,
+    ]);
     await git(["cat-file", "-e", `${headSha}^{commit}`]);
     const nameStatus = await git(["diff", "--name-status", "--find-renames", `${baseSha}...${headSha}`]);
     changedFiles = parseNameStatus(nameStatus.stdout);
