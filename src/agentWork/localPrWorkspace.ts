@@ -44,6 +44,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly baseSha: string;
   readonly headSha: string;
   readonly installationToken: string;
+  readonly remoteUrlOverride?: string;
 };
 
 function assertSha(value: string, field: string): void {
@@ -190,7 +191,7 @@ export async function prepareLocalPrWorkspace(
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
   const agentCwd = join(rootDir, AGENT_TREE_DIR);
   const materialized = new Set<string>();
-  const remoteUrl = `https://github.com/${owner}/${repo}.git`;
+  const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const askpass = await createAskpass(rootDir);
   let changedFiles: LocalPrChangedFile[] = [];
   const diffIndex = createCachedPrDiffIndex();
