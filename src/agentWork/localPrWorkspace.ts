@@ -165,6 +165,23 @@ async function setReadOnly(dir: string): Promise<void> {
   await chmod(dir, 0o555);
 }
 
+async function makeWritable(dir: string): Promise<void> {
+  await chmod(dir, 0o755).catch(() => undefined);
+  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await makeWritable(full);
+    } else {
+      await chmod(full, 0o644).catch(() => undefined);
+    }
+  }
+}
+
+async function removeWorkspace(rootDir: string): Promise<void> {
+  await makeWritable(rootDir);
+  await rm(rootDir, { recursive: true, force: true });
+}
+
 export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
@@ -172,7 +189,7 @@ export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> 
     const full = join(tmpdir(), entry.name);
     const ageMs = now - (await stat(full)).mtimeMs;
     if (ageMs > cfg.localWorkspaceStaleCleanupAgeSeconds * 1000) {
-      await rm(full, { recursive: true, force: true }).catch(() => undefined);
+      await removeWorkspace(full).catch(() => undefined);
     }
   }
 }
@@ -264,10 +281,10 @@ export async function prepareLocalPrWorkspace(
       diffIndex,
       getDiffForPath,
       materializePath,
-      cleanup: () => rm(rootDir, { recursive: true, force: true }),
+      cleanup: () => removeWorkspace(rootDir),
     };
   } catch (e) {
-    await rm(rootDir, { recursive: true, force: true }).catch(() => undefined);
+    await removeWorkspace(rootDir).catch(() => undefined);
     throw e;
   }
 }
