@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { getProviders, type KnownProvider } from "@earendil-works/pi-ai";
-import { assertCursorModelId } from "./agent/cursor/models.js";
+import { assertCursorModelId } from "./agent/providers/cursor/models.js";
 import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,

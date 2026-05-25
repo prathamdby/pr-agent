@@ -24,7 +24,7 @@ async function main() {
   logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
     if (cfg.agentProvider === "cursor") {
-      const { registerCursorProvider } = await import("./agent/cursor/register.js");
+      const { registerCursorProvider } = await import("./agent/providers/cursor/register.js");
       registerCursorProvider();
       logInfo("cursor_provider_registered", { api: "cursor-sdk" });
     }
