@@ -32,6 +32,7 @@ export type LocalPrWorkspace = {
   readonly materializedPaths: ReadonlySet<string>;
   readonly diffIndex: CachedPrDiffIndex;
   readonly getDiffForPath: (path: string) => Promise<string>;
+  readonly getBlameForPath: (path: string) => Promise<string>;
   readonly materializePath: (path: string) => Promise<"materialized" | "already" | "refused">;
   readonly cleanup: () => Promise<void>;
 };
@@ -231,8 +232,10 @@ export async function prepareLocalPrWorkspace(
       total += (await stat(assertWorkspacePath(agentCwd, existing))).size;
     }
     if (total + bytes > cfg.localWorkspaceMaxTotalBytes) return "refused";
+    await makeWritable(agentCwd);
     await mkdir(dirname(outPath), { recursive: true });
     await writeFile(outPath, stdout);
+    await setReadOnly(agentCwd);
     materialized.add(normalized);
     return "materialized";
   }
@@ -249,6 +252,15 @@ export async function prepareLocalPrWorkspace(
     ]);
     return stdout.length > cfg.localWorkspaceMaxDiffBytes
       ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[diff truncated]`
+      : stdout;
+  }
+
+  async function getBlameForPath(path: string): Promise<string> {
+    const normalized = path.replace(/\\/g, "/");
+    await materializePath(normalized);
+    const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
+    return stdout.length > cfg.localWorkspaceMaxDiffBytes
+      ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[blame truncated]`
       : stdout;
   }
 
@@ -294,6 +306,7 @@ export async function prepareLocalPrWorkspace(
       materializedPaths: materialized,
       diffIndex,
       getDiffForPath,
+      getBlameForPath,
       materializePath,
       cleanup: () => removeWorkspace(rootDir),
     };

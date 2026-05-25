@@ -39,6 +39,7 @@ describe("local PR workspace", () => {
       await git(repo, ["config", "user.name", "Test"]);
       await writeFile(join(repo, "src.txt"), "one\n");
       await writeFile(join(repo, "delete.txt"), "gone\n");
+      await writeFile(join(repo, "support.txt"), "helper\n");
       await git(repo, ["add", "."]);
       await git(repo, ["commit", "-m", "base"]);
       const baseSha = await git(repo, ["rev-parse", "HEAD"]);
@@ -75,6 +76,9 @@ describe("local PR workspace", () => {
           "deleted",
         );
         expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+        expect(await workspace.materializePath("support.txt")).toBe("materialized");
+        expect(await readFile(join(workspace.agentCwd, "support.txt"), "utf8")).toContain("helper");
+        expect(await workspace.getBlameForPath("src.txt")).toContain("src.txt");
         expect(workspace.diffIndex.listPullRequestFilesIngested).toBe(true);
         expect(
           workspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,

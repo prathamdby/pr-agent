@@ -104,14 +104,9 @@ export function buildLocalWorkspaceTools(workspace: LocalPrWorkspace): {
   };
 
   const getWorkspaceBlame: LocalTool = {
-    description:
-      "Best-effort blame is not available in the initial local workspace tool surface; use diff context instead.",
+    description: "Return best-effort local git blame for a workspace path.",
     schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => ({
-      path,
-      unavailable: true,
-      reason: "Blame requires bounded history deepening and will be added after local diff parity.",
-    }),
+    run: async ({ path }) => ({ path, blame: await workspace.getBlameForPath(path) }),
   };
 
   const tools: Record<string, LocalTool> = {
