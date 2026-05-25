@@ -1,7 +1,7 @@
 import { publishReview } from "../../src/agent/publishReview.js";
 import { prepareReviewPayloadForPublish } from "../../src/agent/reviewPrePublish.js";
-import type { InlinePlacement } from "../../src/agent/reviewLocationValidation.js";
-import { planInlinePlacements } from "../../src/agent/reviewLocationValidation.js";
+import type { InlinePlacement } from "../../src/agent/reviewDiffPlacement.js";
+import { planInlinePlacements } from "../../src/agent/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewMode, ReviewPayload } from "../../src/agent/reviewSchema.js";
 import {
   createCachedPrDiffIndex,

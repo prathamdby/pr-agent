@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { publishReview } from "./publishReview.js";
-import type { CachedPrDiffIndex } from "./reviewLocationValidation.js";
+import type { CachedPrDiffIndex } from "./reviewDiffPlacement.js";
 import { prepareReviewPayloadForPublish } from "./reviewPrePublish.js";
 import {
   PUBLISH_BUDGET_EXHAUSTED_MESSAGE,

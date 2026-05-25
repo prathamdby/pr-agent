@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { enrichPlacementsWithInlineCommentUrls } from "../src/github/reviewPublish.js";
 import type { ReviewFinding } from "../src/agent/reviewSchema.js";
-import type { InlinePlacement } from "../src/agent/reviewLocationValidation.js";
+import type { InlinePlacement } from "../src/agent/reviewDiffPlacement.js";
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {

@@ -324,7 +324,16 @@ async function handleReviewJob(
             githubId: detail?.githubId,
             detail: detail?.meta,
           }),
-        shouldAbortPublish: () => shouldSkipWork(pool, item),
+        shouldAbortPublish: async () => {
+          if (await shouldSkipWork(pool, item)) return true;
+          const latestHeadSha = await getPullRequestHeadSha(
+            installation.token,
+            item.owner,
+            item.repo,
+            item.prNumber,
+          );
+          return latestHeadSha !== headSha;
+        },
         refreshInstallationToken: async () => {
           const fresh = await mintInstallationToken(cfg, item.installationId);
           installation = fresh;

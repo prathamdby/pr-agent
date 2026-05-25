@@ -36,7 +36,7 @@ import type {
   ReviewMode,
 } from "./reviewSchema.js";
 import { reviewSummarySentinelForMode } from "./reviewSchema.js";
-import type { InlinePlacement } from "./reviewLocationValidation.js";
+import type { InlinePlacement } from "./reviewDiffPlacement.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,

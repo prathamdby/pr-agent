@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { InlinePlacement } from "./reviewLocationValidation.js";
+import type { InlinePlacement } from "./reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewMode } from "./reviewSchema.js";
 
 export function normalizeFindingSubstance(text: string): string {

@@ -18,7 +18,7 @@ import {
   renderAnchorMenuBlock,
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
-} from "./reviewLocationValidation.js";
+} from "./reviewDiffPlacement.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,

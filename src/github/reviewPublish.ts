@@ -1,4 +1,4 @@
-import type { InlinePlacement } from "../agent/reviewLocationValidation.js";
+import type { InlinePlacement } from "../agent/reviewDiffPlacement.js";
 import { installationOctokit } from "./appAuth.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../agent/reviewSchema.js";
 

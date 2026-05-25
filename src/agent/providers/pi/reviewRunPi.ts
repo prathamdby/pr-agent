@@ -10,7 +10,7 @@ import {
   createCachedPrDiffIndex,
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
-} from "../../reviewLocationValidation.js";
+} from "../../reviewDiffPlacement.js";
 import { automatedSecuritySystemPrompt } from "../../securityPrompt.js";
 import { buildAutomatedSystemPrompt } from "../../reviewSystemPrompt.js";
 import {
