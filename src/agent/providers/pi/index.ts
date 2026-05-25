@@ -47,10 +47,13 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     for (const [provider, key] of Object.entries(cfg.modelProviderKeys)) {
       if (key.trim()) authStorage.setRuntimeApiKey(provider, key.trim());
     }
-    const modelRegistry =
-      "inMemory" in ModelRegistry
-        ? ModelRegistry.inMemory(authStorage)
-        : ModelRegistry.create(authStorage, join(agentDir, "models.json"));
+    const modelRegistryFactory = ModelRegistry as unknown as {
+      inMemory?: typeof ModelRegistry.create;
+      create: typeof ModelRegistry.create;
+    };
+    const modelRegistry = modelRegistryFactory.inMemory
+      ? modelRegistryFactory.inMemory(authStorage)
+      : modelRegistryFactory.create(authStorage, join(agentDir, "models.json"));
     const settingsManager = SettingsManager.inMemory({
       compaction: { enabled: false },
     });

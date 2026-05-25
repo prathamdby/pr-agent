@@ -177,7 +177,7 @@ export async function runCursorFullPrReview(params: {
     executors,
     apiKey: cfg.cursorApiKey,
     cwd: params.cwd,
-    refreshBeforeTool: async (toolName) => {
+    refreshBeforeTool: async (toolName: string) => {
       if (refreshableGh.githubExecutorNames.has(toolName) || toolName === "submitReview") {
         await refreshableGh.refreshBeforeTool("getPullRequest");
         if (toolName === "submitReview") {

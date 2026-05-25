@@ -8,7 +8,7 @@ import { assertWorkspacePath } from "../agentWork/localPrWorkspace.js";
 type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
   readonly description: string;
   readonly schema: TSchema;
-  readonly run: (parsed: z.infer<TSchema>) => Promise<unknown>;
+  readonly run: (parsed: any) => Promise<unknown>;
 };
 
 function toPiTool(name: string, t: LocalTool): PiTool {
