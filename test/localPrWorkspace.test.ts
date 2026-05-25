@@ -67,9 +67,13 @@ describe("local PR workspace", () => {
       });
       try {
         expect(workspace.changedFiles.map((file) => file.path).sort()).toEqual([
+          "delete.txt",
           "renamed.txt",
           "src.txt",
         ]);
+        expect(workspace.changedFiles.find((file) => file.path === "delete.txt")?.status).toBe(
+          "deleted",
+        );
         expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
         expect(workspace.diffIndex.listPullRequestFilesIngested).toBe(true);
         expect(workspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length).toBeGreaterThan(
