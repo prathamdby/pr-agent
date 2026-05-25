@@ -3,6 +3,7 @@ import { getProviders, type KnownProvider } from "@earendil-works/pi-ai";
 import { assertCursorModelId } from "./agent/cursor/models.js";
 import {
   DEFAULT_ACK_CONCURRENCY,
+  DEFAULT_AGENT_PROVIDER,
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
@@ -11,6 +12,15 @@ import {
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_MAX_WIDE_EVENTS,
+  DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
+  DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  DEFAULT_LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
+  DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES,
+  DEFAULT_LOCAL_WORKSPACE_MAX_TOTAL_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
   DEFAULT_MAX_ASK_TOOL_ROUNDS,
   DEFAULT_MAX_PR_FILES_LISTED,
@@ -37,6 +47,7 @@ import {
   DEFAULT_ROLE,
   DEFAULT_WEBHOOK_TIMEOUT_MS,
   ENV,
+  EXTERNAL_ENV,
 } from "./settings/index.js";
 
 function requireEnv(name: string): string {
@@ -47,6 +58,14 @@ function requireEnv(name: string): string {
 
 function optionalEnv(name: string, defaultValue: string): string {
   return process.env[name] ?? defaultValue;
+}
+
+function readPositiveNumber(name: string, defaultValue: number): number {
+  const value = Number(optionalEnv(name, String(defaultValue)));
+  if (!Number.isFinite(value) || value < 1) {
+    throw new Error(`${name} must be a positive number`);
+  }
+  return value;
 }
 
 function stripMatchingQuotes(value: string): string {
@@ -107,26 +126,38 @@ export function loadConfig() {
   }
   const role = roleRaw as "web" | "worker";
 
+  const agentProviderRaw = optionalEnv(ENV.AGENT_PROVIDER, DEFAULT_AGENT_PROVIDER);
+  if (!["pi", "cursor"].includes(agentProviderRaw)) {
+    throw new Error("AGENT_PROVIDER must be one of pi, cursor");
+  }
+  const agentProvider = agentProviderRaw as "pi" | "cursor";
+
   const piProviderRaw = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
   const providers = getProviders() as readonly string[];
-  const isCursorProvider = piProviderRaw === "cursor";
-  if (!isCursorProvider && !providers.includes(piProviderRaw)) {
+  if (piProviderRaw === "cursor") {
+    throw new Error("PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.");
+  }
+  if (!providers.includes(piProviderRaw)) {
     throw new Error(
       `PI_PROVIDER "${piProviderRaw}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
     );
   }
-  // Extension provider registered at worker boot via registerApiProvider (cursor-sdk api).
-  const piProvider = piProviderRaw as KnownProvider | "cursor";
+  const piProvider = piProviderRaw as KnownProvider;
 
   const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
-  if (isCursorProvider && !cursorApiKeyRaw.trim()) {
+  if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
     throw new Error(`Missing required environment variable: ${ENV.CURSOR_API_KEY}`);
   }
-  if (isCursorProvider) {
+  if (agentProvider === "cursor") {
     assertCursorModelId(piModel);
   }
-  const cursorApiKey = isCursorProvider ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
+  const cursorApiKey = agentProvider === "cursor" ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
+  const modelProviderKeys = {
+    openai: optionalEnv(EXTERNAL_ENV.OPENAI_API_KEY, ""),
+    anthropic: optionalEnv(EXTERNAL_ENV.ANTHROPIC_API_KEY, ""),
+    google: optionalEnv(EXTERNAL_ENV.GOOGLE_GENERATIVE_AI_API_KEY, ""),
+  };
 
   const maxToolRounds = Number(optionalEnv(ENV.MAX_TOOL_ROUNDS, String(DEFAULT_MAX_TOOL_ROUNDS)));
   if (!Number.isFinite(maxToolRounds) || maxToolRounds < 1) {
@@ -318,6 +349,43 @@ export function loadConfig() {
     throw new Error("REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE must be a positive number");
   }
 
+  const localWorkspaceCloneTimeoutMs = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
+    DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
+  );
+  const localWorkspaceFetchTimeoutMs = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+    DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  );
+  const localWorkspaceMaxMaterializedFiles = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES,
+    DEFAULT_LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES,
+  );
+  const localWorkspaceMaxFileBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_MAX_FILE_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  );
+  const localWorkspaceMaxTotalBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_MAX_TOTAL_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_MAX_TOTAL_BYTES,
+  );
+  const localWorkspaceMaxDiffBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_MAX_DIFF_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
+  );
+  const localWorkspaceMinFreeSpaceBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
+  );
+  const localWorkspaceStaleCleanupAgeSeconds = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
+    DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
+  );
+  const localWorkspaceMaxBlameDeepenCommits = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
+    DEFAULT_LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
+  );
+
   return {
     port,
     githubAppId,
@@ -325,8 +393,10 @@ export function loadConfig() {
     webhookSecret,
     databaseUrl,
     role,
+    agentProvider,
     piProvider,
     piModel,
+    modelProviderKeys,
     maxToolRounds,
     maxReviewPublishAttempts,
     maxReviewPublishCalls,
@@ -358,6 +428,15 @@ export function loadConfig() {
     reviewRequireDiffCacheBeforeSubmit,
     reviewAnchorMenuMaxFiles,
     reviewAnchorMenuMaxRangesPerFile,
+    localWorkspaceCloneTimeoutMs,
+    localWorkspaceFetchTimeoutMs,
+    localWorkspaceMaxMaterializedFiles,
+    localWorkspaceMaxFileBytes,
+    localWorkspaceMaxTotalBytes,
+    localWorkspaceMaxDiffBytes,
+    localWorkspaceMinFreeSpaceBytes,
+    localWorkspaceStaleCleanupAgeSeconds,
+    localWorkspaceMaxBlameDeepenCommits,
   };
 }
 

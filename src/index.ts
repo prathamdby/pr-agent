@@ -15,14 +15,15 @@ async function main() {
   initEvlog(cfg.logLevel, { maxWideEvents: cfg.logMaxWideEvents, pretty: cfg.logPretty });
   logInfo("boot", {
     role: cfg.role,
+    agentProvider: cfg.agentProvider,
     provider: cfg.piProvider,
     model: cfg.piModel,
     context7_enabled: cfg.context7ApiKey.length > 0,
-    cursor_enabled: cfg.piProvider === "cursor",
+    cursor_enabled: cfg.agentProvider === "cursor",
   });
   logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
-    if (cfg.piProvider === "cursor") {
+    if (cfg.agentProvider === "cursor") {
       const { registerCursorProvider } = await import("./agent/cursor/register.js");
       registerCursorProvider();
       logInfo("cursor_provider_registered", { api: "cursor-sdk" });
