@@ -66,7 +66,7 @@ describe("local PR workspace", () => {
         remoteUrlOverride: remote,
       });
       try {
-        expect(workspace.changedFiles.map((file) => file.path).sort()).toEqual([
+        expect(workspace.changedFiles.map((file) => file.path).toSorted()).toEqual([
           "delete.txt",
           "renamed.txt",
           "src.txt",
