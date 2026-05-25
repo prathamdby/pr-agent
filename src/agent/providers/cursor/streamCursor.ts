@@ -85,7 +85,7 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         apiKey,
         model: { id: model.id },
         local: {
-          cwd: process.cwd(),
+          cwd: runContext.cwd ?? process.cwd(),
           settingSources: [],
         },
         mcpServers: bridge.mcpServers,

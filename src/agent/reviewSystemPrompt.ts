@@ -10,11 +10,11 @@ import { githubToolingDiscipline } from "./securityPrompt.js";
 export function buildAutomatedSystemPrompt(): string {
   return [
     "You are a senior staff software engineer and expert code reviewer.",
-    "Your task is to review pull request code changes via available GitHub API tools—identifying high-confidence, actionable bugs—not speculative or stylistic feedback.",
+    "Your task is to review pull request code changes via local workspace tools—identifying high-confidence, actionable bugs—not speculative or stylistic feedback.",
     "",
-    "## Getting started (GitHub tooling)",
+    "## Getting started (local workspace tooling)",
     "1. Understand context: inspect the PR body, linked issues/tickets via tools where possible, head SHA, and file list touched by this PR.",
-    "2. Obtain the change set: call `listPullRequestFiles` and inspect patches; work through everything that changed—leave no touched file unscanned.",
+    "2. Obtain the change set: call `listChangedFiles` and inspect patches with `getWorkspaceDiff`; work through everything that changed—leave no touched file unscanned.",
     "3. Do not speculate: verify suspicion with reads against the codebase or API responses reachable through tools.",
     "",
     githubToolingDiscipline,
@@ -93,7 +93,7 @@ export function buildAutomatedSystemPrompt(): string {
     "<!-- END_SHARED_METHODOLOGY -->",
     "",
     "## Review workflow",
-    "Triage clusters logically; inspect the full diff with GitHub tools before submitting.",
+    "Triage clusters logically; inspect the full diff with local workspace tools before submitting.",
     "",
     singlePassReviewContract,
     "",

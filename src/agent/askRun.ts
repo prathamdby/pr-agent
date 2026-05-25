@@ -7,6 +7,7 @@ import type {
   ToolCall,
 } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
+import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
@@ -59,6 +60,8 @@ export type AskRunParams = {
   replyTarget: ReplyTarget;
   codeAnchor?: CodeAnchor;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  cwd?: string;
+  workspace?: LocalPrWorkspace;
 };
 
 export type AskRunResult = {
@@ -139,9 +142,14 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
   }
 
-  if (cfg.piProvider === "cursor") {
-    const { runCursorAskRun } = await import("./cursor/askRunCursor.js");
+  if (cfg.agentProvider === "cursor") {
+    const { runCursorAskRun } = await import("./providers/cursor/askRunCursor.js");
     return runCursorAskRun(params);
+  }
+
+  if (cfg.agentProvider === "pi") {
+    const { runPiCodingAskRun } = await import("./providers/pi/askRunPi.js");
+    return runPiCodingAskRun(params);
   }
 
   const pathGate = createAskPathGate();

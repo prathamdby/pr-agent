@@ -1,0 +1,23 @@
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { Config } from "../../config.js";
+
+export type AgentRunnerToolExecutor = (args: Record<string, unknown>) => Promise<unknown>;
+
+export type AgentRunnerTurn = {
+  readonly text: string;
+};
+
+export type AgentRunnerSession = {
+  readonly send: (prompt: string) => Promise<AgentRunnerTurn>;
+  readonly dispose: () => Promise<void>;
+};
+
+export type AgentRunnerProvider = {
+  readonly createSession: (params: {
+    readonly cfg: Config;
+    readonly cwd?: string;
+    readonly systemPrompt: string;
+    readonly tools: readonly PiTool[];
+    readonly executors: Record<string, AgentRunnerToolExecutor>;
+  }) => Promise<AgentRunnerSession>;
+};

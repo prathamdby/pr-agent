@@ -125,7 +125,7 @@ export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
 
 /** Review harness: step enforcement when diff cache is empty at submitReview. */
 export const REVIEW_DIFF_CACHE_REQUIRED_MESSAGE =
-  "Call listPullRequestFiles first; diff index is empty so inline anchors cannot be validated.";
+  "Call listChangedFiles and getWorkspaceDiff first; diff index is empty so inline anchors cannot be validated.";
 
 /** Review harness: anchor menu block header (untrusted user content). */
 export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";

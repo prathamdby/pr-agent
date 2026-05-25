@@ -5,7 +5,7 @@ import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
-import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
+import { buildReviewPreflightMetadataFromWorkspace } from "../agent/reviewPreflightFiles.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
@@ -26,6 +26,11 @@ import {
   shouldSkipWork,
 } from "./repository.js";
 import { mintInstallationToken, runDurableWorkItem } from "./durableJob.js";
+import {
+  cleanupStaleLocalPrWorkspaces,
+  prepareLocalPrWorkspace,
+  type LocalPrWorkspace,
+} from "./localPrWorkspace.js";
 import { GITHUB_REACTION_EYES } from "../settings/index.js";
 import { renderReviewFailureNotice, renderReviewProgressComment } from "./progressComment.js";
 import {
@@ -71,6 +76,17 @@ async function getPullRequestHeadSha(
   const octokit = installationOctokit(token);
   const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
   return data.head.sha;
+}
+
+async function getPullRequestWorkspaceMetadata(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+): Promise<{ headSha: string; baseSha: string }> {
+  const octokit = installationOctokit(token);
+  const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+  return { headSha: data.head.sha, baseSha: data.base.sha };
 }
 
 async function safeReaction(
@@ -224,19 +240,30 @@ async function handleReviewJob(
       let installation = env.installation;
       const headSha = env.headSha;
 
-      const preflight = await fetchReviewPreflightMetadata(
+      const prMeta = await getPullRequestWorkspaceMetadata(
         installation.token,
         item.owner,
         item.repo,
         item.prNumber,
-        { maxPrFilesListed: cfg.maxPrFilesListed },
       );
-      const storedInlineFingerprints = await getStoredInlineFingerprints(
-        pool,
-        item.resourceKey,
-        reviewLens,
-      );
-      const trustedContext = buildTrustedReviewContextBlock(preflight);
+      let workspace: LocalPrWorkspace | undefined;
+      workspace = await prepareLocalPrWorkspace({
+        cfg,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        baseSha: prMeta.baseSha,
+        headSha,
+        installationToken: installation.token,
+      });
+      try {
+        const preflight = buildReviewPreflightMetadataFromWorkspace(workspace);
+        const storedInlineFingerprints = await getStoredInlineFingerprints(
+          pool,
+          item.resourceKey,
+          reviewLens,
+        );
+        const trustedContext = buildTrustedReviewContextBlock(preflight);
 
       const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
         item,
@@ -279,6 +306,8 @@ async function handleReviewJob(
         userSupplement: payload.userSupplement,
         trustedContext,
         storedInlineFingerprints,
+        cwd: workspace.agentCwd,
+        workspace,
         shouldLinkToSummary,
         summaryCommentIdHint,
         initialPublishState: {
@@ -312,6 +341,9 @@ async function handleReviewJob(
         });
       }
       return { degraded: !result.published };
+      } finally {
+        await workspace.cleanup();
+      }
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
@@ -388,26 +420,47 @@ async function handleAskJob(
       let installation = env.installation;
       const headSha = env.headSha;
       const payload = item.payload as AskWorkPayload;
-      const result = await runAskRun({
+      const prMeta = await getPullRequestWorkspaceMetadata(
+        installation.token,
+        item.owner,
+        item.repo,
+        item.prNumber,
+      );
+      const workspace = await prepareLocalPrWorkspace({
         cfg,
-        token: installation.token,
-        tokenExpiresAtTs: installation.expiresAtTs,
-        tokenTtlMs: installation.ttlMs,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,
+        baseSha: prMeta.baseSha,
         headSha,
-        question: payload.question,
-        replyTarget: payload.replyTarget,
-        codeAnchor: payload.codeAnchor,
-        refreshInstallationToken: async () => {
-          const fresh = await mintInstallationToken(cfg, item.installationId);
-          installation = fresh;
-          return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
-        },
+        installationToken: installation.token,
       });
-      await publishAskAnswer(installation.token, item, result.answer);
-      return {};
+      try {
+        const result = await runAskRun({
+          cfg,
+          token: installation.token,
+          tokenExpiresAtTs: installation.expiresAtTs,
+          tokenTtlMs: installation.ttlMs,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha,
+          question: payload.question,
+          replyTarget: payload.replyTarget,
+          codeAnchor: payload.codeAnchor,
+          cwd: workspace.agentCwd,
+          workspace,
+          refreshInstallationToken: async () => {
+            const fresh = await mintInstallationToken(cfg, item.installationId);
+            installation = fresh;
+            return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+          },
+        });
+        await publishAskAnswer(installation.token, item, result.answer);
+        return {};
+      } finally {
+        await workspace.cleanup();
+      }
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
@@ -461,6 +514,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             groupConcurrency: cfg.installationGroupConcurrency,
             heartbeatRefreshSeconds: heartbeatRefresh,
           };
+          await cleanupStaleLocalPrWorkspaces(cfg);
           await Promise.all([
             registerPlainQueue<AckJobData>(
               boss,

@@ -7,6 +7,7 @@ import type {
   ToolCall,
 } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
+import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
 import { logInfo, logWarn, logDebug } from "../evlog.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
@@ -109,6 +110,8 @@ export async function runFullPrReview(params: {
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
   trustedContext?: string;
   storedInlineFingerprints?: readonly string[];
+  cwd?: string;
+  workspace?: LocalPrWorkspace;
 }): Promise<ReviewRunResult> {
   const {
     cfg,
@@ -130,10 +133,15 @@ export async function runFullPrReview(params: {
   }
   const reviewMode = params.mode ?? "review";
 
-  if (cfg.piProvider === "cursor") {
-    const { runCursorFullPrReview } = await import("./cursor/reviewRunCursor.js");
+  if (cfg.agentProvider === "cursor") {
+    const { runCursorFullPrReview } = await import("./providers/cursor/reviewRunCursor.js");
     initReviewRunMetrics({ provider: "cursor", model: cfg.piModel, mode: reviewMode });
     return runCursorFullPrReview({ ...params, reviewMode });
+  }
+
+  if (cfg.agentProvider === "pi") {
+    const { runPiCodingFullPrReview } = await import("./providers/pi/reviewRunPi.js");
+    return runPiCodingFullPrReview({ ...params, reviewMode });
   }
 
   initReviewRunMetrics({ provider: cfg.piProvider, model: cfg.piModel, mode: reviewMode });

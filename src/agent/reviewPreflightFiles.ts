@@ -1,4 +1,5 @@
 import { installationOctokit } from "../github/appAuth.js";
+import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
 import type { PreflightFileEntry } from "./reviewChangeGate.js";
 
 export type ReviewPreflightMetadata = {
@@ -47,5 +48,17 @@ export async function fetchReviewPreflightMetadata(
     truncated,
     fileCount: files.length,
     totalChanges,
+  };
+}
+
+export function buildReviewPreflightMetadataFromWorkspace(
+  workspace: LocalPrWorkspace,
+): ReviewPreflightMetadata {
+  const files = workspace.changedFiles.map((file) => ({ filename: file.path }));
+  return {
+    files,
+    truncated: false,
+    fileCount: files.length,
+    totalChanges: 0,
   };
 }

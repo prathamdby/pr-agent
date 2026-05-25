@@ -6,7 +6,7 @@ import {
   formatCursorStartupError,
   isCursorRunError,
   isCursorStartupError,
-} from "../src/agent/cursor/errors.js";
+} from "../src/agent/providers/cursor/errors.js";
 
 describe("cursor error formatting", () => {
   it("formats startup and run errors with distinct prefixes", () => {
