@@ -29,6 +29,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     let savedTools: PiTool[] | null = null;
     let savedExecutors: Record<string, AgentRunnerToolExecutor> | null = null;
     let activeMaxToolRounds: number | undefined;
+    const toolRoundCounter = { count: 0 };
 
     const syncRunContext = (maxToolRounds?: number) => {
       activeMaxToolRounds = maxToolRounds;
@@ -38,6 +39,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         cwd,
         refreshBeforeTool,
         maxToolRounds,
+        toolRoundCounter,
       });
     };
 

@@ -76,7 +76,10 @@ export async function createSlashReviewRescheduleWorkItem(
        head_sha, review_lens, resource_key, priority, payload
      )
      VALUES ($1, $2, 'review', 'slash', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
-     ON CONFLICT (id) DO NOTHING`,
+     ON CONFLICT (id) DO UPDATE SET
+       head_sha = EXCLUDED.head_sha,
+       payload = EXCLUDED.payload,
+       updated_at = now()`,
     [
       replacementWorkItemId,
       item.webhookEventId,

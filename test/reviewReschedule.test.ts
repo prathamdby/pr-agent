@@ -35,8 +35,27 @@ function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
 }
 
 describe("createSlashReviewRescheduleWorkItem", () => {
-  it("reuses persisted replacement id without inserting a new marker", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 0, rows: [] });
+  it("upserts head_sha when replacement row already exists", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+
+    await createSlashReviewRescheduleWorkItem(
+      pool,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "existing-replacement",
+        },
+      }),
+      "newhead",
+    );
+
+    expect(String(query.mock.calls[0]?.[0])).toContain("head_sha = EXCLUDED.head_sha");
+  });
+
+  it("reuses persisted replacement id without creating a new marker", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
 
     const replacementId = await createSlashReviewRescheduleWorkItem(
@@ -53,7 +72,6 @@ describe("createSlashReviewRescheduleWorkItem", () => {
 
     expect(replacementId).toBe("existing-replacement");
     expect(query).toHaveBeenCalledTimes(1);
-    expect(String(query.mock.calls[0]?.[0])).toContain("ON CONFLICT (id) DO NOTHING");
   });
 
   it("persists marker then inserts replacement on first attempt", async () => {

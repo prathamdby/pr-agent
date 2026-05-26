@@ -6,6 +6,7 @@ import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
+import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
 import {
@@ -20,7 +21,6 @@ import {
   getReviewPublishState,
   getStoredInlineFingerprints,
   getSummaryCommentGithubId,
-  getWorkItem,
   hasPriorCompletedSummaryPublish,
   recordPublishStep,
   shouldSkipWork,
@@ -224,16 +224,17 @@ async function handleReviewJob(
         !payload.staleHeadRescheduled &&
         payload.staleHeadReplacementWorkItemId
       ) {
-        const replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
-        const replacement = await getWorkItem(pool, replacementWorkItemId);
-        const latestHeadSha =
-          replacement?.headSha ??
-          (await getPullRequestHeadSha(
-            env.installation.token,
-            item.owner,
-            item.repo,
-            item.prNumber,
-          ));
+        const latestHeadSha = await getPullRequestHeadSha(
+          env.installation.token,
+          item.owner,
+          item.repo,
+          item.prNumber,
+        );
+        const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
+          pool,
+          item,
+          latestHeadSha,
+        );
         return {
           rescheduled: true,
           replacementWorkItemId,
@@ -264,6 +265,47 @@ async function handleReviewJob(
       let staleHeadAtPublish = false;
       const publishAbortState: { staleHead?: boolean } = {};
 
+      const preflight = await fetchReviewPreflightMetadata(
+        installation.token,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        { maxPrFilesListed: cfg.maxPrFilesListed },
+      );
+      const storedInlineFingerprints = await getStoredInlineFingerprints(
+        pool,
+        item.resourceKey,
+        reviewLens,
+      );
+
+      const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
+        item,
+        reviewLens,
+        token: installation.token,
+        preflight,
+      });
+      if (lightweightResult.handled) {
+        logInfo("review_lightweight_completion", {
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+          reviewLens,
+          published: lightweightResult.published,
+        });
+        initReviewRunMetrics({
+          provider: cfg.agentProvider,
+          model: cfg.piModel,
+          mode: reviewLens,
+        });
+        setReviewRunMetricFields({
+          published: lightweightResult.published,
+          publishAttempts: 0,
+          lightweight: true,
+        });
+        logReviewRunCompleted();
+        return { degraded: false };
+      }
+
       const repositoryView = await preparePrRepositoryView({
         cfg,
         owner: item.owner,
@@ -273,41 +315,7 @@ async function handleReviewJob(
         installationToken: installation.token,
       });
       try {
-        const preflight = repositoryView.preflight;
-        const storedInlineFingerprints = await getStoredInlineFingerprints(
-          pool,
-          item.resourceKey,
-          reviewLens,
-        );
-        const trustedContext = buildTrustedReviewContextBlock(preflight);
-
-        const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
-          item,
-          reviewLens,
-          token: installation.token,
-          preflight,
-        });
-        if (lightweightResult.handled) {
-          logInfo("review_lightweight_completion", {
-            owner: item.owner,
-            repo: item.repo,
-            pr: item.prNumber,
-            reviewLens,
-            published: lightweightResult.published,
-          });
-          initReviewRunMetrics({
-            provider: cfg.agentProvider,
-            model: cfg.piModel,
-            mode: reviewLens,
-          });
-          setReviewRunMetricFields({
-            published: lightweightResult.published,
-            publishAttempts: 0,
-            lightweight: true,
-          });
-          logReviewRunCompleted();
-          return { degraded: false };
-        }
+        const trustedContext = buildTrustedReviewContextBlock(repositoryView.preflight);
 
         const result = await runFullPrReview({
           cfg,

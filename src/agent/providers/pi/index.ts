@@ -79,6 +79,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     await resourceLoader.reload();
     const model = getModel(cfg.piProvider, cfg.piModel as never);
     const allToolNames = tools.map((tool) => tool.name);
+    let sessionToolTurnCount = 0;
     const { session } = await createAgentSession({
       cwd: cwd ?? process.cwd(),
       agentDir,
@@ -98,7 +99,6 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     return {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
         const chunks: string[] = [];
-        let turnCount = 0;
         const unsubscribe = session.subscribe((event) => {
           if (
             event.type === "message_update" &&
@@ -107,8 +107,8 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
             chunks.push(event.assistantMessageEvent.delta);
           }
           if (opts?.maxToolRounds != null && event.type === "turn_end") {
-            turnCount += 1;
-            if (turnCount >= opts.maxToolRounds && event.toolResults.length > 0) {
+            sessionToolTurnCount += 1;
+            if (sessionToolTurnCount >= opts.maxToolRounds && event.toolResults.length > 0) {
               void session.abort();
             }
           }

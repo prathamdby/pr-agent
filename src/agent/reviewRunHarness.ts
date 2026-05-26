@@ -134,7 +134,8 @@ export async function runReviewHarness(params: {
 
   const runInvestigationPhase = async () => {
     recordReviewMetric({ kind: "phase_enter", phase: "investigation" });
-    lastText = (await session.send(setup.userContent, { maxToolRounds: cfg.maxToolRounds })).text;
+    const investigationOpts = { maxToolRounds: cfg.maxToolRounds };
+    lastText = (await session.send(setup.userContent, investigationOpts)).text;
 
     if (
       cfg.reviewInjectAnchorMenu &&
@@ -146,14 +147,19 @@ export async function runReviewHarness(params: {
         maxRangesPerFile: cfg.reviewAnchorMenuMaxRangesPerFile,
       });
       if (anchorMenu) {
-        lastText = (await session.send(anchorMenu)).text;
+        lastText = (await session.send(anchorMenu, investigationOpts)).text;
       }
     }
 
     if (!setup.submitState.published) {
       recordReviewMetric({ kind: "prose_only", phase: "pre_submit" });
-      lastText = (await session.send([PROSE_ONLY_NUDGE, PRE_SUBMIT_USER_MESSAGE].join("\n\n")))
-        .text;
+      for (let round = 0; round < 2 && !setup.submitState.published; round++) {
+        const prompt =
+          round === 0
+            ? [PROSE_ONLY_NUDGE, PRE_SUBMIT_USER_MESSAGE].join("\n\n")
+            : PRE_SUBMIT_USER_MESSAGE;
+        lastText = await sendSubmitOnlyRepair(prompt);
+      }
     }
 
     await runValidationRepair("validation_repair");

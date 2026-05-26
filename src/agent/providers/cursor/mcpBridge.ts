@@ -36,6 +36,7 @@ export type McpBridgeOptions = {
   readonly signal?: AbortSignal;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly maxToolRounds?: number;
+  readonly toolRoundCounter?: { count: number };
 };
 
 export type McpBridgeHandle = {
@@ -136,7 +137,6 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
   const endpointPath = `/mcp/${crypto.randomUUID()}`;
   const pendingCalls = new Set<AbortController>();
   let disposed = false;
-  let toolCallCount = 0;
 
   const mcpServer = new McpProtocolServer(
     { name: "pr-agent-tool-bridge", version: "1.0.0" },
@@ -173,8 +173,9 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
         throw new Error("MCP tool call aborted");
       }
       if (options.maxToolRounds != null) {
-        toolCallCount += 1;
-        if (toolCallCount > options.maxToolRounds) {
+        const counter = options.toolRoundCounter ?? { count: 0 };
+        counter.count += 1;
+        if (counter.count > options.maxToolRounds) {
           safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
           return executorResultToMcp(
             `Tool round limit (${options.maxToolRounds}) reached; call submitReview with your findings.`,
