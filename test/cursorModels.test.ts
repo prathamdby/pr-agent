@@ -6,7 +6,7 @@ import {
   getCursorModel,
   isCursorProvider,
   listCursorModelIds,
-} from "../src/agent/cursor/models.js";
+} from "../src/agent/providers/cursor/models.js";
 
 describe("cursor models", () => {
   it("builds cursor-sdk models for catalog ids", () => {

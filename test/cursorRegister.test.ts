@@ -4,7 +4,7 @@ import {
   isCursorProviderRegistered,
   registerCursorProvider,
   resetCursorProviderRegistrationForTests,
-} from "../src/agent/cursor/register.js";
+} from "../src/agent/providers/cursor/register.js";
 
 describe("registerCursorProvider", () => {
   it("registers cursor-sdk api provider", () => {

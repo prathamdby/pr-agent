@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { isInstallationTokenNearExpiry } from "../../github/githubRequestError.js";
+import { isInstallationTokenNearExpiry } from "../../../github/githubRequestError.js";
 import type { CursorExecutor } from "./runContext.js";
 
 export type ToolExecutorBundle = {

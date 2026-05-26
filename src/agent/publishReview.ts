@@ -22,7 +22,7 @@ import {
   isLineResolutionPublishError,
   planInlinePlacements,
   type CachedPrDiffIndex,
-} from "./reviewLocationValidation.js";
+} from "./reviewDiffPlacement.js";
 import {
   mergeInlineFingerprintRecords,
   suppressInlinePlacementsByFingerprint,

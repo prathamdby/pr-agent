@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import * as evlog from "../src/evlog.js";
-import { checkMcpBearerAuth, createMcpBridge } from "../src/agent/cursor/mcpBridge.js";
+import { checkMcpBearerAuth, createMcpBridge } from "../src/agent/providers/cursor/mcpBridge.js";
 import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/agent/reviewRunMetrics.js";
 
 describe("checkMcpBearerAuth", () => {

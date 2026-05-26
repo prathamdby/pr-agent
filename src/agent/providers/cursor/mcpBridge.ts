@@ -17,10 +17,10 @@ import {
   CURSOR_MCP_SERVER_START_TIMEOUT_MS,
   CURSOR_MCP_TOKEN_BYTES,
   CURSOR_MAX_PORT_RETRIES,
-} from "../../settings/index.js";
+} from "../../../settings/index.js";
 import type { CursorExecutor } from "./runContext.js";
-import { logDebug } from "../../evlog.js";
-import { recordReviewMetric } from "../reviewRunMetrics.js";
+import { logDebug } from "../../../evlog.js";
+import { recordReviewMetric } from "../../reviewRunMetrics.js";
 
 function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
   try {
@@ -35,6 +35,8 @@ export type McpBridgeOptions = {
   readonly executors: Record<string, CursorExecutor>;
   readonly signal?: AbortSignal;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  readonly maxToolRounds?: number;
+  readonly toolRoundCounter?: { count: number };
 };
 
 export type McpBridgeHandle = {
@@ -169,6 +171,17 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     try {
       if (abortController.signal.aborted) {
         throw new Error("MCP tool call aborted");
+      }
+      if (options.maxToolRounds != null) {
+        const counter = options.toolRoundCounter ?? { count: 0 };
+        counter.count += 1;
+        if (counter.count > options.maxToolRounds) {
+          safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
+          return executorResultToMcp(
+            `Tool round limit (${options.maxToolRounds}) reached; call submitReview with your findings.`,
+            true,
+          );
+        }
       }
       if (options.refreshBeforeTool) {
         await runWithAbortSignal(

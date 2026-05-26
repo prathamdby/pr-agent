@@ -1,5 +1,6 @@
 import type { JobWithMetadata } from "pg-boss";
 import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import { mintBotIdentity, mintInstallationAuth } from "../github/appAuth.js";
@@ -7,6 +8,7 @@ import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
   claimWorkForExecution,
+  forceMarkRescheduledParentCompleted,
   getWorkItem,
   markWorkCancelled,
   markWorkCompleted,
@@ -16,7 +18,7 @@ import {
   shouldSkipWork,
   updateRunningWorkHeadSha,
 } from "./repository.js";
-import type { AgentWorkItem } from "./types.js";
+import type { AgentWorkItem, ReviewWorkPayload } from "./types.js";
 
 export type InstallationToken = { token: string; expiresAtTs: number; ttlMs: number };
 
@@ -25,9 +27,17 @@ export type DurableExecutionContext = {
   headSha: string;
 };
 
+export type DurableExecutionResult = {
+  readonly degraded?: boolean;
+  readonly rescheduled?: boolean;
+  readonly replacementWorkItemId?: string;
+  readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+};
+
 export type DurableJobSpec = {
   readonly cfg: Config;
   readonly pool: Pool;
+  readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: "review" | "ask";
   readonly acceptItem?: (item: AgentWorkItem) => boolean;
@@ -35,7 +45,7 @@ export type DurableJobSpec = {
   readonly execute: (
     item: AgentWorkItem,
     env: DurableExecutionContext,
-  ) => Promise<{ degraded?: boolean }>;
+  ) => Promise<DurableExecutionResult>;
   readonly onTerminalFailure?: (
     item: AgentWorkItem,
     installation: InstallationToken | undefined,
@@ -64,12 +74,42 @@ function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
   return job.retryCount >= job.retryLimit;
 }
 
+async function finishRescheduledParentWorkItem(
+  pool: Pool,
+  itemId: string,
+  type: "review" | "ask",
+): Promise<void> {
+  if (await markWorkCompleted(pool, itemId)) {
+    logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+    return;
+  }
+  const refreshed = await getWorkItem(pool, itemId);
+  if (refreshed?.status === "completed") {
+    logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+    return;
+  }
+  const payload = refreshed?.payload as ReviewWorkPayload | undefined;
+  if (payload?.staleHeadReplacementWorkItemId) {
+    if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
+      logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+      return;
+    }
+    throw new Error(
+      `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
+    );
+  }
+  if (await shouldSkipWork(pool, refreshed ?? ({ id: itemId } as AgentWorkItem))) {
+    await markWorkCancelled(pool, itemId);
+  }
+}
+
 /**
  * Shared scaffolding for durable work items: skip/claim/mint-token/bot-skip/head-SHA/transition/retry.
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
  */
 export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
-  const { cfg, pool, job, type, acceptItem, resolveHeadSha, execute, onTerminalFailure } = spec;
+  const { cfg, pool, boss, job, type, acceptItem, resolveHeadSha, execute, onTerminalFailure } =
+    spec;
 
   const item = await getWorkItem(pool, job.data.workItemId);
   if (!item || item.type !== type) return;
@@ -107,6 +147,20 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     logInfo("agent_work_started", { type, workItemId: item.id, resourceKey: item.resourceKey });
     const result = await execute(item, { installation, headSha });
     if (await cancelIfSkippable()) return;
+    if (result.rescheduled) {
+      try {
+        if (result.afterComplete) {
+          await result.afterComplete(boss, job.id);
+        }
+      } catch (e) {
+        if (result.replacementWorkItemId) {
+          await markWorkFailed(pool, result.replacementWorkItemId, e);
+        }
+        throw e;
+      }
+      await finishRescheduledParentWorkItem(pool, item.id, type);
+      return;
+    }
     if (result.degraded) await markWorkPublishDegraded(pool, item.id);
     if (!(await markWorkCompleted(pool, item.id))) {
       await cancelIfSkippable();

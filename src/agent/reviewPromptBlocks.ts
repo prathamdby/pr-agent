@@ -3,7 +3,7 @@
 export const singlePassReviewContract = [
   "## Single-pass review contract",
   "This run has **one** submitReview call. Do not defer findings to a later pass or a follow-up review.",
-  "After listing and inspecting **every changed file** (via listPullRequestFiles), include **every confident P0–P2** bug in that single payload (up to 8).",
+  "After listing and inspecting **every changed file** (via listChangedFiles and getWorkspaceDiff), include **every confident P0–P2** bug in that single payload (up to 8).",
   "**Quality first** — never pad findings with P3 or speculative items to fill slots.",
   "Workflow: list files → read each patch → cluster by area → call submitReview once with all findings.",
   "Do not stop after the first bug. Do not say you will report more later.",

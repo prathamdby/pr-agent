@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/constants.js";
-import { createRefreshableToolExecutors } from "../src/agent/cursor/refreshableGithubTools.js";
+import { createRefreshableToolExecutors } from "../src/agent/providers/cursor/refreshableGithubTools.js";
 
 describe("createRefreshableToolExecutors", () => {
   it("refreshes token and rebuilds executors when near expiry", async () => {

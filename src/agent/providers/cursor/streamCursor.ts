@@ -74,6 +74,8 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         executors: runContext.executors,
         signal: options?.signal,
         refreshBeforeTool: runContext.refreshBeforeTool,
+        maxToolRounds: runContext.maxToolRounds,
+        toolRoundCounter: runContext.toolRoundCounter,
       });
       bridgeDispose = bridge.dispose;
 
@@ -85,7 +87,7 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         apiKey,
         model: { id: model.id },
         local: {
-          cwd: process.cwd(),
+          cwd: runContext.cwd ?? process.cwd(),
           settingSources: [],
         },
         mcpServers: bridge.mcpServers,

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { JobWithMetadata } from "pg-boss";
+import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
 import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
@@ -11,6 +11,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   markWorkCancelled: vi.fn(),
   claimWorkForExecution: vi.fn(),
   markWorkCompleted: vi.fn(),
+  forceMarkRescheduledParentCompleted: vi.fn(),
   markWorkFailed: vi.fn(),
   markWorkPublishDegraded: vi.fn(),
   markWorkRetrying: vi.fn(),
@@ -27,6 +28,7 @@ import * as appAuth from "../src/github/appAuth.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
+const boss = {} as PgBoss;
 
 function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
   return {
@@ -94,6 +96,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "abc123",
@@ -115,6 +118,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -130,6 +134,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -144,6 +149,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       acceptItem: (it) => it.reviewLens != null,
@@ -161,6 +167,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -180,6 +187,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -199,6 +207,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -218,6 +227,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -236,6 +246,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -275,6 +286,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(3, 3),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -317,6 +329,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(3, 3),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -325,5 +338,74 @@ describe("runDurableWorkItem", () => {
     });
 
     expect(onTerminalFailure).not.toHaveBeenCalled();
+  });
+
+  it("completes rescheduled parent via force mark when markWorkCompleted races", async () => {
+    vi.mocked(repo.getWorkItem).mockResolvedValue(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+    vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(true);
+    const afterComplete = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete,
+    });
+
+    await runDurableWorkItem({
+      cfg,
+      pool,
+      boss,
+      job: makeJob(),
+      type: "review",
+      resolveHeadSha: async () => "x",
+      execute,
+    });
+
+    expect(afterComplete).toHaveBeenCalledWith(boss, "job-1");
+    expect(repo.forceMarkRescheduledParentCompleted).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("throws when rescheduled parent cannot be completed and replacement marker exists", async () => {
+    vi.mocked(repo.getWorkItem).mockResolvedValue(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+    vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn().mockResolvedValue(undefined),
+    });
+
+    await expect(
+      runDurableWorkItem({
+        cfg,
+        pool,
+        boss,
+        job: makeJob(0, 3),
+        type: "review",
+        resolveHeadSha: async () => "x",
+        execute,
+      }),
+    ).rejects.toThrow(/Failed to complete rescheduled parent/);
+
+    expect(repo.markWorkRetrying).toHaveBeenCalled();
   });
 });

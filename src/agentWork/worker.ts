@@ -5,8 +5,8 @@ import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
-import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
+import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
 import {
@@ -26,6 +26,12 @@ import {
   shouldSkipWork,
 } from "./repository.js";
 import { mintInstallationToken, runDurableWorkItem } from "./durableJob.js";
+import {
+  createSlashReviewRescheduleWorkItem,
+  enqueueSlashReviewReschedule,
+} from "./reviewReschedule.js";
+import { preparePrRepositoryView } from "./prRepositoryView.js";
+import { cleanupStaleLocalPrWorkspaces } from "./localPrWorkspace.js";
 import { GITHUB_REACTION_EYES } from "../settings/index.js";
 import { renderReviewFailureNotice, renderReviewProgressComment } from "./progressComment.js";
 import {
@@ -196,11 +202,13 @@ async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<
 async function handleReviewJob(
   cfg: Config,
   pool: Pool,
+  boss: PgBoss,
   job: JobWithMetadata<ReviewJobData>,
 ): Promise<void> {
   await runDurableWorkItem({
     cfg,
     pool,
+    boss,
     job,
     type: "review",
     acceptItem: (item) => item.reviewLens != null,
@@ -211,6 +219,37 @@ async function handleReviewJob(
     execute: async (item, env) => {
       const reviewLens = item.reviewLens!;
       const payload = item.payload as ReviewWorkPayload;
+      if (
+        payload.source === "slash" &&
+        !payload.staleHeadRescheduled &&
+        payload.staleHeadReplacementWorkItemId
+      ) {
+        const latestHeadSha = await getPullRequestHeadSha(
+          env.installation.token,
+          item.owner,
+          item.repo,
+          item.prNumber,
+        );
+        const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
+          pool,
+          item,
+          latestHeadSha,
+        );
+        return {
+          rescheduled: true,
+          replacementWorkItemId,
+          afterComplete: async (activeBoss, activePgBossJobId) => {
+            await enqueueSlashReviewReschedule(
+              pool,
+              activeBoss,
+              item,
+              replacementWorkItemId,
+              latestHeadSha,
+              activePgBossJobId,
+            );
+          },
+        };
+      }
       const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, reviewLens);
       const shouldLinkToSummary = await hasPriorCompletedSummaryPublish(
         pool,
@@ -223,6 +262,8 @@ async function handleReviewJob(
         : null;
       let installation = env.installation;
       const headSha = env.headSha;
+      let staleHeadAtPublish = false;
+      const publishAbortState: { staleHead?: boolean } = {};
 
       const preflight = await fetchReviewPreflightMetadata(
         installation.token,
@@ -236,7 +277,6 @@ async function handleReviewJob(
         item.resourceKey,
         reviewLens,
       );
-      const trustedContext = buildTrustedReviewContextBlock(preflight);
 
       const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
         item,
@@ -253,7 +293,7 @@ async function handleReviewJob(
           published: lightweightResult.published,
         });
         initReviewRunMetrics({
-          provider: cfg.piProvider,
+          provider: cfg.agentProvider,
           model: cfg.piModel,
           mode: reviewLens,
         });
@@ -266,52 +306,112 @@ async function handleReviewJob(
         return { degraded: false };
       }
 
-      const result = await runFullPrReview({
+      const repositoryView = await preparePrRepositoryView({
         cfg,
-        token: installation.token,
-        tokenExpiresAtTs: installation.expiresAtTs,
-        tokenTtlMs: installation.ttlMs,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,
         headSha,
-        mode: reviewLens,
-        userSupplement: payload.userSupplement,
-        trustedContext,
-        storedInlineFingerprints,
-        shouldLinkToSummary,
-        summaryCommentIdHint,
-        initialPublishState: {
-          inlinePublished: publishState.inlinePublished,
-          published: publishState.summaryPublished,
-          inlineReviewId: publishState.inlineReviewId,
-        },
-        recordPublishStep: (step, detail) =>
-          recordPublishStep(pool, {
-            workItemId: item.id,
-            resourceKey: item.resourceKey,
-            reviewLens,
-            step,
-            githubId: detail?.githubId,
-            detail: detail?.meta,
-          }),
-        shouldAbortPublish: () => shouldSkipWork(pool, item),
-        refreshInstallationToken: async () => {
-          const fresh = await mintInstallationToken(cfg, item.installationId);
-          installation = fresh;
-          return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
-        },
+        installationToken: installation.token,
       });
-      if (!result.published) {
-        logWarn("review_not_published", {
+      try {
+        const trustedContext = buildTrustedReviewContextBlock(repositoryView.preflight);
+
+        const result = await runFullPrReview({
+          cfg,
+          token: installation.token,
+          tokenExpiresAtTs: installation.expiresAtTs,
+          tokenTtlMs: installation.ttlMs,
           owner: item.owner,
           repo: item.repo,
-          pr: item.prNumber,
-          publishAttempts: result.publishAttempts,
-          publishDegraded: true,
+          prNumber: item.prNumber,
+          headSha,
+          mode: reviewLens,
+          userSupplement: payload.userSupplement,
+          trustedContext,
+          storedInlineFingerprints,
+          cwd: repositoryView.agentCwd,
+          workspace: repositoryView.workspace,
+          shouldLinkToSummary,
+          summaryCommentIdHint,
+          initialPublishState: {
+            inlinePublished: publishState.inlinePublished,
+            published: publishState.summaryPublished,
+            inlineReviewId: publishState.inlineReviewId,
+          },
+          recordPublishStep: (step, detail) =>
+            recordPublishStep(pool, {
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+              reviewLens,
+              step,
+              githubId: detail?.githubId,
+              detail: detail?.meta,
+            }),
+          reviewSource: payload.source,
+          staleHeadRescheduled: payload.staleHeadRescheduled,
+          publishAbortState,
+          shouldAbortPublish: async () => {
+            if (await shouldSkipWork(pool, item)) return true;
+            const latestHeadSha = await getPullRequestHeadSha(
+              installation.token,
+              item.owner,
+              item.repo,
+              item.prNumber,
+            );
+            if (latestHeadSha !== headSha) {
+              staleHeadAtPublish = true;
+              publishAbortState.staleHead = true;
+              return true;
+            }
+            return false;
+          },
+          refreshInstallationToken: async () => {
+            const fresh = await mintInstallationToken(cfg, item.installationId);
+            installation = fresh;
+            return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+          },
         });
+        if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
+          const latestHeadSha = await getPullRequestHeadSha(
+            installation.token,
+            item.owner,
+            item.repo,
+            item.prNumber,
+          );
+          const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
+            pool,
+            item,
+            latestHeadSha,
+          );
+          return {
+            rescheduled: true,
+            replacementWorkItemId,
+            afterComplete: async (activeBoss, activePgBossJobId) => {
+              await enqueueSlashReviewReschedule(
+                pool,
+                activeBoss,
+                item,
+                replacementWorkItemId,
+                latestHeadSha,
+                activePgBossJobId,
+              );
+            },
+          };
+        }
+        if (!result.published) {
+          logWarn("review_not_published", {
+            owner: item.owner,
+            repo: item.repo,
+            pr: item.prNumber,
+            publishAttempts: result.publishAttempts,
+            publishDegraded: true,
+          });
+        }
+        return { degraded: !result.published };
+      } finally {
+        await repositoryView.cleanup();
       }
-      return { degraded: !result.published };
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
@@ -375,11 +475,13 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
 async function handleAskJob(
   cfg: Config,
   pool: Pool,
+  boss: PgBoss,
   job: JobWithMetadata<AskJobData>,
 ): Promise<void> {
   await runDurableWorkItem({
     cfg,
     pool,
+    boss,
     job,
     type: "ask",
     resolveHeadSha: (token, item) =>
@@ -388,26 +490,40 @@ async function handleAskJob(
       let installation = env.installation;
       const headSha = env.headSha;
       const payload = item.payload as AskWorkPayload;
-      const result = await runAskRun({
+      const repositoryView = await preparePrRepositoryView({
         cfg,
-        token: installation.token,
-        tokenExpiresAtTs: installation.expiresAtTs,
-        tokenTtlMs: installation.ttlMs,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,
         headSha,
-        question: payload.question,
-        replyTarget: payload.replyTarget,
-        codeAnchor: payload.codeAnchor,
-        refreshInstallationToken: async () => {
-          const fresh = await mintInstallationToken(cfg, item.installationId);
-          installation = fresh;
-          return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
-        },
+        installationToken: installation.token,
       });
-      await publishAskAnswer(installation.token, item, result.answer);
-      return {};
+      try {
+        const result = await runAskRun({
+          cfg,
+          token: installation.token,
+          tokenExpiresAtTs: installation.expiresAtTs,
+          tokenTtlMs: installation.ttlMs,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha,
+          question: payload.question,
+          replyTarget: payload.replyTarget,
+          codeAnchor: payload.codeAnchor,
+          cwd: repositoryView.agentCwd,
+          workspace: repositoryView.workspace,
+          refreshInstallationToken: async () => {
+            const fresh = await mintInstallationToken(cfg, item.installationId);
+            installation = fresh;
+            return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+          },
+        });
+        await publishAskAnswer(installation.token, item, result.answer);
+        return {};
+      } finally {
+        await repositoryView.cleanup();
+      }
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
@@ -461,6 +577,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             groupConcurrency: cfg.installationGroupConcurrency,
             heartbeatRefreshSeconds: heartbeatRefresh,
           };
+          await cleanupStaleLocalPrWorkspaces(cfg);
           await Promise.all([
             registerPlainQueue<AckJobData>(
               boss,
@@ -472,13 +589,13 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               boss,
               REVIEW_QUEUE,
               { localConcurrency: cfg.reviewConcurrency, ...durableQueueOptions },
-              (job) => handleReviewJob(cfg, pool, job),
+              (job) => handleReviewJob(cfg, pool, boss, job),
             ),
             registerMetadataQueue<AskJobData>(
               boss,
               ASK_QUEUE,
               { localConcurrency: cfg.askConcurrency, ...durableQueueOptions },
-              (job) => handleAskJob(cfg, pool, job),
+              (job) => handleAskJob(cfg, pool, boss, job),
             ),
           ]);
           logInfo("agent_worker_started", {

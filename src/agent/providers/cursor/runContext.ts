@@ -5,7 +5,10 @@ export type CursorExecutor = (args: Record<string, unknown>) => Promise<unknown>
 export type CursorRunContext = {
   readonly executors: Record<string, CursorExecutor>;
   readonly apiKey: string;
+  readonly cwd?: string;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  readonly maxToolRounds?: number;
+  readonly toolRoundCounter?: { count: number };
 };
 
 const cursorRunContexts = new WeakMap<Context, CursorRunContext>();

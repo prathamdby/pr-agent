@@ -1,12 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { Agent, CursorAgentError } from "@cursor/sdk";
-import { streamCursor } from "../src/agent/cursor/streamCursor.js";
-import { attachCursorRunContext } from "../src/agent/cursor/runContext.js";
-import { getCursorModel } from "../src/agent/cursor/models.js";
+import { streamCursor } from "../src/agent/providers/cursor/streamCursor.js";
+import { attachCursorRunContext } from "../src/agent/providers/cursor/runContext.js";
+import { getCursorModel } from "../src/agent/providers/cursor/models.js";
 import {
   CURSOR_RUN_ERROR_PREFIX,
   CURSOR_STARTUP_ERROR_PREFIX,
-} from "../src/agent/cursor/errors.js";
+} from "../src/agent/providers/cursor/errors.js";
 import type { Context } from "@earendil-works/pi-ai";
 
 const model = getCursorModel("composer-2.5");

@@ -7,7 +7,7 @@ import {
   planInlinePlacements,
   type CachedPrDiffIndex,
   type InlinePlacement,
-} from "./reviewLocationValidation.js";
+} from "./reviewDiffPlacement.js";
 import type { CommentableRightLineRanges } from "./reviewDiffIndex.js";
 
 /** Overview/followUp leakage — reject before publish (repair loop), not substring scrub. */

@@ -3,13 +3,13 @@ import {
   downgradePlacementsAfterInlineFailure,
   isLineResolutionPublishError,
   planInlinePlacements,
-} from "../src/agent/reviewLocationValidation.js";
+} from "../src/agent/reviewDiffPlacement.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
 } from "../src/agent/reviewDiffIndex.js";
 
-describe("reviewLocationValidation", () => {
+describe("reviewDiffPlacement", () => {
   it("marks invalid anchors as summary-only", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {

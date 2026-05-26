@@ -10,28 +10,25 @@ vi.mock("../src/github/reviewPublish.js", () => ({
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
 }));
 
-vi.mock("@earendil-works/pi-ai", () => ({
-  getModel: vi.fn(() => ({})),
-  complete: vi.fn(async () => ({
-    role: "assistant" as const,
-    content: [{ type: "text" as const, text: "analysis without submitReview" }],
-    api: "test",
-    provider: "test",
-    model: "test",
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop" as const,
-    timestamp: Date.now(),
-  })),
+const sendMock = vi.fn(async () => ({ text: "analysis without submitReview" }));
+const createSessionMock = vi.fn(async (params: { systemPrompt: string }) => {
+  capturedSystemPrompt = params.systemPrompt;
+  return {
+    send: sendMock,
+    restrictToTools: vi.fn(),
+    restoreTools: vi.fn(),
+    dispose: vi.fn(async () => undefined),
+  };
+});
+
+let capturedSystemPrompt = "";
+
+vi.mock("../src/agent/providers/pi/index.js", () => ({
+  piAgentRunnerProvider: {
+    createSession: (...args: unknown[]) => createSessionMock(...args),
+  },
 }));
 
-import { complete } from "@earendil-works/pi-ai";
 import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { runFullPrReview } from "../src/agent/reviewRun.js";
@@ -41,6 +38,7 @@ const cfg = {
   githubAppId: "1",
   githubAppPrivateKey: "k",
   webhookSecret: "s",
+  agentProvider: "pi",
   piProvider: "openai",
   piModel: "gpt-4o-mini",
   maxToolRounds: 2,
@@ -82,28 +80,10 @@ function reviewParams(
   };
 }
 
-const defaultCompleteResult = () => ({
-  role: "assistant" as const,
-  content: [{ type: "text" as const, text: "analysis without submitReview" }],
-  api: "test",
-  provider: "test",
-  model: "test",
-  usage: {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-    totalTokens: 0,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  },
-  stopReason: "stop" as const,
-  timestamp: Date.now(),
-});
-
 describe("runFullPrReview mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
+    sendMock.mockImplementation(async () => ({ text: "analysis without submitReview" }));
   });
 
   it("requires finite tokenExpiresAtTs", async () => {
@@ -120,8 +100,7 @@ describe("runFullPrReview mode", () => {
       }),
     );
 
-    const context = vi.mocked(complete).mock.calls[0][1] as { systemPrompt: string };
-    expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
+    expect(capturedSystemPrompt).toBe(automatedSecuritySystemPrompt);
   });
 
   it("selects general system prompt by default", async () => {
@@ -129,76 +108,8 @@ describe("runFullPrReview mode", () => {
       reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 } }),
     );
 
-    const context = vi.mocked(complete).mock.calls[0][1] as { systemPrompt: string };
-    expect(context.systemPrompt).toContain("senior staff software engineer");
-    expect(context.systemPrompt).not.toBe(automatedSecuritySystemPrompt);
-  });
-
-  it("requires tools on round 0 for both modes when tools are available", async () => {
-    for (const mode of ["review", "review-security"] as const) {
-      vi.mocked(complete).mockClear();
-      await runFullPrReview(
-        reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 }, mode }),
-      );
-      expect(vi.mocked(complete).mock.calls[0][2]).toEqual({ toolChoice: "required" });
-    }
-  });
-
-  it("includes mode on agent_tool_round when tools run", async () => {
-    vi.mocked(complete).mockImplementationOnce(async () => ({
-      role: "assistant" as const,
-      content: [
-        {
-          type: "toolCall" as const,
-          id: "c1",
-          name: "getPullRequest",
-          arguments: { owner: "o", repo: "r", pullNumber: 1 },
-        },
-      ],
-      api: "test",
-      provider: "test",
-      model: "test",
-      usage: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: "toolUse" as const,
-      timestamp: Date.now(),
-    }));
-    vi.mocked(complete).mockImplementation(async () => ({
-      role: "assistant" as const,
-      content: [{ type: "text" as const, text: "done" }],
-      api: "test",
-      provider: "test",
-      model: "test",
-      usage: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: "stop" as const,
-      timestamp: Date.now(),
-    }));
-
-    const debugSpy = vi.spyOn(evlog, "logDebug");
-    await runFullPrReview(
-      reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-        mode: "review-security",
-      }),
-    );
-
-    expect(debugSpy).toHaveBeenCalledWith(
-      "agent_tool_round",
-      expect.objectContaining({ mode: "review-security" }),
-    );
+    expect(capturedSystemPrompt).toContain("senior staff software engineer");
+    expect(capturedSystemPrompt).not.toBe(automatedSecuritySystemPrompt);
   });
 
   it("uses security fallback heading when security publish is exhausted", async () => {
@@ -216,7 +127,7 @@ describe("runFullPrReview mode", () => {
 describe("runFullPrReview publish retries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(complete).mockImplementation(async () => defaultCompleteResult());
+    sendMock.mockImplementation(async () => ({ text: "analysis without submitReview" }));
   });
 
   it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {
@@ -262,7 +173,7 @@ describe("runFullPrReview publish retries", () => {
     expect(infoSpy).toHaveBeenCalledWith(
       "review_run_completed",
       expect.objectContaining({
-        provider: cfg.piProvider,
+        provider: cfg.agentProvider,
         model: cfg.piModel,
         mode: "review",
         published: false,

@@ -13,32 +13,32 @@ const BASE_ENV = {
   DATABASE_URL: "postgres://u:p@localhost/db",
 };
 
-describe("loadConfig cursor provider", () => {
+describe("loadConfig agent provider", () => {
   const saved = { ...process.env };
 
   afterEach(() => {
     process.env = { ...saved };
   });
 
-  it("accepts PI_PROVIDER=cursor when CURSOR_API_KEY is set", async () => {
+  it("accepts AGENT_PROVIDER=cursor when CURSOR_API_KEY is set", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
-      PI_PROVIDER: "cursor",
+      AGENT_PROVIDER: "cursor",
       PI_MODEL: "composer-2.5",
       CURSOR_API_KEY: "cursor_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
     const cfg = loadConfig();
-    expect(cfg.piProvider).toBe("cursor");
+    expect(cfg.agentProvider).toBe("cursor");
     expect(cfg.cursorApiKey).toBe("cursor_test_key");
   });
 
-  it("rejects unknown PI_MODEL when PI_PROVIDER=cursor", async () => {
+  it("rejects unknown PI_MODEL when AGENT_PROVIDER=cursor", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
-      PI_PROVIDER: "cursor",
+      AGENT_PROVIDER: "cursor",
       PI_MODEL: "not-a-real-model",
       CURSOR_API_KEY: "cursor_test_key",
     };
@@ -46,14 +46,38 @@ describe("loadConfig cursor provider", () => {
     expect(() => loadConfig()).toThrow(/not a supported Cursor model/);
   });
 
-  it("rejects PI_PROVIDER=cursor without CURSOR_API_KEY", async () => {
+  it("rejects AGENT_PROVIDER=cursor without CURSOR_API_KEY", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
-      PI_PROVIDER: "cursor",
+      AGENT_PROVIDER: "cursor",
       CURSOR_API_KEY: "",
     };
     const { loadConfig } = await import("../src/config.js");
     expect(() => loadConfig()).toThrow(/CURSOR_API_KEY/);
+  });
+
+  it("rejects legacy PI_PROVIDER=cursor", async () => {
+    process.env = {
+      ...BASE_ENV,
+      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      PI_PROVIDER: "cursor",
+      CURSOR_API_KEY: "cursor_test_key",
+    };
+    const { loadConfig } = await import("../src/config.js");
+    expect(() => loadConfig()).toThrow(/AGENT_PROVIDER=cursor/);
+  });
+
+  it("loads model provider keys without requiring them", async () => {
+    process.env = {
+      ...BASE_ENV,
+      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      OPENAI_API_KEY: "openai_test_key",
+    };
+    const { loadConfig } = await import("../src/config.js");
+    const cfg = loadConfig();
+    expect(cfg.agentProvider).toBe("pi");
+    expect(cfg.modelProviderKeys.openai).toBe("openai_test_key");
+    expect(cfg.modelProviderKeys.anthropic).toBe("");
   });
 });
