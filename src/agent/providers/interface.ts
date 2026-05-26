@@ -9,6 +9,11 @@ export type AgentRunnerTurn = {
 
 export type AgentRunnerSession = {
   readonly send: (prompt: string) => Promise<AgentRunnerTurn>;
+  readonly restrictToTools: (
+    tools: readonly PiTool[],
+    executors: Record<string, AgentRunnerToolExecutor>,
+  ) => void;
+  readonly restoreTools: () => void;
   readonly dispose: () => Promise<void>;
 };
 

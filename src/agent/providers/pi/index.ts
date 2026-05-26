@@ -21,6 +21,7 @@ function toolResultToText(result: unknown): string {
 function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
+  refreshBeforeTool?: (toolName: string) => Promise<void>,
 ): ReturnType<typeof defineTool> {
   return defineTool({
     name: tool.name,
@@ -30,6 +31,9 @@ function toCodingAgentTool(
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
       if (!executor) {
         throw new Error(`No executor registered for tool ${tool.name}`);
+      }
+      if (refreshBeforeTool) {
+        await refreshBeforeTool(tool.name);
       }
       const result = await executor(params);
       return {
@@ -41,7 +45,7 @@ function toCodingAgentTool(
 }
 
 export const piAgentRunnerProvider: AgentRunnerProvider = {
-  async createSession({ cfg, cwd, systemPrompt, tools, executors }) {
+  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool }) {
     const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
     const authPath = join(agentDir, "auth.json");
     const authStorage = AuthStorage.create(authPath);
@@ -70,6 +74,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     });
     await resourceLoader.reload();
     const model = getModel(cfg.piProvider, cfg.piModel as never);
+    const allToolNames = tools.map((tool) => tool.name);
     const { session } = await createAgentSession({
       cwd: cwd ?? process.cwd(),
       agentDir,
@@ -81,7 +86,9 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       settingsManager,
       sessionManager: SessionManager.inMemory(cwd ?? process.cwd()),
       tools: [],
-      customTools: tools.map((tool) => toCodingAgentTool(tool, executors[tool.name])),
+      customTools: tools.map((tool) =>
+        toCodingAgentTool(tool, executors[tool.name], refreshBeforeTool),
+      ),
     });
 
     return {
@@ -101,6 +108,12 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         } finally {
           unsubscribe();
         }
+      },
+      restrictToTools(nextTools) {
+        session.setActiveToolsByName(nextTools.map((tool) => tool.name));
+      },
+      restoreTools() {
+        session.setActiveToolsByName(allToolNames);
       },
       async dispose() {
         await rm(agentDir, { recursive: true, force: true });

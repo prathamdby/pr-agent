@@ -25,7 +25,10 @@ import {
   shouldSkipWork,
 } from "./repository.js";
 import { mintInstallationToken, runDurableWorkItem } from "./durableJob.js";
-import { scheduleSlashReviewReschedule } from "./reviewReschedule.js";
+import {
+  createSlashReviewRescheduleWorkItem,
+  enqueueSlashReviewReschedule,
+} from "./reviewReschedule.js";
 import { preparePrRepositoryView } from "./prRepositoryView.js";
 import { cleanupStaleLocalPrWorkspaces } from "./localPrWorkspace.js";
 import { GITHUB_REACTION_EYES } from "../settings/index.js";
@@ -204,6 +207,7 @@ async function handleReviewJob(
   await runDurableWorkItem({
     cfg,
     pool,
+    boss,
     job,
     type: "review",
     acceptItem: (item) => item.reviewLens != null,
@@ -227,6 +231,7 @@ async function handleReviewJob(
       let installation = env.installation;
       const headSha = env.headSha;
       let staleHeadAtPublish = false;
+      const publishAbortState: { staleHead?: boolean } = {};
 
       const repositoryView = await preparePrRepositoryView({
         cfg,
@@ -304,6 +309,9 @@ async function handleReviewJob(
               githubId: detail?.githubId,
               detail: detail?.meta,
             }),
+          reviewSource: payload.source,
+          staleHeadRescheduled: payload.staleHeadRescheduled,
+          publishAbortState,
           shouldAbortPublish: async () => {
             if (await shouldSkipWork(pool, item)) return true;
             const latestHeadSha = await getPullRequestHeadSha(
@@ -314,6 +322,7 @@ async function handleReviewJob(
             );
             if (latestHeadSha !== headSha) {
               staleHeadAtPublish = true;
+              publishAbortState.staleHead = true;
               return true;
             }
             return false;
@@ -331,8 +340,22 @@ async function handleReviewJob(
             item.repo,
             item.prNumber,
           );
-          await scheduleSlashReviewReschedule(pool, boss, item, latestHeadSha);
-          return { rescheduled: true };
+          const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
+            pool,
+            item,
+            latestHeadSha,
+          );
+          return {
+            rescheduled: true,
+            afterComplete: async (activeBoss) => {
+              await enqueueSlashReviewReschedule(
+                activeBoss,
+                item,
+                replacementWorkItemId,
+                latestHeadSha,
+              );
+            },
+          };
         }
         if (!result.published) {
           logWarn("review_not_published", {
@@ -410,11 +433,13 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
 async function handleAskJob(
   cfg: Config,
   pool: Pool,
+  boss: PgBoss,
   job: JobWithMetadata<AskJobData>,
 ): Promise<void> {
   await runDurableWorkItem({
     cfg,
     pool,
+    boss,
     job,
     type: "ask",
     resolveHeadSha: (token, item) =>
@@ -528,7 +553,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               boss,
               ASK_QUEUE,
               { localConcurrency: cfg.askConcurrency, ...durableQueueOptions },
-              (job) => handleAskJob(cfg, pool, job),
+              (job) => handleAskJob(cfg, pool, boss, job),
             ),
           ]);
           logInfo("agent_worker_started", {

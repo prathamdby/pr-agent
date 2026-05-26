@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
+import type { WorkSource } from "../agentWork/types.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
@@ -75,6 +76,9 @@ export async function runReviewHarness(params: {
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  reviewSource?: WorkSource;
+  staleHeadRescheduled?: boolean;
+  publishAbortState?: { staleHead?: boolean };
 }): Promise<ReviewRunResult> {
   const { cfg, owner, repo, prNumber, reviewMode } = params;
   const providerName = cfg.agentProvider;
@@ -163,16 +167,8 @@ export async function runReviewHarness(params: {
       pr: prNumber,
     });
     if (isLastAttempt) {
-      await session.dispose();
       const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
-      session = await runner.createSession({
-        cfg,
-        cwd: params.cwd,
-        systemPrompt: setup.systemPrompt,
-        tools: submitOnly.piTools,
-        executors: submitOnly.executors,
-        refreshBeforeTool: setup.refreshBeforeTool,
-      });
+      session.restrictToTools(submitOnly.piTools, submitOnly.executors);
     }
     for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS && !setup.submitState.published; round++) {
       lastText = (
@@ -185,6 +181,9 @@ export async function runReviewHarness(params: {
       ).text;
     }
     await runValidationRepair("validation_repair");
+    if (isLastAttempt) {
+      session.restoreTools();
+    }
   };
 
   const runMaintainerPlaintextFallback = async () => {
@@ -231,6 +230,10 @@ export async function runReviewHarness(params: {
     }
 
     if (!setup.submitState.published) {
+      const willRescheduleStaleHead =
+        params.publishAbortState?.staleHead === true &&
+        params.reviewSource === "slash" &&
+        !params.staleHeadRescheduled;
       logWarn("review_publish_exhausted", {
         mode: reviewMode,
         attempts: publishAttempts,
@@ -238,8 +241,11 @@ export async function runReviewHarness(params: {
         owner,
         repo,
         pr: prNumber,
+        willRescheduleStaleHead,
       });
-      await runMaintainerPlaintextFallback();
+      if (!willRescheduleStaleHead) {
+        await runMaintainerPlaintextFallback();
+      }
     }
   } finally {
     await session.dispose();

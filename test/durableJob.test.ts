@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { JobWithMetadata } from "pg-boss";
+import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
 import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
@@ -27,6 +27,7 @@ import * as appAuth from "../src/github/appAuth.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
+const boss = {} as PgBoss;
 
 function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
   return {
@@ -94,6 +95,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "abc123",
@@ -115,6 +117,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -130,6 +133,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -144,6 +148,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       acceptItem: (it) => it.reviewLens != null,
@@ -161,6 +166,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -180,6 +186,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -199,6 +206,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -218,6 +226,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -236,6 +245,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -275,6 +285,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(3, 3),
       type: "review",
       resolveHeadSha: async () => "x",
@@ -317,6 +328,7 @@ describe("runDurableWorkItem", () => {
     await runDurableWorkItem({
       cfg,
       pool,
+      boss,
       job: makeJob(3, 3),
       type: "review",
       resolveHeadSha: async () => "x",

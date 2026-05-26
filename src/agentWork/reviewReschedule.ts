@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
+import type { ReviewMode } from "../agent/reviewSchema.js";
 import { logInfo } from "../evlog.js";
 import {
   ACK_QUEUE,
@@ -13,9 +14,22 @@ import {
   type ReviewWorkPayload,
 } from "./types.js";
 
-export async function scheduleSlashReviewReschedule(
-  pool: Pool,
+export async function releaseReviewSingletonSlot(
   boss: PgBoss,
+  resourceKey: string,
+  lens: ReviewMode,
+): Promise<void> {
+  const key = reviewSingletonKey(resourceKey, lens);
+  const jobs = await boss.findJobs(REVIEW_QUEUE, { key });
+  for (const job of jobs) {
+    const state = job.state as string;
+    if (state === "cancelled" || state === "completed" || state === "failed") continue;
+    await boss.cancel(REVIEW_QUEUE, job.id);
+  }
+}
+
+export async function createSlashReviewRescheduleWorkItem(
+  pool: Pool,
   item: AgentWorkItem,
   latestHeadSha: string,
 ): Promise<string> {
@@ -47,7 +61,20 @@ export async function scheduleSlashReviewReschedule(
     ],
   );
 
+  return workItemId;
+}
+
+export async function enqueueSlashReviewReschedule(
+  boss: PgBoss,
+  item: AgentWorkItem,
+  workItemId: string,
+  latestHeadSha: string,
+): Promise<void> {
+  const reviewLens = item.reviewLens!;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
+
+  await releaseReviewSingletonSlot(boss, item.resourceKey, reviewLens);
+
   const ackData: AckJobData = {
     kind: "ack",
     workItemId,
@@ -86,6 +113,15 @@ export async function scheduleSlashReviewReschedule(
     previousHeadSha: item.headSha,
     latestHeadSha,
   });
+}
 
+export async function scheduleSlashReviewReschedule(
+  pool: Pool,
+  boss: PgBoss,
+  item: AgentWorkItem,
+  latestHeadSha: string,
+): Promise<string> {
+  const workItemId = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
+  await enqueueSlashReviewReschedule(boss, item, workItemId, latestHeadSha);
   return workItemId;
 }

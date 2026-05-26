@@ -1,5 +1,6 @@
 import type { JobWithMetadata } from "pg-boss";
 import type { Pool } from "pg";
+import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import { mintBotIdentity, mintInstallationAuth } from "../github/appAuth.js";
@@ -25,9 +26,16 @@ export type DurableExecutionContext = {
   headSha: string;
 };
 
+export type DurableExecutionResult = {
+  readonly degraded?: boolean;
+  readonly rescheduled?: boolean;
+  readonly afterComplete?: (boss: PgBoss) => Promise<void>;
+};
+
 export type DurableJobSpec = {
   readonly cfg: Config;
   readonly pool: Pool;
+  readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: "review" | "ask";
   readonly acceptItem?: (item: AgentWorkItem) => boolean;
@@ -35,7 +43,7 @@ export type DurableJobSpec = {
   readonly execute: (
     item: AgentWorkItem,
     env: DurableExecutionContext,
-  ) => Promise<{ degraded?: boolean; rescheduled?: boolean }>;
+  ) => Promise<DurableExecutionResult>;
   readonly onTerminalFailure?: (
     item: AgentWorkItem,
     installation: InstallationToken | undefined,
@@ -69,7 +77,8 @@ function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
  */
 export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
-  const { cfg, pool, job, type, acceptItem, resolveHeadSha, execute, onTerminalFailure } = spec;
+  const { cfg, pool, boss, job, type, acceptItem, resolveHeadSha, execute, onTerminalFailure } =
+    spec;
 
   const item = await getWorkItem(pool, job.data.workItemId);
   if (!item || item.type !== type) return;
@@ -111,6 +120,9 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       if (!(await markWorkCompleted(pool, item.id))) {
         await cancelIfSkippable();
         return;
+      }
+      if (result.afterComplete) {
+        await result.afterComplete(boss);
       }
       logInfo("agent_work_completed", { type, workItemId: item.id, rescheduled: true });
       return;

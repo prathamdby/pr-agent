@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
+import type { WorkSource } from "../agentWork/types.js";
 import type { ReviewMode } from "./reviewSchema.js";
 import { runReviewHarness } from "./reviewRunHarness.js";
 
@@ -38,6 +39,9 @@ export async function runFullPrReview(params: {
   storedInlineFingerprints?: readonly string[];
   cwd?: string;
   workspace?: LocalPrWorkspace;
+  reviewSource?: WorkSource;
+  staleHeadRescheduled?: boolean;
+  publishAbortState?: { staleHead?: boolean };
 }): Promise<ReviewRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");

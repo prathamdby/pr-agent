@@ -15,6 +15,8 @@ const createSessionMock = vi.fn(async (params: { systemPrompt: string }) => {
   capturedSystemPrompt = params.systemPrompt;
   return {
     send: sendMock,
+    restrictToTools: vi.fn(),
+    restoreTools: vi.fn(),
     dispose: vi.fn(async () => undefined),
   };
 });
