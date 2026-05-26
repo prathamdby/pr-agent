@@ -1,7 +1,7 @@
 import { complete } from "@earendil-works/pi-ai";
 import type { Context, Tool as PiTool } from "@earendil-works/pi-ai";
 import type { AgentRunnerProvider, AgentRunnerToolExecutor } from "../interface.js";
-import { attachCursorRunContext, getCursorRunContext } from "./runContext.js";
+import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel } from "./models.js";
 
 function assistantText(content: Context["messages"][number]): string {
@@ -20,18 +20,25 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       messages: [],
       tools: [...tools],
     };
-    attachCursorRunContext(context, {
-      executors,
-      apiKey: cfg.cursorApiKey,
-      cwd,
-      refreshBeforeTool,
-    });
+    let activeExecutors = executors;
     const model = getCursorModel(cfg.piModel);
     let savedTools: PiTool[] | null = null;
     let savedExecutors: Record<string, AgentRunnerToolExecutor> | null = null;
 
+    const syncRunContext = () => {
+      attachCursorRunContext(context, {
+        executors: activeExecutors,
+        apiKey: cfg.cursorApiKey,
+        cwd,
+        refreshBeforeTool,
+      });
+    };
+
+    syncRunContext();
+
     return {
       async send(prompt: string) {
+        syncRunContext();
         context.messages.push({ role: "user", content: prompt, timestamp: Date.now() });
         const assistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
         context.messages.push(assistant);
@@ -39,19 +46,14 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       },
       restrictToTools(nextTools, nextExecutors) {
         savedTools = [...(context.tools ?? [])];
-        const runContext = getCursorRunContext(context);
-        savedExecutors = runContext ? { ...runContext.executors } : null;
+        savedExecutors = { ...activeExecutors };
         if (!context.tools) {
           context.tools = [...nextTools];
         } else {
           context.tools.splice(0, context.tools.length, ...nextTools);
         }
-        attachCursorRunContext(context, {
-          executors: nextExecutors,
-          apiKey: cfg.cursorApiKey,
-          cwd,
-          refreshBeforeTool,
-        });
+        activeExecutors = nextExecutors;
+        syncRunContext();
       },
       restoreTools() {
         if (!savedTools) return;
@@ -60,12 +62,8 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         } else {
           context.tools.splice(0, context.tools.length, ...savedTools);
         }
-        attachCursorRunContext(context, {
-          executors: savedExecutors ?? executors,
-          apiKey: cfg.cursorApiKey,
-          cwd,
-          refreshBeforeTool,
-        });
+        activeExecutors = savedExecutors ?? executors;
+        syncRunContext();
         savedTools = null;
         savedExecutors = null;
       },
