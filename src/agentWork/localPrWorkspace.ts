@@ -31,6 +31,11 @@ export type LocalPrWorkspace = {
   readonly changedFiles: readonly LocalPrChangedFile[];
   readonly materializedPaths: ReadonlySet<string>;
   readonly diffIndex: CachedPrDiffIndex;
+  readonly stats: {
+    readonly truncated: boolean;
+    readonly totalChanges: number;
+    readonly fileCount: number;
+  };
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
   readonly materializePath: (path: string) => Promise<"materialized" | "already" | "refused">;
@@ -111,6 +116,23 @@ async function createAskpass(rootDir: string): Promise<string> {
     { mode: 0o700 },
   );
   return askpass;
+}
+
+function parseNumstat(output: string): number {
+  let total = 0;
+  for (const line of output.split("\n")) {
+    if (!line.trim()) continue;
+    const [addedRaw, deletedRaw] = line.split("\t");
+    const added = Number(addedRaw);
+    const deleted = Number(deletedRaw);
+    if (Number.isFinite(added)) total += added;
+    if (Number.isFinite(deleted)) total += deleted;
+  }
+  return total;
+}
+
+function isTruncatedPatch(patch: string): boolean {
+  return patch.endsWith("\n...[diff truncated]");
 }
 
 function parseNameStatus(output: string): LocalPrChangedFile[] {
@@ -215,6 +237,8 @@ export async function prepareLocalPrWorkspace(
   const askpass = await createAskpass(rootDir);
   let changedFiles: LocalPrChangedFile[] = [];
   const diffIndex = createCachedPrDiffIndex();
+  let truncated = false;
+  let totalChanges = 0;
 
   const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
     execGit(args, { cwd: privateGitDir, timeoutMs, token: installationToken, askpass });
@@ -286,15 +310,26 @@ export async function prepareLocalPrWorkspace(
       `${baseSha}...${headSha}`,
     ]);
     changedFiles = parseNameStatus(nameStatus.stdout);
+    const numstat = await git(["diff", "--numstat", `${baseSha}...${headSha}`]);
+    totalChanges = parseNumstat(numstat.stdout);
+    if (changedFiles.length > cfg.localWorkspaceMaxMaterializedFiles) {
+      truncated = true;
+    }
     const filesForIndex = [];
     for (const file of changedFiles) {
       if (file.status !== "deleted") {
-        await materializePath(file.path).catch(() => "refused");
+        const materializedResult = await materializePath(file.path).catch(() => "refused" as const);
+        if (materializedResult === "refused") truncated = true;
       }
       const patch = await getDiffForPath(file.path);
-      filesForIndex.push({ filename: file.path, patch, patchOmitted: patch.length === 0 });
+      if (isTruncatedPatch(patch)) truncated = true;
+      filesForIndex.push({
+        filename: file.path,
+        patch: isTruncatedPatch(patch) ? undefined : patch,
+        patchOmitted: patch.length === 0 || isTruncatedPatch(patch),
+      });
     }
-    ingestListPullRequestFilesResult(diffIndex, { files: filesForIndex });
+    ingestListPullRequestFilesResult(diffIndex, { truncated, files: filesForIndex });
     await rm(askpass, { force: true });
     await removeSymlinks(agentCwd);
     await setReadOnly(agentCwd);
@@ -305,6 +340,11 @@ export async function prepareLocalPrWorkspace(
       changedFiles,
       materializedPaths: materialized,
       diffIndex,
+      stats: {
+        truncated,
+        totalChanges,
+        fileCount: changedFiles.length,
+      },
       getDiffForPath,
       getBlameForPath,
       materializePath,

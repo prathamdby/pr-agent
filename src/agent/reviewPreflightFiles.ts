@@ -57,8 +57,8 @@ export function buildReviewPreflightMetadataFromWorkspace(
   const files = workspace.changedFiles.map((file) => ({ filename: file.path }));
   return {
     files,
-    truncated: false,
-    fileCount: files.length,
-    totalChanges: 0,
+    truncated: workspace.stats.truncated,
+    fileCount: workspace.stats.fileCount,
+    totalChanges: workspace.stats.totalChanges,
   };
 }

@@ -5,7 +5,6 @@ import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
-import { buildReviewPreflightMetadataFromWorkspace } from "../agent/reviewPreflightFiles.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
@@ -26,11 +25,8 @@ import {
   shouldSkipWork,
 } from "./repository.js";
 import { mintInstallationToken, runDurableWorkItem } from "./durableJob.js";
-import {
-  cleanupStaleLocalPrWorkspaces,
-  prepareLocalPrWorkspace,
-  type LocalPrWorkspace,
-} from "./localPrWorkspace.js";
+import { preparePrRepositoryView } from "./prRepositoryView.js";
+import { cleanupStaleLocalPrWorkspaces } from "./localPrWorkspace.js";
 import { GITHUB_REACTION_EYES } from "../settings/index.js";
 import { renderReviewFailureNotice, renderReviewProgressComment } from "./progressComment.js";
 import {
@@ -76,17 +72,6 @@ async function getPullRequestHeadSha(
   const octokit = installationOctokit(token);
   const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
   return data.head.sha;
-}
-
-async function getPullRequestWorkspaceMetadata(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-): Promise<{ headSha: string; baseSha: string }> {
-  const octokit = installationOctokit(token);
-  const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-  return { headSha: data.head.sha, baseSha: data.base.sha };
 }
 
 async function safeReaction(
@@ -240,24 +225,16 @@ async function handleReviewJob(
       let installation = env.installation;
       const headSha = env.headSha;
 
-      const prMeta = await getPullRequestWorkspaceMetadata(
-        installation.token,
-        item.owner,
-        item.repo,
-        item.prNumber,
-      );
-      let workspace: LocalPrWorkspace | undefined;
-      workspace = await prepareLocalPrWorkspace({
+      const repositoryView = await preparePrRepositoryView({
         cfg,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,
-        baseSha: prMeta.baseSha,
         headSha,
         installationToken: installation.token,
       });
       try {
-        const preflight = buildReviewPreflightMetadataFromWorkspace(workspace);
+        const preflight = repositoryView.preflight;
         const storedInlineFingerprints = await getStoredInlineFingerprints(
           pool,
           item.resourceKey,
@@ -280,7 +257,7 @@ async function handleReviewJob(
             published: lightweightResult.published,
           });
           initReviewRunMetrics({
-            provider: cfg.piProvider,
+            provider: cfg.agentProvider,
             model: cfg.piModel,
             mode: reviewLens,
           });
@@ -306,8 +283,8 @@ async function handleReviewJob(
           userSupplement: payload.userSupplement,
           trustedContext,
           storedInlineFingerprints,
-          cwd: workspace.agentCwd,
-          workspace,
+          cwd: repositoryView.agentCwd,
+          workspace: repositoryView.workspace,
           shouldLinkToSummary,
           summaryCommentIdHint,
           initialPublishState: {
@@ -351,7 +328,7 @@ async function handleReviewJob(
         }
         return { degraded: !result.published };
       } finally {
-        await workspace.cleanup();
+        await repositoryView.cleanup();
       }
     },
     onTerminalFailure: async (item, installation) => {
@@ -429,18 +406,11 @@ async function handleAskJob(
       let installation = env.installation;
       const headSha = env.headSha;
       const payload = item.payload as AskWorkPayload;
-      const prMeta = await getPullRequestWorkspaceMetadata(
-        installation.token,
-        item.owner,
-        item.repo,
-        item.prNumber,
-      );
-      const workspace = await prepareLocalPrWorkspace({
+      const repositoryView = await preparePrRepositoryView({
         cfg,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,
-        baseSha: prMeta.baseSha,
         headSha,
         installationToken: installation.token,
       });
@@ -457,8 +427,8 @@ async function handleAskJob(
           question: payload.question,
           replyTarget: payload.replyTarget,
           codeAnchor: payload.codeAnchor,
-          cwd: workspace.agentCwd,
-          workspace,
+          cwd: repositoryView.agentCwd,
+          workspace: repositoryView.workspace,
           refreshInstallationToken: async () => {
             const fresh = await mintInstallationToken(cfg, item.installationId);
             installation = fresh;
@@ -468,7 +438,7 @@ async function handleAskJob(
         await publishAskAnswer(installation.token, item, result.answer);
         return {};
       } finally {
-        await workspace.cleanup();
+        await repositoryView.cleanup();
       }
     },
     onTerminalFailure: async (item, installation) => {

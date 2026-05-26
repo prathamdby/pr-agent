@@ -123,7 +123,7 @@ describe("runFullPrReview cursor provider", () => {
     ).rejects.toThrow(/tokenExpiresAtTs/);
   });
 
-  it("uses one complete call and security lens prompt for review-security", async () => {
+  it("uses session sends and security lens prompt for review-security", async () => {
     const result = await runFullPrReview({
       cfg: cursorCfg,
       token: "t",
@@ -136,10 +136,10 @@ describe("runFullPrReview cursor provider", () => {
       mode: "review-security",
     });
 
-    expect(vi.mocked(complete)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(complete).mock.calls.length).toBeGreaterThan(0);
     const context = vi.mocked(complete).mock.calls[0][1] as { systemPrompt: string };
     expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
-    expect(result.publishAttempts).toBe(1);
+    expect(result.publishAttempts).toBe(3);
     expect(result.published).toBe(false);
     expect(vi.mocked(buildSubmitReviewTool)).toHaveBeenCalledWith(
       expect.objectContaining({ getToken: expect.any(Function) }),
