@@ -102,6 +102,16 @@ export async function runReviewHarness(params: {
   let lastText = "";
   let publishAttempts = 0;
 
+  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> => {
+    const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
+    session.restrictToTools(submitOnly.piTools, submitOnly.executors);
+    try {
+      return (await session.send(prompt)).text;
+    } finally {
+      session.restoreTools();
+    }
+  };
+
   const runValidationRepair = async (phase: ReviewPhase) => {
     recordReviewMetric({ kind: "phase_enter", phase });
     for (
@@ -112,15 +122,13 @@ export async function runReviewHarness(params: {
       const validationError = setup.submitState.lastValidationError;
       if (!validationError) break;
       setup.submitState.lastValidationError = null;
-      lastText = (
-        await session.send(
-          [
-            validationError,
-            "Fix the payload and call submitReview again with a complete ReviewPayload.",
-            `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
-          ].join("\n\n"),
-        )
-      ).text;
+      lastText = await sendSubmitOnlyRepair(
+        [
+          validationError,
+          "Fix the payload and call submitReview again with a complete ReviewPayload.",
+          `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
+        ].join("\n\n"),
+      );
     }
   };
 
