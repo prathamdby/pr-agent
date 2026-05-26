@@ -35,7 +35,7 @@ export type DurableJobSpec = {
   readonly execute: (
     item: AgentWorkItem,
     env: DurableExecutionContext,
-  ) => Promise<{ degraded?: boolean }>;
+  ) => Promise<{ degraded?: boolean; rescheduled?: boolean }>;
   readonly onTerminalFailure?: (
     item: AgentWorkItem,
     installation: InstallationToken | undefined,
@@ -107,6 +107,14 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     logInfo("agent_work_started", { type, workItemId: item.id, resourceKey: item.resourceKey });
     const result = await execute(item, { installation, headSha });
     if (await cancelIfSkippable()) return;
+    if (result.rescheduled) {
+      if (!(await markWorkCompleted(pool, item.id))) {
+        await cancelIfSkippable();
+        return;
+      }
+      logInfo("agent_work_completed", { type, workItemId: item.id, rescheduled: true });
+      return;
+    }
     if (result.degraded) await markWorkPublishDegraded(pool, item.id);
     if (!(await markWorkCompleted(pool, item.id))) {
       await cancelIfSkippable();

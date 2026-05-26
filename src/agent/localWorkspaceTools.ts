@@ -4,6 +4,13 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
 import { assertWorkspacePath } from "../agentWork/localPrWorkspace.js";
+import {
+  assertPathAllowedForAsk,
+  createAskPathGate,
+  redactPorcelainBlame,
+  sanitizeToolResultForAsk,
+  type AskPathGate,
+} from "./askSafety.js";
 
 type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
   readonly description: string;
@@ -39,10 +46,34 @@ async function walkFiles(root: string): Promise<string[]> {
   return out;
 }
 
-export function buildLocalWorkspaceTools(workspace: LocalPrWorkspace): {
+function primePathGate(
+  workspace: LocalPrWorkspace,
+  pathGate: AskPathGate,
+  extraAllowedPaths?: readonly string[],
+): void {
+  pathGate.addPaths(workspace.changedFiles.map((file) => file.path));
+  if (extraAllowedPaths?.length) {
+    pathGate.addPaths(extraAllowedPaths);
+  }
+}
+
+function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
+  return workspace.changedFiles.find((file) => file.path === path.replace(/\\/g, "/"));
+}
+
+export function buildLocalWorkspaceTools(
+  workspace: LocalPrWorkspace,
+  opts?: {
+    readonly pathGate?: AskPathGate;
+    readonly extraAllowedPaths?: readonly string[];
+  },
+): {
   piTools: PiTool[];
   executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
+  const pathGate = opts?.pathGate ?? createAskPathGate();
+  primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
+
   const listChangedFiles: LocalTool = {
     description: "List files changed in this pull request from the local PR workspace.",
     schema: z.object({}),
@@ -61,15 +92,24 @@ export function buildLocalWorkspaceTools(workspace: LocalPrWorkspace): {
       "Read a text file from the local PR workspace. Paths are relative to the repository root.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
-      const changed = workspace.changedFiles.find((file) => file.path === path);
+      const normalized = path.replace(/\\/g, "/");
+      assertPathAllowedForAsk(normalized, pathGate);
+      const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
-        return { path, deleted: true, content: null };
+        return { path: normalized, deleted: true, content: null };
       }
-      await workspace.materializePath(path);
-      const safePath = assertWorkspacePath(workspace.agentCwd, path);
+      const materialized = await workspace.materializePath(normalized);
+      if (materialized === "refused") {
+        return {
+          path: normalized,
+          refused: true,
+          reason: "Path is outside changed files or exceeds workspace materialization limits.",
+        };
+      }
+      const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
       const info = await stat(safePath);
       const content = await readFile(safePath, "utf8");
-      return { path, size: info.size, content };
+      return { path: normalized, size: info.size, content };
     },
   };
 
@@ -106,7 +146,25 @@ export function buildLocalWorkspaceTools(workspace: LocalPrWorkspace): {
   const getWorkspaceBlame: LocalTool = {
     description: "Return best-effort local git blame for a workspace path.",
     schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => ({ path, blame: await workspace.getBlameForPath(path) }),
+    run: async ({ path }) => {
+      const normalized = path.replace(/\\/g, "/");
+      assertPathAllowedForAsk(normalized, pathGate);
+      const changed = changedFileForPath(workspace, normalized);
+      if (changed?.status === "deleted") {
+        return { path: normalized, deleted: true, blame: null };
+      }
+      const materialized = await workspace.materializePath(normalized);
+      if (materialized === "refused") {
+        return {
+          path: normalized,
+          refused: true,
+          reason: "Path is outside changed files or exceeds workspace materialization limits.",
+          blame: null,
+        };
+      }
+      const blame = redactPorcelainBlame(await workspace.getBlameForPath(normalized));
+      return sanitizeToolResultForAsk("getWorkspaceBlame", { path: normalized, blame });
+    },
   };
 
   const tools: Record<string, LocalTool> = {

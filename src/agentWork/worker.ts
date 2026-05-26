@@ -25,6 +25,7 @@ import {
   shouldSkipWork,
 } from "./repository.js";
 import { mintInstallationToken, runDurableWorkItem } from "./durableJob.js";
+import { scheduleSlashReviewReschedule } from "./reviewReschedule.js";
 import { preparePrRepositoryView } from "./prRepositoryView.js";
 import { cleanupStaleLocalPrWorkspaces } from "./localPrWorkspace.js";
 import { GITHUB_REACTION_EYES } from "../settings/index.js";
@@ -197,6 +198,7 @@ async function handleAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<
 async function handleReviewJob(
   cfg: Config,
   pool: Pool,
+  boss: PgBoss,
   job: JobWithMetadata<ReviewJobData>,
 ): Promise<void> {
   await runDurableWorkItem({
@@ -224,6 +226,7 @@ async function handleReviewJob(
         : null;
       let installation = env.installation;
       const headSha = env.headSha;
+      let staleHeadAtPublish = false;
 
       const repositoryView = await preparePrRepositoryView({
         cfg,
@@ -309,7 +312,11 @@ async function handleReviewJob(
               item.repo,
               item.prNumber,
             );
-            return latestHeadSha !== headSha;
+            if (latestHeadSha !== headSha) {
+              staleHeadAtPublish = true;
+              return true;
+            }
+            return false;
           },
           refreshInstallationToken: async () => {
             const fresh = await mintInstallationToken(cfg, item.installationId);
@@ -317,6 +324,16 @@ async function handleReviewJob(
             return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
           },
         });
+        if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
+          const latestHeadSha = await getPullRequestHeadSha(
+            installation.token,
+            item.owner,
+            item.repo,
+            item.prNumber,
+          );
+          await scheduleSlashReviewReschedule(pool, boss, item, latestHeadSha);
+          return { rescheduled: true };
+        }
         if (!result.published) {
           logWarn("review_not_published", {
             owner: item.owner,
@@ -505,7 +522,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               boss,
               REVIEW_QUEUE,
               { localConcurrency: cfg.reviewConcurrency, ...durableQueueOptions },
-              (job) => handleReviewJob(cfg, pool, job),
+              (job) => handleReviewJob(cfg, pool, boss, job),
             ),
             registerMetadataQueue<AskJobData>(
               boss,

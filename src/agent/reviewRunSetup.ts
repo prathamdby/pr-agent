@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
+import { createAskPathGate } from "./askSafety.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { buildGithubTools } from "./githubTools.js";
 import { buildLocalWorkspaceTools } from "./localWorkspaceTools.js";
@@ -30,6 +31,8 @@ export type ReviewRunSetup = {
   readonly getToken: () => string;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
 };
+
+const TOKEN_REFRESH_TOOL = "getPullRequest";
 
 export function buildReviewRunSetup(params: {
   cfg: Config;
@@ -78,27 +81,25 @@ export function buildReviewRunSetup(params: {
     inlineReviewId: params.initialPublishState?.inlineReviewId,
   });
 
-  const refreshableGh = params.workspace
-    ? {
-        bundle: buildLocalWorkspaceTools(params.workspace),
-        githubExecutorNames: new Set<string>(),
-        refreshBeforeTool: async () => undefined,
-        getToken: () => token,
+  const pathGate = createAskPathGate();
+  const refreshableGh = createRefreshableToolExecutors({
+    initialToken: token,
+    tokenExpiresAtTs,
+    refreshInstallationToken: params.refreshInstallationToken,
+    githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
+    build: (activeToken) => {
+      if (params.workspace) {
+        return buildLocalWorkspaceTools(params.workspace, { pathGate });
       }
-    : createRefreshableToolExecutors({
-        initialToken: token,
-        tokenExpiresAtTs,
-        refreshInstallationToken: params.refreshInstallationToken,
-        build: (activeToken) => {
-          const gh = buildGithubTools(activeToken, {
-            maxPrFilesListed: cfg.maxPrFilesListed,
-            maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
-          });
-          const executors = { ...gh.executors };
-          wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
-          return { piTools: gh.piTools, executors };
-        },
+      const gh = buildGithubTools(activeToken, {
+        maxPrFilesListed: cfg.maxPrFilesListed,
+        maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
       });
+      const executors = { ...gh.executors };
+      wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
+      return { piTools: gh.piTools, executors };
+    },
+  });
 
   if (params.workspace) {
     cachedDiffIndex.truncated = params.workspace.diffIndex.truncated;
@@ -140,7 +141,7 @@ export function buildReviewRunSetup(params: {
 
   const refreshBeforeTool = async (toolName: string) => {
     if (refreshableGh.githubExecutorNames.has(toolName) || toolName === "submitReview") {
-      await refreshableGh.refreshBeforeTool("getPullRequest");
+      await refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL);
       if (toolName === "submitReview") {
         submitBundle = buildSubmit();
       }
@@ -167,5 +168,20 @@ export function buildReviewRunSetup(params: {
     submitState,
     getToken: refreshableGh.getToken,
     refreshBeforeTool,
+  };
+}
+
+export function buildSubmitOnlyReviewSessionTools(setup: ReviewRunSetup): {
+  piTools: PiTool[];
+  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+} {
+  const submitTool = setup.piTools.find((tool) => tool.name === "submitReview");
+  const submitReview = setup.executors.submitReview;
+  if (!submitTool || !submitReview) {
+    return { piTools: setup.piTools, executors: setup.executors };
+  }
+  return {
+    piTools: [submitTool],
+    executors: { submitReview },
   };
 }

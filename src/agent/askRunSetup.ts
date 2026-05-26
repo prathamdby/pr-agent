@@ -8,13 +8,14 @@ import type { AskRunParams } from "./askRun.js";
 export function buildAskRunSetup(params: AskRunParams) {
   const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber } = params;
   const pathGate = createAskPathGate();
-  if (params.codeAnchor?.path) {
-    pathGate.addPaths([params.codeAnchor.path]);
+  const extraAllowedPaths = params.codeAnchor?.path ? [params.codeAnchor.path] : undefined;
+  if (extraAllowedPaths) {
+    pathGate.addPaths(extraAllowedPaths);
   }
 
   const refreshableGh = params.workspace
     ? {
-        bundle: buildLocalWorkspaceTools(params.workspace),
+        bundle: buildLocalWorkspaceTools(params.workspace, { pathGate, extraAllowedPaths }),
         refreshBeforeTool: async () => undefined,
       }
     : createRefreshableToolExecutors({

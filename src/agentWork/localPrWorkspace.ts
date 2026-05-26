@@ -207,7 +207,22 @@ async function removeWorkspace(rootDir: string): Promise<void> {
   await rm(rootDir, { recursive: true, force: true });
 }
 
+const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
+
+export async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
+  const now = Date.now();
+  for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;
+    const full = join(tmpdir(), entry.name);
+    const ageMs = now - (await stat(full)).mtimeMs;
+    if (ageMs > cfg.localWorkspaceStaleCleanupAgeSeconds * 1000) {
+      await rm(full, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+}
+
 export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> {
+  await cleanupStalePiAgentDirs(cfg);
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith(WORKSPACE_ROOT_PREFIX)) continue;
@@ -281,11 +296,40 @@ export async function prepareLocalPrWorkspace(
 
   async function getBlameForPath(path: string): Promise<string> {
     const normalized = path.replace(/\\/g, "/");
-    await materializePath(normalized);
+    const changed = changedFiles.find((file) => file.path === normalized);
+    if (changed?.status === "deleted") {
+      return "";
+    }
+    const materializedResult = await materializePath(normalized);
+    if (materializedResult === "refused") {
+      return "";
+    }
     const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
     return stdout.length > cfg.localWorkspaceMaxDiffBytes
       ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[blame truncated]`
       : stdout;
+  }
+
+  async function fetchPullHeadForMergeBase(): Promise<void> {
+    const ref = `+refs/pull/${prNumber}/head:refs/remotes/origin/pr-${prNumber}`;
+    let depth = Math.max(2, cfg.localWorkspaceMaxBlameDeepenCommits);
+    const maxDepth = 500;
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await git(["fetch", "--no-tags", `--depth=${depth}`, "origin", ref]);
+      try {
+        await git(["cat-file", "-e", `${headSha}^{commit}`]);
+        await git(["merge-base", baseSha, headSha]);
+        return;
+      } catch {
+        if (depth >= maxDepth) {
+          await git(["fetch", "--no-tags", "origin", headSha]);
+          await git(["cat-file", "-e", `${headSha}^{commit}`]);
+          await git(["merge-base", baseSha, headSha]);
+          return;
+        }
+        depth = Math.min(depth * 2, maxDepth);
+      }
+    }
   }
 
   try {
@@ -294,15 +338,7 @@ export async function prepareLocalPrWorkspace(
     await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
     await git(["remote", "add", "origin", remoteUrl]);
     await git(["fetch", "--no-tags", "--depth=1", "origin", baseSha]);
-    const prDepth = String(Math.max(2, Math.min(cfg.localWorkspaceMaxBlameDeepenCommits, 50)));
-    await git([
-      "fetch",
-      "--no-tags",
-      `--depth=${prDepth}`,
-      "origin",
-      `+refs/pull/${prNumber}/head:refs/remotes/origin/pr-${prNumber}`,
-    ]);
-    await git(["cat-file", "-e", `${headSha}^{commit}`]);
+    await fetchPullHeadForMergeBase();
     const nameStatus = await git([
       "diff",
       "--name-status",

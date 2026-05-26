@@ -65,7 +65,7 @@ export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
   );
 }
 
-function redactEmailsInJson(value: unknown): unknown {
+export function redactEmailsInJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactEmailsInJson);
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
@@ -81,9 +81,14 @@ function redactEmailsInJson(value: unknown): unknown {
   return value;
 }
 
-function sanitizeToolResultForAsk(toolName: string, result: unknown): unknown {
-  if (toolName === "getBlame") return redactEmailsInJson(result);
+export function sanitizeToolResultForAsk(toolName: string, result: unknown): unknown {
+  if (toolName === "getBlame" || toolName === "getWorkspaceBlame")
+    return redactEmailsInJson(result);
   return result;
+}
+
+export function redactPorcelainBlame(text: string): string {
+  return text.replace(/^author-mail .+$/gm, "author-mail [redacted]");
 }
 
 function injectRepoIntoSearchQuery(query: string, owner: string, repo: string): string {

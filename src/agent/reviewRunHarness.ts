@@ -26,7 +26,7 @@ import {
   recordReviewMetric,
   setReviewRunMetricFields,
 } from "./reviewRunMetrics.js";
-import { buildReviewRunSetup } from "./reviewRunSetup.js";
+import { buildReviewRunSetup, buildSubmitOnlyReviewSessionTools } from "./reviewRunSetup.js";
 
 function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
@@ -86,7 +86,7 @@ export async function runReviewHarness(params: {
 
   const setup = buildReviewRunSetup(params);
   const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
+  let session = await runner.createSession({
     cfg,
     cwd: params.cwd,
     systemPrompt: setup.systemPrompt,
@@ -162,6 +162,18 @@ export async function runReviewHarness(params: {
       repo,
       pr: prNumber,
     });
+    if (isLastAttempt) {
+      await session.dispose();
+      const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
+      session = await runner.createSession({
+        cfg,
+        cwd: params.cwd,
+        systemPrompt: setup.systemPrompt,
+        tools: submitOnly.piTools,
+        executors: submitOnly.executors,
+        refreshBeforeTool: setup.refreshBeforeTool,
+      });
+    }
     for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS && !setup.submitState.published; round++) {
       lastText = (
         await session.send(

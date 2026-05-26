@@ -9,7 +9,7 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { AgentRunnerProvider, AgentRunnerToolExecutor } from "../interface.js";
@@ -43,10 +43,12 @@ function toCodingAgentTool(
 export const piAgentRunnerProvider: AgentRunnerProvider = {
   async createSession({ cfg, cwd, systemPrompt, tools, executors }) {
     const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
-    const authStorage = AuthStorage.create(join(agentDir, "auth.json"));
+    const authPath = join(agentDir, "auth.json");
+    const authStorage = AuthStorage.create(authPath);
     for (const [provider, key] of Object.entries(cfg.modelProviderKeys)) {
       if (key.trim()) authStorage.setRuntimeApiKey(provider, key.trim());
     }
+    await chmod(authPath, 0o600).catch(() => undefined);
     const modelRegistryFactory = ModelRegistry as unknown as {
       inMemory?: typeof ModelRegistry.create;
       create: typeof ModelRegistry.create;

@@ -78,6 +78,8 @@ export type ReviewWorkPayload = {
   readonly commenterId?: number;
   /** Set when the run finished but structured publish did not succeed */
   readonly publishDegraded?: boolean;
+  /** Set on a one-time replacement run after stale head at publish time */
+  readonly staleHeadRescheduled?: boolean;
 };
 
 export type AskWorkPayload = {
