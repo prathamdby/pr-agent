@@ -7,6 +7,7 @@ export type CursorRunContext = {
   readonly apiKey: string;
   readonly cwd?: string;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  readonly maxToolRounds?: number;
 };
 
 const cursorRunContexts = new WeakMap<Context, CursorRunContext>();

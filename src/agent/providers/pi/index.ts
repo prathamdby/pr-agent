@@ -12,7 +12,11 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { AgentRunnerProvider, AgentRunnerToolExecutor } from "../interface.js";
+import type {
+  AgentRunnerProvider,
+  AgentRunnerSendOptions,
+  AgentRunnerToolExecutor,
+} from "../interface.js";
 
 function toolResultToText(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result, null, 2);
@@ -92,14 +96,21 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     });
 
     return {
-      async send(prompt: string) {
+      async send(prompt: string, opts?: AgentRunnerSendOptions) {
         const chunks: string[] = [];
+        let turnCount = 0;
         const unsubscribe = session.subscribe((event) => {
           if (
             event.type === "message_update" &&
             event.assistantMessageEvent.type === "text_delta"
           ) {
             chunks.push(event.assistantMessageEvent.delta);
+          }
+          if (opts?.maxToolRounds != null && event.type === "turn_end") {
+            turnCount += 1;
+            if (turnCount >= opts.maxToolRounds && event.toolResults.length > 0) {
+              void session.abort();
+            }
           }
         });
         try {

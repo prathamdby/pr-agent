@@ -7,8 +7,12 @@ export type AgentRunnerTurn = {
   readonly text: string;
 };
 
+export type AgentRunnerSendOptions = {
+  readonly maxToolRounds?: number;
+};
+
 export type AgentRunnerSession = {
-  readonly send: (prompt: string) => Promise<AgentRunnerTurn>;
+  readonly send: (prompt: string, opts?: AgentRunnerSendOptions) => Promise<AgentRunnerTurn>;
   readonly restrictToTools: (
     tools: readonly PiTool[],
     executors: Record<string, AgentRunnerToolExecutor>,

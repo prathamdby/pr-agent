@@ -134,7 +134,7 @@ export async function runReviewHarness(params: {
 
   const runInvestigationPhase = async () => {
     recordReviewMetric({ kind: "phase_enter", phase: "investigation" });
-    lastText = (await session.send(setup.userContent)).text;
+    lastText = (await session.send(setup.userContent, { maxToolRounds: cfg.maxToolRounds })).text;
 
     if (
       cfg.reviewInjectAnchorMenu &&

@@ -314,21 +314,30 @@ export async function prepareLocalPrWorkspace(
     const ref = `+refs/pull/${prNumber}/head:refs/remotes/origin/pr-${prNumber}`;
     let depth = Math.max(2, cfg.localWorkspaceMaxBlameDeepenCommits);
     const maxDepth = 500;
+    const verifyReachable = async (): Promise<void> => {
+      await git(["cat-file", "-e", `${headSha}^{commit}`]);
+      await git(["merge-base", baseSha, headSha]);
+    };
     for (let attempt = 0; attempt < 8; attempt++) {
       await git(["fetch", "--no-tags", `--depth=${depth}`, "origin", ref]);
       try {
-        await git(["cat-file", "-e", `${headSha}^{commit}`]);
-        await git(["merge-base", baseSha, headSha]);
+        await verifyReachable();
         return;
       } catch {
-        if (depth >= maxDepth) {
-          await git(["fetch", "--no-tags", "origin", headSha]);
-          await git(["cat-file", "-e", `${headSha}^{commit}`]);
-          await git(["merge-base", baseSha, headSha]);
-          return;
-        }
+        if (depth >= maxDepth) break;
         depth = Math.min(depth * 2, maxDepth);
       }
+    }
+    try {
+      await git(["fetch", "--no-tags", "origin", headSha]);
+      await verifyReachable();
+      return;
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e);
+      throw new Error(
+        `Unable to fetch pull request head ${headSha} with merge-base against ${baseSha}: ${detail}`,
+        { cause: e },
+      );
     }
   }
 
@@ -348,6 +357,10 @@ export async function prepareLocalPrWorkspace(
     changedFiles = parseNameStatus(nameStatus.stdout);
     const numstat = await git(["diff", "--numstat", `${baseSha}...${headSha}`]);
     totalChanges = parseNumstat(numstat.stdout);
+    if (changedFiles.length > cfg.maxPrFilesListed) {
+      truncated = true;
+      changedFiles = changedFiles.slice(0, cfg.maxPrFilesListed);
+    }
     if (changedFiles.length > cfg.localWorkspaceMaxMaterializedFiles) {
       truncated = true;
     }

@@ -1,6 +1,10 @@
 import { complete } from "@earendil-works/pi-ai";
 import type { Context, Tool as PiTool } from "@earendil-works/pi-ai";
-import type { AgentRunnerProvider, AgentRunnerToolExecutor } from "../interface.js";
+import type {
+  AgentRunnerProvider,
+  AgentRunnerSendOptions,
+  AgentRunnerToolExecutor,
+} from "../interface.js";
 import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel } from "./models.js";
 
@@ -24,21 +28,24 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     const model = getCursorModel(cfg.piModel);
     let savedTools: PiTool[] | null = null;
     let savedExecutors: Record<string, AgentRunnerToolExecutor> | null = null;
+    let activeMaxToolRounds: number | undefined;
 
-    const syncRunContext = () => {
+    const syncRunContext = (maxToolRounds?: number) => {
+      activeMaxToolRounds = maxToolRounds;
       attachCursorRunContext(context, {
         executors: activeExecutors,
         apiKey: cfg.cursorApiKey,
         cwd,
         refreshBeforeTool,
+        maxToolRounds,
       });
     };
 
     syncRunContext();
 
     return {
-      async send(prompt: string) {
-        syncRunContext();
+      async send(prompt: string, opts?: AgentRunnerSendOptions) {
+        syncRunContext(opts?.maxToolRounds ?? activeMaxToolRounds);
         context.messages.push({ role: "user", content: prompt, timestamp: Date.now() });
         const assistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
         context.messages.push(assistant);
