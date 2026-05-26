@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
-import { createSlashReviewRescheduleWorkItem } from "../src/agentWork/reviewReschedule.js";
+import type { PgBoss } from "pg-boss";
+import {
+  createSlashReviewRescheduleWorkItem,
+  enqueueSlashReviewReschedule,
+} from "../src/agentWork/reviewReschedule.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -91,5 +95,53 @@ describe("createSlashReviewRescheduleWorkItem", () => {
 
     expect(replacementId).toBe("winner-replacement");
     expect(getWorkItem).toHaveBeenCalledWith(pool, "parent-wi");
+  });
+});
+
+describe("enqueueSlashReviewReschedule", () => {
+  it("skips boss.send when parent already has enqueue marker", async () => {
+    const query = vi.fn();
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn();
+    const findJobs = vi.fn();
+    const boss = { send, findJobs } as unknown as PgBoss;
+
+    await enqueueSlashReviewReschedule(
+      pool,
+      boss,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementEnqueued: true,
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+      "replacement-wi",
+      "newhead",
+    );
+
+    expect(send).not.toHaveBeenCalled();
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it("claims enqueue marker before boss.send and releases it on failure", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValue(null);
+    const findJobs = vi.fn().mockResolvedValue([]);
+    const cancel = vi.fn();
+    const boss = { send, findJobs, cancel } as unknown as PgBoss;
+
+    await expect(
+      enqueueSlashReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
+    ).rejects.toThrow(/did not enqueue replacement review ack job/);
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(String(query.mock.calls[0]?.[0])).toContain("staleHeadReplacementEnqueued");
+    expect(String(query.mock.calls[1]?.[0])).toContain("payload - 'staleHeadReplacementEnqueued'");
   });
 });

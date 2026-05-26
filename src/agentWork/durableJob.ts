@@ -8,6 +8,7 @@ import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import {
   claimWorkForExecution,
+  forceMarkRescheduledParentCompleted,
   getWorkItem,
   markWorkCancelled,
   markWorkCompleted,
@@ -17,7 +18,7 @@ import {
   shouldSkipWork,
   updateRunningWorkHeadSha,
 } from "./repository.js";
-import type { AgentWorkItem } from "./types.js";
+import type { AgentWorkItem, ReviewWorkPayload } from "./types.js";
 
 export type InstallationToken = { token: string; expiresAtTs: number; ttlMs: number };
 
@@ -71,6 +72,35 @@ async function isBotCommenter(cfg: Config, token: string, commenterId?: number):
 
 function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
   return job.retryCount >= job.retryLimit;
+}
+
+async function finishRescheduledParentWorkItem(
+  pool: Pool,
+  itemId: string,
+  type: "review" | "ask",
+): Promise<void> {
+  if (await markWorkCompleted(pool, itemId)) {
+    logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+    return;
+  }
+  const refreshed = await getWorkItem(pool, itemId);
+  if (refreshed?.status === "completed") {
+    logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+    return;
+  }
+  const payload = refreshed?.payload as ReviewWorkPayload | undefined;
+  if (payload?.staleHeadReplacementWorkItemId) {
+    if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
+      logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+      return;
+    }
+    throw new Error(
+      `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
+    );
+  }
+  if (await shouldSkipWork(pool, refreshed ?? ({ id: itemId } as AgentWorkItem))) {
+    await markWorkCancelled(pool, itemId);
+  }
 }
 
 /**
@@ -128,11 +158,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
         }
         throw e;
       }
-      if (!(await markWorkCompleted(pool, item.id))) {
-        await cancelIfSkippable();
-        return;
-      }
-      logInfo("agent_work_completed", { type, workItemId: item.id, rescheduled: true });
+      await finishRescheduledParentWorkItem(pool, item.id, type);
       return;
     }
     if (result.degraded) await markWorkPublishDegraded(pool, item.id);

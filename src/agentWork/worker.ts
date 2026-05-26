@@ -20,6 +20,7 @@ import {
   getReviewPublishState,
   getStoredInlineFingerprints,
   getSummaryCommentGithubId,
+  getWorkItem,
   hasPriorCompletedSummaryPublish,
   recordPublishStep,
   shouldSkipWork,
@@ -218,6 +219,36 @@ async function handleReviewJob(
     execute: async (item, env) => {
       const reviewLens = item.reviewLens!;
       const payload = item.payload as ReviewWorkPayload;
+      if (
+        payload.source === "slash" &&
+        !payload.staleHeadRescheduled &&
+        payload.staleHeadReplacementWorkItemId
+      ) {
+        const replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
+        const replacement = await getWorkItem(pool, replacementWorkItemId);
+        const latestHeadSha =
+          replacement?.headSha ??
+          (await getPullRequestHeadSha(
+            env.installation.token,
+            item.owner,
+            item.repo,
+            item.prNumber,
+          ));
+        return {
+          rescheduled: true,
+          replacementWorkItemId,
+          afterComplete: async (activeBoss, activePgBossJobId) => {
+            await enqueueSlashReviewReschedule(
+              pool,
+              activeBoss,
+              item,
+              replacementWorkItemId,
+              latestHeadSha,
+              activePgBossJobId,
+            );
+          },
+        };
+      }
       const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, reviewLens);
       const shouldLinkToSummary = await hasPriorCompletedSummaryPublish(
         pool,
@@ -350,6 +381,7 @@ async function handleReviewJob(
             replacementWorkItemId,
             afterComplete: async (activeBoss, activePgBossJobId) => {
               await enqueueSlashReviewReschedule(
+                pool,
                 activeBoss,
                 item,
                 replacementWorkItemId,

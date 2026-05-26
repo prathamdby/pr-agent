@@ -82,6 +82,8 @@ export type ReviewWorkPayload = {
   readonly staleHeadRescheduled?: boolean;
   /** Replacement work item id persisted on the parent before enqueue (idempotent reschedule) */
   readonly staleHeadReplacementWorkItemId?: string;
+  /** Set on the parent after replacement ack/review jobs are enqueued */
+  readonly staleHeadReplacementEnqueued?: boolean;
 };
 
 export type AskWorkPayload = {

@@ -109,6 +109,25 @@ export async function markWorkCompleted(pool: Pool, id: string): Promise<boolean
   return (result.rowCount ?? 0) > 0;
 }
 
+/** Complete a parent work item that already persisted a stale-head replacement marker. */
+export async function forceMarkRescheduledParentCompleted(
+  pool: Pool,
+  id: string,
+): Promise<boolean> {
+  const result = await pool.query(
+    `UPDATE agent_work_items
+		    SET status = 'completed',
+		        completed_at = COALESCE(completed_at, now()),
+		        updated_at = now()
+		  WHERE id = $1
+		    AND cancel_requested_at IS NULL
+		    AND (payload->>'staleHeadReplacementWorkItemId') IS NOT NULL
+		    AND status IN ('running', 'queued')`,
+    [id],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function updateRunningWorkHeadSha(
   pool: Pool,
   id: string,
