@@ -2,6 +2,7 @@ import { getModel } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   createAgentSession,
+  createExtensionRuntime,
   defineTool,
   DefaultResourceLoader,
   ModelRegistry,
@@ -75,6 +76,11 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       skillsOverride: () => ({ skills: [], diagnostics: [] }),
       agentsFilesOverride: () => ({ agentsFiles: [] }),
       promptsOverride: () => ({ prompts: [], diagnostics: [] }),
+      extensionsOverride: () => ({
+        extensions: [],
+        errors: [],
+        runtime: createExtensionRuntime(),
+      }),
     });
     await resourceLoader.reload();
     const model = getModel(cfg.piProvider, cfg.piModel as never);
@@ -90,7 +96,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       resourceLoader,
       settingsManager,
       sessionManager: SessionManager.inMemory(cwd ?? process.cwd()),
-      tools: [],
+      noTools: "builtin",
       customTools: tools.map((tool) =>
         toCodingAgentTool(tool, executors[tool.name], refreshBeforeTool),
       ),
