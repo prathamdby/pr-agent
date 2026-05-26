@@ -50,6 +50,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly baseSha: string;
   readonly headSha: string;
   readonly installationToken: string;
+  readonly baseRef?: string;
   readonly remoteUrlOverride?: string;
 };
 
@@ -237,7 +238,7 @@ export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> 
 export async function prepareLocalPrWorkspace(
   params: PrepareLocalPrWorkspaceParams,
 ): Promise<LocalPrWorkspace> {
-  const { cfg, owner, repo, prNumber, baseSha, headSha, installationToken } = params;
+  const { cfg, owner, repo, prNumber, baseSha, headSha, installationToken, baseRef } = params;
   assertRepoPart(owner, "owner");
   assertRepoPart(repo, "repo");
   assertSha(baseSha, "baseSha");
@@ -346,7 +347,15 @@ export async function prepareLocalPrWorkspace(
     await mkdir(agentCwd, { recursive: true });
     await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
     await git(["remote", "add", "origin", remoteUrl]);
-    await git(["fetch", "--no-tags", "--depth=1", "origin", baseSha]);
+    if (baseRef) {
+      try {
+        await git(["fetch", "--no-tags", "origin", baseRef]);
+      } catch {
+        await git(["fetch", "--no-tags", "--depth=1", "origin", baseSha]);
+      }
+    } else {
+      await git(["fetch", "--no-tags", "--depth=1", "origin", baseSha]);
+    }
     await fetchPullHeadForMergeBase();
     const nameStatus = await git([
       "diff",

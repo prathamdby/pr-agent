@@ -22,21 +22,21 @@ export type PreparePrRepositoryViewParams = {
   readonly installationToken: string;
 };
 
-async function fetchPullRequestShas(
+async function fetchPullRequestInfo(
   token: string,
   owner: string,
   repo: string,
   prNumber: number,
-): Promise<{ baseSha: string; headSha: string }> {
+): Promise<{ baseSha: string; headSha: string; baseRef: string }> {
   const octokit = installationOctokit(token);
   const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-  return { baseSha: data.base.sha, headSha: data.head.sha };
+  return { baseSha: data.base.sha, headSha: data.head.sha, baseRef: data.base.ref };
 }
 
 export async function preparePrRepositoryView(
   params: PreparePrRepositoryViewParams,
 ): Promise<PrRepositoryView> {
-  const shas = await fetchPullRequestShas(
+  const info = await fetchPullRequestInfo(
     params.installationToken,
     params.owner,
     params.repo,
@@ -47,9 +47,10 @@ export async function preparePrRepositoryView(
     owner: params.owner,
     repo: params.repo,
     prNumber: params.prNumber,
-    baseSha: shas.baseSha,
+    baseSha: info.baseSha,
     headSha: params.headSha,
     installationToken: params.installationToken,
+    baseRef: info.baseRef,
   });
   return {
     workspace,

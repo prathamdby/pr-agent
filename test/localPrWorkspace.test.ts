@@ -62,6 +62,7 @@ describe("local PR workspace", () => {
         repo: "repo",
         prNumber: 1,
         baseSha,
+        baseRef: "base",
         headSha,
         installationToken: "unused",
         remoteUrlOverride: remote,
