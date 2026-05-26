@@ -98,6 +98,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
 
     return {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
+        sessionToolTurnCount = 0;
         const chunks: string[] = [];
         const unsubscribe = session.subscribe((event) => {
           if (

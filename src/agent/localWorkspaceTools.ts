@@ -140,7 +140,11 @@ export function buildLocalWorkspaceTools(
   const getWorkspaceDiff: LocalTool = {
     description: "Return the local git diff for a changed path.",
     schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => ({ path, diff: await workspace.getDiffForPath(path) }),
+    run: async ({ path }) => {
+      const normalized = path.replace(/\\/g, "/");
+      assertPathAllowedForAsk(normalized, pathGate);
+      return { path: normalized, diff: await workspace.getDiffForPath(normalized) };
+    },
   };
 
   const getWorkspaceBlame: LocalTool = {
