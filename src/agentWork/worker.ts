@@ -347,12 +347,14 @@ async function handleReviewJob(
           );
           return {
             rescheduled: true,
-            afterComplete: async (activeBoss) => {
+            replacementWorkItemId,
+            afterComplete: async (activeBoss, activePgBossJobId) => {
               await enqueueSlashReviewReschedule(
                 activeBoss,
                 item,
                 replacementWorkItemId,
                 latestHeadSha,
+                activePgBossJobId,
               );
             },
           };

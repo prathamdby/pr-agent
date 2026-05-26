@@ -18,10 +18,12 @@ export async function releaseReviewSingletonSlot(
   boss: PgBoss,
   resourceKey: string,
   lens: ReviewMode,
+  opts?: { skipJobId?: string },
 ): Promise<void> {
   const key = reviewSingletonKey(resourceKey, lens);
   const jobs = await boss.findJobs(REVIEW_QUEUE, { key });
   for (const job of jobs) {
+    if (opts?.skipJobId && job.id === opts.skipJobId) continue;
     const state = job.state as string;
     if (state === "cancelled" || state === "completed" || state === "failed") continue;
     await boss.cancel(REVIEW_QUEUE, job.id);
@@ -69,11 +71,14 @@ export async function enqueueSlashReviewReschedule(
   item: AgentWorkItem,
   workItemId: string,
   latestHeadSha: string,
+  activePgBossJobId?: string,
 ): Promise<void> {
   const reviewLens = item.reviewLens!;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
 
-  await releaseReviewSingletonSlot(boss, item.resourceKey, reviewLens);
+  await releaseReviewSingletonSlot(boss, item.resourceKey, reviewLens, {
+    skipJobId: activePgBossJobId,
+  });
 
   const ackData: AckJobData = {
     kind: "ack",

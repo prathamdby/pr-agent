@@ -29,7 +29,8 @@ export type DurableExecutionContext = {
 export type DurableExecutionResult = {
   readonly degraded?: boolean;
   readonly rescheduled?: boolean;
-  readonly afterComplete?: (boss: PgBoss) => Promise<void>;
+  readonly replacementWorkItemId?: string;
+  readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
 };
 
 export type DurableJobSpec = {
@@ -117,12 +118,19 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     const result = await execute(item, { installation, headSha });
     if (await cancelIfSkippable()) return;
     if (result.rescheduled) {
+      try {
+        if (result.afterComplete) {
+          await result.afterComplete(boss, job.id);
+        }
+      } catch (e) {
+        if (result.replacementWorkItemId) {
+          await markWorkFailed(pool, result.replacementWorkItemId, e);
+        }
+        throw e;
+      }
       if (!(await markWorkCompleted(pool, item.id))) {
         await cancelIfSkippable();
         return;
-      }
-      if (result.afterComplete) {
-        await result.afterComplete(boss);
       }
       logInfo("agent_work_completed", { type, workItemId: item.id, rescheduled: true });
       return;
