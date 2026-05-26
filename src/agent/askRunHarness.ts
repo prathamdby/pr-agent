@@ -27,14 +27,15 @@ export async function runAskHarness(params: AskRunParams): Promise<AskRunResult>
   });
 
   try {
-    let lastText = (await session.send(buildAskUserContent(params))).text.trim();
+    const sendOpts = { maxToolRounds: cfg.maxAskToolRounds };
+    let lastText = (await session.send(buildAskUserContent(params), sendOpts)).text.trim();
 
     if (!lastText) {
-      lastText = (await session.send(ASK_RETRY_NUDGE)).text.trim();
+      lastText = (await session.send(ASK_RETRY_NUDGE, sendOpts)).text.trim();
     }
 
     for (let round = 0; round < ASK_RETRY_ROUNDS && !lastText; round++) {
-      lastText = (await session.send(ASK_RETRY_NUDGE)).text.trim();
+      lastText = (await session.send(ASK_RETRY_NUDGE, sendOpts)).text.trim();
     }
 
     if (!lastText) {

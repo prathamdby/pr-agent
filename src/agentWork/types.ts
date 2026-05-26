@@ -80,6 +80,8 @@ export type ReviewWorkPayload = {
   readonly publishDegraded?: boolean;
   /** Set on a one-time replacement run after stale head at publish time */
   readonly staleHeadRescheduled?: boolean;
+  /** Replacement work item id persisted on the parent before enqueue (idempotent reschedule) */
+  readonly staleHeadReplacementWorkItemId?: string;
 };
 
 export type AskWorkPayload = {

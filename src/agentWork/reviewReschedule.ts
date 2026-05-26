@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { ReviewMode } from "../agent/reviewSchema.js";
 import { logInfo } from "../evlog.js";
+import { getWorkItem } from "./repository.js";
 import {
   ACK_QUEUE,
   REVIEW_QUEUE,
@@ -37,10 +38,36 @@ export async function createSlashReviewRescheduleWorkItem(
 ): Promise<string> {
   const payload = item.payload as ReviewWorkPayload;
   const reviewLens = item.reviewLens!;
-  const workItemId = crypto.randomUUID();
+  let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
+
+  if (!replacementWorkItemId) {
+    replacementWorkItemId = crypto.randomUUID();
+    const marker = JSON.stringify({ staleHeadReplacementWorkItemId: replacementWorkItemId });
+    const updateResult = await pool.query<{ replacement_id: string }>(
+      `UPDATE agent_work_items
+         SET payload = payload || $2::jsonb,
+             updated_at = now()
+       WHERE id = $1
+         AND (payload->>'staleHeadReplacementWorkItemId') IS NULL
+       RETURNING payload->>'staleHeadReplacementWorkItemId' AS replacement_id`,
+      [item.id, marker],
+    );
+    if ((updateResult.rowCount ?? 0) === 0) {
+      const refreshed = await getWorkItem(pool, item.id);
+      replacementWorkItemId = (refreshed?.payload as ReviewWorkPayload)
+        ?.staleHeadReplacementWorkItemId;
+      if (!replacementWorkItemId) {
+        throw new Error(`Failed to persist stale-head replacement marker for work item ${item.id}`);
+      }
+    } else {
+      replacementWorkItemId = updateResult.rows[0].replacement_id;
+    }
+  }
+
   const nextPayload: ReviewWorkPayload = {
     ...payload,
     staleHeadRescheduled: true,
+    staleHeadReplacementWorkItemId: replacementWorkItemId,
   };
 
   await pool.query(
@@ -48,9 +75,10 @@ export async function createSlashReviewRescheduleWorkItem(
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
        head_sha, review_lens, resource_key, priority, payload
      )
-     VALUES ($1, $2, 'review', 'slash', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)`,
+     VALUES ($1, $2, 'review', 'slash', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
+     ON CONFLICT (id) DO NOTHING`,
     [
-      workItemId,
+      replacementWorkItemId,
       item.webhookEventId,
       item.owner,
       item.repo,
@@ -63,7 +91,7 @@ export async function createSlashReviewRescheduleWorkItem(
     ],
   );
 
-  return workItemId;
+  return replacementWorkItemId;
 }
 
 export async function enqueueSlashReviewReschedule(

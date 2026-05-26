@@ -14,7 +14,7 @@ export const githubToolingDiscipline = [
   "## Local workspace tooling discipline",
   "- Call `listChangedFiles` first and prefer `getWorkspaceDiff` before `readWorkspaceFile`.",
   "- Anchor findings to lines present in `commentableRightLineRanges`; if unsure, the server will keep the finding in the summary only.",
-  "- Call `searchCode` and `getBlame` only when a finding genuinely depends on them (Search API ~30 req/min; GraphQL points are separate).",
+  "- Call `searchWorkspace` and `getWorkspaceBlame` only when a finding genuinely depends on them.",
   "- If a local tool refuses content because of path, size, or workspace limits, call submitReview with your current analysis.",
 ].join("\n");
 
