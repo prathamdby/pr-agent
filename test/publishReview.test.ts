@@ -75,7 +75,6 @@ const baseParams = {
   prNumber: 1,
   headSha: "sha",
   cfg: {
-    maxReviewFindings: 8,
     enableReviewLabelsEffort: false,
     enableReviewLabelsSecurity: false,
   },
@@ -159,7 +158,7 @@ describe("publishReview", () => {
     expect(meta?.fingerprints).toEqual([stored]);
   });
 
-  it("bases review event on full findings not inline subset", async () => {
+  it("bases review event on full findings list", async () => {
     const spy = vi.spyOn(reviewSchema, "reviewEventForFindings");
     const findings: ReviewPayload["findings"] = [
       {
@@ -176,7 +175,7 @@ describe("publishReview", () => {
         file: "b.ts",
         startLine: 2,
         endLine: 2,
-        title: "P1 hidden from inline cap",
+        title: "P1 also inline",
         detail: "d",
         fixPrompt: "fix",
       },
@@ -189,11 +188,6 @@ describe("publishReview", () => {
         { file: "a.ts", lines: [1] },
         { file: "b.ts", lines: [2] },
       ]),
-      cfg: {
-        maxReviewFindings: 1,
-        enableReviewLabelsEffort: false,
-        enableReviewLabelsSecurity: false,
-      },
       payload: { ...payload, findings },
     });
 
@@ -203,7 +197,13 @@ describe("publishReview", () => {
       "o",
       "r",
       1,
-      expect.objectContaining({ event: "REQUEST_CHANGES" }),
+      expect.objectContaining({
+        event: "REQUEST_CHANGES",
+        comments: expect.arrayContaining([
+          expect.objectContaining({ path: "a.ts" }),
+          expect.objectContaining({ path: "b.ts" }),
+        ]),
+      }),
     );
     spy.mockRestore();
   });
@@ -352,7 +352,6 @@ describe("publishReview", () => {
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
-        maxReviewFindings: 8,
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
       },
@@ -371,7 +370,6 @@ describe("publishReview", () => {
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
-        maxReviewFindings: 8,
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: true,
       },
@@ -388,7 +386,6 @@ describe("publishReview", () => {
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
-        maxReviewFindings: 8,
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
       },
@@ -517,7 +514,6 @@ describe("publishReview", () => {
         ...baseParams,
         publishState: testPublishState(),
         cfg: {
-          maxReviewFindings: 8,
           enableReviewLabelsEffort: true,
           enableReviewLabelsSecurity: false,
         },

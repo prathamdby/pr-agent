@@ -67,7 +67,6 @@ const cursorCfg = {
   maxAskFinalizeRounds: 2,
   webhookTimeoutMs: 10_000,
   logLevel: "error",
-  maxReviewFindings: 8,
   enableReviewLabelsEffort: false,
   enableReviewLabelsSecurity: false,
   maxPrFilesListed: 300,

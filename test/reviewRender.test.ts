@@ -11,9 +11,16 @@ import {
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
   renderReviewSummaryComment,
+  fitReviewSummaryBody,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/agent/reviewRender.js";
-import { REVIEW_FINDINGS_NONE, REVIEW_FINDING_FOOTNOTE_INLINE } from "../src/settings/index.js";
+import {
+  REVIEW_FINDING_FOOTNOTE_INLINE,
+  REVIEW_FINDINGS_NONE,
+  REVIEW_SUMMARY_BODY_MAX_CHARS,
+  REVIEW_SUMMARY_COMPACTION_NOTE,
+  REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
+} from "../src/settings/index.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
@@ -32,7 +39,6 @@ const ctx = {
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
-  maxFindings: 8,
   summarySentinel: REVIEW_SUMMARY_SENTINEL,
 };
 
@@ -315,6 +321,56 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Uses submitReview internally.");
     expect(body).not.toContain("[redacted internal details]");
   });
+
+  it("compacts oversized summaries while keeping every finding title visible", () => {
+    const findings = Array.from({ length: 12 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "x".repeat(5000),
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacementsFromPayload(payload, false),
+    });
+
+    expect(body.length).toBeLessThanOrEqual(REVIEW_SUMMARY_BODY_MAX_CHARS);
+    for (const finding of findings) {
+      expect(body).toContain(finding.title);
+    }
+    expect(body).toContain(REVIEW_SUMMARY_COMPACTION_NOTE);
+  });
+
+  it("drops finding rows from the tail when compact mode still exceeds the body budget", () => {
+    const findings = Array.from({ length: 12 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "x".repeat(5000),
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const body = fitReviewSummaryBody(
+      payload,
+      {
+        ...ctx,
+        placements: testPlacementsFromPayload(payload, false),
+      },
+      2_500,
+    );
+
+    expect(body.length).toBeLessThanOrEqual(2_500);
+    expect(body).toContain(REVIEW_SUMMARY_COMPACTION_NOTE);
+    expect(body).toContain(REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX);
+    expect(body).toContain("Bug 0");
+    expect(body).not.toContain("Bug 9");
+  });
 });
 
 const inlineCtx = {
@@ -322,7 +378,6 @@ const inlineCtx = {
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
-  maxFindings: 8,
 };
 
 describe("renderInlineThreadBody", () => {
@@ -403,7 +458,6 @@ describe("renderAgentFixPrompt", () => {
     repo: "widgets",
     prNumber: 42,
     headSha: "abc123def456",
-    maxFindings: 8,
   };
 
   it("includes PR metadata, fixPrompt verbatim, P3 tagging, and severity-first order", () => {
@@ -442,7 +496,6 @@ describe("renderAgentFixPrompt", () => {
       renderCtx,
       planInlineFromPayload(
         payload,
-        renderCtx.maxFindings,
         cachedDiffForFiles([
           { file: "src/a.ts", lines: [5, 6, 7] },
           { file: "src/b.ts", lines: [20, 21, 22] },
@@ -464,7 +517,7 @@ describe("renderAgentFixPrompt", () => {
     expect(prompt).toContain("minor typo");
   });
 
-  it("tags inline-omitted P0–P2 findings when severity cap truncates threads", () => {
+  it("tags unanchored P0–P2 findings as summary-only in agent fix prompt", () => {
     const payload = basePayload({
       findings: [
         {
@@ -472,30 +525,31 @@ describe("renderAgentFixPrompt", () => {
           file: "b.ts",
           startLine: 2,
           endLine: 2,
-          title: "Hidden from inline",
+          title: "Anchored inline",
           detail: "d",
           fixPrompt: "Fix b.ts line 2.",
         },
         {
           severity: "P2",
           file: "a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Shown inline",
+          startLine: 99,
+          endLine: 99,
+          title: "Off diff",
           detail: "d",
-          fixPrompt: "Fix a.ts line 1.",
+          fixPrompt: "Fix a.ts line 99.",
         },
       ],
     });
+    const diffIndex = cachedDiffForFiles([{ file: "b.ts", lines: [2] }]);
     const prompt = renderAgentFixPrompt(
       payload,
-      { ...renderCtx, maxFindings: 1 },
-      planInlineFromPayload(payload, 1),
+      renderCtx,
+      planInlineFromPayload(payload, diffIndex),
     );
 
     expect(prompt.indexOf("[P1]")).toBeLessThan(prompt.indexOf("[P2]"));
-    expect(prompt).toContain("[inline thread omitted — severity cap]");
-    expect(prompt.match(/\[inline thread omitted — severity cap\]/g)).toHaveLength(1);
+    expect(prompt).toContain("[inline thread omitted — summary only]");
+    expect(prompt).not.toContain("[inline thread omitted — severity cap]");
   });
 
   it("uses singular line range for single-line findings", () => {
@@ -512,11 +566,7 @@ describe("renderAgentFixPrompt", () => {
         },
       ],
     });
-    const prompt = renderAgentFixPrompt(
-      payload,
-      renderCtx,
-      planInlineFromPayload(payload, renderCtx.maxFindings),
-    );
+    const prompt = renderAgentFixPrompt(payload, renderCtx, planInlineFromPayload(payload));
 
     expect(prompt).toContain("@src/single.ts line 9");
     expect(prompt).not.toContain("lines 9-9");
@@ -536,11 +586,7 @@ describe("renderAgentFixPrompt", () => {
         },
       ],
     });
-    const prompt = renderAgentFixPrompt(
-      payload,
-      renderCtx,
-      planInlineFromPayload(payload, renderCtx.maxFindings),
-    );
+    const prompt = renderAgentFixPrompt(payload, renderCtx, planInlineFromPayload(payload));
 
     expect(prompt).toContain("[inline thread omitted — summary only]");
     expect(prompt).not.toContain("[inline thread omitted — severity cap]");
@@ -553,7 +599,6 @@ describe("renderReviewPointerBody", () => {
     repo: "widgets",
     prNumber: 42,
     headSha: "abc123def456",
-    maxFindings: 8,
   };
 
   it("renders fix prompt text mentioning submitReview without redaction", () => {
@@ -584,7 +629,6 @@ describe("renderReviewPointerBody", () => {
       mode: "review",
       placements: planInlineFromPayload(
         payload,
-        renderCtx.maxFindings,
         cachedDiffForFiles([
           { file: "src/x.ts", lines: [4] },
           { file: "src/y.ts", lines: [2] },
@@ -616,11 +660,7 @@ describe("renderReviewPointerBody", () => {
     const { body, truncated } = renderReviewPointerBody(payload, {
       ...renderCtx,
       mode: "review",
-      placements: planInlineFromPayload(
-        payload,
-        renderCtx.maxFindings,
-        cachedDiffForLines("src/x.ts", [4]),
-      ),
+      placements: planInlineFromPayload(payload, cachedDiffForLines("src/x.ts", [4])),
     });
 
     expect(truncated).toBe(false);
@@ -649,7 +689,7 @@ describe("renderReviewPointerBody", () => {
     const { body } = renderReviewPointerBody(payload, {
       ...renderCtx,
       mode: "review-security",
-      placements: planInlineFromPayload(payload, renderCtx.maxFindings),
+      placements: planInlineFromPayload(payload),
     });
 
     expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
@@ -674,7 +714,7 @@ describe("renderReviewPointerBody", () => {
       ...renderCtx,
       mode: "review",
       summaryCommentUrl: "https://github.com/acme/widgets/pull/42#issuecomment-123",
-      placements: planInlineFromPayload(payload, renderCtx.maxFindings),
+      placements: planInlineFromPayload(payload),
     });
 
     expect(body).toContain(
@@ -700,7 +740,7 @@ describe("renderReviewPointerBody", () => {
     const { body, truncated } = renderReviewPointerBody(payload, {
       ...renderCtx,
       mode: "review",
-      placements: planInlineFromPayload(payload, renderCtx.maxFindings),
+      placements: planInlineFromPayload(payload),
     });
 
     expect(truncated).toBe(true);

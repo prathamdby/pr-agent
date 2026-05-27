@@ -53,7 +53,7 @@ export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget): string {
   }
   if (budget.tier === "large") {
     lines.push(
-      "- Large PR: prioritize high-risk paths and P0-P2 findings with clear trigger paths.",
+      "- Large PR: prioritize investigation order (auth, migrations, security first), but report every evidenced P0–P2 found across the full diff.",
     );
   }
   return lines.join("\n");

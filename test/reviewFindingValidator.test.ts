@@ -349,7 +349,7 @@ describe("validateReviewPayload", () => {
     }
   });
 
-  it("accepts cap-excluded P1 findings without validating anchors", () => {
+  it("rejects cap-eligible P1 findings with invalid anchors", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {
       files: [
@@ -376,15 +376,14 @@ describe("validateReviewPayload", () => {
               file: "b.ts",
               startLine: 99,
               endLine: 99,
-              title: "Over cap, bad anchor",
+              title: "Bad anchor",
               detail: "d",
               fixPrompt: "fix",
             },
           ],
         }),
         cachedDiffIndex: index,
-        maxInlineFindings: 1,
       }).ok,
-    ).toBe(true);
+    ).toBe(false);
   });
 });

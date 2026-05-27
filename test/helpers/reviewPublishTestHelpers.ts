@@ -19,7 +19,6 @@ export async function publishReviewForTest(
     payload: params.payload,
     mode,
     cachedDiffIndex: params.cachedDiffIndex,
-    maxInlineFindings: params.cfg.maxReviewFindings,
   });
   if (!prepared.ok) {
     throw new Error(prepared.error);
@@ -46,16 +45,14 @@ export function testPlacements(
     finding,
     inlineLine: inlinePosted ? (opts.inlineLine ?? finding.startLine) : null,
     inlinePosted,
-    inlineCapEligible: inlinePosted,
   }));
 }
 
 export function planInlineFromPayload(
   payload: ReviewPayload,
-  maxFindings = 8,
   diffIndex?: CachedPrDiffIndex,
 ): InlinePlacement[] {
-  return planInlinePlacements(payload.findings, maxFindings, diffIndex);
+  return planInlinePlacements(payload.findings, diffIndex);
 }
 
 export function testPlacementsFromPayload(

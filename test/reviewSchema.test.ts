@@ -69,14 +69,44 @@ describe("selectInlineFindings", () => {
     fixPrompt: severity === "P3" ? undefined : "fix",
   });
 
-  it("truncates by severity order", () => {
-    const selected = selectInlineFindings([f("P2", "p2"), f("P0", "p0"), f("P1", "p1")], 2);
-    expect(selected.map((x) => x.title)).toEqual(["p0", "p1"]);
+  it("returns all P0-P2 inline findings sorted by severity", () => {
+    const selected = selectInlineFindings([f("P2", "p2"), f("P0", "p0"), f("P1", "p1")]);
+    expect(selected.map((x) => x.title)).toEqual(["p0", "p1", "p2"]);
   });
 
   it("excludes P3", () => {
-    const selected = selectInlineFindings([f("P3", "p3"), f("P1", "p1")], 8);
+    const selected = selectInlineFindings([f("P3", "p3"), f("P1", "p1")]);
     expect(selected.map((x) => x.title)).toEqual(["p1"]);
+  });
+
+  it("accepts more than eight findings", () => {
+    const findings = Array.from({ length: 12 }, (_, i) => f("P2", `bug-${i}`));
+    const parsed = reviewPayloadSchema.safeParse({
+      prCharacter: "Large review",
+      findings,
+      estimatedEffort: 3,
+      relevantTests: "partial",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.findings).toHaveLength(12);
+      expect(selectInlineFindings(parsed.data.findings)).toHaveLength(12);
+    }
+  });
+
+  it("rejects payloads above the soft findings ceiling", () => {
+    const findings = Array.from({ length: 129 }, (_, i) => f("P2", `bug-${i}`));
+    const parsed = reviewPayloadSchema.safeParse({
+      prCharacter: "Huge review",
+      findings,
+      estimatedEffort: 3,
+      relevantTests: "partial",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(parsed.success).toBe(false);
   });
 });
 

@@ -25,7 +25,6 @@ function placement(
     finding: f,
     inlineLine: inlinePosted ? (opts.inlineLine ?? f.startLine) : null,
     inlinePosted,
-    inlineCapEligible: inlinePosted,
   };
 }
 

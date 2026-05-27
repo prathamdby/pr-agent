@@ -81,6 +81,24 @@ export const MAX_REVIEW_FOLLOW_UPS = 5;
 export const REVIEW_EFFORT_MIN = 1;
 export const REVIEW_EFFORT_MAX = 5;
 
+/** ReviewPayload public field size limits (unlimited finding count; bounded text). */
+export const REVIEW_FINDING_TITLE_MAX_CHARS = 80;
+export const REVIEW_FINDING_DETAIL_MAX_CHARS = 4000;
+export const REVIEW_FINDING_FIX_PROMPT_MAX_CHARS = 2000;
+export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
+export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
+export const REVIEW_SECURITY_CONCERNS_MAX_CHARS = 4000;
+export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
+export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
+export const REVIEW_SUMMARY_COMPACTION_NOTE =
+  "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";
+export const REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX =
+  "finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.";
+/** Soft sanity ceiling on findings count (not a review-quality cap). */
+export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
+/** Max inline review threads attempted in one GitHub review submission. */
+export const MAX_INLINE_REVIEW_COMMENTS = 50;
+
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,
   P1: 1,

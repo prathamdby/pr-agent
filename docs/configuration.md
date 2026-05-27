@@ -48,7 +48,6 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                   | `2`                      |                                                    |
 | Webhook time budget       | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | log warning only                                   |
 | Context7 API key          | `CONTEXT7_API_KEY`                          | empty                    | optional                                           |
-| Max review findings       | `MAX_REVIEW_FINDINGS`                       | `8`                      | Zod schema + publish cap                           |
 | Label effort              | `ENABLE_REVIEW_LABELS_EFFORT`               | `true`                   |                                                    |
 | Label security            | `ENABLE_REVIEW_LABELS_SECURITY`             | `false`                  |                                                    |
 | Max PR files listed       | `MAX_PR_FILES_LISTED`                       | `300`                    | listPullRequestFiles                               |
@@ -129,6 +128,18 @@ These are related but not wired together on INSERT today.
 | `REVIEW_SECURITY_DEFAULT`                                            | Default security row when null                         |
 | `AGENT_FIX_PROMPT_ACCORDION_SUMMARY`                                 | Pointer accordion title                                |
 | `MAX_REVIEW_FOLLOW_UPS`                                              | 5                                                      |
+| `REVIEW_FINDING_TITLE_MAX_CHARS`                                     | 80                                                     |
+| `REVIEW_FINDING_DETAIL_MAX_CHARS`                                    | 4000                                                   |
+| `REVIEW_FINDING_FIX_PROMPT_MAX_CHARS`                                | 2000                                                   |
+| `REVIEW_OVERVIEW_MAX_CHARS`                                          | 8000                                                   |
+| `REVIEW_OVERVIEW_COMPACT_MAX_CHARS`                                  | 500                                                    |
+| `REVIEW_SECURITY_CONCERNS_MAX_CHARS`                                 | 4000                                                   |
+| `REVIEW_FOLLOW_UP_MAX_CHARS`                                         | 2000                                                   |
+| `REVIEW_SUMMARY_BODY_MAX_CHARS`                                      | 60000                                                  |
+| `REVIEW_SUMMARY_COMPACTION_NOTE`                                     | Public note when summary is compacted                  |
+| `REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX`                             | Public note when finding rows are omitted              |
+| `MAX_REVIEW_PAYLOAD_FINDINGS`                                        | 128                                                    |
+| `MAX_INLINE_REVIEW_COMMENTS`                                         | 50                                                     |
 | `REVIEW_EFFORT_MIN` / `REVIEW_EFFORT_MAX`                            | 1–5                                                    |
 | `REVIEW_SEVERITY_RANK`                                               | P0–P3 ordering                                         |
 | Label prefixes                                                       | `LABEL_REVIEW_EFFORT_PREFIX`, `LABEL_SECURITY_CONCERN` |

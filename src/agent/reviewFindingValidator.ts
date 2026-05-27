@@ -1,8 +1,6 @@
-import {
-  DEFAULT_MAX_REVIEW_FINDINGS,
-  DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
-} from "../settings/index.js";
+import { DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../settings/index.js";
 import type { ReviewPayload } from "./reviewSchema.js";
+import { isInlineSeverity } from "./reviewSchema.js";
 import {
   planInlinePlacements,
   type CachedPrDiffIndex,
@@ -60,7 +58,7 @@ function validatePlacementAnchor(
   enforceInlineAnchorValidation: boolean,
 ): AnchorFailure | null {
   if (!enforceInlineAnchorValidation) return null;
-  if (!placement.inlineCapEligible) return null;
+  if (!isInlineSeverity(placement.finding.severity)) return null;
   if (placement.inlineLine != null) return null;
   if (!diffIndex) return null;
   const { finding } = placement;
@@ -106,7 +104,6 @@ export function formatAnchorFailureRepairMessage(failures: readonly AnchorFailur
 export function validateReviewPayload(params: {
   payload: ReviewPayload;
   cachedDiffIndex?: CachedPrDiffIndex;
-  maxInlineFindings?: number;
   enforceInlineAnchorValidation?: boolean;
 }): ReviewPayloadValidationResult {
   const overviewFields: Array<[string, string | null | undefined]> = [
@@ -133,11 +130,7 @@ export function validateReviewPayload(params: {
   }
 
   const enforceInlineAnchorValidation = params.enforceInlineAnchorValidation ?? true;
-  const placements = planInlinePlacements(
-    params.payload.findings,
-    params.maxInlineFindings ?? DEFAULT_MAX_REVIEW_FINDINGS,
-    params.cachedDiffIndex,
-  );
+  const placements = planInlinePlacements(params.payload.findings, params.cachedDiffIndex);
   const anchorFailures: AnchorFailure[] = [];
   for (const [index, placement] of placements.entries()) {
     const anchorError = validatePlacementAnchor(
