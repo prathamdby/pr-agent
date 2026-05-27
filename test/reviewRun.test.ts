@@ -11,9 +11,10 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 }));
 
 const sendMock = vi.fn(async () => ({ text: "analysis without submitReview" }));
-let capturedExecutors: Record<string, any> = {};
+type ReviewExecutor = (args: Record<string, unknown>) => Promise<unknown>;
+let capturedExecutors: Record<string, ReviewExecutor> = {};
 const createSessionMock = vi.fn(
-  async (params: { systemPrompt: string; executors: Record<string, any> }) => {
+  async (params: { systemPrompt: string; executors: Record<string, ReviewExecutor> }) => {
     capturedSystemPrompt = params.systemPrompt;
     capturedExecutors = params.executors;
     return {
@@ -212,6 +213,7 @@ describe("runFullPrReview publish retries", () => {
 
     expect(result.published).toBe(false);
     expect(result.publishAttempts).toBe(1);
+    expect(result.publishSuperseded).toBe(true);
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 });

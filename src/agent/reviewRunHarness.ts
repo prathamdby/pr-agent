@@ -27,7 +27,11 @@ import {
   recordReviewMetric,
   setReviewRunMetricFields,
 } from "./reviewRunMetrics.js";
-import { buildReviewRunSetup, buildSubmitOnlyReviewSessionTools } from "./reviewRunSetup.js";
+import {
+  buildReviewRunSetup,
+  buildSubmitOnlyReviewSessionTools,
+  shouldContinueReviewRun,
+} from "./reviewRunSetup.js";
 
 function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
@@ -116,12 +120,9 @@ export async function runReviewHarness(params: {
     recordReviewMetric({ kind: "phase_enter", phase });
     for (
       let repair = 0;
-      repair < VALIDATION_REPAIR_ROUNDS && !setup.submitState.published;
+      repair < VALIDATION_REPAIR_ROUNDS && shouldContinueReviewRun(setup);
       repair++
     ) {
-      if (setup.submitState.aborted) {
-        break;
-      }
       const validationError = setup.submitState.lastValidationError;
       if (!validationError) break;
       setup.submitState.lastValidationError = null;
@@ -132,6 +133,7 @@ export async function runReviewHarness(params: {
           `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
         ].join("\n\n"),
       );
+      if (!shouldContinueReviewRun(setup)) break;
     }
   };
 
@@ -139,11 +141,12 @@ export async function runReviewHarness(params: {
     recordReviewMetric({ kind: "phase_enter", phase: "investigation" });
     const investigationOpts = { maxToolRounds: cfg.maxToolRounds };
     lastText = (await session.send(setup.userContent, investigationOpts)).text;
+    if (!shouldContinueReviewRun(setup)) return;
 
     if (
       cfg.reviewInjectAnchorMenu &&
       setup.cachedDiffIndex.files.size > 0 &&
-      !setup.submitState.published
+      shouldContinueReviewRun(setup)
     ) {
       const anchorMenu = renderAnchorMenuBlock(setup.cachedDiffIndex, {
         maxFiles: cfg.reviewAnchorMenuMaxFiles,
@@ -151,30 +154,29 @@ export async function runReviewHarness(params: {
       });
       if (anchorMenu) {
         lastText = (await session.send(anchorMenu, investigationOpts)).text;
+        if (!shouldContinueReviewRun(setup)) return;
       }
     }
 
-    if (!setup.submitState.published) {
+    if (shouldContinueReviewRun(setup)) {
       recordReviewMetric({ kind: "prose_only", phase: "pre_submit" });
-      for (let round = 0; round < 2 && !setup.submitState.published; round++) {
-        if (setup.submitState.aborted) {
-          break;
-        }
+      for (let round = 0; round < 2 && shouldContinueReviewRun(setup); round++) {
         const prompt =
           round === 0
             ? [PROSE_ONLY_NUDGE, PRE_SUBMIT_USER_MESSAGE].join("\n\n")
             : PRE_SUBMIT_USER_MESSAGE;
         lastText = await sendSubmitOnlyRepair(prompt);
+        if (!shouldContinueReviewRun(setup)) break;
       }
     }
 
-    await runValidationRepair("validation_repair");
+    if (shouldContinueReviewRun(setup)) {
+      await runValidationRepair("validation_repair");
+    }
   };
 
   const runPublishRecoveryPhase = async (attemptIndex: number) => {
-    if (setup.submitState.aborted) {
-      return;
-    }
+    if (!shouldContinueReviewRun(setup)) return;
     recordReviewMetric({ kind: "phase_enter", phase: "publish_recovery" });
     const prompt =
       PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
@@ -193,10 +195,11 @@ export async function runReviewHarness(params: {
       const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
       session.restrictToTools(submitOnly.piTools, submitOnly.executors);
     }
-    for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS && !setup.submitState.published; round++) {
-      if (setup.submitState.aborted) {
-        break;
-      }
+    for (
+      let round = 0;
+      round < PUBLISH_RECOVERY_ROUNDS && shouldContinueReviewRun(setup);
+      round++
+    ) {
       lastText = (
         await session.send(
           [
@@ -205,8 +208,11 @@ export async function runReviewHarness(params: {
           ].join("\n\n"),
         )
       ).text;
+      if (!shouldContinueReviewRun(setup)) break;
     }
-    await runValidationRepair("validation_repair");
+    if (shouldContinueReviewRun(setup)) {
+      await runValidationRepair("validation_repair");
+    }
     if (isLastAttempt) {
       session.restoreTools();
     }
@@ -244,12 +250,9 @@ export async function runReviewHarness(params: {
   try {
     for (
       let attempt = 0;
-      attempt < cfg.maxReviewPublishAttempts && !setup.submitState.published;
+      attempt < cfg.maxReviewPublishAttempts && shouldContinueReviewRun(setup);
       attempt++
     ) {
-      if (setup.submitState.aborted) {
-        break;
-      }
       publishAttempts = attempt + 1;
       if (attempt === 0) {
         await runInvestigationPhase();
@@ -272,7 +275,7 @@ export async function runReviewHarness(params: {
         pr: prNumber,
         willRescheduleStaleHead,
       });
-      if (!willRescheduleStaleHead && !setup.submitState.aborted) {
+      if (!willRescheduleStaleHead && shouldContinueReviewRun(setup)) {
         await runMaintainerPlaintextFallback();
       }
     }
@@ -290,5 +293,6 @@ export async function runReviewHarness(params: {
     lastAssistant: assistantFromText(cfg, lastText, providerName),
     published: setup.submitState.published,
     publishAttempts,
+    publishSuperseded: setup.submitState.publishSuperseded,
   };
 }
