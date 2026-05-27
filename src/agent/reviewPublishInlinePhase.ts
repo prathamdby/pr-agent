@@ -184,6 +184,23 @@ export async function runInlinePublishPhase(params: {
           droppedInlineCount: anchorDroppedCount,
           ...publishMetaBase,
         });
+      } else {
+        await recordPublishStep?.("inline_review", {
+          meta: {
+            reason: "no_valid_inline_anchors",
+            lineResolutionFallback: false,
+            fingerprints: inlineReviewFingerprints([]),
+            ...publishMetaBase,
+          },
+        });
+        logDebug("review_inline_skipped", {
+          reason: "no_valid_inline_anchors_after_filter",
+          mode,
+          owner: ctx.owner,
+          repo: ctx.repo,
+          pr: ctx.prNumber,
+          ...publishMetaBase,
+        });
       }
     } catch (e) {
       logWarn("review_inline_publish_failed", {

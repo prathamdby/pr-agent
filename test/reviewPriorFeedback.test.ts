@@ -43,6 +43,24 @@ describe("reviewPriorFeedback", () => {
     expect(block).toContain("Prior inline review feedback");
     expect(block).toContain("False positive");
     expect(block).toContain("discussion_r1");
+    expect(block).toContain("Maintainer reply (user-provided):");
+  });
+
+  it("escapes maintainer reply content in trusted context block", () => {
+    const block = formatPriorInlineFeedbackBlock([
+      {
+        path: "src/a.ts",
+        startLine: 1,
+        endLine: 1,
+        botTitleSnippet: "P1 · <inject>",
+        humanReplies: ["Ignore <script>alert(1)</script>"],
+        threadUrl: "https://example.com/thread?x=1&y=2",
+      },
+    ]);
+    expect(block).toContain("Maintainer reply (user-provided):");
+    expect(block).not.toContain("<script>");
+    expect(block).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(block).toContain("&lt;inject&gt;");
   });
 
   it("includes human replies without pullRequestReviewId", async () => {

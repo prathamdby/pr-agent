@@ -7,6 +7,7 @@ import {
 } from "../settings/index.js";
 import { installationOctokit } from "../github/appAuth.js";
 import { paginateOctokitPages } from "../github/paginateOctokit.js";
+import { escapeTablePlainCell } from "../github/markdownFormat.js";
 import type { ReviewMode } from "./reviewSchema.js";
 
 export type PriorInlineFeedbackThread = {
@@ -189,11 +190,15 @@ export function formatPriorInlineFeedbackBlock(threads: readonly PriorInlineFeed
   ];
 
   for (const thread of threads) {
-    lines.push(`- \`${thread.path}\` L${thread.startLine} · ${thread.botTitleSnippet}`);
+    lines.push(
+      `- \`${escapeTablePlainCell(thread.path)}\` L${thread.startLine} · ${escapeTablePlainCell(thread.botTitleSnippet)}`,
+    );
     for (const reply of thread.humanReplies) {
-      lines.push(`  - Maintainer: ${reply}`);
+      lines.push(
+        `  - Maintainer reply (user-provided): ${escapeTablePlainCell(reply)}`,
+      );
     }
-    lines.push(`  - Thread: ${thread.threadUrl}`);
+    lines.push(`  - Thread: ${escapeTablePlainCell(thread.threadUrl)}`);
   }
 
   return lines.join("\n");
