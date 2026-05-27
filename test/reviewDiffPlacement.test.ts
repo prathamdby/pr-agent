@@ -134,3 +134,22 @@ describe("reviewDiffPlacement", () => {
     ).toHaveLength(3);
   });
 });
+
+describe("mergeDroppedIntoSummaryPlacements", () => {
+  it("matches dropped placements by stable finding key, not object identity", async () => {
+    const { mergeDroppedIntoSummaryPlacements } = await import("../src/agent/reviewDiffPlacement.js");
+    const finding = {
+      severity: "P1" as const,
+      file: "src/a.ts",
+      startLine: 1,
+      endLine: 1,
+      title: "Bug",
+      detail: "detail",
+      fixPrompt: "fix",
+    };
+    const placements = [{ finding, inlineLine: 1, inlinePosted: true }];
+    const dropped = [{ finding: { ...finding }, inlineLine: 1, inlinePosted: false }];
+    const merged = mergeDroppedIntoSummaryPlacements(placements, dropped);
+    expect(merged[0]?.inlinePosted).toBe(false);
+  });
+});

@@ -6,13 +6,13 @@ import {
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { installationOctokit } from "../github/appAuth.js";
+import { paginateOctokitPages } from "../github/paginateOctokit.js";
 import type { ReviewMode } from "./reviewSchema.js";
 
 export type PriorInlineFeedbackThread = {
   path: string;
   startLine: number;
   endLine: number;
-  resolved: boolean;
   botTitleSnippet: string;
   humanReplies: string[];
   threadUrl: string;
@@ -56,34 +56,31 @@ async function listPullRequestReviewComments(
   pullNumber: number,
 ): Promise<ReviewCommentRow[]> {
   const octokit = installationOctokit(token);
-  const rows: ReviewCommentRow[] = [];
-  let page = 1;
-  for (;;) {
-    const { data } = await octokit.rest.pulls.listReviewComments({
-      owner,
-      repo,
-      pull_number: pullNumber,
-      per_page: COMMENTS_PAGE_SIZE,
-      page,
-    });
-    if (data.length === 0) break;
-    for (const comment of data) {
-      rows.push({
-        id: comment.id,
-        inReplyToId: comment.in_reply_to_id ?? null,
-        pullRequestReviewId: comment.pull_request_review_id ?? null,
-        userId: comment.user?.id ?? null,
-        body: comment.body ?? "",
-        path: comment.path ?? null,
-        line: comment.line ?? null,
-        originalLine: comment.original_line ?? null,
-        htmlUrl: comment.html_url,
+  const comments = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviewComments({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        per_page: perPage,
+        page,
       });
-    }
-    if (data.length < COMMENTS_PAGE_SIZE) break;
-    page++;
-  }
-  return rows;
+      return data;
+    },
+  });
+
+  return comments.map((comment) => ({
+    id: comment.id,
+    inReplyToId: comment.in_reply_to_id ?? null,
+    pullRequestReviewId: comment.pull_request_review_id ?? null,
+    userId: comment.user?.id ?? null,
+    body: comment.body ?? "",
+    path: comment.path ?? null,
+    line: comment.line ?? null,
+    originalLine: comment.original_line ?? null,
+    htmlUrl: comment.html_url,
+  }));
 }
 
 async function listBotReviewIdsForLens(
@@ -95,24 +92,25 @@ async function listBotReviewIdsForLens(
   botUserId: number,
 ): Promise<Set<number>> {
   const octokit = installationOctokit(token);
+  const reviews = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviews({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+
   const reviewIds = new Set<number>();
-  let page = 1;
-  for (;;) {
-    const { data } = await octokit.rest.pulls.listReviews({
-      owner,
-      repo,
-      pull_number: pullNumber,
-      per_page: COMMENTS_PAGE_SIZE,
-      page,
-    });
-    if (data.length === 0) break;
-    for (const review of data) {
-      if (review.user?.id !== botUserId || review.id == null) continue;
-      const lens = classifyReviewLensFromPointerBody(review.body ?? "");
-      if (lens === mode) reviewIds.add(review.id);
-    }
-    if (data.length < COMMENTS_PAGE_SIZE) break;
-    page++;
+  for (const review of reviews) {
+    if (review.user?.id !== botUserId || review.id == null) continue;
+    const lens = classifyReviewLensFromPointerBody(review.body ?? "");
+    if (lens === mode) reviewIds.add(review.id);
   }
   return reviewIds;
 }
@@ -172,7 +170,6 @@ export async function fetchPriorInlineReviewFeedback(
       path: root.path,
       startLine: line,
       endLine: line,
-      resolved: false,
       botTitleSnippet: extractBotTitleSnippet(root.body),
       humanReplies,
       threadUrl: root.htmlUrl,
@@ -194,9 +191,7 @@ export function formatPriorInlineFeedbackBlock(threads: readonly PriorInlineFeed
   ];
 
   for (const thread of threads) {
-    lines.push(
-      `- \`${thread.path}\` L${thread.startLine} · ${thread.botTitleSnippet}${thread.resolved ? " · resolved" : ""}`,
-    );
+    lines.push(`- \`${thread.path}\` L${thread.startLine} · ${thread.botTitleSnippet}`);
     for (const reply of thread.humanReplies) {
       lines.push(`  - Maintainer: ${reply}`);
     }

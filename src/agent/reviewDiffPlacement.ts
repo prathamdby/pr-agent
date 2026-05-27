@@ -89,19 +89,22 @@ export function downgradePlacementsAfterInlineFailure(
   );
 }
 
-export function isLineResolutionPublishError(error: unknown): boolean {
-  const message = githubErrorMessage(error);
-  return (
-    /line could not be resolved/i.test(message) ||
-    /pull request review thread line.*invalid/i.test(message) ||
-    /must be part of the diff/i.test(message)
+/** Stable lookup key for placement ↔ finding within one publish run. */
+export function reviewFindingPlacementKey(finding: ReviewFinding): string {
+  return `${finding.file}:${finding.startLine}:${finding.endLine}:${finding.severity}:${finding.title}`;
+}
+
+export function mergeDroppedIntoSummaryPlacements(
+  placements: readonly InlinePlacement[],
+  dropped: readonly InlinePlacement[],
+): InlinePlacement[] {
+  if (dropped.length === 0) return [...placements];
+  const droppedByKey = new Map(
+    dropped.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
+  );
+  return placements.map(
+    (placement) => droppedByKey.get(reviewFindingPlacementKey(placement.finding)) ?? placement,
   );
 }
 
-export function githubErrorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "object" && error != null && "message" in error) {
-    return String((error as { message: unknown }).message);
-  }
-  return String(error);
-}
+export { isLineResolutionPublishError, githubErrorMessage } from "../github/reviewErrors.js";

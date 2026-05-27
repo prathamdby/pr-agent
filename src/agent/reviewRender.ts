@@ -35,6 +35,7 @@ import {
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
+import { reviewFindingPlacementKey } from "./reviewDiffPlacement.js";
 import type {
   ReviewFinding,
   ReviewPayload,
@@ -297,11 +298,13 @@ export function renderAgentFixPrompt(
   ctx: RenderContext,
   placements: readonly InlinePlacement[],
 ): string {
-  const placementByFinding = new Map(placements.map((p) => [p.finding, p]));
+  const placementByKey = new Map(
+    placements.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
+  );
   const sorted = sortFindingsForAgentFixPrompt(payload.findings);
 
   const blocks = sorted.map((f) => {
-    const placement = placementByFinding.get(f);
+    const placement = placementByKey.get(reviewFindingPlacementKey(f));
     return renderFindingFixBlock(f, {
       inlinePosted: placement?.inlinePosted ?? false,
     });

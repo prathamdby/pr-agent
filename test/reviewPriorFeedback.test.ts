@@ -24,7 +24,6 @@ describe("reviewPriorFeedback", () => {
         path: "src/a.ts",
         startLine: 4,
         endLine: 4,
-        resolved: true,
         botTitleSnippet: "P1 · Missing await",
         humanReplies: ["False positive — already handled upstream"],
         threadUrl: "https://github.com/o/r/pull/1#discussion_r1",

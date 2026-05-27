@@ -1,12 +1,7 @@
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../settings/index.js";
-import { isLineResolutionPublishError, githubErrorMessage } from "../agent/reviewDiffPlacement.js";
+import { isTransientGitHubReviewError } from "./reviewErrors.js";
 
-export function isTransientGitHubReviewError(error: unknown): boolean {
-  const status = (error as { status?: number }).status;
-  if (status !== 422 && status !== 503 && status !== 502) return false;
-  if (isLineResolutionPublishError(error)) return false;
-  return true;
-}
+export { isTransientGitHubReviewError } from "./reviewErrors.js";
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {

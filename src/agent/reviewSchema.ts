@@ -277,19 +277,6 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
       coercions.push("finding_technicalDetails_empty_removed");
     }
   }
-  const severity =
-    typeof (mutated ? f.severity : r.severity) === "string"
-      ? ((mutated ? f.severity : r.severity) as ReviewFinding["severity"])
-      : undefined;
-  if (
-    severity != null &&
-    (severity === "P2" || severity === "P3") &&
-    "technicalDetails" in (mutated ? f : r)
-  ) {
-    touch();
-    delete f.technicalDetails;
-    coercions.push("finding_technicalDetails_stripped_non_p01");
-  }
 
   return mutated ? f : raw;
 }
