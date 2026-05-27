@@ -55,6 +55,7 @@ describe("publishInlineReviewComments", () => {
     expect(result.postedPlacements[0]?.finding.file).toBe("src/a.ts");
     expect(result.anchorDroppedPlacements).toHaveLength(1);
     expect(result.anchorDroppedPlacements[0]?.finding.file).toBe("src/b.ts");
+    expect(result.lineResolutionFallback).toBe(true);
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(2);
   });
 

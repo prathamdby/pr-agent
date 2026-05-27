@@ -87,7 +87,7 @@ export async function publishInlineReviewComments(
           inlinePosted: true,
         })),
         anchorDroppedPlacements,
-        lineResolutionFallback: false,
+        lineResolutionFallback: anchorDroppedPlacements.length > 0,
       };
     } catch (error) {
       if (!isLineResolutionPublishError(error)) {
