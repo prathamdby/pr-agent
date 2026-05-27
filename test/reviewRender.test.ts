@@ -836,6 +836,18 @@ describe("review hardening render helpers", () => {
     ).toBe("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
   });
 
+  it("escapes double hyphens in stale review metadata attrs", () => {
+    const comment = renderStaleReviewMetadataComment({
+      headSha: "abc1234",
+      mode: "review-security",
+      stale: true,
+    });
+    expect(comment).toBe(
+      "<!-- pr-agent:review-meta headSha=abc1234 lens=review-security stale=true -->",
+    );
+    expect(comment.slice(4, -3)).not.toContain("--");
+  });
+
   it("escapes finding titles in dropped inline anchor note", () => {
     const payload = basePayload({
       findings: [

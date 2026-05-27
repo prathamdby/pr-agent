@@ -141,7 +141,7 @@ function sanitizeReviewMetaHeadSha(headSha: string): string {
 }
 
 function escapeHtmlCommentAttr(value: string): string {
-  return value.replace(/-->/g, "--&gt;");
+  return value.replace(/--/g, "-&#45;");
 }
 
 export function renderDroppedInlineAnchorNote(
