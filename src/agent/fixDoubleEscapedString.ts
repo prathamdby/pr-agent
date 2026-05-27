@@ -1,6 +1,6 @@
 /** Unwrap model output where JSON string escapes were emitted literally (e.g. `\\n` instead of newline). */
 export function fixDoubleEscapedString(value: string): { text: string; fixed: boolean } {
-  if (!/\\[ntr"'\\u]/.test(value)) {
+  if (!/\\[nrt"'\\]/.test(value)) {
     return { text: value, fixed: false };
   }
 
@@ -17,12 +17,12 @@ export function fixDoubleEscapedString(value: string): { text: string; fixed: bo
   }
 
   const unescaped = value
+    .replace(/\\\\/g, "\\")
     .replace(/\\n/g, "\n")
     .replace(/\\r/g, "\r")
     .replace(/\\t/g, "\t")
     .replace(/\\"/g, '"')
-    .replace(/\\'/g, "'")
-    .replace(/\\\\/g, "\\");
+    .replace(/\\'/g, "'");
 
   if (unescaped !== value) {
     return { text: unescaped, fixed: true };

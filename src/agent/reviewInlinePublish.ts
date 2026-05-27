@@ -66,8 +66,10 @@ export async function publishInlineReviewComments(
     (placement) => placement.inlinePosted && placement.inlineLine != null,
   );
   const anchorDroppedPlacements: InlinePlacement[] = [];
+  const initialCount = attemptPlacements.length;
 
-  while (attemptPlacements.length > 0) {
+  for (let attempt = 0; attempt < initialCount && attemptPlacements.length > 0; attempt++) {
+    const prevCount = attemptPlacements.length;
     const comments = inlineCommentsFromPlacements(attemptPlacements, params.renderCommentBody);
     try {
       const review = await withTransientReviewRetry(() =>
@@ -100,6 +102,9 @@ export async function publishInlineReviewComments(
         inlinePosted: false,
         inlineLine: dropped.inlineLine,
       });
+      if (remaining.length >= prevCount) {
+        break;
+      }
       attemptPlacements = remaining;
     }
   }

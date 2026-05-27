@@ -82,20 +82,24 @@ export async function runInlinePublishPhase(params: {
 
   if (params.inlineFindings.length > 0) {
     try {
+      let lastPointerTruncated = false;
       const inlineResult = await publishInlineReviewComments(
         token,
         ctx.owner,
         ctx.repo,
         ctx.prNumber,
         {
-          renderReviewBody: (droppedInlinePlacements) =>
-            buildReviewPointerBody(payload, {
+          renderReviewBody: (droppedInlinePlacements) => {
+            const pointerBody = buildReviewPointerBody(payload, {
               ...ctx,
               mode,
               summaryCommentUrl,
               placements: mergeDroppedIntoSummaryPlacements(placements, droppedInlinePlacements),
               droppedInlinePlacements,
-            }).body,
+            });
+            lastPointerTruncated = pointerBody.truncated;
+            return pointerBody.body;
+          },
           event,
           commitId: ctx.headSha,
           inlinePlacements: params.inlineFindings,
@@ -114,15 +118,8 @@ export async function runInlinePublishPhase(params: {
         lineResolutionFallback = inlineResult.lineResolutionFallback;
         inlinePostedFindings = inlineResult.postedPlacements.map((placement) => placement.finding);
 
-        const pointerBody = buildReviewPointerBody(payload, {
-          ...ctx,
-          mode,
-          summaryCommentUrl,
-          placements: summaryPlacements,
-          droppedInlinePlacements: inlineResult.anchorDroppedPlacements,
-        });
-        agentFixPromptTruncated = pointerBody.truncated;
-        if (pointerBody.truncated) {
+        agentFixPromptTruncated = lastPointerTruncated;
+        if (lastPointerTruncated) {
           logDebug("agent_fix_prompt_truncated", {
             mode,
             owner: ctx.owner,

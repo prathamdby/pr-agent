@@ -16,6 +16,20 @@ describe("fixDoubleEscapedString", () => {
       fixed: true,
     });
   });
+
+  it("unescapes backslashes before other sequences", () => {
+    expect(fixDoubleEscapedString("path\\\\nfile")).toEqual({
+      text: "path\nfile",
+      fixed: true,
+    });
+  });
+
+  it("skips strings without double-escape markers", () => {
+    expect(fixDoubleEscapedString("plain text")).toEqual({
+      text: "plain text",
+      fixed: false,
+    });
+  });
 });
 
 describe("coerceReviewPayloadInput double escape", () => {
