@@ -30,6 +30,7 @@ export type SubmitReviewState = {
   lastValidationError: string | null;
   publishCallCount: number;
   publishCallsExhausted: boolean;
+  aborted: boolean;
 };
 
 export function createSubmitReviewState(
@@ -42,6 +43,7 @@ export function createSubmitReviewState(
     lastValidationError: null,
     publishCallCount: 0,
     publishCallsExhausted: false,
+    aborted: false,
   };
 }
 
@@ -193,6 +195,7 @@ export function buildSubmitReviewTool(params: {
           repo: params.ctx.repo,
           pr: params.ctx.prNumber,
         });
+        params.state.aborted = true;
         throw new Error("Review publish skipped: work superseded or cancelled");
       }
     }

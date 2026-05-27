@@ -119,6 +119,9 @@ export async function runReviewHarness(params: {
       repair < VALIDATION_REPAIR_ROUNDS && !setup.submitState.published;
       repair++
     ) {
+      if (setup.submitState.aborted) {
+        break;
+      }
       const validationError = setup.submitState.lastValidationError;
       if (!validationError) break;
       setup.submitState.lastValidationError = null;
@@ -154,6 +157,9 @@ export async function runReviewHarness(params: {
     if (!setup.submitState.published) {
       recordReviewMetric({ kind: "prose_only", phase: "pre_submit" });
       for (let round = 0; round < 2 && !setup.submitState.published; round++) {
+        if (setup.submitState.aborted) {
+          break;
+        }
         const prompt =
           round === 0
             ? [PROSE_ONLY_NUDGE, PRE_SUBMIT_USER_MESSAGE].join("\n\n")
@@ -166,6 +172,9 @@ export async function runReviewHarness(params: {
   };
 
   const runPublishRecoveryPhase = async (attemptIndex: number) => {
+    if (setup.submitState.aborted) {
+      return;
+    }
     recordReviewMetric({ kind: "phase_enter", phase: "publish_recovery" });
     const prompt =
       PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
@@ -185,6 +194,9 @@ export async function runReviewHarness(params: {
       session.restrictToTools(submitOnly.piTools, submitOnly.executors);
     }
     for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS && !setup.submitState.published; round++) {
+      if (setup.submitState.aborted) {
+        break;
+      }
       lastText = (
         await session.send(
           [
@@ -235,6 +247,9 @@ export async function runReviewHarness(params: {
       attempt < cfg.maxReviewPublishAttempts && !setup.submitState.published;
       attempt++
     ) {
+      if (setup.submitState.aborted) {
+        break;
+      }
       publishAttempts = attempt + 1;
       if (attempt === 0) {
         await runInvestigationPhase();
@@ -257,7 +272,7 @@ export async function runReviewHarness(params: {
         pr: prNumber,
         willRescheduleStaleHead,
       });
-      if (!willRescheduleStaleHead) {
+      if (!willRescheduleStaleHead && !setup.submitState.aborted) {
         await runMaintainerPlaintextFallback();
       }
     }
