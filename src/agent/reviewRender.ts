@@ -129,8 +129,19 @@ export function renderStaleReviewMetadataComment(params: {
   mode: ReviewMode;
   stale: boolean;
 }): string {
+  const headSha = sanitizeReviewMetaHeadSha(params.headSha);
+  const lens = escapeHtmlCommentAttr(params.mode);
   const staleValue = params.stale ? "true" : "false";
-  return `<!-- pr-agent:review-meta headSha=${params.headSha} lens=${params.mode} stale=${staleValue} -->`;
+  return `<!-- pr-agent:review-meta headSha=${headSha} lens=${lens} stale=${staleValue} -->`;
+}
+
+function sanitizeReviewMetaHeadSha(headSha: string): string {
+  const normalized = headSha.trim().toLowerCase();
+  return /^[0-9a-f]{7,40}$/.test(normalized) ? normalized : "invalid";
+}
+
+function escapeHtmlCommentAttr(value: string): string {
+  return value.replace(/-->/g, "--&gt;");
 }
 
 export function renderDroppedInlineAnchorNote(
@@ -141,7 +152,7 @@ export function renderDroppedInlineAnchorNote(
     .slice(0, REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS)
     .map(
       (placement) =>
-        `- ${placement.finding.severity} \`${placement.finding.file}\` L${placement.finding.startLine}: ${placement.finding.title}`,
+        `- ${placement.finding.severity} \`${placement.finding.file}\` L${placement.finding.startLine}: ${escapeTablePlainCell(placement.finding.title)}`,
     );
   const omitted = droppedPlacements.length - lines.length;
   if (omitted > 0) {

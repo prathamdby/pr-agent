@@ -109,17 +109,17 @@ export async function publishInlineReviewComments(
     }
   }
 
+  const allAnchorDroppedPlacements = [
+    ...anchorDroppedPlacements,
+    ...attemptPlacements.map((placement) => ({
+      ...placement,
+      inlinePosted: false,
+    })),
+  ];
+
   return {
     postedPlacements: [],
-    anchorDroppedPlacements: [
-      ...anchorDroppedPlacements,
-      ...attemptPlacements.map((placement) => ({
-        ...placement,
-        inlinePosted: false,
-      })),
-    ],
-    lineResolutionFallback: params.inlinePlacements.some(
-      (placement) => placement.inlinePosted && placement.inlineLine != null,
-    ),
+    anchorDroppedPlacements: allAnchorDroppedPlacements,
+    lineResolutionFallback: anchorDroppedPlacements.length > 0,
   };
 }

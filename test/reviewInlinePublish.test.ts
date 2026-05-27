@@ -57,4 +57,24 @@ describe("publishInlineReviewComments", () => {
     expect(result.anchorDroppedPlacements[0]?.finding.file).toBe("src/b.ts");
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(2);
   });
+
+  it("does not set lineResolutionFallback without anchor drops", async () => {
+    const invalidAnchor = {
+      finding: finding("P1", "src/a.ts", 1),
+      inlineLine: null,
+      inlinePosted: true,
+    };
+
+    const result = await publishInlineReviewComments("token", "o", "r", 1, {
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      commitId: "sha",
+      inlinePlacements: [invalidAnchor],
+      renderCommentBody: (f) => f.title,
+    });
+
+    expect(result.lineResolutionFallback).toBe(false);
+    expect(result.postedPlacements).toHaveLength(0);
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+  });
 });

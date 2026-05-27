@@ -826,6 +826,41 @@ describe("review hardening render helpers", () => {
     );
   });
 
+  it("sanitizes invalid headSha in stale review metadata", () => {
+    expect(
+      renderStaleReviewMetadataComment({
+        headSha: "not-a-sha -->",
+        mode: "review",
+        stale: false,
+      }),
+    ).toBe("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
+  });
+
+  it("escapes finding titles in dropped inline anchor note", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "<script>alert(1)</script>",
+          detail: "detail",
+          fixPrompt: "fix",
+        },
+      ],
+    });
+    const placements = testPlacementsFromPayload(payload);
+    const { body } = renderReviewPointerBody(payload, {
+      ...ctx,
+      mode: "review",
+      placements,
+      droppedInlinePlacements: placements,
+    });
+    expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(body).not.toContain("<script>");
+  });
+
   it("includes dropped inline anchor note on review pointer body", () => {
     const payload = basePayload({
       findings: [
