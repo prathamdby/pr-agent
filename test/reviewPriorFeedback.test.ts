@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   classifyReviewLensFromPointerBody,
+  fetchPriorInlineReviewFeedback,
   formatPriorInlineFeedbackBlock,
   type PriorInlineFeedbackThread,
 } from "../src/agent/reviewPriorFeedback.js";
@@ -9,7 +10,16 @@ import {
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/settings/index.js";
 
+vi.mock("../src/github/appAuth.js", () => ({
+  installationOctokit: vi.fn(),
+}));
+
+import { installationOctokit } from "../src/github/appAuth.js";
+
 describe("reviewPriorFeedback", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
   it("classifies review lens from pointer body", () => {
     expect(classifyReviewLensFromPointerBody(REVIEW_POINTER_BODY)).toBe("review");
     expect(classifyReviewLensFromPointerBody(SECURITY_REVIEW_POINTER_BODY)).toBe(
@@ -33,5 +43,57 @@ describe("reviewPriorFeedback", () => {
     expect(block).toContain("Prior inline review feedback");
     expect(block).toContain("False positive");
     expect(block).toContain("discussion_r1");
+  });
+
+  it("includes human replies without pullRequestReviewId", async () => {
+    const botUserId = 1;
+    const humanUserId = 2;
+    const reviewId = 100;
+
+    vi.mocked(installationOctokit).mockReturnValue({
+      rest: {
+        pulls: {
+          listReviews: vi.fn(async () => ({
+            data: [{ id: reviewId, user: { id: botUserId }, body: REVIEW_POINTER_BODY }],
+          })),
+          listReviewComments: vi.fn(async () => ({
+            data: [
+              {
+                id: 10,
+                in_reply_to_id: null,
+                pull_request_review_id: reviewId,
+                user: { id: botUserId },
+                body: "**P1** · **Missing await**",
+                path: "src/a.ts",
+                line: 4,
+                html_url: "https://github.com/o/r/pull/1#discussion_r10",
+              },
+              {
+                id: 11,
+                in_reply_to_id: 10,
+                pull_request_review_id: null,
+                user: { id: humanUserId },
+                body: "False positive — already handled upstream",
+                path: "src/a.ts",
+                line: 4,
+                html_url: "https://github.com/o/r/pull/1#discussion_r11",
+              },
+            ],
+          })),
+        },
+      },
+    } as never);
+
+    const threads = await fetchPriorInlineReviewFeedback(
+      "token",
+      "o",
+      "r",
+      1,
+      "review",
+      botUserId,
+    );
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0]?.humanReplies).toEqual(["False positive — already handled upstream"]);
   });
 });

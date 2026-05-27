@@ -144,9 +144,6 @@ export async function fetchPriorInlineReviewFeedback(
   const threads = new Map<number, ReviewCommentRow[]>();
 
   for (const comment of comments) {
-    if (comment.pullRequestReviewId == null || !reviewIds.has(comment.pullRequestReviewId)) {
-      continue;
-    }
     const rootId = rootCommentId(comment, byId);
     const bucket = threads.get(rootId) ?? [];
     bucket.push(comment);
@@ -159,6 +156,7 @@ export async function fetchPriorInlineReviewFeedback(
       threadComments.find((comment) => comment.inReplyToId == null) ??
       threadComments.toSorted((a, b) => a.id - b.id)[0];
     if (!root || root.userId !== botUserId || root.path == null) continue;
+    if (root.pullRequestReviewId == null || !reviewIds.has(root.pullRequestReviewId)) continue;
 
     const humanReplies = threadComments
       .filter((comment) => comment.userId != null && comment.userId !== botUserId)
