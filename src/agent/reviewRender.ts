@@ -26,6 +26,8 @@ import {
   REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
   REVIEW_SECURITY_DEFAULT,
+  REVIEW_SUMMARY_BODY_MAX_CHARS,
+  REVIEW_SUMMARY_COMPACTION_NOTE,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
@@ -49,9 +51,7 @@ export {
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 
-export type RenderContext = ReviewPublishContext & {
-  maxFindings: number;
-};
+export type RenderContext = ReviewPublishContext;
 
 /** Prevent model-authored text from closing a surrounding markdown code fence. */
 function escapeCodeFenceBreakers(text: string): string {
@@ -149,11 +149,7 @@ export function renderFindingFixBlock(
   lines.push(`[${finding.severity}] ${location}`);
   lines.push(finding.fixPrompt ? escapeCodeFenceBreakers(finding.fixPrompt) : "");
   if (!opts.inlinePosted) {
-    lines.push(
-      opts.inlineCapEligible === false
-        ? "[inline thread omitted — severity cap]"
-        : "[inline thread omitted — summary only]",
-    );
+    lines.push("[inline thread omitted — summary only]");
   }
   return lines.join("\n");
 }
@@ -196,10 +192,17 @@ type FindingTableFields = {
   fixPrompt?: string;
 };
 
+type SummaryRenderOptions = {
+  compact: boolean;
+  includeSummaryAccordions: boolean;
+  compactionNote?: boolean;
+};
+
 function renderFindingTableCellHtml(
   placement: InlinePlacement,
   ctx: RenderContext,
   findingFields: FindingTableFields,
+  compact: boolean,
 ): string {
   const f = placement.finding;
   const link =
@@ -211,7 +214,7 @@ function renderFindingTableCellHtml(
     renderTableLink(findingFields.title, link),
     renderTableLocationMeta(marker, f.file, formatLineRange(f.startLine, f.endLine)),
   ];
-  if (!placement.inlinePosted) {
+  if (!placement.inlinePosted && !compact) {
     parts.push(escapeTablePlainCell(findingFields.detail));
   }
   parts.push(
@@ -343,16 +346,20 @@ export function renderReviewPointerBody(
   return { body, truncated };
 }
 
-export function renderReviewSummaryComment(
+function buildReviewSummaryBody(
   payload: ReviewPayload,
   ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
+  options: SummaryRenderOptions,
 ): string {
   const sortedPlacements = sortPlacements(ctx.placements);
+  const overview = options.compact
+    ? payload.prCharacter.trim().slice(0, 500)
+    : payload.prCharacter.trim();
 
   const rows: string[] = [];
   rows.push(ctx.summarySentinel);
   rows.push("");
-  rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, payload.prCharacter.trim()));
+  rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, overview));
   rows.push("");
 
   const tableRows: Array<[string, string]> = [
@@ -368,13 +375,23 @@ export function renderReviewSummaryComment(
       const f = placement.finding;
       tableRows.push([
         renderTableStrong(f.severity),
-        renderFindingTableCellHtml(placement, ctx, {
-          title: f.title,
-          detail: f.detail,
-          fixPrompt: f.fixPrompt,
-        }),
+        renderFindingTableCellHtml(
+          placement,
+          ctx,
+          {
+            title: f.title,
+            detail: f.detail,
+            fixPrompt: f.fixPrompt,
+          },
+          options.compact,
+        ),
       ]);
-      if (!placement.inlinePosted && f.fixPrompt != null && f.fixPrompt.length > 0) {
+      if (
+        options.includeSummaryAccordions &&
+        !placement.inlinePosted &&
+        f.fixPrompt != null &&
+        f.fixPrompt.length > 0
+      ) {
         summaryOnlyAccordions.push(
           ...renderSummaryOnlyFixAccordion(f.severity, f.title, f.fixPrompt),
         );
@@ -401,5 +418,34 @@ export function renderReviewSummaryComment(
     rows.push(...summaryOnlyAccordions);
   }
 
+  if (options.compactionNote) {
+    rows.push("");
+    rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_SUMMARY_COMPACTION_NOTE));
+  }
+
   return rows.join("\n").trimEnd();
+}
+
+export function renderReviewSummaryComment(
+  payload: ReviewPayload,
+  ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
+): string {
+  const full = buildReviewSummaryBody(payload, ctx, {
+    compact: false,
+    includeSummaryAccordions: true,
+  });
+  if (full.length <= REVIEW_SUMMARY_BODY_MAX_CHARS) {
+    return full;
+  }
+
+  const compact = buildReviewSummaryBody(payload, ctx, {
+    compact: true,
+    includeSummaryAccordions: false,
+    compactionNote: true,
+  });
+  if (compact.length <= REVIEW_SUMMARY_BODY_MAX_CHARS) {
+    return compact;
+  }
+
+  return compact.slice(0, REVIEW_SUMMARY_BODY_MAX_CHARS);
 }

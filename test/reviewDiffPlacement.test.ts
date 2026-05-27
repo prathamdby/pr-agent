@@ -42,7 +42,6 @@ describe("reviewDiffPlacement", () => {
           fixPrompt: "fix",
         },
       ],
-      8,
       index,
     );
 
@@ -73,7 +72,6 @@ describe("reviewDiffPlacement", () => {
           fixPrompt: "fix",
         },
       ],
-      8,
       index,
     );
 
@@ -88,7 +86,7 @@ describe("reviewDiffPlacement", () => {
     expect(isLineResolutionPublishError(new Error("Validation Failed: 422"))).toBe(false);
   });
 
-  it("does not mark duplicate-key findings as cap-eligible when only one is selected", () => {
+  it("marks both duplicate-key P1 findings as inline-cap-eligible without a count cap", () => {
     const shared = {
       severity: "P1" as const,
       file: "src/x.ts",
@@ -101,9 +99,9 @@ describe("reviewDiffPlacement", () => {
       { ...shared, detail: "second", fixPrompt: "fix second" },
     ];
 
-    const placements = planInlinePlacements(findings, 1, createCachedPrDiffIndex());
+    const placements = planInlinePlacements(findings, createCachedPrDiffIndex());
 
     expect(placements[0]?.inlineCapEligible).toBe(true);
-    expect(placements[1]?.inlineCapEligible).toBe(false);
+    expect(placements[1]?.inlineCapEligible).toBe(true);
   });
 });

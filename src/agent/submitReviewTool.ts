@@ -69,9 +69,8 @@ export function buildSubmitReviewTool(params: {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
 } {
-  const submitSchema = createReviewPayloadSchema(params.cfg.maxReviewFindings);
+  const submitSchema = createReviewPayloadSchema();
   const mode = params.mode ?? "review";
-  const maxFindings = params.cfg.maxReviewFindings;
 
   const summarySentinel =
     mode === "review-security" ? SECURITY_REVIEW_SUMMARY_SENTINEL : REVIEW_SUMMARY_SENTINEL;
@@ -81,7 +80,7 @@ export function buildSubmitReviewTool(params: {
       "Submit the completed structured review exactly once.",
       "Pass a ReviewPayload object matching the schema.",
       `This publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
-      `Fields: prCharacter (string), findings (array, max ${maxFindings}), estimatedEffort (integer 1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (string array, max 5).`,
+      "Fields: prCharacter (string), findings (array), estimatedEffort (integer 1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (string array, max 5).",
       "Each finding: severity P0|P1|P2|P3, file, startLine, endLine, title, detail; fixPrompt required for P0/P1/P2.",
       `Minimal valid example: ${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE)}`,
     ].join(" "),
@@ -133,7 +132,7 @@ export function buildSubmitReviewTool(params: {
 
     const parsed = submitSchema.safeParse(coercedArgs);
     if (!parsed.success) {
-      const formatted = formatReviewValidationError(parsed.error, maxFindings);
+      const formatted = formatReviewValidationError(parsed.error);
       params.state.lastValidationError = formatted.message;
       recordReviewMetric({
         kind: "validation_failed",
@@ -155,7 +154,6 @@ export function buildSubmitReviewTool(params: {
       payload: parsed.data,
       mode,
       cachedDiffIndex: params.cachedDiffIndex,
-      maxInlineFindings: params.cfg.maxReviewFindings,
       enforceInlineAnchorValidation: enforceDiffAndAnchors,
     });
     if (!prepared.ok) {

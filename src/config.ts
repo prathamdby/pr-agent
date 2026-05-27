@@ -25,7 +25,6 @@ import {
   DEFAULT_MAX_ASK_TOOL_ROUNDS,
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
-  DEFAULT_MAX_REVIEW_FINDINGS,
   DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS,
   DEFAULT_MAX_REVIEW_PUBLISH_CALLS,
   DEFAULT_MAX_TOOL_ROUNDS,
@@ -276,13 +275,6 @@ export function loadConfig() {
 
   const context7ApiKey = optionalEnv(ENV.CONTEXT7_API_KEY, DEFAULT_CONTEXT7_API_KEY);
 
-  const maxReviewFindings = Number(
-    optionalEnv(ENV.MAX_REVIEW_FINDINGS, String(DEFAULT_MAX_REVIEW_FINDINGS)),
-  );
-  if (!Number.isFinite(maxReviewFindings) || maxReviewFindings < 1) {
-    throw new Error("MAX_REVIEW_FINDINGS must be a positive number");
-  }
-
   const enableReviewLabelsEffort =
     optionalEnv(ENV.ENABLE_REVIEW_LABELS_EFFORT, String(DEFAULT_ENABLE_REVIEW_LABELS_EFFORT)) ===
     "true";
@@ -418,7 +410,6 @@ export function loadConfig() {
     webhookTimeoutMs,
     context7ApiKey,
     cursorApiKey,
-    maxReviewFindings,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
     maxPrFilesListed,

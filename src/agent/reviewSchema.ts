@@ -1,9 +1,14 @@
 import { z } from "zod";
 import {
-  DEFAULT_MAX_REVIEW_FINDINGS,
   MAX_REVIEW_FOLLOW_UPS,
   REVIEW_EFFORT_MAX,
   REVIEW_EFFORT_MIN,
+  REVIEW_FINDING_DETAIL_MAX_CHARS,
+  REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
+  REVIEW_FINDING_TITLE_MAX_CHARS,
+  REVIEW_FOLLOW_UP_MAX_CHARS,
+  REVIEW_OVERVIEW_MAX_CHARS,
+  REVIEW_SECURITY_CONCERNS_MAX_CHARS,
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   type ReviewValidationFailureKind,
@@ -26,9 +31,9 @@ export const reviewFindingSchema = z
     file: z.string().min(1),
     startLine: z.number().int().positive(),
     endLine: z.number().int().positive(),
-    title: z.string().min(1),
-    detail: z.string().min(1),
-    fixPrompt: z.string().optional(),
+    title: z.string().min(1).max(REVIEW_FINDING_TITLE_MAX_CHARS),
+    detail: z.string().min(1).max(REVIEW_FINDING_DETAIL_MAX_CHARS),
+    fixPrompt: z.string().max(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS).optional(),
   })
   .superRefine((f, ctx) => {
     if (f.startLine > f.endLine) {
@@ -47,18 +52,18 @@ export const reviewFindingSchema = z
     }
   });
 
-export function createReviewPayloadSchema(maxFindings: number) {
+export function createReviewPayloadSchema() {
   return z.object({
-    prCharacter: z.string().min(1),
-    findings: z.array(reviewFindingSchema).max(maxFindings),
+    prCharacter: z.string().min(1).max(REVIEW_OVERVIEW_MAX_CHARS),
+    findings: z.array(reviewFindingSchema),
     estimatedEffort: z.number().int().min(REVIEW_EFFORT_MIN).max(REVIEW_EFFORT_MAX),
     relevantTests: z.enum(["yes", "no", "partial"]),
-    securityConcerns: z.string().nullable(),
-    followUps: z.array(z.string()).max(MAX_REVIEW_FOLLOW_UPS),
+    securityConcerns: z.string().max(REVIEW_SECURITY_CONCERNS_MAX_CHARS).nullable(),
+    followUps: z.array(z.string().max(REVIEW_FOLLOW_UP_MAX_CHARS)).max(MAX_REVIEW_FOLLOW_UPS),
   });
 }
 
-export const reviewPayloadSchema = createReviewPayloadSchema(DEFAULT_MAX_REVIEW_FINDINGS);
+export const reviewPayloadSchema = createReviewPayloadSchema();
 
 export type ReviewFinding = z.infer<typeof reviewFindingSchema>;
 export type ReviewPayload = z.infer<typeof reviewPayloadSchema>;
@@ -325,10 +330,11 @@ function zodIssueFailureKind(issue: z.ZodIssue): ReviewValidationFailureKind {
   }
 }
 
-export function formatReviewValidationError(
-  error: z.ZodError,
-  maxFindings: number = DEFAULT_MAX_REVIEW_FINDINGS,
-): { message: string; failureKind: ReviewValidationFailureKind; paths: string[] } {
+export function formatReviewValidationError(error: z.ZodError): {
+  message: string;
+  failureKind: ReviewValidationFailureKind;
+  paths: string[];
+} {
   const paths: string[] = [];
   const lines = ["ReviewPayload validation failed:"];
   for (const issue of error.issues) {
@@ -337,7 +343,7 @@ export function formatReviewValidationError(
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    `Required top-level fields: prCharacter, findings (max ${maxFindings}), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
+    `Required top-level fields: prCharacter, findings (array), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
   lines.push(
     "Each P0/P1/P2 finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.",
@@ -351,13 +357,10 @@ export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
   return severity === "P0" || severity === "P1" || severity === "P2";
 }
 
-export function selectInlineFindings(
-  findings: ReviewFinding[],
-  maxFindings: number,
-): ReviewFinding[] {
+export function selectInlineFindings(findings: ReviewFinding[]): ReviewFinding[] {
   const inline = findings.filter((f) => isInlineSeverity(f.severity));
   inline.sort(compareReviewFindingsBySeverityFileLine);
-  return inline.slice(0, maxFindings);
+  return inline;
 }
 
 export function reviewEventForFindings(findings: ReviewFinding[]): "REQUEST_CHANGES" | "COMMENT" {

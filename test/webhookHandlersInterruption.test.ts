@@ -33,7 +33,6 @@ const cfg: Config = {
   maxAskToolRounds: 12,
   webhookTimeoutMs: 10000,
   context7ApiKey: "",
-  maxReviewFindings: 8,
   enableReviewLabelsEffort: false,
   enableReviewLabelsSecurity: false,
   maxPrFilesListed: 300,

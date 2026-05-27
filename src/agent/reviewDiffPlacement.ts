@@ -28,10 +28,9 @@ export {
 
 export function planInlinePlacements(
   findings: ReviewFinding[],
-  maxInlineFindings: number,
   diffIndex: CachedPrDiffIndex | undefined,
 ): InlinePlacement[] {
-  const inlineCandidates = selectInlineFindings(findings, maxInlineFindings);
+  const inlineCandidates = selectInlineFindings(findings);
   const inlineCapIndices = new Set<number>();
   for (const candidate of inlineCandidates) {
     const index = findings.indexOf(candidate);

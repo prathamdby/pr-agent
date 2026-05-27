@@ -30,7 +30,6 @@ const cfg = {
   maxAskToolRounds: 12,
   webhookTimeoutMs: 10000,
   context7ApiKey: "",
-  maxReviewFindings: 8,
   enableReviewLabelsEffort: false,
   enableReviewLabelsSecurity: false,
   logLevel: "info" as const,

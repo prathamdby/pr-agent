@@ -53,10 +53,7 @@ export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
     mode?: ReviewMode;
-    cfg: Pick<
-      Config,
-      "maxReviewFindings" | "enableReviewLabelsEffort" | "enableReviewLabelsSecurity"
-    >;
+    cfg: Pick<Config, "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
     payload: ReviewPayload;
     /** Set when payload was already normalized, deduped, and validated by submitReview. */
     dedupedFindingCount?: number;
@@ -82,11 +79,7 @@ export async function publishReview(
       mode,
     });
 
-  let placements = planInlinePlacements(
-    payload.findings,
-    cfg.maxReviewFindings,
-    params.cachedDiffIndex,
-  );
+  let placements = planInlinePlacements(payload.findings, params.cachedDiffIndex);
   const suppression = suppressInlinePlacementsByFingerprint(
     placements,
     mode,
@@ -113,7 +106,6 @@ export async function publishReview(
     repo,
     prNumber,
     headSha,
-    maxFindings: cfg.maxReviewFindings,
   };
 
   let summaryCommentUrl: string | undefined;

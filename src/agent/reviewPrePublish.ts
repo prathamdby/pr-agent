@@ -14,7 +14,6 @@ export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
   mode: ReviewMode;
   cachedDiffIndex?: CachedPrDiffIndex;
-  maxInlineFindings?: number;
   enforceInlineAnchorValidation?: boolean;
 }):
   | { ok: true; prepared: PreparedReviewPayload }
@@ -27,7 +26,6 @@ export function prepareReviewPayloadForPublish(params: {
   const validation = validateReviewPayload({
     payload: candidate,
     cachedDiffIndex: params.cachedDiffIndex,
-    maxInlineFindings: params.maxInlineFindings,
     enforceInlineAnchorValidation: params.enforceInlineAnchorValidation,
   });
   if (!validation.ok) {

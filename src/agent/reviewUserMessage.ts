@@ -18,7 +18,7 @@ export function buildReviewRunUserContent(params: {
     trustedContext ? `\n${trustedContext}\n` : "",
     "",
     reviewMode === "review-security"
-      ? "Perform a deep security review of the PR diff using investigation tools, then call submitReview exactly once with a complete ReviewPayload."
-      : "Perform a full review using investigation tools, then call submitReview exactly once with a complete ReviewPayload.",
+      ? "Perform an exhaustive security review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 security findings."
+      : "Perform an exhaustive review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 findings.",
   ].join("\n");
 }

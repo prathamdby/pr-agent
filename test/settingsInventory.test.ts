@@ -4,7 +4,6 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
-  DEFAULT_MAX_REVIEW_FINDINGS,
   ENV,
   EXTERNAL_ENV,
 } from "../src/settings/index.js";
@@ -28,7 +27,6 @@ describe("settings inventory", () => {
     const envValues = Object.values(ENV);
     expect(envValues).toContain("PORT");
     expect(envValues).toContain("DATABASE_URL");
-    expect(envValues).toContain("MAX_REVIEW_FINDINGS");
     expect(new Set(envValues).size).toBe(envValues.length);
   });
 
@@ -56,7 +54,6 @@ describe("settings inventory", () => {
       return line.split("=")[1]?.trim();
     };
 
-    expect(readExample(ENV.MAX_REVIEW_FINDINGS)).toBe(String(DEFAULT_MAX_REVIEW_FINDINGS));
     expect(readExample(ENV.MAX_PR_FILES_LISTED)).toBe(String(DEFAULT_MAX_PR_FILES_LISTED));
     expect(readExample(ENV.MAX_PR_FILES_PATCH_BYTES)).toBe(
       String(DEFAULT_MAX_PR_FILES_PATCH_BYTES),

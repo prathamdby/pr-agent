@@ -81,6 +81,17 @@ export const MAX_REVIEW_FOLLOW_UPS = 5;
 export const REVIEW_EFFORT_MIN = 1;
 export const REVIEW_EFFORT_MAX = 5;
 
+/** ReviewPayload public field size limits (unlimited finding count; bounded text). */
+export const REVIEW_FINDING_TITLE_MAX_CHARS = 80;
+export const REVIEW_FINDING_DETAIL_MAX_CHARS = 4000;
+export const REVIEW_FINDING_FIX_PROMPT_MAX_CHARS = 2000;
+export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
+export const REVIEW_SECURITY_CONCERNS_MAX_CHARS = 4000;
+export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
+export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
+export const REVIEW_SUMMARY_COMPACTION_NOTE =
+  "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";
+
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,
   P1: 1,
@@ -103,6 +114,13 @@ export const ASK_CIRCUIT_OPEN_TOOL_RESULT =
 
 export const PROSE_ONLY_NUDGE =
   "You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
+
+export const PRE_SUBMIT_EXHAUSTIVE_CHECKLIST = [
+  "Before submitReview, confirm:",
+  "- listChangedFiles was called and every changed file was inspected via getWorkspaceDiff or reads.",
+  "- All evidenced P0–P2 findings from the full diff are included in this payload.",
+  "- If you push again without fixing anything, you would not discover additional P0–P2.",
+].join("\n");
 
 export const PUBLISH_RECOVERY_ROUNDS = 4;
 export const PUBLISH_RECOVERY_PROMPTS = [
