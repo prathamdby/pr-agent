@@ -400,15 +400,24 @@ async function handleReviewJob(
           };
         }
         if (!result.published) {
-          logWarn("review_not_published", {
-            owner: item.owner,
-            repo: item.repo,
-            pr: item.prNumber,
-            publishAttempts: result.publishAttempts,
-            publishDegraded: true,
-          });
+          if (result.publishSuperseded) {
+            logInfo("review_publish_superseded", {
+              owner: item.owner,
+              repo: item.repo,
+              pr: item.prNumber,
+              publishAttempts: result.publishAttempts,
+            });
+          } else {
+            logWarn("review_not_published", {
+              owner: item.owner,
+              repo: item.repo,
+              pr: item.prNumber,
+              publishAttempts: result.publishAttempts,
+              publishDegraded: true,
+            });
+          }
         }
-        return { degraded: !result.published };
+        return { degraded: !result.published && !result.publishSuperseded };
       } finally {
         await repositoryView.cleanup();
       }

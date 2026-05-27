@@ -11,15 +11,20 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 }));
 
 const sendMock = vi.fn(async () => ({ text: "analysis without submitReview" }));
-const createSessionMock = vi.fn(async (params: { systemPrompt: string }) => {
-  capturedSystemPrompt = params.systemPrompt;
-  return {
-    send: sendMock,
-    restrictToTools: vi.fn(),
-    restoreTools: vi.fn(),
-    dispose: vi.fn(async () => undefined),
-  };
-});
+type ReviewExecutor = (args: Record<string, unknown>) => Promise<unknown>;
+let capturedExecutors: Record<string, ReviewExecutor> = {};
+const createSessionMock = vi.fn(
+  async (params: { systemPrompt: string; executors: Record<string, ReviewExecutor> }) => {
+    capturedSystemPrompt = params.systemPrompt;
+    capturedExecutors = params.executors;
+    return {
+      send: sendMock,
+      restrictToTools: vi.fn(),
+      restoreTools: vi.fn(),
+      dispose: vi.fn(async () => undefined),
+    };
+  },
+);
 
 let capturedSystemPrompt = "";
 
@@ -180,5 +185,35 @@ describe("runFullPrReview publish retries", () => {
       }),
     );
     infoSpy.mockRestore();
+  });
+
+  it("aborts early and does not post fallback comment if shouldAbortPublish returns true", async () => {
+    sendMock.mockImplementation(async () => {
+      try {
+        await capturedExecutors.submitReview({
+          prCharacter: "Does things.",
+          findings: [],
+          estimatedEffort: 1,
+          relevantTests: "no",
+          securityConcerns: null,
+          followUps: [],
+        });
+      } catch {
+        // Expected
+      }
+      return { text: "aborted review attempt" };
+    });
+
+    const result = await runFullPrReview(
+      reviewParams({
+        cfg: { ...cfg, reviewRequireDiffCacheBeforeSubmit: false },
+        shouldAbortPublish: async () => true,
+      }),
+    );
+
+    expect(result.published).toBe(false);
+    expect(result.publishAttempts).toBe(1);
+    expect(result.publishSuperseded).toBe(true);
+    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 });

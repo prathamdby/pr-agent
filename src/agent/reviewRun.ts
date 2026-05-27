@@ -9,6 +9,7 @@ export type ReviewRunResult = {
   lastAssistant: AssistantMessage;
   published: boolean;
   publishAttempts: number;
+  publishSuperseded: boolean;
 };
 
 export async function runFullPrReview(params: {

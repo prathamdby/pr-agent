@@ -135,6 +135,31 @@ describe("submitReview tool", () => {
     await expect(executor(valid)).rejects.toThrow(/superseded or cancelled/i);
     expect(publishReview).not.toHaveBeenCalled();
     expect(state.publishCallCount).toBe(0);
+    expect(state.publishSuperseded).toBe(true);
+  });
+
+  it("sets publishSuperseded when shouldAbortPublish returns true", async () => {
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      state,
+      canEnforceDiffCacheBeforeSubmit: () => false,
+      shouldAbortPublish: async () => true,
+    });
+    const valid = {
+      prCharacter: "Does things.",
+      findings: [],
+      estimatedEffort: 1,
+      relevantTests: "no" as const,
+      securityConcerns: null,
+      followUps: [],
+    };
+
+    await expect(executor(valid)).rejects.toThrow(/superseded or cancelled/i);
+    expect(state.publishSuperseded).toBe(true);
+    expect(publishReview).not.toHaveBeenCalled();
   });
 
   it("mentions the security summary sentinel in the tool description", () => {

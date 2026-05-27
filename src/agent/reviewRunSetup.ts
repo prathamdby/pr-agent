@@ -32,6 +32,11 @@ export type ReviewRunSetup = {
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
 };
 
+/** True while the harness should keep investigating or retrying publish. */
+export function shouldContinueReviewRun(setup: Pick<ReviewRunSetup, "submitState">): boolean {
+  return !setup.submitState.published && !setup.submitState.publishSuperseded;
+}
+
 const TOKEN_REFRESH_TOOL = "getPullRequest";
 
 export function buildReviewRunSetup(params: {
