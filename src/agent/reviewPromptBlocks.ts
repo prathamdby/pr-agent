@@ -14,8 +14,16 @@ export const singlePassReviewContract = [
 export const fixPromptFieldContract =
   "fixPrompt (P0/P1/P2 only): one or two sentences — state the bug and fix direction. Do not repeat file or line (the server adds a location header). Under ~60 words.";
 
-export const PRE_SUBMIT_USER_MESSAGE =
-  "Investigation complete. Call submitReview now with **all** P0–P2 findings from your analysis. If you push again without fixing anything, would you still find more P0–P2? If yes, keep investigating. Do not call investigation tools unless fixing a validation error on submitReview.";
+/** Round-0 pre-submit nudge: exhaustive checklist + submit instruction (harness only). */
+export const PRE_SUBMIT_ROUND0_PROMPT = [
+  "Before submitReview, confirm every changed file was inspected and all evidenced P0–P2 are in this payload.",
+  "If you push again without fixing anything, would you still find more P0–P2? If yes, keep investigating.",
+  "Call submitReview now. Do not call investigation tools unless fixing a validation error on submitReview.",
+].join("\n");
+
+/** Shorter reminder for subsequent pre-submit rounds. */
+export const PRE_SUBMIT_REMINDER =
+  "Call submitReview now with your complete ReviewPayload. Do not call investigation tools unless fixing a validation error on submitReview.";
 
 export const publicOutputContract = [
   "## Public output contract",

@@ -95,6 +95,19 @@ describe("selectInlineFindings", () => {
       expect(selectInlineFindings(parsed.data.findings)).toHaveLength(12);
     }
   });
+
+  it("rejects payloads above the soft findings ceiling", () => {
+    const findings = Array.from({ length: 129 }, (_, i) => f("P2", `bug-${i}`));
+    const parsed = reviewPayloadSchema.safeParse({
+      prCharacter: "Huge review",
+      findings,
+      estimatedEffort: 3,
+      relevantTests: "partial",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(parsed.success).toBe(false);
+  });
 });
 
 describe("coerceReviewPayloadInput", () => {

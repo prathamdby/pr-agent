@@ -11,6 +11,7 @@ import {
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
   renderReviewSummaryComment,
+  fitReviewSummaryBody,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/agent/reviewRender.js";
 import {
@@ -18,6 +19,7 @@ import {
   REVIEW_FINDINGS_NONE,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
+  REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
 } from "../src/settings/index.js";
 import type { ReviewPayload } from "../src/agent/reviewSchema.js";
 import {
@@ -341,6 +343,33 @@ describe("renderReviewSummaryComment", () => {
       expect(body).toContain(finding.title);
     }
     expect(body).toContain(REVIEW_SUMMARY_COMPACTION_NOTE);
+  });
+
+  it("drops finding rows from the tail when compact mode still exceeds the body budget", () => {
+    const findings = Array.from({ length: 12 }, (_, i) => ({
+      severity: "P2" as const,
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "x".repeat(5000),
+      fixPrompt: "Fix it.",
+    }));
+    const payload = basePayload({ findings });
+    const body = fitReviewSummaryBody(
+      payload,
+      {
+        ...ctx,
+        placements: testPlacementsFromPayload(payload, false),
+      },
+      2_500,
+    );
+
+    expect(body.length).toBeLessThanOrEqual(2_500);
+    expect(body).toContain(REVIEW_SUMMARY_COMPACTION_NOTE);
+    expect(body).toContain(REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX);
+    expect(body).toContain("Bug 0");
+    expect(body).not.toContain("Bug 9");
   });
 });
 

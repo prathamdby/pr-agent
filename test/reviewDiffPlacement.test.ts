@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  applyInlineCommentCap,
   downgradePlacementsAfterInlineFailure,
   isLineResolutionPublishError,
   planInlinePlacements,
@@ -8,6 +9,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
 } from "../src/agent/reviewDiffIndex.js";
+import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings/index.js";
 
 describe("reviewDiffPlacement", () => {
   it("marks invalid anchors as summary-only", () => {
@@ -47,7 +49,7 @@ describe("reviewDiffPlacement", () => {
 
     expect(placements[0]?.inlinePosted).toBe(true);
     expect(placements[1]?.inlinePosted).toBe(false);
-    expect(placements[1]?.inlineCapEligible).toBe(true);
+    expect(placements[1]?.inlineLine).toBeNull();
   });
 
   it("downgrades inline placements after GitHub inline publish failure", () => {
@@ -86,7 +88,7 @@ describe("reviewDiffPlacement", () => {
     expect(isLineResolutionPublishError(new Error("Validation Failed: 422"))).toBe(false);
   });
 
-  it("marks both duplicate-key P1 findings as inline-cap-eligible without a count cap", () => {
+  it("marks both duplicate-key P1 findings as inline candidates without a count cap", () => {
     const shared = {
       severity: "P1" as const,
       file: "src/x.ts",
@@ -101,7 +103,34 @@ describe("reviewDiffPlacement", () => {
 
     const placements = planInlinePlacements(findings, createCachedPrDiffIndex());
 
-    expect(placements[0]?.inlineCapEligible).toBe(true);
-    expect(placements[1]?.inlineCapEligible).toBe(true);
+    expect(placements).toHaveLength(2);
+    expect(placements.every((p) => p.inlineLine == null)).toBe(true);
+  });
+
+  it("caps inline comments by severity order", () => {
+    const findings = Array.from({ length: MAX_INLINE_REVIEW_COMMENTS + 5 }, (_, i) => ({
+      severity: i < 3 ? ("P0" as const) : ("P2" as const),
+      file: `src/f${i}.ts`,
+      startLine: i + 1,
+      endLine: i + 1,
+      title: `Bug ${i}`,
+      detail: "d",
+      fixPrompt: "fix",
+    }));
+
+    const placements = planInlinePlacements(findings, createCachedPrDiffIndex()).map((p) => ({
+      ...p,
+      inlinePosted: true,
+      inlineLine: p.finding.startLine,
+    }));
+
+    const capped = applyInlineCommentCap(placements, MAX_INLINE_REVIEW_COMMENTS);
+    expect(capped.inlineCommentCapExcluded).toBe(5);
+    expect(capped.placements.filter((p) => p.inlinePosted)).toHaveLength(
+      MAX_INLINE_REVIEW_COMMENTS,
+    );
+    expect(
+      capped.placements.filter((p) => p.finding.severity === "P0" && p.inlinePosted),
+    ).toHaveLength(3);
   });
 });

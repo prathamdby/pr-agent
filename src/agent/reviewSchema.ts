@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   MAX_REVIEW_FOLLOW_UPS,
+  MAX_REVIEW_PAYLOAD_FINDINGS,
   REVIEW_EFFORT_MAX,
   REVIEW_EFFORT_MIN,
   REVIEW_FINDING_DETAIL_MAX_CHARS,
@@ -55,7 +56,7 @@ export const reviewFindingSchema = z
 export function createReviewPayloadSchema() {
   return z.object({
     prCharacter: z.string().min(1).max(REVIEW_OVERVIEW_MAX_CHARS),
-    findings: z.array(reviewFindingSchema),
+    findings: z.array(reviewFindingSchema).max(MAX_REVIEW_PAYLOAD_FINDINGS),
     estimatedEffort: z.number().int().min(REVIEW_EFFORT_MIN).max(REVIEW_EFFORT_MAX),
     relevantTests: z.enum(["yes", "no", "partial"]),
     securityConcerns: z.string().max(REVIEW_SECURITY_CONCERNS_MAX_CHARS).nullable(),
@@ -343,7 +344,7 @@ export function formatReviewValidationError(error: z.ZodError): {
     lines.push(`- ${path}: ${issue.message}`);
   }
   lines.push(
-    `Required top-level fields: prCharacter, findings (array), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
+    `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
   lines.push(
     "Each P0/P1/P2 finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.",

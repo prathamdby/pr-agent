@@ -11,6 +11,7 @@ import {
 } from "../github/reviewPublish.js";
 import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
 import { logWarn, logDebug } from "../evlog.js";
+import { MAX_INLINE_REVIEW_COMMENTS } from "../settings/index.js";
 import {
   renderInlineThreadBody,
   renderRepeatNoBugsReviewBody,
@@ -18,6 +19,7 @@ import {
   renderReviewSummaryComment,
 } from "./reviewRender.js";
 import {
+  applyInlineCommentCap,
   downgradePlacementsAfterInlineFailure,
   isLineResolutionPublishError,
   planInlinePlacements,
@@ -29,6 +31,7 @@ import {
 } from "./reviewFindingFingerprint.js";
 import {
   reviewEventForFindings,
+  isInlineSeverity,
   reviewSummarySentinelForMode,
   type ReviewFinding,
   type ReviewMode,
@@ -86,6 +89,8 @@ export async function publishReview(
     storedInlineFingerprints,
   );
   placements = suppression.placements;
+  const inlineCap = applyInlineCommentCap(placements, MAX_INLINE_REVIEW_COMMENTS);
+  placements = inlineCap.placements;
   const inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
   let summaryPlacements = placements;
@@ -123,10 +128,10 @@ export async function publishReview(
   const publishMetaBase = {
     inlineCount: inlineFindings.length,
     summaryOnlyCount: placements.filter((p) => !p.inlinePosted).length,
-    severityCapExcluded: placements.filter(
-      (p) => !p.inlineCapEligible && p.inlineLine == null && p.finding.severity !== "P3",
+    inlineCommentCapExcluded: inlineCap.inlineCommentCapExcluded,
+    anchorUnresolved: placements.filter(
+      (p) => isInlineSeverity(p.finding.severity) && p.inlineLine == null,
     ).length,
-    anchorUnresolved: placements.filter((p) => p.inlineCapEligible && p.inlineLine == null).length,
     dedupedFindingCount: params.dedupedFindingCount ?? 0,
     suppressedInlineCount: suppression.suppressedInlineCount,
   };

@@ -1,5 +1,6 @@
 import type { ReviewFinding } from "./reviewSchema.js";
-import { selectInlineFindings } from "./reviewSchema.js";
+import { isInlineSeverity } from "./reviewSchema.js";
+import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
@@ -13,7 +14,6 @@ export type InlinePlacement = {
   readonly finding: ReviewFinding;
   readonly inlineLine: number | null;
   readonly inlinePosted: boolean;
-  readonly inlineCapEligible: boolean;
   /** Set at publish time when the inline thread exists on the Files tab. */
   readonly inlineCommentUrl?: string;
 };
@@ -30,16 +30,9 @@ export function planInlinePlacements(
   findings: ReviewFinding[],
   diffIndex: CachedPrDiffIndex | undefined,
 ): InlinePlacement[] {
-  const inlineCandidates = selectInlineFindings(findings);
-  const inlineCapIndices = new Set<number>();
-  for (const candidate of inlineCandidates) {
-    const index = findings.indexOf(candidate);
-    if (index >= 0) inlineCapIndices.add(index);
-  }
-
-  return findings.map((finding, index) => {
-    if (!inlineCapIndices.has(index)) {
-      return { finding, inlineLine: null, inlinePosted: false, inlineCapEligible: false };
+  return findings.map((finding) => {
+    if (!isInlineSeverity(finding.severity)) {
+      return { finding, inlineLine: null, inlinePosted: false };
     }
     const inlineLine = resolveInlineAnchorLine(
       diffIndex,
@@ -51,9 +44,41 @@ export function planInlinePlacements(
       finding,
       inlineLine,
       inlinePosted: inlineLine != null,
-      inlineCapEligible: true,
     };
   });
+}
+
+export function applyInlineCommentCap(
+  placements: readonly InlinePlacement[],
+  maxInlineComments: number,
+): { placements: InlinePlacement[]; inlineCommentCapExcluded: number } {
+  const posted = placements
+    .map((placement, index) => ({ placement, index }))
+    .filter(({ placement }) => placement.inlinePosted);
+
+  if (posted.length <= maxInlineComments) {
+    return { placements: [...placements], inlineCommentCapExcluded: 0 };
+  }
+
+  const keepIndices = new Set(
+    posted
+      .toSorted((a, b) =>
+        compareReviewFindingsBySeverityFileLine(a.placement.finding, b.placement.finding),
+      )
+      .slice(0, maxInlineComments)
+      .map(({ index }) => index),
+  );
+
+  let inlineCommentCapExcluded = 0;
+  const capped = placements.map((placement, index) => {
+    if (!placement.inlinePosted || keepIndices.has(index)) {
+      return placement;
+    }
+    inlineCommentCapExcluded++;
+    return { ...placement, inlinePosted: false };
+  });
+
+  return { placements: capped, inlineCommentCapExcluded };
 }
 
 export function downgradePlacementsAfterInlineFailure(

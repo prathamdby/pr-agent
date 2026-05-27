@@ -45,7 +45,6 @@ export function testPlacements(
     finding,
     inlineLine: inlinePosted ? (opts.inlineLine ?? finding.startLine) : null,
     inlinePosted,
-    inlineCapEligible: inlinePosted,
   }));
 }
 

@@ -132,11 +132,14 @@ These are related but not wired together on INSERT today.
 | `REVIEW_FINDING_DETAIL_MAX_CHARS`                                    | 4000                                                   |
 | `REVIEW_FINDING_FIX_PROMPT_MAX_CHARS`                                | 2000                                                   |
 | `REVIEW_OVERVIEW_MAX_CHARS`                                          | 8000                                                   |
+| `REVIEW_OVERVIEW_COMPACT_MAX_CHARS`                                  | 500                                                    |
 | `REVIEW_SECURITY_CONCERNS_MAX_CHARS`                                 | 4000                                                   |
 | `REVIEW_FOLLOW_UP_MAX_CHARS`                                         | 2000                                                   |
 | `REVIEW_SUMMARY_BODY_MAX_CHARS`                                      | 60000                                                  |
 | `REVIEW_SUMMARY_COMPACTION_NOTE`                                     | Public note when summary is compacted                  |
-| `PRE_SUBMIT_EXHAUSTIVE_CHECKLIST`                                    | Pre-submit harness nudge                               |
+| `REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX`                             | Public note when finding rows are omitted              |
+| `MAX_REVIEW_PAYLOAD_FINDINGS`                                        | 128                                                    |
+| `MAX_INLINE_REVIEW_COMMENTS`                                         | 50                                                     |
 | `REVIEW_EFFORT_MIN` / `REVIEW_EFFORT_MAX`                            | 1–5                                                    |
 | `REVIEW_SEVERITY_RANK`                                               | P0–P3 ordering                                         |
 | Label prefixes                                                       | `LABEL_REVIEW_EFFORT_PREFIX`, `LABEL_SECURITY_CONCERN` |

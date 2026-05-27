@@ -1,5 +1,6 @@
 import { DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../settings/index.js";
 import type { ReviewPayload } from "./reviewSchema.js";
+import { isInlineSeverity } from "./reviewSchema.js";
 import {
   planInlinePlacements,
   type CachedPrDiffIndex,
@@ -57,7 +58,7 @@ function validatePlacementAnchor(
   enforceInlineAnchorValidation: boolean,
 ): AnchorFailure | null {
   if (!enforceInlineAnchorValidation) return null;
-  if (!placement.inlineCapEligible) return null;
+  if (!isInlineSeverity(placement.finding.severity)) return null;
   if (placement.inlineLine != null) return null;
   if (!diffIndex) return null;
   const { finding } = placement;

@@ -53,7 +53,6 @@ describe("suppressInlinePlacementsByFingerprint", () => {
           finding,
           inlineLine: 10,
           inlinePosted: true,
-          inlineCapEligible: true,
         },
       ],
       "review",

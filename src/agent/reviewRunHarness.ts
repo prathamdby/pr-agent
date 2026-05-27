@@ -7,12 +7,11 @@ import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
 import { resolveAgentRunnerProvider } from "./providers/index.js";
 import { renderAnchorMenuBlock } from "./reviewDiffPlacement.js";
-import { PRE_SUBMIT_USER_MESSAGE } from "./reviewPromptBlocks.js";
+import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "./reviewPromptBlocks.js";
 import {
   PROSE_ONLY_NUDGE,
   PUBLISH_RECOVERY_PROMPTS,
   PUBLISH_RECOVERY_ROUNDS,
-  PRE_SUBMIT_EXHAUSTIVE_CHECKLIST,
   VALIDATION_REPAIR_ROUNDS,
   type ReviewPhase,
 } from "../settings/index.js";
@@ -164,10 +163,8 @@ export async function runReviewHarness(params: {
       for (let round = 0; round < 2 && shouldContinueReviewRun(setup); round++) {
         const prompt =
           round === 0
-            ? [PRE_SUBMIT_EXHAUSTIVE_CHECKLIST, PROSE_ONLY_NUDGE, PRE_SUBMIT_USER_MESSAGE].join(
-                "\n\n",
-              )
-            : PRE_SUBMIT_USER_MESSAGE;
+            ? [PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE].join("\n\n")
+            : PRE_SUBMIT_REMINDER;
         lastText = await sendSubmitOnlyRepair(prompt);
         if (!shouldContinueReviewRun(setup)) break;
       }

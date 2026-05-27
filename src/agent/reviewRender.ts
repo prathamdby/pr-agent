@@ -22,12 +22,14 @@ import {
   REVIEW_FINDING_FOOTNOTE_SUMMARY,
   REVIEW_FINDINGS_NONE,
   REVIEW_OVERVIEW_ALERT,
+  REVIEW_OVERVIEW_COMPACT_MAX_CHARS,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
   REVIEW_SECURITY_DEFAULT,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
+  REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
@@ -135,7 +137,7 @@ function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding
 
 export function renderFindingFixBlock(
   finding: ReviewFinding,
-  opts: { inlinePosted: boolean; inlineCapEligible?: boolean },
+  opts: { inlinePosted: boolean },
 ): string {
   const location = `@${finding.file} ${formatLineRange(finding.startLine, finding.endLine)}`;
   const lines: string[] = [];
@@ -196,6 +198,8 @@ type SummaryRenderOptions = {
   compact: boolean;
   includeSummaryAccordions: boolean;
   compactionNote?: boolean;
+  findingRowLimit?: number;
+  omittedFindingCount?: number;
 };
 
 function renderFindingTableCellHtml(
@@ -257,7 +261,6 @@ export function renderAgentFixPrompt(
     const placement = placementByFinding.get(f);
     return renderFindingFixBlock(f, {
       inlinePosted: placement?.inlinePosted ?? false,
-      inlineCapEligible: placement?.inlineCapEligible,
     });
   });
 
@@ -351,9 +354,12 @@ function buildReviewSummaryBody(
   ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
   options: SummaryRenderOptions,
 ): string {
-  const sortedPlacements = sortPlacements(ctx.placements);
+  let sortedPlacements = sortPlacements(ctx.placements);
+  if (options.findingRowLimit != null) {
+    sortedPlacements = sortedPlacements.slice(0, options.findingRowLimit);
+  }
   const overview = options.compact
-    ? payload.prCharacter.trim().slice(0, 500)
+    ? payload.prCharacter.trim().slice(0, REVIEW_OVERVIEW_COMPACT_MAX_CHARS)
     : payload.prCharacter.trim();
 
   const rows: string[] = [];
@@ -423,18 +429,31 @@ function buildReviewSummaryBody(
     rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_SUMMARY_COMPACTION_NOTE));
   }
 
+  if (options.omittedFindingCount != null && options.omittedFindingCount > 0) {
+    rows.push("");
+    rows.push(
+      renderGitHubAlert(
+        REVIEW_OVERVIEW_ALERT,
+        `${options.omittedFindingCount} ${REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX}`,
+      ),
+    );
+  }
+
   return rows.join("\n").trimEnd();
 }
 
-export function renderReviewSummaryComment(
+export function fitReviewSummaryBody(
   payload: ReviewPayload,
   ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
+  maxBodyChars: number,
 ): string {
+  const sortedCount = sortPlacements(ctx.placements).length;
+
   const full = buildReviewSummaryBody(payload, ctx, {
     compact: false,
     includeSummaryAccordions: true,
   });
-  if (full.length <= REVIEW_SUMMARY_BODY_MAX_CHARS) {
+  if (full.length <= maxBodyChars) {
     return full;
   }
 
@@ -443,9 +462,36 @@ export function renderReviewSummaryComment(
     includeSummaryAccordions: false,
     compactionNote: true,
   });
-  if (compact.length <= REVIEW_SUMMARY_BODY_MAX_CHARS) {
+  if (compact.length <= maxBodyChars) {
     return compact;
   }
 
-  return compact.slice(0, REVIEW_SUMMARY_BODY_MAX_CHARS);
+  for (let limit = sortedCount - 1; limit >= 0; limit--) {
+    const omitted = sortedCount - limit;
+    const trimmed = buildReviewSummaryBody(payload, ctx, {
+      compact: true,
+      includeSummaryAccordions: false,
+      compactionNote: true,
+      findingRowLimit: limit,
+      omittedFindingCount: omitted,
+    });
+    if (trimmed.length <= maxBodyChars) {
+      return trimmed;
+    }
+  }
+
+  return buildReviewSummaryBody(payload, ctx, {
+    compact: true,
+    includeSummaryAccordions: false,
+    compactionNote: true,
+    findingRowLimit: 0,
+    omittedFindingCount: sortedCount,
+  });
+}
+
+export function renderReviewSummaryComment(
+  payload: ReviewPayload,
+  ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
+): string {
+  return fitReviewSummaryBody(payload, ctx, REVIEW_SUMMARY_BODY_MAX_CHARS);
 }
