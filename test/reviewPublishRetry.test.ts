@@ -27,6 +27,15 @@ describe("reviewPublishRetry", () => {
     ).toBe(false);
   });
 
+  it("does not retry review-already-submitted 422", () => {
+    expect(
+      isTransientGitHubReviewError({
+        status: 422,
+        message: "Review has already been submitted on this pull request",
+      }),
+    ).toBe(false);
+  });
+
   it("retries transient failures then succeeds", async () => {
     vi.useFakeTimers();
     const fn = vi

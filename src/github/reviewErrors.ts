@@ -22,7 +22,11 @@ export function isTransientGitHubReviewError(error: unknown): boolean {
   if (isLineResolutionPublishError(error)) return false;
 
   const message = githubErrorMessage(error).toLowerCase();
-  if (/validation failed|cannot be submitted|already been submitted|unprocessable entity/i.test(message)) {
+  if (
+    /validation failed|cannot be submitted|review has already been submitted|already been submitted|unprocessable entity/.test(
+      message,
+    )
+  ) {
     return false;
   }
 
