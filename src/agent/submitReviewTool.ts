@@ -65,6 +65,7 @@ export function buildSubmitReviewTool(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
+  publishAbortState?: { staleHead?: boolean };
 }): {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
@@ -221,6 +222,7 @@ export function buildSubmitReviewTool(params: {
         summaryCommentIdHint: params.summaryCommentIdHint,
         recordPublishStep: params.recordPublishStep,
         storedInlineFingerprints: params.storedInlineFingerprints,
+        staleReview: params.publishAbortState?.staleHead === true,
       });
     } catch (e) {
       logWarn("review_publish_failed", {

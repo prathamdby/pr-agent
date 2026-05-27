@@ -1,14 +1,13 @@
 import type { Config } from "../config.js";
 import {
-  createPullRequestReviewWithComments,
   enrichPlacementsWithInlineCommentUrls,
   listPullRequestLabels,
   listPullRequestReviewCommentsForReview,
   resolveVerifiedSummaryCommentUrl,
   setPullRequestLabels,
   upsertReviewSummaryComment,
-  type InlineReviewComment,
 } from "../github/reviewPublish.js";
+import { createPullRequestReviewWithComments } from "../github/reviewPublish.js";
 import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
 import { logWarn, logDebug } from "../evlog.js";
 import { MAX_INLINE_REVIEW_COMMENTS } from "../settings/index.js";
@@ -21,10 +20,10 @@ import {
 import {
   applyInlineCommentCap,
   downgradePlacementsAfterInlineFailure,
-  isLineResolutionPublishError,
   planInlinePlacements,
   type CachedPrDiffIndex,
 } from "./reviewDiffPlacement.js";
+import { publishInlineReviewComments } from "./reviewInlinePublish.js";
 import {
   mergeInlineFingerprintRecords,
   suppressInlinePlacementsByFingerprint,
@@ -39,6 +38,7 @@ import {
   type ReviewPublishContext,
 } from "./reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
+import type { InlinePlacement } from "./reviewDiffPlacement.js";
 
 function fingerprintsForInlineReviewStep(params: {
   storedInlineFingerprints: readonly string[];
@@ -50,6 +50,15 @@ function fingerprintsForInlineReviewStep(params: {
     params.inlinePostedFindings,
     params.mode,
   );
+}
+
+function mergeDroppedIntoSummaryPlacements(
+  placements: readonly InlinePlacement[],
+  dropped: readonly InlinePlacement[],
+): InlinePlacement[] {
+  if (dropped.length === 0) return [...placements];
+  const droppedByFinding = new Map(dropped.map((placement) => [placement.finding, placement]));
+  return placements.map((placement) => droppedByFinding.get(placement.finding) ?? placement);
 }
 
 export async function publishReview(
@@ -64,6 +73,7 @@ export async function publishReview(
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
     summaryCommentIdHint?: number | null;
+    staleReview?: boolean;
     recordPublishStep?: (
       step: "inline_review" | "summary_comment" | "labels",
       detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -91,9 +101,10 @@ export async function publishReview(
   placements = suppression.placements;
   const inlineCap = applyInlineCommentCap(placements, MAX_INLINE_REVIEW_COMMENTS);
   placements = inlineCap.placements;
-  const inlineFindings = placements.filter((p) => p.inlinePosted);
+  let inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
   let summaryPlacements = placements;
+  let anchorDroppedPlacements: InlinePlacement[] = [];
   let inlineReviewId = publishState.inlineReviewId;
   const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
   if (diffCacheEmpty) {
@@ -137,57 +148,101 @@ export async function publishReview(
   };
 
   if (!publishState.inlinePublished) {
-    const comments: InlineReviewComment[] = inlineFindings.map((p) => ({
-      path: p.finding.file,
-      line: p.inlineLine!,
-      side: "RIGHT" as const,
-      body: renderInlineThreadBody(p.finding, renderCtx),
-    }));
-
-    if (comments.length > 0) {
-      const pointerBody = renderReviewPointerBody(payload, {
-        ...renderCtx,
-        mode,
-        summaryCommentUrl,
-        placements,
-      });
-      if (pointerBody.truncated) {
-        logDebug("agent_fix_prompt_truncated", {
-          mode,
-          owner,
-          repo,
-          pr: prNumber,
-        });
-      }
+    if (inlineFindings.length > 0) {
       try {
-        const review = await createPullRequestReviewWithComments(token, owner, repo, prNumber, {
-          body: pointerBody.body,
+        const inlineResult = await publishInlineReviewComments(token, owner, repo, prNumber, {
+          renderReviewBody: (droppedInlinePlacements) =>
+            renderReviewPointerBody(payload, {
+              ...renderCtx,
+              mode,
+              summaryCommentUrl,
+              placements: mergeDroppedIntoSummaryPlacements(placements, droppedInlinePlacements),
+              droppedInlinePlacements,
+            }).body,
           event,
-          comments,
           commitId: headSha,
+          inlinePlacements: inlineFindings,
+          renderCommentBody: (finding) => renderInlineThreadBody(finding, renderCtx),
         });
-        inlineReviewId = review.id;
-        publishState.inlineReviewId = review.id;
-        const inlinePostedFindings = inlineFindings.map((placement) => placement.finding);
-        await params.recordPublishStep?.("inline_review", {
-          githubId: review.id,
-          meta: {
-            url: review.url,
+        if (inlineResult.review) {
+          inlineReviewId = inlineResult.review.id;
+          publishState.inlineReviewId = inlineResult.review.id;
+          inlineFindings = inlineResult.postedPlacements;
+          anchorDroppedPlacements = inlineResult.anchorDroppedPlacements;
+          summaryPlacements = mergeDroppedIntoSummaryPlacements(placements, anchorDroppedPlacements);
+
+          const pointerBody = renderReviewPointerBody(payload, {
+            ...renderCtx,
+            mode,
+            summaryCommentUrl,
+            placements: summaryPlacements,
+            droppedInlinePlacements: anchorDroppedPlacements,
+          });
+          if (pointerBody.truncated) {
+            logDebug("agent_fix_prompt_truncated", {
+              mode,
+              owner,
+              repo,
+              pr: prNumber,
+            });
+          }
+          if (anchorDroppedPlacements.length > 0) {
+            logDebug("review_inline_anchor_dropped", {
+              mode,
+              owner,
+              repo,
+              pr: prNumber,
+              droppedCount: anchorDroppedPlacements.length,
+              lineResolutionFallback: inlineResult.lineResolutionFallback,
+            });
+          }
+
+          const inlinePostedFindings = inlineFindings.map((placement) => placement.finding);
+          await params.recordPublishStep?.("inline_review", {
+            githubId: inlineResult.review.id,
+            meta: {
+              url: inlineResult.review.url,
+              event,
+              agentFixPromptTruncated: pointerBody.truncated,
+              fingerprints: inlineReviewFingerprints(inlinePostedFindings),
+              droppedInlineCount: anchorDroppedPlacements.length,
+              lineResolutionFallback: inlineResult.lineResolutionFallback,
+              ...publishMetaBase,
+            },
+          });
+          logDebug("review_published_inline", {
+            mode,
+            owner,
+            repo,
+            pr: prNumber,
+            reviewId: inlineResult.review.id,
             event,
+            inlineCount: inlineFindings.length,
+            droppedInlineCount: anchorDroppedPlacements.length,
             agentFixPromptTruncated: pointerBody.truncated,
-            fingerprints: inlineReviewFingerprints(inlinePostedFindings),
+          });
+        } else if (inlineResult.lineResolutionFallback) {
+          summaryPlacements = downgradePlacementsAfterInlineFailure(placements);
+          await params.recordPublishStep?.("inline_review", {
+            meta: {
+              reason: "inline_publish_failed",
+              lineResolutionFallback: true,
+              droppedInlineCount: inlineResult.anchorDroppedPlacements.length,
+              fingerprints: inlineReviewFingerprints([]),
+              ...publishMetaBase,
+            },
+          });
+          logWarn("review_inline_publish_failed", {
+            mode,
+            owner,
+            repo,
+            pr: prNumber,
+            message: "All inline anchors rejected after partial drop",
+            lineResolution: true,
+            droppedInlineCount: inlineResult.anchorDroppedPlacements.length,
             ...publishMetaBase,
-          },
-        });
-        logDebug("review_published_inline", {
-          mode,
-          owner,
-          repo,
-          pr: prNumber,
-          reviewId: review.id,
-          event,
-          inlineCount: comments.length,
-        });
+          });
+        }
       } catch (e) {
         logWarn("review_inline_publish_failed", {
           mode,
@@ -195,14 +250,14 @@ export async function publishReview(
           repo,
           pr: prNumber,
           message: e instanceof Error ? e.message : String(e),
-          lineResolution: isLineResolutionPublishError(e),
+          lineResolution: false,
           ...publishMetaBase,
         });
         summaryPlacements = downgradePlacementsAfterInlineFailure(placements);
         await params.recordPublishStep?.("inline_review", {
           meta: {
             reason: "inline_publish_failed",
-            lineResolutionFallback: isLineResolutionPublishError(e),
+            lineResolutionFallback: false,
             fingerprints: inlineReviewFingerprints([]),
             ...publishMetaBase,
           },
@@ -290,6 +345,8 @@ export async function publishReview(
     ...renderCtx,
     summarySentinel,
     placements: summaryPlacements,
+    mode,
+    staleReview: params.staleReview ?? false,
   });
 
   const summary = await upsertReviewSummaryComment(

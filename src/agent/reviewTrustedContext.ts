@@ -2,7 +2,10 @@ import { buildReviewPathProfile, formatReviewPathProfileBlock } from "./reviewPa
 import type { ReviewPreflightMetadata } from "./reviewPreflightFiles.js";
 import { buildReviewSizeBudget, formatReviewSizeBudgetBlock } from "./reviewSizeBudget.js";
 
-export function buildTrustedReviewContextBlock(metadata: ReviewPreflightMetadata): string {
+export function buildTrustedReviewContextBlock(
+  metadata: ReviewPreflightMetadata,
+  extras?: { priorInlineFeedback?: string },
+): string {
   const filenames = metadata.files.map((file) => file.filename);
   const pathProfile = buildReviewPathProfile(filenames);
   const sizeBudget = buildReviewSizeBudget({
@@ -11,9 +14,13 @@ export function buildTrustedReviewContextBlock(metadata: ReviewPreflightMetadata
     truncated: metadata.truncated,
   });
 
-  return [
+  const blocks = [
     formatReviewPathProfileBlock(pathProfile),
     "",
     formatReviewSizeBudgetBlock(sizeBudget),
-  ].join("\n");
+  ];
+  if (extras?.priorInlineFeedback) {
+    blocks.push("", extras.priorInlineFeedback);
+  }
+  return blocks.join("\n");
 }

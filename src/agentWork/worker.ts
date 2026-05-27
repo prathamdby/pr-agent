@@ -6,6 +6,10 @@ import { runAskRun } from "../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
 import { buildTrustedReviewContextBlock } from "../agent/reviewTrustedContext.js";
+import {
+  fetchPriorInlineReviewFeedback,
+  formatPriorInlineFeedbackBlock,
+} from "../agent/reviewPriorFeedback.js";
 import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
 import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
@@ -315,7 +319,31 @@ async function handleReviewJob(
         installationToken: installation.token,
       });
       try {
-        const trustedContext = buildTrustedReviewContextBlock(repositoryView.preflight);
+        let priorInlineFeedbackBlock = "";
+        try {
+          const bot = await getAppBotIdentity(cfg);
+          const priorThreads = await fetchPriorInlineReviewFeedback(
+            installation.token,
+            item.owner,
+            item.repo,
+            item.prNumber,
+            reviewLens,
+            bot.userId,
+          );
+          priorInlineFeedbackBlock = formatPriorInlineFeedbackBlock(priorThreads);
+        } catch (e) {
+          logWarn("prior_inline_feedback_fetch_failed", {
+            owner: item.owner,
+            repo: item.repo,
+            pr: item.prNumber,
+            reviewLens,
+            message: e instanceof Error ? e.message : String(e),
+          });
+        }
+
+        const trustedContext = buildTrustedReviewContextBlock(repositoryView.preflight, {
+          priorInlineFeedback: priorInlineFeedbackBlock || undefined,
+        });
 
         const result = await runFullPrReview({
           cfg,

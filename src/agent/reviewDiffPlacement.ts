@@ -90,10 +90,18 @@ export function downgradePlacementsAfterInlineFailure(
 }
 
 export function isLineResolutionPublishError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = githubErrorMessage(error);
   return (
     /line could not be resolved/i.test(message) ||
     /pull request review thread line.*invalid/i.test(message) ||
     /must be part of the diff/i.test(message)
   );
+}
+
+export function githubErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error != null && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
 }

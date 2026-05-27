@@ -11,6 +11,7 @@ import {
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
   renderReviewSummaryComment,
+  renderStaleReviewMetadataComment,
   fitReviewSummaryBody,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/agent/reviewRender.js";
@@ -787,5 +788,66 @@ describe("renderLightweightReviewCompletion", () => {
   it("uses security sentinel for security lens", () => {
     const body = renderLightweightReviewCompletion("review-security");
     expect(body).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
+  });
+});
+
+describe("review hardening render helpers", () => {
+  it("renders technical details accordion on inline threads", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P1",
+        file: "src/a.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Bug",
+        detail: "detail",
+        fixPrompt: "fix",
+        technicalDetails: "Root cause spans two modules",
+      },
+      ctx,
+    );
+    expect(body).toContain("Technical details");
+    expect(body).toContain("Root cause spans two modules");
+  });
+
+  it("embeds stale review metadata in summary comment", () => {
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      mode: "review",
+      staleReview: true,
+      placements: testPlacementsFromPayload(basePayload()),
+    });
+    expect(body).toContain(
+      renderStaleReviewMetadataComment({
+        headSha: ctx.headSha,
+        mode: "review",
+        stale: true,
+      }),
+    );
+  });
+
+  it("includes dropped inline anchor note on review pointer body", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Bug",
+          detail: "detail",
+          fixPrompt: "fix",
+        },
+      ],
+    });
+    const placements = testPlacementsFromPayload(payload);
+    const { body } = renderReviewPointerBody(payload, {
+      ...ctx,
+      mode: "review",
+      placements,
+      droppedInlinePlacements: placements,
+    });
+    expect(body).toContain("Inline anchors skipped");
+    expect(body).toContain("src/a.ts");
   });
 });

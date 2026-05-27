@@ -40,6 +40,18 @@ This document lists larger review-quality improvements deferred from the grilled
 
 **Proposed ADR:** Reject until explicit product requirement for adaptive suppression.
 
+**Shipped (prompt-only):** **Prior inline review feedback** — maintainer replies on prior bot inline threads are prefetched into trusted review context; the model is instructed not to re-report dismissed items. Server-side auto-drop at publish remains deferred.
+
+---
+
+## Review hardening non-goals
+
+**Context:** Some commercial review products bundle review quality with a hosted coding-agent product surface.
+
+**Out of scope for pr-agent:** GitHub Action arbitrary agent loops, Fix buttons, multi-lens ensemble orchestration, hosted billing/onboarding, incremental diff-coverage preflight gates, stranded pending-review cleanup automation, approval tiers, and server-side dismissal filters (until repeat rates justify them).
+
+**In scope (shipped or partial):** Publish resilience (transient 422 retry, partial inline anchor drop), double-escaped payload coercion, anti-slop prompt guidance, optional P0/P1 `technicalDetails`, stale review metadata, prior-thread feedback context, logs-only provider error classification.
+
 ---
 
 ## CI / check context prefetch
