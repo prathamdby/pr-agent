@@ -46,9 +46,3 @@ export function renderReviewFailureNotice(params: {
     ),
   ].join("\n");
 }
-
-/** @deprecated Use renderReviewFailureNotice — kept for callers migrating off structured publish wording. */
-export function renderStructuredPublishFallback(params: { mode: ReviewMode }): string {
-  const retryCommand = params.mode === "review-security" ? "/review-security" : "/review";
-  return renderReviewFailureNotice({ mode: params.mode, retryCommand });
-}

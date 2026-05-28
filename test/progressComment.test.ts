@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   renderReviewFailureNotice,
   renderReviewProgressComment,
-  renderStructuredPublishFallback,
 } from "../src/agentWork/progressComment.js";
 import { REVIEW_PROGRESS_NOTE } from "../src/settings/index.js";
 
@@ -18,7 +17,10 @@ describe("progressComment fallback wording", () => {
   });
 
   it("keeps security retry command", () => {
-    const body = renderStructuredPublishFallback({ mode: "review-security" });
+    const body = renderReviewFailureNotice({
+      mode: "review-security",
+      retryCommand: "/review-security",
+    });
     expect(body).toContain("/review-security");
     expect(body).toContain("[!CAUTION]");
     expect(body).not.toMatch(/structured publish/i);

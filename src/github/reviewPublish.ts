@@ -10,6 +10,7 @@ export type InlineReviewComment = {
 };
 
 import { COMMENTS_PAGE_SIZE } from "../settings/index.js";
+import { paginateOctokitPages } from "./paginateOctokit.js";
 
 export async function createPullRequestReviewWithComments(
   token: string,
@@ -136,27 +137,26 @@ export async function findIssueCommentBySentinel(
   sentinel: string,
 ): Promise<IssueCommentRef | null> {
   const octokit = installationOctokit(token);
-  let page = 1;
   let lastMatch: IssueCommentRef | null = null;
 
-  for (;;) {
-    const { data } = await octokit.rest.issues.listComments({
-      owner,
-      repo,
-      issue_number: issueNumber,
-      per_page: COMMENTS_PAGE_SIZE,
-      page,
-    });
-    if (data.length === 0) break;
+  const pages = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
 
-    for (const c of data) {
-      if ((c.body ?? "").startsWith(sentinel)) {
-        lastMatch = { id: c.id, url: c.html_url };
-      }
+  for (const c of pages) {
+    if ((c.body ?? "").startsWith(sentinel)) {
+      lastMatch = { id: c.id, url: c.html_url };
     }
-
-    if (data.length < COMMENTS_PAGE_SIZE) break;
-    page++;
   }
 
   return lastMatch;

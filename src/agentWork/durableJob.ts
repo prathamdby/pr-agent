@@ -6,6 +6,7 @@ import { logError, logInfo, logWarn } from "../evlog.js";
 import { mintBotIdentity, mintInstallationAuth } from "../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { classifyProviderError } from "../agent/providerErrors.js";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
@@ -176,6 +177,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
           type,
           workItemId: item.id,
           message,
+          providerErrorKind: classifyProviderError(e),
           pgBossRetryCount: job.retryCount,
           pgBossRetryLimit: job.retryLimit,
           dbAttemptCount: item.attemptCount,
@@ -204,6 +206,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       type,
       workItemId: item.id,
       message: sanitizeLogMessage(message),
+      providerErrorKind: classifyProviderError(e),
       pgBossRetryCount: job.retryCount,
       pgBossRetryLimit: job.retryLimit,
       dbAttemptCount: item.attemptCount,

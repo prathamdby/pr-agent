@@ -26,6 +26,8 @@ import {
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
+  REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS,
+  REVIEW_TECHNICAL_DETAILS_ACCORDION_SUMMARY,
   REVIEW_SECURITY_DEFAULT,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
@@ -33,6 +35,7 @@ import {
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
+import { reviewFindingPlacementKey } from "./reviewDiffPlacement.js";
 import type {
   ReviewFinding,
   ReviewPayload,
@@ -119,6 +122,47 @@ export function renderLightweightReviewCompletion(mode: ReviewMode): string {
     ]),
   );
   return rows.join("\n").trimEnd();
+}
+
+export function renderStaleReviewMetadataComment(params: {
+  headSha: string;
+  mode: ReviewMode;
+  stale: boolean;
+}): string {
+  const headSha = sanitizeReviewMetaHeadSha(params.headSha);
+  const lens = escapeHtmlCommentAttr(params.mode);
+  const staleValue = params.stale ? "true" : "false";
+  return `<!-- pr-agent:review-meta headSha=${headSha} lens=${lens} stale=${staleValue} -->`;
+}
+
+function sanitizeReviewMetaHeadSha(headSha: string): string {
+  const normalized = headSha.trim().toLowerCase();
+  return /^[0-9a-f]{7,40}$/.test(normalized) ? normalized : "invalid";
+}
+
+function escapeHtmlCommentAttr(value: string): string {
+  return value.replace(/--/g, "-&#45;").replace(/>/g, "&gt;");
+}
+
+export function renderDroppedInlineAnchorNote(
+  droppedPlacements: readonly InlinePlacement[],
+): string | null {
+  if (droppedPlacements.length === 0) return null;
+  const lines = droppedPlacements
+    .slice(0, REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS)
+    .map(
+      (placement) =>
+        `- ${placement.finding.severity} \`${placement.finding.file}\` L${placement.finding.startLine}: ${escapeTablePlainCell(placement.finding.title)}`,
+    );
+  const omitted = droppedPlacements.length - lines.length;
+  if (omitted > 0) {
+    lines.push(`- …and ${omitted} more`);
+  }
+  return [
+    "",
+    "**Inline anchors skipped** (findings remain in the PR conversation summary):",
+    ...lines,
+  ].join("\n");
 }
 
 function formatLineRange(startLine: number, endLine: number): string {
@@ -246,6 +290,17 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
     "",
     "</details>",
   ];
+  if (finding.technicalDetails != null && finding.technicalDetails.trim().length > 0) {
+    lines.push(
+      "",
+      "<details>",
+      `<summary>${REVIEW_TECHNICAL_DETAILS_ACCORDION_SUMMARY}</summary>`,
+      "",
+      escapeCodeFenceBreakers(finding.technicalDetails.trim()),
+      "",
+      "</details>",
+    );
+  }
   return lines.join("\n");
 }
 
@@ -254,11 +309,13 @@ export function renderAgentFixPrompt(
   ctx: RenderContext,
   placements: readonly InlinePlacement[],
 ): string {
-  const placementByFinding = new Map(placements.map((p) => [p.finding, p]));
+  const placementByKey = new Map(
+    placements.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
+  );
   const sorted = sortFindingsForAgentFixPrompt(payload.findings);
 
   const blocks = sorted.map((f) => {
-    const placement = placementByFinding.get(f);
+    const placement = placementByKey.get(reviewFindingPlacementKey(f));
     return renderFindingFixBlock(f, {
       inlinePosted: placement?.inlinePosted ?? false,
     });
@@ -284,8 +341,12 @@ function renderPointerLead(mode: ReviewMode, summaryCommentUrl?: string): string
   return renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_POINTER_NOTE_LEAD);
 }
 
-function assembleReviewPointerBody(pointerLine: string, agentFixPrompt: string): string {
-  return [
+function assembleReviewPointerBody(
+  pointerLine: string,
+  agentFixPrompt: string,
+  droppedNote: string | null,
+): string {
+  const parts = [
     pointerLine,
     "",
     "<details>",
@@ -296,18 +357,23 @@ function assembleReviewPointerBody(pointerLine: string, agentFixPrompt: string):
     "```",
     "",
     "</details>",
-  ].join("\n");
+  ];
+  if (droppedNote) {
+    parts.push(droppedNote);
+  }
+  return parts.join("\n");
 }
 
 function truncateAgentFixPromptForPointerBody(
   agentFixPrompt: string,
   pointerLine: string,
+  droppedNote: string | null,
   maxBodyChars: number,
 ): {
   prompt: string;
   truncated: boolean;
 } {
-  const wrapperOverhead = assembleReviewPointerBody(pointerLine, "").length;
+  const wrapperOverhead = assembleReviewPointerBody(pointerLine, "", droppedNote).length;
   const maxPromptChars = Math.max(0, maxBodyChars - wrapperOverhead);
 
   if (agentFixPrompt.length <= maxPromptChars) {
@@ -328,22 +394,25 @@ export function renderReviewPointerBody(
     mode: ReviewMode;
     summaryCommentUrl?: string;
     placements: readonly InlinePlacement[];
+    droppedInlinePlacements?: readonly InlinePlacement[];
   },
 ): { body: string; truncated: boolean } {
   const pointerLine = renderPointerLead(ctx.mode, ctx.summaryCommentUrl);
+  const droppedNote = renderDroppedInlineAnchorNote(ctx.droppedInlinePlacements ?? []);
   let agentFixPrompt = renderAgentFixPrompt(payload, ctx, ctx.placements);
   let truncated = false;
 
-  let body = assembleReviewPointerBody(pointerLine, agentFixPrompt);
+  let body = assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote);
   if (body.length > REVIEW_POINTER_BODY_MAX_CHARS) {
     const result = truncateAgentFixPromptForPointerBody(
       agentFixPrompt,
       pointerLine,
+      droppedNote,
       REVIEW_POINTER_BODY_MAX_CHARS,
     );
     agentFixPrompt = result.prompt;
     truncated = result.truncated;
-    body = assembleReviewPointerBody(pointerLine, agentFixPrompt);
+    body = assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote);
   }
 
   return { body, truncated };
@@ -351,7 +420,12 @@ export function renderReviewPointerBody(
 
 function buildReviewSummaryBody(
   payload: ReviewPayload,
-  ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
+  ctx: RenderContext & {
+    summarySentinel: string;
+    placements: readonly InlinePlacement[];
+    mode?: ReviewMode;
+    staleReview?: boolean;
+  },
   options: SummaryRenderOptions,
 ): string {
   let sortedPlacements = sortPlacements(ctx.placements);
@@ -439,12 +513,28 @@ function buildReviewSummaryBody(
     );
   }
 
+  if (ctx.mode != null) {
+    rows.push("");
+    rows.push(
+      renderStaleReviewMetadataComment({
+        headSha: ctx.headSha,
+        mode: ctx.mode,
+        stale: ctx.staleReview ?? false,
+      }),
+    );
+  }
+
   return rows.join("\n").trimEnd();
 }
 
 export function fitReviewSummaryBody(
   payload: ReviewPayload,
-  ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
+  ctx: RenderContext & {
+    summarySentinel: string;
+    placements: readonly InlinePlacement[];
+    mode?: ReviewMode;
+    staleReview?: boolean;
+  },
   maxBodyChars: number,
 ): string {
   const sortedCount = sortPlacements(ctx.placements).length;
@@ -491,7 +581,12 @@ export function fitReviewSummaryBody(
 
 export function renderReviewSummaryComment(
   payload: ReviewPayload,
-  ctx: RenderContext & { summarySentinel: string; placements: readonly InlinePlacement[] },
+  ctx: RenderContext & {
+    summarySentinel: string;
+    placements: readonly InlinePlacement[];
+    mode?: ReviewMode;
+    staleReview?: boolean;
+  },
 ): string {
   return fitReviewSummaryBody(payload, ctx, REVIEW_SUMMARY_BODY_MAX_CHARS);
 }

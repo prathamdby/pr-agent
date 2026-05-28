@@ -38,4 +38,26 @@ export const pathAndSizeGuidance = [
   "On large or truncated pull requests, prioritize **where to look first**, not **how many** to report — still include every evidenced P0–P2 found across the full diff.",
 ].join("\n");
 
+export const antiSlopGuidance = [
+  "## Anti-slop discipline",
+  "Frame each finding as a testable hypothesis backed by evidence from the diff or tools — not vague warnings.",
+  "Avoid filler phrasing (\"might potentially\", \"consider checking\", \"could be an issue\") without a concrete trigger path.",
+  "Prefer one precise mechanism over a list of generic risks.",
+  "Do not restate the diff; explain what breaks, under what input/state, and why the current code allows it.",
+].join("\n");
+
+export const highStakesTrivialTrapGuidance = [
+  "## High-stakes / trivial-change trap",
+  "Small, docs-only, or formatting-heavy diffs can still break auth, migrations, config, or security invariants.",
+  "When the change set touches high-stakes paths, scan them with the same rigor as large feature work.",
+  "Do not assume low line count means low risk.",
+].join("\n");
+
+export const priorInlineFeedbackGuidance = [
+  "## Prior inline review feedback",
+  "When trusted context lists maintainer replies on earlier bot inline threads for this lens, weigh dismissals before re-reporting.",
+  "Treat explicit false-positive / intentional / already-fixed replies as closed unless new commits materially change the code at that location.",
+  "Do not re-add unchanged dismissed items to ReviewPayload.",
+].join("\n");
+
 export { VALIDATION_REPAIR_ROUNDS } from "../settings/index.js";

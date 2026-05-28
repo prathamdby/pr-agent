@@ -65,6 +65,7 @@ export function buildReviewRunSetup(params: {
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  publishAbortState?: { staleHead?: boolean };
 }): ReviewRunSetup {
   const {
     cfg,
@@ -129,6 +130,7 @@ export function buildReviewRunSetup(params: {
       recordPublishStep: params.recordPublishStep,
       shouldAbortPublish: params.shouldAbortPublish,
       storedInlineFingerprints: params.storedInlineFingerprints,
+      publishAbortState: params.publishAbortState,
     });
 
   let submitBundle = buildSubmit();

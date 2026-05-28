@@ -3,6 +3,9 @@ import {
   pathAndSizeGuidance,
   publicOutputContract,
   singlePassReviewContract,
+  antiSlopGuidance,
+  highStakesTrivialTrapGuidance,
+  priorInlineFeedbackGuidance,
 } from "./reviewPromptBlocks.js";
 import { githubToolingDiscipline } from "./securityPrompt.js";
 
@@ -66,6 +69,12 @@ export function buildAutomatedSystemPrompt(): string {
     "4. Align test assumptions vs production behaviour when citing tests",
     "5. When a finding hinges on third-party library behaviour, call resolveLibraryId then getLibraryDocs to verify the claim. Do not pre-warm.",
     "",
+    antiSlopGuidance,
+    "",
+    highStakesTrivialTrapGuidance,
+    "",
+    priorInlineFeedbackGuidance,
+    "",
     "## Reporting gate",
     "### Report if at least one is true",
     "- Definite runtime failure (TypeError, KeyError, ImportError…)",
@@ -104,6 +113,7 @@ export function buildAutomatedSystemPrompt(): string {
     "- prCharacter: one paragraph describing what this PR does",
     "- findings: all items you report; each has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, <=80 chars), detail (why + trigger path)",
     `- ${fixPromptFieldContract}`,
+    "- technicalDetails (optional, P0/P1 only): deeper context beyond the scannable fix prompt when the mechanism is complex",
     "- estimatedEffort: integer 1–5",
     "- relevantTests: yes | no | partial",
     "- securityConcerns: string or null (null if none)",
