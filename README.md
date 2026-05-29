@@ -7,7 +7,7 @@ Durable agent work (Postgres intake + pg-boss workers) is described in [docs/adr
 ## What it does
 
 - On **`pull_request`** (`opened`, `synchronize`, `reopened`), enqueues an automated general review. A worker adds 👀 (`eyes`) on the PR issue, posts a progress stub, runs an agent loop, and upserts **`## PR Agent Review`** on the PR conversation when the model succeeds. A pull request review on the Files tab (with inline P0–P2 threads) is posted only when those severities are present; its review pointer body includes a collapsible **agent fix prompt** aggregating all findings for copy-paste into coding agents.
-- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/review`, and `/review-security`, enqueues work, and routes commands. Reactions and replies are published by workers, not on the webhook fiber.
+- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/review`, `/review-security`, and `/review-quality`, enqueues work, and routes commands. Reactions and replies are published by workers, not on the webhook fiber.
 - Responds **`200`** after **durable intake commits** to Postgres and pg-boss jobs are enqueued (or **`503`** if intake cannot commit — GitHub may redeliver). **Reactions, progress comments, reviews, and ask answers** run in **`ROLE=worker`** and may appear **seconds after** the HTTP response. The webhook does **not** wait for LLM runs to finish.
 
 ## Behaviour details
@@ -25,6 +25,7 @@ Durable agent work (Postgres intake + pg-boss workers) is described in [docs/adr
 - **Bot identity** for self-suppression is cached **per `GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
 - **`WEBHOOK_TIMEOUT_MS`** (default `10000`) is a **logging-only** budget on webhook intake duration; it does not cancel worker jobs.
 - **`/review-security`** — trigger-only deep security review (DeepSec-adapted prompt; see [NOTICES.md](NOTICES.md)). Never runs on `pull_request` webhooks. Uses the same review worker lane and **`MAX_TOOL_ROUNDS`** as `/review`; large PRs may need a higher `MAX_TOOL_ROUNDS`. Posts a separate summary comment (`## PR Agent Security Review`) that can coexist with the general review summary.
+- **`/review-quality`** — trigger-only deep code-quality review (thermo-nuclear-adapted prompt; see [NOTICES.md](NOTICES.md) and [docs/adr/0016-review-quality-lens.md](docs/adr/0016-review-quality-lens.md)). Never runs on `pull_request` webhooks. Uses the same review worker lane and **`MAX_TOOL_ROUNDS`** as `/review`. Posts a separate summary comment (`## PR Agent Quality Review`) focused on maintainability and structural simplification; can coexist with general and security summaries.
 - **`/ask`** — interactive Q&A about PR code (PR conversation or inline diff comment). Runs on the **`agent-work-ask`** pg-boss queue with **`ASK_CONCURRENCY`** (default `1`), **`MAX_ASK_TOOL_ROUNDS`** (default `12`), and **`MAX_ASK_FINALIZE_ROUNDS`** (default `2`) for extra model turns when the tool loop ends on tool results. Inline replies are plain text; PR conversation replies repeat the question in a short wrapper. See [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
 
 ## Large PRs and GitHub rate limits

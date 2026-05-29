@@ -33,9 +33,10 @@ function inlineCommentsFromPlacements(
 }
 
 /** Drop lowest-severity inline placement first when GitHub rejects line anchors. */
-function dropLowestPriorityInlinePlacement(
-  placements: InlinePlacement[],
-): { remaining: InlinePlacement[]; dropped: InlinePlacement | null } {
+function dropLowestPriorityInlinePlacement(placements: InlinePlacement[]): {
+  remaining: InlinePlacement[];
+  dropped: InlinePlacement | null;
+} {
   if (placements.length === 0) {
     return { remaining: placements, dropped: null };
   }

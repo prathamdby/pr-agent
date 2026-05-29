@@ -4,6 +4,8 @@ import {
   formatReviewValidationError,
   reviewEventForFindings,
   reviewPayloadSchema,
+  reviewSummarySentinelForMode,
+  reviewRetrySlashCommandForMode,
   selectInlineFindings,
 } from "../src/agent/reviewSchema.js";
 import type { ReviewFinding } from "../src/agent/reviewSchema.js";
@@ -197,5 +199,17 @@ describe("formatReviewValidationError", () => {
       expect(formatted.paths).toContain("findings");
       expect(formatted.failureKind).toBeTruthy();
     }
+  });
+});
+
+describe("reviewSummarySentinelForMode", () => {
+  it("returns the quality sentinel for review-quality", () => {
+    expect(reviewSummarySentinelForMode("review-quality")).toBe("## PR Agent Quality Review");
+  });
+});
+
+describe("reviewRetrySlashCommandForMode", () => {
+  it("returns /review-quality for review-quality mode", () => {
+    expect(reviewRetrySlashCommandForMode("review-quality")).toBe("/review-quality");
   });
 });

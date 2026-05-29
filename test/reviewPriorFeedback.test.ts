@@ -7,6 +7,7 @@ import {
 } from "../src/agent/reviewPriorFeedback.js";
 import {
   REVIEW_POINTER_BODY,
+  QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../src/settings/index.js";
 
@@ -22,9 +23,8 @@ describe("reviewPriorFeedback", () => {
   });
   it("classifies review lens from pointer body", () => {
     expect(classifyReviewLensFromPointerBody(REVIEW_POINTER_BODY)).toBe("review");
-    expect(classifyReviewLensFromPointerBody(SECURITY_REVIEW_POINTER_BODY)).toBe(
-      "review-security",
-    );
+    expect(classifyReviewLensFromPointerBody(SECURITY_REVIEW_POINTER_BODY)).toBe("review-security");
+    expect(classifyReviewLensFromPointerBody(QUALITY_REVIEW_POINTER_BODY)).toBe("review-quality");
     expect(classifyReviewLensFromPointerBody("unrelated")).toBeNull();
   });
 
@@ -102,14 +102,7 @@ describe("reviewPriorFeedback", () => {
       },
     } as never);
 
-    const threads = await fetchPriorInlineReviewFeedback(
-      "token",
-      "o",
-      "r",
-      1,
-      "review",
-      botUserId,
-    );
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual(["False positive — already handled upstream"]);

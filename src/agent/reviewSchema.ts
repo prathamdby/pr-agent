@@ -13,17 +13,40 @@ import {
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
+  QUALITY_REVIEW_SUMMARY_SENTINEL,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import { fixDoubleEscapedString } from "./fixDoubleEscapedString.js";
 
-export { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
+export {
+  REVIEW_SUMMARY_SENTINEL,
+  SECURITY_REVIEW_SUMMARY_SENTINEL,
+  QUALITY_REVIEW_SUMMARY_SENTINEL,
+} from "../settings/index.js";
 
-export type ReviewMode = "review" | "review-security";
+export type ReviewMode = "review" | "review-security" | "review-quality";
 
 export function reviewSummarySentinelForMode(mode: ReviewMode): string {
-  return mode === "review-security" ? SECURITY_REVIEW_SUMMARY_SENTINEL : REVIEW_SUMMARY_SENTINEL;
+  switch (mode) {
+    case "review-security":
+      return SECURITY_REVIEW_SUMMARY_SENTINEL;
+    case "review-quality":
+      return QUALITY_REVIEW_SUMMARY_SENTINEL;
+    default:
+      return REVIEW_SUMMARY_SENTINEL;
+  }
+}
+
+export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
+  switch (mode) {
+    case "review-security":
+      return "/review-security";
+    case "review-quality":
+      return "/review-quality";
+    default:
+      return "/review";
+  }
 }
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
@@ -375,7 +398,9 @@ export function formatReviewValidationError(error: z.ZodError): {
   lines.push(
     "Each P0/P1/P2 finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.",
   );
-  lines.push("Optional technicalDetails (P0/P1 only): deeper context beyond the scannable fix prompt.");
+  lines.push(
+    "Optional technicalDetails (P0/P1 only): deeper context beyond the scannable fix prompt.",
+  );
   const firstIssue = error.issues[0];
   const failureKind = firstIssue ? zodIssueFailureKind(firstIssue) : "other";
   return { message: lines.join("\n"), failureKind, paths };

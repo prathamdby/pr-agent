@@ -15,8 +15,7 @@ import {
   createReviewPayloadSchema,
   formatReviewValidationError,
   REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-  REVIEW_SUMMARY_SENTINEL,
+  reviewSummarySentinelForMode,
   type ReviewMode,
   type ReviewPublishContext,
 } from "./reviewSchema.js";
@@ -73,8 +72,7 @@ export function buildSubmitReviewTool(params: {
   const submitSchema = createReviewPayloadSchema();
   const mode = params.mode ?? "review";
 
-  const summarySentinel =
-    mode === "review-security" ? SECURITY_REVIEW_SUMMARY_SENTINEL : REVIEW_SUMMARY_SENTINEL;
+  const summarySentinel = reviewSummarySentinelForMode(mode);
   const piTool: PiTool = {
     name: "submitReview",
     description: [

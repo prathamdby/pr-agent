@@ -227,17 +227,11 @@ export async function runInlinePublishPhase(params: {
     const body = renderRepeatNoBugsReviewBody(mode, summaryCommentUrl);
     try {
       const review = await withTransientReviewRetry(() =>
-        createPullRequestReviewWithComments(
-          token,
-          ctx.owner,
-          ctx.repo,
-          ctx.prNumber,
-          {
-            body,
-            event: "COMMENT",
-            commitId: ctx.headSha,
-          },
-        ),
+        createPullRequestReviewWithComments(token, ctx.owner, ctx.repo, ctx.prNumber, {
+          body,
+          event: "COMMENT",
+          commitId: ctx.headSha,
+        }),
       );
       inlineReviewId = review.id;
       publishState.inlineReviewId = review.id;

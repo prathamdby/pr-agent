@@ -17,6 +17,7 @@ import {
 } from "../settings/index.js";
 import {
   REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
+  reviewRetrySlashCommandForMode,
   reviewSummarySentinelForMode,
   type ReviewMode,
 } from "./reviewSchema.js";
@@ -226,7 +227,7 @@ export async function runReviewHarness(params: {
       publishCallCount: setup.submitState.publishCallCount,
       maxPublishCalls: cfg.maxReviewPublishCalls,
     });
-    const retryCommand = reviewMode === "review-security" ? "/review-security" : "/review";
+    const retryCommand = reviewRetrySlashCommandForMode(reviewMode);
     try {
       await upsertReviewSummaryComment(
         setup.getToken(),

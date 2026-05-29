@@ -492,7 +492,11 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
               return;
             }
 
-            if (command === "review" || command === "review-security") {
+            if (
+              command === "review" ||
+              command === "review-security" ||
+              command === "review-quality"
+            ) {
               const lens = command as ReviewMode;
               const resourceKey = prResourceKey(input.owner, input.repo, input.prNumber);
               const existing = await fetchActiveSameLens(client, resourceKey, lens);

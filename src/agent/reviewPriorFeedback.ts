@@ -3,6 +3,7 @@ import {
   MAX_PRIOR_INLINE_FEEDBACK_THREADS,
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
+  QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { installationOctokit } from "../github/appAuth.js";
@@ -46,6 +47,7 @@ function extractBotTitleSnippet(body: string): string {
 
 export function classifyReviewLensFromPointerBody(body: string): ReviewMode | null {
   if (body.includes(SECURITY_REVIEW_POINTER_BODY)) return "review-security";
+  if (body.includes(QUALITY_REVIEW_POINTER_BODY)) return "review-quality";
   if (body.includes(REVIEW_POINTER_BODY)) return "review";
   return null;
 }
@@ -180,7 +182,9 @@ export async function fetchPriorInlineReviewFeedback(
     .slice(0, MAX_PRIOR_INLINE_FEEDBACK_THREADS);
 }
 
-export function formatPriorInlineFeedbackBlock(threads: readonly PriorInlineFeedbackThread[]): string {
+export function formatPriorInlineFeedbackBlock(
+  threads: readonly PriorInlineFeedbackThread[],
+): string {
   if (threads.length === 0) return "";
 
   const lines = [
@@ -194,9 +198,7 @@ export function formatPriorInlineFeedbackBlock(threads: readonly PriorInlineFeed
       `- \`${escapeTablePlainCell(thread.path)}\` L${thread.startLine} · ${escapeTablePlainCell(thread.botTitleSnippet)}`,
     );
     for (const reply of thread.humanReplies) {
-      lines.push(
-        `  - Maintainer reply (user-provided): ${escapeTablePlainCell(reply)}`,
-      );
+      lines.push(`  - Maintainer reply (user-provided): ${escapeTablePlainCell(reply)}`);
     }
     lines.push(`  - Thread: ${escapeTablePlainCell(thread.threadUrl)}`);
   }
