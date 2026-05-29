@@ -137,7 +137,6 @@ export const PUBLISH_RECOVERY_PROMPTS = [
 
 export const VALIDATION_REPAIR_ROUNDS = 3;
 
-export const ASK_RETRY_ROUNDS = 4;
 export const ASK_RETRY_NUDGE =
   "Answer the question now in plain text based on your investigation above. Do not call more tools unless absolutely required to fix a factual gap.";
 

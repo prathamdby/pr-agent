@@ -23,6 +23,23 @@ function toolResultToText(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result, null, 2);
 }
 
+function assistantMessageText(message: { role: string; content: unknown }): string {
+  if (message.role !== "assistant" || !Array.isArray(message.content)) return "";
+  return message.content
+    .filter(
+      (part): part is { type: "text"; text: string } =>
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        part.type === "text" &&
+        "text" in part &&
+        typeof part.text === "string",
+    )
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+}
+
 function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
@@ -105,29 +122,24 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     return {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
         sessionToolTurnCount = 0;
-        const chunks: string[] = [];
+        let finalText = "";
         const unsubscribe = session.subscribe((event) => {
-          if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent.type === "text_delta"
-          ) {
-            chunks.push(event.assistantMessageEvent.delta);
-          }
-          if (opts?.maxToolRounds != null && event.type === "turn_end") {
-            sessionToolTurnCount += 1;
-            if (sessionToolTurnCount >= opts.maxToolRounds && event.toolResults.length > 0) {
-              void session.abort();
-            }
+          if (event.type !== "turn_end") return;
+          sessionToolTurnCount += 1;
+          if (event.toolResults.length === 0) {
+            finalText = assistantMessageText(event.message as { role: string; content: unknown });
+          } else if (opts?.maxToolRounds != null && sessionToolTurnCount >= opts.maxToolRounds) {
+            void session.abort();
           }
         });
         try {
           await session.prompt(prompt);
-          return { text: chunks.join("") };
+          return { text: finalText };
         } finally {
           unsubscribe();
         }
       },
-      restrictToTools(nextTools) {
+      restrictToTools(nextTools, _executors) {
         session.setActiveToolsByName(nextTools.map((tool) => tool.name));
       },
       restoreTools() {
