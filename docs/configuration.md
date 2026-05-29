@@ -151,7 +151,6 @@ These are related but not wired together on INSERT today.
 | `RATE_LIMIT_CIRCUIT_THRESHOLD`       | 3                                      |
 | `VALIDATION_REPAIR_ROUNDS`           | 3                                      |
 | `PUBLISH_RECOVERY_ROUNDS`            | 4                                      |
-| `ASK_RETRY_ROUNDS`                   | 4                                      |
 | `PUBLISH_RECOVERY_PROMPTS`           | recovery nudge strings                 |
 | `REVIEW_*_CIRCUIT_OPEN_*`            | rate-limit circuit messages            |
 | `ASK_*_CIRCUIT_OPEN_*`               | ask circuit messages                   |

@@ -2,7 +2,7 @@ import { logInfo } from "../evlog.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "./context7Tools.js";
-import { ASK_FAILURE_MESSAGE, ASK_RETRY_NUDGE, ASK_RETRY_ROUNDS } from "../settings/index.js";
+import { ASK_FAILURE_MESSAGE, ASK_RETRY_NUDGE } from "../settings/index.js";
 import { resolveAgentRunnerProvider } from "./providers/index.js";
 import { buildAskUserContent, type AskRunParams, type AskRunResult } from "./askRun.js";
 import { buildAskRunSetup } from "./askRunSetup.js";
@@ -30,20 +30,15 @@ export async function runAskHarness(params: AskRunParams): Promise<AskRunResult>
     const sendOpts = { maxToolRounds: cfg.maxAskToolRounds };
     let lastText = (await session.send(buildAskUserContent(params), sendOpts)).text.trim();
 
-    if (!lastText) {
-      lastText = (await session.send(ASK_RETRY_NUDGE, sendOpts)).text.trim();
-    }
-
-    for (let round = 0; round < ASK_RETRY_ROUNDS && !lastText; round++) {
-      lastText = (await session.send(ASK_RETRY_NUDGE, sendOpts)).text.trim();
-    }
-
-    if (!lastText) {
-      lastText = (
-        await session.send(
-          "Respond with plain text only (no tool calls). Answer the question using what you found, or explain clearly what blocked a complete answer.",
-        )
-      ).text.trim();
+    if (!lastText && cfg.maxAskFinalizeRounds > 0) {
+      session.restrictToTools([], {});
+      try {
+        for (let round = 0; round < cfg.maxAskFinalizeRounds && !lastText; round++) {
+          lastText = (await session.send(ASK_RETRY_NUDGE)).text.trim();
+        }
+      } finally {
+        session.restoreTools();
+      }
     }
 
     const answerText =

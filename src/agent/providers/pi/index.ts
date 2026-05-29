@@ -9,7 +9,8 @@ import {
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { TurnEndEvent } from "@earendil-works/pi-coding-agent";
+import type { TextContent, Tool as PiTool } from "@earendil-works/pi-ai";
 import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -21,6 +22,15 @@ import type {
 
 function toolResultToText(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result, null, 2);
+}
+
+function assistantMessageText(message: TurnEndEvent["message"]): string {
+  if (message.role !== "assistant") return "";
+  return message.content
+    .filter((part): part is TextContent => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
 }
 
 function toCodingAgentTool(
@@ -85,7 +95,6 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     await resourceLoader.reload();
     const model = getModel(cfg.piProvider, cfg.piModel as never);
     const allToolNames = tools.map((tool) => tool.name);
-    let sessionToolTurnCount = 0;
     const { session } = await createAgentSession({
       cwd: cwd ?? process.cwd(),
       agentDir,
@@ -104,30 +113,27 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
 
     return {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
-        sessionToolTurnCount = 0;
-        const chunks: string[] = [];
+        let sessionToolTurnCount = 0;
+        let finalText = "";
         const unsubscribe = session.subscribe((event) => {
-          if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent.type === "text_delta"
-          ) {
-            chunks.push(event.assistantMessageEvent.delta);
-          }
-          if (opts?.maxToolRounds != null && event.type === "turn_end") {
-            sessionToolTurnCount += 1;
-            if (sessionToolTurnCount >= opts.maxToolRounds && event.toolResults.length > 0) {
-              void session.abort();
-            }
+          if (event.type !== "turn_end") return;
+          sessionToolTurnCount += 1;
+          // A tool-free turn is the terminal turn of prompt(); capture only that answer text.
+          if (event.toolResults.length === 0) {
+            finalText = assistantMessageText(event.message);
+          } else if (opts?.maxToolRounds != null && sessionToolTurnCount >= opts.maxToolRounds) {
+            void session.abort();
           }
         });
         try {
           await session.prompt(prompt);
-          return { text: chunks.join("") };
+          return { text: finalText };
         } finally {
           unsubscribe();
         }
       },
-      restrictToTools(nextTools) {
+      // customTools are fixed at session creation; restrictToTools only toggles active names.
+      restrictToTools(nextTools, _executors) {
         session.setActiveToolsByName(nextTools.map((tool) => tool.name));
       },
       restoreTools() {
