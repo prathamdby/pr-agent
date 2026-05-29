@@ -95,9 +95,11 @@ export function reviewPointerBodyForMode(mode: ReviewMode): string {
       return SECURITY_REVIEW_POINTER_BODY;
     case "review-quality":
       return QUALITY_REVIEW_POINTER_BODY;
-    default:
+    case "review":
       return REVIEW_POINTER_BODY;
   }
+  const exhaustive: never = mode;
+  return exhaustive;
 }
 
 export function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
@@ -107,9 +109,11 @@ export function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: st
       return `[View the updated security review.](${summaryCommentUrl})`;
     case "review-quality":
       return `[View the updated code-quality review.](${summaryCommentUrl})`;
-    default:
+    case "review":
       return `[View the updated review.](${summaryCommentUrl})`;
   }
+  const exhaustive: never = mode;
+  return exhaustive;
 }
 
 export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
@@ -119,9 +123,11 @@ export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl
         return `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`;
       case "review-quality":
         return `${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${summaryCommentUrl}).`;
-      default:
+      case "review":
         return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
     }
+    const exhaustive: never = mode;
+    return exhaustive;
   }
   return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
 }

@@ -33,9 +33,11 @@ export function reviewSummarySentinelForMode(mode: ReviewMode): string {
       return SECURITY_REVIEW_SUMMARY_SENTINEL;
     case "review-quality":
       return QUALITY_REVIEW_SUMMARY_SENTINEL;
-    default:
+    case "review":
       return REVIEW_SUMMARY_SENTINEL;
   }
+  const exhaustive: never = mode;
+  return exhaustive;
 }
 
 export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
@@ -44,9 +46,11 @@ export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
       return "/review-security";
     case "review-quality":
       return "/review-quality";
-    default:
+    case "review":
       return "/review";
   }
+  const exhaustive: never = mode;
+  return exhaustive;
 }
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);

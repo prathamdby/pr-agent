@@ -28,9 +28,11 @@ function systemPromptForReviewMode(reviewMode: ReviewMode): string {
       return automatedSecuritySystemPrompt;
     case "review-quality":
       return automatedQualitySystemPrompt;
-    default:
+    case "review":
       return buildAutomatedSystemPrompt();
   }
+  const exhaustive: never = reviewMode;
+  return exhaustive;
 }
 
 export type ReviewRunSetup = {
