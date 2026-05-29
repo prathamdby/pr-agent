@@ -1,10 +1,4 @@
-export type ProviderErrorKind =
-  | "auth"
-  | "quota"
-  | "billing"
-  | "rate_limit"
-  | "timeout"
-  | "unknown";
+export type ProviderErrorKind = "auth" | "quota" | "billing" | "rate_limit" | "timeout" | "unknown";
 
 function errorText(error: unknown): string {
   if (error instanceof Error) {

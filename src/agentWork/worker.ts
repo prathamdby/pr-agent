@@ -7,7 +7,10 @@ import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAsk
 import { runFullPrReview } from "../agent/reviewRun.js";
 import { buildTrustedReviewContextForReview } from "../agent/reviewTrustedContext.js";
 import { fetchReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
-import { reviewSummarySentinelForMode } from "../agent/reviewSchema.js";
+import {
+  reviewRetrySlashCommandForMode,
+  reviewSummarySentinelForMode,
+} from "../agent/reviewSchema.js";
 import { tryLightweightAutoReviewCompletion } from "./reviewLightweightCompletion.js";
 import {
   initReviewRunMetrics,
@@ -450,7 +453,7 @@ async function handleReviewJob(
         item.prNumber,
         renderReviewFailureNotice({
           mode: reviewLens,
-          retryCommand: reviewLens === "review-security" ? "/review-security" : "/review",
+          retryCommand: reviewRetrySlashCommandForMode(reviewLens),
         }),
         reviewSummarySentinelForMode(reviewLens),
       );

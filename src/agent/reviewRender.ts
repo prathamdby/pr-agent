@@ -32,6 +32,7 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
+  QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
@@ -53,6 +54,7 @@ export {
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
+  QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 
@@ -88,21 +90,44 @@ function formatEffortLabelHtml(effort: number): string {
 }
 
 export function reviewPointerBodyForMode(mode: ReviewMode): string {
-  return mode === "review-security" ? SECURITY_REVIEW_POINTER_BODY : REVIEW_POINTER_BODY;
+  switch (mode) {
+    case "review-security":
+      return SECURITY_REVIEW_POINTER_BODY;
+    case "review-quality":
+      return QUALITY_REVIEW_POINTER_BODY;
+    case "review":
+      return REVIEW_POINTER_BODY;
+  }
+  const exhaustive: never = mode;
+  return exhaustive;
 }
 
 export function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
   if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
-  return mode === "review-security"
-    ? `[View the updated security review.](${summaryCommentUrl})`
-    : `[View the updated review.](${summaryCommentUrl})`;
+  switch (mode) {
+    case "review-security":
+      return `[View the updated security review.](${summaryCommentUrl})`;
+    case "review-quality":
+      return `[View the updated code-quality review.](${summaryCommentUrl})`;
+    case "review":
+      return `[View the updated review.](${summaryCommentUrl})`;
+  }
+  const exhaustive: never = mode;
+  return exhaustive;
 }
 
 export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
-    return mode === "review-security"
-      ? `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`
-      : `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
+    switch (mode) {
+      case "review-security":
+        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`;
+      case "review-quality":
+        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${summaryCommentUrl}).`;
+      case "review":
+        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
+    }
+    const exhaustive: never = mode;
+    return exhaustive;
   }
   return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
 }

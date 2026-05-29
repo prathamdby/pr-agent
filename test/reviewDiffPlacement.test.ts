@@ -137,7 +137,8 @@ describe("reviewDiffPlacement", () => {
 
 describe("mergeDroppedIntoSummaryPlacements", () => {
   it("matches dropped placements by stable finding key, not object identity", async () => {
-    const { mergeDroppedIntoSummaryPlacements } = await import("../src/agent/reviewDiffPlacement.js");
+    const { mergeDroppedIntoSummaryPlacements } =
+      await import("../src/agent/reviewDiffPlacement.js");
     const finding = {
       severity: "P1" as const,
       file: "src/a.ts",

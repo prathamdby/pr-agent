@@ -16,7 +16,7 @@ type AgentWorkRow = {
   pr_number: number;
   installation_id: string;
   head_sha: string;
-  review_lens: "review" | "review-security" | null;
+  review_lens: "review" | "review-security" | "review-quality" | null;
   resource_key: string;
   attempt_count: number;
   payload: AgentWorkItem["payload"];

@@ -16,15 +16,15 @@ describe("reviewPublishRetry", () => {
     expect(
       isLineResolutionPublishError({ status: 422, message: "Line could not be resolved" }),
     ).toBe(true);
-    expect(isTransientGitHubReviewError({ status: 422, message: "Line could not be resolved" })).toBe(
-      false,
-    );
+    expect(
+      isTransientGitHubReviewError({ status: 422, message: "Line could not be resolved" }),
+    ).toBe(false);
   });
 
   it("does not retry validation-failed 422", () => {
-    expect(
-      isTransientGitHubReviewError({ status: 422, message: "Validation Failed: 422" }),
-    ).toBe(false);
+    expect(isTransientGitHubReviewError({ status: 422, message: "Validation Failed: 422" })).toBe(
+      false,
+    );
   });
 
   it("does not retry review-already-submitted 422", () => {

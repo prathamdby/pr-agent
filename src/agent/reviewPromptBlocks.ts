@@ -41,7 +41,7 @@ export const pathAndSizeGuidance = [
 export const antiSlopGuidance = [
   "## Anti-slop discipline",
   "Frame each finding as a testable hypothesis backed by evidence from the diff or tools — not vague warnings.",
-  "Avoid filler phrasing (\"might potentially\", \"consider checking\", \"could be an issue\") without a concrete trigger path.",
+  'Avoid filler phrasing ("might potentially", "consider checking", "could be an issue") without a concrete trigger path.',
   "Prefer one precise mechanism over a list of generic risks.",
   "Do not restate the diff; explain what breaks, under what input/state, and why the current code allows it.",
 ].join("\n");

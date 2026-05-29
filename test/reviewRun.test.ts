@@ -36,6 +36,7 @@ vi.mock("../src/agent/providers/pi/index.js", () => ({
 
 import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
+import { automatedQualitySystemPrompt } from "../src/agent/qualityPrompt.js";
 import { runFullPrReview } from "../src/agent/reviewRun.js";
 
 const cfg = {
@@ -105,6 +106,17 @@ describe("runFullPrReview mode", () => {
     );
 
     expect(capturedSystemPrompt).toBe(automatedSecuritySystemPrompt);
+  });
+
+  it("selects quality system prompt when mode is review-quality", async () => {
+    await runFullPrReview(
+      reviewParams({
+        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        mode: "review-quality",
+      }),
+    );
+
+    expect(capturedSystemPrompt).toBe(automatedQualitySystemPrompt);
   });
 
   it("selects general system prompt by default", async () => {

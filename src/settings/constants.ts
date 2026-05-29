@@ -14,12 +14,15 @@ export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 /** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
 export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
+export const QUALITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Quality Review";
 export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
 export const SECURITY_REVIEW_POINTER_BODY =
   "See the security review summary in the PR conversation.";
+export const QUALITY_REVIEW_POINTER_BODY =
+  "See the code-quality review summary in the PR conversation.";
 export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.";
@@ -283,10 +286,11 @@ export const SLASH_HELP_BODY = [
   "- `/ask <question>` — ask about this PR or a specific line of code",
   "- `/review` — general bug-and-correctness review (also runs automatically on PR open/sync)",
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
+  "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
   "",
   "Notes:",
   "- Automated reviews use `/review`'s lens on PR `opened` / `synchronize` / `reopened`.",
-  "- `/review` and `/review-security` can both leave summary comments on the same PR (different sentinels).",
+  "- `/review`, `/review-security`, and `/review-quality` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
   "- Some security issues may appear in both passes; pick the command that matches your question.",
   "- Edited comments are ignored for slash parsing in v1.",

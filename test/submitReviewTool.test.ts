@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
 import { buildSubmitReviewTool, createSubmitReviewState } from "../src/agent/submitReviewTool.js";
-import { SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
+import {
+  SECURITY_REVIEW_SUMMARY_SENTINEL,
+  QUALITY_REVIEW_SUMMARY_SENTINEL,
+} from "../src/agent/reviewSchema.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
@@ -170,6 +173,17 @@ describe("submitReview tool", () => {
       state: createSubmitReviewState(),
     });
     expect(piTool.description).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
+  });
+
+  it("mentions the quality summary sentinel in the tool description", () => {
+    const { piTool } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      mode: "review-quality",
+      state: createSubmitReviewState(),
+    });
+    expect(piTool.description).toContain(QUALITY_REVIEW_SUMMARY_SENTINEL);
   });
 
   it("blocks submit when listPullRequestFiles was not ingested", async () => {

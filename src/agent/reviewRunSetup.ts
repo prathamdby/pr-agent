@@ -12,6 +12,7 @@ import {
   wrapListPullRequestFilesDiffIngestion,
 } from "./reviewDiffPlacement.js";
 import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
+import { automatedQualitySystemPrompt } from "./qualityPrompt.js";
 import { buildAutomatedSystemPrompt } from "./reviewSystemPrompt.js";
 import {
   buildSubmitReviewTool,
@@ -20,6 +21,19 @@ import {
 } from "./submitReviewTool.js";
 import type { ReviewMode } from "./reviewSchema.js";
 import { buildReviewRunUserContent } from "./reviewUserMessage.js";
+
+function systemPromptForReviewMode(reviewMode: ReviewMode): string {
+  switch (reviewMode) {
+    case "review-security":
+      return automatedSecuritySystemPrompt;
+    case "review-quality":
+      return automatedQualitySystemPrompt;
+    case "review":
+      return buildAutomatedSystemPrompt();
+  }
+  const exhaustive: never = reviewMode;
+  return exhaustive;
+}
 
 export type ReviewRunSetup = {
   readonly systemPrompt: string;
@@ -156,10 +170,7 @@ export function buildReviewRunSetup(params: {
   };
 
   return {
-    systemPrompt:
-      reviewMode === "review-security"
-        ? automatedSecuritySystemPrompt
-        : buildAutomatedSystemPrompt(),
+    systemPrompt: systemPromptForReviewMode(reviewMode),
     userContent: buildReviewRunUserContent({
       owner,
       repo,
