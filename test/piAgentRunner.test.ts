@@ -1,23 +1,27 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Config } from "../src/config.js";
 
-type TurnEndEvent = {
+type MockTurnEndEvent = {
   type: "turn_end";
   toolResults: unknown[];
   message: {
     role: "assistant";
-    content: Array<{ type: "text"; text: string }>;
+    content: Array<
+      | { type: "text"; text: string }
+      | { type: "thinking"; thinking: string }
+      | { type: "toolCall"; id: string; name: string; arguments: Record<string, unknown> }
+    >;
   };
 };
 
-function makeAssistantMessage(text: string): TurnEndEvent["message"] {
+function makeAssistantMessage(text: string): MockTurnEndEvent["message"] {
   return { role: "assistant", content: [{ type: "text", text }] };
 }
 
-function buildMockSession(script: (emit: (event: TurnEndEvent) => void) => void) {
-  const listeners = new Set<(event: TurnEndEvent) => void>();
+function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => void) {
+  const listeners = new Set<(event: MockTurnEndEvent) => void>();
   return {
-    subscribe(listener: (event: TurnEndEvent) => void) {
+    subscribe(listener: (event: MockTurnEndEvent) => void) {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
@@ -139,5 +143,38 @@ describe("piAgentRunnerProvider.send", () => {
     const result = await runnerSession.send("question", { maxToolRounds: 2 });
     expect(result.text).toBe("");
     expect(session.abort).toHaveBeenCalled();
+  });
+
+  it("returns only text parts from a terminal turn with mixed content", async () => {
+    const session = buildMockSession((emit) => {
+      emit({
+        type: "turn_end",
+        toolResults: [],
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "internal reasoning" },
+            { type: "text", text: "Visible answer." },
+            {
+              type: "toolCall",
+              id: "tc1",
+              name: "listPullRequestFiles",
+              arguments: {},
+            },
+          ],
+        },
+      });
+    });
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const result = await runnerSession.send("question");
+    expect(result.text).toBe("Visible answer.");
   });
 });

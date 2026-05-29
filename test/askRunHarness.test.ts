@@ -111,4 +111,18 @@ describe("runAskHarness finalize", () => {
     expect(restoreToolsMock).toHaveBeenCalled();
     expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
   });
+
+  it("skips finalize when maxAskFinalizeRounds is zero", async () => {
+    sendMock.mockResolvedValueOnce({ text: "" });
+
+    const result = await runAskHarness({
+      ...askParams,
+      cfg: { ...cfg, maxAskFinalizeRounds: 0 },
+    });
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(restrictToToolsMock).not.toHaveBeenCalled();
+    expect(restoreToolsMock).not.toHaveBeenCalled();
+    expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
+  });
 });
