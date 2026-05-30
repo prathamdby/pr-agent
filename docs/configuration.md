@@ -206,4 +206,4 @@ These are related but not wired together on INSERT today.
 | `SLASH_HELP_BODY`     | `/help` text |
 | `MIGRATIONS_DIR_NAME` | `migrations` |
 
-Prompt prose (investigator contracts) remains in `src/agent/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.
+Prompt prose (investigator contracts) remains in `src/review/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.

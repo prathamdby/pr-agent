@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { REVIEW_SUMMARY_SENTINEL } from "../src/agent/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 
 const listComments = vi.fn();
 

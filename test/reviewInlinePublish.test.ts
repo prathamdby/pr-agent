@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { publishInlineReviewComments } from "../src/agent/reviewInlinePublish.js";
-import type { ReviewFinding } from "../src/agent/reviewSchema.js";
-import type { InlinePlacement } from "../src/agent/reviewDiffPlacement.js";
+import { publishInlineReviewComments } from "../src/review/reviewInlinePublish.js";
+import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import type { InlinePlacement } from "../src/review/reviewDiffPlacement.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   createPullRequestReviewWithComments: vi.fn(),

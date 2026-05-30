@@ -2,7 +2,7 @@ import type { Config } from "../config.js";
 import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
-} from "../agent/reviewPreflightFiles.js";
+} from "../review/reviewPreflightFiles.js";
 import { installationOctokit } from "../github/appAuth.js";
 import { prepareLocalPrWorkspace, type LocalPrWorkspace } from "./localPrWorkspace.js";
 

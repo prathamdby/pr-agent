@@ -1,6 +1,7 @@
 import type { Config } from "../config.js";
 import type { CodeAnchor } from "../agent/askRun.js";
-import type { ReviewMode } from "../agent/reviewSchema.js";
+import type { ReviewMode } from "../review/reviewSchema.js";
+import type { WorkSource } from "../review/workSource.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 export {
   ACK_DEAD_LETTER_QUEUE,
@@ -15,7 +16,7 @@ export {
 } from "../settings/index.js";
 
 export type WorkType = "review" | "ask" | "description";
-export type WorkSource = "auto" | "slash";
+export type { WorkSource };
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
 
 export type WebhookHeaders = {

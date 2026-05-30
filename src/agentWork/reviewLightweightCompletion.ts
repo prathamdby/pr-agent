@@ -1,8 +1,8 @@
 import type { Pool } from "pg";
-import { evaluateTrivialChangeExemption } from "../agent/reviewChangeGate.js";
-import type { ReviewPreflightMetadata } from "../agent/reviewPreflightFiles.js";
-import { renderLightweightReviewCompletion } from "../agent/reviewRender.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../agent/reviewSchema.js";
+import { evaluateTrivialChangeExemption } from "../review/reviewChangeGate.js";
+import type { ReviewPreflightMetadata } from "../review/reviewPreflightFiles.js";
+import { renderLightweightReviewCompletion } from "../review/reviewRender.js";
+import { reviewSummarySentinelForMode, type ReviewMode } from "../review/reviewSchema.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";

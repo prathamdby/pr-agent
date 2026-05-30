@@ -6,7 +6,7 @@ import {
   recordReviewMetric,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
-} from "../src/agent/reviewRunMetrics.js";
+} from "../src/review/reviewRunMetrics.js";
 
 describe("reviewRunMetrics", () => {
   afterEach(() => {

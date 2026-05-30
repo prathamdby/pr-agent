@@ -37,7 +37,7 @@ vi.mock("../src/agent/providers/pi/index.js", () => ({
 import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { automatedQualitySystemPrompt } from "../src/agent/qualityPrompt.js";
-import { runFullPrReview } from "../src/agent/reviewRun.js";
+import { runFullPrReview } from "../src/review/reviewRun.js";
 
 const cfg = {
   port: 0,

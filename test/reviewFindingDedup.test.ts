@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { dedupeReviewFindings } from "../src/agent/reviewFindingDedup.js";
-import type { ReviewFinding } from "../src/agent/reviewSchema.js";
+import { dedupeReviewFindings } from "../src/review/reviewFindingDedup.js";
+import type { ReviewFinding } from "../src/review/reviewSchema.js";
 
 describe("dedupeReviewFindings", () => {
   it("drops overlapping findings with the same substance on the same file", () => {

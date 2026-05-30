@@ -1,7 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
-import type { WorkSource } from "../agentWork/types.js";
+import type { LocalPrWorkspace } from "../prWorkspace/index.js";
+import type { WorkSource } from "./workSource.js";
 import type { ReviewMode } from "./reviewSchema.js";
 import { runReviewHarness } from "./reviewRunHarness.js";
 

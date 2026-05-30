@@ -5,7 +5,6 @@ import {
   renderTableCode,
   renderTableStrong,
 } from "../github/markdownFormat.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../agent/reviewSchema.js";
 import {
   REVIEW_FAILURE_ALERT,
   REVIEW_OVERVIEW_ALERT,
@@ -13,11 +12,13 @@ import {
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
 } from "../settings/index.js";
+import { reviewSummarySentinelForMode, type ReviewMode } from "./reviewSchema.js";
+import type { WorkSource } from "./workSource.js";
 
 export function renderReviewProgressComment(params: {
   mode: ReviewMode;
   headSha: string;
-  source: "auto" | "slash";
+  source: WorkSource;
 }): string {
   const sourceLabel =
     params.source === "auto" ? REVIEW_PROGRESS_SOURCE_AUTO : REVIEW_PROGRESS_SOURCE_SLASH;

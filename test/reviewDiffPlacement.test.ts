@@ -4,11 +4,11 @@ import {
   downgradePlacementsAfterInlineFailure,
   isLineResolutionPublishError,
   planInlinePlacements,
-} from "../src/agent/reviewDiffPlacement.js";
+} from "../src/review/reviewDiffPlacement.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/agent/reviewDiffIndex.js";
+} from "../src/review/reviewDiffIndex.js";
 import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings/index.js";
 
 describe("reviewDiffPlacement", () => {
@@ -138,7 +138,7 @@ describe("reviewDiffPlacement", () => {
 describe("mergeDroppedIntoSummaryPlacements", () => {
   it("matches dropped placements by stable finding key, not object identity", async () => {
     const { mergeDroppedIntoSummaryPlacements } =
-      await import("../src/agent/reviewDiffPlacement.js");
+      await import("../src/review/reviewDiffPlacement.js");
     const finding = {
       severity: "P1" as const,
       file: "src/a.ts",

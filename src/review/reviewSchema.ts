@@ -16,7 +16,7 @@ import {
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
-import { fixDoubleEscapedString } from "./fixDoubleEscapedString.js";
+import { fixDoubleEscapedString } from "../agent/fixDoubleEscapedString.js";
 
 export {
   REVIEW_SUMMARY_SENTINEL,

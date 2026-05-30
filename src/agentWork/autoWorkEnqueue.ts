@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { ReviewMode } from "../agent/reviewSchema.js";
+import type { ReviewMode } from "../review/reviewSchema.js";
 import type { SingletonSlotDb } from "./singletonQueue.js";
 
 export type AutoWorkSupersedeTarget =

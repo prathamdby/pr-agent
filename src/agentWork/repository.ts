@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { parseStoredInlineFingerprints } from "../agent/reviewFindingFingerprint.js";
+import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
 import { DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
 import type { AgentWorkItem, ReviewWorkPayload, WorkStatus } from "./types.js";
 

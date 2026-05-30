@@ -1,5 +1,5 @@
 import { installationOctokit } from "../github/appAuth.js";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
+import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import type { PreflightFileEntry } from "./reviewChangeGate.js";
 
 export type ReviewPreflightMetadata = {

@@ -1,11 +1,11 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
-import type { WorkSource } from "../agentWork/types.js";
+import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
-import { renderReviewFailureNotice } from "../agentWork/progressComment.js";
-import { resolveAgentRunnerProvider } from "./providers/index.js";
+import { renderReviewFailureNotice } from "./progressComment.js";
+import type { WorkSource } from "./workSource.js";
+import { assistantFromText, runSubmitOnlyRound } from "../agentRun/sessionHelpers.js";
+import { resolveAgentRunnerProvider } from "../agent/providers/index.js";
 import { renderAnchorMenuBlock } from "./reviewDiffPlacement.js";
 import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "./reviewPromptBlocks.js";
 import {
@@ -33,26 +33,6 @@ import {
   buildSubmitOnlyReviewSessionTools,
   shouldContinueReviewRun,
 } from "./reviewRunSetup.js";
-
-function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
-  return {
-    role: "assistant",
-    content: text ? [{ type: "text", text }] : [],
-    api: provider === "cursor" ? ("cursor-sdk" as never) : (cfg.piProvider as never),
-    provider: provider === "cursor" ? "cursor" : cfg.piProvider,
-    model: cfg.piModel,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: Date.now(),
-  };
-}
 
 export async function runReviewHarness(params: {
   cfg: Config;
@@ -107,15 +87,8 @@ export async function runReviewHarness(params: {
   let lastText = "";
   let publishAttempts = 0;
 
-  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> => {
-    const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
-    session.restrictToTools(submitOnly.piTools, submitOnly.executors);
-    try {
-      return (await session.send(prompt)).text;
-    } finally {
-      session.restoreTools();
-    }
-  };
+  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
+    runSubmitOnlyRound(session, buildSubmitOnlyReviewSessionTools(setup), prompt);
 
   const runValidationRepair = async (phase: ReviewPhase) => {
     recordReviewMetric({ kind: "phase_enter", phase });

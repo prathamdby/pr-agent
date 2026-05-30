@@ -26,9 +26,9 @@ Operators may still request a full pass with `/review`.
 
 ## Current implementation
 
-- Gate: [`reviewChangeGate.ts`](../../src/agent/reviewChangeGate.ts)
+- Gate: [`reviewChangeGate.ts`](../../src/review/reviewChangeGate.ts)
 - Worker path: [`worker.ts`](../../src/agentWork/worker.ts) `handleReviewJob`
-- Render: [`reviewRender.ts`](../../src/agent/reviewRender.ts) `renderLightweightReviewCompletion`
+- Render: [`reviewRender.ts`](../../src/review/reviewRender.ts) `renderLightweightReviewCompletion`
 - Glossary: [`CONTEXT.md`](../../CONTEXT.md)
 
 ## Consequences

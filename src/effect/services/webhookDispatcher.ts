@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
-import { AgentWorkSchedulerRuntimeLive } from "../../agentWork/runtime.js";
+import { agentWorkWebLive } from "../../agentWork/runtime.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import { WebhookHandlerError } from "../errors.js";
 import { IntakeLogger } from "../intakeLogger.js";
@@ -52,5 +52,5 @@ const DispatcherCore = Layer.effect(
 export const buildWebhookDispatcherLive = (cfg: Config) =>
   DispatcherCore.pipe(
     Layer.provide(WebhookHandlersLive),
-    Layer.provide(AgentWorkSchedulerRuntimeLive(cfg)),
+    Layer.provide(agentWorkWebLive(cfg)),
   );

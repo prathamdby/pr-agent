@@ -1,26 +1,26 @@
-import type { Config } from "../config.js";
+import type { Config } from "../../config.js";
+import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
 import {
-  enrichPlacementsWithInlineCommentUrls,
   listPullRequestLabels,
   listPullRequestReviewCommentsForReview,
   resolveVerifiedSummaryCommentUrl,
   setPullRequestLabels,
   upsertReviewSummaryComment,
-} from "../github/reviewPublish.js";
-import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "./reviewLabels.js";
-import { logWarn, logDebug } from "../evlog.js";
-import { MAX_INLINE_REVIEW_COMMENTS } from "../settings/index.js";
-import { renderReviewSummaryComment } from "./reviewRender.js";
+} from "../../github/reviewPublish.js";
+import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "../reviewLabels.js";
+import { logWarn, logDebug } from "../../evlog.js";
+import { MAX_INLINE_REVIEW_COMMENTS } from "../../settings/index.js";
+import { renderReviewSummaryComment } from "../reviewRender.js";
 import {
   applyInlineCommentCap,
   planInlinePlacements,
   type CachedPrDiffIndex,
-} from "./reviewDiffPlacement.js";
-import { runInlinePublishPhase } from "./reviewPublishInlinePhase.js";
+} from "../reviewDiffPlacement.js";
+import { runInlinePublishPhase } from "../reviewPublishInlinePhase.js";
 import {
   mergeInlineFingerprintRecords,
   suppressInlinePlacementsByFingerprint,
-} from "./reviewFindingFingerprint.js";
+} from "../reviewFindingFingerprint.js";
 import {
   reviewEventForFindings,
   isInlineSeverity,
@@ -29,7 +29,7 @@ import {
   type ReviewMode,
   type ReviewPayload,
   type ReviewPublishContext,
-} from "./reviewSchema.js";
+} from "../reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
 
 function fingerprintsForInlineReviewStep(params: {

@@ -23,7 +23,18 @@ Do not add magic numbers or env default strings in feature modules; import from 
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in `src/agent/*Prompt*.ts`. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
+Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/*Prompt*.ts` (ask, description, security/quality lenses). Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
+
+## Module layout (production)
+
+| Area | Path | Public entry |
+| ---- | ---- | ------------ |
+| Review run + publish | `src/review/` | `src/review/index.ts` |
+| Local PR workspace | `src/prWorkspace/` | `src/prWorkspace/index.ts` |
+| Agent work intake | `src/agentWork/intake/` | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss) |
+| Agent work execution | `src/agentWork/executors/` | `index.ts` |
+| Web / worker layers | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive` |
+| Ask / description | `src/agent/` | `askRun.ts`, `descriptionRun.ts` |
 
 ## Cursor Cloud specific instructions
 

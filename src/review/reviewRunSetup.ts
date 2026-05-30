@@ -1,24 +1,24 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
-import { createAskPathGate } from "./askSafety.js";
-import { buildContext7Tools } from "./context7Tools.js";
-import { buildGithubTools } from "./githubTools.js";
-import { buildLocalWorkspaceTools } from "./localWorkspaceTools.js";
-import { createRefreshableToolExecutors } from "./providers/cursor/refreshableGithubTools.js";
+import type { LocalPrWorkspace } from "../prWorkspace/index.js";
+import { createAskPathGate } from "../agent/askSafety.js";
+import { buildContext7Tools } from "../agent/context7Tools.js";
+import { buildGithubTools } from "../agent/githubTools.js";
+import { buildLocalWorkspaceTools } from "../agent/localWorkspaceTools.js";
+import { createRefreshableToolExecutors } from "../agent/providers/cursor/refreshableGithubTools.js";
 import {
   createCachedPrDiffIndex,
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
 } from "./reviewDiffPlacement.js";
-import { automatedSecuritySystemPrompt } from "./securityPrompt.js";
-import { automatedQualitySystemPrompt } from "./qualityPrompt.js";
+import { automatedSecuritySystemPrompt } from "../agent/securityPrompt.js";
+import { automatedQualitySystemPrompt } from "../agent/qualityPrompt.js";
 import { buildAutomatedSystemPrompt } from "./reviewSystemPrompt.js";
 import {
   buildSubmitReviewTool,
   createSubmitReviewState,
   type SubmitReviewState,
-} from "./submitReviewTool.js";
+} from "./publish/submitReviewTool.js";
 import type { ReviewMode } from "./reviewSchema.js";
 import { buildReviewRunUserContent } from "./reviewUserMessage.js";
 

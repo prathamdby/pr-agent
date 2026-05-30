@@ -28,8 +28,8 @@ vi.mock("../src/agent/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
 }));
 
-vi.mock("../src/agent/submitReviewTool.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/submitReviewTool.js")>();
+vi.mock("../src/review/publish/submitReviewTool.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review/publish/submitReviewTool.js")>();
   return {
     ...actual,
     buildSubmitReviewTool: vi.fn((params) => ({
@@ -68,8 +68,8 @@ vi.mock("@earendil-works/pi-ai", () => ({
 }));
 
 import { complete } from "@earendil-works/pi-ai";
-import { buildSubmitReviewTool } from "../src/agent/submitReviewTool.js";
-import { runFullPrReview } from "../src/agent/reviewRun.js";
+import { buildSubmitReviewTool } from "../src/review/publish/submitReviewTool.js";
+import { runFullPrReview } from "../src/review/reviewRun.js";
 
 const cursorCfg = {
   port: 0,

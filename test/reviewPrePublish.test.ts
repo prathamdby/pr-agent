@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { prepareReviewPayloadForPublish } from "../src/agent/reviewPrePublish.js";
-import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+import { prepareReviewPayloadForPublish } from "../src/review/reviewPrePublish.js";
+import type { ReviewPayload } from "../src/review/reviewSchema.js";
 
 describe("prepareReviewPayloadForPublish", () => {
   it("dedupes overlapping findings before publish", () => {

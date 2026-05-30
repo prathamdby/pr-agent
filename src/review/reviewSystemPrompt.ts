@@ -7,7 +7,7 @@ import {
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
 } from "./reviewPromptBlocks.js";
-import { githubToolingDiscipline } from "./securityPrompt.js";
+import { githubToolingDiscipline } from "../agent/securityPrompt.js";
 
 /** Review bot system prompt — methodology + structured submitReview contract. */
 export function buildAutomatedSystemPrompt(): string {

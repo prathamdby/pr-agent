@@ -8,7 +8,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
-} from "../agent/reviewDiffIndex.js";
+} from "../review/reviewDiffIndex.js";
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";

@@ -13,7 +13,7 @@ import {
   renderReviewPointerBody,
 } from "./reviewRender.js";
 import type { ReviewFinding, ReviewMode, ReviewPayload } from "./reviewSchema.js";
-import type { SubmitReviewState } from "./submitReviewTool.js";
+import type { SubmitReviewState } from "./publish/submitReviewTool.js";
 
 export type InlinePublishPhaseContext = {
   owner: string;

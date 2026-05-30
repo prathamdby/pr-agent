@@ -1,6 +1,6 @@
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import type { Config } from "../config.js";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
+import type { LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { logInfo } from "../evlog.js";
 import { formatAskReply } from "./formatAskReply.js";
 import {
