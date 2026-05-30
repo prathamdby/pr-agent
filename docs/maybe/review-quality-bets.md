@@ -50,7 +50,7 @@ This document lists larger review-quality improvements deferred from the grilled
 
 **Out of scope for pr-agent:** GitHub Action arbitrary agent loops, Fix buttons, multi-lens ensemble orchestration, hosted billing/onboarding, incremental diff-coverage preflight gates, stranded pending-review cleanup automation, approval tiers, and server-side dismissal filters (until repeat rates justify them).
 
-**In scope (shipped or partial):** Publish resilience (transient 422 retry, partial inline anchor drop), double-escaped payload coercion, anti-slop prompt guidance, optional P0/P1 `technicalDetails`, stale review metadata, prior-thread feedback context, logs-only provider error classification.
+**In scope (shipped or partial):** Publish resilience (transient 422 retry, partial inline anchor drop), double-escaped payload coercion, anti-slop prompt guidance, stale review metadata, prior-thread feedback context, logs-only provider error classification.
 
 ---
 

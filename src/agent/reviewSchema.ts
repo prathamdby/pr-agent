@@ -6,7 +6,6 @@ import {
   REVIEW_EFFORT_MIN,
   REVIEW_FINDING_DETAIL_MAX_CHARS,
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
-  REVIEW_FINDING_TECHNICAL_DETAILS_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
@@ -64,7 +63,6 @@ export const reviewFindingSchema = z
     title: z.string().min(1).max(REVIEW_FINDING_TITLE_MAX_CHARS),
     detail: z.string().min(1).max(REVIEW_FINDING_DETAIL_MAX_CHARS),
     fixPrompt: z.string().max(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS).optional(),
-    technicalDetails: z.string().max(REVIEW_FINDING_TECHNICAL_DETAILS_MAX_CHARS).optional(),
   })
   .superRefine((f, ctx) => {
     if (f.startLine > f.endLine) {
@@ -277,7 +275,7 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
       }
     }
   }
-  for (const field of ["detail", "fixPrompt", "technicalDetails"] as const) {
+  for (const field of ["detail", "fixPrompt"] as const) {
     if (field in r && typeof r[field] === "string") {
       const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
       if (changed) {
@@ -295,16 +293,6 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
       coercions.push("finding_fixPrompt_empty_removed");
     }
   }
-  if ("technicalDetails" in r && typeof r.technicalDetails === "string") {
-    const rawDetails = (mutated ? f.technicalDetails : r.technicalDetails) as string;
-    const trimmed = rawDetails.trim();
-    if (trimmed.length === 0) {
-      touch();
-      delete f.technicalDetails;
-      coercions.push("finding_technicalDetails_empty_removed");
-    }
-  }
-
   return mutated ? f : raw;
 }
 
@@ -402,9 +390,6 @@ export function formatReviewValidationError(error: z.ZodError): {
   lines.push(
     "Each P0/P1/P2 finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.",
   );
-  lines.push(
-    "Optional technicalDetails (P0/P1 only): deeper context beyond the scannable fix prompt.",
-  );
   const firstIssue = error.issues[0];
   const failureKind = firstIssue ? zodIssueFailureKind(firstIssue) : "other";
   return { message: lines.join("\n"), failureKind, paths };
@@ -431,21 +416,5 @@ export function normalizeReviewPayload(raw: ReviewPayload): ReviewPayload {
     raw.securityConcerns == null || raw.securityConcerns.trim().length === 0
       ? null
       : raw.securityConcerns.trim();
-  const findings = raw.findings.map((finding) => {
-    if (finding.severity === "P2" || finding.severity === "P3") {
-      if (finding.technicalDetails == null) return finding;
-      const { technicalDetails: _removed, ...rest } = finding;
-      return rest;
-    }
-    if (finding.technicalDetails == null) return finding;
-    const trimmed = finding.technicalDetails.trim();
-    if (trimmed.length === 0) {
-      const { technicalDetails: _removed, ...rest } = finding;
-      return rest;
-    }
-    return trimmed === finding.technicalDetails
-      ? finding
-      : { ...finding, technicalDetails: trimmed };
-  });
-  return { ...raw, securityConcerns: security, findings };
+  return { ...raw, securityConcerns: security };
 }

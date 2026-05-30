@@ -803,24 +803,6 @@ describe("renderLightweightReviewCompletion", () => {
 });
 
 describe("review hardening render helpers", () => {
-  it("renders technical details accordion on inline threads", () => {
-    const body = renderInlineThreadBody(
-      {
-        severity: "P1",
-        file: "src/a.ts",
-        startLine: 1,
-        endLine: 1,
-        title: "Bug",
-        detail: "detail",
-        fixPrompt: "fix",
-        technicalDetails: "Root cause spans two modules",
-      },
-      ctx,
-    );
-    expect(body).toContain("Technical details");
-    expect(body).toContain("Root cause spans two modules");
-  });
-
   it("embeds stale review metadata in summary comment", () => {
     const body = renderReviewSummaryComment(basePayload(), {
       ...ctx,

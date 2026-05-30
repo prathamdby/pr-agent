@@ -113,7 +113,6 @@ export function buildAutomatedSystemPrompt(): string {
     "- prCharacter: one paragraph describing what this PR does",
     "- findings: all items you report; each has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, <=80 chars), detail (why + trigger path)",
     `- ${fixPromptFieldContract}`,
-    "- technicalDetails (optional, P0/P1 only): deeper context beyond the scannable fix prompt when the mechanism is complex",
     "- estimatedEffort: integer 1–5",
     "- relevantTests: yes | no | partial",
     "- securityConcerns: string or null (null if none)",

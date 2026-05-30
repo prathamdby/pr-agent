@@ -127,7 +127,6 @@ export const automatedSecuritySystemPrompt = [
   "- prCharacter: one paragraph describing what this PR changes from a security perspective",
   "- findings: all security items you report; severity P0|P1|P2|P3 per mapping above; file, startLine, endLine, title (imperative, <=80 chars), detail (why + exploit path)",
   `- ${fixPromptFieldContract}`,
-  "- technicalDetails (optional, P0/P1 only): deeper exploit-path context beyond the scannable fix prompt",
   "- Use severity values P0, P1, P2, or P3 in the payload (not CRITICAL/HIGH/MEDIUM/LOW strings).",
   "- Apply the same balanced P2 bar as general review: P2 when exploit/trigger path is plausible with uncertainty noted in detail.",
   "- estimatedEffort: integer 1–5",
