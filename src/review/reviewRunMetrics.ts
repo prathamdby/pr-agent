@@ -245,10 +245,3 @@ export function logReviewRunCompleted(extra?: Record<string, unknown>): void {
   logInfo("review_run_completed", { ...snapshot, ...extra });
 }
 
-export async function withReviewRunMetrics<T>(
-  meta: { provider: string; model: string; mode: string },
-  fn: () => Promise<T>,
-): Promise<T> {
-  initReviewRunMetrics(meta);
-  return fn();
-}

@@ -68,7 +68,7 @@ function sanitizeWorkError(error: unknown): string {
   return sanitizeLogMessage(error instanceof Error ? error.message : String(error));
 }
 
-export async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
+async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
   const result = await pool.query(
     `UPDATE agent_work_items
 		    SET status = 'running',

@@ -13,7 +13,7 @@ import {
   type QueueConfig,
 } from "./types.js";
 
-export type AgentBoss = PgBoss;
+type AgentBoss = PgBoss;
 
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {

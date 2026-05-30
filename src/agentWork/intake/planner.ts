@@ -4,7 +4,7 @@ import {
 } from "../../settings/index.js";
 
 /** Durable work kinds scheduled from automated pull_request webhooks. */
-export type AutomatedPrIntakeKind = "review" | "description";
+type AutomatedPrIntakeKind = "review" | "description";
 
 export type AutomatedPrIntakePlan = {
   readonly action: string;

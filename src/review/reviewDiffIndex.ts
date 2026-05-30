@@ -3,7 +3,7 @@ import { wrapUntrustedBlock } from "../agent/askSafety.js";
 
 export type CommentableRightLineRanges = Array<[number, number]>;
 
-export type CachedPrFileDiff = {
+type CachedPrFileDiff = {
   readonly patchOmitted: boolean;
   readonly commentableRightLineRanges: CommentableRightLineRanges;
 };

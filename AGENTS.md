@@ -29,8 +29,8 @@ Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/
 
 | Area | Path | Public entry |
 | ---- | ---- | ------------ |
-| Review run + publish | `src/review/` | `src/review/index.ts` |
-| Local PR workspace | `src/prWorkspace/` | `src/prWorkspace/index.ts` |
+| Review run + publish | `src/review/` | `reviewRun.ts`, `publish/publishReview.ts` |
+| Local PR workspace | `src/prWorkspace/` | `index.ts` (`withPrRepositoryView`) |
 | Agent work intake | `src/agentWork/intake/` | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss) |
 | Agent work execution | `src/agentWork/executors/` | `index.ts` |
 | Web / worker layers | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive` |

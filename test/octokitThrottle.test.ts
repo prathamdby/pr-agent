@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
-import {
-  onRateLimit,
-  onSecondaryRateLimit,
-  PRIMARY_RATE_LIMIT_MAX_RETRIES,
-} from "../src/github/octokitThrottle.js";
+import { onRateLimit, onSecondaryRateLimit } from "../src/github/octokitThrottle.js";
+import { PRIMARY_RATE_LIMIT_MAX_RETRIES } from "../src/settings/index.js";
 
 describe("octokitThrottle hooks", () => {
   const options = { method: "GET", url: "https://api.github.com/repos/o/r/pulls/1" } as never;

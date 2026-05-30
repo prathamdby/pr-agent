@@ -89,7 +89,7 @@ async function prepareEntry(
   return entry.prepare;
 }
 
-export async function acquirePrRepositoryView(
+async function acquirePrRepositoryView(
   params: PreparePrRepositoryViewParams,
 ): Promise<PrRepositoryView> {
   const key = cacheKey(params);
@@ -102,7 +102,7 @@ export async function acquirePrRepositoryView(
   return prepareEntry(entry, params);
 }
 
-export async function releasePrRepositoryView(
+async function releasePrRepositoryView(
   params: Pick<PreparePrRepositoryViewParams, "owner" | "repo" | "prNumber" | "headSha">,
 ): Promise<void> {
   const key = cacheKey(params);
@@ -129,9 +129,3 @@ export async function withPrRepositoryView<T>(
   }
 }
 
-/** Bypasses the worker process cache (tests and one-off callers). */
-export async function preparePrRepositoryView(
-  params: PreparePrRepositoryViewParams,
-): Promise<PrRepositoryView & { cleanup: () => Promise<void> }> {
-  return prepareUncached(params);
-}

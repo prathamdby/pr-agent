@@ -4,7 +4,7 @@ import {
 } from "../github/reviewPublish.js";
 import { withTransientReviewRetry } from "../github/reviewPublishRetry.js";
 import type { InlinePlacement } from "./reviewDiffPlacement.js";
-import { isLineResolutionPublishError } from "./reviewDiffPlacement.js";
+import { isLineResolutionPublishError } from "../github/reviewErrors.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import type { ReviewFinding } from "./reviewSchema.js";
 

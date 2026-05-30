@@ -5,10 +5,6 @@ export type CursorStartupErrorLike = Error & {
   readonly isRetryable?: boolean;
 };
 
-export function isCursorStartupErrorLike(err: unknown): err is CursorStartupErrorLike {
-  return err instanceof Error && err.name === "CursorAgentError";
-}
-
 export function formatCursorStartupError(err: CursorStartupErrorLike): string {
   const retryable = err.isRetryable ? " retryable=true" : " retryable=false";
   return `${CURSOR_STARTUP_ERROR_PREFIX} ${err.message}${retryable}`;

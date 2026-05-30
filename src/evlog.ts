@@ -1,15 +1,7 @@
-import {
-  createError,
-  createRequestLogger,
-  initLogger,
-  log as globalLog,
-  parseError,
-  type RequestLogger,
-} from "evlog";
+import { createRequestLogger, initLogger, log as globalLog, type RequestLogger } from "evlog";
 import { createLoggerStorage } from "evlog/toolkit";
 import type { Config } from "./config.js";
 
-export { createError, parseError, globalLog as log };
 export type { RequestLogger };
 
 export type WideEventLevel = "debug" | "info" | "warn" | "error";
@@ -23,7 +15,7 @@ const LEVEL_RANK: Record<WideEventLevel, number> = {
 
 import { DEFAULT_LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
-export const DEFAULT_MAX_WIDE_EVENTS = DEFAULT_LOG_MAX_WIDE_EVENTS;
+const DEFAULT_MAX_WIDE_EVENTS = DEFAULT_LOG_MAX_WIDE_EVENTS;
 
 let globalMinLevel: WideEventLevel = "info";
 let globalMaxWideEvents = DEFAULT_MAX_WIDE_EVENTS;
@@ -32,11 +24,11 @@ const { storage, useLogger: useLoggerFromStorage } = createLoggerStorage(
   "evlog: call initEvlog() at boot and run handlers inside runWithOperationLogger()",
 );
 
-export function isLevelEnabled(level: WideEventLevel): boolean {
+function isLevelEnabled(level: WideEventLevel): boolean {
   return LEVEL_RANK[level] >= LEVEL_RANK[globalMinLevel];
 }
 
-export function useLogger(): RequestLogger {
+function useLogger(): RequestLogger {
   return useLoggerFromStorage();
 }
 

@@ -47,8 +47,6 @@ import type { InlinePlacement } from "./reviewDiffPlacement.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-  AGENT_FIX_PROMPT_PREAMBLE,
-  AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
   REPEAT_NO_BUGS_PREFIX,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
@@ -69,7 +67,7 @@ function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLin
   return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
 }
 
-export function issueCommentUrl(
+function issueCommentUrl(
   owner: string,
   repo: string,
   prNumber: number,
@@ -78,7 +76,7 @@ export function issueCommentUrl(
   return `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${commentId}`;
 }
 
-export function formatEffortLabel(effort: number): string {
+function formatEffortLabel(effort: number): string {
   const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
   return `${word} · \`${effort}/5\``;
 }
@@ -88,7 +86,7 @@ function formatEffortLabelHtml(effort: number): string {
   return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
 }
 
-export function reviewPointerBodyForMode(mode: ReviewMode): string {
+function reviewPointerBodyForMode(mode: ReviewMode): string {
   switch (mode) {
     case "review-security":
       return SECURITY_REVIEW_POINTER_BODY;
@@ -101,7 +99,7 @@ export function reviewPointerBodyForMode(mode: ReviewMode): string {
   return exhaustive;
 }
 
-export function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
+function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
   if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
   switch (mode) {
     case "review-security":
@@ -168,7 +166,7 @@ function escapeHtmlCommentAttr(value: string): string {
   return value.replace(/--/g, "-&#45;").replace(/>/g, "&gt;");
 }
 
-export function renderDroppedInlineAnchorNote(
+function renderDroppedInlineAnchorNote(
   droppedPlacements: readonly InlinePlacement[],
 ): string | null {
   if (droppedPlacements.length === 0) return null;
@@ -203,7 +201,7 @@ function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding
   return [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
 }
 
-export function renderFindingFixBlock(
+function renderFindingFixBlock(
   finding: ReviewFinding,
   opts: { inlinePosted: boolean },
 ): string {
@@ -224,7 +222,7 @@ export function renderFindingFixBlock(
   return lines.join("\n");
 }
 
-export function renderSingleFindingAgentFixPrompt(
+function renderSingleFindingAgentFixPrompt(
   finding: ReviewFinding,
   ctx: RenderContext,
 ): string {

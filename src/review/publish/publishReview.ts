@@ -11,11 +11,8 @@ import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "
 import { logWarn, logDebug } from "../../evlog.js";
 import { MAX_INLINE_REVIEW_COMMENTS } from "../../settings/index.js";
 import { renderReviewSummaryComment } from "../reviewRender.js";
-import {
-  applyInlineCommentCap,
-  planInlinePlacements,
-  type CachedPrDiffIndex,
-} from "../reviewDiffPlacement.js";
+import { applyInlineCommentCap, planInlinePlacements } from "../reviewDiffPlacement.js";
+import type { CachedPrDiffIndex } from "../reviewDiffIndex.js";
 import { runInlinePublishPhase } from "../reviewPublishInlinePhase.js";
 import {
   mergeInlineFingerprintRecords,

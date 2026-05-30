@@ -22,7 +22,7 @@ export function fingerprintFinding(finding: ReviewFinding, mode: ReviewMode): st
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 16);
 }
 
-export function fingerprintFindings(
+function fingerprintFindings(
   findings: readonly ReviewFinding[],
   mode: ReviewMode,
 ): string[] {

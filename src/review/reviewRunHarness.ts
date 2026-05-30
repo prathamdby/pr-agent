@@ -6,7 +6,7 @@ import { renderReviewFailureNotice } from "./progressComment.js";
 import type { WorkSource } from "./workSource.js";
 import { assistantFromText, runSubmitOnlyRound } from "../agentRun/sessionHelpers.js";
 import { resolveAgentRunnerProvider } from "../agent/providers/index.js";
-import { renderAnchorMenuBlock } from "./reviewDiffPlacement.js";
+import { renderAnchorMenuBlock } from "./reviewDiffIndex.js";
 import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "./reviewPromptBlocks.js";
 import {
   PROSE_ONLY_NUDGE,

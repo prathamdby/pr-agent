@@ -3,7 +3,7 @@ import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
 import { redactReviewPayloadSecrets } from "./reviewPublicOutput.js";
 import { normalizeReviewPayload, type ReviewMode, type ReviewPayload } from "./reviewSchema.js";
-import type { CachedPrDiffIndex } from "./reviewDiffPlacement.js";
+import type { CachedPrDiffIndex } from "./reviewDiffIndex.js";
 
 export type PreparedReviewPayload = {
   readonly payload: ReviewPayload;

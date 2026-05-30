@@ -24,12 +24,12 @@ import { DEFERRED_HEAD_SHA, type AgentWorkItem, type ReviewWorkPayload } from ".
 
 export type InstallationToken = { token: string; expiresAtTs: number; ttlMs: number };
 
-export type DurableExecutionContext = {
+type DurableExecutionContext = {
   installation: InstallationToken;
   headSha: string;
 };
 
-export type DurableExecutionResult = {
+type DurableExecutionResult = {
   readonly degraded?: boolean;
   readonly rescheduled?: boolean;
   readonly replacementWorkItemId?: string;

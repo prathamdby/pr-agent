@@ -18,7 +18,7 @@ const ASKPASS_NAME = "git-askpass.sh";
 
 type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
 
-export type LocalPrChangedFile = {
+type LocalPrChangedFile = {
   readonly path: string;
   readonly status: ChangedFileStatus;
   readonly oldPath?: string;
@@ -210,7 +210,7 @@ async function removeWorkspace(rootDir: string): Promise<void> {
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
-export async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
+async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;

@@ -18,14 +18,6 @@ export type InlinePlacement = {
   readonly inlineCommentUrl?: string;
 };
 
-export {
-  createCachedPrDiffIndex,
-  ingestListPullRequestFilesResult,
-  renderAnchorMenuBlock,
-  wrapListPullRequestFilesDiffIngestion,
-  type CachedPrDiffIndex,
-};
-
 export function planInlinePlacements(
   findings: ReviewFinding[],
   diffIndex: CachedPrDiffIndex | undefined,
@@ -107,4 +99,3 @@ export function mergeDroppedIntoSummaryPlacements(
   );
 }
 
-export { isLineResolutionPublishError, githubErrorMessage } from "../github/reviewErrors.js";

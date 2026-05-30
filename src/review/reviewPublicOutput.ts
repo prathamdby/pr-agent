@@ -5,7 +5,7 @@ export function redactReviewText(text: string): string {
   return redactOutboundSecrets(text);
 }
 
-export function redactReviewFindingFields(fields: {
+function redactReviewFindingFields(fields: {
   title?: string;
   detail?: string;
   fixPrompt?: string;
@@ -21,7 +21,7 @@ export function redactReviewFindingFields(fields: {
   };
 }
 
-export function redactReviewOverviewFields(fields: {
+function redactReviewOverviewFields(fields: {
   prCharacter?: string;
   securityConcerns?: string | null;
   followUps?: readonly string[];

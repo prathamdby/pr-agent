@@ -15,8 +15,6 @@ import {
   type ReviewWorkPayload,
 } from "./types.js";
 
-export { releaseReviewSingletonSlot };
-
 export async function createSlashReviewRescheduleWorkItem(
   pool: Pool,
   item: AgentWorkItem,
@@ -196,15 +194,4 @@ export async function enqueueSlashReviewReschedule(
     await releaseStaleHeadReplacementEnqueueClaim(pool, item.id);
     throw e;
   }
-}
-
-export async function scheduleSlashReviewReschedule(
-  pool: Pool,
-  boss: PgBoss,
-  item: AgentWorkItem,
-  latestHeadSha: string,
-): Promise<string> {
-  const workItemId = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
-  await enqueueSlashReviewReschedule(pool, boss, item, workItemId, latestHeadSha);
-  return workItemId;
 }

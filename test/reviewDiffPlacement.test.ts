@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   applyInlineCommentCap,
   downgradePlacementsAfterInlineFailure,
-  isLineResolutionPublishError,
   planInlinePlacements,
 } from "../src/review/reviewDiffPlacement.js";
+import { isLineResolutionPublishError } from "../src/github/reviewErrors.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,

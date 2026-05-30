@@ -73,7 +73,7 @@ export async function listPullRequestReviewCommentsForReview(
 
 export type IssueCommentRef = { id: number; url: string };
 
-export async function getIssueCommentIfSentinel(
+async function getIssueCommentIfSentinel(
   token: string,
   owner: string,
   repo: string,
@@ -146,7 +146,7 @@ export async function resolveVerifiedSummaryCommentUrl(
   return found?.url;
 }
 
-export async function createIssueComment(
+async function createIssueComment(
   token: string,
   owner: string,
   repo: string,
@@ -163,7 +163,7 @@ export async function createIssueComment(
   return { id: data.id, url: data.html_url };
 }
 
-export async function updateIssueComment(
+async function updateIssueComment(
   token: string,
   owner: string,
   repo: string,

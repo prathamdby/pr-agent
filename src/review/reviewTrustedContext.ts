@@ -7,7 +7,7 @@ import {
 } from "./reviewPriorFeedback.js";
 import type { ReviewMode } from "./reviewSchema.js";
 
-export function buildTrustedReviewContextBlock(
+function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
   extras?: { priorInlineFeedback?: string },
 ): string {

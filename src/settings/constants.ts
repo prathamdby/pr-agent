@@ -131,19 +131,6 @@ export const REVIEW_SEVERITY_RANK = {
   P3: 3,
 } as const;
 
-/** Review / ask agent loops. */
-export const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
-
-export const REVIEW_CIRCUIT_OPEN_USER_MESSAGE =
-  "Stop GitHub tool calls; call submitReview now with your current analysis from the conversation above.";
-export const REVIEW_CIRCUIT_OPEN_TOOL_RESULT =
-  "Rate-limit circuit open: further GitHub investigation tools are blocked for this review run. Call submitReview now.";
-
-export const ASK_CIRCUIT_OPEN_USER_MESSAGE =
-  "Stop GitHub tool calls; answer the question now using what you already found in this conversation.";
-export const ASK_CIRCUIT_OPEN_TOOL_RESULT =
-  "Rate-limit circuit open: further GitHub investigation tools are blocked for this ask run. Answer the question with your current analysis.";
-
 export const PROSE_ONLY_NUDGE =
   "You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
 

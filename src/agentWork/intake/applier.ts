@@ -27,7 +27,7 @@ import { dedupeKey, insertWebhookEvent } from "./webhookEvents.js";
 import { createDescriptionWorkItem, createReviewWorkItem } from "./workItemRepository.js";
 
 export type { SlashCommandInput };
-export { applySlashCommandIntake, dedupeKey, insertWebhookEvent };
+export { applySlashCommandIntake };
 
 export async function recordIgnoredWebhook(
   client: PoolClient,

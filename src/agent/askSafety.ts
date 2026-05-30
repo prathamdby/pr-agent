@@ -65,7 +65,7 @@ export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
   );
 }
 
-export function redactEmailsInJson(value: unknown): unknown {
+function redactEmailsInJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactEmailsInJson);
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};

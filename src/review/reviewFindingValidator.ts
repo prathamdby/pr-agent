@@ -1,12 +1,8 @@
 import { DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../settings/index.js";
 import type { ReviewPayload } from "./reviewSchema.js";
 import { isInlineSeverity } from "./reviewSchema.js";
-import {
-  planInlinePlacements,
-  type CachedPrDiffIndex,
-  type InlinePlacement,
-} from "./reviewDiffPlacement.js";
-import type { CommentableRightLineRanges } from "./reviewDiffIndex.js";
+import { planInlinePlacements, type InlinePlacement } from "./reviewDiffPlacement.js";
+import type { CachedPrDiffIndex, CommentableRightLineRanges } from "./reviewDiffIndex.js";
 
 /** Overview/followUp leakage — reject before publish (repair loop), not substring scrub. */
 const INTERNAL_FAILURE_PHRASING: RegExp[] = [
@@ -18,7 +14,7 @@ const INTERNAL_FAILURE_PHRASING: RegExp[] = [
   /\bSingle-pass review contract\b/i,
 ];
 
-export function containsInternalFailurePhrasing(text: string): boolean {
+function containsInternalFailurePhrasing(text: string): boolean {
   return INTERNAL_FAILURE_PHRASING.some((pattern) => pattern.test(text));
 }
 
@@ -83,7 +79,7 @@ function validatePlacementAnchor(
   };
 }
 
-export function formatAnchorFailureRepairMessage(failures: readonly AnchorFailure[]): string {
+function formatAnchorFailureRepairMessage(failures: readonly AnchorFailure[]): string {
   const lines = ["Inline anchor validation failed for the following findings:"];
   for (const failure of failures) {
     lines.push(

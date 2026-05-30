@@ -15,8 +15,7 @@ export {
   REVIEW_QUEUE,
 } from "../settings/index.js";
 
-export type WorkType = "review" | "ask" | "description";
-export type { WorkSource };
+type WorkType = "review" | "ask" | "description";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
 
 export type WebhookHeaders = {

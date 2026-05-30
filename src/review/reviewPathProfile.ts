@@ -1,6 +1,6 @@
 import { REVIEW_RISK_PATH_PATTERNS } from "../settings/index.js";
 
-export type ReviewPathRiskCategory = keyof typeof REVIEW_RISK_PATH_PATTERNS;
+type ReviewPathRiskCategory = keyof typeof REVIEW_RISK_PATH_PATTERNS;
 
 export type ReviewPathProfile = {
   readonly changedFiles: readonly string[];
