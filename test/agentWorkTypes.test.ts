@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { installationGroupId, prResourceKey, reviewSingletonKey } from "../src/agentWork/types.js";
+import {
+  descriptionSingletonKey,
+  installationGroupId,
+  prResourceKey,
+  reviewSingletonKey,
+} from "../src/agentWork/types.js";
 
 describe("agent work keys", () => {
   it("builds stable per-PR resource and per-lens singleton keys", () => {
@@ -11,6 +16,7 @@ describe("agent work keys", () => {
       "owner/repo#42:review-security",
     );
     expect(reviewSingletonKey(resourceKey, "review-quality")).toBe("owner/repo#42:review-quality");
+    expect(descriptionSingletonKey(resourceKey)).toBe("owner/repo#42:description");
     expect(installationGroupId(123)).toBe("123");
   });
 });

@@ -1,9 +1,9 @@
 import crypto from "node:crypto";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { ReviewMode } from "../agent/reviewSchema.js";
 import { logInfo } from "../evlog.js";
 import { getWorkItem } from "./repository.js";
+import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
   ACK_QUEUE,
   REVIEW_QUEUE,
@@ -15,21 +15,7 @@ import {
   type ReviewWorkPayload,
 } from "./types.js";
 
-export async function releaseReviewSingletonSlot(
-  boss: PgBoss,
-  resourceKey: string,
-  lens: ReviewMode,
-  opts?: { skipJobId?: string },
-): Promise<void> {
-  const key = reviewSingletonKey(resourceKey, lens);
-  const jobs = await boss.findJobs(REVIEW_QUEUE, { key });
-  for (const job of jobs) {
-    if (opts?.skipJobId && job.id === opts.skipJobId) continue;
-    const state = job.state as string;
-    if (state === "cancelled" || state === "completed" || state === "failed") continue;
-    await boss.cancel(REVIEW_QUEUE, job.id);
-  }
-}
+export { releaseReviewSingletonSlot };
 
 export async function createSlashReviewRescheduleWorkItem(
   pool: Pool,

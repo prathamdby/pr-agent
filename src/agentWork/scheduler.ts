@@ -13,9 +13,16 @@ import {
   AUTOMATED_PR_ACTIONS,
   AUTOMATED_REVIEW_LENS,
   MAX_STORED_COMMENT_TEXT_LEN,
+  DESCRIPTION_ALREADY_IN_PROGRESS,
   SLASH_HELP_BODY,
 } from "../settings/index.js";
 import { inTransaction, pgBossDb } from "../db/postgres.js";
+import {
+  replaceAutoWorkItem,
+  releaseSingletonIfSuperseded,
+  type AutoWorkSupersedeTarget,
+} from "./autoWorkEnqueue.js";
+import { releaseSingletonSlot, reviewSingletonSlotDb } from "./singletonQueue.js";
 import type { CodeAnchor } from "../agent/askRun.js";
 import type { ReviewMode } from "../agent/reviewSchema.js";
 import type { RequestLogger } from "../evlog.js";
@@ -24,13 +31,16 @@ import {
   ACK_QUEUE,
   ASK_QUEUE,
   DEFERRED_HEAD_SHA,
+  DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
+  descriptionSingletonKey,
   installationGroupId,
   prResourceKey,
   reviewSingletonKey,
   type AckJobData,
   type AckTarget,
   type AskJobData,
+  type DescriptionJobData,
   type JobCorrelation,
   type PrRef,
   type ReviewJobData,
@@ -144,22 +154,6 @@ async function enqueueAck(
   });
 }
 
-async function releaseReviewSingletonSlot(
-  boss: PgBoss,
-  client: PoolClient,
-  resourceKey: string,
-  lens: ReviewMode,
-): Promise<void> {
-  const db = pgBossDb(client);
-  const key = reviewSingletonKey(resourceKey, lens);
-  const jobs = await boss.findJobs(REVIEW_QUEUE, { key, db });
-  for (const job of jobs) {
-    const state = job.state as string;
-    if (state === "cancelled" || state === "completed" || state === "failed") continue;
-    await boss.cancel(REVIEW_QUEUE, job.id, { db });
-  }
-}
-
 async function enqueueReview(
   boss: PgBoss,
   client: PoolClient,
@@ -188,6 +182,22 @@ async function enqueueAsk(
   await requireBossJobSend(boss, ASK_QUEUE, data, {
     db: pgBossDb(client),
     priority: 50,
+    group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
+async function enqueueDescription(
+  boss: PgBoss,
+  client: PoolClient,
+  ref: PrRef,
+  workItemId: string,
+  correlation: JobCorrelation,
+): Promise<void> {
+  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  const data: DescriptionJobData = { kind: "description", workItemId, ...correlation };
+  await requireBossJobSend(boss, DESCRIPTION_QUEUE, data, {
+    db: pgBossDb(client),
+    singletonKey: descriptionSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }
@@ -244,6 +254,45 @@ async function createReviewWorkItem(
   return id;
 }
 
+async function createDescriptionWorkItem(
+  client: PoolClient,
+  params: {
+    webhookEventId: string;
+    ref: PrRef;
+    source: "auto" | "slash";
+    userSupplement?: string;
+    commenterId?: number;
+  },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
+  await client.query(
+    `INSERT INTO agent_work_items (
+		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+		   head_sha, review_lens, resource_key, priority, payload
+		 )
+		 VALUES ($1, $2, 'description', $3, 'queued', $4, $5, $6, $7, $8, NULL, $9, $10, $11::jsonb)`,
+    [
+      id,
+      params.webhookEventId,
+      params.source,
+      params.ref.owner,
+      params.ref.repo,
+      params.ref.prNumber,
+      params.ref.installationId,
+      params.ref.headSha,
+      resourceKey,
+      params.source === "slash" ? 50 : 0,
+      JSON.stringify({
+        source: params.source,
+        userSupplement: params.userSupplement,
+        commenterId: params.commenterId,
+      }),
+    ],
+  );
+  return id;
+}
+
 async function createAskWorkItem(
   client: PoolClient,
   params: {
@@ -284,11 +333,22 @@ async function createAskWorkItem(
   return id;
 }
 
-async function fetchActiveSameLens(
+async function fetchActiveWorkItem(
   client: PoolClient,
-  resourceKey: string,
-  lens: ReviewMode,
+  target: AutoWorkSupersedeTarget,
 ): Promise<string | null> {
+  if (target.kind === "description") {
+    const result = await client.query<{ id: string }>(
+      `SELECT id
+			   FROM agent_work_items
+			  WHERE resource_key = $1
+			    AND type = 'description'
+			    AND status IN ('queued', 'running')
+			  LIMIT 1`,
+      [target.resourceKey],
+    );
+    return result.rows[0]?.id ?? null;
+  }
   const result = await client.query<{ id: string }>(
     `SELECT id
 		   FROM agent_work_items
@@ -296,7 +356,7 @@ async function fetchActiveSameLens(
 		    AND review_lens = $2
 		    AND status IN ('queued', 'running')
 		  LIMIT 1`,
-    [resourceKey, lens],
+    [target.resourceKey, target.lens],
   );
   return result.rows[0]?.id ?? null;
 }
@@ -338,44 +398,34 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
             const correlation = jobCorrelation(event.id, headers);
 
             const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-            const olderQueued = await client.query<{ id: string }>(
-              `UPDATE agent_work_items
-							    SET status = 'superseded',
-							        updated_at = now()
-							  WHERE resource_key = $1
-							    AND review_lens = $2
-							    AND source = 'auto'
-							    AND status = 'queued'
-							  RETURNING id`,
-              [resourceKey, AUTOMATED_REVIEW_LENS],
-            );
-            const running = await client.query<{ id: string }>(
-              `UPDATE agent_work_items
-							    SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
-							        updated_at = now()
-							  WHERE resource_key = $1
-							    AND review_lens = $2
-							    AND source = 'auto'
-							    AND status = 'running'
-							  RETURNING id`,
-              [resourceKey, AUTOMATED_REVIEW_LENS],
-            );
-
-            const workItemId = await createReviewWorkItem(client, {
-              webhookEventId: event.id,
-              ref,
-              source: "auto",
+            const slotDb = reviewSingletonSlotDb(client);
+            const reviewTarget: AutoWorkSupersedeTarget = {
+              kind: "review",
+              resourceKey,
               lens: AUTOMATED_REVIEW_LENS,
+            };
+            const { workItemId, supersededIds: reviewSuperseded } = await replaceAutoWorkItem({
+              client,
+              target: reviewTarget,
+              createWorkItem: () =>
+                createReviewWorkItem(client, {
+                  webhookEventId: event.id,
+                  ref,
+                  source: "auto",
+                  lens: AUTOMATED_REVIEW_LENS,
+                }),
             });
-            await client.query(
-              `UPDATE agent_work_items
-							    SET superseded_by = $1
-							  WHERE id = ANY($2::uuid[])`,
-              [workItemId, [...olderQueued.rows, ...running.rows].map((r) => r.id)],
-            );
-            if (olderQueued.rows.length > 0 || running.rows.length > 0) {
-              await releaseReviewSingletonSlot(boss, client, resourceKey, AUTOMATED_REVIEW_LENS);
-            }
+            await releaseSingletonIfSuperseded({
+              boss,
+              db: slotDb,
+              supersededIds: reviewSuperseded,
+              release: () =>
+                releaseSingletonSlot(boss, {
+                  queue: REVIEW_QUEUE,
+                  singletonKey: reviewSingletonKey(resourceKey, AUTOMATED_REVIEW_LENS),
+                  db: slotDb,
+                }),
+            });
             await enqueueAck(boss, client, {
               kind: "ack",
               workItemId,
@@ -388,10 +438,46 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
               ...correlation,
             });
             await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation);
+
+            const descriptionTarget: AutoWorkSupersedeTarget = {
+              kind: "description",
+              resourceKey,
+            };
+            const { workItemId: descriptionWorkItemId, supersededIds: descriptionSuperseded } =
+              await replaceAutoWorkItem({
+                client,
+                target: descriptionTarget,
+                createWorkItem: () =>
+                  createDescriptionWorkItem(client, {
+                    webhookEventId: event.id,
+                    ref,
+                    source: "auto",
+                  }),
+              });
+            await releaseSingletonIfSuperseded({
+              boss,
+              db: slotDb,
+              supersededIds: descriptionSuperseded,
+              release: () =>
+                releaseSingletonSlot(boss, {
+                  queue: DESCRIPTION_QUEUE,
+                  singletonKey: descriptionSingletonKey(resourceKey),
+                  db: slotDb,
+                }),
+            });
+            await enqueueDescription(boss, client, ref, descriptionWorkItemId, correlation);
+
             recordEvent(intakeLog, "agent_work_enqueued", {
               type: "review",
               source: "auto",
               workItemId,
+              resourceKey,
+              ...correlation,
+            });
+            recordEvent(intakeLog, "agent_work_enqueued", {
+              type: "description",
+              source: "auto",
+              workItemId: descriptionWorkItemId,
               resourceKey,
               ...correlation,
             });
@@ -492,6 +578,45 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
               return;
             }
 
+            if (command === "describe") {
+              const resourceKey = prResourceKey(input.owner, input.repo, input.prNumber);
+              const existing = await fetchActiveWorkItem(client, {
+                kind: "description",
+                resourceKey,
+              });
+              if (existing) {
+                await enqueueAck(boss, client, {
+                  ...baseAck,
+                  ...correlation,
+                  reply: {
+                    target: input.replyTarget,
+                    body: DESCRIPTION_ALREADY_IN_PROGRESS,
+                  },
+                });
+                return;
+              }
+
+              const workItemId = await createDescriptionWorkItem(client, {
+                webhookEventId: event.id,
+                ref,
+                source: "slash",
+                userSupplement: clampStoredCommentText(
+                  `User invoked /describe with:\n${input.body}`,
+                ),
+                commenterId: input.commenterId,
+              });
+              await enqueueAck(boss, client, { ...baseAck, workItemId, ...correlation });
+              await enqueueDescription(boss, client, ref, workItemId, correlation);
+              recordEvent(intakeLog, "agent_work_enqueued", {
+                type: "description",
+                source: "slash",
+                workItemId,
+                resourceKey,
+                ...correlation,
+              });
+              return;
+            }
+
             if (
               command === "review" ||
               command === "review-security" ||
@@ -499,7 +624,11 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
             ) {
               const lens = command as ReviewMode;
               const resourceKey = prResourceKey(input.owner, input.repo, input.prNumber);
-              const existing = await fetchActiveSameLens(client, resourceKey, lens);
+              const existing = await fetchActiveWorkItem(client, {
+                kind: "review",
+                resourceKey,
+                lens,
+              });
               if (existing) {
                 await enqueueAck(boss, client, {
                   ...baseAck,

@@ -5,6 +5,9 @@ import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_ASK_CONCURRENCY,
+  DEFAULT_DESCRIPTION_CONCURRENCY,
+  DEFAULT_DESCRIPTION_GENERATE_TITLE,
+  DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
@@ -195,6 +198,24 @@ export function loadConfig() {
   if (!Number.isFinite(ackConcurrency) || ackConcurrency < 1) {
     throw new Error("ACK_CONCURRENCY must be a positive number");
   }
+
+  const descriptionConcurrency = Number(
+    optionalEnv(ENV.DESCRIPTION_CONCURRENCY, String(DEFAULT_DESCRIPTION_CONCURRENCY)),
+  );
+  if (!Number.isFinite(descriptionConcurrency) || descriptionConcurrency < 1) {
+    throw new Error("DESCRIPTION_CONCURRENCY must be a positive number");
+  }
+
+  const maxToolRoundsDescribe = Number(
+    optionalEnv(ENV.MAX_TOOL_ROUNDS_DESCRIBE, String(DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE)),
+  );
+  if (!Number.isFinite(maxToolRoundsDescribe) || maxToolRoundsDescribe < 1) {
+    throw new Error("MAX_TOOL_ROUNDS_DESCRIBE must be a positive number");
+  }
+
+  const descriptionGenerateTitle =
+    optionalEnv(ENV.DESCRIPTION_GENERATE_TITLE, String(DEFAULT_DESCRIPTION_GENERATE_TITLE)) ===
+    "true";
 
   const queueRetryLimit = Number(
     optionalEnv(ENV.QUEUE_RETRY_LIMIT, String(DEFAULT_QUEUE_RETRY_LIMIT)),
@@ -397,6 +418,9 @@ export function loadConfig() {
     reviewConcurrency,
     askConcurrency,
     ackConcurrency,
+    descriptionConcurrency,
+    maxToolRoundsDescribe,
+    descriptionGenerateTitle,
     queueRetryLimit,
     queueRetryDelaySeconds,
     queueRetryDelayMaxSeconds,

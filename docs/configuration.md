@@ -35,6 +35,9 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Publish execution budget  | `MAX_REVIEW_PUBLISH_CALLS`                  | `2`                      | valid submitReview publishes per run               |
 | Review worker concurrency | `REVIEW_CONCURRENCY`                        | `2`                      | pg-boss review queue workers                       |
 | Ask worker concurrency    | `ASK_CONCURRENCY`                           | `1`                      | pg-boss ask queue workers                          |
+| Description concurrency   | `DESCRIPTION_CONCURRENCY`                   | `1`                      | pg-boss description queue workers                  |
+| Description tool rounds   | `MAX_TOOL_ROUNDS_DESCRIBE`                  | `16`                     | agent investigation cap for `/describe`            |
+| Description AI title      | `DESCRIPTION_GENERATE_TITLE`                | `false`                  | when false, keep existing PR title on publish      |
 | Ack worker concurrency    | `ACK_CONCURRENCY`                           | `2`                      | reactions + progress stub                          |
 | Installation group cap    | `INSTALLATION_GROUP_CONCURRENCY`            | `2`                      | pg-boss group policy                               |
 | Queue retry limit         | `QUEUE_RETRY_LIMIT`                         | `3`                      | pg-boss job retries                                |
