@@ -25,10 +25,7 @@ import {
   recordPublishStep,
   shouldSkipWork,
 } from "../repository.js";
-import {
-  createSlashReviewRescheduleWorkItem,
-  enqueueSlashReviewReschedule,
-} from "../reviewReschedule.js";
+import { buildStaleSlashReviewRescheduleResult } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/progressComment.js";
 import {
   makeInstallationTokenRefresher,
@@ -59,31 +56,7 @@ export async function executeReviewJob(
         !payload.staleHeadRescheduled &&
         payload.staleHeadReplacementWorkItemId
       ) {
-        const latestHeadSha = await getPullRequestHeadSha(
-          env.installation.token,
-          item.owner,
-          item.repo,
-          item.prNumber,
-        );
-        const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
-          pool,
-          item,
-          latestHeadSha,
-        );
-        return {
-          rescheduled: true,
-          replacementWorkItemId,
-          afterComplete: async (activeBoss, activePgBossJobId) => {
-            await enqueueSlashReviewReschedule(
-              pool,
-              activeBoss,
-              item,
-              replacementWorkItemId,
-              latestHeadSha,
-              activePgBossJobId,
-            );
-          },
-        };
+        return buildStaleSlashReviewRescheduleResult(pool, item, env.installation.token);
       }
       const publishState = await getReviewPublishState(pool, item.id, item.resourceKey, reviewLens);
       const shouldLinkToSummary = await hasPriorCompletedSummaryPublish(
@@ -227,31 +200,11 @@ export async function executeReviewJob(
             ),
           });
           if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
-            const latestHeadSha = await getPullRequestHeadSha(
-              tokenState.installation.token,
-              item.owner,
-              item.repo,
-              item.prNumber,
-            );
-            const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
+            return buildStaleSlashReviewRescheduleResult(
               pool,
               item,
-              latestHeadSha,
+              tokenState.installation.token,
             );
-            return {
-              rescheduled: true,
-              replacementWorkItemId,
-              afterComplete: async (activeBoss, activePgBossJobId) => {
-                await enqueueSlashReviewReschedule(
-                  pool,
-                  activeBoss,
-                  item,
-                  replacementWorkItemId,
-                  latestHeadSha,
-                  activePgBossJobId,
-                );
-              },
-            };
           }
           if (!result.published) {
             if (result.publishSuperseded) {

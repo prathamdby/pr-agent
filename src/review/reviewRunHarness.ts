@@ -3,7 +3,7 @@ import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
-import type { WorkSource } from "./workSource.js";
+import type { WorkSource } from "./reviewSchema.js";
 import { assistantFromText, runSubmitOnlyRound } from "../agentRun/sessionHelpers.js";
 import { resolveAgentRunnerProvider } from "../agent/providers/index.js";
 import { renderAnchorMenuBlock } from "./reviewDiffIndex.js";

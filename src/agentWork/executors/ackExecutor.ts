@@ -14,6 +14,7 @@ import {
 } from "../githubPrSurface.js";
 import { DEFERRED_HEAD_SHA, type AckJobData } from "../types.js";
 
+/** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
   if (data.commenterId != null) {
     try {

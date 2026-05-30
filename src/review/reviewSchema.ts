@@ -26,6 +26,9 @@ export {
 
 export type ReviewMode = "review" | "review-security" | "review-quality";
 
+/** How a review run was triggered (automated webhook vs slash command). */
+export type WorkSource = "auto" | "slash";
+
 export function reviewSummarySentinelForMode(mode: ReviewMode): string {
   switch (mode) {
     case "review-security":

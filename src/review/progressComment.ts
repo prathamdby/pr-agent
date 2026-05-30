@@ -13,7 +13,7 @@ import {
   REVIEW_PROGRESS_SOURCE_SLASH,
 } from "../settings/index.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "./reviewSchema.js";
-import type { WorkSource } from "./workSource.js";
+import type { WorkSource } from "./reviewSchema.js";
 
 export function renderReviewProgressComment(params: {
   mode: ReviewMode;

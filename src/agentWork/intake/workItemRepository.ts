@@ -2,10 +2,70 @@ import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CodeAnchor } from "../../agent/askRun.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
-import type { ReviewMode } from "../../review/reviewSchema.js";
-import type { WorkSource } from "../../review/workSource.js";
+import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
 import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import { prResourceKey, type PrRef } from "../types.js";
+
+async function insertQueuedAgentWorkItem(
+  client: PoolClient,
+  params: {
+    id: string;
+    webhookEventId: string;
+    type: "review" | "description" | "ask";
+    source: WorkSource;
+    ref: PrRef;
+    reviewLens: ReviewMode | null;
+    resourceKey: string;
+    priority: number;
+    payload: unknown;
+  },
+): Promise<void> {
+  if (params.type === "ask") {
+    await client.query(
+      `INSERT INTO agent_work_items (
+		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+		   head_sha, resource_key, priority, payload
+		 )
+		 VALUES ($1, $2, 'ask', $3, 'queued', $4, $5, $6, $7, $8, $9, 50, $10::jsonb)`,
+      [
+        params.id,
+        params.webhookEventId,
+        params.source,
+        params.ref.owner,
+        params.ref.repo,
+        params.ref.prNumber,
+        params.ref.installationId,
+        params.ref.headSha,
+        params.resourceKey,
+        JSON.stringify(params.payload),
+      ],
+    );
+    return;
+  }
+
+  await client.query(
+    `INSERT INTO agent_work_items (
+		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+		   head_sha, review_lens, resource_key, priority, payload
+		 )
+		 VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)`,
+    [
+      params.id,
+      params.webhookEventId,
+      params.type,
+      params.source,
+      params.ref.owner,
+      params.ref.repo,
+      params.ref.prNumber,
+      params.ref.installationId,
+      params.ref.headSha,
+      params.reviewLens,
+      params.resourceKey,
+      params.priority,
+      JSON.stringify(params.payload),
+    ],
+  );
+}
 
 export async function createReviewWorkItem(
   client: PoolClient,
@@ -21,32 +81,22 @@ export async function createReviewWorkItem(
 ): Promise<string> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  await client.query(
-    `INSERT INTO agent_work_items (
-		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
-		   head_sha, review_lens, resource_key, priority, payload
-		 )
-		 VALUES ($1, $2, 'review', $3, 'queued', $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
-    [
-      id,
-      params.webhookEventId,
-      params.source,
-      params.ref.owner,
-      params.ref.repo,
-      params.ref.prNumber,
-      params.ref.installationId,
-      params.ref.headSha,
-      params.lens,
-      resourceKey,
-      params.priority ?? 0,
-      JSON.stringify({
-        mode: params.lens,
-        source: params.source,
-        userSupplement: params.userSupplement,
-        commenterId: params.commenterId,
-      }),
-    ],
-  );
+  await insertQueuedAgentWorkItem(client, {
+    id,
+    webhookEventId: params.webhookEventId,
+    type: "review",
+    source: params.source,
+    ref: params.ref,
+    reviewLens: params.lens,
+    resourceKey,
+    priority: params.priority ?? 0,
+    payload: {
+      mode: params.lens,
+      source: params.source,
+      userSupplement: params.userSupplement,
+      commenterId: params.commenterId,
+    },
+  });
   await client.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status)
 		 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending')
@@ -71,30 +121,21 @@ export async function createDescriptionWorkItem(
 ): Promise<string> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  await client.query(
-    `INSERT INTO agent_work_items (
-		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
-		   head_sha, review_lens, resource_key, priority, payload
-		 )
-		 VALUES ($1, $2, 'description', $3, 'queued', $4, $5, $6, $7, $8, NULL, $9, $10, $11::jsonb)`,
-    [
-      id,
-      params.webhookEventId,
-      params.source,
-      params.ref.owner,
-      params.ref.repo,
-      params.ref.prNumber,
-      params.ref.installationId,
-      params.ref.headSha,
-      resourceKey,
-      params.source === "slash" ? 50 : 0,
-      JSON.stringify({
-        source: params.source,
-        userSupplement: params.userSupplement,
-        commenterId: params.commenterId,
-      }),
-    ],
-  );
+  await insertQueuedAgentWorkItem(client, {
+    id,
+    webhookEventId: params.webhookEventId,
+    type: "description",
+    source: params.source,
+    ref: params.ref,
+    reviewLens: null,
+    resourceKey,
+    priority: params.source === "slash" ? 50 : 0,
+    payload: {
+      source: params.source,
+      userSupplement: params.userSupplement,
+      commenterId: params.commenterId,
+    },
+  });
   return id;
 }
 
@@ -111,30 +152,23 @@ export async function createAskWorkItem(
   },
 ): Promise<string> {
   const id = crypto.randomUUID();
-  await client.query(
-    `INSERT INTO agent_work_items (
-		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
-		   head_sha, resource_key, priority, payload
-		 )
-		 VALUES ($1, $2, 'ask', 'slash', 'queued', $3, $4, $5, $6, $7, $8, 50, $9::jsonb)`,
-    [
-      id,
-      params.webhookEventId,
-      params.ref.owner,
-      params.ref.repo,
-      params.ref.prNumber,
-      params.ref.installationId,
-      params.ref.headSha,
-      prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
-      JSON.stringify({
-        question: params.question,
-        replyTarget: params.replyTarget,
-        commentId: params.commentId,
-        commenterId: params.commenterId,
-        codeAnchor: params.codeAnchor,
-      }),
-    ],
-  );
+  await insertQueuedAgentWorkItem(client, {
+    id,
+    webhookEventId: params.webhookEventId,
+    type: "ask",
+    source: "slash",
+    ref: params.ref,
+    reviewLens: null,
+    resourceKey: prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
+    priority: 50,
+    payload: {
+      question: params.question,
+      replyTarget: params.replyTarget,
+      commentId: params.commentId,
+      commenterId: params.commenterId,
+      codeAnchor: params.codeAnchor,
+    },
+  });
   return id;
 }
 

@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logInfo } from "../evlog.js";
+import { getPullRequestHeadSha } from "./githubPrSurface.js";
 import { getWorkItem } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
@@ -14,6 +15,35 @@ import {
   type ReviewJobData,
   type ReviewWorkPayload,
 } from "./types.js";
+
+export type StaleSlashReviewRescheduleResult = {
+  readonly rescheduled: true;
+  readonly replacementWorkItemId: string;
+  readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+};
+
+export async function buildStaleSlashReviewRescheduleResult(
+  pool: Pool,
+  item: AgentWorkItem,
+  token: string,
+): Promise<StaleSlashReviewRescheduleResult> {
+  const latestHeadSha = await getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber);
+  const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
+  return {
+    rescheduled: true,
+    replacementWorkItemId,
+    afterComplete: async (boss, activePgBossJobId) => {
+      await enqueueSlashReviewReschedule(
+        pool,
+        boss,
+        item,
+        replacementWorkItemId,
+        latestHeadSha,
+        activePgBossJobId,
+      );
+    },
+  };
+}
 
 export async function createSlashReviewRescheduleWorkItem(
   pool: Pool,
