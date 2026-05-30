@@ -23,4 +23,32 @@ describe("descriptionRender", () => {
     expect(body).toContain("### PR Type");
     expect(body).toContain("Enhancement");
   });
+
+  it("renders file walkthrough as nested accordions", () => {
+    const body = renderDescriptionAgentBlock({
+      title: "t",
+      type: ["Enhancement"],
+      description: "- Main",
+      prFiles: [
+        {
+          filename: "src/a.ts",
+          changesTitle: "New render-safe redirect hook",
+          changesSummary: "- Uses state redirect",
+          label: "enhancement",
+        },
+        {
+          filename: "src/b.ts",
+          changesTitle: "Admin users list API proxy",
+          changesSummary: "- Proxies auth backend",
+          label: "enhancement",
+        },
+      ],
+    });
+    expect(body).toContain("### File Walkthrough");
+    expect(body).toContain("<details>");
+    expect(body).toContain("<summary>Enhancement (2 files)</summary>");
+    expect(body).toContain("<summary>New render-safe redirect hook</summary>");
+    expect(body).toContain("`src/a.ts`");
+    expect(body).not.toMatch(/^- `src\/a\.ts`/m);
+  });
 });

@@ -9,6 +9,11 @@ import {
   DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
   formatDescriptionValidationError,
 } from "./descriptionSchema.js";
+import {
+  formatMermaidValidationError,
+  sanitizeMermaidDiagram,
+  validateMermaidDiagram,
+} from "./mermaidDiagram.js";
 
 export type SubmitDescriptionState = {
   published: boolean;
@@ -73,6 +78,18 @@ export function buildSubmitDescriptionTool(params: {
       params.state.lastValidationError = formatDescriptionValidationError(parsed.error);
       throw new Error(params.state.lastValidationError);
     }
+
+    let payload = parsed.data;
+    if (payload.changesDiagram?.trim()) {
+      const sanitizedDiagram = sanitizeMermaidDiagram(payload.changesDiagram);
+      const mermaidIssues = validateMermaidDiagram(sanitizedDiagram);
+      if (mermaidIssues.length > 0) {
+        params.state.lastValidationError = formatMermaidValidationError(mermaidIssues);
+        throw new Error(params.state.lastValidationError);
+      }
+      payload = { ...payload, changesDiagram: sanitizedDiagram };
+    }
+
     params.state.lastValidationError = null;
 
     const result = await publishDescriptionToPullRequest({
@@ -81,7 +98,7 @@ export function buildSubmitDescriptionTool(params: {
       owner: params.owner,
       repo: params.repo,
       prNumber: params.prNumber,
-      payload: parsed.data,
+      payload,
     });
 
     params.state.published = true;

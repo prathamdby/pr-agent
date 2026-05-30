@@ -1,23 +1,10 @@
+import { escapeTableHtml } from "../github/markdownFormat.js";
 import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
 import { DESCRIPTION_AGENT_HEADER } from "../settings/index.js";
+import { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
 
-export function sanitizeMermaidDiagram(diagramRaw: string): string {
-  const diagram = diagramRaw.trim();
-  if (!diagram.startsWith("```mermaid")) {
-    return "";
-  }
-  let fixed = diagram;
-  if (!fixed.endsWith("```")) {
-    fixed += "\n```";
-  }
-  const lines = fixed.split("\n").map((line) =>
-    line.replace(/\["([^"]*?)"\]/g, (_match, label: string) => {
-      return `["${label.replace(/`/g, "")}"]`;
-    }),
-  );
-  return lines.join("\n");
-}
+export { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
 
 function groupFilesByLabel(files: readonly DescriptionPrFile[]): Map<string, DescriptionPrFile[]> {
   const groups = new Map<string, DescriptionPrFile[]>();
@@ -30,22 +17,35 @@ function groupFilesByLabel(files: readonly DescriptionPrFile[]): Map<string, Des
   return groups;
 }
 
+function renderFileEntry(file: DescriptionPrFile): string[] {
+  const lines: string[] = [
+    "<details>",
+    `<summary>${escapeTableHtml(file.changesTitle)}</summary>`,
+    "",
+    `\`${file.filename}\``,
+    "",
+  ];
+  if (file.changesSummary?.trim()) {
+    for (const bullet of file.changesSummary.trim().split("\n")) {
+      const trimmed = bullet.trim();
+      if (trimmed) lines.push(trimmed.startsWith("-") ? trimmed : `- ${trimmed}`);
+    }
+  }
+  lines.push("", "</details>");
+  return lines;
+}
+
 function renderFileWalkthrough(files: readonly DescriptionPrFile[]): string {
   if (files.length === 0) return "";
   const groups = groupFilesByLabel(files);
   const lines: string[] = ["### File Walkthrough", ""];
   for (const [label, group] of groups) {
-    lines.push(`**${label.charAt(0).toUpperCase()}${label.slice(1)}**`, "");
+    const labelTitle = `${label.charAt(0).toUpperCase()}${label.slice(1)} (${group.length} file${group.length === 1 ? "" : "s"})`;
+    lines.push("<details>", `<summary>${escapeTableHtml(labelTitle)}</summary>`, "");
     for (const file of group) {
-      lines.push(`- \`${file.filename}\`: ${file.changesTitle}`);
-      if (file.changesSummary?.trim()) {
-        for (const bullet of file.changesSummary.trim().split("\n")) {
-          const trimmed = bullet.trim();
-          if (trimmed) lines.push(`  ${trimmed.startsWith("-") ? trimmed : `- ${trimmed}`}`);
-        }
-      }
-      lines.push("");
+      lines.push(...renderFileEntry(file), "");
     }
+    lines.push("</details>", "");
   }
   return lines.join("\n").trimEnd();
 }
