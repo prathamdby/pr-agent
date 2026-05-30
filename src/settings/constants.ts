@@ -10,6 +10,8 @@ export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
+/** PR description auto-runs only on first open; use `/describe` after that. */
+export const AUTOMATED_DESCRIPTION_PR_ACTIONS = new Set(["opened"]);
 export const AUTOMATED_REVIEW_LENS = "review" as const;
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
@@ -300,13 +302,13 @@ export const SLASH_HELP_BODY = [
   "Commands (first line of a **new** comment):",
   "- `/help` — show this message",
   "- `/ask <question>` — ask about this PR or a specific line of code",
-  "- `/describe` — generate or refresh the PR title/body summary (also runs automatically on PR open/sync)",
+  "- `/describe` — generate or refresh the PR title/body summary (also runs automatically on PR open)",
   "- `/review` — general bug-and-correctness review (also runs automatically on PR open/sync)",
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
   "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
   "",
   "Notes:",
-  "- Automated `/describe` and `/review` run on PR `opened` / `synchronize` / `reopened`.",
+  "- Automated `/describe` runs on PR `opened` only; `/review` runs on `opened` / `synchronize` / `reopened`.",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
   "- `/review`, `/review-security`, and `/review-quality` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
