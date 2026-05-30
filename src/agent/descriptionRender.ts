@@ -1,10 +1,14 @@
-import { escapeTableHtml } from "../github/markdownFormat.js";
+import path from "node:path";
+import { escapeTableHtml, renderInlineCodeLink } from "../github/markdownFormat.js";
+import { githubPullRequestFileDiffUrl, type GitHubPullRequestFileContext } from "../github/prFileUrls.js";
 import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
 import { DESCRIPTION_AGENT_HEADER } from "../settings/index.js";
 import { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
 
 export { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
+
+export type DescriptionRenderContext = GitHubPullRequestFileContext;
 
 function groupFilesByLabel(files: readonly DescriptionPrFile[]): Map<string, DescriptionPrFile[]> {
   const groups = new Map<string, DescriptionPrFile[]>();
@@ -17,44 +21,118 @@ function groupFilesByLabel(files: readonly DescriptionPrFile[]): Map<string, Des
   return groups;
 }
 
-function renderFileEntry(file: DescriptionPrFile): string[] {
+function uniqueBasenames(files: readonly DescriptionPrFile[]): Map<string, string> {
+  const byBase = new Map<string, string[]>();
+  for (const file of files) {
+    const base = path.basename(file.filename);
+    const bucket = byBase.get(base) ?? [];
+    bucket.push(file.filename);
+    byBase.set(base, bucket);
+  }
+  const unique = new Map<string, string>();
+  for (const [base, paths] of byBase) {
+    if (paths.length === 1) unique.set(base, paths[0]!);
+  }
+  return unique;
+}
+
+function fileUrlByPath(
+  files: readonly DescriptionPrFile[],
+  ctx: DescriptionRenderContext,
+): Map<string, string> {
+  const urls = new Map<string, string>();
+  for (const file of files) {
+    urls.set(file.filename, githubPullRequestFileDiffUrl(ctx, file.filename));
+  }
+  return urls;
+}
+
+function markdownFileLink(display: string, href: string): string {
+  return `[${display}](${href})`;
+}
+
+function linkifyFileReferences(
+  line: string,
+  urlByPath: ReadonlyMap<string, string>,
+  uniqueBasenameToPath: ReadonlyMap<string, string>,
+): string {
+  let out = line;
+  const paths = [...urlByPath.keys()].sort((a, b) => b.length - a.length);
+  for (const filePath of paths) {
+    const href = urlByPath.get(filePath)!;
+    const backtick = `\`${filePath}\``;
+    if (out.includes(backtick)) {
+      out = out.replaceAll(backtick, markdownFileLink(filePath, href));
+    }
+  }
+  for (const [basename, filePath] of uniqueBasenameToPath) {
+    const href = urlByPath.get(filePath)!;
+    const backtick = `\`${basename}\``;
+    if (out.includes(backtick)) {
+      out = out.replaceAll(backtick, markdownFileLink(basename, href));
+    }
+    const bulletPrefix = `- ${basename}:`;
+    if (out.includes(bulletPrefix)) {
+      out = out.replaceAll(bulletPrefix, `- ${markdownFileLink(basename, href)}:`);
+    }
+  }
+  return out;
+}
+
+function renderFileEntry(
+  file: DescriptionPrFile,
+  ctx: DescriptionRenderContext,
+  urlByPath: ReadonlyMap<string, string>,
+  uniqueBasenameToPath: ReadonlyMap<string, string>,
+): string[] {
+  const href = urlByPath.get(file.filename) ?? githubPullRequestFileDiffUrl(ctx, file.filename);
   const lines: string[] = [
     "<details>",
     `<summary>${escapeTableHtml(file.changesTitle)}</summary>`,
     "",
-    `\`${file.filename}\``,
+    renderInlineCodeLink(file.filename, href),
     "",
   ];
   if (file.changesSummary?.trim()) {
     for (const bullet of file.changesSummary.trim().split("\n")) {
       const trimmed = bullet.trim();
-      if (trimmed) lines.push(trimmed.startsWith("-") ? trimmed : `- ${trimmed}`);
+      if (!trimmed) continue;
+      const normalized = trimmed.startsWith("-") ? trimmed : `- ${trimmed}`;
+      lines.push(linkifyFileReferences(normalized, urlByPath, uniqueBasenameToPath));
     }
   }
   lines.push("", "</details>");
   return lines;
 }
 
-function renderFileWalkthrough(files: readonly DescriptionPrFile[]): string {
+function renderFileWalkthrough(
+  files: readonly DescriptionPrFile[],
+  ctx: DescriptionRenderContext,
+): string {
   if (files.length === 0) return "";
   const groups = groupFilesByLabel(files);
+  const urlByPath = fileUrlByPath(files, ctx);
+  const uniqueBasenameToPath = uniqueBasenames(files);
   const lines: string[] = ["### File Walkthrough", ""];
   for (const [label, group] of groups) {
     const labelTitle = `${label.charAt(0).toUpperCase()}${label.slice(1)} (${group.length} file${group.length === 1 ? "" : "s"})`;
     lines.push("<details>", `<summary>${escapeTableHtml(labelTitle)}</summary>`, "");
     for (const file of group) {
-      lines.push(...renderFileEntry(file), "");
+      lines.push(...renderFileEntry(file, ctx, urlByPath, uniqueBasenameToPath), "");
     }
     lines.push("</details>", "");
   }
   return lines.join("\n").trimEnd();
 }
 
-export function renderDescriptionAgentBlock(payload: DescriptionPayload): string {
+export function renderDescriptionAgentBlock(
+  payload: DescriptionPayload,
+  ctx: DescriptionRenderContext,
+): string {
   const typeLine = payload.type.join(", ");
   const description = payload.description.trim();
   const diagram = payload.changesDiagram ? sanitizeMermaidDiagram(payload.changesDiagram) : "";
-  const walkthrough = payload.prFiles?.length ? renderFileWalkthrough(payload.prFiles) : "";
+  const walkthrough = payload.prFiles?.length ? renderFileWalkthrough(payload.prFiles, ctx) : "";
 
   const sections = [
     DESCRIPTION_AGENT_HEADER,

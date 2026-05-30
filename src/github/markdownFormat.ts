@@ -40,6 +40,11 @@ export function renderTableLink(title: string, href: string): string {
   return `<strong><a href="${escapeHtmlAttr(href)}">${escapeTableHtml(title)}</a></strong>`;
 }
 
+/** Inline link with monospace label (e.g. file paths in PR description walkthrough). */
+export function renderInlineCodeLink(label: string, href: string): string {
+  return `<a href="${escapeHtmlAttr(href)}">${renderTableCode(label)}</a>`;
+}
+
 export function renderTableEm(text: string): string {
   return `<em>${escapeTableHtml(text)}</em>`;
 }

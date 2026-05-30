@@ -26,7 +26,7 @@ export async function publishDescriptionToPullRequest(params: {
     pull_number: prNumber,
   });
 
-  const agentBlock = renderDescriptionAgentBlock(payload);
+  const agentBlock = renderDescriptionAgentBlock(payload, { owner, repo, prNumber });
   const mergedBody = mergeDescriptionIntoPrBody({
     currentBody: pr.body,
     agentBlock,
