@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { runAskRun } from "../agent/askRun.js";
+import { runFullPrDescription } from "../agent/descriptionRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../agent/formatAskReply.js";
 import { runFullPrReview } from "../agent/reviewRun.js";
 import { buildTrustedReviewContextForReview } from "../agent/reviewTrustedContext.js";
@@ -33,19 +34,26 @@ import {
   createSlashReviewRescheduleWorkItem,
   enqueueSlashReviewReschedule,
 } from "./reviewReschedule.js";
-import { preparePrRepositoryView } from "./prRepositoryView.js";
+import { withPrRepositoryView } from "./prRepositoryView.js";
 import { cleanupStaleLocalPrWorkspaces } from "./localPrWorkspace.js";
-import { GITHUB_REACTION_EYES } from "../settings/index.js";
+import {
+  DESCRIPTION_FAILURE_MESSAGE,
+  DESCRIPTION_PUBLISH_LENS,
+  GITHUB_REACTION_EYES,
+} from "../settings/index.js";
 import { renderReviewFailureNotice, renderReviewProgressComment } from "./progressComment.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
+  DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   type AckJobData,
   type AckTarget,
   type AgentWorkItem,
   type AskWorkPayload,
   type AskJobData,
+  type DescriptionJobData,
+  type DescriptionWorkPayload,
   type ReviewJobData,
   type ReviewWorkPayload,
   DEFERRED_HEAD_SHA,
@@ -309,139 +317,139 @@ async function handleReviewJob(
         return { degraded: false };
       }
 
-      const repositoryView = await preparePrRepositoryView({
-        cfg,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        headSha,
-        installationToken: installation.token,
-      });
-      try {
-        const bot = await getAppBotIdentity(cfg);
-        const trustedContext = await buildTrustedReviewContextForReview({
-          preflight: repositoryView.preflight,
-          token: installation.token,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          reviewLens,
-          botUserId: bot.userId,
-          onPriorFeedbackError: (error) => {
-            logWarn("prior_inline_feedback_fetch_failed", {
-              owner: item.owner,
-              repo: item.repo,
-              pr: item.prNumber,
-              reviewLens,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          },
-        });
-
-        const result = await runFullPrReview({
+      return withPrRepositoryView(
+        {
           cfg,
-          token: installation.token,
-          tokenExpiresAtTs: installation.expiresAtTs,
-          tokenTtlMs: installation.ttlMs,
           owner: item.owner,
           repo: item.repo,
           prNumber: item.prNumber,
           headSha,
-          mode: reviewLens,
-          userSupplement: payload.userSupplement,
-          trustedContext,
-          storedInlineFingerprints,
-          cwd: repositoryView.agentCwd,
-          workspace: repositoryView.workspace,
-          shouldLinkToSummary,
-          summaryCommentIdHint,
-          initialPublishState: {
-            inlinePublished: publishState.inlinePublished,
-            published: publishState.summaryPublished,
-            inlineReviewId: publishState.inlineReviewId,
-          },
-          recordPublishStep: (step, detail) =>
-            recordPublishStep(pool, {
-              workItemId: item.id,
-              resourceKey: item.resourceKey,
-              reviewLens,
-              step,
-              githubId: detail?.githubId,
-              detail: detail?.meta,
-            }),
-          reviewSource: payload.source,
-          staleHeadRescheduled: payload.staleHeadRescheduled,
-          publishAbortState,
-          shouldAbortPublish: async () => {
-            if (await shouldSkipWork(pool, item)) return true;
+          installationToken: installation.token,
+        },
+        async (repositoryView) => {
+          const bot = await getAppBotIdentity(cfg);
+          const trustedContext = await buildTrustedReviewContextForReview({
+            preflight: repositoryView.preflight,
+            token: installation.token,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            reviewLens,
+            botUserId: bot.userId,
+            onPriorFeedbackError: (error) => {
+              logWarn("prior_inline_feedback_fetch_failed", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                reviewLens,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            },
+          });
+
+          const result = await runFullPrReview({
+            cfg,
+            token: installation.token,
+            tokenExpiresAtTs: installation.expiresAtTs,
+            tokenTtlMs: installation.ttlMs,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha,
+            mode: reviewLens,
+            userSupplement: payload.userSupplement,
+            trustedContext,
+            storedInlineFingerprints,
+            cwd: repositoryView.agentCwd,
+            workspace: repositoryView.workspace,
+            shouldLinkToSummary,
+            summaryCommentIdHint,
+            initialPublishState: {
+              inlinePublished: publishState.inlinePublished,
+              published: publishState.summaryPublished,
+              inlineReviewId: publishState.inlineReviewId,
+            },
+            recordPublishStep: (step, detail) =>
+              recordPublishStep(pool, {
+                workItemId: item.id,
+                resourceKey: item.resourceKey,
+                reviewLens,
+                step,
+                githubId: detail?.githubId,
+                detail: detail?.meta,
+              }),
+            reviewSource: payload.source,
+            staleHeadRescheduled: payload.staleHeadRescheduled,
+            publishAbortState,
+            shouldAbortPublish: async () => {
+              if (await shouldSkipWork(pool, item)) return true;
+              const latestHeadSha = await getPullRequestHeadSha(
+                installation.token,
+                item.owner,
+                item.repo,
+                item.prNumber,
+              );
+              if (latestHeadSha !== headSha) {
+                staleHeadAtPublish = true;
+                publishAbortState.staleHead = true;
+                return true;
+              }
+              return false;
+            },
+            refreshInstallationToken: async () => {
+              const fresh = await mintInstallationToken(cfg, item.installationId);
+              installation = fresh;
+              return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+            },
+          });
+          if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
             const latestHeadSha = await getPullRequestHeadSha(
               installation.token,
               item.owner,
               item.repo,
               item.prNumber,
             );
-            if (latestHeadSha !== headSha) {
-              staleHeadAtPublish = true;
-              publishAbortState.staleHead = true;
-              return true;
-            }
-            return false;
-          },
-          refreshInstallationToken: async () => {
-            const fresh = await mintInstallationToken(cfg, item.installationId);
-            installation = fresh;
-            return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
-          },
-        });
-        if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
-          const latestHeadSha = await getPullRequestHeadSha(
-            installation.token,
-            item.owner,
-            item.repo,
-            item.prNumber,
-          );
-          const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
-            pool,
-            item,
-            latestHeadSha,
-          );
-          return {
-            rescheduled: true,
-            replacementWorkItemId,
-            afterComplete: async (activeBoss, activePgBossJobId) => {
-              await enqueueSlashReviewReschedule(
-                pool,
-                activeBoss,
-                item,
-                replacementWorkItemId,
-                latestHeadSha,
-                activePgBossJobId,
-              );
-            },
-          };
-        }
-        if (!result.published) {
-          if (result.publishSuperseded) {
-            logInfo("review_publish_superseded", {
-              owner: item.owner,
-              repo: item.repo,
-              pr: item.prNumber,
-              publishAttempts: result.publishAttempts,
-            });
-          } else {
-            logWarn("review_not_published", {
-              owner: item.owner,
-              repo: item.repo,
-              pr: item.prNumber,
-              publishAttempts: result.publishAttempts,
-              publishDegraded: true,
-            });
+            const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
+              pool,
+              item,
+              latestHeadSha,
+            );
+            return {
+              rescheduled: true,
+              replacementWorkItemId,
+              afterComplete: async (activeBoss, activePgBossJobId) => {
+                await enqueueSlashReviewReschedule(
+                  pool,
+                  activeBoss,
+                  item,
+                  replacementWorkItemId,
+                  latestHeadSha,
+                  activePgBossJobId,
+                );
+              },
+            };
           }
-        }
-        return { degraded: !result.published && !result.publishSuperseded };
-      } finally {
-        await repositoryView.cleanup();
-      }
+          if (!result.published) {
+            if (result.publishSuperseded) {
+              logInfo("review_publish_superseded", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                publishAttempts: result.publishAttempts,
+              });
+            } else {
+              logWarn("review_not_published", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                publishAttempts: result.publishAttempts,
+                publishDegraded: true,
+              });
+            }
+          }
+          return { degraded: !result.published && !result.publishSuperseded };
+        },
+      );
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
@@ -502,6 +510,90 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
   });
 }
 
+async function handleDescriptionJob(
+  cfg: Config,
+  pool: Pool,
+  boss: PgBoss,
+  job: JobWithMetadata<DescriptionJobData>,
+): Promise<void> {
+  await runDurableWorkItem({
+    cfg,
+    pool,
+    boss,
+    job,
+    type: "description",
+    resolveHeadSha: (token, item) =>
+      item.headSha === DEFERRED_HEAD_SHA
+        ? getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber)
+        : Promise.resolve(item.headSha),
+    execute: async (item, env) => {
+      let installation = env.installation;
+      const headSha = env.headSha;
+      const payload = item.payload as DescriptionWorkPayload;
+      return withPrRepositoryView(
+        {
+          cfg,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha,
+          installationToken: installation.token,
+        },
+        async (repositoryView) => {
+          const result = await runFullPrDescription({
+            cfg,
+            token: installation.token,
+            tokenExpiresAtTs: installation.expiresAtTs,
+            tokenTtlMs: installation.ttlMs,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha,
+            userSupplement: payload.userSupplement,
+            cwd: repositoryView.agentCwd,
+            workspace: repositoryView.workspace,
+            shouldAbortPublish: async () => shouldSkipWork(pool, item),
+            recordPublishStep: (detail) =>
+              recordPublishStep(pool, {
+                workItemId: item.id,
+                resourceKey: item.resourceKey,
+                reviewLens: DESCRIPTION_PUBLISH_LENS,
+                step: "pr_body",
+                detail,
+              }),
+            refreshInstallationToken: async () => {
+              const fresh = await mintInstallationToken(cfg, item.installationId);
+              installation = fresh;
+              return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+            },
+          });
+          if (!result.published && !result.publishSuperseded) {
+            logWarn("description_not_published", {
+              owner: item.owner,
+              repo: item.repo,
+              pr: item.prNumber,
+            });
+            return { degraded: true };
+          }
+          return {};
+        },
+      );
+    },
+    onTerminalFailure: async (item, installation) => {
+      if (!installation) return;
+      const payload = item.payload as DescriptionWorkPayload;
+      if (payload.source !== "slash") return;
+      const octokit = installationOctokit(installation.token);
+      await octokit.rest.issues.createComment({
+        owner: item.owner,
+        repo: item.repo,
+        issue_number: item.prNumber,
+        body: DESCRIPTION_FAILURE_MESSAGE,
+      });
+    },
+  });
+}
+
 async function handleAskJob(
   cfg: Config,
   pool: Pool,
@@ -520,40 +612,40 @@ async function handleAskJob(
       let installation = env.installation;
       const headSha = env.headSha;
       const payload = item.payload as AskWorkPayload;
-      const repositoryView = await preparePrRepositoryView({
-        cfg,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        headSha,
-        installationToken: installation.token,
-      });
-      try {
-        const result = await runAskRun({
+      return withPrRepositoryView(
+        {
           cfg,
-          token: installation.token,
-          tokenExpiresAtTs: installation.expiresAtTs,
-          tokenTtlMs: installation.ttlMs,
           owner: item.owner,
           repo: item.repo,
           prNumber: item.prNumber,
           headSha,
-          question: payload.question,
-          replyTarget: payload.replyTarget,
-          codeAnchor: payload.codeAnchor,
-          cwd: repositoryView.agentCwd,
-          workspace: repositoryView.workspace,
-          refreshInstallationToken: async () => {
-            const fresh = await mintInstallationToken(cfg, item.installationId);
-            installation = fresh;
-            return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
-          },
-        });
-        await publishAskAnswer(installation.token, item, result.answer);
-        return {};
-      } finally {
-        await repositoryView.cleanup();
-      }
+          installationToken: installation.token,
+        },
+        async (repositoryView) => {
+          const result = await runAskRun({
+            cfg,
+            token: installation.token,
+            tokenExpiresAtTs: installation.expiresAtTs,
+            tokenTtlMs: installation.ttlMs,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha,
+            question: payload.question,
+            replyTarget: payload.replyTarget,
+            codeAnchor: payload.codeAnchor,
+            cwd: repositoryView.agentCwd,
+            workspace: repositoryView.workspace,
+            refreshInstallationToken: async () => {
+              const fresh = await mintInstallationToken(cfg, item.installationId);
+              installation = fresh;
+              return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+            },
+          });
+          await publishAskAnswer(installation.token, item, result.answer);
+          return {};
+        },
+      );
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
@@ -627,14 +719,21 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               { localConcurrency: cfg.askConcurrency, ...durableQueueOptions },
               (job) => handleAskJob(cfg, pool, boss, job),
             ),
+            registerMetadataQueue<DescriptionJobData>(
+              boss,
+              DESCRIPTION_QUEUE,
+              { localConcurrency: cfg.descriptionConcurrency, ...durableQueueOptions },
+              (job) => handleDescriptionJob(cfg, pool, boss, job),
+            ),
           ]);
           logInfo("agent_worker_started", {
-            queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE],
+            queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE],
             reviewConcurrency: cfg.reviewConcurrency,
             askConcurrency: cfg.askConcurrency,
             ackConcurrency: cfg.ackConcurrency,
+            descriptionConcurrency: cfg.descriptionConcurrency,
           });
-          for (const queue of [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE]) {
+          for (const queue of [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE]) {
             const stats = await boss.getQueueStats(queue);
             logDebug("agent_queue_stats", {
               queue,
@@ -653,7 +752,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
       () =>
         Effect.tryPromise({
           try: async () => {
-            await Promise.all([ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE].map((q) => boss.offWork(q)));
+            await Promise.all(
+              [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE].map((q) => boss.offWork(q)),
+            );
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),

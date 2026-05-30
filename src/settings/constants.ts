@@ -2,14 +2,30 @@
 export const ACK_QUEUE = "agent-work-ack";
 export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
+export const DESCRIPTION_QUEUE = "agent-work-description";
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
+export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
 export const AUTOMATED_REVIEW_LENS = "review" as const;
+export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
+
+/** PR description agent block (merge-by-header). */
+export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";
+export const DESCRIPTION_BODY_SEPARATOR = "\n\n___\n\n";
+export const DESCRIPTION_FAILURE_MESSAGE =
+  "PR Agent could not generate a description for this pull request after retries. Try `/describe` again later.";
+export const DESCRIPTION_ALREADY_IN_PROGRESS =
+  "A `/describe` run is already queued or in progress for this pull request.";
+export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
+  "You replied with text only. Call submitDescription now with a complete DescriptionPayload.";
+export const DESCRIPTION_VALIDATION_REPAIR_ROUNDS = 3;
+export const DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
+export const MAX_DESCRIPTION_PAYLOAD_PR_FILES = 20;
 
 /** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
@@ -284,12 +300,14 @@ export const SLASH_HELP_BODY = [
   "Commands (first line of a **new** comment):",
   "- `/help` — show this message",
   "- `/ask <question>` — ask about this PR or a specific line of code",
+  "- `/describe` — generate or refresh the PR title/body summary (also runs automatically on PR open/sync)",
   "- `/review` — general bug-and-correctness review (also runs automatically on PR open/sync)",
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
   "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
   "",
   "Notes:",
-  "- Automated reviews use `/review`'s lens on PR `opened` / `synchronize` / `reopened`.",
+  "- Automated `/describe` and `/review` run on PR `opened` / `synchronize` / `reopened`.",
+  "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
   "- `/review`, `/review-security`, and `/review-quality` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
   "- Some security issues may appear in both passes; pick the command that matches your question.",

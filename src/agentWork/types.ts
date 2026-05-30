@@ -8,11 +8,13 @@ export {
   ASK_DEAD_LETTER_QUEUE,
   ASK_QUEUE,
   DEFERRED_HEAD_SHA,
+  DESCRIPTION_DEAD_LETTER_QUEUE,
+  DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
 } from "../settings/index.js";
 
-export type WorkType = "review" | "ask";
+export type WorkType = "review" | "ask" | "description";
 export type WorkSource = "auto" | "slash";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
 
@@ -71,6 +73,11 @@ export type AskJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
+export type DescriptionJobData = JobCorrelation & {
+  readonly kind: "description";
+  readonly workItemId: string;
+};
+
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;
@@ -94,6 +101,12 @@ export type AskWorkPayload = {
   readonly commentId: number;
 };
 
+export type DescriptionWorkPayload = {
+  readonly source: WorkSource;
+  readonly userSupplement?: string;
+  readonly commenterId?: number;
+};
+
 export type AgentWorkItem = PrRef & {
   readonly id: string;
   readonly webhookEventId: string | null;
@@ -103,7 +116,7 @@ export type AgentWorkItem = PrRef & {
   readonly reviewLens: ReviewMode | null;
   readonly resourceKey: string;
   readonly attemptCount: number;
-  readonly payload: ReviewWorkPayload | AskWorkPayload;
+  readonly payload: ReviewWorkPayload | AskWorkPayload | DescriptionWorkPayload;
   readonly cancelRequestedAt: Date | null;
 };
 
@@ -125,6 +138,10 @@ export function prResourceKey(owner: string, repo: string, prNumber: number): st
 
 export function reviewSingletonKey(resourceKey: string, lens: ReviewMode): string {
   return `${resourceKey}:${lens}`;
+}
+
+export function descriptionSingletonKey(resourceKey: string): string {
+  return `${resourceKey}:description`;
 }
 
 export function installationGroupId(installationId: number): string {

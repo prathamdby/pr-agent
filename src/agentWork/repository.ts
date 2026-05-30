@@ -3,12 +3,21 @@ import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { parseStoredInlineFingerprints } from "../agent/reviewFindingFingerprint.js";
+import { DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
 import type { AgentWorkItem, ReviewWorkPayload, WorkStatus } from "./types.js";
+
+export type PublishLens = ReviewWorkPayload["mode"] | typeof DESCRIPTION_PUBLISH_LENS;
+export type PublishStep =
+  | "progress_comment"
+  | "inline_review"
+  | "summary_comment"
+  | "labels"
+  | "pr_body";
 
 type AgentWorkRow = {
   id: string;
   webhook_event_id: string | null;
-  type: "review" | "ask";
+  type: "review" | "ask" | "description";
   source: "auto" | "slash";
   status: WorkStatus;
   owner: string;
@@ -307,8 +316,8 @@ export async function recordPublishStep(
   params: {
     workItemId: string;
     resourceKey: string;
-    reviewLens: ReviewWorkPayload["mode"];
-    step: "progress_comment" | "inline_review" | "summary_comment" | "labels";
+    reviewLens: PublishLens;
+    step: PublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
   },

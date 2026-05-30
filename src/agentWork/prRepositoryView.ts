@@ -10,7 +10,6 @@ export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;
   readonly preflight: ReviewPreflightMetadata;
   readonly agentCwd: string;
-  readonly cleanup: () => Promise<void>;
 };
 
 export type PreparePrRepositoryViewParams = {
@@ -21,6 +20,22 @@ export type PreparePrRepositoryViewParams = {
   readonly headSha: string;
   readonly installationToken: string;
 };
+
+type CachedPrRepositoryView = PrRepositoryView & { readonly cleanup: () => Promise<void> };
+
+type CacheEntry = {
+  refcount: number;
+  view: CachedPrRepositoryView | null;
+  prepare: Promise<CachedPrRepositoryView> | null;
+};
+
+const cache = new Map<string, CacheEntry>();
+
+function cacheKey(
+  params: Pick<PreparePrRepositoryViewParams, "owner" | "repo" | "prNumber" | "headSha">,
+): string {
+  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}`;
+}
 
 async function fetchPullRequestInfo(
   token: string,
@@ -33,9 +48,9 @@ async function fetchPullRequestInfo(
   return { baseSha: data.base.sha, headSha: data.head.sha, baseRef: data.base.ref };
 }
 
-export async function preparePrRepositoryView(
+async function prepareUncached(
   params: PreparePrRepositoryViewParams,
-): Promise<PrRepositoryView> {
+): Promise<CachedPrRepositoryView> {
   const info = await fetchPullRequestInfo(
     params.installationToken,
     params.owner,
@@ -58,4 +73,65 @@ export async function preparePrRepositoryView(
     agentCwd: workspace.agentCwd,
     cleanup: () => workspace.cleanup(),
   };
+}
+
+async function prepareEntry(
+  entry: CacheEntry,
+  params: PreparePrRepositoryViewParams,
+): Promise<CachedPrRepositoryView> {
+  if (entry.view) return entry.view;
+  if (!entry.prepare) {
+    entry.prepare = prepareUncached(params).then((view) => {
+      entry.view = view;
+      return view;
+    });
+  }
+  return entry.prepare;
+}
+
+export async function acquirePrRepositoryView(
+  params: PreparePrRepositoryViewParams,
+): Promise<PrRepositoryView> {
+  const key = cacheKey(params);
+  let entry = cache.get(key);
+  if (!entry) {
+    entry = { refcount: 0, view: null, prepare: null };
+    cache.set(key, entry);
+  }
+  entry.refcount += 1;
+  return prepareEntry(entry, params);
+}
+
+export async function releasePrRepositoryView(
+  params: Pick<PreparePrRepositoryViewParams, "owner" | "repo" | "prNumber" | "headSha">,
+): Promise<void> {
+  const key = cacheKey(params);
+  const entry = cache.get(key);
+  if (!entry) return;
+  entry.refcount -= 1;
+  if (entry.refcount > 0) return;
+  cache.delete(key);
+  const view = entry.view;
+  entry.view = null;
+  entry.prepare = null;
+  if (view) await view.cleanup();
+}
+
+export async function withPrRepositoryView<T>(
+  params: PreparePrRepositoryViewParams,
+  fn: (view: PrRepositoryView) => Promise<T>,
+): Promise<T> {
+  const view = await acquirePrRepositoryView(params);
+  try {
+    return await fn(view);
+  } finally {
+    await releasePrRepositoryView(params);
+  }
+}
+
+/** Bypasses the worker process cache (tests and one-off callers). */
+export async function preparePrRepositoryView(
+  params: PreparePrRepositoryViewParams,
+): Promise<PrRepositoryView & { cleanup: () => Promise<void> }> {
+  return prepareUncached(params);
 }

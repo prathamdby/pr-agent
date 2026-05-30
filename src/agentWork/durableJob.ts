@@ -40,7 +40,7 @@ export type DurableJobSpec = {
   readonly pool: Pool;
   readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
-  readonly type: "review" | "ask";
+  readonly type: "review" | "ask" | "description";
   readonly acceptItem?: (item: AgentWorkItem) => boolean;
   readonly resolveHeadSha: (token: string, item: AgentWorkItem) => Promise<string>;
   readonly execute: (
@@ -78,7 +78,7 @@ function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
 async function finishRescheduledParentWorkItem(
   pool: Pool,
   itemId: string,
-  type: "review" | "ask",
+  type: DurableJobSpec["type"],
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId)) {
     logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
