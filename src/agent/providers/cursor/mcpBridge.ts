@@ -20,7 +20,7 @@ import {
 } from "../../../settings/index.js";
 import type { CursorExecutor } from "./runContext.js";
 import { logDebug } from "../../../evlog.js";
-import { recordReviewMetric } from "../../reviewRunMetrics.js";
+import { recordReviewMetric } from "../../../review/reviewRunMetrics.js";
 
 function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
   try {

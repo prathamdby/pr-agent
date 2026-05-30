@@ -1,6 +1,6 @@
 import type { Context, Message } from "@earendil-works/pi-ai";
 
-export const CURSOR_APPROX_CHARS_PER_TOKEN = 4;
+const CURSOR_APPROX_CHARS_PER_TOKEN = 4;
 
 function formatMessageContent(content: Message["content"]): string {
   if (typeof content === "string") return content;

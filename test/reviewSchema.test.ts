@@ -7,8 +7,8 @@ import {
   reviewSummarySentinelForMode,
   reviewRetrySlashCommandForMode,
   selectInlineFindings,
-} from "../src/agent/reviewSchema.js";
-import type { ReviewFinding } from "../src/agent/reviewSchema.js";
+} from "../src/review/reviewSchema.js";
+import type { ReviewFinding } from "../src/review/reviewSchema.js";
 
 describe("reviewEventForFindings", () => {
   it("REQUEST_CHANGES when P0 present", () => {

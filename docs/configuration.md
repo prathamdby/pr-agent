@@ -153,7 +153,6 @@ These are related but not wired together on INSERT today.
 
 | Symbol                               | Default                                |
 | ------------------------------------ | -------------------------------------- |
-| `RATE_LIMIT_CIRCUIT_THRESHOLD`       | 3                                      |
 | `VALIDATION_REPAIR_ROUNDS`           | 3                                      |
 | `PUBLISH_RECOVERY_ROUNDS`            | 4                                      |
 | `PUBLISH_RECOVERY_PROMPTS`           | recovery nudge strings                 |
@@ -206,4 +205,4 @@ These are related but not wired together on INSERT today.
 | `SLASH_HELP_BODY`     | `/help` text |
 | `MIGRATIONS_DIR_NAME` | `migrations` |
 
-Prompt prose (investigator contracts) remains in `src/agent/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.
+Prompt prose (investigator contracts) remains in `src/review/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.

@@ -1,6 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
+import type { LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "./askSafety.js";
 import { buildGithubTools } from "./githubTools.js";
 import { buildLocalWorkspaceTools } from "./localWorkspaceTools.js";

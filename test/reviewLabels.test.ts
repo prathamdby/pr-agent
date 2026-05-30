@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { ReviewPayload } from "../src/agent/reviewSchema.js";
-import { labelsAlreadySynced, syncReviewLabels } from "../src/agent/reviewLabels.js";
+import type { ReviewPayload } from "../src/review/reviewSchema.js";
+import { labelsAlreadySynced, syncReviewLabels } from "../src/review/reviewLabels.js";
 
 const basePayload: ReviewPayload = {
   prCharacter: "Test.",

@@ -1,5 +1,5 @@
 import { getApiProvider, registerApiProvider } from "@earendil-works/pi-ai";
-import { streamCursor, streamSimpleCursor } from "./streamCursor.js";
+import { streamCursor } from "./streamCursor.js";
 
 let registered = false;
 
@@ -8,7 +8,7 @@ export function registerCursorProvider(): void {
   registerApiProvider({
     api: "cursor-sdk",
     stream: streamCursor,
-    streamSimple: streamSimpleCursor,
+    streamSimple: streamCursor,
   });
   registered = true;
 }

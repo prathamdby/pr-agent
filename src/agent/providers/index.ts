@@ -9,4 +9,4 @@ export function resolveAgentRunnerProvider(cfg: Config): AgentRunnerProvider {
   throw new Error(`Unsupported AGENT_PROVIDER: ${String(cfg.agentProvider)}`);
 }
 
-export type { AgentRunnerProvider, AgentRunnerSession, AgentRunnerTurn } from "./interface.js";
+export type { AgentRunnerProvider } from "./interface.js";

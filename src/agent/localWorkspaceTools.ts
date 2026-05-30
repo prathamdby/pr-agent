@@ -2,8 +2,8 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
-import { assertWorkspacePath } from "../agentWork/localPrWorkspace.js";
+import type { LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
+import { assertWorkspacePath } from "../prWorkspace/localPrWorkspace.js";
 import {
   assertPathAllowedForAsk,
   createAskPathGate,

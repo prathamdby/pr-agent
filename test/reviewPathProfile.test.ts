@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildReviewPathProfile,
   formatReviewPathProfileBlock,
-} from "../src/agent/reviewPathProfile.js";
+} from "../src/review/reviewPathProfile.js";
 
 describe("buildReviewPathProfile", () => {
   it("detects risk categories from changed paths", () => {

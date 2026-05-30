@@ -1,6 +1,6 @@
-import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { LocalPrWorkspace } from "../agentWork/localPrWorkspace.js";
+import type { LocalPrWorkspace } from "../prWorkspace/index.js";
+import { assistantFromText, runSubmitOnlyRound } from "../agentRun/sessionHelpers.js";
 import { logInfo } from "../evlog.js";
 import { resolveAgentRunnerProvider } from "./providers/index.js";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
@@ -15,26 +15,6 @@ import {
   buildSubmitOnlyDescriptionSessionTools,
   shouldContinueDescriptionRun,
 } from "./descriptionRunSetup.js";
-
-function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
-  return {
-    role: "assistant",
-    content: text ? [{ type: "text", text }] : [],
-    api: provider === "cursor" ? ("cursor-sdk" as never) : (cfg.piProvider as never),
-    provider: provider === "cursor" ? "cursor" : cfg.piProvider,
-    model: cfg.piModel,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: "stop",
-    timestamp: Date.now(),
-  };
-}
 
 export async function runDescriptionHarness(params: {
   cfg: Config;
@@ -66,15 +46,8 @@ export async function runDescriptionHarness(params: {
 
   let lastText = "";
 
-  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> => {
-    const submitOnly = buildSubmitOnlyDescriptionSessionTools(setup);
-    session.restrictToTools(submitOnly.piTools, submitOnly.executors);
-    try {
-      return (await session.send(prompt)).text;
-    } finally {
-      session.restoreTools();
-    }
-  };
+  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
+    runSubmitOnlyRound(session, buildSubmitOnlyDescriptionSessionTools(setup), prompt);
 
   const runValidationRepair = async () => {
     for (

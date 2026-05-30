@@ -11,7 +11,7 @@ import {
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
-} from "./reviewPromptBlocks.js";
+} from "../review/reviewPromptBlocks.js";
 
 export const githubToolingDiscipline = [
   "## Local workspace tooling discipline",

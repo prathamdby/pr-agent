@@ -13,7 +13,7 @@ import {
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
-} from "./reviewPromptBlocks.js";
+} from "../review/reviewPromptBlocks.js";
 import { githubToolingDiscipline } from "./securityPrompt.js";
 
 export const automatedQualitySystemPrompt = [

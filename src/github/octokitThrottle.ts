@@ -4,8 +4,6 @@ import { logDebug } from "../evlog.js";
 
 import { PRIMARY_RATE_LIMIT_MAX_RETRIES } from "../settings/index.js";
 
-export { PRIMARY_RATE_LIMIT_MAX_RETRIES } from "../settings/index.js";
-
 export function onRateLimit(
   retryAfter: number,
   options: Required<EndpointDefaults>,

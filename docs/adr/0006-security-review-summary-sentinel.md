@@ -24,7 +24,7 @@ Operators may run both passes on the same PR. Overwriting the general summary wi
 
 ## Current implementation (2025-05)
 
-- Slash `/review-security` and general reviews share [`runFullPrReview`](../../src/agent/reviewRun.ts) but enqueue as separate work items per lens ([`scheduler.ts`](../../src/agentWork/scheduler.ts)); see [ADR 0009](0009-durable-agent-work.md).
+- Slash `/review-security` and general reviews share [`runFullPrReview`](../../src/review/reviewRun.ts) but enqueue as separate work items per lens ([`scheduler.ts`](../../src/agentWork/scheduler.ts), intake in [`intake/applier.ts`](../../src/agentWork/intake/applier.ts)); see [ADR 0009](0009-durable-agent-work.md).
 
 ## Consequences
 

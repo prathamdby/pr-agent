@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateTrivialChangeExemption, isDocsOnlyPath } from "../src/agent/reviewChangeGate.js";
+import { evaluateTrivialChangeExemption, isDocsOnlyPath } from "../src/review/reviewChangeGate.js";
 
 describe("isDocsOnlyPath", () => {
   it("accepts markdown and docs paths", () => {

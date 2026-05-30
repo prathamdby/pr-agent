@@ -10,7 +10,7 @@ export type GithubToolErrorClassification =
   | "auth"
   | "other";
 
-export type RetryAfterSource = "header" | "x-ratelimit-reset" | "default" | "plugin-fallback";
+type RetryAfterSource = "header" | "x-ratelimit-reset" | "default" | "plugin-fallback";
 
 import {
   BAD_CREDENTIALS_MESSAGE,
@@ -48,7 +48,7 @@ export type ClassifiedGithubError = {
   readonly retryAfterSource: RetryAfterSource;
 };
 
-export function isGithubRequestError(err: unknown): err is RequestError {
+function isGithubRequestError(err: unknown): err is RequestError {
   return (
     err instanceof RequestError ||
     (typeof err === "object" &&

@@ -11,7 +11,7 @@ import { AgentWorkerLive } from "./worker.js";
 export class AgentWorkPool extends Context.Tag("AgentWorkPool")<AgentWorkPool, Pool>() {}
 export class AgentWorkBoss extends Context.Tag("AgentWorkBoss")<AgentWorkBoss, PgBoss>() {}
 
-export const AgentWorkPoolLive = (cfg: Config) =>
+const AgentWorkPoolLive = (cfg: Config) =>
   Layer.scoped(
     AgentWorkPool,
     Effect.acquireRelease(
@@ -31,7 +31,7 @@ export const AgentWorkPoolLive = (cfg: Config) =>
     ),
   );
 
-export const AgentWorkBossLive = (cfg: Config) =>
+const AgentWorkBossLive = (cfg: Config) =>
   Layer.scoped(
     AgentWorkBoss,
     Effect.acquireRelease(
@@ -51,7 +51,7 @@ export const AgentWorkBossLive = (cfg: Config) =>
     ),
   );
 
-export const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
+const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
   Layer.effect(
     AgentWorkScheduler,
     Effect.gen(function* () {
@@ -61,7 +61,7 @@ export const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
     }),
   ).pipe(Layer.provide(AgentWorkPoolLive(cfg)), Layer.provide(AgentWorkBossLive(cfg)));
 
-export const AgentWorkerRuntimeLive = (cfg: Config) =>
+const AgentWorkerRuntimeLive = (cfg: Config) =>
   Layer.scopedDiscard(
     Effect.gen(function* () {
       const pool = yield* AgentWorkPool;
@@ -69,3 +69,9 @@ export const AgentWorkerRuntimeLive = (cfg: Config) =>
       yield* Layer.launch(AgentWorkerLive(cfg, pool, boss));
     }),
   ).pipe(Layer.provide(AgentWorkPoolLive(cfg)), Layer.provide(AgentWorkBossLive(cfg)));
+
+/** Web role: scheduler seam only (webhook intake enqueues agent work). */
+export const agentWorkWebLive = (cfg: Config) => AgentWorkSchedulerRuntimeLive(cfg);
+
+/** Worker role: full queue consumers for agent work items. */
+export const agentWorkWorkerLive = (cfg: Config) => AgentWorkerRuntimeLive(cfg);

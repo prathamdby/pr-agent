@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { redactReviewPayloadSecrets, redactReviewText } from "../src/agent/reviewPublicOutput.js";
-import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+import { redactReviewPayloadSecrets, redactReviewText } from "../src/review/reviewPublicOutput.js";
+import type { ReviewPayload } from "../src/review/reviewSchema.js";
 
 describe("reviewPublicOutput", () => {
   it("leaves PR #38-shaped finding text mentioning submitReview unchanged", () => {

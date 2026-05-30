@@ -13,6 +13,3 @@ export const repositorySchema = z.object({
 export const installationIdPickSchema = z.object({
   installation: installationSchema,
 });
-
-export type InstallationIdPick = z.infer<typeof installationIdPickSchema>;
-export type RepositoryShape = z.infer<typeof repositorySchema>;

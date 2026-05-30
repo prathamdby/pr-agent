@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { coerceReviewPayloadInput, reviewPayloadSchema } from "../src/agent/reviewSchema.js";
+import { coerceReviewPayloadInput, reviewPayloadSchema } from "../src/review/reviewSchema.js";
 
 describe("coerceReviewPayloadInput extra rescue rules", () => {
   it("maps line to startLine/endLine", () => {

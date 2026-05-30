@@ -10,7 +10,7 @@ import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
 
-export type CachedInstallationToken = InstallationAccessTokenAuthentication & {
+type CachedInstallationToken = InstallationAccessTokenAuthentication & {
   expiresAtTs: number;
 };
 export type BotIdentity = { userId: number; login: string };

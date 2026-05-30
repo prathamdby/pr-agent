@@ -13,7 +13,7 @@ function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
 }
 
-export function buildEffectWebhookApp(cfg: Config) {
+function buildEffectWebhookApp(cfg: Config) {
   return HttpRouter.empty.pipe(
     HttpRouter.all(
       "*",

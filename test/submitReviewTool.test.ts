@@ -1,22 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
-import { buildSubmitReviewTool, createSubmitReviewState } from "../src/agent/submitReviewTool.js";
+import { buildSubmitReviewTool, createSubmitReviewState } from "../src/review/publish/submitReviewTool.js";
 import {
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   QUALITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/agent/reviewSchema.js";
+} from "../src/review/reviewSchema.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/agent/reviewDiffIndex.js";
-import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/agent/reviewRunMetrics.js";
+} from "../src/review/reviewDiffIndex.js";
+import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/review/reviewRunMetrics.js";
 import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
 
-vi.mock("../src/agent/publishReview.js", () => ({
+vi.mock("../src/review/publish/publishReview.js", () => ({
   publishReview: vi.fn(async () => undefined),
 }));
 
-import { publishReview } from "../src/agent/publishReview.js";
+import { publishReview } from "../src/review/publish/publishReview.js";
 
 const cfg = {
   port: 3000,

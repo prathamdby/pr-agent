@@ -49,13 +49,3 @@ export function createRefreshableToolExecutors(params: {
     getToken: () => activeToken,
   };
 }
-
-export function patchExecutor(
-  executors: Record<string, CursorExecutor>,
-  name: string,
-  wrap: (original: CursorExecutor) => CursorExecutor,
-): void {
-  const original = executors[name];
-  if (!original) return;
-  executors[name] = wrap(original);
-}

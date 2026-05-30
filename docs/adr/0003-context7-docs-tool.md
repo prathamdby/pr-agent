@@ -19,4 +19,4 @@ We added a Context7 documentation-lookup tool to the agent's tool set (`src/agen
 
 ## Reversal
 
-If Context7 exposes an explicit "anonymous mode" SDK constructor (e.g. `new Context7({ allowAnonymous: true })`), swap the `fetch` calls in `context7Tools.ts` for the SDK. The tool surface (`resolveLibraryId` / `getLibraryDocs`) and the system-prompt directive in `src/agent/reviewRun.ts` stay unchanged.
+If Context7 exposes an explicit "anonymous mode" SDK constructor (e.g. `new Context7({ allowAnonymous: true })`), swap the `fetch` calls in `context7Tools.ts` for the SDK. The tool surface (`resolveLibraryId` / `getLibraryDocs`) and the system-prompt directive in `src/review/reviewRun.ts` stay unchanged.

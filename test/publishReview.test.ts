@@ -1,21 +1,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import * as reviewSchema from "../src/agent/reviewSchema.js";
-import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+import * as reviewSchema from "../src/review/reviewSchema.js";
+import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/agent/reviewSchema.js";
+} from "../src/review/reviewSchema.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REVIEW_POINTER_NOTE_LEAD,
-} from "../src/agent/reviewRender.js";
+} from "../src/review/reviewRender.js";
 import {
   cachedDiffForFiles,
   cachedDiffForLines,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
-import { fingerprintFinding } from "../src/agent/reviewFindingFingerprint.js";
+import { fingerprintFinding } from "../src/review/reviewFindingFingerprint.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();

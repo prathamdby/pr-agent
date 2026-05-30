@@ -1,6 +1,5 @@
-import type { InlinePlacement } from "../agent/reviewDiffPlacement.js";
 import { installationOctokit } from "./appAuth.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../agent/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
 export type InlineReviewComment = {
   path: string;
@@ -72,41 +71,9 @@ export async function listPullRequestReviewCommentsForReview(
   return parsed.toSorted((a, b) => a.id - b.id);
 }
 
-function reviewCommentAnchorKey(path: string, line: number): string {
-  return `${path}:${line}`;
-}
-
-/** Match GitHub review comments to inline placements in placement order (FIFO per anchor). */
-export function enrichPlacementsWithInlineCommentUrls(
-  placements: readonly InlinePlacement[],
-  comments: readonly PublishedReviewComment[],
-): InlinePlacement[] {
-  const commentsByAnchor = new Map<string, PublishedReviewComment[]>();
-  for (const comment of comments) {
-    const key = reviewCommentAnchorKey(comment.path, comment.line);
-    const bucket = commentsByAnchor.get(key) ?? [];
-    bucket.push(comment);
-    commentsByAnchor.set(key, bucket);
-  }
-
-  const anchorUseIndex = new Map<string, number>();
-
-  return placements.map((placement) => {
-    if (!placement.inlinePosted || placement.inlineLine == null) return placement;
-    const key = reviewCommentAnchorKey(placement.finding.file, placement.inlineLine);
-    const bucket = commentsByAnchor.get(key);
-    if (!bucket || bucket.length === 0) return placement;
-    const index = anchorUseIndex.get(key) ?? 0;
-    const comment = bucket[index];
-    if (!comment) return placement;
-    anchorUseIndex.set(key, index + 1);
-    return { ...placement, inlineCommentUrl: comment.url };
-  });
-}
-
 export type IssueCommentRef = { id: number; url: string };
 
-export async function getIssueCommentIfSentinel(
+async function getIssueCommentIfSentinel(
   token: string,
   owner: string,
   repo: string,
@@ -179,7 +146,7 @@ export async function resolveVerifiedSummaryCommentUrl(
   return found?.url;
 }
 
-export async function createIssueComment(
+async function createIssueComment(
   token: string,
   owner: string,
   repo: string,
@@ -196,7 +163,7 @@ export async function createIssueComment(
   return { id: data.id, url: data.html_url };
 }
 
-export async function updateIssueComment(
+async function updateIssueComment(
   token: string,
   owner: string,
   repo: string,

@@ -66,7 +66,7 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 
 - Production boot is Effect TS with a **web/worker split** (`ROLE` env).
 - **Web:** [`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts) → [`WebhookDispatcher`](src/effect/services/webhookDispatcher.ts) → [`WebhookHandlers`](src/effect/services/webhookHandlers.ts) + [`AgentWorkScheduler`](src/agentWork/scheduler.ts) (Postgres + pg-boss enqueue).
-- **Worker:** [`AgentWorkerRuntimeLive`](src/agentWork/runtime.ts) consumes acknowledgement, review, and ask queues; PR-surface I/O and LLM runs happen on worker fibers.
+- **Worker:** [`agentWorkWorkerLive`](src/agentWork/runtime.ts) (`src/worker.ts` entry) consumes acknowledgement, review, ask, and description queues; PR-surface I/O and LLM runs happen on worker fibers via [`executors/`](src/agentWork/executors/).
 - Maintainer rules for tunables: [AGENTS.md](AGENTS.md).
 
 ### Effect version gate

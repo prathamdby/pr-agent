@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fixDoubleEscapedString } from "../src/agent/fixDoubleEscapedString.js";
-import { coerceReviewPayloadInput } from "../src/agent/reviewSchema.js";
+import { coerceReviewPayloadInput } from "../src/review/reviewSchema.js";
 
 describe("fixDoubleEscapedString", () => {
   it("unwraps literal escape sequences", () => {

@@ -3,7 +3,7 @@ import type { Config } from "../../config.js";
 
 export type AgentRunnerToolExecutor = (args: Record<string, unknown>) => Promise<unknown>;
 
-export type AgentRunnerTurn = {
+type AgentRunnerTurn = {
   readonly text: string;
 };
 

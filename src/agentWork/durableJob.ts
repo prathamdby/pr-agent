@@ -19,16 +19,17 @@ import {
   shouldSkipWork,
   updateRunningWorkHeadSha,
 } from "./repository.js";
-import type { AgentWorkItem, ReviewWorkPayload } from "./types.js";
+import { getPullRequestHeadSha } from "./githubPrSurface.js";
+import { DEFERRED_HEAD_SHA, type AgentWorkItem, type ReviewWorkPayload } from "./types.js";
 
 export type InstallationToken = { token: string; expiresAtTs: number; ttlMs: number };
 
-export type DurableExecutionContext = {
+type DurableExecutionContext = {
   installation: InstallationToken;
   headSha: string;
 };
 
-export type DurableExecutionResult = {
+type DurableExecutionResult = {
   readonly degraded?: boolean;
   readonly rescheduled?: boolean;
   readonly replacementWorkItemId?: string;
@@ -63,6 +64,27 @@ export async function mintInstallationToken(
   const now = Date.now();
   const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
   return { token: auth.token, expiresAtTs, ttlMs: Math.max(0, expiresAtTs - now) };
+}
+
+export function makeInstallationTokenRefresher(
+  cfg: Config,
+  installationId: number,
+  holder: { installation: InstallationToken },
+): () => Promise<{ token: string; expiresAtTs: number }> {
+  return async () => {
+    const fresh = await mintInstallationToken(cfg, installationId);
+    holder.installation = fresh;
+    return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
+  };
+}
+
+export async function resolveWorkItemHeadSha(
+  token: string,
+  item: AgentWorkItem,
+): Promise<string> {
+  return item.headSha === DEFERRED_HEAD_SHA
+    ? getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber)
+    : item.headSha;
 }
 
 async function isBotCommenter(cfg: Config, token: string, commenterId?: number): Promise<boolean> {

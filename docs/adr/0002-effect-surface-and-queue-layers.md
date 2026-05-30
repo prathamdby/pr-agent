@@ -18,7 +18,7 @@ Both concepts wanted the same shape — an Effect `Layer` exposing a `Context.Ta
 
 1. **`PrGithubSurface`** is the sole seam for GitHub I/O from webhook handlers. It is a `Context.Tag` with verbs named from `CONTEXT.md`: `acknowledgeOnPrConversation`, `acknowledgeOnIssueComment`, `acknowledgeOnReviewComment`, `postPrConversationComment`, `replyOnInlineReviewThread`, `getPullRequestHeadSha`. The 422 / 403 reaction-swallow lives inside the surface as an internal helper. The auth seam (`installationOctokit` in `src/github/appAuth.ts`) is unchanged and reused.
 
-   The `@github-tools/sdk` `code-review` preset (used by the agent's tool loop in `src/agent/reviewRun.ts`) remains a separate path. The preset has no reactions, no inline-thread reply, and no head-SHA-as-tool; it is not interchangeable with the webhook-handler surface.
+   The `@github-tools/sdk` `code-review` preset (used by the agent's tool loop in `src/review/reviewRun.ts`) remains a separate path. The preset has no reactions, no inline-thread reply, and no head-SHA-as-tool; it is not interchangeable with the webhook-handler surface.
 
 2. **`ReviewQueue`** is a `Context.Tag` exposing `submit<A, E>(label, task: Effect<A, E>): Effect<A, E>`. `ReviewQueueLive(cfg)` is a factory because the semaphore size is taken from `cfg.reviewConcurrency`. Backed by `Effect.makeSemaphore(cfg.reviewConcurrency).withPermits(1)`.
 

@@ -4,7 +4,7 @@ import {
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
 } from "../settings/index.js";
-import { parseCommentableRightLineRanges } from "./reviewDiffIndex.js";
+import { parseCommentableRightLineRanges } from "../review/reviewDiffIndex.js";
 import { installationOctokit } from "../github/appAuth.js";
 
 type ReviewTool<TSchema extends z.ZodType = z.ZodType> = {

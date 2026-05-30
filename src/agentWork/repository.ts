@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { parseStoredInlineFingerprints } from "../agent/reviewFindingFingerprint.js";
+import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
 import { DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
 import type { AgentWorkItem, ReviewWorkPayload, WorkStatus } from "./types.js";
 
@@ -68,7 +68,7 @@ function sanitizeWorkError(error: unknown): string {
   return sanitizeLogMessage(error instanceof Error ? error.message : String(error));
 }
 
-export async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
+async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
   const result = await pool.query(
     `UPDATE agent_work_items
 		    SET status = 'running',

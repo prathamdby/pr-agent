@@ -184,8 +184,3 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
   return stream;
 };
 
-export const streamSimpleCursor: StreamFunction<"cursor-sdk"> = streamCursor;
-
-export function registerCursorStreamProvider(): void {
-  // re-export hook for tests
-}

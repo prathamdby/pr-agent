@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { validateReviewPayload } from "../src/agent/reviewFindingValidator.js";
+import { validateReviewPayload } from "../src/review/reviewFindingValidator.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/agent/reviewDiffIndex.js";
-import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+} from "../src/review/reviewDiffIndex.js";
+import type { ReviewPayload } from "../src/review/reviewSchema.js";
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
   return {

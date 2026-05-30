@@ -3,7 +3,7 @@ import { isTransientGitHubReviewError } from "./reviewErrors.js";
 
 export { isTransientGitHubReviewError } from "./reviewErrors.js";
 
-export function sleep(ms: number): Promise<void> {
+function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });

@@ -15,7 +15,7 @@ import {
   fitReviewSummaryBody,
   SECURITY_REVIEW_POINTER_BODY,
   QUALITY_REVIEW_POINTER_BODY,
-} from "../src/agent/reviewRender.js";
+} from "../src/review/reviewRender.js";
 import {
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDINGS_NONE,
@@ -23,11 +23,11 @@ import {
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
 } from "../src/settings/index.js";
-import type { ReviewPayload } from "../src/agent/reviewSchema.js";
+import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/agent/reviewSchema.js";
+} from "../src/review/reviewSchema.js";
 import {
   testPlacementsFromPayload,
   planInlineFromPayload,

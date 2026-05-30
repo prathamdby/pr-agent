@@ -75,7 +75,7 @@ export type MermaidValidationIssue = {
   readonly message: string;
 };
 
-export function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
+function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
   const issues: MermaidValidationIssue[] = [];
   const lines = body.split("\n").filter((line) => line.trim().length > 0);
   if (lines.length === 0) {

@@ -4,8 +4,8 @@ import {
   mergeInlineFingerprintRecords,
   parseStoredInlineFingerprints,
   suppressInlinePlacementsByFingerprint,
-} from "../src/agent/reviewFindingFingerprint.js";
-import type { ReviewFinding } from "../src/agent/reviewSchema.js";
+} from "../src/review/reviewFindingFingerprint.js";
+import type { ReviewFinding } from "../src/review/reviewSchema.js";
 
 const finding: ReviewFinding = {
   severity: "P1",

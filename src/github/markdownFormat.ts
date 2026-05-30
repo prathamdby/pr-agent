@@ -7,7 +7,7 @@ export function escapeTableHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-export function escapeHtmlAttr(text: string): string {
+function escapeHtmlAttr(text: string): string {
   return escapeTableHtml(text).replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 }
 

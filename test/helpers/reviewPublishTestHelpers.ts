@@ -1,14 +1,14 @@
-import { publishReview } from "../../src/agent/publishReview.js";
-import { prepareReviewPayloadForPublish } from "../../src/agent/reviewPrePublish.js";
-import type { InlinePlacement } from "../../src/agent/reviewDiffPlacement.js";
-import { planInlinePlacements } from "../../src/agent/reviewDiffPlacement.js";
-import type { ReviewFinding, ReviewMode, ReviewPayload } from "../../src/agent/reviewSchema.js";
+import { publishReview } from "../../src/review/publish/publishReview.js";
+import { prepareReviewPayloadForPublish } from "../../src/review/reviewPrePublish.js";
+import type { InlinePlacement } from "../../src/review/reviewDiffPlacement.js";
+import { planInlinePlacements } from "../../src/review/reviewDiffPlacement.js";
+import type { ReviewFinding, ReviewMode, ReviewPayload } from "../../src/review/reviewSchema.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
-} from "../../src/agent/reviewDiffIndex.js";
-import { createSubmitReviewState } from "../../src/agent/submitReviewTool.js";
+} from "../../src/review/reviewDiffIndex.js";
+import { createSubmitReviewState } from "../../src/review/publish/submitReviewTool.js";
 
 /** Runs pre-publish pipeline then publishReview (matches submitReview path). */
 export async function publishReviewForTest(
