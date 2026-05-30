@@ -27,7 +27,6 @@ import {
   REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
   REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS,
-  REVIEW_TECHNICAL_DETAILS_ACCORDION_SUMMARY,
   REVIEW_SECURITY_DEFAULT,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
@@ -315,17 +314,6 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
     "",
     "</details>",
   ];
-  if (finding.technicalDetails != null && finding.technicalDetails.trim().length > 0) {
-    lines.push(
-      "",
-      "<details>",
-      `<summary>${REVIEW_TECHNICAL_DETAILS_ACCORDION_SUMMARY}</summary>`,
-      "",
-      escapeCodeFenceBreakers(finding.technicalDetails.trim()),
-      "",
-      "</details>",
-    );
-  }
   return lines.join("\n");
 }
 
