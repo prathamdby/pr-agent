@@ -36,6 +36,10 @@ Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/
 | Web / worker layers | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive` |
 | Ask / description | `src/agent/` | `askRun.ts`, `descriptionRun.ts` |
 
+Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `reviewDiffPlacement.ts`.
+
+Run `pnpm dlx knip` after refactors to catch unused exports and files.
+
 ## Cursor Cloud specific instructions
 
 ### Services overview
