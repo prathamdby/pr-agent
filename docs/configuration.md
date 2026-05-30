@@ -107,6 +107,7 @@ These are related but not wired together on INSERT today.
 | `*_DEAD_LETTER_QUEUE`         | DLQ names                     |
 | `DEFERRED_HEAD_SHA`           | worker resolves head SHA      |
 | `AUTOMATED_PR_ACTIONS`        | opened, synchronize, reopened |
+| `AUTOMATED_DESCRIPTION_PR_ACTIONS` | opened only (use `/describe` after) |
 | `AUTOMATED_REVIEW_LENS`       | `review`                      |
 | `MAX_STORED_COMMENT_TEXT_LEN` | 16384                         |
 

@@ -10,6 +10,7 @@ import {
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import { parseSlashCommand } from "../commands/parseSlashCommand.js";
 import {
+  AUTOMATED_DESCRIPTION_PR_ACTIONS,
   AUTOMATED_PR_ACTIONS,
   AUTOMATED_REVIEW_LENS,
   MAX_STORED_COMMENT_TEXT_LEN,
@@ -439,34 +440,6 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
             });
             await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation);
 
-            const descriptionTarget: AutoWorkSupersedeTarget = {
-              kind: "description",
-              resourceKey,
-            };
-            const { workItemId: descriptionWorkItemId, supersededIds: descriptionSuperseded } =
-              await replaceAutoWorkItem({
-                client,
-                target: descriptionTarget,
-                createWorkItem: () =>
-                  createDescriptionWorkItem(client, {
-                    webhookEventId: event.id,
-                    ref,
-                    source: "auto",
-                  }),
-              });
-            await releaseSingletonIfSuperseded({
-              boss,
-              db: slotDb,
-              supersededIds: descriptionSuperseded,
-              release: () =>
-                releaseSingletonSlot(boss, {
-                  queue: DESCRIPTION_QUEUE,
-                  singletonKey: descriptionSingletonKey(resourceKey),
-                  db: slotDb,
-                }),
-            });
-            await enqueueDescription(boss, client, ref, descriptionWorkItemId, correlation);
-
             recordEvent(intakeLog, "agent_work_enqueued", {
               type: "review",
               source: "auto",
@@ -474,13 +447,44 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
               resourceKey,
               ...correlation,
             });
-            recordEvent(intakeLog, "agent_work_enqueued", {
-              type: "description",
-              source: "auto",
-              workItemId: descriptionWorkItemId,
-              resourceKey,
-              ...correlation,
-            });
+
+            if (AUTOMATED_DESCRIPTION_PR_ACTIONS.has(action)) {
+              const descriptionTarget: AutoWorkSupersedeTarget = {
+                kind: "description",
+                resourceKey,
+              };
+              const { workItemId: descriptionWorkItemId, supersededIds: descriptionSuperseded } =
+                await replaceAutoWorkItem({
+                  client,
+                  target: descriptionTarget,
+                  createWorkItem: () =>
+                    createDescriptionWorkItem(client, {
+                      webhookEventId: event.id,
+                      ref,
+                      source: "auto",
+                    }),
+                });
+              await releaseSingletonIfSuperseded({
+                boss,
+                db: slotDb,
+                supersededIds: descriptionSuperseded,
+                release: () =>
+                  releaseSingletonSlot(boss, {
+                    queue: DESCRIPTION_QUEUE,
+                    singletonKey: descriptionSingletonKey(resourceKey),
+                    db: slotDb,
+                  }),
+              });
+              await enqueueDescription(boss, client, ref, descriptionWorkItemId, correlation);
+
+              recordEvent(intakeLog, "agent_work_enqueued", {
+                type: "description",
+                source: "auto",
+                workItemId: descriptionWorkItemId,
+                resourceKey,
+                ...correlation,
+              });
+            }
           }),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
