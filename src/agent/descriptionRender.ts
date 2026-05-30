@@ -22,16 +22,17 @@ function groupFilesByLabel(files: readonly DescriptionPrFile[]): Map<string, Des
 }
 
 function uniqueBasenames(files: readonly DescriptionPrFile[]): Map<string, string> {
-  const byBase = new Map<string, string[]>();
+  const unique = new Map<string, string>();
+  const ambiguous = new Set<string>();
   for (const file of files) {
     const base = path.basename(file.filename);
-    const bucket = byBase.get(base) ?? [];
-    bucket.push(file.filename);
-    byBase.set(base, bucket);
-  }
-  const unique = new Map<string, string>();
-  for (const [base, paths] of byBase) {
-    if (paths.length === 1) unique.set(base, paths[0]!);
+    if (ambiguous.has(base)) continue;
+    if (unique.has(base)) {
+      unique.delete(base);
+      ambiguous.add(base);
+    } else {
+      unique.set(base, file.filename);
+    }
   }
   return unique;
 }
@@ -81,16 +82,15 @@ function linkifyFileReferences(
 
 function renderFileEntry(
   file: DescriptionPrFile,
-  ctx: DescriptionRenderContext,
+  fileHref: string,
   urlByPath: ReadonlyMap<string, string>,
   uniqueBasenameToPath: ReadonlyMap<string, string>,
 ): string[] {
-  const href = urlByPath.get(file.filename) ?? githubPullRequestFileDiffUrl(ctx, file.filename);
   const lines: string[] = [
     "<details>",
     `<summary>${escapeTableHtml(file.changesTitle)}</summary>`,
     "",
-    renderInlineCodeLink(file.filename, href),
+    renderInlineCodeLink(file.filename, fileHref),
     "",
   ];
   if (file.changesSummary?.trim()) {
@@ -118,7 +118,8 @@ function renderFileWalkthrough(
     const labelTitle = `${label.charAt(0).toUpperCase()}${label.slice(1)} (${group.length} file${group.length === 1 ? "" : "s"})`;
     lines.push("<details>", `<summary>${escapeTableHtml(labelTitle)}</summary>`, "");
     for (const file of group) {
-      lines.push(...renderFileEntry(file, ctx, urlByPath, uniqueBasenameToPath), "");
+      const fileHref = urlByPath.get(file.filename)!;
+      lines.push(...renderFileEntry(file, fileHref, urlByPath, uniqueBasenameToPath), "");
     }
     lines.push("</details>", "");
   }

@@ -84,4 +84,37 @@ describe("descriptionRender", () => {
     expect(body).toContain("[planner.ts](https://github.com/acme/widgets/pull/42/files#diff-");
     expect(body).not.toContain("`- planner.ts`");
   });
+
+  it("does not linkify ambiguous basenames shared by three files", () => {
+    const body = renderDescriptionAgentBlock(
+      {
+        title: "t",
+        type: ["Enhancement"],
+        description: "- Main",
+        prFiles: [
+          {
+            filename: "src/a/index.ts",
+            changesTitle: "A",
+            changesSummary: "- `index.ts`: a",
+            label: "enhancement",
+          },
+          {
+            filename: "src/b/index.ts",
+            changesTitle: "B",
+            changesSummary: "- `index.ts`: b",
+            label: "enhancement",
+          },
+          {
+            filename: "src/c/index.ts",
+            changesTitle: "C",
+            changesSummary: "- `index.ts`: c",
+            label: "enhancement",
+          },
+        ],
+      },
+      RENDER_CTX,
+    );
+    expect(body).toContain("- `index.ts`:");
+    expect(body).not.toMatch(/\[index\.ts\]\(https:\/\/github\.com/);
+  });
 });
