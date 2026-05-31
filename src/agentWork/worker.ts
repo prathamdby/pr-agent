@@ -2,7 +2,7 @@ import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
-import { logDebug, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
+import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
   executeAckJob,
@@ -107,8 +107,15 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               (job) => executeDescriptionJob(cfg, pool, boss, job),
             ),
             registerPlainQueue(boss, RETENTION_QUEUE, { localConcurrency: 1 }, async () => {
-              const result = await runRetention(pool, cfg);
-              logInfo("retention_cleanup", result);
+              try {
+                const result = await runRetention(pool, cfg);
+                logInfo("retention_cleanup", result);
+              } catch (e) {
+                logError("retention_cleanup_failed", {
+                  message: e instanceof Error ? e.message : String(e),
+                });
+                throw e;
+              }
             }),
           ]);
           logInfo("agent_worker_started", {
