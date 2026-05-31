@@ -75,6 +75,6 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   });
 }
 
-export async function stopBoss(boss: PgBoss): Promise<void> {
-  await boss.stop({ close: true });
+export async function stopBoss(boss: PgBoss, drainTimeoutMs: number): Promise<void> {
+  await boss.stop({ close: true, graceful: true, timeout: drainTimeoutMs });
 }

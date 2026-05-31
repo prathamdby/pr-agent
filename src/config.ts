@@ -48,6 +48,7 @@ import {
   DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
   DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   DEFAULT_ROLE,
+  DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   DEFAULT_WEBHOOK_TIMEOUT_MS,
   ENV,
   EXTERNAL_ENV,
@@ -272,6 +273,11 @@ export function loadConfig() {
     throw new Error("QUEUE_DELETE_AFTER_SECONDS must be zero or a positive number");
   }
 
+  const shutdownDrainTimeoutSeconds = readPositiveNumber(
+    ENV.SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+    DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  );
+
   const installationGroupConcurrency = Number(
     optionalEnv(ENV.INSTALLATION_GROUP_CONCURRENCY, String(DEFAULT_INSTALLATION_GROUP_CONCURRENCY)),
   );
@@ -435,6 +441,7 @@ export function loadConfig() {
     queueHeartbeatSeconds,
     queueRetentionSeconds,
     queueDeleteAfterSeconds,
+    shutdownDrainTimeoutSeconds,
     installationGroupConcurrency,
     maxAskToolRounds,
     maxAskFinalizeRounds,

@@ -48,6 +48,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Job heartbeat             | `QUEUE_HEARTBEAT_SECONDS`                   | `60`                     | min 10                                             |
 | Job retention             | `QUEUE_RETENTION_SECONDS`                   | `1209600`                |                                                    |
 | Job delete after          | `QUEUE_DELETE_AFTER_SECONDS`                | `604800`                 |                                                    |
+| Shutdown drain budget     | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`            | `25`                     | graceful pg-boss stop wait (s) on SIGTERM/SIGINT   |
 | Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`                       | `12`                     |                                                    |
 | Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                   | `2`                      |                                                    |
 | Webhook time budget       | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | log warning only                                   |
