@@ -81,7 +81,7 @@ Tunnel webhooks (e.g. [smee.io](https://smee.io)) to your local `PORT`, then poi
 
 - **Stack:** [docker-compose.yml](docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
 - **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](.env.example)).
-- **Health:** `GET /health` returns `200` and plain `ok` (used by `HEALTHCHECK` in the image and by Compose).
+- **Health:** `GET /health` returns `200` and plain `ok` (used by `HEALTHCHECK` in the image and by Compose). `GET /ready` additionally runs a Postgres `SELECT 1` and returns `503` when the database is unreachable — use it for orchestrator readiness gating.
 - **Webhook URL** (when Compose maps default ports): **`http://<host>:7224/webhooks`** — same path as bare Node.
 - **`DATABASE_URL`** is set in Compose for both app services (`postgres://pr_agent:pr_agent@postgres:5432/pr_agent`).
 - **Provider API keys** (for example **`OPENAI_API_KEY`** or **`CURSOR_API_KEY`** when `PI_PROVIDER=cursor`) are **not** fully read by [`src/config.ts`](src/config.ts) except `CURSOR_API_KEY` when the Cursor provider is selected; other Pi AI secrets load from the environment. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.

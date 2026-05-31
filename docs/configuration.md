@@ -30,6 +30,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | LLM provider              | `PI_PROVIDER`                               | `openai`                 | Pi coding-agent model provider                     |
 | LLM model                 | `PI_MODEL`                                  | `gpt-4o-mini`            | Cursor runner also uses this model id              |
 | Cursor API key            | `CURSOR_API_KEY`                            | empty                    | required when `AGENT_PROVIDER=cursor`              |
+| Provider prompt timeout   | `PROVIDER_PROMPT_TIMEOUT_MS`                | `300000`                 | abort + fail a run if one prompt turn exceeds this |
 | Review tool rounds        | `MAX_TOOL_ROUNDS`                           | `24`                     | per review run                                     |
 | Publish recovery attempts | `MAX_REVIEW_PUBLISH_ATTEMPTS`               | `3`                      | when submitReview never succeeds                   |
 | Publish execution budget  | `MAX_REVIEW_PUBLISH_CALLS`                  | `2`                      | valid submitReview publishes per run               |
@@ -47,6 +48,11 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Job heartbeat             | `QUEUE_HEARTBEAT_SECONDS`                   | `60`                     | min 10                                             |
 | Job retention             | `QUEUE_RETENTION_SECONDS`                   | `1209600`                |                                                    |
 | Job delete after          | `QUEUE_DELETE_AFTER_SECONDS`                | `604800`                 |                                                    |
+| Shutdown drain budget     | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`            | `25`                     | graceful pg-boss stop wait (s) on SIGTERM/SIGINT   |
+| Webhook event retention   | `WEBHOOK_EVENTS_RETENTION_SECONDS`          | `2592000`                | delete webhook_events older than this (30d)        |
+| Agent work retention      | `AGENT_WORK_RETENTION_SECONDS`              | `2592000`                | delete terminal agent_work_items older than this   |
+| Retention schedule        | `RETENTION_CRON`                            | `17 3 * * *`             | cron for the worker cleanup sweep                  |
+| Retention enabled         | `RETENTION_ENABLED`                         | `true`                   | toggle the scheduled cleanup sweep                 |
 | Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`                       | `12`                     |                                                    |
 | Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                   | `2`                      |                                                    |
 | Webhook time budget       | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | log warning only                                   |
@@ -71,6 +77,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Log level                 | `LOG_LEVEL`                                 | `info`                   |                                                    |
 | Max wide sub-events       | `LOG_MAX_WIDE_EVENTS`                       | `128`                    |                                                    |
 | Pretty logs               | `LOG_PRETTY`                                | dev `true`, prod `false` |                                                    |
+| Redact logs               | `LOG_REDACT`                                | `true`                   | scrub secret-shaped substrings from emitted logs   |
 
 ### External model provider secrets
 
@@ -99,17 +106,17 @@ These are related but not wired together on INSERT today.
 
 ### Agent work (queues)
 
-| Symbol                        | Value / role                  |
-| ----------------------------- | ----------------------------- |
-| `ACK_QUEUE`                   | `agent-work-ack`              |
-| `REVIEW_QUEUE`                | `agent-work-review`           |
-| `ASK_QUEUE`                   | `agent-work-ask`              |
-| `*_DEAD_LETTER_QUEUE`         | DLQ names                     |
-| `DEFERRED_HEAD_SHA`           | worker resolves head SHA      |
-| `AUTOMATED_PR_ACTIONS`        | opened, synchronize, reopened |
+| Symbol                             | Value / role                        |
+| ---------------------------------- | ----------------------------------- |
+| `ACK_QUEUE`                        | `agent-work-ack`                    |
+| `REVIEW_QUEUE`                     | `agent-work-review`                 |
+| `ASK_QUEUE`                        | `agent-work-ask`                    |
+| `*_DEAD_LETTER_QUEUE`              | DLQ names                           |
+| `DEFERRED_HEAD_SHA`                | worker resolves head SHA            |
+| `AUTOMATED_PR_ACTIONS`             | opened, synchronize, reopened       |
 | `AUTOMATED_DESCRIPTION_PR_ACTIONS` | opened only (use `/describe` after) |
-| `AUTOMATED_REVIEW_LENS`       | `review`                      |
-| `MAX_STORED_COMMENT_TEXT_LEN` | 16384                         |
+| `AUTOMATED_REVIEW_LENS`            | `review`                            |
+| `MAX_STORED_COMMENT_TEXT_LEN`      | 16384                               |
 
 ### Review output
 
@@ -183,7 +190,9 @@ These are related but not wired together on INSERT today.
 | `INSTALLATION_TOKEN_FALLBACK_TTL_MS` | 1h      |
 | `DEFAULT_COOLDOWN_SECONDS`           | 60      |
 | `PRIMARY_RATE_LIMIT_MAX_RETRIES`     | 2       |
+| `SECONDARY_RATE_LIMIT_MAX_RETRIES`   | 3       |
 | `COMMENTS_PAGE_SIZE`                 | 100     |
+| `COMMENT_PAGINATION_MAX_PAGES`       | 20      |
 | `GITHUB_REACTION_EYES`               | eyes    |
 
 ### Cursor SDK bridge
@@ -198,11 +207,13 @@ These are related but not wired together on INSERT today.
 
 ### Other
 
-| Symbol                | Role         |
-| --------------------- | ------------ |
-| `CONTEXT7_BASE_URL`   | Context7 API |
-| `MAX_LOG_MESSAGE_LEN` | 2000         |
-| `SLASH_HELP_BODY`     | `/help` text |
-| `MIGRATIONS_DIR_NAME` | `migrations` |
+| Symbol                        | Role                                 |
+| ----------------------------- | ------------------------------------ |
+| `CONTEXT7_BASE_URL`           | Context7 API                         |
+| `MAX_LOG_MESSAGE_LEN`         | 2000                                 |
+| `SLASH_HELP_BODY`             | `/help` text                         |
+| `MIGRATIONS_DIR_NAME`         | `migrations`                         |
+| `MIGRATION_ADVISORY_LOCK_KEY` | runMigrations cross-process lock     |
+| `HEALTH_DB_PING_TIMEOUT_MS`   | 2000 (`/ready` Postgres ping budget) |
 
 Prompt prose (investigator contracts) remains in `src/review/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.

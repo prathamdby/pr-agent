@@ -28,10 +28,6 @@ function isLevelEnabled(level: WideEventLevel): boolean {
   return LEVEL_RANK[level] >= LEVEL_RANK[globalMinLevel];
 }
 
-function useLogger(): RequestLogger {
-  return useLoggerFromStorage();
-}
-
 export function tryUseLogger(): RequestLogger | undefined {
   try {
     return useLoggerFromStorage();
@@ -135,6 +131,7 @@ export function initEvlog(
     suppressDrainWarning?: boolean;
     maxWideEvents?: number;
     pretty?: boolean;
+    redact?: boolean;
   },
 ): void {
   globalMinLevel = logLevel;
@@ -148,7 +145,7 @@ export function initEvlog(
     },
     minLevel: logLevel,
     pretty: options?.pretty ?? !isProduction,
-    redact: isProduction,
+    redact: options?.redact ?? isProduction,
     silent: options?.silent ?? false,
     _suppressDrainWarning: options?.suppressDrainWarning ?? false,
   });

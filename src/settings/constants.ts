@@ -3,6 +3,7 @@ export const ACK_QUEUE = "agent-work-ack";
 export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
+export const RETENTION_QUEUE = "agent-work-retention";
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
@@ -214,13 +215,16 @@ export const BOT_SECRET_PATTERNS: readonly RegExp[] = [
   /\b[Aa]uthorization\s*:\s*.+/gi,
   /\bghp_[A-Za-z0-9]{20,}\b/g,
   /\bghs_[A-Za-z0-9]{20,}\b/g,
+  /\bgh[oru]_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
   /\bsk-[A-Za-z0-9_-]{10,}\b/g,
+  /\bAIza[0-9A-Za-z_-]{35}\b/g,
   /\bpostgres(?:ql)?:\/\/\S+/gi,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bDATABASE_URL\s*=\s*\S+/gi,
-  /\b(?:OPENAI|CURSOR|CONTEXT7)_API_KEY\s*=\s*\S+/gi,
+  /\b(?:OPENAI|ANTHROPIC|GOOGLE_GENERATIVE_AI|CURSOR|CONTEXT7)_API_KEY\s*=\s*\S+/gi,
 ];
 
 export const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
@@ -260,7 +264,9 @@ export const SECONDARY_RATE_MESSAGE = /\bsecondary rate\b/i;
 export const BAD_CREDENTIALS_MESSAGE = /bad credentials/i;
 export const INSTALLATION_TOKEN_FALLBACK_TTL_MS = 60 * 60 * 1000;
 export const PRIMARY_RATE_LIMIT_MAX_RETRIES = 2;
+export const SECONDARY_RATE_LIMIT_MAX_RETRIES = 3;
 export const COMMENTS_PAGE_SIZE = 100;
+export const COMMENT_PAGINATION_MAX_PAGES = 20;
 
 export const TOKEN_EXPIRED_TOOL_MESSAGE =
   "Installation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.";
@@ -303,3 +309,9 @@ export const SLASH_HELP_BODY = [
 
 /** Database migrations path (relative to process cwd). */
 export const MIGRATIONS_DIR_NAME = "migrations";
+
+/** Stable key for the pg_advisory_lock that serializes runMigrations across processes. */
+export const MIGRATION_ADVISORY_LOCK_KEY = 4_785_219;
+
+/** Wall-clock budget (ms) for the /ready Postgres ping. */
+export const HEALTH_DB_PING_TIMEOUT_MS = 2_000;

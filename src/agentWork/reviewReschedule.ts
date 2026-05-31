@@ -28,7 +28,11 @@ export async function buildStaleSlashReviewRescheduleResult(
   token: string,
 ): Promise<StaleSlashReviewRescheduleResult> {
   const latestHeadSha = await getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber);
-  const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
+  const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
+    pool,
+    item,
+    latestHeadSha,
+  );
   return {
     rescheduled: true,
     replacementWorkItemId,

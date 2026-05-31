@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import type { Config } from "../src/config.js";
-import { assertWorkspacePath, prepareLocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
+import {
+  assertWorkspacePath,
+  prepareLocalPrWorkspace,
+} from "../src/prWorkspace/localPrWorkspace.js";
 
 const execFile = promisify(execFileCb);
 

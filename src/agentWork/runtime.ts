@@ -45,7 +45,7 @@ const AgentWorkBossLive = (cfg: Config) =>
       }),
       (boss) =>
         Effect.tryPromise({
-          try: () => stopBoss(boss),
+          try: () => stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000),
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),
     ),

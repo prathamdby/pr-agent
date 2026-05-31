@@ -13,8 +13,6 @@ import {
   type QueueConfig,
 } from "./types.js";
 
-type AgentBoss = PgBoss;
-
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {
     retryLimit: cfg.queueRetryLimit,
@@ -77,6 +75,6 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   });
 }
 
-export async function stopBoss(boss: PgBoss): Promise<void> {
-  await boss.stop({ close: true });
+export async function stopBoss(boss: PgBoss, drainTimeoutMs: number): Promise<void> {
+  await boss.stop({ close: true, graceful: true, timeout: drainTimeoutMs });
 }

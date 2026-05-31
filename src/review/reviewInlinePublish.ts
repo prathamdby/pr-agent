@@ -43,7 +43,7 @@ function dropLowestPriorityInlinePlacement(placements: InlinePlacement[]): {
   const ordered = [...placements].toSorted((a, b) =>
     compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
   );
-  const dropped = ordered[ordered.length - 1]!;
+  const dropped = ordered[ordered.length - 1];
   return {
     remaining: placements.filter((placement) => placement !== dropped),
     dropped,

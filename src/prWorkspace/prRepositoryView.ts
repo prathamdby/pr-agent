@@ -81,10 +81,16 @@ async function prepareEntry(
 ): Promise<CachedPrRepositoryView> {
   if (entry.view) return entry.view;
   if (!entry.prepare) {
-    entry.prepare = prepareUncached(params).then((view) => {
-      entry.view = view;
-      return view;
-    });
+    entry.prepare = prepareUncached(params)
+      .then((view) => {
+        entry.view = view;
+        return view;
+      })
+      .catch((e) => {
+        // Clear the rejected attempt so a later caller re-prepares instead of reusing the failure.
+        entry.prepare = null;
+        throw e;
+      });
   }
   return entry.prepare;
 }
@@ -99,7 +105,13 @@ async function acquirePrRepositoryView(
     cache.set(key, entry);
   }
   entry.refcount += 1;
-  return prepareEntry(entry, params);
+  try {
+    return await prepareEntry(entry, params);
+  } catch (e) {
+    // Undo our refcount (and drop the entry when last) so a failed prepare is not cached.
+    await releasePrRepositoryView(params);
+    throw e;
+  }
 }
 
 async function releasePrRepositoryView(
@@ -128,4 +140,3 @@ export async function withPrRepositoryView<T>(
     await releasePrRepositoryView(params);
   }
 }
-

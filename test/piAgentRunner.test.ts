@@ -177,4 +177,25 @@ describe("piAgentRunnerProvider.send", () => {
     const result = await runnerSession.send("question");
     expect(result.text).toBe("Visible answer.");
   });
+
+  it("aborts and rejects when a prompt exceeds the configured timeout", async () => {
+    const abort = vi.fn();
+    const session = {
+      subscribe: () => () => {},
+      prompt: () => new Promise<void>(() => {}),
+      abort,
+      setActiveToolsByName: vi.fn(),
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg: { ...cfg, providerPromptTimeoutMs: 20 },
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    await expect(runnerSession.send("question")).rejects.toThrow(/timeout/i);
+    expect(abort).toHaveBeenCalled();
+  });
 });

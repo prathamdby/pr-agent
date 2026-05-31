@@ -27,14 +27,14 @@ Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/
 
 ## Module layout (production)
 
-| Area | Path | Public entry |
-| ---- | ---- | ------------ |
-| Review run + publish | `src/review/` | `reviewRun.ts`, `publish/publishReview.ts` |
-| Local PR workspace | `src/prWorkspace/` | `index.ts` (`withPrRepositoryView`) |
-| Agent work intake | `src/agentWork/intake/` | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss) |
-| Agent work execution | `src/agentWork/executors/` | `index.ts` |
-| Web / worker layers | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive` |
-| Ask / description | `src/agent/` | `askRun.ts`, `descriptionRun.ts` |
+| Area                 | Path                       | Public entry                                           |
+| -------------------- | -------------------------- | ------------------------------------------------------ |
+| Review run + publish | `src/review/`              | `reviewRun.ts`, `publish/publishReview.ts`             |
+| Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                    |
+| Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss) |
+| Agent work execution | `src/agentWork/executors/` | `index.ts`                                             |
+| Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`              |
+| Ask / description    | `src/agent/`               | `askRun.ts`, `descriptionRun.ts`                       |
 
 Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `reviewDiffPlacement.ts`.
 

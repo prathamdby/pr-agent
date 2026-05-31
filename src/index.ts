@@ -12,7 +12,11 @@ async function main() {
     return;
   }
 
-  initEvlog(cfg.logLevel, { maxWideEvents: cfg.logMaxWideEvents, pretty: cfg.logPretty });
+  initEvlog(cfg.logLevel, {
+    maxWideEvents: cfg.logMaxWideEvents,
+    pretty: cfg.logPretty,
+    redact: cfg.logRedact,
+  });
   logInfo("boot", {
     role: cfg.role,
     agentProvider: cfg.agentProvider,

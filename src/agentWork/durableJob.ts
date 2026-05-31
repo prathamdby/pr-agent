@@ -78,10 +78,7 @@ export function makeInstallationTokenRefresher(
   };
 }
 
-export async function resolveWorkItemHeadSha(
-  token: string,
-  item: AgentWorkItem,
-): Promise<string> {
+export async function resolveWorkItemHeadSha(token: string, item: AgentWorkItem): Promise<string> {
   return item.headSha === DEFERRED_HEAD_SHA
     ? getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber)
     : item.headSha;

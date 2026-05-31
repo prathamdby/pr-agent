@@ -200,11 +200,7 @@ export async function executeReviewJob(
             ),
           });
           if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
-            return buildStaleSlashReviewRescheduleResult(
-              pool,
-              item,
-              tokenState.installation.token,
-            );
+            return buildStaleSlashReviewRescheduleResult(pool, item, tokenState.installation.token);
           }
           if (!result.published) {
             if (result.publishSuperseded) {

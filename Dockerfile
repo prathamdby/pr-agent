@@ -5,7 +5,7 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-RUN corepack enable && corepack prepare pnpm@10.12.0 --activate
+RUN corepack enable && corepack prepare pnpm@10.34.1 --activate
 COPY package.json pnpm-lock.yaml .npmrc ./
 RUN pnpm install --frozen-lockfile
 

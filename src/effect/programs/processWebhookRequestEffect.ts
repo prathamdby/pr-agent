@@ -53,6 +53,19 @@ export function processWebhookHttpRequestEffect(
       return response;
     }
 
+    if (req.method === "GET" && path === "/ready") {
+      const ready = yield* dispatcher.ping();
+      const response = {
+        status: ready ? 200 : 503,
+        body: ready ? "ready" : "not ready",
+        contentType: "text/plain; charset=utf-8",
+      } satisfies WebhookResponseLike;
+      recordEvent(intakeLog, "ready_check", { status: response.status, ready }, "debug");
+      intakeLog.set({ webhook: { status: response.status } });
+      yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "ready_check" }));
+      return response;
+    }
+
     if (req.method !== "POST" || path !== "/webhooks") {
       const response = { status: 404, body: "" } satisfies WebhookResponseLike;
       recordEvent(intakeLog, "route_not_found", { status: response.status }, "debug");

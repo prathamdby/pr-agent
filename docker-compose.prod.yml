@@ -1,0 +1,16 @@
+# Production override: require explicit Postgres credentials (no local defaults).
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+
+  pr-agent-web:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+
+  pr-agent-worker:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}

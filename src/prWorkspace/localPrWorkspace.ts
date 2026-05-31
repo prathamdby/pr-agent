@@ -15,6 +15,7 @@ const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
 const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";
 const ASKPASS_NAME = "git-askpass.sh";
+const TOKEN_FILE_NAME = "git-token";
 
 type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
 
@@ -76,14 +77,14 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
 
 async function execGit(
   args: readonly string[],
-  opts: { cwd: string; timeoutMs: number; token?: string; askpass?: string },
+  opts: { cwd: string; timeoutMs: number; tokenFile?: string; askpass?: string },
 ): Promise<{ stdout: string; stderr: string }> {
   const env = {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     GIT_LFS_SKIP_SMUDGE: "1",
-    ...(opts.askpass ? { GIT_ASKPASS: opts.askpass, GIT_ASKPASS_TOKEN: opts.token ?? "" } : {}),
+    ...(opts.askpass ? { GIT_ASKPASS: opts.askpass, GIT_TOKEN_FILE: opts.tokenFile ?? "" } : {}),
   };
   return exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
     cwd: opts.cwd,
@@ -107,16 +108,25 @@ async function createAskpass(rootDir: string): Promise<string> {
     askpass,
     [
       "#!/bin/sh",
+      'token=""',
+      'if [ -n "$GIT_TOKEN_FILE" ] && [ -f "$GIT_TOKEN_FILE" ]; then',
+      '  token=$(cat "$GIT_TOKEN_FILE")',
+      "fi",
       'case "$1" in',
       "  *Username*) printf '%s\\n' x-access-token ;;",
-      "  *Password*) printf '%s\\n' \"$GIT_ASKPASS_TOKEN\" ;;",
-      "  *) printf '%s\\n' \"$GIT_ASKPASS_TOKEN\" ;;",
+      "  *) printf '%s\\n' \"$token\" ;;",
       "esac",
       "",
     ].join("\n"),
     { mode: 0o700 },
   );
   return askpass;
+}
+
+async function writeTokenFile(rootDir: string, token: string): Promise<string> {
+  const tokenFile = join(rootDir, TOKEN_FILE_NAME);
+  await writeFile(tokenFile, token, { mode: 0o600 });
+  return tokenFile;
 }
 
 function parseNumstat(output: string): number {
@@ -249,15 +259,17 @@ export async function prepareLocalPrWorkspace(
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
   const agentCwd = join(rootDir, AGENT_TREE_DIR);
   const materialized = new Set<string>();
+  let materializedBytes = 0;
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const askpass = await createAskpass(rootDir);
+  const tokenFile = await writeTokenFile(rootDir, installationToken);
   let changedFiles: LocalPrChangedFile[] = [];
   const diffIndex = createCachedPrDiffIndex();
   let truncated = false;
   let totalChanges = 0;
 
   const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
-    execGit(args, { cwd: privateGitDir, timeoutMs, token: installationToken, askpass });
+    execGit(args, { cwd: privateGitDir, timeoutMs, tokenFile, askpass });
 
   async function materializePath(path: string): Promise<"materialized" | "already" | "refused"> {
     const normalized = path.replace(/\\/g, "/");
@@ -267,16 +279,13 @@ export async function prepareLocalPrWorkspace(
     const { stdout } = await git(["show", `${headSha}:${normalized}`]);
     const bytes = Buffer.byteLength(stdout);
     if (bytes > cfg.localWorkspaceMaxFileBytes) return "refused";
-    let total = 0;
-    for (const existing of materialized) {
-      total += (await stat(assertWorkspacePath(agentCwd, existing))).size;
-    }
-    if (total + bytes > cfg.localWorkspaceMaxTotalBytes) return "refused";
+    if (materializedBytes + bytes > cfg.localWorkspaceMaxTotalBytes) return "refused";
     await makeWritable(agentCwd);
     await mkdir(dirname(outPath), { recursive: true });
     await writeFile(outPath, stdout);
     await setReadOnly(agentCwd);
     materialized.add(normalized);
+    materializedBytes += bytes;
     return "materialized";
   }
 
@@ -389,6 +398,7 @@ export async function prepareLocalPrWorkspace(
     }
     ingestListPullRequestFilesResult(diffIndex, { truncated, files: filesForIndex });
     await rm(askpass, { force: true });
+    await rm(tokenFile, { force: true });
     await removeSymlinks(agentCwd);
     await setReadOnly(agentCwd);
     return {

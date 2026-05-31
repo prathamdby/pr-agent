@@ -23,6 +23,7 @@ export class WebhookDispatcher extends Context.Tag("WebhookDispatcher")<
     readonly dispatch: (
       input: DispatchInput,
     ) => Effect.Effect<void, WebhookHandlerError, IntakeLogger>;
+    readonly ping: () => Effect.Effect<boolean>;
   }
 >() {}
 
@@ -45,12 +46,10 @@ const DispatcherCore = Layer.effect(
               }),
           ),
         ),
+      ping: () => scheduler.ping(),
     });
   }),
 );
 
 export const buildWebhookDispatcherLive = (cfg: Config) =>
-  DispatcherCore.pipe(
-    Layer.provide(WebhookHandlersLive),
-    Layer.provide(agentWorkWebLive(cfg)),
-  );
+  DispatcherCore.pipe(Layer.provide(WebhookHandlersLive), Layer.provide(agentWorkWebLive(cfg)));

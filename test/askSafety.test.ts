@@ -100,6 +100,17 @@ describe("buildScopedAskExecutors", () => {
     );
   });
 
+  it("rejects a foreign repo hidden behind the scoped one", async () => {
+    const base = {
+      searchCode: vi.fn(),
+    };
+    const gate = createAskPathGate();
+    const executors = buildScopedAskExecutors(base, scope, gate);
+    await expect(
+      executors.searchCode({ query: "repo:acme/app secret repo:evil/secret" }),
+    ).rejects.toThrow(/scoped to acme\/app/);
+  });
+
   it("records PR file paths from listPullRequestFiles", async () => {
     const base = {
       listPullRequestFiles: vi.fn(async () => ({
@@ -173,6 +184,20 @@ describe("redactOutboundSecrets", () => {
     expect(redactOutboundSecrets("header Authorization: Basic dXNlcjpwYXNz")).not.toContain(
       "dXNlcjpwYXNz",
     );
+  });
+
+  it.each([
+    "github_pat_0123456789_ABCdefGHIjklMNOpqrSTUvwxYZ0123456789",
+    "gho_0123456789012345678901234567890123",
+    "ghu_0123456789012345678901234567890123",
+    "ghr_0123456789012345678901234567890123",
+    "AIza01234567890123456789012345678901234",
+    "ANTHROPIC_API_KEY=sk-ant-0123456789abcdef",
+    "GOOGLE_GENERATIVE_AI_API_KEY=AIzaABCDEFG",
+  ])("redacts secret-shaped token %s", (secret) => {
+    const out = redactOutboundSecrets(`leak ${secret} end`);
+    expect(out).not.toContain(secret);
+    expect(out).toContain("[redacted]");
   });
 });
 

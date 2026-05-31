@@ -244,4 +244,3 @@ export function logReviewRunCompleted(extra?: Record<string, unknown>): void {
   if (!snapshot) return;
   logInfo("review_run_completed", { ...snapshot, ...extra });
 }
-

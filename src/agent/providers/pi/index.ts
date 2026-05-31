@@ -125,10 +125,24 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
             void session.abort();
           }
         });
+        const timeoutMs = cfg.providerPromptTimeoutMs;
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         try {
-          await session.prompt(prompt);
+          const run = session.prompt(prompt);
+          if (typeof timeoutMs === "number" && timeoutMs > 0) {
+            const timeout = new Promise<never>((_, reject) => {
+              timeoutHandle = setTimeout(() => {
+                void session.abort();
+                reject(new Error(`Provider prompt exceeded ${timeoutMs}ms wall-clock timeout`));
+              }, timeoutMs);
+            });
+            await Promise.race([run, timeout]);
+          } else {
+            await run;
+          }
           return { text: finalText };
         } finally {
+          if (timeoutHandle) clearTimeout(timeoutHandle);
           unsubscribe();
         }
       },

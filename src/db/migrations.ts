@@ -3,11 +3,26 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { logInfo } from "../evlog.js";
 
-import { MIGRATIONS_DIR_NAME } from "../settings/index.js";
+import { MIGRATIONS_DIR_NAME, MIGRATION_ADVISORY_LOCK_KEY } from "../settings/index.js";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), MIGRATIONS_DIR_NAME);
 
 export async function runMigrations(pool: Pool): Promise<void> {
+  // Serialize across processes (web + worker boot together) on a session-level
+  // advisory lock; per-file transactions below cannot span one xact-level lock.
+  const lockClient = await pool.connect();
+  try {
+    await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_ADVISORY_LOCK_KEY]);
+    await applyMigrations(pool);
+  } finally {
+    await lockClient
+      .query("SELECT pg_advisory_unlock($1)", [MIGRATION_ADVISORY_LOCK_KEY])
+      .catch(() => undefined);
+    lockClient.release();
+  }
+}
+
+async function applyMigrations(pool: Pool): Promise<void> {
   await pool.query(`
 		CREATE TABLE IF NOT EXISTS schema_migrations (
 			version text PRIMARY KEY,

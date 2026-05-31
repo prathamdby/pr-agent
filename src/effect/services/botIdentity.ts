@@ -1,19 +1,11 @@
-import { Context, Deferred, Effect, Layer, Ref } from "effect";
+import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
 import {
   getAppBotIdentity,
   mintBotIdentity,
   type BotIdentity as BotIdentityValue,
 } from "../../github/appAuth.js";
-
-type Entry =
-  | { readonly tag: "value"; readonly value: BotIdentityValue }
-  | { readonly tag: "pending"; readonly deferred: Deferred.Deferred<BotIdentityValue, Error> };
-
-type StoreAction =
-  | { readonly tag: "hit"; readonly value: BotIdentityValue }
-  | { readonly tag: "wait"; readonly deferred: Deferred.Deferred<BotIdentityValue, Error> }
-  | { readonly tag: "claim"; readonly deferred: Deferred.Deferred<BotIdentityValue, Error> };
+import { makeSingleFlight } from "./singleFlight.js";
 
 export class BotIdentity extends Context.Tag("BotIdentity")<
   BotIdentity,
@@ -35,55 +27,19 @@ export class BotIdentity extends Context.Tag("BotIdentity")<
 export const BotIdentityLive = Layer.effect(
   BotIdentity,
   Effect.gen(function* () {
-    const store = yield* Ref.make<Map<string, Entry>>(new Map());
+    const cache = yield* makeSingleFlight<string, BotIdentityValue>();
 
     const resolve = (
       cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
       installationToken: string,
     ): Effect.Effect<BotIdentityValue, Error> =>
-      Effect.gen(function* () {
-        const candidate = yield* Deferred.make<BotIdentityValue, Error>();
-
-        // Atomic check-and-claim: return existing value, attach to in-flight Deferred, or claim the mint.
-        const action = yield* Ref.modify(
-          store,
-          (map): readonly [StoreAction, Map<string, Entry>] => {
-            const hit = map.get(cfg.githubAppId);
-            if (hit && hit.tag === "value") return [{ tag: "hit", value: hit.value }, map];
-            if (hit && hit.tag === "pending") return [{ tag: "wait", deferred: hit.deferred }, map];
-            map.set(cfg.githubAppId, { tag: "pending", deferred: candidate });
-            return [{ tag: "claim", deferred: candidate }, map];
-          },
-        );
-
-        if (action.tag === "hit") return action.value;
-        if (action.tag === "wait") return yield* Deferred.await(action.deferred);
-
-        // Sole minter: on failure clear the pending entry so a later caller retries.
-        return yield* Effect.tryPromise({
+      cache.get(
+        cfg.githubAppId,
+        Effect.tryPromise({
           try: () => mintBotIdentity(cfg, installationToken),
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-        }).pipe(
-          Effect.tap((value) =>
-            Effect.gen(function* () {
-              yield* Ref.update(store, (m) => {
-                m.set(cfg.githubAppId, { tag: "value", value });
-                return m;
-              });
-              yield* Deferred.succeed(action.deferred, value);
-            }),
-          ),
-          Effect.tapError((err) =>
-            Effect.gen(function* () {
-              yield* Ref.update(store, (m) => {
-                m.delete(cfg.githubAppId);
-                return m;
-              });
-              yield* Deferred.fail(action.deferred, err);
-            }),
-          ),
-        );
-      });
+        }),
+      );
 
     return BotIdentity.of({
       resolve,

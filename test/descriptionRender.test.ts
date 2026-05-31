@@ -56,9 +56,7 @@ describe("descriptionRender", () => {
     expect(body).toContain("<details>");
     expect(body).toContain("<summary>Enhancement (2 files)</summary>");
     expect(body).toContain("<summary>New render-safe redirect hook</summary>");
-    expect(body).toContain(
-      '<a href="https://github.com/acme/widgets/pull/42/files#diff-',
-    );
+    expect(body).toContain('<a href="https://github.com/acme/widgets/pull/42/files#diff-');
     expect(body).toContain("<code>src/a.ts</code></a>");
     expect(body).not.toContain("`src/a.ts`");
     expect(body).not.toMatch(/^- `src\/a\.ts`/m);

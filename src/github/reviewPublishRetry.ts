@@ -22,7 +22,7 @@ export async function withTransientReviewRetry<T>(
       if (attempt >= delaysMs.length || !isTransientGitHubReviewError(error)) {
         throw error;
       }
-      await sleep(delaysMs[attempt]!);
+      await sleep(delaysMs[attempt]);
     }
   }
   throw lastError;

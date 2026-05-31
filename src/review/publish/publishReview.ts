@@ -11,7 +11,11 @@ import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "
 import { logWarn, logDebug } from "../../evlog.js";
 import { MAX_INLINE_REVIEW_COMMENTS } from "../../settings/index.js";
 import { renderReviewSummaryComment } from "../reviewRender.js";
-import { applyInlineCommentCap, planInlinePlacements } from "../reviewDiffPlacement.js";
+import {
+  applyInlineCommentCap,
+  planInlinePlacements,
+  type InlinePlacement,
+} from "../reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../reviewDiffIndex.js";
 import { runInlinePublishPhase } from "../reviewPublishInlinePhase.js";
 import {
@@ -59,6 +63,8 @@ export async function publishReview(
       detail?: { githubId?: string | number; meta?: Record<string, unknown> },
     ) => Promise<void>;
     storedInlineFingerprints?: readonly string[];
+    /** Reuse placements already computed during prepare; recomputed when omitted. */
+    inlinePlacements?: readonly InlinePlacement[];
   },
 ): Promise<void> {
   const { token, owner, repo, prNumber, headSha, cfg, payload, publishState } = params;
@@ -72,7 +78,9 @@ export async function publishReview(
       mode,
     });
 
-  let placements = planInlinePlacements(payload.findings, params.cachedDiffIndex);
+  let placements = params.inlinePlacements
+    ? [...params.inlinePlacements]
+    : planInlinePlacements(payload.findings, params.cachedDiffIndex);
   const suppression = suppressInlinePlacementsByFingerprint(
     placements,
     mode,

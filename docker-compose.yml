@@ -2,13 +2,13 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: pr_agent
-      POSTGRES_USER: pr_agent
-      POSTGRES_PASSWORD: pr_agent
+      POSTGRES_DB: ${POSTGRES_DB:-pr_agent}
+      POSTGRES_USER: ${POSTGRES_USER:-pr_agent}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pr_agent}
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pr_agent -d pr_agent"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pr_agent} -d ${POSTGRES_DB:-pr_agent}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -21,7 +21,7 @@ services:
     environment:
       ROLE: "web"
       PORT: "7224"
-      DATABASE_URL: "postgres://pr_agent:pr_agent@postgres:5432/pr_agent"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-pr_agent}:${POSTGRES_PASSWORD:-pr_agent}@postgres:5432/${POSTGRES_DB:-pr_agent}"
     ports:
       - "7224:7224"
     depends_on:
@@ -48,7 +48,7 @@ services:
       - ${PR_AGENT_ENV_FILE:-.env}
     environment:
       ROLE: "worker"
-      DATABASE_URL: "postgres://pr_agent:pr_agent@postgres:5432/pr_agent"
+      DATABASE_URL: "postgres://${POSTGRES_USER:-pr_agent}:${POSTGRES_PASSWORD:-pr_agent}@postgres:5432/${POSTGRES_DB:-pr_agent}"
     depends_on:
       postgres:
         condition: service_healthy

@@ -4,11 +4,7 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import {
-  ACK_QUEUE,
-  DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
-} from "../src/agentWork/types.js";
+import { ACK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/agentWork/types.js";
 import * as postgres from "../src/db/postgres.js";
 
 function makeAutomatedHeaders() {
@@ -34,7 +30,10 @@ function mockAutomatedClient() {
       if (sql.includes("UPDATE agent_work_items")) {
         return { rows: [] };
       }
-      if (sql.includes("INSERT INTO agent_work_items") || sql.includes("INSERT INTO publish_records")) {
+      if (
+        sql.includes("INSERT INTO agent_work_items") ||
+        sql.includes("INSERT INTO publish_records")
+      ) {
         return { rows: [] };
       }
       throw new Error(`unexpected query: ${sql.slice(0, 120)}`);

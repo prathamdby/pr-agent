@@ -1,4 +1,5 @@
 import { installationOctokit } from "./appAuth.js";
+import { httpStatus } from "./httpStatus.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
 export type InlineReviewComment = {
@@ -8,7 +9,7 @@ export type InlineReviewComment = {
   body: string;
 };
 
-import { COMMENTS_PAGE_SIZE } from "../settings/index.js";
+import { COMMENTS_PAGE_SIZE, COMMENT_PAGINATION_MAX_PAGES } from "../settings/index.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 
 export async function createPullRequestReviewWithComments(
@@ -90,7 +91,7 @@ async function getIssueCommentIfSentinel(
     if (!(data.body ?? "").startsWith(sentinel)) return null;
     return { id: data.id, url: data.html_url };
   } catch (e: unknown) {
-    const status = (e as { status?: number }).status;
+    const status = httpStatus(e);
     if (status === 404) return null;
     throw e;
   }
@@ -108,6 +109,7 @@ export async function findIssueCommentBySentinel(
 
   const pages = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
     fetchPage: async (page, perPage) => {
       const { data } = await octokit.rest.issues.listComments({
         owner,
