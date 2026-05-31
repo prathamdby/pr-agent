@@ -34,6 +34,7 @@ import {
   DEFAULT_PI_MODEL,
   DEFAULT_PI_PROVIDER,
   DEFAULT_PORT,
+  DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
   DEFAULT_QUEUE_HEARTBEAT_SECONDS,
@@ -167,6 +168,11 @@ export function loadConfig() {
   if (!Number.isFinite(maxToolRounds) || maxToolRounds < 1) {
     throw new Error("MAX_TOOL_ROUNDS must be a positive number");
   }
+
+  const providerPromptTimeoutMs = readPositiveNumber(
+    ENV.PROVIDER_PROMPT_TIMEOUT_MS,
+    DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
+  );
 
   const maxReviewPublishAttempts = Number(
     optionalEnv(ENV.MAX_REVIEW_PUBLISH_ATTEMPTS, String(DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS)),
@@ -413,6 +419,7 @@ export function loadConfig() {
     piModel,
     modelProviderKeys,
     maxToolRounds,
+    providerPromptTimeoutMs,
     maxReviewPublishAttempts,
     maxReviewPublishCalls,
     reviewConcurrency,
