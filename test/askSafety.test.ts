@@ -100,6 +100,17 @@ describe("buildScopedAskExecutors", () => {
     );
   });
 
+  it("rejects a foreign repo hidden behind the scoped one", async () => {
+    const base = {
+      searchCode: vi.fn(),
+    };
+    const gate = createAskPathGate();
+    const executors = buildScopedAskExecutors(base, scope, gate);
+    await expect(
+      executors.searchCode({ query: "repo:acme/app secret repo:evil/secret" }),
+    ).rejects.toThrow(/scoped to acme\/app/);
+  });
+
   it("records PR file paths from listPullRequestFiles", async () => {
     const base = {
       listPullRequestFiles: vi.fn(async () => ({

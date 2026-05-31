@@ -93,12 +93,15 @@ export function redactPorcelainBlame(text: string): string {
 
 function injectRepoIntoSearchQuery(query: string, owner: string, repo: string): string {
   const repoQualifier = `repo:${owner}/${repo}`;
-  if (/\brepo:\S+/i.test(query)) {
-    const foreignRepo = query.match(/\brepo:([^\s]+)/i)?.[1];
-    if (foreignRepo && foreignRepo.toLowerCase() !== `${owner}/${repo}`.toLowerCase()) {
-      throw new Error(
-        `searchCode is scoped to ${owner}/${repo}; remove repo: qualifiers for other repositories.`,
-      );
+  const scoped = `${owner}/${repo}`.toLowerCase();
+  const qualifiers = query.match(/\brepo:\S+/gi);
+  if (qualifiers) {
+    for (const qualifier of qualifiers) {
+      if (qualifier.slice("repo:".length).toLowerCase() !== scoped) {
+        throw new Error(
+          `searchCode is scoped to ${owner}/${repo}; remove repo: qualifiers for other repositories.`,
+        );
+      }
     }
     return query;
   }
