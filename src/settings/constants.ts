@@ -214,13 +214,16 @@ export const BOT_SECRET_PATTERNS: readonly RegExp[] = [
   /\b[Aa]uthorization\s*:\s*.+/gi,
   /\bghp_[A-Za-z0-9]{20,}\b/g,
   /\bghs_[A-Za-z0-9]{20,}\b/g,
+  /\bgh[oru]_[A-Za-z0-9]{20,}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/g,
   /\bsk-[A-Za-z0-9_-]{10,}\b/g,
+  /\bAIza[0-9A-Za-z_-]{35}\b/g,
   /\bpostgres(?:ql)?:\/\/\S+/gi,
   /\bxox[baprs]-[A-Za-z0-9-]{10,}\b/g,
   /\bAKIA[0-9A-Z]{16}\b/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bDATABASE_URL\s*=\s*\S+/gi,
-  /\b(?:OPENAI|CURSOR|CONTEXT7)_API_KEY\s*=\s*\S+/gi,
+  /\b(?:OPENAI|ANTHROPIC|GOOGLE_GENERATIVE_AI|CURSOR|CONTEXT7)_API_KEY\s*=\s*\S+/gi,
 ];
 
 export const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [

@@ -174,6 +174,20 @@ describe("redactOutboundSecrets", () => {
       "dXNlcjpwYXNz",
     );
   });
+
+  it.each([
+    "github_pat_0123456789_ABCdefGHIjklMNOpqrSTUvwxYZ0123456789",
+    "gho_0123456789012345678901234567890123",
+    "ghu_0123456789012345678901234567890123",
+    "ghr_0123456789012345678901234567890123",
+    "AIza01234567890123456789012345678901234",
+    "ANTHROPIC_API_KEY=sk-ant-0123456789abcdef",
+    "GOOGLE_GENERATIVE_AI_API_KEY=AIzaABCDEFG",
+  ])("redacts secret-shaped token %s", (secret) => {
+    const out = redactOutboundSecrets(`leak ${secret} end`);
+    expect(out).not.toContain(secret);
+    expect(out).toContain("[redacted]");
+  });
 });
 
 describe("sanitizeAskAnswerText", () => {
