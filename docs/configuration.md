@@ -77,6 +77,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Log level                 | `LOG_LEVEL`                                 | `info`                   |                                                    |
 | Max wide sub-events       | `LOG_MAX_WIDE_EVENTS`                       | `128`                    |                                                    |
 | Pretty logs               | `LOG_PRETTY`                                | dev `true`, prod `false` |                                                    |
+| Redact logs               | `LOG_REDACT`                                | `true`                   | scrub secret-shaped substrings from emitted logs   |
 
 ### External model provider secrets
 

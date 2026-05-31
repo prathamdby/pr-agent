@@ -131,6 +131,7 @@ export function initEvlog(
     suppressDrainWarning?: boolean;
     maxWideEvents?: number;
     pretty?: boolean;
+    redact?: boolean;
   },
 ): void {
   globalMinLevel = logLevel;
@@ -144,7 +145,7 @@ export function initEvlog(
     },
     minLevel: logLevel,
     pretty: options?.pretty ?? !isProduction,
-    redact: isProduction,
+    redact: options?.redact ?? isProduction,
     silent: options?.silent ?? false,
     _suppressDrainWarning: options?.suppressDrainWarning ?? false,
   });

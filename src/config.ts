@@ -15,6 +15,7 @@ import {
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_MAX_WIDE_EVENTS,
+  DEFAULT_LOG_REDACT,
   DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
   DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   DEFAULT_LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
@@ -365,6 +366,7 @@ export function loadConfig() {
 
   const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
   const logPretty = optionalEnv(ENV.LOG_PRETTY, logPrettyDefault) === "true";
+  const logRedact = optionalEnv(ENV.LOG_REDACT, String(DEFAULT_LOG_REDACT)) === "true";
 
   const reviewInjectAnchorMenu =
     optionalEnv(ENV.REVIEW_INJECT_ANCHOR_MENU, String(DEFAULT_REVIEW_INJECT_ANCHOR_MENU)) ===
@@ -475,6 +477,7 @@ export function loadConfig() {
     logLevel,
     logMaxWideEvents,
     logPretty,
+    logRedact,
     reviewInjectAnchorMenu,
     reviewRequireDiffCacheBeforeSubmit,
     reviewAnchorMenuMaxFiles,

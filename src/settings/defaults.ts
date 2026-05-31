@@ -51,6 +51,7 @@ export const DEFAULT_MAX_PR_FILES_PATCH_BYTES = 500_000;
 
 export const DEFAULT_LOG_LEVEL = "info" as const;
 export const DEFAULT_LOG_MAX_WIDE_EVENTS = 128;
+export const DEFAULT_LOG_REDACT = true;
 
 export const DEFAULT_REVIEW_INJECT_ANCHOR_MENU = true;
 export const DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT = true;
