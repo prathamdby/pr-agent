@@ -1,4 +1,5 @@
 import { installationOctokit } from "./appAuth.js";
+import { httpStatus } from "./httpStatus.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
 export type InlineReviewComment = {
@@ -90,7 +91,7 @@ async function getIssueCommentIfSentinel(
     if (!(data.body ?? "").startsWith(sentinel)) return null;
     return { id: data.id, url: data.html_url };
   } catch (e: unknown) {
-    const status = (e as { status?: number }).status;
+    const status = httpStatus(e);
     if (status === 404) return null;
     throw e;
   }

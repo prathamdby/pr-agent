@@ -1,3 +1,5 @@
+import { httpStatus } from "./httpStatus.js";
+
 function githubErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   if (typeof error === "object" && error != null && "message" in error) {
@@ -17,7 +19,7 @@ export function isLineResolutionPublishError(error: unknown): boolean {
 
 /** GitHub 422/502/503 errors worth retrying (excludes anchor and validation failures). */
 export function isTransientGitHubReviewError(error: unknown): boolean {
-  const status = (error as { status?: number }).status;
+  const status = httpStatus(error);
   if (status !== 422 && status !== 503 && status !== 502) return false;
   if (isLineResolutionPublishError(error)) return false;
 

@@ -2,6 +2,7 @@ import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import { GITHUB_REACTION_EYES } from "../settings/index.js";
 import type { AckJobData, AckTarget } from "./types.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
+import { httpStatus } from "../github/httpStatus.js";
 
 export async function getPullRequestHeadSha(
   token: string,
@@ -45,7 +46,7 @@ export async function safeReaction(
       });
     }
   } catch (e: unknown) {
-    const status = (e as { status?: number }).status;
+    const status = httpStatus(e);
     if (status === 422 || status === 403) return;
     throw e;
   }

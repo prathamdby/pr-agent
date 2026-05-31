@@ -5,6 +5,7 @@ import { throttling } from "@octokit/plugin-throttling";
 import type { Config } from "../config.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
+import { httpStatus } from "./httpStatus.js";
 
 // @ts-expect-error — nested @octokit/core versions between rest, retry, and throttling plugins
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
@@ -107,7 +108,7 @@ export async function mintBotIdentity(
     const { data } = await o.rest.users.getAuthenticated();
     u = { userId: data.id, login: data.login };
   } catch (e: unknown) {
-    const status = (e as { status?: number }).status;
+    const status = httpStatus(e);
     if (status !== 403) throw e;
 
     logDebug("resolved_bot_identity_fallback_jwt_slug", { githubAppId: cfg.githubAppId });
