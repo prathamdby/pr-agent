@@ -49,6 +49,10 @@ import {
   DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
+  DEFAULT_AGENT_WORK_RETENTION_SECONDS,
+  DEFAULT_RETENTION_CRON,
+  DEFAULT_RETENTION_ENABLED,
   DEFAULT_WEBHOOK_TIMEOUT_MS,
   ENV,
   EXTERNAL_ENV,
@@ -278,6 +282,18 @@ export function loadConfig() {
     DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   );
 
+  const webhookEventsRetentionSeconds = readPositiveNumber(
+    ENV.WEBHOOK_EVENTS_RETENTION_SECONDS,
+    DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
+  );
+  const agentWorkRetentionSeconds = readPositiveNumber(
+    ENV.AGENT_WORK_RETENTION_SECONDS,
+    DEFAULT_AGENT_WORK_RETENTION_SECONDS,
+  );
+  const retentionCron = optionalEnv(ENV.RETENTION_CRON, DEFAULT_RETENTION_CRON);
+  const retentionEnabled =
+    optionalEnv(ENV.RETENTION_ENABLED, String(DEFAULT_RETENTION_ENABLED)) === "true";
+
   const installationGroupConcurrency = Number(
     optionalEnv(ENV.INSTALLATION_GROUP_CONCURRENCY, String(DEFAULT_INSTALLATION_GROUP_CONCURRENCY)),
   );
@@ -442,6 +458,10 @@ export function loadConfig() {
     queueRetentionSeconds,
     queueDeleteAfterSeconds,
     shutdownDrainTimeoutSeconds,
+    webhookEventsRetentionSeconds,
+    agentWorkRetentionSeconds,
+    retentionCron,
+    retentionEnabled,
     installationGroupConcurrency,
     maxAskToolRounds,
     maxAskFinalizeRounds,

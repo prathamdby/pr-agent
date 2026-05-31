@@ -49,6 +49,10 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Job retention             | `QUEUE_RETENTION_SECONDS`                   | `1209600`                |                                                    |
 | Job delete after          | `QUEUE_DELETE_AFTER_SECONDS`                | `604800`                 |                                                    |
 | Shutdown drain budget     | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`            | `25`                     | graceful pg-boss stop wait (s) on SIGTERM/SIGINT   |
+| Webhook event retention   | `WEBHOOK_EVENTS_RETENTION_SECONDS`          | `2592000`                | delete webhook_events older than this (30d)        |
+| Agent work retention      | `AGENT_WORK_RETENTION_SECONDS`              | `2592000`                | delete terminal agent_work_items older than this   |
+| Retention schedule        | `RETENTION_CRON`                            | `17 3 * * *`             | cron for the worker cleanup sweep                  |
+| Retention enabled         | `RETENTION_ENABLED`                         | `true`                   | toggle the scheduled cleanup sweep                 |
 | Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`                       | `12`                     |                                                    |
 | Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                   | `2`                      |                                                    |
 | Webhook time budget       | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | log warning only                                   |
@@ -202,13 +206,13 @@ These are related but not wired together on INSERT today.
 
 ### Other
 
-| Symbol                | Role         |
-| --------------------- | ------------ |
-| `CONTEXT7_BASE_URL`   | Context7 API |
-| `MAX_LOG_MESSAGE_LEN` | 2000         |
-| `SLASH_HELP_BODY`     | `/help` text |
-| `MIGRATIONS_DIR_NAME` | `migrations` |
-| `MIGRATION_ADVISORY_LOCK_KEY` | runMigrations cross-process lock |
-| `HEALTH_DB_PING_TIMEOUT_MS` | 2000 (`/ready` Postgres ping budget) |
+| Symbol                        | Role                                 |
+| ----------------------------- | ------------------------------------ |
+| `CONTEXT7_BASE_URL`           | Context7 API                         |
+| `MAX_LOG_MESSAGE_LEN`         | 2000                                 |
+| `SLASH_HELP_BODY`             | `/help` text                         |
+| `MIGRATIONS_DIR_NAME`         | `migrations`                         |
+| `MIGRATION_ADVISORY_LOCK_KEY` | runMigrations cross-process lock     |
+| `HEALTH_DB_PING_TIMEOUT_MS`   | 2000 (`/ready` Postgres ping budget) |
 
 Prompt prose (investigator contracts) remains in `src/review/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.

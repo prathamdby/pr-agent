@@ -13,6 +13,7 @@ export {
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
+  RETENTION_QUEUE,
 } from "../settings/index.js";
 
 type WorkType = "review" | "ask" | "description";

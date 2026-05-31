@@ -14,12 +14,14 @@ import {
   ACK_QUEUE,
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
+  RETENTION_QUEUE,
   REVIEW_QUEUE,
   type AckJobData,
   type AskJobData,
   type DescriptionJobData,
   type ReviewJobData,
 } from "./types.js";
+import { ensureRetentionSchedule, runRetention } from "./retention.js";
 
 function workerJobMeta(
   queue: string,
@@ -78,6 +80,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             heartbeatRefreshSeconds: heartbeatRefresh,
           };
           await cleanupStaleLocalPrWorkspaces(cfg);
+          await ensureRetentionSchedule(boss, cfg);
           await Promise.all([
             registerPlainQueue<AckJobData>(
               boss,
@@ -103,9 +106,13 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               { localConcurrency: cfg.descriptionConcurrency, ...durableQueueOptions },
               (job) => executeDescriptionJob(cfg, pool, boss, job),
             ),
+            registerPlainQueue(boss, RETENTION_QUEUE, { localConcurrency: 1 }, async () => {
+              const result = await runRetention(pool, cfg);
+              logInfo("retention_cleanup", result);
+            }),
           ]);
           logInfo("agent_worker_started", {
-            queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE],
+            queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, RETENTION_QUEUE],
             reviewConcurrency: cfg.reviewConcurrency,
             askConcurrency: cfg.askConcurrency,
             ackConcurrency: cfg.ackConcurrency,
@@ -131,7 +138,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
         Effect.tryPromise({
           try: async () => {
             await Promise.all(
-              [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE].map((q) => boss.offWork(q)),
+              [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, RETENTION_QUEUE].map((q) =>
+                boss.offWork(q),
+              ),
             );
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),

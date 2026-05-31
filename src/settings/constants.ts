@@ -3,6 +3,7 @@ export const ACK_QUEUE = "agent-work-ack";
 export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
+export const RETENTION_QUEUE = "agent-work-retention";
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
