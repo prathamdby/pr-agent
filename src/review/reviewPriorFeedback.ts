@@ -1,4 +1,5 @@
 import {
+  COMMENT_PAGINATION_MAX_PAGES,
   COMMENTS_PAGE_SIZE,
   MAX_PRIOR_INLINE_FEEDBACK_THREADS,
   MAX_PRIOR_INLINE_REPLY_CHARS,
@@ -61,6 +62,7 @@ async function listPullRequestReviewComments(
   const octokit = installationOctokit(token);
   const comments = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
     fetchPage: async (page, perPage) => {
       const { data } = await octokit.rest.pulls.listReviewComments({
         owner,
@@ -97,6 +99,7 @@ async function listBotReviewIdsForLens(
   const octokit = installationOctokit(token);
   const reviews = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
     fetchPage: async (page, perPage) => {
       const { data } = await octokit.rest.pulls.listReviews({
         owner,

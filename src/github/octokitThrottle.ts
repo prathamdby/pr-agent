@@ -2,7 +2,10 @@ import type { Octokit } from "@octokit/core";
 import type { EndpointDefaults } from "@octokit/types";
 import { logDebug } from "../evlog.js";
 
-import { PRIMARY_RATE_LIMIT_MAX_RETRIES } from "../settings/index.js";
+import {
+  PRIMARY_RATE_LIMIT_MAX_RETRIES,
+  SECONDARY_RATE_LIMIT_MAX_RETRIES,
+} from "../settings/index.js";
 
 export function onRateLimit(
   retryAfter: number,
@@ -27,7 +30,7 @@ export function onSecondaryRateLimit(
   _octokit: Octokit,
   retryCount: number,
 ): boolean {
-  const willRetry = retryAfter > 0 && retryCount === 0;
+  const willRetry = retryAfter > 0 && retryCount < SECONDARY_RATE_LIMIT_MAX_RETRIES;
   logDebug("octokit_on_secondary_rate_limit", {
     method: options.method,
     url: options.url,

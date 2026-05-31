@@ -9,7 +9,7 @@ export type InlineReviewComment = {
   body: string;
 };
 
-import { COMMENTS_PAGE_SIZE } from "../settings/index.js";
+import { COMMENTS_PAGE_SIZE, COMMENT_PAGINATION_MAX_PAGES } from "../settings/index.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 
 export async function createPullRequestReviewWithComments(
@@ -109,6 +109,7 @@ export async function findIssueCommentBySentinel(
 
   const pages = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
     fetchPage: async (page, perPage) => {
       const { data } = await octokit.rest.issues.listComments({
         owner,
