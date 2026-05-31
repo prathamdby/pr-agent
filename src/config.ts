@@ -77,6 +77,26 @@ function readPositiveNumber(name: string, defaultValue: number): number {
   return value;
 }
 
+function readNonNegativeNumber(name: string, defaultValue: number): number {
+  const value = Number(optionalEnv(name, String(defaultValue)));
+  if (!Number.isFinite(value) || value < 0) {
+    throw new Error(`${name} must be zero or a positive number`);
+  }
+  return value;
+}
+
+function readBooleanEnv(name: string, defaultValue: boolean): boolean {
+  return optionalEnv(name, String(defaultValue)) === "true";
+}
+
+function readEnum<T extends string>(name: string, allowed: readonly T[], defaultValue: T): T {
+  const value = optionalEnv(name, defaultValue);
+  if (!allowed.includes(value as T)) {
+    throw new Error(`${name} must be one of ${allowed.join(", ")}`);
+  }
+  return value as T;
+}
+
 function stripMatchingQuotes(value: string): string {
   const first = value[0];
   const last = value[value.length - 1];
@@ -121,25 +141,19 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
 }
 
 export function loadConfig() {
-  const port = Number(optionalEnv(ENV.PORT, String(DEFAULT_PORT)));
-  if (!Number.isFinite(port) || port < 1) throw new Error("PORT must be a positive number");
+  const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
 
   const githubAppId = requireEnv(ENV.GITHUB_APP_ID);
   const githubAppPrivateKey = normalizeGithubAppPrivateKey(requireEnv(ENV.GITHUB_APP_PRIVATE_KEY));
   const webhookSecret = requireEnv(ENV.WEBHOOK_SECRET);
   const databaseUrl = requireEnv(ENV.DATABASE_URL);
 
-  const roleRaw = optionalEnv(ENV.ROLE, DEFAULT_ROLE);
-  if (!["web", "worker"].includes(roleRaw)) {
-    throw new Error("ROLE must be one of web, worker");
-  }
-  const role = roleRaw as "web" | "worker";
-
-  const agentProviderRaw = optionalEnv(ENV.AGENT_PROVIDER, DEFAULT_AGENT_PROVIDER);
-  if (!["pi", "cursor"].includes(agentProviderRaw)) {
-    throw new Error("AGENT_PROVIDER must be one of pi, cursor");
-  }
-  const agentProvider = agentProviderRaw as "pi" | "cursor";
+  const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
+  const agentProvider = readEnum(
+    ENV.AGENT_PROVIDER,
+    ["pi", "cursor"] as const,
+    DEFAULT_AGENT_PROVIDER,
+  );
 
   const piProviderRaw = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
@@ -170,92 +184,48 @@ export function loadConfig() {
     google: optionalEnv(EXTERNAL_ENV.GOOGLE_GENERATIVE_AI_API_KEY, ""),
   };
 
-  const maxToolRounds = Number(optionalEnv(ENV.MAX_TOOL_ROUNDS, String(DEFAULT_MAX_TOOL_ROUNDS)));
-  if (!Number.isFinite(maxToolRounds) || maxToolRounds < 1) {
-    throw new Error("MAX_TOOL_ROUNDS must be a positive number");
-  }
-
+  const maxToolRounds = readPositiveNumber(ENV.MAX_TOOL_ROUNDS, DEFAULT_MAX_TOOL_ROUNDS);
   const providerPromptTimeoutMs = readPositiveNumber(
     ENV.PROVIDER_PROMPT_TIMEOUT_MS,
     DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   );
-
-  const maxReviewPublishAttempts = Number(
-    optionalEnv(ENV.MAX_REVIEW_PUBLISH_ATTEMPTS, String(DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS)),
+  const maxReviewPublishAttempts = readPositiveNumber(
+    ENV.MAX_REVIEW_PUBLISH_ATTEMPTS,
+    DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS,
   );
-  if (!Number.isFinite(maxReviewPublishAttempts) || maxReviewPublishAttempts < 1) {
-    throw new Error("MAX_REVIEW_PUBLISH_ATTEMPTS must be a positive number");
-  }
-
-  const maxReviewPublishCalls = Number(
-    optionalEnv(ENV.MAX_REVIEW_PUBLISH_CALLS, String(DEFAULT_MAX_REVIEW_PUBLISH_CALLS)),
+  const maxReviewPublishCalls = readPositiveNumber(
+    ENV.MAX_REVIEW_PUBLISH_CALLS,
+    DEFAULT_MAX_REVIEW_PUBLISH_CALLS,
   );
-  if (!Number.isFinite(maxReviewPublishCalls) || maxReviewPublishCalls < 1) {
-    throw new Error("MAX_REVIEW_PUBLISH_CALLS must be a positive number");
-  }
-
-  const reviewConcurrency = Number(
-    optionalEnv(ENV.REVIEW_CONCURRENCY, String(DEFAULT_REVIEW_CONCURRENCY)),
+  const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
+  const askConcurrency = readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY);
+  const ackConcurrency = readPositiveNumber(ENV.ACK_CONCURRENCY, DEFAULT_ACK_CONCURRENCY);
+  const descriptionConcurrency = readPositiveNumber(
+    ENV.DESCRIPTION_CONCURRENCY,
+    DEFAULT_DESCRIPTION_CONCURRENCY,
   );
-  if (!Number.isFinite(reviewConcurrency) || reviewConcurrency < 1) {
-    throw new Error("REVIEW_CONCURRENCY must be a positive number");
-  }
-
-  const askConcurrency = Number(optionalEnv(ENV.ASK_CONCURRENCY, String(DEFAULT_ASK_CONCURRENCY)));
-  if (!Number.isFinite(askConcurrency) || askConcurrency < 1) {
-    throw new Error("ASK_CONCURRENCY must be a positive number");
-  }
-
-  const ackConcurrency = Number(optionalEnv(ENV.ACK_CONCURRENCY, String(DEFAULT_ACK_CONCURRENCY)));
-  if (!Number.isFinite(ackConcurrency) || ackConcurrency < 1) {
-    throw new Error("ACK_CONCURRENCY must be a positive number");
-  }
-
-  const descriptionConcurrency = Number(
-    optionalEnv(ENV.DESCRIPTION_CONCURRENCY, String(DEFAULT_DESCRIPTION_CONCURRENCY)),
+  const maxToolRoundsDescribe = readPositiveNumber(
+    ENV.MAX_TOOL_ROUNDS_DESCRIBE,
+    DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   );
-  if (!Number.isFinite(descriptionConcurrency) || descriptionConcurrency < 1) {
-    throw new Error("DESCRIPTION_CONCURRENCY must be a positive number");
-  }
-
-  const maxToolRoundsDescribe = Number(
-    optionalEnv(ENV.MAX_TOOL_ROUNDS_DESCRIBE, String(DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE)),
+  const descriptionGenerateTitle = readBooleanEnv(
+    ENV.DESCRIPTION_GENERATE_TITLE,
+    DEFAULT_DESCRIPTION_GENERATE_TITLE,
   );
-  if (!Number.isFinite(maxToolRoundsDescribe) || maxToolRoundsDescribe < 1) {
-    throw new Error("MAX_TOOL_ROUNDS_DESCRIBE must be a positive number");
-  }
 
-  const descriptionGenerateTitle =
-    optionalEnv(ENV.DESCRIPTION_GENERATE_TITLE, String(DEFAULT_DESCRIPTION_GENERATE_TITLE)) ===
-    "true";
-
-  const queueRetryLimit = Number(
-    optionalEnv(ENV.QUEUE_RETRY_LIMIT, String(DEFAULT_QUEUE_RETRY_LIMIT)),
+  const queueRetryLimit = readNonNegativeNumber(ENV.QUEUE_RETRY_LIMIT, DEFAULT_QUEUE_RETRY_LIMIT);
+  const queueRetryDelaySeconds = readNonNegativeNumber(
+    ENV.QUEUE_RETRY_DELAY_SECONDS,
+    DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   );
-  if (!Number.isFinite(queueRetryLimit) || queueRetryLimit < 0) {
-    throw new Error("QUEUE_RETRY_LIMIT must be zero or a positive number");
-  }
-
-  const queueRetryDelaySeconds = Number(
-    optionalEnv(ENV.QUEUE_RETRY_DELAY_SECONDS, String(DEFAULT_QUEUE_RETRY_DELAY_SECONDS)),
+  const queueRetryDelayMaxSeconds = readPositiveNumber(
+    ENV.QUEUE_RETRY_DELAY_MAX_SECONDS,
+    DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
   );
-  if (!Number.isFinite(queueRetryDelaySeconds) || queueRetryDelaySeconds < 0) {
-    throw new Error("QUEUE_RETRY_DELAY_SECONDS must be zero or a positive number");
-  }
-
-  const queueRetryDelayMaxSeconds = Number(
-    optionalEnv(ENV.QUEUE_RETRY_DELAY_MAX_SECONDS, String(DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS)),
+  const queueExpireInSeconds = readPositiveNumber(
+    ENV.QUEUE_EXPIRE_IN_SECONDS,
+    DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
   );
-  if (!Number.isFinite(queueRetryDelayMaxSeconds) || queueRetryDelayMaxSeconds < 1) {
-    throw new Error("QUEUE_RETRY_DELAY_MAX_SECONDS must be a positive number");
-  }
-
-  const queueExpireInSeconds = Number(
-    optionalEnv(ENV.QUEUE_EXPIRE_IN_SECONDS, String(DEFAULT_QUEUE_EXPIRE_IN_SECONDS)),
-  );
-  if (!Number.isFinite(queueExpireInSeconds) || queueExpireInSeconds < 1) {
-    throw new Error("QUEUE_EXPIRE_IN_SECONDS must be a positive number");
-  }
 
   const queueHeartbeatSeconds = Number(
     optionalEnv(ENV.QUEUE_HEARTBEAT_SECONDS, String(DEFAULT_QUEUE_HEARTBEAT_SECONDS)),
@@ -264,19 +234,14 @@ export function loadConfig() {
     throw new Error("QUEUE_HEARTBEAT_SECONDS must be at least 10");
   }
 
-  const queueRetentionSeconds = Number(
-    optionalEnv(ENV.QUEUE_RETENTION_SECONDS, String(DEFAULT_QUEUE_RETENTION_SECONDS)),
+  const queueRetentionSeconds = readPositiveNumber(
+    ENV.QUEUE_RETENTION_SECONDS,
+    DEFAULT_QUEUE_RETENTION_SECONDS,
   );
-  if (!Number.isFinite(queueRetentionSeconds) || queueRetentionSeconds < 1) {
-    throw new Error("QUEUE_RETENTION_SECONDS must be a positive number");
-  }
-
-  const queueDeleteAfterSeconds = Number(
-    optionalEnv(ENV.QUEUE_DELETE_AFTER_SECONDS, String(DEFAULT_QUEUE_DELETE_AFTER_SECONDS)),
+  const queueDeleteAfterSeconds = readNonNegativeNumber(
+    ENV.QUEUE_DELETE_AFTER_SECONDS,
+    DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   );
-  if (!Number.isFinite(queueDeleteAfterSeconds) || queueDeleteAfterSeconds < 0) {
-    throw new Error("QUEUE_DELETE_AFTER_SECONDS must be zero or a positive number");
-  }
 
   const shutdownDrainTimeoutSeconds = readPositiveNumber(
     ENV.SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
@@ -292,107 +257,66 @@ export function loadConfig() {
     DEFAULT_AGENT_WORK_RETENTION_SECONDS,
   );
   const retentionCron = optionalEnv(ENV.RETENTION_CRON, DEFAULT_RETENTION_CRON);
-  const retentionEnabled =
-    optionalEnv(ENV.RETENTION_ENABLED, String(DEFAULT_RETENTION_ENABLED)) === "true";
+  const retentionEnabled = readBooleanEnv(ENV.RETENTION_ENABLED, DEFAULT_RETENTION_ENABLED);
 
-  const installationGroupConcurrency = Number(
-    optionalEnv(ENV.INSTALLATION_GROUP_CONCURRENCY, String(DEFAULT_INSTALLATION_GROUP_CONCURRENCY)),
+  const installationGroupConcurrency = readPositiveNumber(
+    ENV.INSTALLATION_GROUP_CONCURRENCY,
+    DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   );
-  if (!Number.isFinite(installationGroupConcurrency) || installationGroupConcurrency < 1) {
-    throw new Error("INSTALLATION_GROUP_CONCURRENCY must be a positive number");
-  }
+  const maxAskToolRounds = readPositiveNumber(ENV.MAX_ASK_TOOL_ROUNDS, DEFAULT_MAX_ASK_TOOL_ROUNDS);
+  const maxAskFinalizeRounds = readNonNegativeNumber(
+    ENV.MAX_ASK_FINALIZE_ROUNDS,
+    DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
+  );
 
-  const maxAskToolRounds = Number(
-    optionalEnv(ENV.MAX_ASK_TOOL_ROUNDS, String(DEFAULT_MAX_ASK_TOOL_ROUNDS)),
-  );
-  if (!Number.isFinite(maxAskToolRounds) || maxAskToolRounds < 1) {
-    throw new Error("MAX_ASK_TOOL_ROUNDS must be a positive number");
-  }
-
-  const maxAskFinalizeRounds = Number(
-    optionalEnv(ENV.MAX_ASK_FINALIZE_ROUNDS, String(DEFAULT_MAX_ASK_FINALIZE_ROUNDS)),
-  );
-  if (!Number.isFinite(maxAskFinalizeRounds) || maxAskFinalizeRounds < 0) {
-    throw new Error("MAX_ASK_FINALIZE_ROUNDS must be zero or a positive number");
-  }
-
-  const webhookTimeoutMs = Number(
-    optionalEnv(ENV.WEBHOOK_TIMEOUT_MS, String(DEFAULT_WEBHOOK_TIMEOUT_MS)),
-  );
-  if (!Number.isFinite(webhookTimeoutMs) || webhookTimeoutMs < 1) {
-    throw new Error("WEBHOOK_TIMEOUT_MS must be a positive number");
-  }
+  const webhookTimeoutMs = readPositiveNumber(ENV.WEBHOOK_TIMEOUT_MS, DEFAULT_WEBHOOK_TIMEOUT_MS);
 
   const context7ApiKey = optionalEnv(ENV.CONTEXT7_API_KEY, DEFAULT_CONTEXT7_API_KEY);
 
-  const enableReviewLabelsEffort =
-    optionalEnv(ENV.ENABLE_REVIEW_LABELS_EFFORT, String(DEFAULT_ENABLE_REVIEW_LABELS_EFFORT)) ===
-    "true";
-  const enableReviewLabelsSecurity =
-    optionalEnv(
-      ENV.ENABLE_REVIEW_LABELS_SECURITY,
-      String(DEFAULT_ENABLE_REVIEW_LABELS_SECURITY),
-    ) === "true";
-
-  const maxPrFilesListed = Number(
-    optionalEnv(ENV.MAX_PR_FILES_LISTED, String(DEFAULT_MAX_PR_FILES_LISTED)),
+  const enableReviewLabelsEffort = readBooleanEnv(
+    ENV.ENABLE_REVIEW_LABELS_EFFORT,
+    DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   );
-  if (!Number.isFinite(maxPrFilesListed) || maxPrFilesListed < 1) {
-    throw new Error("MAX_PR_FILES_LISTED must be a positive number");
-  }
-
-  const maxPrFilesPatchBytes = Number(
-    optionalEnv(ENV.MAX_PR_FILES_PATCH_BYTES, String(DEFAULT_MAX_PR_FILES_PATCH_BYTES)),
+  const enableReviewLabelsSecurity = readBooleanEnv(
+    ENV.ENABLE_REVIEW_LABELS_SECURITY,
+    DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   );
-  if (!Number.isFinite(maxPrFilesPatchBytes) || maxPrFilesPatchBytes < 1) {
-    throw new Error("MAX_PR_FILES_PATCH_BYTES must be a positive number");
-  }
 
-  const logLevel = optionalEnv(ENV.LOG_LEVEL, DEFAULT_LOG_LEVEL) as
-    | "debug"
-    | "info"
-    | "warn"
-    | "error";
-  if (!["debug", "info", "warn", "error"].includes(logLevel)) {
-    throw new Error("LOG_LEVEL must be one of debug, info, warn, error");
-  }
-
-  const logMaxWideEvents = Number(
-    optionalEnv(ENV.LOG_MAX_WIDE_EVENTS, String(DEFAULT_LOG_MAX_WIDE_EVENTS)),
+  const maxPrFilesListed = readPositiveNumber(ENV.MAX_PR_FILES_LISTED, DEFAULT_MAX_PR_FILES_LISTED);
+  const maxPrFilesPatchBytes = readPositiveNumber(
+    ENV.MAX_PR_FILES_PATCH_BYTES,
+    DEFAULT_MAX_PR_FILES_PATCH_BYTES,
   );
-  if (!Number.isFinite(logMaxWideEvents) || logMaxWideEvents < 1) {
-    throw new Error("LOG_MAX_WIDE_EVENTS must be a positive number");
-  }
+
+  const logLevel = readEnum(
+    ENV.LOG_LEVEL,
+    ["debug", "info", "warn", "error"] as const,
+    DEFAULT_LOG_LEVEL,
+  );
+
+  const logMaxWideEvents = readPositiveNumber(ENV.LOG_MAX_WIDE_EVENTS, DEFAULT_LOG_MAX_WIDE_EVENTS);
 
   const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
   const logPretty = optionalEnv(ENV.LOG_PRETTY, logPrettyDefault) === "true";
-  const logRedact = optionalEnv(ENV.LOG_REDACT, String(DEFAULT_LOG_REDACT)) === "true";
+  const logRedact = readBooleanEnv(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
 
-  const reviewInjectAnchorMenu =
-    optionalEnv(ENV.REVIEW_INJECT_ANCHOR_MENU, String(DEFAULT_REVIEW_INJECT_ANCHOR_MENU)) ===
-    "true";
-  const reviewRequireDiffCacheBeforeSubmit =
-    optionalEnv(
-      ENV.REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
-      String(DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT),
-    ) === "true";
-
-  const reviewAnchorMenuMaxFiles = Number(
-    optionalEnv(ENV.REVIEW_ANCHOR_MENU_MAX_FILES, String(DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES)),
+  const reviewInjectAnchorMenu = readBooleanEnv(
+    ENV.REVIEW_INJECT_ANCHOR_MENU,
+    DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
   );
-  if (!Number.isFinite(reviewAnchorMenuMaxFiles) || reviewAnchorMenuMaxFiles < 1) {
-    throw new Error("REVIEW_ANCHOR_MENU_MAX_FILES must be a positive number");
-  }
-
-  const reviewAnchorMenuMaxRangesPerFile = Number(
-    optionalEnv(
-      ENV.REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
-      String(DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE),
-    ),
+  const reviewRequireDiffCacheBeforeSubmit = readBooleanEnv(
+    ENV.REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
+    DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   );
-  if (!Number.isFinite(reviewAnchorMenuMaxRangesPerFile) || reviewAnchorMenuMaxRangesPerFile < 1) {
-    throw new Error("REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE must be a positive number");
-  }
+
+  const reviewAnchorMenuMaxFiles = readPositiveNumber(
+    ENV.REVIEW_ANCHOR_MENU_MAX_FILES,
+    DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES,
+  );
+  const reviewAnchorMenuMaxRangesPerFile = readPositiveNumber(
+    ENV.REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
+    DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
+  );
 
   const localWorkspaceCloneTimeoutMs = readPositiveNumber(
     ENV.LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
