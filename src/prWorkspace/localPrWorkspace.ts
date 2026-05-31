@@ -259,6 +259,7 @@ export async function prepareLocalPrWorkspace(
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
   const agentCwd = join(rootDir, AGENT_TREE_DIR);
   const materialized = new Set<string>();
+  let materializedBytes = 0;
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const askpass = await createAskpass(rootDir);
   const tokenFile = await writeTokenFile(rootDir, installationToken);
@@ -278,16 +279,13 @@ export async function prepareLocalPrWorkspace(
     const { stdout } = await git(["show", `${headSha}:${normalized}`]);
     const bytes = Buffer.byteLength(stdout);
     if (bytes > cfg.localWorkspaceMaxFileBytes) return "refused";
-    let total = 0;
-    for (const existing of materialized) {
-      total += (await stat(assertWorkspacePath(agentCwd, existing))).size;
-    }
-    if (total + bytes > cfg.localWorkspaceMaxTotalBytes) return "refused";
+    if (materializedBytes + bytes > cfg.localWorkspaceMaxTotalBytes) return "refused";
     await makeWritable(agentCwd);
     await mkdir(dirname(outPath), { recursive: true });
     await writeFile(outPath, stdout);
     await setReadOnly(agentCwd);
     materialized.add(normalized);
+    materializedBytes += bytes;
     return "materialized";
   }
 
