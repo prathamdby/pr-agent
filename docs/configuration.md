@@ -208,5 +208,7 @@ These are related but not wired together on INSERT today.
 | `MAX_LOG_MESSAGE_LEN` | 2000         |
 | `SLASH_HELP_BODY`     | `/help` text |
 | `MIGRATIONS_DIR_NAME` | `migrations` |
+| `MIGRATION_ADVISORY_LOCK_KEY` | runMigrations cross-process lock |
+| `HEALTH_DB_PING_TIMEOUT_MS` | 2000 (`/ready` Postgres ping budget) |
 
 Prompt prose (investigator contracts) remains in `src/review/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.

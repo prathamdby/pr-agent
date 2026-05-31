@@ -311,3 +311,6 @@ export const MIGRATIONS_DIR_NAME = "migrations";
 
 /** Stable key for the pg_advisory_lock that serializes runMigrations across processes. */
 export const MIGRATION_ADVISORY_LOCK_KEY = 4_785_219;
+
+/** Wall-clock budget (ms) for the /ready Postgres ping. */
+export const HEALTH_DB_PING_TIMEOUT_MS = 2_000;

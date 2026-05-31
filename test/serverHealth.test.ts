@@ -130,13 +130,14 @@ function signBody(secret: string, body: Buffer): string {
 
 type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
 
-function startEffectServer(): Promise<Handle> {
+function startEffectServer(pingResult = true): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
     const dispatcherLayer = Layer.succeed(
       WebhookDispatcher,
       WebhookDispatcher.of({
         dispatch: () => Effect.void,
+        ping: () => Effect.succeed(pingResult),
       }),
     );
     const layer = buildEffectWebhookLayer(
@@ -182,6 +183,24 @@ describe("effect webhook server (end-to-end)", () => {
     const res = await get(addr.port, "/health");
     expect(res.status).toBe(200);
     expect(res.body).toBe("ok");
+  });
+
+  it("returns 200 ready for GET /ready when the DB ping succeeds", async () => {
+    handle = await startEffectServer(true);
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const res = await get(addr.port, "/ready");
+    expect(res.status).toBe(200);
+    expect(res.body).toBe("ready");
+  });
+
+  it("returns 503 not ready for GET /ready when the DB ping fails", async () => {
+    handle = await startEffectServer(false);
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    const res = await get(addr.port, "/ready");
+    expect(res.status).toBe(503);
+    expect(res.body).toBe("not ready");
   });
 
   it("returns 404 for unknown GET path", async () => {
