@@ -358,7 +358,7 @@ export function buildGithubTools(
           sha: data.sha,
           size: data.size,
           content: null,
-          note: "File exceeds the 1 MB inline-content limit; GitHub returned metadata only. Use the Git Blobs API (rest.git.getBlob) or a narrower selection.",
+          note: "File exceeds the 1 MB inline-content limit; GitHub returned metadata only. Review this file's changes through the PR diff (listPullRequestFiles) or inspect specific lines with getBlame instead of the full contents.",
         };
       }
       const content = Buffer.from(data.content, "base64").toString("utf-8");
