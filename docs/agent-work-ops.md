@@ -1,11 +1,11 @@
 # Durable Agent Work Operations
 
-See also [README.md](../README.md) (local development and Docker). Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
+Queue inspection, retry, and recovery for pg-boss workers. For behaviour and deployment detail see [operations.md](operations.md). Quick start: [README.md](../README.md). Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 
 ## Services
 
 - `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly.
-- `pr-agent-worker` processes acknowledgement, review, and ask queues.
+- `pr-agent-worker` processes acknowledgement, review, ask, and description queues.
 - `postgres` stores pg-boss jobs plus app-owned workflow tables.
 
 ## Inspect Queue Health
@@ -29,15 +29,9 @@ Worker startup logs `agent_queue_stats` for each queue and `agent_review_queue_b
 
 ## Local Development
 
-For end-to-end behavior (reviews and asks), run the full stack: `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`). Web-only accepts webhooks but does not execute agent work.
+For end-to-end behavior (reviews, descriptions, and asks), run the full stack: `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`). Web-only accepts webhooks but does not execute agent work.
 
-To run processes on the host against Compose Postgres:
-
-```sh
-docker compose up postgres
-ROLE=web DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
-ROLE=worker DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
-```
+Host processes against Compose Postgres: see [README.md](../README.md#getting-started) and [operations.md](operations.md#local-development-edge-cases).
 
 ## `/ask` red-team checklist (manual)
 

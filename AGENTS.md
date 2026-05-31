@@ -40,6 +40,16 @@ Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel 
 
 Run `pnpm dlx knip` after refactors to catch unused exports and files.
 
+## Documentation
+
+### README runtime topology diagram
+
+When a change alters **runtime topology**, update the Mermaid diagram in [README.md](README.md) **How It Works** in the same PR.
+
+**Counts as topology change:** web vs worker responsibilities, Postgres or pg-boss role, webhook route, pg-boss queue lanes, or which executor owns a work type.
+
+**Does not require diagram updates:** prompt tweaks, tool implementation details, publish formatting, or other changes that do not change the diagram’s boxes or arrows.
+
 ## Cursor Cloud specific instructions
 
 ### Services overview
