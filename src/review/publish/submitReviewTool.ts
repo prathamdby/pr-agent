@@ -212,6 +212,7 @@ export function buildSubmitReviewTool(params: {
         ...params.ctx,
         payload: prepared.prepared.payload,
         dedupedFindingCount: prepared.prepared.dedupedCount,
+        inlinePlacements: prepared.prepared.placements,
         publishState: params.state,
         cachedDiffIndex: params.cachedDiffIndex,
         shouldLinkToSummary: params.shouldLinkToSummary,

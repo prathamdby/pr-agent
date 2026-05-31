@@ -27,7 +27,7 @@ export type AnchorFailure = {
 };
 
 export type ReviewPayloadValidationResult =
-  | { readonly ok: true }
+  | { readonly ok: true; readonly placements: readonly InlinePlacement[] }
   | {
       readonly ok: false;
       readonly message: string;
@@ -146,5 +146,5 @@ export function validateReviewPayload(params: {
     };
   }
 
-  return { ok: true };
+  return { ok: true, placements };
 }
