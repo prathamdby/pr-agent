@@ -37,7 +37,9 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
     recordIgnored: (headers, decision, intakeLog) =>
       Effect.tryPromise({
         try: () =>
-          inTransaction(pool, (client) => recordIgnoredWebhook(client, headers, decision, intakeLog)),
+          inTransaction(pool, (client) =>
+            recordIgnoredWebhook(client, headers, decision, intakeLog),
+          ),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

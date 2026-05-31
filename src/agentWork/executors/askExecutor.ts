@@ -6,10 +6,7 @@ import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/format
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import {
-  makeInstallationTokenRefresher,
-  runDurableWorkItem,
-} from "../durableJob.js";
+import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHeadSha, postSlashReply } from "../githubPrSurface.js";
 import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
 
@@ -33,7 +30,9 @@ async function publishAskAnswer(token: string, item: AgentWorkItem, answer: stri
         owner: item.owner,
         repo: item.repo,
         issue_number: replyTarget.prNumber,
-        body: ["_Could not reply in the review thread; posting here instead._", "", body].join("\n"),
+        body: ["_Could not reply in the review thread; posting here instead._", "", body].join(
+          "\n",
+        ),
       });
       return;
     }

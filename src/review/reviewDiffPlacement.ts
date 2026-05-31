@@ -1,14 +1,7 @@
 import type { ReviewFinding } from "./reviewSchema.js";
 import { isInlineSeverity } from "./reviewSchema.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
-import {
-  createCachedPrDiffIndex,
-  ingestListPullRequestFilesResult,
-  renderAnchorMenuBlock,
-  resolveInlineAnchorLine,
-  wrapListPullRequestFilesDiffIngestion,
-  type CachedPrDiffIndex,
-} from "./reviewDiffIndex.js";
+import { resolveInlineAnchorLine, type CachedPrDiffIndex } from "./reviewDiffIndex.js";
 
 export type InlinePlacement = {
   readonly finding: ReviewFinding;
@@ -98,4 +91,3 @@ export function mergeDroppedIntoSummaryPlacements(
     (placement) => droppedByKey.get(reviewFindingPlacementKey(placement.finding)) ?? placement,
   );
 }
-

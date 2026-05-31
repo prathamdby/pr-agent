@@ -99,17 +99,17 @@ These are related but not wired together on INSERT today.
 
 ### Agent work (queues)
 
-| Symbol                        | Value / role                  |
-| ----------------------------- | ----------------------------- |
-| `ACK_QUEUE`                   | `agent-work-ack`              |
-| `REVIEW_QUEUE`                | `agent-work-review`           |
-| `ASK_QUEUE`                   | `agent-work-ask`              |
-| `*_DEAD_LETTER_QUEUE`         | DLQ names                     |
-| `DEFERRED_HEAD_SHA`           | worker resolves head SHA      |
-| `AUTOMATED_PR_ACTIONS`        | opened, synchronize, reopened |
+| Symbol                             | Value / role                        |
+| ---------------------------------- | ----------------------------------- |
+| `ACK_QUEUE`                        | `agent-work-ack`                    |
+| `REVIEW_QUEUE`                     | `agent-work-review`                 |
+| `ASK_QUEUE`                        | `agent-work-ask`                    |
+| `*_DEAD_LETTER_QUEUE`              | DLQ names                           |
+| `DEFERRED_HEAD_SHA`                | worker resolves head SHA            |
+| `AUTOMATED_PR_ACTIONS`             | opened, synchronize, reopened       |
 | `AUTOMATED_DESCRIPTION_PR_ACTIONS` | opened only (use `/describe` after) |
-| `AUTOMATED_REVIEW_LENS`       | `review`                      |
-| `MAX_STORED_COMMENT_TEXT_LEN` | 16384                         |
+| `AUTOMATED_REVIEW_LENS`            | `review`                            |
+| `MAX_STORED_COMMENT_TEXT_LEN`      | 16384                               |
 
 ### Review output
 

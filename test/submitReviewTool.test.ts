@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
-import { buildSubmitReviewTool, createSubmitReviewState } from "../src/review/publish/submitReviewTool.js";
+import {
+  buildSubmitReviewTool,
+  createSubmitReviewState,
+} from "../src/review/publish/submitReviewTool.js";
 import {
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   QUALITY_REVIEW_SUMMARY_SENTINEL,

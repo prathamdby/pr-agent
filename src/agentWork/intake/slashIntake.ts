@@ -39,7 +39,13 @@ export type SlashCommandInput = {
   readonly replyTarget: ReplyTarget;
   readonly codeAnchor?: CodeAnchor;
 };
-import { enqueueAck, enqueueAsk, enqueueDescription, enqueueReview, jobCorrelation } from "./queueing.js";
+import {
+  enqueueAck,
+  enqueueAsk,
+  enqueueDescription,
+  enqueueReview,
+  jobCorrelation,
+} from "./queueing.js";
 import {
   createAskWorkItem,
   createDescriptionWorkItem,

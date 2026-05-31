@@ -183,4 +183,3 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
 
   return stream;
 };
-

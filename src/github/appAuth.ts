@@ -11,9 +11,6 @@ import { httpStatus } from "./httpStatus.js";
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
 
-type CachedInstallationToken = InstallationAccessTokenAuthentication & {
-  expiresAtTs: number;
-};
 export type BotIdentity = { userId: number; login: string };
 
 export type InstallationToken = {

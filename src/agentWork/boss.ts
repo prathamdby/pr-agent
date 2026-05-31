@@ -13,8 +13,6 @@ import {
   type QueueConfig,
 } from "./types.js";
 
-type AgentBoss = PgBoss;
-
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {
     retryLimit: cfg.queueRetryLimit,

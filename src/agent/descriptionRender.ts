@@ -1,6 +1,9 @@
 import path from "node:path";
 import { escapeTableHtml, renderInlineCodeLink } from "../github/markdownFormat.js";
-import { githubPullRequestFileDiffUrl, type GitHubPullRequestFileContext } from "../github/prFileUrls.js";
+import {
+  githubPullRequestFileDiffUrl,
+  type GitHubPullRequestFileContext,
+} from "../github/prFileUrls.js";
 import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
 import { DESCRIPTION_AGENT_HEADER } from "../settings/index.js";
 import { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
@@ -58,7 +61,7 @@ function linkifyFileReferences(
   uniqueBasenameToPath: ReadonlyMap<string, string>,
 ): string {
   let out = line;
-  const paths = [...urlByPath.keys()].sort((a, b) => b.length - a.length);
+  const paths = [...urlByPath.keys()].toSorted((a, b) => b.length - a.length);
   for (const filePath of paths) {
     const href = urlByPath.get(filePath)!;
     const backtick = `\`${filePath}\``;

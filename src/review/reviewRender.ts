@@ -67,20 +67,6 @@ function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLin
   return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
 }
 
-function issueCommentUrl(
-  owner: string,
-  repo: string,
-  prNumber: number,
-  commentId: number,
-): string {
-  return `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${commentId}`;
-}
-
-function formatEffortLabel(effort: number): string {
-  const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
-  return `${word} · \`${effort}/5\``;
-}
-
 function formatEffortLabelHtml(effort: number): string {
   const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
   return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
@@ -201,10 +187,7 @@ function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding
   return [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
 }
 
-function renderFindingFixBlock(
-  finding: ReviewFinding,
-  opts: { inlinePosted: boolean },
-): string {
+function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boolean }): string {
   const location = `@${finding.file} ${formatLineRange(finding.startLine, finding.endLine)}`;
   const lines: string[] = [];
 
@@ -222,10 +205,7 @@ function renderFindingFixBlock(
   return lines.join("\n");
 }
 
-function renderSingleFindingAgentFixPrompt(
-  finding: ReviewFinding,
-  ctx: RenderContext,
-): string {
+function renderSingleFindingAgentFixPrompt(finding: ReviewFinding, ctx: RenderContext): string {
   return [
     AGENT_FIX_PROMPT_PREAMBLE,
     "",

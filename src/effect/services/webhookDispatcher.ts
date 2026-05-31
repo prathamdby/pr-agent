@@ -50,7 +50,4 @@ const DispatcherCore = Layer.effect(
 );
 
 export const buildWebhookDispatcherLive = (cfg: Config) =>
-  DispatcherCore.pipe(
-    Layer.provide(WebhookHandlersLive),
-    Layer.provide(agentWorkWebLive(cfg)),
-  );
+  DispatcherCore.pipe(Layer.provide(WebhookHandlersLive), Layer.provide(agentWorkWebLive(cfg)));
