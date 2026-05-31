@@ -1,7 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675" viewBox="0 0 1200 675">
-  <rect width="1200" height="675" fill="#f6f8fa"/>
-  <rect x="40" y="40" width="1120" height="595" fill="#ffffff" stroke="#d0d7de" stroke-width="2" rx="8"/>
-  <text x="600" y="300" text-anchor="middle" font-family="system-ui, sans-serif" font-size="32" fill="#57606a">Screenshot pending</text>
-  <text x="600" y="350" text-anchor="middle" font-family="system-ui, sans-serif" font-size="20" fill="#57606a">/review</text>
-  <text x="600" y="400" text-anchor="middle" font-family="system-ui, sans-serif" font-size="16" fill="#8c959f">Capture: ## PR Agent Review summary and Files tab inline threads</text>
-</svg>

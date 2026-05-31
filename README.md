@@ -175,31 +175,29 @@ Slash commands are **case-sensitive** and must start the first non-empty line of
 
 ## See It in Action
 
-Placeholder images until real screenshots are captured ([docs/readme/SCREENSHOTS.md](docs/readme/SCREENSHOTS.md)).
-
 <details>
   <summary><h3>/describe</h3></summary>
-  <img src="docs/readme/assets/describe.example.svg" alt="Example /describe output (placeholder)" width="800" />
+  <img src="docs/readme/assets/describe.example.png" alt="Example /describe output showing PR Agent Description block" width="800" />
 </details>
 
 <details>
   <summary><h3>/review</h3></summary>
-  <img src="docs/readme/assets/review.example.svg" alt="Example /review output (placeholder)" width="800" />
+  <img src="docs/readme/assets/review.example.png" alt="Example /review output showing PR Agent Review summary" width="800" />
 </details>
 
 <details>
   <summary><h3>/ask</h3></summary>
-  <img src="docs/readme/assets/ask.example.svg" alt="Example /ask output (placeholder)" width="800" />
+  <img src="docs/readme/assets/ask.example.png" alt="Example /ask answer on a pull request" width="800" />
 </details>
 
 <details>
   <summary><h3>/review-security</h3></summary>
-  <img src="docs/readme/assets/review-security.example.svg" alt="Example /review-security output (placeholder)" width="800" />
+  <img src="docs/readme/assets/review-security.example.png" alt="Example /review-security output showing PR Agent Security Review summary" width="800" />
 </details>
 
 <details>
   <summary><h3>/review-quality</h3></summary>
-  <img src="docs/readme/assets/review-quality.example.svg" alt="Example /review-quality output (placeholder)" width="800" />
+  <img src="docs/readme/assets/review-quality.example.png" alt="Example /review-quality output showing PR Agent Quality Review summary" width="800" />
 </details>
 
 ## How It Works
