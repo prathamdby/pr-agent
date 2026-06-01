@@ -56,10 +56,15 @@ export function createAskPathGate(): AskPathGate {
   };
 }
 
+export function pathAllowedForAsk(path: string, gate: AskPathGate): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  if (!isSensitivePath(normalized)) return true;
+  return gate.prChangedPaths.has(normalized);
+}
+
 export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
   const normalized = path.replace(/\\/g, "/");
-  if (!isSensitivePath(normalized)) return;
-  if (gate.prChangedPaths.has(normalized)) return;
+  if (pathAllowedForAsk(normalized, gate)) return;
   throw new Error(
     `getFileContent blocked for sensitive path "${normalized}" (not in this PR's changed files). Ask about files touched by the PR instead.`,
   );

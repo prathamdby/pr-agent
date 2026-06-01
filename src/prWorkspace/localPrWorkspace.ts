@@ -45,7 +45,7 @@ export type LocalPrWorkspace = {
   };
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
-  readonly assertReadablePath: (path: string) => Promise<"readable" | "already" | "refused">;
+  readonly isPathInCheckout: (path: string) => boolean;
   readonly cleanup: () => Promise<void>;
 };
 
@@ -295,19 +295,8 @@ export async function prepareLocalPrWorkspace(
 
   let checkoutPaths = new Set<string>();
 
-  async function assertReadablePath(path: string): Promise<"readable" | "already" | "refused"> {
-    const normalized = path.replace(/\\/g, "/");
-    if (checkoutPaths.has(normalized)) return "already";
-    const outPath = assertWorkspacePath(agentCwd, normalized);
-    try {
-      const info = await stat(outPath);
-      if (!info.isFile()) return "refused";
-      if (info.size > cfg.localWorkspaceMaxFileBytes) return "refused";
-      checkoutPaths.add(normalized);
-      return "readable";
-    } catch {
-      return "refused";
-    }
+  function isPathInCheckout(path: string): boolean {
+    return checkoutPaths.has(path.replace(/\\/g, "/"));
   }
 
   async function getDiffForPath(path: string): Promise<string> {
@@ -330,11 +319,10 @@ export async function prepareLocalPrWorkspace(
     if (changed?.status === "deleted") {
       return "";
     }
-    const readableResult = await assertReadablePath(normalized);
-    if (readableResult === "refused") {
+    if (!isPathInCheckout(normalized)) {
       return "";
     }
-    const { stdout } = await git(["blame", "--line-porcelain", "HEAD", "--", normalized]);
+    const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
     return stdout.length > cfg.localWorkspaceMaxDiffBytes
       ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[blame truncated]`
       : stdout;
@@ -379,7 +367,7 @@ export async function prepareLocalPrWorkspace(
       },
       getDiffForPath,
       getBlameForPath,
-      assertReadablePath,
+      isPathInCheckout,
       cleanup: () => removeWorkspace(rootDir),
     };
   } catch (e) {

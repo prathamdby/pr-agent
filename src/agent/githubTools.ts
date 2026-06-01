@@ -4,8 +4,22 @@ import {
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
 } from "../settings/index.js";
-import { listPullRequestFilesPaginated } from "../github/listPullRequestFiles.js";
-import { parseCommentableRightLineRanges } from "../review/reviewDiffIndex.js";
+import {
+  listPullRequestFilesPaginated,
+  type PullRequestFileEntry,
+} from "../github/listPullRequestFiles.js";
+import {
+  parseCommentableRightLineRanges,
+  type CommentableRightLineRanges,
+} from "../review/reviewDiffIndex.js";
+
+export type ListPullRequestFilesToolOutput = {
+  files: Array<PullRequestFileEntry & { commentableRightLineRanges: CommentableRightLineRanges }>;
+  truncated: boolean;
+  omittedCountLowerBound: number;
+  totalChanges: number;
+  warning?: string;
+};
 import { installationOctokit } from "../github/appAuth.js";
 
 type ReviewTool<TSchema extends z.ZodType = z.ZodType> = {

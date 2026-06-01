@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import * as appAuth from "../src/github/appAuth.js";
-import { buildGithubTools } from "../src/agent/githubTools.js";
+import { buildGithubTools, type ListPullRequestFilesToolOutput } from "../src/agent/githubTools.js";
+
+type GithubExecutors = ReturnType<typeof buildGithubTools>["executors"];
+
+async function runListPullRequestFiles(
+  executors: GithubExecutors,
+  args: { owner: string; repo: string; pullNumber: number },
+): Promise<ListPullRequestFilesToolOutput> {
+  return (await executors.listPullRequestFiles!(args)) as ListPullRequestFilesToolOutput;
+}
 
 type FnMap = Partial<{
   pullsGet: ReturnType<typeof vi.fn>;
@@ -186,11 +195,11 @@ describe("buildGithubTools — happy paths", () => {
       });
     const { executors } = buildWithStub(makeOctokitStub({ pullsListFiles }));
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 3,
-    })) as { files: Array<{ patch: string }>; truncated: boolean };
+    });
 
     expect(pullsListFiles).toHaveBeenNthCalledWith(1, {
       owner: "o",
@@ -227,16 +236,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 500_000,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as {
-      files: unknown[];
-      truncated: boolean;
-      omittedCountLowerBound: number;
-      warning?: string;
-    };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(1);
     expect(out.files).toHaveLength(3);
@@ -273,15 +277,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 250,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as {
-      files: Array<{ filename: string; patch?: string; patchOmitted?: boolean }>;
-      truncated: boolean;
-      warning?: string;
-    };
+    });
 
     expect(out.files[0].patch).toBe(bigPatch);
     expect(out.files[1].patchOmitted).toBe(true);
@@ -349,11 +349,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 250,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { truncated: boolean; omittedCountLowerBound: number; files: unknown[] };
+    });
 
     expect(out.truncated).toBe(true);
     expect(out.files).toHaveLength(5);
@@ -397,15 +397,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 250,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as {
-      files: unknown[];
-      omittedCountLowerBound: number;
-      warning?: string;
-    };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(1);
     expect(out.files).toHaveLength(3);
@@ -431,11 +427,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 500_000,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { truncated: boolean; totalChanges: number; files: unknown[] };
+    });
 
     expect(out.truncated).toBe(true);
     expect(out.files).toHaveLength(3);
@@ -463,11 +459,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 500_000,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { truncated: boolean; omittedCountLowerBound: number; warning?: string };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(4);
     expect(out.truncated).toBe(true);
@@ -500,11 +496,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 500_000,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { files: unknown[]; truncated: boolean };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(2);
     expect(out.files).toHaveLength(150);

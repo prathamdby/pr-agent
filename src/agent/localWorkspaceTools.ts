@@ -7,6 +7,7 @@ import { assertWorkspacePath } from "../prWorkspace/localPrWorkspace.js";
 import {
   assertPathAllowedForAsk,
   createAskPathGate,
+  pathAllowedForAsk,
   redactPorcelainBlame,
   sanitizeToolResultForAsk,
   type AskPathGate,
@@ -65,6 +66,34 @@ function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
   return workspace.changedFiles.find((file) => file.path === path.replace(/\\/g, "/"));
 }
 
+async function refuseUnlessReadableFile(
+  workspace: LocalPrWorkspace,
+  normalized: string,
+  limits: LocalWorkspaceToolLimits,
+): Promise<{ refused: true; reason: string } | null> {
+  if (!workspace.isPathInCheckout(normalized)) {
+    return {
+      refused: true,
+      reason: "Path is missing from the checkout.",
+    };
+  }
+  const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
+  const info = await stat(safePath).catch(() => null);
+  if (!info?.isFile()) {
+    return {
+      refused: true,
+      reason: "Path is missing from the checkout.",
+    };
+  }
+  if (info.size > limits.maxFileBytes) {
+    return {
+      refused: true,
+      reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
+    };
+  }
+  return null;
+}
+
 export function buildLocalWorkspaceTools(
   workspace: LocalPrWorkspace,
   limits: LocalWorkspaceToolLimits,
@@ -105,23 +134,12 @@ export function buildLocalWorkspaceTools(
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, content: null };
       }
-      const readable = await workspace.assertReadablePath(normalized);
-      if (readable === "refused") {
-        return {
-          path: normalized,
-          refused: true,
-          reason: "Path is missing from the checkout or exceeds workspace file size limits.",
-        };
+      const refused = await refuseUnlessReadableFile(workspace, normalized, limits);
+      if (refused) {
+        return { path: normalized, ...refused };
       }
       const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
       const buf = await readFile(safePath);
-      if (buf.length > limits.maxFileBytes) {
-        return {
-          path: normalized,
-          refused: true,
-          reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
-        };
-      }
       if (looksBinary(buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)))) {
         return {
           path: normalized,
@@ -159,9 +177,7 @@ export function buildLocalWorkspaceTools(
           };
         }
 
-        try {
-          assertPathAllowedForAsk(path, pathGate);
-        } catch {
+        if (!pathAllowedForAsk(path, pathGate)) {
           continue;
         }
 
@@ -221,14 +237,9 @@ export function buildLocalWorkspaceTools(
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, blame: null };
       }
-      const readable = await workspace.assertReadablePath(normalized);
-      if (readable === "refused") {
-        return {
-          path: normalized,
-          refused: true,
-          reason: "Path is missing from the checkout or exceeds workspace file size limits.",
-          blame: null,
-        };
+      const refused = await refuseUnlessReadableFile(workspace, normalized, limits);
+      if (refused) {
+        return { path: normalized, ...refused, blame: null };
       }
       const blame = redactPorcelainBlame(await workspace.getBlameForPath(normalized));
       return sanitizeToolResultForAsk("getWorkspaceBlame", { path: normalized, blame });

@@ -29,6 +29,54 @@ export type ListPullRequestFilesLimits = {
 type Octokit = ReturnType<typeof installationOctokit>;
 type GithubFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["data"][number];
 
+type PatchBudgetState = {
+  patchCapReached: boolean;
+  patchBytes: number;
+};
+
+function resolvePatchForFile(
+  rawPatch: string | undefined,
+  state: PatchBudgetState,
+  maxPatchBytes: number,
+): {
+  patch: string | undefined;
+  patchOmitted: true | undefined;
+  state: PatchBudgetState;
+  patchOmittedCountDelta: number;
+} {
+  if (rawPatch == null) {
+    return {
+      patch: undefined,
+      patchOmitted: undefined,
+      state,
+      patchOmittedCountDelta: 0,
+    };
+  }
+  if (state.patchCapReached) {
+    return {
+      patch: undefined,
+      patchOmitted: true,
+      state,
+      patchOmittedCountDelta: 1,
+    };
+  }
+  const patchLen = Buffer.byteLength(rawPatch, "utf8");
+  if (state.patchBytes + patchLen <= maxPatchBytes) {
+    return {
+      patch: rawPatch,
+      patchOmitted: undefined,
+      state: { patchCapReached: false, patchBytes: state.patchBytes + patchLen },
+      patchOmittedCountDelta: 0,
+    };
+  }
+  return {
+    patch: undefined,
+    patchOmitted: true,
+    state: { ...state, patchCapReached: true },
+    patchOmittedCountDelta: 1,
+  };
+}
+
 export async function listPullRequestFilesPaginated(
   octokit: Octokit,
   owner: string,
@@ -70,31 +118,16 @@ export async function listPullRequestFilesPaginated(
         break;
       }
 
-      const rawPatch = file.patch ?? undefined;
-      let patch: string | undefined = rawPatch;
-      let patchOmitted: true | undefined;
+      const resolved = resolvePatchForFile(
+        file.patch ?? undefined,
+        { patchCapReached, patchBytes },
+        limits.maxPrFilesPatchBytes,
+      );
+      patchCapReached = resolved.state.patchCapReached;
+      patchBytes = resolved.state.patchBytes;
+      patchOmittedCount += resolved.patchOmittedCountDelta;
 
-      if (rawPatch != null && !patchCapReached) {
-        const patchLen = Buffer.byteLength(rawPatch, "utf8");
-        if (patchBytes + patchLen <= limits.maxPrFilesPatchBytes) {
-          patchBytes += patchLen;
-          patchOmitted = undefined;
-        } else {
-          patchCapReached = true;
-          patchOmittedCount++;
-          patch = undefined;
-          patchOmitted = true;
-        }
-      } else if (rawPatch != null && patchCapReached) {
-        patch = undefined;
-        patchOmitted = true;
-        patchOmittedCount++;
-      } else {
-        patch = undefined;
-        patchOmitted = undefined;
-      }
-
-      files.push(mapGithubFile(file, patch, patchOmitted));
+      files.push(mapGithubFile(file, resolved.patch, resolved.patchOmitted));
       consumed++;
     }
     if (truncated) break;

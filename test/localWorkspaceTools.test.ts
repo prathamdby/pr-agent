@@ -30,7 +30,7 @@ function mockWorkspace(agentCwd: string, checkoutPaths: Iterable<string>): Local
     stats: { truncated: false, totalChanges: 1, fileCount: 1 },
     getDiffForPath: async () => "",
     getBlameForPath: async () => "",
-    assertReadablePath: async (path) => (paths.has(path) ? "already" : "refused"),
+    isPathInCheckout: (path) => paths.has(path),
     cleanup: async () => {},
   };
 }
