@@ -346,10 +346,10 @@ export async function prepareLocalPrWorkspace(
       );
     }
 
-    checkoutPaths = await indexCheckedOutFiles(agentCwd);
     await rm(askpass, { force: true });
     await rm(tokenFile, { force: true });
     await removeSymlinks(agentCwd);
+    checkoutPaths = await indexCheckedOutFiles(agentCwd);
     await setReadOnly(agentCwd);
 
     return {

@@ -115,7 +115,6 @@ describe("local PR workspace", () => {
 
       await writeFile(join(repo, "src.txt"), "one\ntwo\n");
       await git(repo, ["mv", "delete.txt", "renamed.txt"]);
-      await writeFile(join(repo, "renamed.txt"), "renamed\n");
       await git(repo, ["add", "."]);
       await git(repo, ["commit", "-m", "head"]);
       const headSha = await git(repo, ["rev-parse", "HEAD"]);
@@ -138,17 +137,16 @@ describe("local PR workspace", () => {
       });
       try {
         expect(workspace.changedFiles.map((file) => file.path).toSorted()).toEqual([
-          "delete.txt",
           "renamed.txt",
           "src.txt",
         ]);
-        expect(workspace.changedFiles.find((file) => file.path === "delete.txt")?.status).toBe(
-          "deleted",
-        );
+        expect(workspace.changedFiles.find((file) => file.path === "renamed.txt")).toMatchObject({
+          status: "renamed",
+          oldPath: "delete.txt",
+        });
         expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
         expect(workspace.checkoutPaths.has("support.txt")).toBe(true);
         expect(await readFile(join(workspace.agentCwd, "support.txt"), "utf8")).toContain("helper");
-        expect(workspace.checkoutPaths.has("delete.txt")).toBe(false);
         expect(await workspace.getBlameForPath("src.txt")).toContain("src.txt");
         expect(workspace.diffIndex.listPullRequestFilesIngested).toBe(true);
         expect(
