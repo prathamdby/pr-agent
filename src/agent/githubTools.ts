@@ -185,7 +185,8 @@ export function buildGithubTools(
             file.patch && !file.patchOmitted ? parseCommentableRightLineRanges(file.patch) : [],
         })),
         truncated: result.truncated,
-        omittedCount: result.omittedCount,
+        omittedCountLowerBound: result.omittedCountLowerBound,
+        totalChanges: result.totalChanges,
         warning: result.warning,
       };
     },

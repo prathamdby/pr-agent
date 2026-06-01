@@ -38,7 +38,12 @@ async function buildPrFilesFromRepo(
   baseSha: string,
   headSha: string,
 ): Promise<ListPullRequestFilesResult> {
-  const nameStatus = await git(repo, ["diff", "--name-status", "--find-renames", `${baseSha}..${headSha}`]);
+  const nameStatus = await git(repo, [
+    "diff",
+    "--name-status",
+    "--find-renames",
+    `${baseSha}..${headSha}`,
+  ]);
   const files: ListPullRequestFilesResult["files"] = [];
   let totalChanges = 0;
 
@@ -62,10 +67,16 @@ async function buildPrFilesFromRepo(
       status = "modified";
     }
 
-    const patch = await git(repo, ["diff", `${baseSha}..${headSha}`, "--", filename]).catch(() => "");
-    const numstatLine = await git(repo, ["diff", "--numstat", `${baseSha}..${headSha}`, "--", filename]).catch(
-      () => "0\t0",
+    const patch = await git(repo, ["diff", `${baseSha}..${headSha}`, "--", filename]).catch(
+      () => "",
     );
+    const numstatLine = await git(repo, [
+      "diff",
+      "--numstat",
+      `${baseSha}..${headSha}`,
+      "--",
+      filename,
+    ]).catch(() => "0\t0");
     const [addedRaw, deletedRaw] = numstatLine.split("\t");
     const additions = Number(addedRaw) || 0;
     const deletions = Number(deletedRaw) || 0;
@@ -83,7 +94,7 @@ async function buildPrFilesFromRepo(
     });
   }
 
-  return { files, truncated: false, omittedCount: 0, totalChanges };
+  return { files, truncated: false, omittedCountLowerBound: 0, totalChanges };
 }
 
 describe("local PR workspace", () => {

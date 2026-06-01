@@ -91,10 +91,10 @@ Developer scripts: see [docs/operations.md](docs/operations.md#development).
 
 LLM runs happen on **`ROLE=worker`** only. Pick a **runner** with `AGENT_PROVIDER`, then set model and credentials.
 
-| Runner | `AGENT_PROVIDER` | Model env | Credentials |
-|--------|------------------|-----------|-------------|
-| Pi (default) | `pi` | `PI_PROVIDER`, `PI_MODEL` | Provider API key env vars (see below) |
-| Cursor SDK | `cursor` | `PI_MODEL` (Cursor model id) | `CURSOR_API_KEY` (required) |
+| Runner       | `AGENT_PROVIDER` | Model env                    | Credentials                           |
+| ------------ | ---------------- | ---------------------------- | ------------------------------------- |
+| Pi (default) | `pi`             | `PI_PROVIDER`, `PI_MODEL`    | Provider API key env vars (see below) |
+| Cursor SDK   | `cursor`         | `PI_MODEL` (Cursor model id) | `CURSOR_API_KEY` (required)           |
 
 Full tunables: [docs/configuration.md](docs/configuration.md). Cursor integration: [ADR 0013](docs/adr/0013-cursor-sdk-provider.md).
 
@@ -155,21 +155,21 @@ General bug-and-correctness reviews run on PR open and sync. **`/review-security
 
 ## Features
 
-| Capability | Auto on PR | Slash command | Notes |
-|------------|------------|---------------|-------|
-| General review | opened / sync / reopen | `/review` | `## PR Agent Review`; inline P0 to P2 on Files tab when present |
-| PR description | same | `/describe` | Merges under `## PR Agent Description` |
-| Security lens | No | `/review-security` | `## PR Agent Security Review` |
-| Quality lens | No | `/review-quality` | `## PR Agent Quality Review` |
-| Ask | No | `/ask <question>` | PR conversation or inline diff **code anchor** |
-| Help | No | `/help` | Worker-published guidance |
-| Lightweight auto-review | docs-only trivial PRs | No | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
+| Capability              | Auto on PR             | Slash command      | Notes                                                                                     |
+| ----------------------- | ---------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
+| General review          | opened / sync / reopen | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
+| PR description          | same                   | `/describe`        | Merges under `## PR Agent Description`                                                    |
+| Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
+| Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
+| Ask                     | No                     | `/ask <question>`  | PR conversation or inline diff **code anchor**                                            |
+| Help                    | No                     | `/help`            | Worker-published guidance                                                                 |
+| Lightweight auto-review | docs-only trivial PRs  | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
 
-| Deployment | Supported |
-|------------|-----------|
-| Docker Compose (web + worker + Postgres) | Yes |
-| Bare Node + Postgres | Yes |
-| Cursor provider (`AGENT_PROVIDER=cursor`) | Yes |
+| Deployment                                | Supported |
+| ----------------------------------------- | --------- |
+| Docker Compose (web + worker + Postgres)  | Yes       |
+| Bare Node + Postgres                      | Yes       |
+| Cursor provider (`AGENT_PROVIDER=cursor`) | Yes       |
 
 Slash commands are **case-sensitive** and must start the first non-empty line of a new comment. Full behaviour: [docs/operations.md](docs/operations.md).
 

@@ -23,7 +23,7 @@ vi.mock("../src/github/listPullRequestFiles.js", () => ({
   fetchPullRequestFiles: async () => ({
     files: [],
     truncated: false,
-    omittedCount: 0,
+    omittedCountLowerBound: 0,
     totalChanges: 0,
   }),
 }));

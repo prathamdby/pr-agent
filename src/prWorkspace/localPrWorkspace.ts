@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { Config } from "../config.js";
-import type { ListPullRequestFilesResult, PullRequestFileEntry } from "../github/listPullRequestFiles.js";
+import type {
+  ListPullRequestFilesResult,
+  PullRequestFileEntry,
+} from "../github/listPullRequestFiles.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
@@ -273,10 +276,13 @@ export async function prepareLocalPrWorkspace(
     filesForIndex.push({
       filename: file.filename,
       patch: file.patchOmitted || !file.patch ? undefined : file.patch,
-      patchOmitted: file.patchOmitted === true,
+      patchOmitted: file.patchOmitted === true || file.patch == null || file.patch === "",
     });
   }
-  ingestListPullRequestFilesResult(diffIndex, { truncated: prFiles.truncated, files: filesForIndex });
+  ingestListPullRequestFilesResult(diffIndex, {
+    truncated: prFiles.truncated,
+    files: filesForIndex,
+  });
 
   const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
     execGit(args, {

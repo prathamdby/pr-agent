@@ -55,7 +55,10 @@ describe("local workspace tools", () => {
         matches: Array<{ path: string }>;
       };
 
-      expect(out.matches.map((m) => m.path).toSorted()).toEqual(["lib/helper.ts", "src/unchanged.ts"]);
+      expect(out.matches.map((m) => m.path).toSorted()).toEqual([
+        "lib/helper.ts",
+        "src/unchanged.ts",
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

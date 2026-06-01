@@ -53,22 +53,11 @@ async function prepareUncached(
   params: PreparePrRepositoryViewParams,
 ): Promise<CachedPrRepositoryView> {
   const [headSha, prFiles] = await Promise.all([
-    fetchPullRequestHeadSha(
-      params.installationToken,
-      params.owner,
-      params.repo,
-      params.prNumber,
-    ),
-    fetchPullRequestFiles(
-      params.installationToken,
-      params.owner,
-      params.repo,
-      params.prNumber,
-      {
-        maxPrFilesListed: params.cfg.maxPrFilesListed,
-        maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
-      },
-    ),
+    fetchPullRequestHeadSha(params.installationToken, params.owner, params.repo, params.prNumber),
+    fetchPullRequestFiles(params.installationToken, params.owner, params.repo, params.prNumber, {
+      maxPrFilesListed: params.cfg.maxPrFilesListed,
+      maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
+    }),
   ]);
   if (headSha.toLowerCase() !== params.headSha.toLowerCase()) {
     throw new Error(

@@ -15,7 +15,8 @@ export type PullRequestFileEntry = {
 export type ListPullRequestFilesResult = {
   readonly files: readonly PullRequestFileEntry[];
   readonly truncated: boolean;
-  readonly omittedCount: number;
+  /** Omitted file count; lower bound when more list-files pages may remain. */
+  readonly omittedCountLowerBound: number;
   readonly totalChanges: number;
   readonly warning?: string;
 };
@@ -35,15 +36,21 @@ export async function listPullRequestFilesPaginated(
   pullNumber: number,
   limits: ListPullRequestFilesLimits,
 ): Promise<ListPullRequestFilesResult> {
+  const { data: pull } = await octokit.rest.pulls.get({
+    owner,
+    repo,
+    pull_number: pullNumber,
+  });
+  const totalChanges = pull.additions + pull.deletions;
+
   const files: PullRequestFileEntry[] = [];
 
   let truncated = false;
-  let omittedCount = 0;
-  let omittedCountLowerBound = false;
+  let omittedCountLowerBound = 0;
+  let omittedCountIsLowerBound = false;
   let patchBytes = 0;
   let patchOmittedCount = 0;
   let patchCapReached = false;
-  let totalChanges = 0;
 
   for (let page = 1; ; page++) {
     const { data } = await octokit.rest.pulls.listFiles({
@@ -58,8 +65,8 @@ export async function listPullRequestFilesPaginated(
     for (const file of data) {
       if (files.length >= limits.maxPrFilesListed) {
         truncated = true;
-        omittedCount += data.length - consumed;
-        if (data.length === 100) omittedCountLowerBound = true;
+        omittedCountLowerBound += data.length - consumed;
+        if (data.length === 100) omittedCountIsLowerBound = true;
         break;
       }
 
@@ -88,7 +95,6 @@ export async function listPullRequestFilesPaginated(
       }
 
       files.push(mapGithubFile(file, patch, patchOmitted));
-      totalChanges += file.changes;
       consumed++;
     }
     if (truncated) break;
@@ -97,7 +103,9 @@ export async function listPullRequestFilesPaginated(
 
   const warnings: string[] = [];
   if (truncated) {
-    const omittedLabel = omittedCountLowerBound ? `at least ${omittedCount}` : String(omittedCount);
+    const omittedLabel = omittedCountIsLowerBound
+      ? `at least ${omittedCountLowerBound}`
+      : String(omittedCountLowerBound);
     warnings.push(
       `Change set truncated to ${limits.maxPrFilesListed} files (${omittedLabel} omitted).`,
     );
@@ -109,7 +117,7 @@ export async function listPullRequestFilesPaginated(
   }
   const warning = warnings.length > 0 ? warnings.join(" ") : undefined;
 
-  return { files, truncated, omittedCount, totalChanges, warning };
+  return { files, truncated, omittedCountLowerBound, totalChanges, warning };
 }
 
 function mapGithubFile(

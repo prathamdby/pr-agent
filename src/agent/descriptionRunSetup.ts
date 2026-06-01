@@ -67,7 +67,9 @@ export function buildDescriptionRunSetup(params: {
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (activeToken) => {
       if (workspace) {
-        return buildLocalWorkspaceTools(workspace, workspaceToolLimitsFromConfig(cfg), { pathGate });
+        return buildLocalWorkspaceTools(workspace, workspaceToolLimitsFromConfig(cfg), {
+          pathGate,
+        });
       }
       return buildGithubTools(activeToken, {
         maxPrFilesListed: cfg.maxPrFilesListed,

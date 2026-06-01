@@ -91,7 +91,7 @@ export function ingestListPullRequestFilesResult(
     index.truncated = true;
   }
   for (const file of result.files ?? []) {
-    const patchOmitted = file.patchOmitted === true || file.patch == null;
+    const patchOmitted = file.patchOmitted === true || file.patch == null || file.patch === "";
     const commentableRightLineRanges =
       !patchOmitted && file.patch ? parseCommentableRightLineRanges(file.patch) : [];
     index.files.set(file.filename, { patchOmitted, commentableRightLineRanges });

@@ -22,7 +22,7 @@ function makeOctokitStub(fns: FnMap = {}) {
   return {
     rest: {
       pulls: {
-        get: fns.pullsGet ?? vi.fn(),
+        get: fns.pullsGet ?? vi.fn().mockResolvedValue({ data: { additions: 0, deletions: 0 } }),
         list: fns.pullsList ?? vi.fn(),
         listFiles: fns.pullsListFiles ?? vi.fn(),
         listReviews: fns.pullsListReviews ?? vi.fn(),
@@ -231,12 +231,17 @@ describe("buildGithubTools — happy paths", () => {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { files: unknown[]; truncated: boolean; omittedCount: number; warning?: string };
+    })) as {
+      files: unknown[];
+      truncated: boolean;
+      omittedCountLowerBound: number;
+      warning?: string;
+    };
 
     expect(pullsListFiles).toHaveBeenCalledTimes(1);
     expect(out.files).toHaveLength(3);
     expect(out.truncated).toBe(true);
-    expect(out.omittedCount).toBe(2);
+    expect(out.omittedCountLowerBound).toBe(2);
     expect(out.warning).toMatch(/truncated/i);
   });
 
@@ -348,11 +353,11 @@ describe("buildGithubTools — happy paths", () => {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { truncated: boolean; omittedCount: number; files: unknown[] };
+    })) as { truncated: boolean; omittedCountLowerBound: number; files: unknown[] };
 
     expect(out.truncated).toBe(true);
     expect(out.files).toHaveLength(5);
-    expect(out.omittedCount).toBe(5);
+    expect(out.omittedCountLowerBound).toBe(5);
   });
 
   it("listPullRequestFiles stops pagination when patch byte cap is reached", async () => {
@@ -398,14 +403,44 @@ describe("buildGithubTools — happy paths", () => {
       pullNumber: 1,
     })) as {
       files: unknown[];
-      omittedCount: number;
+      omittedCountLowerBound: number;
       warning?: string;
     };
 
     expect(pullsListFiles).toHaveBeenCalledTimes(1);
     expect(out.files).toHaveLength(3);
-    expect(out.omittedCount).toBe(0);
+    expect(out.omittedCountLowerBound).toBe(0);
     expect(out.warning).toMatch(/patches omitted for 2 file/i);
+  });
+
+  it("listPullRequestFiles uses PR additions+deletions for totalChanges when truncated", async () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      filename: `f${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+      changes: 2,
+    }));
+    const pullsListFiles = vi.fn().mockResolvedValue({ data: rows });
+    const pullsGet = vi.fn().mockResolvedValue({ data: { additions: 8, deletions: 2 } });
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsListFiles, pullsGet }),
+    );
+    const { executors } = buildGithubTools("tok", {
+      maxPrFilesListed: 3,
+      maxPrFilesPatchBytes: 500_000,
+    });
+
+    const out = (await executors.listPullRequestFiles({
+      owner: "o",
+      repo: "r",
+      pullNumber: 1,
+    })) as { truncated: boolean; totalChanges: number; files: unknown[] };
+
+    expect(out.truncated).toBe(true);
+    expect(out.files).toHaveLength(3);
+    expect(out.totalChanges).toBe(10);
+    expect(pullsGet).toHaveBeenCalledOnce();
   });
 
   it("listPullRequestFiles uses at-least omitted count when more pages remain", async () => {
@@ -432,11 +467,11 @@ describe("buildGithubTools — happy paths", () => {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { truncated: boolean; omittedCount: number; warning?: string };
+    })) as { truncated: boolean; omittedCountLowerBound: number; warning?: string };
 
     expect(pullsListFiles).toHaveBeenCalledTimes(4);
     expect(out.truncated).toBe(true);
-    expect(out.omittedCount).toBe(100);
+    expect(out.omittedCountLowerBound).toBe(100);
     expect(out.warning).toMatch(/at least 100 omitted/i);
   });
 
