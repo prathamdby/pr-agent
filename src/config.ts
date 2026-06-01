@@ -18,11 +18,10 @@ import {
   DEFAULT_LOG_REDACT,
   DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
   DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-  DEFAULT_LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
   DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES,
-  DEFAULT_LOCAL_WORKSPACE_MAX_TOTAL_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
+  DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
   DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
@@ -326,17 +325,17 @@ export function loadConfig() {
     ENV.LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   );
-  const localWorkspaceMaxMaterializedFiles = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES,
-    DEFAULT_LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES,
+  const localWorkspaceSearchMaxFiles = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_SEARCH_MAX_FILES,
+    DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   );
   const localWorkspaceMaxFileBytes = readPositiveNumber(
     ENV.LOCAL_WORKSPACE_MAX_FILE_BYTES,
     DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
   );
-  const localWorkspaceMaxTotalBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MAX_TOTAL_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_MAX_TOTAL_BYTES,
+  const localWorkspaceSearchMaxTotalBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
   );
   const localWorkspaceMaxDiffBytes = readPositiveNumber(
     ENV.LOCAL_WORKSPACE_MAX_DIFF_BYTES,
@@ -350,11 +349,6 @@ export function loadConfig() {
     ENV.LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
     DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   );
-  const localWorkspaceMaxBlameDeepenCommits = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
-    DEFAULT_LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
-  );
-
   return {
     port,
     githubAppId,
@@ -408,13 +402,12 @@ export function loadConfig() {
     reviewAnchorMenuMaxRangesPerFile,
     localWorkspaceCloneTimeoutMs,
     localWorkspaceFetchTimeoutMs,
-    localWorkspaceMaxMaterializedFiles,
+    localWorkspaceSearchMaxFiles,
     localWorkspaceMaxFileBytes,
-    localWorkspaceMaxTotalBytes,
+    localWorkspaceSearchMaxTotalBytes,
     localWorkspaceMaxDiffBytes,
     localWorkspaceMinFreeSpaceBytes,
     localWorkspaceStaleCleanupAgeSeconds,
-    localWorkspaceMaxBlameDeepenCommits,
   };
 }
 

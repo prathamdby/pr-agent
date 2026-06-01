@@ -4,6 +4,7 @@ import {
   type ReviewPreflightMetadata,
 } from "../review/reviewPreflightFiles.js";
 import { installationOctokit } from "../github/appAuth.js";
+import { fetchPullRequestFiles } from "../github/listPullRequestFiles.js";
 import { prepareLocalPrWorkspace, type LocalPrWorkspace } from "./localPrWorkspace.js";
 
 export type PrRepositoryView = {
@@ -37,35 +38,40 @@ function cacheKey(
   return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}`;
 }
 
-async function fetchPullRequestInfo(
+async function fetchPullRequestHeadSha(
   token: string,
   owner: string,
   repo: string,
   prNumber: number,
-): Promise<{ baseSha: string; headSha: string; baseRef: string }> {
+): Promise<string> {
   const octokit = installationOctokit(token);
   const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
-  return { baseSha: data.base.sha, headSha: data.head.sha, baseRef: data.base.ref };
+  return data.head.sha;
 }
 
 async function prepareUncached(
   params: PreparePrRepositoryViewParams,
 ): Promise<CachedPrRepositoryView> {
-  const info = await fetchPullRequestInfo(
-    params.installationToken,
-    params.owner,
-    params.repo,
-    params.prNumber,
-  );
+  const [headSha, prFiles] = await Promise.all([
+    fetchPullRequestHeadSha(params.installationToken, params.owner, params.repo, params.prNumber),
+    fetchPullRequestFiles(params.installationToken, params.owner, params.repo, params.prNumber, {
+      maxPrFilesListed: params.cfg.maxPrFilesListed,
+      maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
+    }),
+  ]);
+  if (headSha.toLowerCase() !== params.headSha.toLowerCase()) {
+    throw new Error(
+      `Pull request head SHA ${headSha} does not match work item headSha ${params.headSha}`,
+    );
+  }
   const workspace = await prepareLocalPrWorkspace({
     cfg: params.cfg,
     owner: params.owner,
     repo: params.repo,
     prNumber: params.prNumber,
-    baseSha: info.baseSha,
     headSha: params.headSha,
     installationToken: params.installationToken,
-    baseRef: info.baseRef,
+    prFiles,
   });
   return {
     workspace,
@@ -87,7 +93,6 @@ async function prepareEntry(
         return view;
       })
       .catch((e) => {
-        // Clear the rejected attempt so a later caller re-prepares instead of reusing the failure.
         entry.prepare = null;
         throw e;
       });
@@ -108,7 +113,6 @@ async function acquirePrRepositoryView(
   try {
     return await prepareEntry(entry, params);
   } catch (e) {
-    // Undo our refcount (and drop the entry when last) so a failed prepare is not cached.
     await releasePrRepositoryView(params);
     throw e;
   }

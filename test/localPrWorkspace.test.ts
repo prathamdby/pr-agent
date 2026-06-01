@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import type { Config } from "../src/config.js";
+import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
 import {
   assertWorkspacePath,
   prepareLocalPrWorkspace,
@@ -21,18 +22,83 @@ function testConfig(): Config {
   return {
     localWorkspaceCloneTimeoutMs: 30_000,
     localWorkspaceFetchTimeoutMs: 30_000,
-    localWorkspaceMaxMaterializedFiles: 20,
+    localWorkspaceSearchMaxFiles: 20,
     localWorkspaceMaxFileBytes: 100_000,
-    localWorkspaceMaxTotalBytes: 1_000_000,
+    localWorkspaceSearchMaxTotalBytes: 1_000_000,
     localWorkspaceMaxDiffBytes: 1_000_000,
     localWorkspaceMinFreeSpaceBytes: 1,
     localWorkspaceStaleCleanupAgeSeconds: 1,
-    localWorkspaceMaxBlameDeepenCommits: 10,
+    maxPrFilesListed: 300,
+    maxPrFilesPatchBytes: 500_000,
   } as Config;
 }
 
+async function buildPrFilesFromRepo(
+  repo: string,
+  baseSha: string,
+  headSha: string,
+): Promise<ListPullRequestFilesResult> {
+  const nameStatus = await git(repo, [
+    "diff",
+    "--name-status",
+    "--find-renames",
+    `${baseSha}..${headSha}`,
+  ]);
+  const files: ListPullRequestFilesResult["files"] = [];
+  let totalChanges = 0;
+
+  for (const line of nameStatus.split("\n")) {
+    if (!line.trim()) continue;
+    const [rawStatus, firstPath, secondPath] = line.split("\t");
+    const code = rawStatus?.[0] ?? "";
+    let filename = firstPath ?? "";
+    let previousFilename: string | undefined;
+    let status = "modified";
+
+    if (code === "R" && firstPath && secondPath) {
+      status = "renamed";
+      previousFilename = firstPath;
+      filename = secondPath;
+    } else if (code === "A") {
+      status = "added";
+    } else if (code === "D") {
+      status = "removed";
+    } else if (code === "M") {
+      status = "modified";
+    }
+
+    const patch = await git(repo, ["diff", `${baseSha}..${headSha}`, "--", filename]).catch(
+      () => "",
+    );
+    const numstatLine = await git(repo, [
+      "diff",
+      "--numstat",
+      `${baseSha}..${headSha}`,
+      "--",
+      filename,
+    ]).catch(() => "0\t0");
+    const [addedRaw, deletedRaw] = numstatLine.split("\t");
+    const additions = Number(addedRaw) || 0;
+    const deletions = Number(deletedRaw) || 0;
+    const changes = additions + deletions;
+    totalChanges += changes;
+
+    files.push({
+      filename,
+      status,
+      additions,
+      deletions,
+      changes,
+      ...(previousFilename ? { previousFilename } : {}),
+      ...(patch ? { patch } : {}),
+    });
+  }
+
+  return { files, truncated: false, omittedCountLowerBound: 0, totalChanges };
+}
+
 describe("local PR workspace", () => {
-  it("materializes changed files and builds a local diff index", async () => {
+  it("checks out the full PR head tree and builds diff index from PR file metadata", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-test-"));
     const repo = join(root, "repo");
     const remote = join(root, "remote.git");
@@ -49,7 +115,6 @@ describe("local PR workspace", () => {
 
       await writeFile(join(repo, "src.txt"), "one\ntwo\n");
       await git(repo, ["mv", "delete.txt", "renamed.txt"]);
-      await writeFile(join(repo, "renamed.txt"), "renamed\n");
       await git(repo, ["add", "."]);
       await git(repo, ["commit", "-m", "head"]);
       const headSha = await git(repo, ["rev-parse", "HEAD"]);
@@ -57,30 +122,30 @@ describe("local PR workspace", () => {
       await git(root, ["init", "--bare", remote]);
       await git(repo, ["remote", "add", "origin", remote]);
       await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
-      await git(repo, ["push", "origin", `${baseSha}:refs/heads/base`]);
+
+      const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
 
       const workspace = await prepareLocalPrWorkspace({
         cfg: testConfig(),
         owner: "owner",
         repo: "repo",
         prNumber: 1,
-        baseSha,
-        baseRef: "base",
         headSha,
         installationToken: "unused",
+        prFiles,
         remoteUrlOverride: remote,
       });
       try {
         expect(workspace.changedFiles.map((file) => file.path).toSorted()).toEqual([
-          "delete.txt",
           "renamed.txt",
           "src.txt",
         ]);
-        expect(workspace.changedFiles.find((file) => file.path === "delete.txt")?.status).toBe(
-          "deleted",
-        );
+        expect(workspace.changedFiles.find((file) => file.path === "renamed.txt")).toMatchObject({
+          status: "renamed",
+          oldPath: "delete.txt",
+        });
         expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
-        expect(await workspace.materializePath("support.txt")).toBe("materialized");
+        expect(workspace.checkoutPaths.has("support.txt")).toBe(true);
         expect(await readFile(join(workspace.agentCwd, "support.txt"), "utf8")).toContain("helper");
         expect(await workspace.getBlameForPath("src.txt")).toContain("src.txt");
         expect(workspace.diffIndex.listPullRequestFilesIngested).toBe(true);

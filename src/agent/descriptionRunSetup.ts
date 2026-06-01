@@ -3,7 +3,7 @@ import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "./askSafety.js";
 import { buildGithubTools } from "./githubTools.js";
-import { buildLocalWorkspaceTools } from "./localWorkspaceTools.js";
+import { buildLocalWorkspaceTools, workspaceToolLimitsFromConfig } from "./localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "./providers/cursor/refreshableGithubTools.js";
 import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
 import { buildDescriptionUserContent } from "./descriptionUserMessage.js";
@@ -67,7 +67,9 @@ export function buildDescriptionRunSetup(params: {
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (activeToken) => {
       if (workspace) {
-        return buildLocalWorkspaceTools(workspace, { pathGate });
+        return buildLocalWorkspaceTools(workspace, workspaceToolLimitsFromConfig(cfg), {
+          pathGate,
+        });
       }
       return buildGithubTools(activeToken, {
         maxPrFilesListed: cfg.maxPrFilesListed,

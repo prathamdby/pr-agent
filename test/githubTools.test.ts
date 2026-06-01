@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import * as appAuth from "../src/github/appAuth.js";
-import { buildGithubTools } from "../src/agent/githubTools.js";
+import { buildGithubTools, type ListPullRequestFilesToolOutput } from "../src/agent/githubTools.js";
+
+type GithubExecutors = ReturnType<typeof buildGithubTools>["executors"];
+
+async function runListPullRequestFiles(
+  executors: GithubExecutors,
+  args: { owner: string; repo: string; pullNumber: number },
+): Promise<ListPullRequestFilesToolOutput> {
+  return (await executors.listPullRequestFiles!(args)) as ListPullRequestFilesToolOutput;
+}
 
 type FnMap = Partial<{
   pullsGet: ReturnType<typeof vi.fn>;
@@ -22,7 +31,7 @@ function makeOctokitStub(fns: FnMap = {}) {
   return {
     rest: {
       pulls: {
-        get: fns.pullsGet ?? vi.fn(),
+        get: fns.pullsGet ?? vi.fn().mockResolvedValue({ data: { additions: 0, deletions: 0 } }),
         list: fns.pullsList ?? vi.fn(),
         listFiles: fns.pullsListFiles ?? vi.fn(),
         listReviews: fns.pullsListReviews ?? vi.fn(),
@@ -186,11 +195,11 @@ describe("buildGithubTools — happy paths", () => {
       });
     const { executors } = buildWithStub(makeOctokitStub({ pullsListFiles }));
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 3,
-    })) as { files: Array<{ patch: string }>; truncated: boolean };
+    });
 
     expect(pullsListFiles).toHaveBeenNthCalledWith(1, {
       owner: "o",
@@ -227,16 +236,16 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 500_000,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { files: unknown[]; truncated: boolean; omittedCount: number; warning?: string };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(1);
     expect(out.files).toHaveLength(3);
     expect(out.truncated).toBe(true);
-    expect(out.omittedCount).toBe(2);
+    expect(out.omittedCountLowerBound).toBe(2);
     expect(out.warning).toMatch(/truncated/i);
   });
 
@@ -268,15 +277,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 250,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as {
-      files: Array<{ filename: string; patch?: string; patchOmitted?: boolean }>;
-      truncated: boolean;
-      warning?: string;
-    };
+    });
 
     expect(out.files[0].patch).toBe(bigPatch);
     expect(out.files[1].patchOmitted).toBe(true);
@@ -344,15 +349,15 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 250,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { truncated: boolean; omittedCount: number; files: unknown[] };
+    });
 
     expect(out.truncated).toBe(true);
     expect(out.files).toHaveLength(5);
-    expect(out.omittedCount).toBe(5);
+    expect(out.omittedCountLowerBound).toBe(5);
   });
 
   it("listPullRequestFiles stops pagination when patch byte cap is reached", async () => {
@@ -392,20 +397,46 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 250,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as {
-      files: unknown[];
-      omittedCount: number;
-      warning?: string;
-    };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(1);
     expect(out.files).toHaveLength(3);
-    expect(out.omittedCount).toBe(0);
+    expect(out.omittedCountLowerBound).toBe(0);
     expect(out.warning).toMatch(/patches omitted for 2 file/i);
+  });
+
+  it("listPullRequestFiles uses PR additions+deletions for totalChanges when truncated", async () => {
+    const rows = Array.from({ length: 5 }, (_, i) => ({
+      filename: `f${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+      changes: 2,
+    }));
+    const pullsListFiles = vi.fn().mockResolvedValue({ data: rows });
+    const pullsGet = vi.fn().mockResolvedValue({ data: { additions: 8, deletions: 2 } });
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsListFiles, pullsGet }),
+    );
+    const { executors } = buildGithubTools("tok", {
+      maxPrFilesListed: 3,
+      maxPrFilesPatchBytes: 500_000,
+    });
+
+    const out = await runListPullRequestFiles(executors, {
+      owner: "o",
+      repo: "r",
+      pullNumber: 1,
+    });
+
+    expect(out.truncated).toBe(true);
+    expect(out.files).toHaveLength(3);
+    expect(out.totalChanges).toBe(10);
+    expect(pullsGet).toHaveBeenCalledOnce();
   });
 
   it("listPullRequestFiles uses at-least omitted count when more pages remain", async () => {
@@ -428,15 +459,15 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 500_000,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { truncated: boolean; omittedCount: number; warning?: string };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(4);
     expect(out.truncated).toBe(true);
-    expect(out.omittedCount).toBe(100);
+    expect(out.omittedCountLowerBound).toBe(100);
     expect(out.warning).toMatch(/at least 100 omitted/i);
   });
 
@@ -465,11 +496,11 @@ describe("buildGithubTools — happy paths", () => {
       maxPrFilesPatchBytes: 500_000,
     });
 
-    const out = (await executors.listPullRequestFiles({
+    const out = await runListPullRequestFiles(executors, {
       owner: "o",
       repo: "r",
       pullNumber: 1,
-    })) as { files: unknown[]; truncated: boolean };
+    });
 
     expect(pullsListFiles).toHaveBeenCalledTimes(2);
     expect(out.files).toHaveLength(150);

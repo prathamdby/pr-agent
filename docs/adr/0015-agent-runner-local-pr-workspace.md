@@ -3,7 +3,8 @@
 ## Status
 
 Accepted. Supersedes the GitHub-API-only repository signal and `PI_PROVIDER=cursor`
-selection parts of [ADR 0013](0013-cursor-sdk-provider.md).
+selection parts of [ADR 0013](0013-cursor-sdk-provider.md). Changed-file materialization
+and local-git diff authority are superseded by [ADR 0017](0017-full-context-local-pr-workspace.md).
 
 ## Context
 

@@ -13,8 +13,18 @@ vi.mock("../src/github/appAuth.js", () => ({
         get: async () => ({
           data: { base: { sha: "b".repeat(40), ref: "main" }, head: { sha: "h".repeat(40) } },
         }),
+        listFiles: async () => ({ data: [] }),
       },
     },
+  }),
+}));
+
+vi.mock("../src/github/listPullRequestFiles.js", () => ({
+  fetchPullRequestFiles: async () => ({
+    files: [],
+    truncated: false,
+    omittedCountLowerBound: 0,
+    totalChanges: 0,
   }),
 }));
 

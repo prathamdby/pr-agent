@@ -1,9 +1,13 @@
 import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readdir, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, sep } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import type { Config } from "../config.js";
+import type {
+  ListPullRequestFilesResult,
+  PullRequestFileEntry,
+} from "../github/listPullRequestFiles.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
@@ -16,6 +20,7 @@ const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";
 const ASKPASS_NAME = "git-askpass.sh";
 const TOKEN_FILE_NAME = "git-token";
+const PR_HEAD_REF = "pr-head";
 
 type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
 
@@ -30,16 +35,17 @@ export type LocalPrWorkspace = {
   readonly privateGitDir: string;
   readonly agentCwd: string;
   readonly changedFiles: readonly LocalPrChangedFile[];
-  readonly materializedPaths: ReadonlySet<string>;
+  readonly checkoutPaths: ReadonlySet<string>;
   readonly diffIndex: CachedPrDiffIndex;
   readonly stats: {
     readonly truncated: boolean;
     readonly totalChanges: number;
     readonly fileCount: number;
+    readonly warning?: string;
   };
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
-  readonly materializePath: (path: string) => Promise<"materialized" | "already" | "refused">;
+  readonly isPathInCheckout: (path: string) => boolean;
   readonly cleanup: () => Promise<void>;
 };
 
@@ -48,10 +54,9 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
-  readonly baseSha: string;
   readonly headSha: string;
   readonly installationToken: string;
-  readonly baseRef?: string;
+  readonly prFiles: ListPullRequestFilesResult;
   readonly remoteUrlOverride?: string;
 };
 
@@ -75,15 +80,42 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
   return resolved;
 }
 
+function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
+  const status = file.status;
+  if (status === "renamed" && file.previousFilename) {
+    return { path: file.filename, status: "renamed", oldPath: file.previousFilename };
+  }
+  if (status === "copied" && file.previousFilename) {
+    return { path: file.filename, status: "copied", oldPath: file.previousFilename };
+  }
+  const mapped: ChangedFileStatus =
+    status === "added"
+      ? "added"
+      : status === "removed"
+        ? "deleted"
+        : status === "modified" || status === "changed"
+          ? "modified"
+          : "other";
+  return { path: file.filename, status: mapped };
+}
+
 async function execGit(
   args: readonly string[],
-  opts: { cwd: string; timeoutMs: number; tokenFile?: string; askpass?: string },
+  opts: {
+    cwd: string;
+    timeoutMs: number;
+    tokenFile?: string;
+    askpass?: string;
+    workTree?: string;
+  },
 ): Promise<{ stdout: string; stderr: string }> {
   const env = {
     ...process.env,
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_TERMINAL_PROMPT: "0",
     GIT_LFS_SKIP_SMUDGE: "1",
+    GIT_DIR: opts.cwd,
+    ...(opts.workTree ? { GIT_WORK_TREE: opts.workTree } : {}),
     ...(opts.askpass ? { GIT_ASKPASS: opts.askpass, GIT_TOKEN_FILE: opts.tokenFile ?? "" } : {}),
   };
   return exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
@@ -129,54 +161,6 @@ async function writeTokenFile(rootDir: string, token: string): Promise<string> {
   return tokenFile;
 }
 
-function parseNumstat(output: string): number {
-  let total = 0;
-  for (const line of output.split("\n")) {
-    if (!line.trim()) continue;
-    const [addedRaw, deletedRaw] = line.split("\t");
-    const added = Number(addedRaw);
-    const deleted = Number(deletedRaw);
-    if (Number.isFinite(added)) total += added;
-    if (Number.isFinite(deleted)) total += deleted;
-  }
-  return total;
-}
-
-function isTruncatedPatch(patch: string): boolean {
-  return patch.endsWith("\n...[diff truncated]");
-}
-
-function parseNameStatus(output: string): LocalPrChangedFile[] {
-  const files: LocalPrChangedFile[] = [];
-  for (const line of output.split("\n")) {
-    if (!line.trim()) continue;
-    const [rawStatus, firstPath, secondPath] = line.split("\t");
-    const statusCode = rawStatus?.[0] ?? "";
-    if (statusCode === "R") {
-      if (firstPath && secondPath)
-        files.push({ status: "renamed", oldPath: firstPath, path: secondPath });
-      continue;
-    }
-    if (statusCode === "C") {
-      if (firstPath && secondPath)
-        files.push({ status: "copied", oldPath: firstPath, path: secondPath });
-      continue;
-    }
-    const path = firstPath;
-    if (!path) continue;
-    const status: ChangedFileStatus =
-      statusCode === "A"
-        ? "added"
-        : statusCode === "M"
-          ? "modified"
-          : statusCode === "D"
-            ? "deleted"
-            : "other";
-    files.push({ path, status });
-  }
-  return files;
-}
-
 async function removeSymlinks(dir: string): Promise<void> {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -218,6 +202,23 @@ async function removeWorkspace(rootDir: string): Promise<void> {
   await rm(rootDir, { recursive: true, force: true });
 }
 
+async function indexCheckedOutFiles(agentCwd: string): Promise<Set<string>> {
+  const paths = new Set<string>();
+  async function walk(dir: string, prefix: string) {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full, rel);
+      } else if (entry.isFile()) {
+        paths.add(rel.replace(/\\/g, "/"));
+      }
+    }
+  }
+  await walk(agentCwd, "");
+  return paths;
+}
+
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
 async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
@@ -248,60 +249,68 @@ export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> 
 export async function prepareLocalPrWorkspace(
   params: PrepareLocalPrWorkspaceParams,
 ): Promise<LocalPrWorkspace> {
-  const { cfg, owner, repo, prNumber, baseSha, headSha, installationToken, baseRef } = params;
+  const { cfg, owner, repo, prNumber, headSha, installationToken, prFiles } = params;
   assertRepoPart(owner, "owner");
   assertRepoPart(repo, "repo");
-  assertSha(baseSha, "baseSha");
   assertSha(headSha, "headSha");
   await ensureFreeSpace(tmpdir(), cfg.localWorkspaceMinFreeSpaceBytes);
 
   const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
   const agentCwd = join(rootDir, AGENT_TREE_DIR);
-  const materialized = new Set<string>();
-  let materializedBytes = 0;
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const askpass = await createAskpass(rootDir);
   const tokenFile = await writeTokenFile(rootDir, installationToken);
-  let changedFiles: LocalPrChangedFile[] = [];
+  const changedFiles = prFiles.files.map(mapGithubStatus);
   const diffIndex = createCachedPrDiffIndex();
-  let truncated = false;
-  let totalChanges = 0;
+  const patchByPath = new Map<string, string>();
+  const patchOmittedByCapPaths = new Set<string>();
+  const filesForIndex = [];
+  for (const file of prFiles.files) {
+    const patch = file.patch ?? "";
+    if (file.patchOmitted) {
+      patchOmittedByCapPaths.add(file.filename);
+    } else if (patch.length > 0) {
+      patchByPath.set(file.filename, patch);
+    }
+    filesForIndex.push({
+      filename: file.filename,
+      patch: file.patchOmitted || !file.patch ? undefined : file.patch,
+      patchOmitted: file.patchOmitted === true || file.patch == null || file.patch === "",
+    });
+  }
+  ingestListPullRequestFilesResult(diffIndex, {
+    truncated: prFiles.truncated,
+    files: filesForIndex,
+  });
 
   const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
-    execGit(args, { cwd: privateGitDir, timeoutMs, tokenFile, askpass });
+    execGit(args, {
+      cwd: privateGitDir,
+      timeoutMs,
+      tokenFile,
+      askpass,
+      workTree: agentCwd,
+    });
 
-  async function materializePath(path: string): Promise<"materialized" | "already" | "refused"> {
-    const normalized = path.replace(/\\/g, "/");
-    if (materialized.has(normalized)) return "already";
-    if (materialized.size >= cfg.localWorkspaceMaxMaterializedFiles) return "refused";
-    const outPath = assertWorkspacePath(agentCwd, normalized);
-    const { stdout } = await git(["show", `${headSha}:${normalized}`]);
-    const bytes = Buffer.byteLength(stdout);
-    if (bytes > cfg.localWorkspaceMaxFileBytes) return "refused";
-    if (materializedBytes + bytes > cfg.localWorkspaceMaxTotalBytes) return "refused";
-    await makeWritable(agentCwd);
-    await mkdir(dirname(outPath), { recursive: true });
-    await writeFile(outPath, stdout);
-    await setReadOnly(agentCwd);
-    materialized.add(normalized);
-    materializedBytes += bytes;
-    return "materialized";
+  let checkoutPaths = new Set<string>();
+
+  function isPathInCheckout(path: string): boolean {
+    return checkoutPaths.has(path.replace(/\\/g, "/"));
   }
 
   async function getDiffForPath(path: string): Promise<string> {
     const normalized = path.replace(/\\/g, "/");
-    const { stdout } = await git([
-      "diff",
-      "--find-renames",
-      "--unified=3",
-      `${baseSha}...${headSha}`,
-      "--",
-      normalized,
-    ]);
-    return stdout.length > cfg.localWorkspaceMaxDiffBytes
-      ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[diff truncated]`
-      : stdout;
+    const patch = patchByPath.get(normalized);
+    if (patch == null) {
+      if (patchOmittedByCapPaths.has(normalized)) {
+        return "[patch omitted: exceeds configured PR patch byte cap]";
+      }
+      return "";
+    }
+    return patch.length > cfg.localWorkspaceMaxDiffBytes
+      ? `${patch.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[diff truncated]`
+      : patch;
   }
 
   async function getBlameForPath(path: string): Promise<string> {
@@ -310,8 +319,7 @@ export async function prepareLocalPrWorkspace(
     if (changed?.status === "deleted") {
       return "";
     }
-    const materializedResult = await materializePath(normalized);
-    if (materializedResult === "refused") {
+    if (!isPathInCheckout(normalized)) {
       return "";
     }
     const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
@@ -320,102 +328,46 @@ export async function prepareLocalPrWorkspace(
       : stdout;
   }
 
-  async function fetchPullHeadForMergeBase(): Promise<void> {
-    const ref = `+refs/pull/${prNumber}/head:refs/remotes/origin/pr-${prNumber}`;
-    let depth = Math.max(2, cfg.localWorkspaceMaxBlameDeepenCommits);
-    const maxDepth = 500;
-    const verifyReachable = async (): Promise<void> => {
-      await git(["cat-file", "-e", `${headSha}^{commit}`]);
-      await git(["merge-base", baseSha, headSha]);
-    };
-    for (let attempt = 0; attempt < 8; attempt++) {
-      await git(["fetch", "--no-tags", `--depth=${depth}`, "origin", ref]);
-      try {
-        await verifyReachable();
-        return;
-      } catch {
-        if (depth >= maxDepth) break;
-        depth = Math.min(depth * 2, maxDepth);
-      }
-    }
-    try {
-      await git(["fetch", "--no-tags", "origin", headSha]);
-      await verifyReachable();
-      return;
-    } catch (e) {
-      const detail = e instanceof Error ? e.message : String(e);
-      throw new Error(
-        `Unable to fetch pull request head ${headSha} with merge-base against ${baseSha}: ${detail}`,
-        { cause: e },
-      );
-    }
-  }
-
   try {
     await mkdir(privateGitDir, { recursive: true });
     await mkdir(agentCwd, { recursive: true });
     await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
-    await git(["remote", "add", "origin", remoteUrl]);
-    if (baseRef) {
-      try {
-        await git(["fetch", "--no-tags", "origin", baseRef]);
-      } catch {
-        await git(["fetch", "--no-tags", "--depth=1", "origin", baseSha]);
-      }
-    } else {
-      await git(["fetch", "--no-tags", "--depth=1", "origin", baseSha]);
+    await git(["remote", "add", "origin", remoteUrl], cfg.localWorkspaceCloneTimeoutMs);
+    const prRef = `+refs/pull/${prNumber}/head:refs/heads/${PR_HEAD_REF}`;
+    await git(
+      ["fetch", "--no-tags", "--depth=1", "--no-recurse-submodules", "origin", prRef],
+      cfg.localWorkspaceFetchTimeoutMs,
+    );
+    await git(["checkout", "-f", PR_HEAD_REF], cfg.localWorkspaceCloneTimeoutMs);
+    const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
+    if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
+      throw new Error(
+        `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
+      );
     }
-    await fetchPullHeadForMergeBase();
-    const nameStatus = await git([
-      "diff",
-      "--name-status",
-      "--find-renames",
-      `${baseSha}...${headSha}`,
-    ]);
-    changedFiles = parseNameStatus(nameStatus.stdout);
-    const numstat = await git(["diff", "--numstat", `${baseSha}...${headSha}`]);
-    totalChanges = parseNumstat(numstat.stdout);
-    if (changedFiles.length > cfg.maxPrFilesListed) {
-      truncated = true;
-      changedFiles = changedFiles.slice(0, cfg.maxPrFilesListed);
-    }
-    if (changedFiles.length > cfg.localWorkspaceMaxMaterializedFiles) {
-      truncated = true;
-    }
-    const filesForIndex = [];
-    for (const file of changedFiles) {
-      if (file.status !== "deleted") {
-        const materializedResult = await materializePath(file.path).catch(() => "refused" as const);
-        if (materializedResult === "refused") truncated = true;
-      }
-      const patch = await getDiffForPath(file.path);
-      if (isTruncatedPatch(patch)) truncated = true;
-      filesForIndex.push({
-        filename: file.path,
-        patch: isTruncatedPatch(patch) ? undefined : patch,
-        patchOmitted: patch.length === 0 || isTruncatedPatch(patch),
-      });
-    }
-    ingestListPullRequestFilesResult(diffIndex, { truncated, files: filesForIndex });
+
     await rm(askpass, { force: true });
     await rm(tokenFile, { force: true });
     await removeSymlinks(agentCwd);
+    checkoutPaths = await indexCheckedOutFiles(agentCwd);
     await setReadOnly(agentCwd);
+
     return {
       rootDir,
       privateGitDir,
       agentCwd,
       changedFiles,
-      materializedPaths: materialized,
+      checkoutPaths,
       diffIndex,
       stats: {
-        truncated,
-        totalChanges,
+        truncated: prFiles.truncated,
+        totalChanges: prFiles.totalChanges,
         fileCount: changedFiles.length,
+        warning: prFiles.warning,
       },
       getDiffForPath,
       getBlameForPath,
-      materializePath,
+      isPathInCheckout,
       cleanup: () => removeWorkspace(rootDir),
     };
   } catch (e) {

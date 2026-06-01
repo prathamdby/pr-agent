@@ -1,7 +1,7 @@
 import { logDebug } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskGithubTools, createAskPathGate } from "./askSafety.js";
-import { buildLocalWorkspaceTools } from "./localWorkspaceTools.js";
+import { buildLocalWorkspaceTools, workspaceToolLimitsFromConfig } from "./localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "./providers/cursor/refreshableGithubTools.js";
 import type { AskRunParams } from "./askRun.js";
 
@@ -15,7 +15,10 @@ export function buildAskRunSetup(params: AskRunParams) {
 
   const refreshableGh = params.workspace
     ? {
-        bundle: buildLocalWorkspaceTools(params.workspace, { pathGate, extraAllowedPaths }),
+        bundle: buildLocalWorkspaceTools(params.workspace, workspaceToolLimitsFromConfig(cfg), {
+          pathGate,
+          extraAllowedPaths,
+        }),
         refreshBeforeTool: async () => undefined,
       }
     : createRefreshableToolExecutors({

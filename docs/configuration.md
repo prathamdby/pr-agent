@@ -67,13 +67,12 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Anchor menu max ranges    | `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE`    | `20`                     | cap ranges per file in anchor menu                 |
 | Workspace clone timeout   | `LOCAL_WORKSPACE_CLONE_TIMEOUT_MS`          | `60000`                  | git clone/setup budget                             |
 | Workspace fetch timeout   | `LOCAL_WORKSPACE_FETCH_TIMEOUT_MS`          | `60000`                  | git fetch/diff budget                              |
-| Workspace file cap        | `LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES`    | `500`                    | max files exposed to agent-visible tree            |
+| Workspace search file cap | `LOCAL_WORKSPACE_SEARCH_MAX_FILES`          | `500`                    | max files scanned per `searchWorkspace` call       |
 | Workspace single-file cap | `LOCAL_WORKSPACE_MAX_FILE_BYTES`            | `1000000`                | max file bytes readable by local tools             |
-| Workspace total cap       | `LOCAL_WORKSPACE_MAX_TOTAL_BYTES`           | `50000000`               | max materialized bytes                             |
+| Workspace search byte cap | `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`    | `50000000`               | max bytes scanned per `searchWorkspace` call       |
 | Workspace diff cap        | `LOCAL_WORKSPACE_MAX_DIFF_BYTES`            | `5000000`                | max local diff bytes returned to tools             |
 | Workspace free space min  | `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`      | `500000000`              | fail setup below this free-space threshold         |
 | Workspace stale cleanup   | `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS` | `86400`                  | startup cleanup age for leaked temp dirs           |
-| Workspace blame deepen    | `LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS`  | `1000`                   | best-effort blame history deepen cap               |
 | Log level                 | `LOG_LEVEL`                                 | `info`                   |                                                    |
 | Max wide sub-events       | `LOG_MAX_WIDE_EVENTS`                       | `128`                    |                                                    |
 | Pretty logs               | `LOG_PRETTY`                                | dev `true`, prod `false` |                                                    |
