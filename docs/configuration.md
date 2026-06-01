@@ -73,7 +73,6 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Workspace diff cap        | `LOCAL_WORKSPACE_MAX_DIFF_BYTES`            | `5000000`                | max local diff bytes returned to tools             |
 | Workspace free space min  | `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`      | `500000000`              | fail setup below this free-space threshold         |
 | Workspace stale cleanup   | `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS` | `86400`                  | startup cleanup age for leaked temp dirs           |
-| Workspace blame deepen    | `LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS`  | `1000`                   | best-effort blame history deepen cap               |
 | Log level                 | `LOG_LEVEL`                                 | `info`                   |                                                    |
 | Max wide sub-events       | `LOG_MAX_WIDE_EVENTS`                       | `128`                    |                                                    |
 | Pretty logs               | `LOG_PRETTY`                                | dev `true`, prod `false` |                                                    |

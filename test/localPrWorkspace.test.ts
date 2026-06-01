@@ -28,7 +28,6 @@ function testConfig(): Config {
     localWorkspaceMaxDiffBytes: 1_000_000,
     localWorkspaceMinFreeSpaceBytes: 1,
     localWorkspaceStaleCleanupAgeSeconds: 1,
-    localWorkspaceMaxBlameDeepenCommits: 10,
     maxPrFilesListed: 300,
     maxPrFilesPatchBytes: 500_000,
   } as Config;
@@ -136,9 +135,9 @@ describe("local PR workspace", () => {
           "deleted",
         );
         expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
-        expect(workspace.materializedPaths.has("support.txt")).toBe(true);
+        expect(workspace.checkoutPaths.has("support.txt")).toBe(true);
         expect(await readFile(join(workspace.agentCwd, "support.txt"), "utf8")).toContain("helper");
-        expect(workspace.materializedPaths.has("delete.txt")).toBe(false);
+        expect(workspace.checkoutPaths.has("delete.txt")).toBe(false);
         expect(await workspace.getBlameForPath("src.txt")).toContain("src.txt");
         expect(workspace.diffIndex.listPullRequestFilesIngested).toBe(true);
         expect(

@@ -2,34 +2,35 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { Config } from "../src/config.js";
-import { buildLocalWorkspaceTools } from "../src/agent/localWorkspaceTools.js";
+import {
+  buildLocalWorkspaceTools,
+  type LocalWorkspaceToolLimits,
+} from "../src/agent/localWorkspaceTools.js";
+import { createAskPathGate } from "../src/agent/askSafety.js";
 import { createCachedPrDiffIndex } from "../src/review/reviewDiffIndex.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/localPrWorkspace.js";
 
-function testConfig(): Config {
+function testLimits(): LocalWorkspaceToolLimits {
   return {
-    localWorkspaceSearchMaxFiles: 100,
-    localWorkspaceSearchMaxTotalBytes: 1_000_000,
-    localWorkspaceMaxFileBytes: 100_000,
-  } as Config;
+    searchMaxFiles: 100,
+    searchMaxTotalBytes: 1_000_000,
+    maxFileBytes: 100_000,
+  };
 }
 
-function mockWorkspace(agentCwd: string): LocalPrWorkspace {
+function mockWorkspace(agentCwd: string, checkoutPaths: Iterable<string>): LocalPrWorkspace {
+  const paths = new Set(checkoutPaths);
   return {
     rootDir: agentCwd,
     privateGitDir: agentCwd,
     agentCwd,
     changedFiles: [{ path: "src/changed.ts", status: "modified" }],
-    materializedPaths: new Set(["src/changed.ts", "src/unchanged.ts", "lib/helper.ts"]),
+    checkoutPaths: paths,
     diffIndex: createCachedPrDiffIndex(),
     stats: { truncated: false, totalChanges: 1, fileCount: 1 },
     getDiffForPath: async () => "",
     getBlameForPath: async () => "",
-    materializePath: async (path) =>
-      path === "src/changed.ts" || path === "src/unchanged.ts" || path === "lib/helper.ts"
-        ? "already"
-        : "refused",
+    assertReadablePath: async (path) => (paths.has(path) ? "already" : "refused"),
     cleanup: async () => {},
   };
 }
@@ -44,13 +45,38 @@ describe("local workspace tools", () => {
       await writeFile(join(root, "src", "unchanged.ts"), "export const needle = 1;\n");
       await writeFile(join(root, "lib", "helper.ts"), "// needle helper\n");
 
-      const workspace = mockWorkspace(root);
-      const { executors } = buildLocalWorkspaceTools(workspace, testConfig());
+      const workspace = mockWorkspace(root, [
+        "src/changed.ts",
+        "src/unchanged.ts",
+        "lib/helper.ts",
+      ]);
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
       };
 
       expect(out.matches.map((m) => m.path).toSorted()).toEqual(["lib/helper.ts", "src/unchanged.ts"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("searchWorkspace skips sensitive paths not in PR changed files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await mkdir(join(root, "src"), { recursive: true });
+      await writeFile(join(root, ".env"), "SECRET=needle\n");
+      await writeFile(join(root, "src", "ok.ts"), "const needle = 1;\n");
+
+      const workspace = mockWorkspace(root, [".env", "src/ok.ts"]);
+      const pathGate = createAskPathGate();
+      pathGate.addPaths(["src/ok.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits(), { pathGate });
+      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
+        matches: Array<{ path: string }>;
+      };
+
+      expect(out.matches.map((m) => m.path)).toEqual(["src/ok.ts"]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

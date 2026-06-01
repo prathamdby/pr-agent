@@ -18,7 +18,6 @@ import {
   DEFAULT_LOG_REDACT,
   DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
   DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-  DEFAULT_LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
   DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
   DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
@@ -350,11 +349,6 @@ export function loadConfig() {
     ENV.LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
     DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   );
-  const localWorkspaceMaxBlameDeepenCommits = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
-    DEFAULT_LOCAL_WORKSPACE_MAX_BLAME_DEEPEN_COMMITS,
-  );
-
   return {
     port,
     githubAppId,
@@ -414,7 +408,6 @@ export function loadConfig() {
     localWorkspaceMaxDiffBytes,
     localWorkspaceMinFreeSpaceBytes,
     localWorkspaceStaleCleanupAgeSeconds,
-    localWorkspaceMaxBlameDeepenCommits,
   };
 }
 

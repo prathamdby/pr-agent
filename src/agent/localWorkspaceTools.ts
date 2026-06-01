@@ -1,5 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { readFile, stat } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../config.js";
@@ -12,6 +11,20 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "./askSafety.js";
+
+export type LocalWorkspaceToolLimits = {
+  readonly maxFileBytes: number;
+  readonly searchMaxFiles: number;
+  readonly searchMaxTotalBytes: number;
+};
+
+export function workspaceToolLimitsFromConfig(cfg: Config): LocalWorkspaceToolLimits {
+  return {
+    maxFileBytes: cfg.localWorkspaceMaxFileBytes,
+    searchMaxFiles: cfg.localWorkspaceSearchMaxFiles,
+    searchMaxTotalBytes: cfg.localWorkspaceSearchMaxTotalBytes,
+  };
+}
 
 type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
   readonly description: string;
@@ -37,22 +50,6 @@ function looksBinary(sample: Buffer): boolean {
   return sample.includes(0);
 }
 
-async function walkFiles(root: string): Promise<string[]> {
-  const out: string[] = [];
-  async function walk(dir: string) {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else if (entry.isFile()) {
-        out.push(relative(root, full).replace(/\\/g, "/"));
-      }
-    }
-  }
-  await walk(root);
-  return out;
-}
-
 function primePathGate(
   workspace: LocalPrWorkspace,
   pathGate: AskPathGate,
@@ -70,7 +67,7 @@ function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
 
 export function buildLocalWorkspaceTools(
   workspace: LocalPrWorkspace,
-  cfg: Config,
+  limits: LocalWorkspaceToolLimits,
   opts?: {
     readonly pathGate?: AskPathGate;
     readonly extraAllowedPaths?: readonly string[];
@@ -90,9 +87,10 @@ export function buildLocalWorkspaceTools(
         path: file.path,
         oldPath: file.oldPath,
         status: file.status,
-        presentInCheckout: workspace.materializedPaths.has(file.path),
+        presentInCheckout: workspace.checkoutPaths.has(file.path),
       })),
       truncated: workspace.stats.truncated,
+      ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
     }),
   };
 
@@ -107,8 +105,8 @@ export function buildLocalWorkspaceTools(
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, content: null };
       }
-      const materialized = await workspace.materializePath(normalized);
-      if (materialized === "refused") {
+      const readable = await workspace.assertReadablePath(normalized);
+      if (readable === "refused") {
         return {
           path: normalized,
           refused: true,
@@ -117,11 +115,11 @@ export function buildLocalWorkspaceTools(
       }
       const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
       const buf = await readFile(safePath);
-      if (buf.length > cfg.localWorkspaceMaxFileBytes) {
+      if (buf.length > limits.maxFileBytes) {
         return {
           path: normalized,
           refused: true,
-          reason: `File exceeds ${cfg.localWorkspaceMaxFileBytes} byte read limit.`,
+          reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
         };
       }
       if (looksBinary(buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)))) {
@@ -143,7 +141,7 @@ export function buildLocalWorkspaceTools(
       maxResults: z.number().int().positive().optional().default(20),
     }),
     run: async ({ query, maxResults }) => {
-      const files = await walkFiles(workspace.agentCwd);
+      const files = [...workspace.checkoutPaths].toSorted();
       const matches: Array<{ path: string; line: number; text: string }> = [];
       let filesScanned = 0;
       let bytesScanned = 0;
@@ -152,13 +150,19 @@ export function buildLocalWorkspaceTools(
         if (matches.length >= maxResults) {
           return { matches, truncated: true, filesScanned };
         }
-        if (filesScanned >= cfg.localWorkspaceSearchMaxFiles) {
+        if (filesScanned >= limits.searchMaxFiles) {
           return {
             matches,
             truncated: true,
             filesScanned,
-            reason: `Stopped after scanning ${cfg.localWorkspaceSearchMaxFiles} files.`,
+            reason: `Stopped after scanning ${limits.searchMaxFiles} files.`,
           };
+        }
+
+        try {
+          assertPathAllowedForAsk(path, pathGate);
+        } catch {
+          continue;
         }
 
         const safePath = assertWorkspacePath(workspace.agentCwd, path);
@@ -168,14 +172,14 @@ export function buildLocalWorkspaceTools(
         } catch {
           continue;
         }
-        if (!info.isFile() || info.size > cfg.localWorkspaceMaxFileBytes) continue;
+        if (!info.isFile() || info.size > limits.maxFileBytes) continue;
 
-        if (bytesScanned + info.size > cfg.localWorkspaceSearchMaxTotalBytes) {
+        if (bytesScanned + info.size > limits.searchMaxTotalBytes) {
           return {
             matches,
             truncated: true,
             filesScanned,
-            reason: `Stopped after ${cfg.localWorkspaceSearchMaxTotalBytes} bytes scanned.`,
+            reason: `Stopped after ${limits.searchMaxTotalBytes} bytes scanned.`,
           };
         }
         bytesScanned += info.size;
@@ -217,8 +221,8 @@ export function buildLocalWorkspaceTools(
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, blame: null };
       }
-      const materialized = await workspace.materializePath(normalized);
-      if (materialized === "refused") {
+      const readable = await workspace.assertReadablePath(normalized);
+      if (readable === "refused") {
         return {
           path: normalized,
           refused: true,

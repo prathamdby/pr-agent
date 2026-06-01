@@ -52,27 +52,29 @@ async function fetchPullRequestHeadSha(
 async function prepareUncached(
   params: PreparePrRepositoryViewParams,
 ): Promise<CachedPrRepositoryView> {
-  const headSha = await fetchPullRequestHeadSha(
-    params.installationToken,
-    params.owner,
-    params.repo,
-    params.prNumber,
-  );
+  const [headSha, prFiles] = await Promise.all([
+    fetchPullRequestHeadSha(
+      params.installationToken,
+      params.owner,
+      params.repo,
+      params.prNumber,
+    ),
+    fetchPullRequestFiles(
+      params.installationToken,
+      params.owner,
+      params.repo,
+      params.prNumber,
+      {
+        maxPrFilesListed: params.cfg.maxPrFilesListed,
+        maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
+      },
+    ),
+  ]);
   if (headSha.toLowerCase() !== params.headSha.toLowerCase()) {
     throw new Error(
       `Pull request head SHA ${headSha} does not match work item headSha ${params.headSha}`,
     );
   }
-  const prFiles = await fetchPullRequestFiles(
-    params.installationToken,
-    params.owner,
-    params.repo,
-    params.prNumber,
-    {
-      maxPrFilesListed: params.cfg.maxPrFilesListed,
-      maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
-    },
-  );
   const workspace = await prepareLocalPrWorkspace({
     cfg: params.cfg,
     owner: params.owner,

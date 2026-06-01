@@ -32,16 +32,17 @@ export type LocalPrWorkspace = {
   readonly privateGitDir: string;
   readonly agentCwd: string;
   readonly changedFiles: readonly LocalPrChangedFile[];
-  readonly materializedPaths: ReadonlySet<string>;
+  readonly checkoutPaths: ReadonlySet<string>;
   readonly diffIndex: CachedPrDiffIndex;
   readonly stats: {
     readonly truncated: boolean;
     readonly totalChanges: number;
     readonly fileCount: number;
+    readonly warning?: string;
   };
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
-  readonly materializePath: (path: string) => Promise<"materialized" | "already" | "refused">;
+  readonly assertReadablePath: (path: string) => Promise<"readable" | "already" | "refused">;
   readonly cleanup: () => Promise<void>;
 };
 
@@ -260,19 +261,19 @@ export async function prepareLocalPrWorkspace(
   const changedFiles = prFiles.files.map(mapGithubStatus);
   const diffIndex = createCachedPrDiffIndex();
   const patchByPath = new Map<string, string>();
-  const patchOmittedPaths = new Set<string>();
+  const patchOmittedByCapPaths = new Set<string>();
   const filesForIndex = [];
   for (const file of prFiles.files) {
     const patch = file.patch ?? "";
-    if (file.patchOmitted || !file.patch) {
-      patchOmittedPaths.add(file.filename);
+    if (file.patchOmitted) {
+      patchOmittedByCapPaths.add(file.filename);
     } else if (patch.length > 0) {
       patchByPath.set(file.filename, patch);
     }
     filesForIndex.push({
       filename: file.filename,
       patch: file.patchOmitted || !file.patch ? undefined : file.patch,
-      patchOmitted: file.patchOmitted === true || file.patch == null,
+      patchOmitted: file.patchOmitted === true,
     });
   }
   ingestListPullRequestFilesResult(diffIndex, { truncated: prFiles.truncated, files: filesForIndex });
@@ -286,18 +287,18 @@ export async function prepareLocalPrWorkspace(
       workTree: agentCwd,
     });
 
-  let materializedPaths = new Set<string>();
+  let checkoutPaths = new Set<string>();
 
-  async function materializePath(path: string): Promise<"materialized" | "already" | "refused"> {
+  async function assertReadablePath(path: string): Promise<"readable" | "already" | "refused"> {
     const normalized = path.replace(/\\/g, "/");
-    if (materializedPaths.has(normalized)) return "already";
+    if (checkoutPaths.has(normalized)) return "already";
     const outPath = assertWorkspacePath(agentCwd, normalized);
     try {
       const info = await stat(outPath);
       if (!info.isFile()) return "refused";
       if (info.size > cfg.localWorkspaceMaxFileBytes) return "refused";
-      materializedPaths.add(normalized);
-      return "materialized";
+      checkoutPaths.add(normalized);
+      return "readable";
     } catch {
       return "refused";
     }
@@ -307,7 +308,7 @@ export async function prepareLocalPrWorkspace(
     const normalized = path.replace(/\\/g, "/");
     const patch = patchByPath.get(normalized);
     if (patch == null) {
-      if (patchOmittedPaths.has(normalized)) {
+      if (patchOmittedByCapPaths.has(normalized)) {
         return "[patch omitted: exceeds configured PR patch byte cap]";
       }
       return "";
@@ -323,8 +324,8 @@ export async function prepareLocalPrWorkspace(
     if (changed?.status === "deleted") {
       return "";
     }
-    const materializedResult = await materializePath(normalized);
-    if (materializedResult === "refused") {
+    const readableResult = await assertReadablePath(normalized);
+    if (readableResult === "refused") {
       return "";
     }
     const { stdout } = await git(["blame", "--line-porcelain", "HEAD", "--", normalized]);
@@ -351,7 +352,7 @@ export async function prepareLocalPrWorkspace(
       );
     }
 
-    materializedPaths = await indexCheckedOutFiles(agentCwd);
+    checkoutPaths = await indexCheckedOutFiles(agentCwd);
     await rm(askpass, { force: true });
     await rm(tokenFile, { force: true });
     await removeSymlinks(agentCwd);
@@ -362,16 +363,17 @@ export async function prepareLocalPrWorkspace(
       privateGitDir,
       agentCwd,
       changedFiles,
-      materializedPaths,
+      checkoutPaths,
       diffIndex,
       stats: {
         truncated: prFiles.truncated,
         totalChanges: prFiles.totalChanges,
         fileCount: changedFiles.length,
+        warning: prFiles.warning,
       },
       getDiffForPath,
       getBlameForPath,
-      materializePath,
+      assertReadablePath,
       cleanup: () => removeWorkspace(rootDir),
     };
   } catch (e) {

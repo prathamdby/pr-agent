@@ -4,7 +4,10 @@ import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import { createAskPathGate } from "../agent/askSafety.js";
 import { buildContext7Tools } from "../agent/context7Tools.js";
 import { buildGithubTools } from "../agent/githubTools.js";
-import { buildLocalWorkspaceTools } from "../agent/localWorkspaceTools.js";
+import {
+  buildLocalWorkspaceTools,
+  workspaceToolLimitsFromConfig,
+} from "../agent/localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "../agent/providers/cursor/refreshableGithubTools.js";
 import {
   createCachedPrDiffIndex,
@@ -109,7 +112,9 @@ export function buildReviewRunSetup(params: {
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (activeToken) => {
       if (params.workspace) {
-        return buildLocalWorkspaceTools(params.workspace, cfg, { pathGate });
+        return buildLocalWorkspaceTools(params.workspace, workspaceToolLimitsFromConfig(cfg), {
+          pathGate,
+        });
       }
       const gh = buildGithubTools(activeToken, {
         maxPrFilesListed: cfg.maxPrFilesListed,
