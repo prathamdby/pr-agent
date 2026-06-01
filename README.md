@@ -10,7 +10,7 @@
 
 > **Async by design.** Webhooks return **`200`** after durable intake (Postgres + pg-boss enqueue). Reactions, progress comments, reviews, descriptions, and ask answers publish on **`ROLE=worker`** and may appear seconds later.
 
-PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks) from webhooks and slash commands, then runs LLM agent loops on workers using Octokit tools and optional local PR workspaces.
+PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces (full shallow checkout of the PR head for context) and GitHub APIs for publish.
 
 Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](docs/configuration.md). Behaviour and deployment: [docs/operations.md](docs/operations.md). Queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
 
@@ -223,7 +223,7 @@ flowchart LR
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items**.
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description).
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
-4. **Review / ask / description workers** ([`executors/`](src/agentWork/executors/)): installation token, optional **local PR workspace**, agent harness, **PR-surface I/O**.
+4. **Review / ask / description workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** (depth-1 full head checkout + GitHub PR-file diff metadata), agent harness, **PR-surface I/O**.
 5. **Reviews** ([`runFullPrReview`](src/review/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).

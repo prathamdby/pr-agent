@@ -6,7 +6,7 @@ import {
 export const descriptionSystemPrompt = [
   "You are a senior engineer writing a concise pull request description for reviewers.",
   "",
-  "Use the local workspace tools to inspect the PR: list changed files, read the workspace diff, and open files when needed.",
+  "Use the local workspace tools to inspect the PR: list changed files, read the workspace diff, and open any file in the full checkout when needed.",
   "Focus on what changed and why it matters. Prefer facts from the diff over the existing PR title or body.",
   "",
   "When you have enough context, call submitDescription exactly once with a DescriptionPayload object.",

@@ -4,6 +4,7 @@ import {
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
 } from "../settings/index.js";
+import { listPullRequestFilesPaginated } from "../github/listPullRequestFiles.js";
 import { parseCommentableRightLineRanges } from "../review/reviewDiffIndex.js";
 import { installationOctokit } from "../github/appAuth.js";
 
@@ -88,117 +89,6 @@ type BlameResponse = {
     };
   };
 };
-
-async function listPullRequestFilesPaginated(
-  octokit: ReturnType<typeof installationOctokit>,
-  owner: string,
-  repo: string,
-  pullNumber: number,
-  limits: { maxPrFilesListed: number; maxPrFilesPatchBytes: number },
-): Promise<{
-  files: Array<{
-    filename: string;
-    status: string;
-    additions: number;
-    deletions: number;
-    changes: number;
-    patch?: string;
-    patchOmitted?: boolean;
-  }>;
-  truncated: boolean;
-  omittedCount: number;
-  warning?: string;
-}> {
-  const files: Array<{
-    filename: string;
-    status: string;
-    additions: number;
-    deletions: number;
-    changes: number;
-    patch?: string;
-    patchOmitted?: boolean;
-  }> = [];
-
-  let truncated = false;
-  let omittedCount = 0;
-  let omittedCountLowerBound = false;
-  let patchBytes = 0;
-  let patchOmittedCount = 0;
-  let patchCapReached = false;
-
-  for (let page = 1; ; page++) {
-    const { data } = await octokit.rest.pulls.listFiles({
-      owner,
-      repo,
-      pull_number: pullNumber,
-      per_page: 100,
-      page,
-    });
-    if (data.length === 0) break;
-    let consumed = 0;
-    for (const file of data) {
-      if (files.length >= limits.maxPrFilesListed) {
-        truncated = true;
-        omittedCount += data.length - consumed;
-        if (data.length === 100) omittedCountLowerBound = true;
-        break;
-      }
-
-      const rawPatch = file.patch ?? undefined;
-      let patch: string | undefined = rawPatch;
-      let patchOmitted: true | undefined;
-
-      if (rawPatch != null && !patchCapReached) {
-        const patchLen = Buffer.byteLength(rawPatch, "utf8");
-        if (patchBytes + patchLen <= limits.maxPrFilesPatchBytes) {
-          patchBytes += patchLen;
-          patchOmitted = undefined;
-        } else {
-          patchCapReached = true;
-          patchOmittedCount++;
-          patch = undefined;
-          patchOmitted = true;
-        }
-      } else if (rawPatch != null && patchCapReached) {
-        patch = undefined;
-        patchOmitted = true;
-        patchOmittedCount++;
-      } else {
-        patch = undefined;
-        patchOmitted = undefined;
-      }
-
-      files.push({
-        filename: file.filename,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-        changes: file.changes,
-        patch,
-        ...(patchOmitted ? { patchOmitted } : {}),
-      });
-      consumed++;
-    }
-    if (truncated) break;
-    if (data.length < 100) break;
-  }
-
-  const warnings: string[] = [];
-  if (truncated) {
-    const omittedLabel = omittedCountLowerBound ? `at least ${omittedCount}` : String(omittedCount);
-    warnings.push(
-      `Change set truncated to ${limits.maxPrFilesListed} files (${omittedLabel} omitted).`,
-    );
-  }
-  if (patchOmittedCount > 0) {
-    warnings.push(
-      `Unified diff patches omitted for ${patchOmittedCount} file(s) after ${limits.maxPrFilesPatchBytes} byte cap.`,
-    );
-  }
-  const warning = warnings.length > 0 ? warnings.join(" ") : undefined;
-
-  return { files, truncated, omittedCount, warning };
-}
 
 export function buildGithubTools(
   token: string,

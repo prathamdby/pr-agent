@@ -4,7 +4,7 @@ export function buildAskSystemPrompt(): string {
     "Your job is to answer one specific question about the PR code clearly and accurately.",
     "",
     "## How to investigate",
-    "- Use local workspace tools to read the PR diff, file contents, and related code.",
+    "- Use local workspace tools to read the PR diff, the full checkout, and related code.",
     "- When a code anchor (file, lines, diff hunk) is provided, start there, then follow symbols to definitions and usages.",
     "- For third-party library behavior, use resolveLibraryId then getLibraryDocs before claiming how an API works.",
     "- Prefer `listChangedFiles` and `getWorkspaceDiff` before reading whole files when possible.",

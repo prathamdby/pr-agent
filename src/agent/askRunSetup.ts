@@ -15,7 +15,7 @@ export function buildAskRunSetup(params: AskRunParams) {
 
   const refreshableGh = params.workspace
     ? {
-        bundle: buildLocalWorkspaceTools(params.workspace, { pathGate, extraAllowedPaths }),
+        bundle: buildLocalWorkspaceTools(params.workspace, cfg, { pathGate, extraAllowedPaths }),
         refreshBeforeTool: async () => undefined,
       }
     : createRefreshableToolExecutors({

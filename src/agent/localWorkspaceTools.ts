@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
+import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { assertWorkspacePath } from "../prWorkspace/localPrWorkspace.js";
 import {
@@ -28,6 +29,12 @@ function toPiTool(name: string, t: LocalTool): PiTool {
 
 function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
   return async (args) => t.run(t.schema.parse(args));
+}
+
+const BINARY_SAMPLE_BYTES = 8192;
+
+function looksBinary(sample: Buffer): boolean {
+  return sample.includes(0);
 }
 
 async function walkFiles(root: string): Promise<string[]> {
@@ -63,6 +70,7 @@ function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
 
 export function buildLocalWorkspaceTools(
   workspace: LocalPrWorkspace,
+  cfg: Config,
   opts?: {
     readonly pathGate?: AskPathGate;
     readonly extraAllowedPaths?: readonly string[];
@@ -82,14 +90,15 @@ export function buildLocalWorkspaceTools(
         path: file.path,
         oldPath: file.oldPath,
         status: file.status,
-        materialized: workspace.materializedPaths.has(file.path),
+        presentInCheckout: workspace.materializedPaths.has(file.path),
       })),
+      truncated: workspace.stats.truncated,
     }),
   };
 
   const readWorkspaceFile: LocalTool = {
     description:
-      "Read a text file from the local PR workspace. Paths are relative to the repository root.",
+      "Read a text file from the local PR workspace checkout. Paths are relative to the repository root.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
@@ -103,18 +112,32 @@ export function buildLocalWorkspaceTools(
         return {
           path: normalized,
           refused: true,
-          reason: "Path is outside changed files or exceeds workspace materialization limits.",
+          reason: "Path is missing from the checkout or exceeds workspace file size limits.",
         };
       }
       const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
-      const info = await stat(safePath);
-      const content = await readFile(safePath, "utf8");
-      return { path: normalized, size: info.size, content };
+      const buf = await readFile(safePath);
+      if (buf.length > cfg.localWorkspaceMaxFileBytes) {
+        return {
+          path: normalized,
+          refused: true,
+          reason: `File exceeds ${cfg.localWorkspaceMaxFileBytes} byte read limit.`,
+        };
+      }
+      if (looksBinary(buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)))) {
+        return {
+          path: normalized,
+          refused: true,
+          reason: "Binary file cannot be read as text.",
+        };
+      }
+      return { path: normalized, size: buf.length, content: buf.toString("utf8") };
     },
   };
 
   const searchWorkspace: LocalTool = {
-    description: "Search materialized local PR workspace files for a literal string.",
+    description:
+      "Search the full local PR workspace checkout for a literal string. Skips binary and oversized files.",
     schema: z.object({
       query: z.string().min(1),
       maxResults: z.number().int().positive().optional().default(20),
@@ -122,23 +145,60 @@ export function buildLocalWorkspaceTools(
     run: async ({ query, maxResults }) => {
       const files = await walkFiles(workspace.agentCwd);
       const matches: Array<{ path: string; line: number; text: string }> = [];
+      let filesScanned = 0;
+      let bytesScanned = 0;
+
       for (const path of files) {
-        const content = await readFile(assertWorkspacePath(workspace.agentCwd, path), "utf8").catch(
-          () => "",
-        );
+        if (matches.length >= maxResults) {
+          return { matches, truncated: true, filesScanned };
+        }
+        if (filesScanned >= cfg.localWorkspaceSearchMaxFiles) {
+          return {
+            matches,
+            truncated: true,
+            filesScanned,
+            reason: `Stopped after scanning ${cfg.localWorkspaceSearchMaxFiles} files.`,
+          };
+        }
+
+        const safePath = assertWorkspacePath(workspace.agentCwd, path);
+        let info;
+        try {
+          info = await stat(safePath);
+        } catch {
+          continue;
+        }
+        if (!info.isFile() || info.size > cfg.localWorkspaceMaxFileBytes) continue;
+
+        if (bytesScanned + info.size > cfg.localWorkspaceSearchMaxTotalBytes) {
+          return {
+            matches,
+            truncated: true,
+            filesScanned,
+            reason: `Stopped after ${cfg.localWorkspaceSearchMaxTotalBytes} bytes scanned.`,
+          };
+        }
+        bytesScanned += info.size;
+        filesScanned++;
+
+        const buf = await readFile(safePath).catch(() => Buffer.alloc(0));
+        if (looksBinary(buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)))) continue;
+        const content = buf.toString("utf8");
         const lines = content.split("\n");
         for (const [index, line] of lines.entries()) {
           if (!line.includes(query)) continue;
           matches.push({ path, line: index + 1, text: line });
-          if (matches.length >= maxResults) return { matches, truncated: true };
+          if (matches.length >= maxResults) {
+            return { matches, truncated: true, filesScanned };
+          }
         }
       }
-      return { matches, truncated: false };
+      return { matches, truncated: false, filesScanned };
     },
   };
 
   const getWorkspaceDiff: LocalTool = {
-    description: "Return the local git diff for a changed path.",
+    description: "Return the PR unified diff for a changed path (from GitHub PR file metadata).",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
@@ -148,7 +208,7 @@ export function buildLocalWorkspaceTools(
   };
 
   const getWorkspaceBlame: LocalTool = {
-    description: "Return best-effort local git blame for a workspace path.",
+    description: "Return best-effort local git blame for a workspace path at PR head.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
@@ -162,7 +222,7 @@ export function buildLocalWorkspaceTools(
         return {
           path: normalized,
           refused: true,
-          reason: "Path is outside changed files or exceeds workspace materialization limits.",
+          reason: "Path is missing from the checkout or exceeds workspace file size limits.",
           blame: null,
         };
       }

@@ -109,7 +109,7 @@ export function buildReviewRunSetup(params: {
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (activeToken) => {
       if (params.workspace) {
-        return buildLocalWorkspaceTools(params.workspace, { pathGate });
+        return buildLocalWorkspaceTools(params.workspace, cfg, { pathGate });
       }
       const gh = buildGithubTools(activeToken, {
         maxPrFilesListed: cfg.maxPrFilesListed,
