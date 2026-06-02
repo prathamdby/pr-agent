@@ -6,7 +6,7 @@ export const DEFAULT_ROLE = "web" as const;
 export const DEFAULT_AGENT_PROVIDER = "pi" as const;
 export const DEFAULT_PI_PROVIDER = "openai";
 export const DEFAULT_PI_MODEL = "gpt-4o-mini";
-export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 600_000;
+export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 300_000;
 
 export const DEFAULT_MAX_TOOL_ROUNDS = 24;
 export const DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS = 3;

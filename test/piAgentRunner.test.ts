@@ -198,4 +198,53 @@ describe("piAgentRunnerProvider.send", () => {
     await expect(runnerSession.send("question")).rejects.toThrow(/timeout/i);
     expect(abort).toHaveBeenCalled();
   });
+
+  it("does not abort while the provider keeps streaming activity within the idle window", async () => {
+    const abort = vi.fn();
+    const listeners = new Set<(event: unknown) => void>();
+    let resolvePrompt: (() => void) | undefined;
+    const session = {
+      subscribe(listener: (event: unknown) => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      prompt: () =>
+        new Promise<void>((resolve) => {
+          resolvePrompt = resolve;
+        }),
+      abort,
+      setActiveToolsByName: vi.fn(),
+    };
+    const emit = (event: unknown) => {
+      for (const listener of listeners) listener(event);
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg: { ...cfg, providerPromptTimeoutMs: 100 },
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    vi.useFakeTimers();
+    try {
+      const sendPromise = runnerSession.send("question");
+      // Three activity bursts spanning > idle window, each arriving before it elapses.
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(80);
+        emit({ type: "message_update" });
+      }
+      emit({
+        type: "turn_end",
+        toolResults: [],
+        message: makeAssistantMessage("Final answer."),
+      });
+      resolvePrompt?.();
+      await expect(sendPromise).resolves.toEqual({ text: "Final answer." });
+      expect(abort).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
