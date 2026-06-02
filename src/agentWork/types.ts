@@ -1,5 +1,5 @@
 import type { Config } from "../config.js";
-import type { CodeAnchor } from "../agent/askRun.js";
+import type { CodeAnchor } from "../agent/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";

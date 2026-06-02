@@ -3,7 +3,7 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskGithubTools, createAskPathGate } from "./askSafety.js";
 import { buildLocalWorkspaceTools, workspaceToolLimitsFromConfig } from "./localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "./providers/cursor/refreshableGithubTools.js";
-import type { AskRunParams } from "./askRun.js";
+import type { AskRunParams } from "./askRunTypes.js";
 
 export function buildAskRunSetup(params: AskRunParams) {
   const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber } = params;

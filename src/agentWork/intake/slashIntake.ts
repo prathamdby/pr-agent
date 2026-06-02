@@ -23,7 +23,7 @@ import {
   type WebhookHeaders,
   prResourceKey,
 } from "../types.js";
-import type { CodeAnchor } from "../../agent/askRun.js";
+import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { dedupeKey, insertWebhookEvent } from "./webhookEvents.js";
 
