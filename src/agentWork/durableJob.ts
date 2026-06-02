@@ -136,8 +136,9 @@ function workItemAccepted(item: AgentWorkItem | null, spec: DurableJobSpec): ite
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
  */
 export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
-  const item = await getWorkItem(spec.pool, spec.job.data.workItemId);
-  if (!workItemAccepted(item, spec)) return;
+  const fetched = await getWorkItem(spec.pool, spec.job.data.workItemId);
+  if (!workItemAccepted(fetched, spec)) return;
+  const item = fetched;
 
   const cancelIfSkippable = async () => {
     if (!(await shouldSkipWork(spec.pool, item))) return false;

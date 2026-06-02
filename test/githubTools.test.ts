@@ -8,7 +8,9 @@ async function runListPullRequestFiles(
   executors: GithubExecutors,
   args: { owner: string; repo: string; pullNumber: number },
 ): Promise<ListPullRequestFilesToolOutput> {
-  return (await executors.listPullRequestFiles!(args)) as ListPullRequestFilesToolOutput;
+  const listFiles = executors.listPullRequestFiles;
+  if (!listFiles) throw new Error("listPullRequestFiles executor missing");
+  return await listFiles(args);
 }
 
 type FnMap = Partial<{
