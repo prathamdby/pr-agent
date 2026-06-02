@@ -126,147 +126,9 @@ async function finishRescheduledParentWorkItem(
   }
 }
 
-type CancelIfSkippable = () => Promise<boolean>;
-
 function workItemAccepted(item: AgentWorkItem | null, spec: DurableJobSpec): item is AgentWorkItem {
   if (!item || item.type !== spec.type) return false;
   return !spec.acceptItem || spec.acceptItem(item);
-}
-
-function makeCancelIfSkippable(pool: Pool, item: AgentWorkItem): CancelIfSkippable {
-  return async () => {
-    if (!(await shouldSkipWork(pool, item))) return false;
-    await markWorkCancelled(pool, item.id);
-    return true;
-  };
-}
-
-async function prepareDurableExecution(
-  spec: DurableJobSpec,
-  item: AgentWorkItem,
-  cancelIfSkippable: CancelIfSkippable,
-): Promise<DurableExecutionContext | undefined> {
-  const installation = await mintInstallationToken(spec.cfg, item.installationId);
-  const commenterId = (item.payload as { commenterId?: number }).commenterId;
-  if (await isBotCommenter(spec.cfg, installation.token, commenterId)) {
-    await markWorkCancelled(spec.pool, item.id);
-    return undefined;
-  }
-
-  const headSha = await spec.resolveHeadSha(installation.token, item);
-  if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha)) {
-    return { installation, headSha };
-  }
-
-  await cancelIfSkippable();
-  return undefined;
-}
-
-async function completeRescheduledResult(
-  spec: DurableJobSpec,
-  item: AgentWorkItem,
-  result: DurableExecutionResult,
-): Promise<void> {
-  try {
-    if (result.afterComplete) {
-      await result.afterComplete(spec.boss, spec.job.id);
-    }
-  } catch (e) {
-    if (result.replacementWorkItemId) {
-      await markWorkFailed(spec.pool, result.replacementWorkItemId, e);
-    }
-    throw e;
-  }
-  await finishRescheduledParentWorkItem(spec.pool, item.id, spec.type);
-}
-
-async function completeDurableExecution(
-  spec: DurableJobSpec,
-  item: AgentWorkItem,
-  result: DurableExecutionResult,
-  cancelIfSkippable: CancelIfSkippable,
-): Promise<void> {
-  if (await cancelIfSkippable()) return;
-  if (result.rescheduled) {
-    await completeRescheduledResult(spec, item, result);
-    return;
-  }
-  if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
-  if (!(await markWorkCompleted(spec.pool, item.id))) {
-    await cancelIfSkippable();
-    return;
-  }
-  logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
-}
-
-async function markRetryingOrCancel(
-  spec: DurableJobSpec,
-  item: AgentWorkItem,
-  error: unknown,
-  message: string,
-  cancelIfSkippable: CancelIfSkippable,
-): Promise<void> {
-  if (await markWorkRetrying(spec.pool, item.id, error)) {
-    logWarn("agent_work_retrying", {
-      type: spec.type,
-      workItemId: item.id,
-      message,
-      providerErrorKind: classifyProviderError(error),
-      pgBossRetryCount: spec.job.retryCount,
-      pgBossRetryLimit: spec.job.retryLimit,
-      dbAttemptCount: item.attemptCount,
-    });
-    throw error;
-  }
-  await cancelIfSkippable();
-}
-
-async function invokeTerminalFailureHook(
-  spec: DurableJobSpec,
-  item: AgentWorkItem,
-  installation: InstallationToken | undefined,
-  error: unknown,
-): Promise<void> {
-  if (!spec.onTerminalFailure) return;
-  try {
-    await spec.onTerminalFailure(item, installation, error);
-  } catch (publishError) {
-    logWarn("agent_work_terminal_failure_hook_failed", {
-      type: spec.type,
-      workItemId: item.id,
-      message: publishError instanceof Error ? publishError.message : String(publishError),
-    });
-  }
-}
-
-async function handleDurableExecutionError(
-  spec: DurableJobSpec,
-  item: AgentWorkItem,
-  installation: InstallationToken | undefined,
-  error: unknown,
-  cancelIfSkippable: CancelIfSkippable,
-): Promise<void> {
-  if (await cancelIfSkippable()) return;
-  const message = error instanceof Error ? error.message : String(error);
-  if (!isTerminalPgBossAttempt(spec.job)) {
-    await markRetryingOrCancel(spec, item, error, message, cancelIfSkippable);
-    return;
-  }
-
-  if (!(await markWorkFailed(spec.pool, item.id, error))) {
-    await cancelIfSkippable();
-    return;
-  }
-  await invokeTerminalFailureHook(spec, item, installation, error);
-  logError("agent_work_failed", {
-    type: spec.type,
-    workItemId: item.id,
-    message: sanitizeLogMessage(message),
-    providerErrorKind: classifyProviderError(error),
-    pgBossRetryCount: spec.job.retryCount,
-    pgBossRetryLimit: spec.job.retryLimit,
-    dbAttemptCount: item.attemptCount,
-  });
 }
 
 /**
@@ -277,15 +139,120 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   const item = await getWorkItem(spec.pool, spec.job.data.workItemId);
   if (!workItemAccepted(item, spec)) return;
 
-  const cancelIfSkippable = makeCancelIfSkippable(spec.pool, item);
+  const cancelIfSkippable = async () => {
+    if (!(await shouldSkipWork(spec.pool, item))) return false;
+    await markWorkCancelled(spec.pool, item.id);
+    return true;
+  };
+
   if (await cancelIfSkippable()) return;
   if (!(await claimWorkForExecution(spec.pool, item.id))) return;
 
   let installation: InstallationToken | undefined;
+
+  async function prepareDurableExecution(
+    installationToken: InstallationToken,
+  ): Promise<DurableExecutionContext | undefined> {
+    const commenterId = (item.payload as { commenterId?: number }).commenterId;
+    if (await isBotCommenter(spec.cfg, installationToken.token, commenterId)) {
+      await markWorkCancelled(spec.pool, item.id);
+      return undefined;
+    }
+
+    const headSha = await spec.resolveHeadSha(installationToken.token, item);
+    if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha)) {
+      return { installation: installationToken, headSha };
+    }
+
+    await cancelIfSkippable();
+    return undefined;
+  }
+
+  async function completeRescheduledResult(result: DurableExecutionResult): Promise<void> {
+    try {
+      if (result.afterComplete) {
+        await result.afterComplete(spec.boss, spec.job.id);
+      }
+    } catch (e) {
+      if (result.replacementWorkItemId) {
+        await markWorkFailed(spec.pool, result.replacementWorkItemId, e);
+      }
+      throw e;
+    }
+    await finishRescheduledParentWorkItem(spec.pool, item.id, spec.type);
+  }
+
+  async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
+    if (await cancelIfSkippable()) return;
+    if (result.rescheduled) {
+      await completeRescheduledResult(result);
+      return;
+    }
+    if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
+    if (!(await markWorkCompleted(spec.pool, item.id))) {
+      await cancelIfSkippable();
+      return;
+    }
+    logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
+  }
+
+  async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
+    if (await markWorkRetrying(spec.pool, item.id, error)) {
+      logWarn("agent_work_retrying", {
+        type: spec.type,
+        workItemId: item.id,
+        message,
+        providerErrorKind: classifyProviderError(error),
+        pgBossRetryCount: spec.job.retryCount,
+        pgBossRetryLimit: spec.job.retryLimit,
+        dbAttemptCount: item.attemptCount,
+      });
+      throw error;
+    }
+    await cancelIfSkippable();
+  }
+
+  async function invokeTerminalFailureHook(error: unknown): Promise<void> {
+    if (!spec.onTerminalFailure) return;
+    try {
+      await spec.onTerminalFailure(item, installation, error);
+    } catch (publishError) {
+      logWarn("agent_work_terminal_failure_hook_failed", {
+        type: spec.type,
+        workItemId: item.id,
+        message: publishError instanceof Error ? publishError.message : String(publishError),
+      });
+    }
+  }
+
+  async function handleDurableExecutionError(error: unknown): Promise<void> {
+    if (await cancelIfSkippable()) return;
+    const message = error instanceof Error ? error.message : String(error);
+    if (!isTerminalPgBossAttempt(spec.job)) {
+      await markRetryingOrCancel(error, message);
+      return;
+    }
+
+    if (!(await markWorkFailed(spec.pool, item.id, error))) {
+      await cancelIfSkippable();
+      return;
+    }
+    await invokeTerminalFailureHook(error);
+    logError("agent_work_failed", {
+      type: spec.type,
+      workItemId: item.id,
+      message: sanitizeLogMessage(message),
+      providerErrorKind: classifyProviderError(error),
+      pgBossRetryCount: spec.job.retryCount,
+      pgBossRetryLimit: spec.job.retryLimit,
+      dbAttemptCount: item.attemptCount,
+    });
+  }
+
   try {
-    const execution = await prepareDurableExecution(spec, item, cancelIfSkippable);
+    installation = await mintInstallationToken(spec.cfg, item.installationId);
+    const execution = await prepareDurableExecution(installation);
     if (!execution) return;
-    installation = execution.installation;
 
     logInfo("agent_work_started", {
       type: spec.type,
@@ -293,8 +260,8 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       resourceKey: item.resourceKey,
     });
     const result = await spec.execute(item, execution);
-    await completeDurableExecution(spec, item, result, cancelIfSkippable);
+    await completeDurableExecution(result);
   } catch (error) {
-    await handleDurableExecutionError(spec, item, installation, error, cancelIfSkippable);
+    await handleDurableExecutionError(error);
   }
 }
