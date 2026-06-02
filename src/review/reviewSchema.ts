@@ -211,92 +211,111 @@ function unwrapPayloadEnvelope(raw: unknown): { value: unknown; coercions: strin
   return { value: raw, coercions: [] };
 }
 
+type FindingDraft = {
+  readonly raw: Record<string, unknown>;
+  value: Record<string, unknown>;
+  mutated: boolean;
+  readonly coercions: string[];
+};
+
+function makeFindingDraft(raw: Record<string, unknown>, coercions: string[]): FindingDraft {
+  return { raw, value: raw, mutated: false, coercions };
+}
+
+function touchFindingDraft(draft: FindingDraft): void {
+  if (draft.mutated) return;
+  draft.value = { ...draft.raw };
+  draft.mutated = true;
+}
+
+function setFindingField(
+  draft: FindingDraft,
+  field: string,
+  value: unknown,
+  coercion: string,
+): void {
+  touchFindingDraft(draft);
+  draft.value[field] = value;
+  draft.coercions.push(coercion);
+}
+
+function coerceFindingLineAlias(draft: FindingDraft): void {
+  if (!("line" in draft.raw) || "startLine" in draft.raw) return;
+  const line = coercePositiveInt(draft.raw.line);
+  if (line == null || line <= 0) return;
+  touchFindingDraft(draft);
+  draft.value.startLine = line;
+  draft.value.endLine = line;
+  draft.coercions.push("finding_line_to_start_end");
+}
+
+function coerceFindingLinesArray(draft: FindingDraft): void {
+  const lines = draft.raw.lines;
+  if (!Array.isArray(lines) || lines.length < 1) return;
+  const start = coercePositiveInt(lines[0]);
+  const end = lines.length >= 2 ? coercePositiveInt(lines[1]) : start;
+  if (start == null || start <= 0 || end == null || end <= 0) return;
+  touchFindingDraft(draft);
+  draft.value.startLine = start;
+  draft.value.endLine = end;
+  draft.coercions.push("finding_lines_array_to_start_end");
+}
+
+function coerceFindingSeverityField(draft: FindingDraft): void {
+  if (!("severity" in draft.raw)) return;
+  const coerced = coerceSeverity(draft.raw.severity);
+  if (!coerced || coerced === draft.raw.severity) return;
+  setFindingField(draft, "severity", coerced, "finding_severity_alias");
+}
+
+function coerceFindingNumberField(
+  draft: FindingDraft,
+  field: "startLine" | "endLine",
+  coercion: string,
+): void {
+  if (!(field in draft.raw)) return;
+  const coerced = coercePositiveInt(draft.raw[field]);
+  if (coerced == null || coerced <= 0 || coerced === draft.raw[field]) return;
+  setFindingField(draft, field, coerced, coercion);
+}
+
+function coerceFindingTextFields(
+  draft: FindingDraft,
+  fields: readonly [
+    "file" | "title" | "detail" | "fixPrompt",
+    ...Array<"file" | "title" | "detail" | "fixPrompt">,
+  ],
+): void {
+  for (const field of fields) {
+    const rawValue = draft.raw[field];
+    if (typeof rawValue !== "string") continue;
+    const { text, changed } = coerceReviewTextField(rawValue, `finding_${field}`, draft.coercions);
+    if (!changed) continue;
+    touchFindingDraft(draft);
+    draft.value[field] = text;
+  }
+}
+
+function removeEmptyFixPrompt(draft: FindingDraft): void {
+  if (!("fixPrompt" in draft.raw) || typeof draft.raw.fixPrompt !== "string") return;
+  const rawFix = (draft.mutated ? draft.value.fixPrompt : draft.raw.fixPrompt) as string;
+  if (rawFix.trim().length > 0) return;
+  touchFindingDraft(draft);
+  delete draft.value.fixPrompt;
+  draft.coercions.push("finding_fixPrompt_empty_removed");
+}
+
 function coerceFinding(raw: unknown, coercions: string[]): unknown {
   if (typeof raw !== "object" || raw == null) return raw;
-  const r = raw as Record<string, unknown>;
-  let mutated = false;
-  let f: Record<string, unknown> = r;
-
-  const touch = (): void => {
-    if (!mutated) {
-      f = { ...r };
-      mutated = true;
-    }
-  };
-
-  if ("line" in r && !("startLine" in r)) {
-    const n = coercePositiveInt(r.line);
-    if (n != null && n > 0) {
-      touch();
-      f.startLine = n;
-      f.endLine = n;
-      coercions.push("finding_line_to_start_end");
-    }
-  }
-
-  if ("lines" in r && Array.isArray(r.lines) && r.lines.length >= 1) {
-    const start = coercePositiveInt(r.lines[0]);
-    const end = r.lines.length >= 2 ? coercePositiveInt(r.lines[1]) : start;
-    if (start != null && start > 0 && end != null && end > 0) {
-      touch();
-      f.startLine = start;
-      f.endLine = end;
-      coercions.push("finding_lines_array_to_start_end");
-    }
-  }
-
-  if ("severity" in r) {
-    const coerced = coerceSeverity(r.severity);
-    if (coerced && coerced !== r.severity) {
-      touch();
-      f.severity = coerced;
-      coercions.push("finding_severity_alias");
-    }
-  }
-  if ("startLine" in r) {
-    const n = coercePositiveInt(r.startLine);
-    if (n != null && n > 0 && n !== r.startLine) {
-      touch();
-      f.startLine = n;
-      coercions.push("finding_startLine_number");
-    }
-  }
-  if ("endLine" in r) {
-    const n = coercePositiveInt(r.endLine);
-    if (n != null && n > 0 && n !== r.endLine) {
-      touch();
-      f.endLine = n;
-      coercions.push("finding_endLine_number");
-    }
-  }
-  for (const field of ["file", "title"] as const) {
-    if (field in r && typeof r[field] === "string") {
-      const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
-      if (changed) {
-        touch();
-        f[field] = text;
-      }
-    }
-  }
-  for (const field of ["detail", "fixPrompt"] as const) {
-    if (field in r && typeof r[field] === "string") {
-      const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);
-      if (changed) {
-        touch();
-        f[field] = text;
-      }
-    }
-  }
-  if ("fixPrompt" in r && typeof r.fixPrompt === "string") {
-    const rawFix = (mutated ? f.fixPrompt : r.fixPrompt) as string;
-    const trimmed = rawFix.trim();
-    if (trimmed.length === 0) {
-      touch();
-      delete f.fixPrompt;
-      coercions.push("finding_fixPrompt_empty_removed");
-    }
-  }
-  return mutated ? f : raw;
+  const draft = makeFindingDraft(raw as Record<string, unknown>, coercions);
+  coerceFindingLineAlias(draft);
+  coerceFindingLinesArray(draft);
+  coerceFindingSeverityField(draft);
+  coerceFindingNumberField(draft, "startLine", "finding_startLine_number");
+  coerceFindingNumberField(draft, "endLine", "finding_endLine_number");
+  coerceFindingTextFields(draft, ["file", "title", "detail", "fixPrompt"]);
+  removeEmptyFixPrompt(draft);
+  return draft.mutated ? draft.value : raw;
 }
 
 export function coerceReviewPayloadInput(raw: unknown): {
