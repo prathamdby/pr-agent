@@ -30,7 +30,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | LLM provider              | `PI_PROVIDER`                               | `openai`                 | Pi coding-agent model provider                     |
 | LLM model                 | `PI_MODEL`                                  | `gpt-4o-mini`            | Cursor runner also uses this model id              |
 | Cursor API key            | `CURSOR_API_KEY`                            | empty                    | required when `AGENT_PROVIDER=cursor`              |
-| Provider prompt timeout   | `PROVIDER_PROMPT_TIMEOUT_MS`                | `300000`                 | abort + fail a run if one prompt turn exceeds this |
+| Provider prompt timeout   | `PROVIDER_PROMPT_TIMEOUT_MS`                | `300000`                 | inactivity cap: abort if no provider activity this long |
 | Review tool rounds        | `MAX_TOOL_ROUNDS`                           | `24`                     | per review run                                     |
 | Publish recovery attempts | `MAX_REVIEW_PUBLISH_ATTEMPTS`               | `3`                      | when submitReview never succeeds                   |
 | Publish execution budget  | `MAX_REVIEW_PUBLISH_CALLS`                  | `2`                      | valid submitReview publishes per run               |

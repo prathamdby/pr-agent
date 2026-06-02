@@ -115,7 +115,27 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
         let sessionToolTurnCount = 0;
         let finalText = "";
+        // Inactivity (idle) budget, not a total wall-clock cap: a single prompt() drives the whole
+        // multi-round agentic loop, whose duration scales with PR/repo size. We abort only when the
+        // provider goes silent (no streamed message/tool/turn events) for the configured window, so
+        // large-but-progressing reviews finish while genuine hangs are still cut off.
+        const idleTimeoutMs = cfg.providerPromptTimeoutMs;
+        const idleTimeoutEnabled = typeof idleTimeoutMs === "number" && idleTimeoutMs > 0;
+        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        let rejectOnIdle: ((error: Error) => void) | undefined;
+        const armIdleTimer = () => {
+          if (!idleTimeoutEnabled) return;
+          if (timeoutHandle) clearTimeout(timeoutHandle);
+          timeoutHandle = setTimeout(() => {
+            void session.abort();
+            rejectOnIdle?.(
+              new Error(`Provider prompt timeout: no activity for ${idleTimeoutMs}ms`),
+            );
+          }, idleTimeoutMs);
+        };
         const unsubscribe = session.subscribe((event) => {
+          // Any streamed event (token update, tool execution, turn boundary) is forward progress.
+          armIdleTimer();
           if (event.type !== "turn_end") return;
           sessionToolTurnCount += 1;
           // A tool-free turn is the terminal turn of prompt(); capture only that answer text.
@@ -125,18 +145,14 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
             void session.abort();
           }
         });
-        const timeoutMs = cfg.providerPromptTimeoutMs;
-        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
         try {
           const run = session.prompt(prompt);
-          if (typeof timeoutMs === "number" && timeoutMs > 0) {
-            const timeout = new Promise<never>((_, reject) => {
-              timeoutHandle = setTimeout(() => {
-                void session.abort();
-                reject(new Error(`Provider prompt exceeded ${timeoutMs}ms wall-clock timeout`));
-              }, timeoutMs);
+          if (idleTimeoutEnabled) {
+            const idle = new Promise<never>((_, reject) => {
+              rejectOnIdle = reject;
+              armIdleTimer();
             });
-            await Promise.race([run, timeout]);
+            await Promise.race([run, idle]);
           } else {
             await run;
           }
