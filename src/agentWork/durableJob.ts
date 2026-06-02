@@ -3,10 +3,15 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
-import { mintBotIdentity, mintInstallationAuth } from "../github/appAuth.js";
+import {
+  mintBotIdentity,
+  mintInstallationAuth,
+  type InstallationToken,
+} from "../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providerErrors.js";
+import { DEFERRED_HEAD_SHA } from "../settings/index.js";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
@@ -20,9 +25,7 @@ import {
   updateRunningWorkHeadSha,
 } from "./repository.js";
 import { getPullRequestHeadSha } from "./githubPrSurface.js";
-import { DEFERRED_HEAD_SHA, type AgentWorkItem, type ReviewWorkPayload } from "./types.js";
-
-export type InstallationToken = { token: string; expiresAtTs: number; ttlMs: number };
+import type { AgentWorkItem, ReviewWorkPayload } from "./types.js";
 
 type DurableExecutionContext = {
   installation: InstallationToken;

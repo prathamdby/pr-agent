@@ -2,13 +2,9 @@ import type { ReplyTarget } from "../commands/replyTarget.js";
 import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { logInfo } from "../evlog.js";
+import { ASK_META_REFUSAL } from "../settings/index.js";
 import { formatAskReply } from "./formatAskReply.js";
-import {
-  ASK_META_REFUSAL,
-  classifyAskQuestionIntent,
-  wrapTrustedContext,
-  wrapUntrustedBlock,
-} from "./askSafety.js";
+import { classifyAskQuestionIntent, wrapTrustedContext, wrapUntrustedBlock } from "./askSafety.js";
 import { runAskHarness } from "./askRunHarness.js";
 
 export type CodeAnchor = {

@@ -12,7 +12,7 @@ export { redactOutboundSecrets };
 
 export type AskQuestionIntent = "code" | "bot_meta";
 
-export { ASK_META_REFUSAL, MAX_ASK_QUESTION_CHARS } from "../settings/index.js";
+export { MAX_ASK_QUESTION_CHARS } from "../settings/index.js";
 
 export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
   for (const pattern of BOT_META_PATTERNS) {

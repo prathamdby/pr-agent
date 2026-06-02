@@ -3,10 +3,11 @@ import type { PgBoss } from "pg-boss";
 import {
   parseAskQuestionResult,
   ASK_QUESTION_TOO_LONG_HINT,
-  ASK_USAGE_HINT,
 } from "../../commands/parseAskQuestion.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import {
+  ASK_USAGE_HINT,
+  DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
   MAX_STORED_COMMENT_TEXT_LEN,
   SLASH_HELP_BODY,
@@ -15,7 +16,6 @@ import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
-  DEFERRED_HEAD_SHA,
   type AckJobData,
   type AckTarget,
   type JobCorrelation,

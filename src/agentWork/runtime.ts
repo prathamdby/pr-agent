@@ -8,8 +8,8 @@ import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
 import { AgentWorkerLive } from "./worker.js";
 
-export class AgentWorkPool extends Context.Tag("AgentWorkPool")<AgentWorkPool, Pool>() {}
-export class AgentWorkBoss extends Context.Tag("AgentWorkBoss")<AgentWorkBoss, PgBoss>() {}
+class AgentWorkPool extends Context.Tag("AgentWorkPool")<AgentWorkPool, Pool>() {}
+class AgentWorkBoss extends Context.Tag("AgentWorkBoss")<AgentWorkBoss, PgBoss>() {}
 
 const AgentWorkPoolLive = (cfg: Config) =>
   Layer.scoped(

@@ -5,17 +5,19 @@ import type { Config } from "../config.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
+  ACK_QUEUE,
+  ASK_QUEUE,
+  DESCRIPTION_QUEUE,
+  RETENTION_QUEUE,
+  REVIEW_QUEUE,
+} from "../settings/index.js";
+import {
   executeAckJob,
   executeAskJob,
   executeDescriptionJob,
   executeReviewJob,
 } from "./executors/index.js";
 import {
-  ACK_QUEUE,
-  ASK_QUEUE,
-  DESCRIPTION_QUEUE,
-  RETENTION_QUEUE,
-  REVIEW_QUEUE,
   type AckJobData,
   type AskJobData,
   type DescriptionJobData,

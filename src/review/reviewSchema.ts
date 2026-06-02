@@ -57,7 +57,7 @@ export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 
-export const reviewFindingSchema = z
+const reviewFindingSchema = z
   .object({
     severity: severitySchema,
     file: z.string().min(1),

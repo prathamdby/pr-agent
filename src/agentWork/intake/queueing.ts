@@ -2,11 +2,8 @@ import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import { pgBossDb } from "../../db/postgres.js";
+import { ACK_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
 import {
-  ACK_QUEUE,
-  ASK_QUEUE,
-  DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
   descriptionSingletonKey,
   installationGroupId,
   prResourceKey,

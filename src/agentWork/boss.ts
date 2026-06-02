@@ -10,8 +10,8 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
-  type QueueConfig,
-} from "./types.js";
+} from "../settings/index.js";
+import type { QueueConfig } from "./types.js";
 
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {

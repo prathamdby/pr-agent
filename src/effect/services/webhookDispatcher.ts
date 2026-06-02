@@ -7,7 +7,7 @@ import { IntakeLogger } from "../intakeLogger.js";
 import { dispatchGithubEventEffect } from "../programs/dispatchEffect.js";
 import { WebhookHandlers, WebhookHandlersLive } from "./webhookHandlers.js";
 
-export type DispatchInput = {
+type DispatchInput = {
   cfg: Config;
   headers: {
     delivery?: string;

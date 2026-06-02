@@ -1,6 +1,6 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { AUTOMATED_REVIEW_LENS } from "../../settings/index.js";
+import { AUTOMATED_REVIEW_LENS, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
 import {
   replaceAutoWorkItem,
   releaseSingletonIfSuperseded,
@@ -10,8 +10,6 @@ import { releaseSingletonSlot, reviewSingletonSlotDb } from "../singletonQueue.j
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
-  DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
   type AckJobData,
   type AckTarget,
   type PrRef,

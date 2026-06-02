@@ -3,6 +3,7 @@ import type { Config } from "../../config.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import { reviewSummarySentinelForMode } from "../../review/reviewSchema.js";
+import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { recordPublishStep } from "../repository.js";
 import { renderReviewProgressComment } from "../../review/progressComment.js";
@@ -12,7 +13,7 @@ import {
   postAckReply,
   safeReaction,
 } from "../githubPrSurface.js";
-import { DEFERRED_HEAD_SHA, type AckJobData } from "../types.js";
+import type { AckJobData } from "../types.js";
 
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
