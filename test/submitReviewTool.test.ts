@@ -45,6 +45,31 @@ const cfg = {
   reviewAnchorMenuMaxRangesPerFile: 20,
 };
 
+function validPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    prCharacter: "Does things.",
+    findings: [],
+    estimatedEffort: 1,
+    relevantTests: "no" as const,
+    securityConcerns: null,
+    followUps: [],
+    ...overrides,
+  };
+}
+
+function finding(overrides: Record<string, unknown> = {}) {
+  return {
+    severity: "P1" as const,
+    file: "a.ts",
+    startLine: 99,
+    endLine: 99,
+    title: "Finding",
+    detail: "d",
+    fixPrompt: "fix",
+    ...overrides,
+  };
+}
+
 describe("submitReview tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -60,14 +85,7 @@ describe("submitReview tool", () => {
       state,
     });
 
-    const valid = {
-      prCharacter: "Does things.",
-      findings: [],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const valid = validPayload();
 
     await executor(valid);
     expect(publishReview).toHaveBeenCalledTimes(1);
@@ -103,14 +121,7 @@ describe("submitReview tool", () => {
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
       state,
     });
-    const valid = {
-      prCharacter: "Does things.",
-      findings: [],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const valid = validPayload();
 
     await expect(executor(valid)).rejects.toThrow(/publish budget exhausted/i);
     expect(publishReview).toHaveBeenCalledTimes(1);
@@ -128,14 +139,7 @@ describe("submitReview tool", () => {
         throw new Error("db unavailable");
       },
     });
-    const valid = {
-      prCharacter: "Does things.",
-      findings: [],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const valid = validPayload();
 
     await expect(executor(valid)).rejects.toThrow(/superseded or cancelled/i);
     expect(publishReview).not.toHaveBeenCalled();
@@ -153,14 +157,7 @@ describe("submitReview tool", () => {
       canEnforceDiffCacheBeforeSubmit: () => false,
       shouldAbortPublish: async () => true,
     });
-    const valid = {
-      prCharacter: "Does things.",
-      findings: [],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const valid = validPayload();
 
     await expect(executor(valid)).rejects.toThrow(/superseded or cancelled/i);
     expect(state.publishSuperseded).toBe(true);
@@ -191,14 +188,7 @@ describe("submitReview tool", () => {
 
   it("blocks submit when listPullRequestFiles was not ingested", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
-    const valid = {
-      prCharacter: "Does things.",
-      findings: [],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const valid = validPayload();
     await evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
       initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
       const state = createSubmitReviewState();
@@ -226,14 +216,7 @@ describe("submitReview tool", () => {
       cachedDiffIndex: index,
       canEnforceDiffCacheBeforeSubmit: () => false,
     });
-    const valid = {
-      prCharacter: "Does things.",
-      findings: [],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const valid = validPayload();
     await executor(valid);
     expect(publishReview).toHaveBeenCalledTimes(1);
   });
@@ -252,24 +235,7 @@ describe("submitReview tool", () => {
       cachedDiffIndex: index,
       canEnforceDiffCacheBeforeSubmit: () => false,
     });
-    const payload = {
-      prCharacter: "Does things.",
-      findings: [
-        {
-          severity: "P1" as const,
-          file: "a.ts",
-          startLine: 99,
-          endLine: 99,
-          title: "Bad anchor",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-      ],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const payload = validPayload({ findings: [finding({ title: "Bad anchor" })] });
     await executor(payload);
     expect(publishReview).toHaveBeenCalledTimes(1);
   });
@@ -285,24 +251,9 @@ describe("submitReview tool", () => {
       state,
       cachedDiffIndex: index,
     });
-    const valid = {
-      prCharacter: "Does things.",
-      findings: [
-        {
-          severity: "P1" as const,
-          file: "src/x.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Zero-file PR",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-      ],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    const valid = validPayload({
+      findings: [finding({ file: "src/x.ts", startLine: 1, endLine: 1, title: "Zero-file PR" })],
+    });
     await executor(valid);
     expect(publishReview).toHaveBeenCalledTimes(1);
   });
@@ -316,33 +267,12 @@ describe("submitReview tool", () => {
         { filename: "b.ts", patch: ["@@ -2,1 +2,2 @@", " x", "+y"].join("\n") },
       ],
     });
-    const payload = {
-      prCharacter: "Does things.",
+    const payload = validPayload({
       findings: [
-        {
-          severity: "P1" as const,
-          file: "a.ts",
-          startLine: 99,
-          endLine: 99,
-          title: "Bad a",
-          detail: "d",
-          fixPrompt: "fix",
-        },
-        {
-          severity: "P1" as const,
-          file: "b.ts",
-          startLine: 88,
-          endLine: 88,
-          title: "Bad b",
-          detail: "d",
-          fixPrompt: "fix",
-        },
+        finding({ title: "Bad a" }),
+        finding({ file: "b.ts", startLine: 88, endLine: 88, title: "Bad b" }),
       ],
-      estimatedEffort: 1,
-      relevantTests: "no" as const,
-      securityConcerns: null,
-      followUps: [],
-    };
+    });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
       initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
       const state = createSubmitReviewState();
