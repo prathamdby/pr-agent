@@ -1,6 +1,6 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
-import type { CodeAnchor } from "../../agent/askRun.js";
+import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";

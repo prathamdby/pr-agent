@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
-import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
+import { runDurableWorkItem, type DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -60,6 +60,20 @@ function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: 
   } as unknown as JobWithMetadata<{ workItemId: string }>;
 }
 
+function runReviewWorkItem(
+  overrides: Partial<DurableJobSpec> & Pick<DurableJobSpec, "execute">,
+): Promise<void> {
+  return runDurableWorkItem({
+    cfg,
+    pool,
+    boss,
+    job: makeJob(),
+    type: "review",
+    resolveHeadSha: async () => "x",
+    ...overrides,
+  });
+}
+
 function defaultMocks() {
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
   vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
@@ -93,15 +107,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.getWorkItem).mockResolvedValue(item);
     const execute = vi.fn().mockResolvedValue({});
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "abc123",
-      execute,
-    });
+    await runReviewWorkItem({ resolveHeadSha: async () => "abc123", execute });
 
     expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
     expect(execute).toHaveBeenCalledTimes(1);
@@ -115,15 +121,7 @@ describe("runDurableWorkItem", () => {
   it("returns without executing when item is null", async () => {
     vi.mocked(repo.getWorkItem).mockResolvedValue(null);
     const execute = vi.fn();
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
     expect(execute).not.toHaveBeenCalled();
     expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
   });
@@ -131,31 +129,14 @@ describe("runDurableWorkItem", () => {
   it("returns without executing when item type mismatches", async () => {
     vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem({ type: "ask" }));
     const execute = vi.fn();
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
     expect(execute).not.toHaveBeenCalled();
   });
 
   it("returns without executing when acceptItem rejects", async () => {
     vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem({ reviewLens: null }));
     const execute = vi.fn();
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      acceptItem: (it) => it.reviewLens != null,
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ acceptItem: (it) => it.reviewLens != null, execute });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -164,15 +145,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(true);
     const execute = vi.fn();
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
 
     expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
     expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
@@ -184,15 +157,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue(false);
     const execute = vi.fn();
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
@@ -204,15 +169,7 @@ describe("runDurableWorkItem", () => {
     );
     const execute = vi.fn();
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
@@ -224,15 +181,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const execute = vi.fn();
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
@@ -243,15 +192,7 @@ describe("runDurableWorkItem", () => {
     vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
     const execute = vi.fn().mockResolvedValue({ degraded: true });
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
 
     expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
     expect(repo.markWorkCompleted).toHaveBeenCalled();
@@ -262,16 +203,7 @@ describe("runDurableWorkItem", () => {
     const boom = new Error("transient");
     const execute = vi.fn().mockRejectedValue(boom);
 
-    await expect(
-      runDurableWorkItem({
-        cfg,
-        pool,
-        job: makeJob(0, 3),
-        type: "review",
-        resolveHeadSha: async () => "x",
-        execute,
-      }),
-    ).rejects.toBe(boom);
+    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
 
     expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
@@ -283,16 +215,7 @@ describe("runDurableWorkItem", () => {
     const execute = vi.fn().mockRejectedValue(boom);
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(3, 3),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-      onTerminalFailure,
-    });
+    await runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure });
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
     expect(onTerminalFailure).toHaveBeenCalledTimes(1);
@@ -308,15 +231,7 @@ describe("runDurableWorkItem", () => {
     const onTerminalFailure = vi.fn().mockRejectedValue(new Error("hook boom"));
 
     await expect(
-      runDurableWorkItem({
-        cfg,
-        pool,
-        job: makeJob(3, 3),
-        type: "review",
-        resolveHeadSha: async () => "x",
-        execute,
-        onTerminalFailure,
-      }),
+      runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure }),
     ).resolves.toBeUndefined();
   });
 
@@ -326,16 +241,7 @@ describe("runDurableWorkItem", () => {
     const execute = vi.fn().mockRejectedValue(new Error("dead"));
     const onTerminalFailure = vi.fn();
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(3, 3),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-      onTerminalFailure,
-    });
+    await runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure });
 
     expect(onTerminalFailure).not.toHaveBeenCalled();
   });
@@ -360,15 +266,7 @@ describe("runDurableWorkItem", () => {
       afterComplete,
     });
 
-    await runDurableWorkItem({
-      cfg,
-      pool,
-      boss,
-      job: makeJob(),
-      type: "review",
-      resolveHeadSha: async () => "x",
-      execute,
-    });
+    await runReviewWorkItem({ execute });
 
     expect(afterComplete).toHaveBeenCalledWith(boss, "job-1");
     expect(repo.forceMarkRescheduledParentCompleted).toHaveBeenCalledWith(pool, "wi-1");
@@ -394,17 +292,9 @@ describe("runDurableWorkItem", () => {
       afterComplete: vi.fn().mockResolvedValue(undefined),
     });
 
-    await expect(
-      runDurableWorkItem({
-        cfg,
-        pool,
-        boss,
-        job: makeJob(0, 3),
-        type: "review",
-        resolveHeadSha: async () => "x",
-        execute,
-      }),
-    ).rejects.toThrow(/Failed to complete rescheduled parent/);
+    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toThrow(
+      /Failed to complete rescheduled parent/,
+    );
 
     expect(repo.markWorkRetrying).toHaveBeenCalled();
   });

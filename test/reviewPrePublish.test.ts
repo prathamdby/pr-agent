@@ -3,35 +3,57 @@ import { prepareReviewPayloadForPublish } from "../src/review/reviewPrePublish.j
 import { planInlinePlacements } from "../src/review/reviewDiffPlacement.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 
+type ReviewFinding = ReviewPayload["findings"][number];
+
+function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
+  return {
+    severity: "P1",
+    file: "src/a.ts",
+    startLine: 1,
+    endLine: 1,
+    title: "Issue",
+    detail: "Details.",
+    fixPrompt: "Fix it.",
+    ...overrides,
+  };
+}
+
+function makePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
+  return {
+    prCharacter: "Test.",
+    findings: [],
+    estimatedEffort: 2,
+    relevantTests: "no",
+    securityConcerns: null,
+    followUps: [],
+    ...overrides,
+  };
+}
+
+const secretDetail = "Found DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent";
+
 describe("prepareReviewPayloadForPublish", () => {
   it("dedupes overlapping findings before publish", () => {
-    const payload: ReviewPayload = {
-      prCharacter: "Test.",
+    const payload = makePayload({
       findings: [
-        {
+        makeFinding({
           severity: "P1",
-          file: "src/a.ts",
           startLine: 10,
           endLine: 12,
           title: "Race",
           detail: "Same issue",
           fixPrompt: "fix 2",
-        },
-        {
+        }),
+        makeFinding({
           severity: "P0",
-          file: "src/a.ts",
           startLine: 11,
           endLine: 13,
           title: "Race",
           detail: "Same issue",
           fixPrompt: "fix 1",
-        },
+        }),
       ],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    };
+    });
 
     const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
     expect(result.ok).toBe(true);
@@ -42,42 +64,21 @@ describe("prepareReviewPayloadForPublish", () => {
   });
 
   it("passes finding detail with internal failure phrasing through after secret scrub", () => {
-    const payload: ReviewPayload = {
-      prCharacter: "Test.",
-      findings: [
-        {
-          severity: "P2",
-          file: "src/a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Echoed failure",
-          detail: "Structured publish failed after 1/3 attempt(s).",
-          fixPrompt: "Fix the handler.",
-        },
-      ],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    };
+    const detail = "Structured publish failed after 1/3 attempt(s).";
+    const payload = makePayload({
+      findings: [makeFinding({ severity: "P2", detail, fixPrompt: "Fix the handler." })],
+    });
 
     const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.prepared.payload.findings[0]?.detail).toBe(
-      "Structured publish failed after 1/3 attempt(s).",
-    );
+    expect(result.prepared.payload.findings[0]?.detail).toBe(detail);
   });
 
   it("rejects overview with internal failure phrasing instead of redacting", () => {
-    const payload: ReviewPayload = {
+    const payload = makePayload({
       prCharacter: "Structured publish failed after 3/3 attempt(s). Check server logs.",
-      findings: [],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    };
+    });
 
     const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
     expect(result.ok).toBe(false);
@@ -86,24 +87,15 @@ describe("prepareReviewPayloadForPublish", () => {
   });
 
   it("scrubs secret assignments in prepared payload", () => {
-    const payload: ReviewPayload = {
-      prCharacter: "Test.",
+    const payload = makePayload({
       findings: [
-        {
-          severity: "P1",
-          file: "src/a.ts",
-          startLine: 1,
-          endLine: 1,
+        makeFinding({
           title: "Secret in detail",
-          detail: "Found DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent",
+          detail: secretDetail,
           fixPrompt: "Rotate credentials.",
-        },
+        }),
       ],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    };
+    });
 
     const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
     expect(result.ok).toBe(true);
@@ -113,24 +105,15 @@ describe("prepareReviewPayloadForPublish", () => {
   });
 
   it("threads placements aligned to the redacted findings", () => {
-    const payload: ReviewPayload = {
-      prCharacter: "Test.",
+    const payload = makePayload({
       findings: [
-        {
-          severity: "P1",
-          file: "src/a.ts",
-          startLine: 1,
-          endLine: 1,
+        makeFinding({
           title: "Secret in detail",
-          detail: "Found DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent",
+          detail: secretDetail,
           fixPrompt: "Rotate credentials.",
-        },
+        }),
       ],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    };
+    });
 
     const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
     expect(result.ok).toBe(true);

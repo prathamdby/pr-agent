@@ -2,8 +2,6 @@ import { Pool, type PoolClient, type QueryResult, type QueryResultRow } from "pg
 import type { Db } from "pg-boss";
 import type { Config } from "../config.js";
 
-export type DbPool = Pool;
-
 export function createPgPool(cfg: Pick<Config, "databaseUrl">): Pool {
   return new Pool({ connectionString: cfg.databaseUrl, max: 10 });
 }

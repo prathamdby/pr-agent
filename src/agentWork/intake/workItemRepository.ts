@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
-import type { CodeAnchor } from "../../agent/askRun.js";
+import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
 import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";

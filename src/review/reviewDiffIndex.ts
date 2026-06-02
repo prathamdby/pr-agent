@@ -1,5 +1,5 @@
 import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../settings/index.js";
-import { wrapUntrustedBlock } from "../agent/askSafety.js";
+import { wrapUntrustedBlock } from "../agent/promptBlocks.js";
 
 export type CommentableRightLineRanges = Array<[number, number]>;
 

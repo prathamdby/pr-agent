@@ -12,21 +12,13 @@ export { redactOutboundSecrets };
 
 export type AskQuestionIntent = "code" | "bot_meta";
 
-export { ASK_META_REFUSAL, MAX_ASK_QUESTION_CHARS } from "../settings/index.js";
+export { MAX_ASK_QUESTION_CHARS } from "../settings/index.js";
 
 export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
   for (const pattern of BOT_META_PATTERNS) {
     if (pattern.test(question.trim())) return "bot_meta";
   }
   return "code";
-}
-
-export function wrapUntrustedBlock(label: string, text: string): string {
-  return [`<${label} untrusted="true">`, text.trim(), `</${label}>`].join("\n");
-}
-
-export function wrapTrustedContext(lines: string[]): string {
-  return ['<context trusted="server">', ...lines, "</context>"].join("\n");
 }
 
 export type AskToolScope = {

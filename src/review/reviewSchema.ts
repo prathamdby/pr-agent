@@ -57,7 +57,7 @@ export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 
-export const reviewFindingSchema = z
+const reviewFindingSchema = z
   .object({
     severity: severitySchema,
     file: z.string().min(1),
@@ -289,8 +289,7 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
   }
   if ("fixPrompt" in r && typeof r.fixPrompt === "string") {
     const rawFix = (mutated ? f.fixPrompt : r.fixPrompt) as string;
-    const trimmed = rawFix.trim();
-    if (trimmed.length === 0) {
+    if (rawFix.trim().length === 0) {
       touch();
       delete f.fixPrompt;
       coercions.push("finding_fixPrompt_empty_removed");

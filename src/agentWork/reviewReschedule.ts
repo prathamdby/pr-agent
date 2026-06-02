@@ -2,12 +2,11 @@ import crypto from "node:crypto";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logInfo } from "../evlog.js";
+import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
 import { getPullRequestHeadSha } from "./githubPrSurface.js";
 import { getWorkItem } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
-  ACK_QUEUE,
-  REVIEW_QUEUE,
   installationGroupId,
   reviewSingletonKey,
   type AgentWorkItem,

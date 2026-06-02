@@ -1,20 +1,8 @@
 import type { Config } from "../config.js";
-import type { CodeAnchor } from "../agent/askRun.js";
+import type { CodeAnchor } from "../agent/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
-export {
-  ACK_DEAD_LETTER_QUEUE,
-  ACK_QUEUE,
-  ASK_DEAD_LETTER_QUEUE,
-  ASK_QUEUE,
-  DEFERRED_HEAD_SHA,
-  DESCRIPTION_DEAD_LETTER_QUEUE,
-  DESCRIPTION_QUEUE,
-  REVIEW_DEAD_LETTER_QUEUE,
-  REVIEW_QUEUE,
-  RETENTION_QUEUE,
-} from "../settings/index.js";
 
 type WorkType = "review" | "ask" | "description";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";

@@ -4,7 +4,8 @@ import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "./context7Tools.js";
 import { ASK_FAILURE_MESSAGE, ASK_RETRY_NUDGE } from "../settings/index.js";
 import { resolveAgentRunnerProvider } from "./providers/index.js";
-import { buildAskUserContent, type AskRunParams, type AskRunResult } from "./askRun.js";
+import { buildAskUserContent } from "./askUserContent.js";
+import type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 import { buildAskRunSetup } from "./askRunSetup.js";
 
 export async function runAskHarness(params: AskRunParams): Promise<AskRunResult> {
