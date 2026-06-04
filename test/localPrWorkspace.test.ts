@@ -165,6 +165,23 @@ describe("local PR workspace", () => {
         await fullWorkspace.cleanup();
       }
 
+      const noSizeWorkspace = await prepareLocalPrWorkspace({
+        cfg,
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(noSizeWorkspace.checkoutMode).toBe("full");
+        expect(noSizeWorkspace.checkoutPaths.has("support.txt")).toBe(true);
+      } finally {
+        await noSizeWorkspace.cleanup();
+      }
+
       const sparseWorkspace = await prepareLocalPrWorkspace({
         cfg,
         owner: "owner",
