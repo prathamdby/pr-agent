@@ -93,6 +93,7 @@ export async function createReviewWorkItem(
     payload: {
       mode: params.lens,
       source: params.source,
+      repositorySizeKb: params.ref.repositorySizeKb,
       userSupplement: params.userSupplement,
       commenterId: params.commenterId,
     },
@@ -132,6 +133,7 @@ export async function createDescriptionWorkItem(
     priority: params.source === "slash" ? 50 : 0,
     payload: {
       source: params.source,
+      repositorySizeKb: params.ref.repositorySizeKb,
       userSupplement: params.userSupplement,
       commenterId: params.commenterId,
     },
@@ -164,6 +166,7 @@ export async function createAskWorkItem(
     payload: {
       question: params.question,
       replyTarget: params.replyTarget,
+      repositorySizeKb: params.ref.repositorySizeKb,
       commentId: params.commentId,
       commenterId: params.commenterId,
       codeAnchor: params.codeAnchor,

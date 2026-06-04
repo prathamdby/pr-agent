@@ -38,6 +38,7 @@ export async function executeDescriptionJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
           const result = await runFullPrDescription({

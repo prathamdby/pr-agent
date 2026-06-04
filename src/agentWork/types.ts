@@ -20,6 +20,8 @@ export type PrRef = {
   readonly installationId: number;
   /** Commit SHA, or DEFERRED_HEAD_SHA for worker-side pulls.get resolution */
   readonly headSha: string;
+  /** GitHub webhook repository.size, in KB, captured at intake time when available. */
+  readonly repositorySizeKb?: number;
 };
 
 export type AckTarget =
@@ -70,6 +72,7 @@ export type DescriptionJobData = JobCorrelation & {
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;
+  readonly repositorySizeKb?: number;
   readonly userSupplement?: string;
   readonly commenterId?: number;
   /** Set when the run finished but structured publish did not succeed */
@@ -85,6 +88,7 @@ export type ReviewWorkPayload = {
 export type AskWorkPayload = {
   readonly question: string;
   readonly replyTarget: ReplyTarget;
+  readonly repositorySizeKb?: number;
   readonly codeAnchor?: CodeAnchor;
   readonly commenterId?: number;
   readonly commentId: number;
@@ -92,6 +96,7 @@ export type AskWorkPayload = {
 
 export type DescriptionWorkPayload = {
   readonly source: WorkSource;
+  readonly repositorySizeKb?: number;
   readonly userSupplement?: string;
   readonly commenterId?: number;
 };

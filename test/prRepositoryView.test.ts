@@ -33,6 +33,15 @@ vi.mock("../src/review/reviewPreflightFiles.js", () => ({
 }));
 
 vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
+  selectLocalPrWorkspaceCheckoutMode: (
+    cfg: { localWorkspaceFullCloneMaxRepoKb?: number },
+    repositorySizeKb?: number,
+  ) =>
+    repositorySizeKb != null &&
+    cfg.localWorkspaceFullCloneMaxRepoKb != null &&
+    repositorySizeKb > cfg.localWorkspaceFullCloneMaxRepoKb
+      ? "sparse"
+      : "full",
   prepareLocalPrWorkspace: async () => {
     state.prepareCalls += 1;
     if (state.failNext) {

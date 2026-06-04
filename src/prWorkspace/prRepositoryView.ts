@@ -5,7 +5,11 @@ import {
 } from "../review/reviewPreflightFiles.js";
 import { installationOctokit } from "../github/appAuth.js";
 import { fetchPullRequestFiles } from "../github/listPullRequestFiles.js";
-import { prepareLocalPrWorkspace, type LocalPrWorkspace } from "./localPrWorkspace.js";
+import {
+  prepareLocalPrWorkspace,
+  selectLocalPrWorkspaceCheckoutMode,
+  type LocalPrWorkspace,
+} from "./localPrWorkspace.js";
 
 export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;
@@ -20,6 +24,7 @@ export type PreparePrRepositoryViewParams = {
   readonly prNumber: number;
   readonly headSha: string;
   readonly installationToken: string;
+  readonly repositorySizeKb?: number;
 };
 
 type CachedPrRepositoryView = PrRepositoryView & { readonly cleanup: () => Promise<void> };
@@ -33,9 +38,13 @@ type CacheEntry = {
 const cache = new Map<string, CacheEntry>();
 
 function cacheKey(
-  params: Pick<PreparePrRepositoryViewParams, "owner" | "repo" | "prNumber" | "headSha">,
+  params: Pick<
+    PreparePrRepositoryViewParams,
+    "cfg" | "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+  >,
 ): string {
-  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}`;
+  const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.cfg, params.repositorySizeKb);
+  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}`;
 }
 
 async function fetchPullRequestHeadSha(
@@ -72,6 +81,7 @@ async function prepareUncached(
     headSha: params.headSha,
     installationToken: params.installationToken,
     prFiles,
+    repositorySizeKb: params.repositorySizeKb,
   });
   return {
     workspace,
@@ -119,7 +129,10 @@ async function acquirePrRepositoryView(
 }
 
 async function releasePrRepositoryView(
-  params: Pick<PreparePrRepositoryViewParams, "owner" | "repo" | "prNumber" | "headSha">,
+  params: Pick<
+    PreparePrRepositoryViewParams,
+    "cfg" | "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+  >,
 ): Promise<void> {
   const key = cacheKey(params);
   const entry = cache.get(key);

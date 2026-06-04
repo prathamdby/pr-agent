@@ -23,6 +23,7 @@ const TOKEN_FILE_NAME = "git-token";
 const PR_HEAD_REF = "pr-head";
 
 type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
+export type LocalPrWorkspaceCheckoutMode = "full" | "sparse";
 
 type LocalPrChangedFile = {
   readonly path: string;
@@ -36,6 +37,7 @@ export type LocalPrWorkspace = {
   readonly agentCwd: string;
   readonly changedFiles: readonly LocalPrChangedFile[];
   readonly checkoutPaths: ReadonlySet<string>;
+  readonly checkoutMode: LocalPrWorkspaceCheckoutMode;
   readonly diffIndex: CachedPrDiffIndex;
   readonly stats: {
     readonly truncated: boolean;
@@ -57,6 +59,7 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly headSha: string;
   readonly installationToken: string;
   readonly prFiles: ListPullRequestFilesResult;
+  readonly repositorySizeKb?: number;
   readonly remoteUrlOverride?: string;
 };
 
@@ -97,6 +100,15 @@ function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
           ? "modified"
           : "other";
   return { path: file.filename, status: mapped };
+}
+
+export function selectLocalPrWorkspaceCheckoutMode(
+  cfg: Pick<Config, "localWorkspaceFullCloneMaxRepoKb">,
+  repositorySizeKb?: number,
+): LocalPrWorkspaceCheckoutMode {
+  return repositorySizeKb != null && repositorySizeKb > cfg.localWorkspaceFullCloneMaxRepoKb
+    ? "sparse"
+    : "full";
 }
 
 async function execGit(
@@ -217,6 +229,17 @@ async function indexCheckedOutFiles(agentCwd: string): Promise<Set<string>> {
   }
   await walk(agentCwd, "");
   return paths;
+}
+
+function sparseCheckoutPattern(path: string): string {
+  return `/${path.replace(/\\/g, "/").replace(/[\\*?\[]/g, "\\$&")}`;
+}
+
+function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): string {
+  const paths = changedFiles
+    .filter((file) => file.status !== "deleted")
+    .map((file) => sparseCheckoutPattern(file.path));
+  return paths.length > 0 ? `${paths.join("\n")}\n` : "";
 }
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";

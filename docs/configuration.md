@@ -72,6 +72,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Workspace search byte cap | `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`    | `50000000`               | max bytes scanned per `searchWorkspace` call            |
 | Workspace diff cap        | `LOCAL_WORKSPACE_MAX_DIFF_BYTES`            | `5000000`                | max local diff bytes returned to tools                  |
 | Workspace free space min  | `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`      | `500000000`              | fail setup below this free-space threshold              |
+| Full clone repo size cap  | `LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB`    | `1000000`                | use sparse changed-file checkout above this repo size   |
 | Workspace stale cleanup   | `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS` | `86400`                  | startup cleanup age for leaked temp dirs                |
 | Log level                 | `LOG_LEVEL`                                 | `info`                   |                                                         |
 | Max wide sub-events       | `LOG_MAX_WIDE_EVENTS`                       | `128`                    |                                                         |
