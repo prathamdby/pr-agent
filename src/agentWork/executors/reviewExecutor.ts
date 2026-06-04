@@ -122,6 +122,7 @@ export async function executeReviewJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
           const bot = await getAppBotIdentity(cfg);

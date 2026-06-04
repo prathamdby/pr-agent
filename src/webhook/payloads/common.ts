@@ -7,6 +7,7 @@ export const installationSchema = z.object({
 export const repositorySchema = z.object({
   owner: z.object({ login: z.string() }),
   name: z.string(),
+  size: z.number().optional(),
 });
 
 /** GitHub App webhooks include `installation`; use loose top-level object so extra fields are allowed. */

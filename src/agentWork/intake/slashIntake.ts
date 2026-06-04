@@ -32,6 +32,7 @@ export type SlashCommandInput = {
   readonly installationId: number;
   readonly owner: string;
   readonly repo: string;
+  readonly repositorySizeKb?: number;
   readonly prNumber: number;
   readonly commentId: number;
   readonly commenterId: number;
@@ -234,6 +235,7 @@ export async function applySlashCommandIntake(
     prNumber: input.prNumber,
     installationId: input.installationId,
     headSha: DEFERRED_HEAD_SHA,
+    repositorySizeKb: input.repositorySizeKb,
   };
   const targets: AckTarget[] = [
     { kind: "pr", prNumber: input.prNumber },

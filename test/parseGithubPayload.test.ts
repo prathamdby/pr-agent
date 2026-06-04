@@ -15,12 +15,13 @@ describe("parseGithubPayload", () => {
     const raw = {
       action: "opened",
       installation: { id: 42 },
-      repository: { owner: { login: "o" }, name: "r" },
+      repository: { owner: { login: "o" }, name: "r", size: 1234 },
       pull_request: { number: 3, head: { sha: "abc" } },
     };
     const p = parseGithubPayload("pull_request", raw);
     expect(p.name).toBe("pull_request");
     expect(p.data.installation.id).toBe(42);
+    expect(p.data.repository.size).toBe(1234);
     expect(p.data.pull_request.head.sha).toBe("abc");
   });
 

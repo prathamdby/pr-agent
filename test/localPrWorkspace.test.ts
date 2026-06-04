@@ -27,6 +27,7 @@ function testConfig(): Config {
     localWorkspaceSearchMaxTotalBytes: 1_000_000,
     localWorkspaceMaxDiffBytes: 1_000_000,
     localWorkspaceMinFreeSpaceBytes: 1,
+    localWorkspaceFullCloneMaxRepoKb: 1_000,
     localWorkspaceStaleCleanupAgeSeconds: 1,
     maxPrFilesListed: 300,
     maxPrFilesPatchBytes: 500_000,
@@ -98,7 +99,7 @@ async function buildPrFilesFromRepo(
 }
 
 describe("local PR workspace", () => {
-  it("checks out the full PR head tree and builds diff index from PR file metadata", async () => {
+  it("uses full checkout below the repo size cap and sparse checkout above it", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-test-"));
     const repo = join(root, "repo");
     const remote = join(root, "remote.git");
@@ -125,8 +126,47 @@ describe("local PR workspace", () => {
 
       const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
 
-      const workspace = await prepareLocalPrWorkspace({
-        cfg: testConfig(),
+      const cfg = testConfig();
+      const fullWorkspace = await prepareLocalPrWorkspace({
+        cfg,
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        repositorySizeKb: cfg.localWorkspaceFullCloneMaxRepoKb,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(fullWorkspace.checkoutMode).toBe("full");
+        expect(fullWorkspace.changedFiles.map((file) => file.path).toSorted()).toEqual([
+          "renamed.txt",
+          "src.txt",
+        ]);
+        expect(
+          fullWorkspace.changedFiles.find((file) => file.path === "renamed.txt"),
+        ).toMatchObject({
+          status: "renamed",
+          oldPath: "delete.txt",
+        });
+        expect(await readFile(join(fullWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+        expect(fullWorkspace.checkoutPaths.has("support.txt")).toBe(true);
+        expect(await readFile(join(fullWorkspace.agentCwd, "support.txt"), "utf8")).toContain(
+          "helper",
+        );
+        expect(await fullWorkspace.getBlameForPath("src.txt")).toContain("src.txt");
+        expect(fullWorkspace.diffIndex.listPullRequestFilesIngested).toBe(true);
+        expect(
+          fullWorkspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
+        ).toBeGreaterThan(0);
+        expect(() => assertWorkspacePath(fullWorkspace.agentCwd, "../escape")).toThrow(/traversal/);
+      } finally {
+        await fullWorkspace.cleanup();
+      }
+
+      const noSizeWorkspace = await prepareLocalPrWorkspace({
+        cfg,
         owner: "owner",
         repo: "repo",
         prNumber: 1,
@@ -136,25 +176,36 @@ describe("local PR workspace", () => {
         remoteUrlOverride: remote,
       });
       try {
-        expect(workspace.changedFiles.map((file) => file.path).toSorted()).toEqual([
-          "renamed.txt",
-          "src.txt",
-        ]);
-        expect(workspace.changedFiles.find((file) => file.path === "renamed.txt")).toMatchObject({
-          status: "renamed",
-          oldPath: "delete.txt",
-        });
-        expect(await readFile(join(workspace.agentCwd, "src.txt"), "utf8")).toContain("two");
-        expect(workspace.checkoutPaths.has("support.txt")).toBe(true);
-        expect(await readFile(join(workspace.agentCwd, "support.txt"), "utf8")).toContain("helper");
-        expect(await workspace.getBlameForPath("src.txt")).toContain("src.txt");
-        expect(workspace.diffIndex.listPullRequestFilesIngested).toBe(true);
-        expect(
-          workspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
-        ).toBeGreaterThan(0);
-        expect(() => assertWorkspacePath(workspace.agentCwd, "../escape")).toThrow(/traversal/);
+        expect(noSizeWorkspace.checkoutMode).toBe("full");
+        expect(noSizeWorkspace.checkoutPaths.has("support.txt")).toBe(true);
       } finally {
-        await workspace.cleanup();
+        await noSizeWorkspace.cleanup();
+      }
+
+      const sparseWorkspace = await prepareLocalPrWorkspace({
+        cfg,
+        owner: "owner",
+        repo: "repo",
+        prNumber: 1,
+        headSha,
+        installationToken: "unused",
+        prFiles,
+        repositorySizeKb: cfg.localWorkspaceFullCloneMaxRepoKb + 1,
+        remoteUrlOverride: remote,
+      });
+      try {
+        expect(sparseWorkspace.checkoutMode).toBe("sparse");
+        expect(await readFile(join(sparseWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
+        expect(await readFile(join(sparseWorkspace.agentCwd, "renamed.txt"), "utf8")).toContain(
+          "gone",
+        );
+        expect(sparseWorkspace.checkoutPaths.has("support.txt")).toBe(false);
+        await expect(
+          readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8"),
+        ).rejects.toThrow();
+        expect(await sparseWorkspace.getBlameForPath("support.txt")).toBe("");
+      } finally {
+        await sparseWorkspace.cleanup();
       }
     } finally {
       await rm(root, { recursive: true, force: true });
