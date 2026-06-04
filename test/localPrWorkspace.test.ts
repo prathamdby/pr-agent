@@ -183,7 +183,9 @@ describe("local PR workspace", () => {
           "gone",
         );
         expect(sparseWorkspace.checkoutPaths.has("support.txt")).toBe(false);
-        await expect(readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8")).rejects.toThrow();
+        await expect(
+          readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8"),
+        ).rejects.toThrow();
         expect(await sparseWorkspace.getBlameForPath("support.txt")).toBe("");
       } finally {
         await sparseWorkspace.cleanup();

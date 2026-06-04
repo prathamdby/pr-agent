@@ -232,7 +232,7 @@ async function indexCheckedOutFiles(agentCwd: string): Promise<Set<string>> {
 }
 
 function sparseCheckoutPattern(path: string): string {
-  return `/${path.replace(/\\/g, "/").replace(/[\\*?\[]/g, "\\$&")}`;
+  return `/${path.replace(/\\/g, "/").replace(/[\\*?[]/g, "\\$&")}`;
 }
 
 function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): string {
@@ -285,6 +285,7 @@ export async function prepareLocalPrWorkspace(
   const askpass = await createAskpass(rootDir);
   const tokenFile = await writeTokenFile(rootDir, installationToken);
   const changedFiles = prFiles.files.map(mapGithubStatus);
+  const checkoutMode = selectLocalPrWorkspaceCheckoutMode(cfg, params.repositorySizeKb);
   const diffIndex = createCachedPrDiffIndex();
   const patchByPath = new Map<string, string>();
   const patchOmittedByCapPaths = new Set<string>();
@@ -361,6 +362,14 @@ export async function prepareLocalPrWorkspace(
       ["fetch", "--no-tags", "--depth=1", "--no-recurse-submodules", "origin", prRef],
       cfg.localWorkspaceFetchTimeoutMs,
     );
+    if (checkoutMode === "sparse") {
+      await git(["config", "core.sparseCheckout", "true"], cfg.localWorkspaceCloneTimeoutMs);
+      await git(["config", "core.sparseCheckoutCone", "false"], cfg.localWorkspaceCloneTimeoutMs);
+      await writeFile(
+        join(privateGitDir, "info", "sparse-checkout"),
+        sparseCheckoutPatterns(changedFiles),
+      );
+    }
     await git(["checkout", "-f", PR_HEAD_REF], cfg.localWorkspaceCloneTimeoutMs);
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
@@ -381,6 +390,7 @@ export async function prepareLocalPrWorkspace(
       agentCwd,
       changedFiles,
       checkoutPaths,
+      checkoutMode,
       diffIndex,
       stats: {
         truncated: prFiles.truncated,
