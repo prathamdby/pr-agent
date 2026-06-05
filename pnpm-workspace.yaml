@@ -1,5 +1,6 @@
 packages:
   - "."
+  - "site"
 
 minimumReleaseAge: 10080
 
