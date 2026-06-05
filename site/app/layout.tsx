@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import "./globals.css";
 
@@ -54,7 +55,10 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="bg-white text-neutral-800 min-h-screen">{children}</body>
+      <body className="bg-white text-neutral-800 min-h-screen">
+        {children}
+        <Analytics />
+      </body>
     </html>
   );
 }
