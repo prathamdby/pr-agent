@@ -1,0 +1,31 @@
+import { Header } from "@/components/header";
+import { Hero } from "@/components/hero";
+import { Features } from "@/components/features";
+import { Capabilities } from "@/components/capabilities";
+import { Gallery } from "@/components/gallery";
+import { Providers } from "@/components/providers";
+import { Alternatives } from "@/components/alternatives";
+import { Faq } from "@/components/faq";
+import { Quickstart } from "@/components/quickstart";
+import { Footer } from "@/components/footer";
+import { JsonLd } from "@/components/json-ld";
+
+export default function Home() {
+  return (
+    <>
+      <JsonLd />
+      <main id="main-content">
+        <Header />
+        <Hero />
+        <Features />
+        <Capabilities />
+        <Gallery />
+        <Providers />
+        <Alternatives />
+        <Faq />
+        <Quickstart />
+        <Footer />
+      </main>
+    </>
+  );
+}
