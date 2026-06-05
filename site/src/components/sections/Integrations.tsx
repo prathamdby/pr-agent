@@ -4,7 +4,7 @@ import { INTEGRATIONS } from "@/content";
 
 export function Integrations() {
   return (
-    <section className="border-y border-border bg-bg-soft/40">
+    <section className="border-y border-line bg-bg-soft/40">
       <div className="mx-auto max-w-[1180px] px-5 py-14">
         <Reveal>
           <p className="text-center text-sm text-fg-dim">

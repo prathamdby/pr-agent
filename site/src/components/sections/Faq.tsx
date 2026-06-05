@@ -9,14 +9,14 @@ import { FAQS } from "@/content";
 
 export function Faq() {
   return (
-    <section id="faq" className="mx-auto max-w-[1180px] px-5 py-24 sm:py-28">
+    <section id="faq" className="mx-auto max-w-[1180px] px-5 py-24 sm:py-32">
       <div className="grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
         <Reveal>
-          <h2 className="text-balance text-3xl font-semibold leading-tight tracking-tight text-fg sm:text-[2.6rem]">
+          <h2 className="text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-fg sm:text-[2.7rem]">
             Questions, answered plainly.
           </h2>
           <p className="mt-5 max-w-[40ch] text-pretty leading-relaxed text-fg-muted">
-            Still wondering about something? The README and docs go deeper on every point below.
+            Still wondering about something? The README and docs go deeper on every point here.
           </p>
         </Reveal>
 

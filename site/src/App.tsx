@@ -1,9 +1,8 @@
 import { Nav } from "@/components/sections/Nav";
 import { Hero } from "@/components/sections/Hero";
 import { Integrations } from "@/components/sections/Integrations";
-import { Problem } from "@/components/sections/Problem";
-import { Features } from "@/components/sections/Features";
-import { Showcase } from "@/components/sections/Showcase";
+import { Why } from "@/components/sections/Why";
+import { Capabilities } from "@/components/sections/Capabilities";
 import { HowItWorks } from "@/components/sections/HowItWorks";
 import { SelfHosted } from "@/components/sections/SelfHosted";
 import { SocialProof } from "@/components/sections/SocialProof";
@@ -17,9 +16,8 @@ export function App() {
       <main>
         <Hero />
         <Integrations />
-        <Problem />
-        <Features />
-        <Showcase />
+        <Why />
+        <Capabilities />
         <HowItWorks />
         <SelfHosted />
         <SocialProof />

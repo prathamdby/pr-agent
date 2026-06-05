@@ -1,5 +1,6 @@
 import { type Icon, Key, Cpu, Database, ShieldCheck } from "@phosphor-icons/react";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { DeploySequence } from "@/components/demos/DeploySequence";
 
 const GUARANTEES: { icon: Icon; head: string; body: string }[] = [
   {
@@ -20,36 +21,32 @@ const GUARANTEES: { icon: Icon; head: string; body: string }[] = [
   {
     icon: ShieldCheck,
     head: "Careful with answers",
-    body: "Replies redact secret-shaped text before posting, and questions that fish for internals get a polite refusal.",
+    body: "Replies redact secret-shaped text before posting, and probes for internals get a polite refusal.",
   },
-];
-
-const TERMINAL_LINES = [
-  { text: "cp .env.example .env", accent: false },
-  { text: "docker compose build", accent: false },
-  { text: "docker compose up", accent: true },
 ];
 
 export function SelfHosted() {
   return (
-    <section id="self-hosted" className="border-y border-border bg-bg-soft/40">
-      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-12 px-5 py-24 sm:py-28 lg:grid-cols-2 lg:gap-16">
+    <section id="self-hosted" className="border-t border-line">
+      <div className="mx-auto grid max-w-[1180px] grid-cols-1 gap-12 px-5 py-24 sm:py-32 lg:grid-cols-[1.1fr_0.9fr] lg:gap-16">
         <div>
           <Reveal>
-            <h2 className="max-w-[18ch] text-balance text-3xl font-semibold leading-tight tracking-tight text-fg sm:text-[2.6rem]">
+            <h2 className="max-w-[18ch] text-balance text-3xl font-semibold leading-[1.1] tracking-tight text-fg sm:text-[2.7rem]">
               The whole thing runs on your side of the fence.
             </h2>
           </Reveal>
-          <Stagger className="mt-10 space-y-7" gap={0.06}>
+          <Stagger className="mt-10 grid grid-cols-1 gap-x-8 gap-y-7 sm:grid-cols-2" gap={0.06}>
             {GUARANTEES.map(({ icon: Glyph, head, body }) => (
               <StaggerItem key={head}>
                 <div className="flex gap-4">
-                  <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-border-hi bg-surface text-accent">
+                  <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-lg border border-line-hi bg-surface text-accent">
                     <Glyph size={19} weight="regular" />
                   </span>
                   <div>
                     <h3 className="font-medium text-fg">{head}</h3>
-                    <p className="mt-1 max-w-[46ch] leading-relaxed text-fg-muted">{body}</p>
+                    <p className="mt-1 max-w-[40ch] text-sm leading-relaxed text-fg-muted">
+                      {body}
+                    </p>
                   </div>
                 </div>
               </StaggerItem>
@@ -57,27 +54,12 @@ export function SelfHosted() {
           </Stagger>
         </div>
 
-        <Reveal delay={0.1} className="lg:pt-4">
-          <div className="overflow-hidden rounded-[var(--radius)] border border-border-hi bg-bg shadow-[var(--shadow-soft)]">
-            <div className="flex items-center gap-2 border-b border-border bg-surface/80 px-4 py-3">
-              <span className="size-3 rounded-full bg-border-hi" />
-              <span className="size-3 rounded-full bg-border-hi" />
-              <span className="size-3 rounded-full bg-border-hi" />
-              <span className="ml-3 font-mono text-xs text-fg-dim">your-server: ~/pr-agent</span>
-            </div>
-            <div className="space-y-3 p-6 font-mono text-sm leading-relaxed">
-              {TERMINAL_LINES.map((line) => (
-                <div key={line.text} className="flex gap-3">
-                  <span className="select-none text-fg-dim">$</span>
-                  <span className={line.accent ? "text-accent" : "text-fg"}>{line.text}</span>
-                </div>
-              ))}
-              <div className="flex gap-3 pt-2 text-fg-dim">
-                <span className="select-none">#</span>
-                <span>web, worker, and postgres come up together</span>
-              </div>
-            </div>
-          </div>
+        <Reveal delay={0.1} className="lg:pt-2">
+          <DeploySequence />
+          <p className="mt-4 px-1 text-sm leading-relaxed text-fg-dim">
+            One command brings up Postgres, the web service, and the worker together. A health check
+            tells your orchestrator when it is ready.
+          </p>
         </Reveal>
       </div>
     </section>

@@ -1,128 +1,101 @@
 @import "tailwindcss";
 
-/* Self-hosted variable fonts (no external font CDN at runtime). */
+/* Self-hosted variable fonts, no runtime font CDN. */
 @import "@fontsource-variable/geist/index.css";
 @import "@fontsource-variable/geist-mono/index.css";
 
+/*
+  Palette: one cool-neutral charcoal family + one locked accent.
+  Accent is GitHub's success green, the colour a merged, approved PR already
+  wears, so it reads as native to a GitHub App rather than decorative.
+  Shape rule: interactive elements are pills, surfaces use --radius (12px),
+  code and inline chips use 8px. Applied everywhere, no exceptions.
+*/
 @theme {
-  --color-bg: #08090a;
-  --color-bg-soft: #0c0e10;
-  --color-surface: #101316;
-  --color-surface-hi: #171b1f;
-  --color-border: #1f242b;
-  --color-border-hi: #2b323a;
+  --color-bg: #0a0b0d;
+  --color-bg-soft: #0e1013;
+  --color-surface: #14171b;
+  --color-surface-hi: #1b1f24;
+  --color-line: #23272e;
+  --color-line-hi: #2f343c;
 
-  --color-fg: #f2f4f5;
-  --color-fg-muted: #a7afb8;
-  --color-fg-dim: #6f7882;
+  --color-fg: #f4f6f8;
+  --color-fg-muted: #aab2bd;
+  --color-fg-dim: #6b7682;
 
-  /* Single locked accent: a calm signal-green tied to "review passed". */
-  --color-accent: #34d399;
-  --color-accent-hi: #5eead4;
-  --color-accent-ink: #04140d;
+  --color-accent: #3fb950;
+  --color-accent-hi: #56d364;
+  --color-accent-dim: #2ea043;
+  --color-accent-ink: #04210c;
+
+  --color-danger: #f0633e;
+  --color-warn: #d8a657;
 
   --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SFMono-Regular", monospace;
 
-  --radius: 0.875rem;
+  --radius: 0.75rem;
 
-  --shadow-soft: 0 1px 0 0 rgba(255, 255, 255, 0.03) inset, 0 24px 60px -28px rgba(0, 0, 0, 0.8);
-}
-
-/* transitions.dev — shimmer text (pure CSS, theme-tuned for dark). */
-:root {
-  --shimmer-dur: 2600ms;
-  --shimmer-base: #6f7882;
-  --shimmer-highlight: #eef2f4;
-  --shimmer-band: 360%;
-  --shimmer-ease: linear;
+  --shadow-lift: 0 1px 0 0 rgba(255, 255, 255, 0.04) inset,
+    0 30px 80px -36px rgba(0, 0, 0, 0.9);
 }
 
 @layer base {
   * {
-    border-color: var(--color-border);
+    border-color: var(--color-line);
   }
 
   html {
     scroll-behavior: smooth;
     -webkit-text-size-adjust: 100%;
+    color-scheme: dark;
   }
 
   body {
     background-color: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-sans);
-    font-feature-settings: "cv01", "ss03";
+    font-feature-settings: "cv01", "ss03", "ss01";
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
 
   ::selection {
-    background: color-mix(in oklab, var(--color-accent) 28%, transparent);
+    background: color-mix(in oklab, var(--color-accent) 32%, transparent);
     color: var(--color-fg);
   }
 
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
-    border-radius: 4px;
+    border-radius: 6px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-feature-settings: "ss01", "cv01";
   }
 }
 
 @layer components {
-  /* A quiet grain + radial wash to keep large dark fields from going flat. */
-  .bg-grid-faint {
-    background-image:
-      linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-    background-size: 64px 64px;
-  }
-
   .text-balance {
     text-wrap: balance;
   }
-
   .text-pretty {
     text-wrap: pretty;
   }
-}
 
-/* transitions.dev — shimmer text */
-.t-shimmer {
-  position: relative;
-  display: inline-block;
-  color: var(--shimmer-base);
-}
-.t-shimmer::before {
-  content: attr(data-text);
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background-image: linear-gradient(
-    90deg,
-    transparent 0%,
-    transparent 40%,
-    var(--shimmer-highlight) 50%,
-    transparent 60%,
-    transparent 100%
-  );
-  background-size: var(--shimmer-band) 100%;
-  background-repeat: no-repeat;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  animation: t-shimmer var(--shimmer-dur) var(--shimmer-ease) infinite;
-}
-@keyframes t-shimmer {
-  0% {
-    background-position: 100% 0;
-  }
-  100% {
-    background-position: 0% 0;
+  /* Tiny mono caption used for line numbers and metric units. */
+  .mono-caption {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.01em;
+    color: var(--color-fg-dim);
   }
 }
 
+/* Accordion (radix) open/close. */
 @keyframes acc-down {
   from {
     height: 0;
@@ -144,10 +117,47 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .t-shimmer::before {
-    animation: none !important;
+/* A glowing packet sweeping along the pipeline connector (data in motion). */
+@keyframes packet-x {
+  0% {
+    background-position: -40% 0;
   }
+  100% {
+    background-position: 140% 0;
+  }
+}
+@keyframes packet-y {
+  0% {
+    background-position: 0 -40%;
+  }
+  100% {
+    background-position: 0 140%;
+  }
+}
+.pipe-flow-x {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-accent) 85%, transparent),
+    transparent
+  );
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  animation: packet-x 2.6s linear infinite;
+}
+.pipe-flow-y {
+  background-image: linear-gradient(
+    180deg,
+    transparent,
+    color-mix(in oklab, var(--color-accent) 85%, transparent),
+    transparent
+  );
+  background-size: 100% 45%;
+  background-repeat: no-repeat;
+  animation: packet-y 2.6s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
   }
@@ -155,6 +165,7 @@
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
 }
