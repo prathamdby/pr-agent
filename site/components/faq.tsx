@@ -15,9 +15,7 @@ export function Faq() {
         <dl className="space-y-5">
           {FAQ_ITEMS.map((item) => (
             <div key={item.question}>
-              <dt className="text-sm font-medium text-neutral-800">
-                {item.question}
-              </dt>
+              <dt className="text-sm font-medium text-neutral-800">{item.question}</dt>
               <dd className="mt-1 text-sm text-neutral-600">{item.answer}</dd>
             </div>
           ))}

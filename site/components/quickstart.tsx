@@ -14,9 +14,7 @@ export function Quickstart() {
 
         <div className="space-y-6">
           <div>
-            <h3 className="text-sm font-medium text-neutral-800 mb-2">
-              1. Create a GitHub App
-            </h3>
+            <h3 className="text-sm font-medium text-neutral-800 mb-2">1. Create a GitHub App</h3>
             <ul className="text-sm text-neutral-600 space-y-1 list-disc list-inside">
               <li>
                 Webhook URL: <code>https://&lt;host&gt;/webhooks</code>
@@ -25,9 +23,7 @@ export function Quickstart() {
                 Events: <code>pull_request</code>, <code>issue_comment</code>,{" "}
                 <code>pull_request_review_comment</code>
               </li>
-              <li>
-                Permissions: Issues and Pull requests read/write, Contents read
-              </li>
+              <li>Permissions: Issues and Pull requests read/write, Contents read</li>
             </ul>
             <p className="mt-2 text-sm text-neutral-500">
               Full steps in the{" "}
@@ -44,9 +40,7 @@ export function Quickstart() {
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-neutral-800 mb-2">
-              2. Docker Compose
-            </h3>
+            <h3 className="text-sm font-medium text-neutral-800 mb-2">2. Docker Compose</h3>
             <pre className="bg-neutral-50 border border-neutral-200 rounded p-3 text-sm overflow-x-auto">
               <code className="text-neutral-700">
                 {`cp .env.example .env
@@ -58,9 +52,7 @@ docker compose up`}
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-neutral-800 mb-2">
-              3. Slash commands
-            </h3>
+            <h3 className="text-sm font-medium text-neutral-800 mb-2">3. Slash commands</h3>
             <pre className="bg-neutral-50 border border-neutral-200 rounded p-3 text-sm overflow-x-auto">
               <code className="text-neutral-700">
                 {`/review
@@ -73,9 +65,7 @@ docker compose up`}
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-neutral-800 mb-2">
-              Minimal env
-            </h3>
+            <h3 className="text-sm font-medium text-neutral-800 mb-2">Minimal env</h3>
             <pre className="bg-neutral-50 border border-neutral-200 rounded p-3 text-sm overflow-x-auto">
               <code className="text-neutral-700">
                 {`DATABASE_URL=...

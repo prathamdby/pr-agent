@@ -4,10 +4,7 @@ import { DOCS_URL } from "@/lib/site";
 
 export function Hero() {
   return (
-    <section
-      aria-labelledby="hero-heading"
-      className="px-4 pt-12 pb-8"
-    >
+    <section aria-labelledby="hero-heading" className="px-4 pt-12 pb-8">
       <div className="mx-auto max-w-xl">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-sm text-neutral-600">
           <span>Reviews · Descriptions · Q&A</span>
@@ -19,15 +16,14 @@ export function Hero() {
         </h1>
 
         <p className="text-neutral-600 mb-3">
-          PR Agent is a full platform you deploy yourself: webhook intake, durable
-          job queues, AI workers, and publish back to GitHub. An open-source
-          alternative to hosted reviewers like CodeRabbit, Greptile, and Cursor
-          Bugbot.
+          PR Agent is a full platform you deploy yourself: webhook intake, durable job queues, AI
+          workers, and publish back to GitHub. An open-source alternative to hosted reviewers like
+          CodeRabbit, Greptile, and Cursor Bugbot.
         </p>
 
         <p className="text-neutral-500 mb-6">
-          Reviews, descriptions, and Q&A on pull requests. Your infrastructure,
-          your credentials, your model provider.
+          Reviews, descriptions, and Q&A on pull requests. Your infrastructure, your credentials,
+          your model provider.
         </p>
 
         <div className="flex flex-wrap items-center gap-3">

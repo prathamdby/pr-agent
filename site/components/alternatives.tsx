@@ -12,9 +12,8 @@ export function Alternatives() {
           Self-hosted alternative to hosted AI reviewers
         </h2>
         <p className="text-sm text-neutral-500 mb-4">
-          Teams evaluating CodeRabbit, Greptile, Cursor Bugbot, or Macroscope
-          often need a GitHub pull request reviewer that runs on their own
-          infrastructure. PR Agent is built for that.
+          Teams evaluating CodeRabbit, Greptile, Cursor Bugbot, or Macroscope often need a GitHub
+          pull request reviewer that runs on their own infrastructure. PR Agent is built for that.
         </p>
 
         <div className="overflow-x-auto">
@@ -34,14 +33,8 @@ export function Alternatives() {
             </thead>
             <tbody className="text-neutral-600">
               {ALTERNATIVE_ROWS.map((row) => (
-                <tr
-                  key={row.name}
-                  className="border-b border-neutral-100 align-top"
-                >
-                  <th
-                    scope="row"
-                    className="py-3 pr-3 font-medium text-neutral-800"
-                  >
+                <tr key={row.name} className="border-b border-neutral-100 align-top">
+                  <th scope="row" className="py-3 pr-3 font-medium text-neutral-800">
                     {row.name}
                   </th>
                   <td className="py-3 pr-3">{row.deployment}</td>

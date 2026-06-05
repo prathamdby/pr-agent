@@ -23,10 +23,7 @@ export function Header() {
           <span className="font-medium">{PRODUCT_NAME}</span>
         </Link>
 
-        <nav
-          className="flex items-center gap-3 text-sm"
-          aria-label="Primary navigation"
-        >
+        <nav className="flex items-center gap-3 text-sm" aria-label="Primary navigation">
           <Link
             href="#examples"
             className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"

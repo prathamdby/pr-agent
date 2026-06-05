@@ -1,16 +1,16 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import sharp from "sharp";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const publicDir = join(__dirname, "..", "public");
+const publicDir = join(import.meta.dirname, "..", "public");
 const logoPath = join(publicDir, "logo.png");
 const outPath = join(publicDir, "og-image.png");
 
 const width = 1200;
 const height = 630;
-const logoSize = 300;
+const logoTargetHeight = 300;
+const logoPaddingLeft = 100;
+const textGap = 80;
 
 const background = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
@@ -24,21 +24,24 @@ const background = Buffer.from(
   </svg>`,
 );
 
+const logoMeta = await sharp(readFileSync(logoPath)).metadata();
+const logoAspect = (logoMeta.width ?? 1) / (logoMeta.height ?? 1);
+const logoHeight = logoTargetHeight;
+const logoWidth = Math.round(logoHeight * logoAspect);
+
+const logo = await sharp(readFileSync(logoPath)).resize(logoWidth, logoHeight).png().toBuffer();
+
+const logoLeft = logoPaddingLeft;
+const logoTop = Math.round((height - logoHeight) / 2);
+const textLeft = logoLeft + logoWidth + textGap;
+
 const textOverlay = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <text x="480" y="270" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" fill="#ffffff">PR Agent</text>
-    <text x="480" y="340" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="32" font-weight="400" fill="rgba(255,255,255,0.92)">Self-hosted AI pull request review platform</text>
-    <text x="480" y="390" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="rgba(255,255,255,0.75)">Reviews · Descriptions · Q&amp;A</text>
+    <text x="${textLeft}" y="270" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" fill="#ffffff">PR Agent</text>
+    <text x="${textLeft}" y="340" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="32" font-weight="400" fill="rgba(255,255,255,0.92)">Self-hosted AI pull request review platform</text>
+    <text x="${textLeft}" y="390" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="rgba(255,255,255,0.75)">Reviews · Descriptions · Q&amp;A</text>
   </svg>`,
 );
-
-const logo = await sharp(readFileSync(logoPath))
-  .resize(logoSize, logoSize)
-  .png()
-  .toBuffer();
-
-const logoLeft = 100;
-const logoTop = Math.round((height - logoSize) / 2);
 
 await sharp(background)
   .resize(width, height)

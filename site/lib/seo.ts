@@ -2,8 +2,7 @@ import { REPO_URL } from "@/lib/site";
 
 export const PRODUCT_NAME = "PR Agent";
 
-export const SEO_TITLE =
-  "PR Agent | Self-Hosted AI Code Review for GitHub";
+export const SEO_TITLE = "PR Agent | Self-Hosted AI Code Review for GitHub";
 
 export const SEO_DESCRIPTION =
   "Open-source, self-hosted AI pull request review platform for GitHub. Alternative to CodeRabbit, Greptile, Cursor Bugbot, and Macroscope. Bring your own model.";

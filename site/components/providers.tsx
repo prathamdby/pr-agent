@@ -33,8 +33,8 @@ export function Providers() {
         </ul>
 
         <p className="mt-4 text-sm text-neutral-500">
-          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM
-          providers without changing your GitHub review workflow. See{" "}
+          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without changing
+          your GitHub review workflow. See{" "}
           <a href="#usage" className="underline hover:text-neutral-700">
             usage
           </a>{" "}

@@ -2,38 +2,32 @@ const capabilities = [
   {
     title: "AI code reviews",
     trigger: "Auto on PR open and sync, or /review",
-    detail:
-      "Automated pull request review with inline comments on the Files changed tab.",
+    detail: "Automated pull request review with inline comments on the Files changed tab.",
   },
   {
     title: "PR descriptions",
     trigger: "Auto on PR open, or /describe",
-    detail:
-      "AI-generated summary bullets and optional diagram merged into the PR body.",
+    detail: "AI-generated summary bullets and optional diagram merged into the PR body.",
   },
   {
     title: "Security reviews",
     trigger: "/review-security",
-    detail:
-      "Security-focused code review as a separate summary on the pull request.",
+    detail: "Security-focused code review as a separate summary on the pull request.",
   },
   {
     title: "Quality reviews",
     trigger: "/review-quality",
-    detail:
-      "Code quality and maintainability review on demand.",
+    detail: "Code quality and maintainability review on demand.",
   },
   {
     title: "Q&A on PRs",
     trigger: "/ask <question>",
-    detail:
-      "Ask questions about PR code from the conversation or an inline diff thread.",
+    detail: "Ask questions about PR code from the conversation or an inline diff thread.",
   },
   {
     title: "Docs-only fast path",
     trigger: "Auto on trivial doc-only PRs",
-    detail:
-      "Skips full AI review when every changed file is documentation.",
+    detail: "Skips full AI review when every changed file is documentation.",
   },
 ];
 
