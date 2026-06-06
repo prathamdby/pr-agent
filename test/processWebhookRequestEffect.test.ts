@@ -182,4 +182,44 @@ describe("processWebhookHttpRequestEffect", () => {
       recordSpy.mockRestore();
     }
   });
+
+  it("returns 200 before slow emitOperationLogger settles", async () => {
+    let releaseEmit!: () => void;
+    const emitGate = new Promise<void>((resolve) => {
+      releaseEmit = resolve;
+    });
+    const emitSpy = vi.spyOn(evlog, "emitOperationLogger").mockImplementation(async () => {
+      await emitGate;
+    });
+    const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
+
+    try {
+      const order: string[] = [];
+      const responsePromise = Effect.runPromise(
+        withIntake(
+          processWebhookHttpRequestEffect(cfg, {
+            method: "POST",
+            url: "/webhooks",
+            headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+            rawBody: body,
+          }),
+          stubDispatcherLayer,
+        ),
+      ).then((response) => {
+        order.push("response");
+        return response;
+      });
+
+      await Promise.resolve();
+      const out = await responsePromise;
+      expect(out).toEqual({ status: 200, body: "ok" });
+      expect(order).toEqual(["response"]);
+      expect(emitSpy).toHaveBeenCalledTimes(1);
+
+      releaseEmit();
+      await Promise.resolve();
+    } finally {
+      emitSpy.mockRestore();
+    }
+  });
 });

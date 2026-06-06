@@ -6,7 +6,6 @@ import {
 } from "../github/prFileUrls.js";
 import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
 import { DESCRIPTION_AGENT_HEADER } from "../settings/index.js";
-import { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
 
 export { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
@@ -135,7 +134,7 @@ export function renderDescriptionAgentBlock(
 ): string {
   const typeLine = payload.type.join(", ");
   const description = payload.description.trim();
-  const diagram = payload.changesDiagram ? sanitizeMermaidDiagram(payload.changesDiagram) : "";
+  const diagram = payload.changesDiagram?.trim() ?? "";
   const walkthrough = payload.prFiles?.length ? renderFileWalkthrough(payload.prFiles, ctx) : "";
 
   const sections = [

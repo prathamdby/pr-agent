@@ -4,7 +4,7 @@ import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
 import { DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
-import type { AgentWorkItem, ReviewWorkPayload, WorkStatus } from "./types.js";
+import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
 
 export type PublishLens = ReviewWorkPayload["mode"] | typeof DESCRIPTION_PUBLISH_LENS;
 export type PublishStep =
@@ -33,6 +33,10 @@ type AgentWorkRow = {
 };
 
 function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
+  return { ...mapWorkItemCore(row), payload: row.payload };
+}
+
+function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore {
   return {
     id: row.id,
     webhookEventId: row.webhook_event_id,
@@ -47,7 +51,6 @@ function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
     reviewLens: row.review_lens,
     resourceKey: row.resource_key,
     attemptCount: row.attempt_count,
-    payload: row.payload,
     cancelRequestedAt: row.cancel_requested_at,
   };
 }
@@ -62,6 +65,30 @@ export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem
     [id],
   );
   return row ? mapWorkItem(row) : null;
+}
+
+export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWorkItemCore | null> {
+  const row = await queryOne<Omit<AgentWorkRow, "payload">>(
+    pool,
+    `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
+		        review_lens, resource_key, attempt_count, cancel_requested_at
+		   FROM agent_work_items
+		  WHERE id = $1`,
+    [id],
+  );
+  return row ? mapWorkItemCore(row) : null;
+}
+
+export async function getWorkItemPayload(
+  pool: Pool,
+  id: string,
+): Promise<AgentWorkItem["payload"] | null> {
+  const row = await queryOne<{ payload: AgentWorkItem["payload"] }>(
+    pool,
+    "SELECT payload FROM agent_work_items WHERE id = $1",
+    [id],
+  );
+  return row?.payload ?? null;
 }
 
 function sanitizeWorkError(error: unknown): string {
@@ -197,7 +224,10 @@ export async function markWorkCancelled(pool: Pool, id: string): Promise<void> {
   );
 }
 
-export async function shouldSkipWork(pool: Pool, item: AgentWorkItem): Promise<boolean> {
+export async function shouldSkipWork(
+  pool: Pool,
+  item: Pick<AgentWorkItem, "id">,
+): Promise<boolean> {
   const row = await queryOne<{ status: WorkStatus; cancel_requested_at: Date | null }>(
     pool,
     "SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1",
@@ -302,6 +332,12 @@ export async function getStoredInlineFingerprints(
         AND status = 'completed'`,
     [resourceKey, reviewLens],
   );
+  return mergeStoredInlineFingerprints(rows);
+}
+
+function mergeStoredInlineFingerprints(
+  rows: readonly { detail: Record<string, unknown> }[],
+): string[] {
   const merged = new Set<string>();
   for (const row of rows) {
     for (const fingerprint of parseStoredInlineFingerprints(row.detail).fingerprints) {
@@ -309,6 +345,111 @@ export async function getStoredInlineFingerprints(
     }
   }
   return [...merged];
+}
+
+function parseReviewPublishStateRows(rows: readonly { step: string; github_id: string | null }[]): {
+  inlinePublished: boolean;
+  summaryPublished: boolean;
+  inlineReviewId: number | null;
+} {
+  const steps = new Set(rows.map((row) => row.step));
+  const inlineRow = rows.find((row) => row.step === "inline_review");
+  const inlineReviewId =
+    inlineRow?.github_id != null && Number.isFinite(Number(inlineRow.github_id))
+      ? Number(inlineRow.github_id)
+      : null;
+  return {
+    inlinePublished: steps.has("inline_review"),
+    summaryPublished: steps.has("summary_comment"),
+    inlineReviewId,
+  };
+}
+
+export type ReviewExecutorPublishContext = {
+  publishState: {
+    inlinePublished: boolean;
+    summaryPublished: boolean;
+    inlineReviewId: number | null;
+  };
+  shouldLinkToSummary: boolean;
+  storedInlineFingerprints: string[];
+  summaryCommentGithubId: number | null;
+};
+
+export async function loadReviewExecutorPublishContext(
+  pool: Pool,
+  workItemId: string,
+  resourceKey: string,
+  reviewLens: ReviewWorkPayload["mode"],
+): Promise<ReviewExecutorPublishContext> {
+  const row = await queryOne<{
+    current_publish: { step: string; github_id: string | null }[] | null;
+    prior_summary_exists: boolean;
+    fingerprint_details: { detail: Record<string, unknown> }[] | null;
+    latest_summary_github_id: string | null;
+  }>(
+    pool,
+    `SELECT
+       COALESCE(
+         (
+           SELECT json_agg(json_build_object('step', step, 'github_id', github_id))
+             FROM publish_records
+            WHERE resource_key = $1
+              AND review_lens = $2
+              AND work_item_id = $3
+              AND status = 'completed'
+              AND step IN ('inline_review', 'summary_comment')
+         ),
+         '[]'::json
+       ) AS current_publish,
+       EXISTS (
+         SELECT 1
+           FROM publish_records
+          WHERE resource_key = $1
+            AND review_lens = $2
+            AND step = 'summary_comment'
+            AND status = 'completed'
+            AND work_item_id <> $3
+       ) AS prior_summary_exists,
+       COALESCE(
+         (
+           SELECT json_agg(json_build_object('detail', detail))
+             FROM publish_records
+            WHERE resource_key = $1
+              AND review_lens = $2
+              AND step = 'inline_review'
+              AND status = 'completed'
+         ),
+         '[]'::json
+       ) AS fingerprint_details,
+       (
+         SELECT github_id
+           FROM publish_records
+          WHERE resource_key = $1
+            AND review_lens = $2
+            AND step IN ('summary_comment', 'progress_comment')
+            AND status = 'completed'
+            AND github_id IS NOT NULL
+          ORDER BY updated_at DESC
+          LIMIT 1
+       ) AS latest_summary_github_id`,
+    [resourceKey, reviewLens, workItemId],
+  );
+  const currentPublish = row?.current_publish ?? [];
+  const shouldLinkToSummary = row?.prior_summary_exists ?? false;
+  const summaryCommentGithubId =
+    shouldLinkToSummary && row?.latest_summary_github_id
+      ? Number(row.latest_summary_github_id)
+      : null;
+  return {
+    publishState: parseReviewPublishStateRows(currentPublish),
+    shouldLinkToSummary,
+    storedInlineFingerprints: mergeStoredInlineFingerprints(row?.fingerprint_details ?? []),
+    summaryCommentGithubId:
+      summaryCommentGithubId != null && Number.isFinite(summaryCommentGithubId)
+        ? summaryCommentGithubId
+        : null,
+  };
 }
 
 export async function recordPublishStep(

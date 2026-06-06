@@ -157,13 +157,15 @@ export function processWebhookHttpRequestEffect(
         "warn",
       );
     }
-    yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "webhook_handled" }));
+    void emitOperationLogger(intakeLog, { event: "webhook_handled" }).catch(() => undefined);
     return { status: 200, body: "ok" } satisfies WebhookResponseLike;
   }).pipe(
     Effect.ensuring(
       Effect.gen(function* () {
         const intakeLog = yield* IntakeLogger;
         if (intakeLog.getContext().emitted === true) return;
+        const webhook = intakeLog.getContext().webhook as { status?: number } | undefined;
+        if (webhook?.status === 200) return;
         const lastEvent = intakeLog.getContext().lastEvent;
         yield* Effect.promise(() =>
           emitOperationLogger(intakeLog, {

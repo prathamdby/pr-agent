@@ -29,18 +29,20 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   }
   const installation = await mintInstallationToken(cfg, data.installationId);
 
-  for (const target of data.targets) {
-    try {
-      await safeReaction(installation.token, data.owner, data.repo, target);
-    } catch (e) {
-      logDebug("ack_reaction_failed", {
-        owner: data.owner,
-        repo: data.repo,
-        targetKind: target.kind,
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
+  await Promise.all(
+    data.targets.map(async (target) => {
+      try {
+        await safeReaction(installation.token, data.owner, data.repo, target);
+      } catch (e) {
+        logDebug("ack_reaction_failed", {
+          owner: data.owner,
+          repo: data.repo,
+          targetKind: target.kind,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }),
+  );
 
   if (data.progress) {
     const headSha =

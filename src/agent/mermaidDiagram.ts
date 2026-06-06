@@ -146,15 +146,21 @@ function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
   return issues;
 }
 
+export function validateSanitizedMermaidFence(sanitizedFence: string): MermaidValidationIssue[] {
+  const trimmed = sanitizedFence.trim();
+  if (!trimmed.startsWith("```mermaid")) {
+    return [{ line: 1, message: "changesDiagram must be a ```mermaid fenced block." }];
+  }
+  return validateMermaidDiagramBody(extractMermaidDiagramBody(trimmed));
+}
+
 export function validateMermaidDiagram(diagramRaw: string): MermaidValidationIssue[] {
   const trimmed = diagramRaw.trim();
   if (!trimmed) return [];
   if (!trimmed.startsWith("```mermaid")) {
     return [{ line: 1, message: "changesDiagram must be a ```mermaid fenced block." }];
   }
-  const sanitized = sanitizeMermaidDiagram(trimmed);
-  const body = extractMermaidDiagramBody(sanitized);
-  return validateMermaidDiagramBody(body);
+  return validateSanitizedMermaidFence(sanitizeMermaidDiagram(trimmed));
 }
 
 export function formatMermaidValidationError(issues: readonly MermaidValidationIssue[]): string {

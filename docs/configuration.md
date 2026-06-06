@@ -46,6 +46,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Queue retry delay max     | `QUEUE_RETRY_DELAY_MAX_SECONDS`             | `300`                    |                                                         |
 | Job expire                | `QUEUE_EXPIRE_IN_SECONDS`                   | `3600`                   |                                                         |
 | Job heartbeat             | `QUEUE_HEARTBEAT_SECONDS`                   | `60`                     | min 10                                                  |
+| Queue polling interval    | `QUEUE_POLLING_INTERVAL_SECONDS`            | `0.5`                    | pg-boss worker poll interval in seconds; min 0.5        |
 | Job retention             | `QUEUE_RETENTION_SECONDS`                   | `1209600`                |                                                         |
 | Job delete after          | `QUEUE_DELETE_AFTER_SECONDS`                | `604800`                 |                                                         |
 | Shutdown drain budget     | `SHUTDOWN_DRAIN_TIMEOUT_SECONDS`            | `25`                     | graceful pg-boss stop wait (s) on SIGTERM/SIGINT        |
@@ -204,6 +205,15 @@ These are related but not wired together on INSERT today.
 | `CURSOR_MCP_SERVER_START_TIMEOUT_MS` | 5000      |
 | `CURSOR_MAX_PORT_RETRIES`            | 5         |
 | `CURSOR_MCP_SERVER_NAME`             | pr-agent  |
+
+### Postgres pool
+
+| Symbol                           | Default |
+| -------------------------------- | ------- |
+| `POSTGRES_POOL_MAX`              | 10      |
+| `POSTGRES_IDLE_TIMEOUT_MS`       | 30000   |
+| `POSTGRES_CONNECTION_TIMEOUT_MS` | 5000    |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`  | 60000   |
 
 ### Other
 

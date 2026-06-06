@@ -1,8 +1,10 @@
+const DOUBLE_ESCAPED_SEQUENCE_RE = /\\([nrt"'\\])/g;
+const HAS_DOUBLE_ESCAPED_SEQUENCE_RE = /\\[nrt"'\\]/;
+
 function unescapeDoubleEscapedSequences(value: string): string {
-  const pattern = /\\([nrt"'\\])/g;
   let current = value;
   for (let pass = 0; pass < value.length; pass++) {
-    const next = current.replace(pattern, (_, ch: string) => {
+    const next = current.replace(DOUBLE_ESCAPED_SEQUENCE_RE, (_, ch: string) => {
       switch (ch) {
         case "n":
           return "\n";
@@ -30,7 +32,7 @@ function unescapeDoubleEscapedSequences(value: string): string {
 
 /** Unwrap model output where JSON string escapes were emitted literally (e.g. `\\n` instead of newline). */
 export function fixDoubleEscapedString(value: string): { text: string; fixed: boolean } {
-  if (!/\\[nrt"'\\]/.test(value)) {
+  if (!HAS_DOUBLE_ESCAPED_SEQUENCE_RE.test(value)) {
     return { text: value, fixed: false };
   }
 

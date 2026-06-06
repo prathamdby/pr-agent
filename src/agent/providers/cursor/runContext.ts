@@ -1,4 +1,6 @@
 import type { Context } from "@earendil-works/pi-ai";
+import type { Agent } from "@cursor/sdk";
+import type { McpBridgeHandle } from "./mcpBridge.js";
 
 export type CursorExecutor = (args: Record<string, unknown>) => Promise<unknown>;
 
@@ -9,6 +11,8 @@ export type CursorRunContext = {
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly maxToolRounds?: number;
   readonly toolRoundCounter?: { count: number };
+  readonly agent?: Awaited<ReturnType<typeof Agent.create>>;
+  readonly bridge?: McpBridgeHandle;
 };
 
 const cursorRunContexts = new WeakMap<Context, CursorRunContext>();

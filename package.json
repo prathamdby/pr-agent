@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
+    "perf:harness": "node scripts/review-internal-ms-harness.mjs",
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
     "site:dev": "pnpm --filter pr-agent-landing dev",
     "site:build": "pnpm --filter pr-agent-landing build",

@@ -31,11 +31,11 @@ function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0])
 }
 
 export type McpBridgeOptions = {
-  readonly tools: readonly PiTool[];
-  readonly executors: Record<string, CursorExecutor>;
+  readonly tools: readonly PiTool[] | (() => readonly PiTool[]);
+  readonly executors: Record<string, CursorExecutor> | (() => Record<string, CursorExecutor>);
   readonly signal?: AbortSignal;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-  readonly maxToolRounds?: number;
+  readonly maxToolRounds?: number | (() => number | undefined);
   readonly toolRoundCounter?: { count: number };
 };
 
@@ -51,6 +51,10 @@ export function checkMcpBearerAuth(
   if (!authorizationHeader) return false;
   const [scheme, value] = authorizationHeader.split(" ", 2);
   return scheme?.toLowerCase() === "bearer" && value === token;
+}
+
+function resolveOption<T>(value: T | (() => T)): T {
+  return typeof value === "function" ? (value as () => T)() : value;
 }
 
 function piToolToMcpTool(tool: PiTool): McpTool {
@@ -147,7 +151,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
   });
 
   mcpServer.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: options.tools.map(piToolToMcpTool),
+    tools: resolveOption(options.tools).map(piToolToMcpTool),
   }));
 
   mcpServer.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
@@ -172,13 +176,14 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       if (abortController.signal.aborted) {
         throw new Error("MCP tool call aborted");
       }
-      if (options.maxToolRounds != null) {
+      const maxToolRounds = resolveOption(options.maxToolRounds);
+      if (maxToolRounds != null) {
         const counter = options.toolRoundCounter ?? { count: 0 };
         counter.count += 1;
-        if (counter.count > options.maxToolRounds) {
+        if (counter.count > maxToolRounds) {
           safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
           return executorResultToMcp(
-            `Tool round limit (${options.maxToolRounds}) reached; call submitReview with your findings.`,
+            `Tool round limit (${maxToolRounds}) reached; call submitReview with your findings.`,
             true,
           );
         }
@@ -189,7 +194,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
           abortController.signal,
         );
       }
-      const exec = options.executors[toolName];
+      const exec = resolveOption(options.executors)[toolName];
       if (!exec) {
         safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
         return {

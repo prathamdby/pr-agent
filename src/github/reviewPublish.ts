@@ -52,13 +52,22 @@ export async function listPullRequestReviewCommentsForReview(
   reviewId: number,
 ): Promise<PublishedReviewComment[]> {
   const octokit = installationOctokit(token);
-  const { data } = await octokit.rest.pulls.listCommentsForReview({
-    owner,
-    repo,
-    pull_number: pullNumber,
-    review_id: reviewId,
+  const comments = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listCommentsForReview({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        review_id: reviewId,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
   });
-  const parsed = data.flatMap((comment) => {
+  const parsed = comments.flatMap((comment) => {
     if (comment.path == null || comment.line == null) return [];
     return [
       {
@@ -73,6 +82,7 @@ export async function listPullRequestReviewCommentsForReview(
 }
 
 export type IssueCommentRef = { id: number; url: string };
+export type ResolvedSummaryCommentRef = IssueCommentRef & { source: "hint" | "scan" };
 
 async function getIssueCommentIfSentinel(
   token: string,
@@ -131,6 +141,22 @@ export async function findIssueCommentBySentinel(
   return lastMatch;
 }
 
+export async function resolveVerifiedSummaryCommentRef(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  sentinel: string,
+  hintCommentId?: number | null,
+): Promise<ResolvedSummaryCommentRef | null> {
+  if (hintCommentId != null) {
+    const verified = await getIssueCommentIfSentinel(token, owner, repo, hintCommentId, sentinel);
+    if (verified) return { ...verified, source: "hint" };
+  }
+  const found = await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel);
+  return found ? { ...found, source: "scan" } : null;
+}
+
 /** Resolves a verified summary/progress comment URL; never returns an unverified stored id. */
 export async function resolveVerifiedSummaryCommentUrl(
   token: string,
@@ -140,12 +166,9 @@ export async function resolveVerifiedSummaryCommentUrl(
   sentinel: string,
   hintCommentId?: number | null,
 ): Promise<string | undefined> {
-  if (hintCommentId != null) {
-    const verified = await getIssueCommentIfSentinel(token, owner, repo, hintCommentId, sentinel);
-    if (verified) return verified.url;
-  }
-  const found = await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel);
-  return found?.url;
+  return (
+    await resolveVerifiedSummaryCommentRef(token, owner, repo, prNumber, sentinel, hintCommentId)
+  )?.url;
 }
 
 async function createIssueComment(
@@ -188,8 +211,10 @@ export async function upsertReviewSummaryComment(
   prNumber: number,
   body: string,
   sentinel: string = REVIEW_SUMMARY_SENTINEL,
+  knownExisting?: IssueCommentRef | null,
 ): Promise<{ id: number; updated: boolean }> {
-  const existing = await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel);
+  const existing =
+    knownExisting ?? (await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel));
   if (existing) {
     await updateIssueComment(token, owner, repo, existing.id, body);
     return { id: existing.id, updated: true };

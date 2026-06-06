@@ -12,13 +12,15 @@ function matchesCategory(filename: string, category: ReviewPathRiskCategory): bo
 }
 
 export function buildReviewPathProfile(changedFiles: readonly string[]): ReviewPathProfile {
-  const riskCategories: ReviewPathRiskCategory[] = [];
-  for (const category of Object.keys(REVIEW_RISK_PATH_PATTERNS) as ReviewPathRiskCategory[]) {
-    if (changedFiles.some((file) => matchesCategory(file, category))) {
-      riskCategories.push(category);
+  const found = new Set<ReviewPathRiskCategory>();
+  const categories = Object.keys(REVIEW_RISK_PATH_PATTERNS) as ReviewPathRiskCategory[];
+  for (const file of changedFiles) {
+    for (const category of categories) {
+      if (!found.has(category) && matchesCategory(file, category)) found.add(category);
     }
+    if (found.size === categories.length) break;
   }
-  return { changedFiles, riskCategories };
+  return { changedFiles, riskCategories: categories.filter((category) => found.has(category)) };
 }
 
 export function formatReviewPathProfileBlock(profile: ReviewPathProfile): string {

@@ -4,29 +4,37 @@ const state = vi.hoisted(() => ({
   prepareCalls: 0,
   failNext: false,
   cleanup: vi.fn(async () => {}),
+  pullsGetCalls: 0,
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: () => ({
     rest: {
       pulls: {
-        get: async () => ({
-          data: { base: { sha: "b".repeat(40), ref: "main" }, head: { sha: "h".repeat(40) } },
-        }),
+        get: async () => {
+          state.pullsGetCalls += 1;
+          return {
+            data: {
+              base: { sha: "b".repeat(40), ref: "main" },
+              head: { sha: "h".repeat(40) },
+              additions: 0,
+              deletions: 0,
+            },
+          };
+        },
         listFiles: async () => ({ data: [] }),
       },
     },
   }),
 }));
 
-vi.mock("../src/github/listPullRequestFiles.js", () => ({
-  fetchPullRequestFiles: async () => ({
-    files: [],
-    truncated: false,
-    omittedCountLowerBound: 0,
-    totalChanges: 0,
-  }),
-}));
+vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.js")>();
+  return {
+    fetchPullRequestFiles: (...args: Parameters<typeof actual.fetchPullRequestFiles>) =>
+      actual.fetchPullRequestFiles(...args),
+  };
+});
 
 vi.mock("../src/review/reviewPreflightFiles.js", () => ({
   buildReviewPreflightMetadataFromWorkspace: () => ({ preflight: true }),
@@ -65,6 +73,7 @@ describe("prRepositoryView cache", () => {
   afterEach(() => {
     state.prepareCalls = 0;
     state.failNext = false;
+    state.pullsGetCalls = 0;
     state.cleanup.mockClear();
   });
 
@@ -89,6 +98,11 @@ describe("prRepositoryView cache", () => {
     expect(b).toBe(2);
     expect(state.prepareCalls).toBe(1);
     expect(state.cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("issues exactly one pulls.get while preparing the repository view", async () => {
+    await withPrRepositoryView(params, async () => "ok");
+    expect(state.pullsGetCalls).toBe(1);
   });
 
   it("re-prepares after a failed clone instead of caching the failure", async () => {

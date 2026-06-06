@@ -114,6 +114,8 @@ export type AgentWorkItem = PrRef & {
   readonly cancelRequestedAt: Date | null;
 };
 
+export type AgentWorkItemCore = Omit<AgentWorkItem, "payload">;
+
 export type QueueConfig = Pick<
   Config,
   | "queueRetryLimit"
@@ -121,6 +123,7 @@ export type QueueConfig = Pick<
   | "queueRetryDelayMaxSeconds"
   | "queueExpireInSeconds"
   | "queueHeartbeatSeconds"
+  | "queuePollingIntervalSeconds"
   | "queueRetentionSeconds"
   | "queueDeleteAfterSeconds"
   | "installationGroupConcurrency"

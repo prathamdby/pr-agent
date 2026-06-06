@@ -2,14 +2,17 @@ import { MAX_ASK_QUESTION_CHARS, askQuestionTooLongHint } from "../settings/inde
 
 export const ASK_QUESTION_TOO_LONG_HINT = askQuestionTooLongHint();
 
+const LINE_SPLIT_RE = /\r?\n/;
+const ASK_COMMAND_RE = /^\/ask(?:\s+(.*))?$/;
+
 /**
  * Extract the question from `/ask ...` on the first non-empty line.
  * Supports optional surrounding quotes on the question text.
  */
 function askRestFromBody(body: string): string | null {
-  const lines = body.split(/\r?\n/);
+  const lines = body.split(LINE_SPLIT_RE);
   const first = lines.find((l) => l.trim().length > 0) ?? "";
-  const m = first.match(/^\/ask(?:\s+(.*))?$/);
+  const m = first.match(ASK_COMMAND_RE);
   if (!m) return null;
 
   let rest = (m[1] ?? "").trim();

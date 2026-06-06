@@ -1,4 +1,4 @@
-import { logDebug } from "../evlog.js";
+import { isLevelEnabled, logDebug } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { buildAskGithubTools, createAskPathGate } from "./askSafety.js";
 import { buildLocalWorkspaceTools, workspaceToolLimitsFromConfig } from "./localWorkspaceTools.js";
@@ -47,6 +47,7 @@ export function buildAskRunSetup(params: AskRunParams) {
       try {
         await refreshableGh.bundle.executors.listPullRequestFiles?.({});
       } catch (e) {
+        if (!isLevelEnabled("debug")) return;
         logDebug("ask_path_gate_prime_failed", {
           owner,
           repo,

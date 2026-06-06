@@ -95,7 +95,8 @@ export const WebhookHandlersCore = Layer.effect(
             return;
           }
           const body = data.comment.body ?? "";
-          if (!parseSlashCommand(body)) {
+          const command = parseSlashCommand(body);
+          if (!command) {
             yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
             return;
           }
@@ -112,6 +113,7 @@ export const WebhookHandlersCore = Layer.effect(
               commenterId: data.comment.user.id,
               commentId: data.comment.id,
               body,
+              command,
               replyTarget: { kind: "prConversation", prNumber: data.issue.number },
             },
             intakeLog,
@@ -130,7 +132,8 @@ export const WebhookHandlersCore = Layer.effect(
             return;
           }
           const body = data.comment.body ?? "";
-          if (!parseSlashCommand(body)) {
+          const command = parseSlashCommand(body);
+          if (!command) {
             yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
             return;
           }
@@ -147,6 +150,7 @@ export const WebhookHandlersCore = Layer.effect(
               commenterId: data.comment.user.id,
               commentId: data.comment.id,
               body,
+              command,
               replyTarget: {
                 kind: "inlineReviewThread",
                 prNumber: data.pull_request.number,

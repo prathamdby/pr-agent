@@ -32,12 +32,18 @@ function defineTool<TSchema extends z.ZodType>(tool: ReviewTool<TSchema>): Revie
   return tool;
 }
 
+const PI_TOOL_CACHE = new Map<string, PiTool>();
+
 function toPiTool(name: string, t: ReviewTool): PiTool {
-  return {
+  const cached = PI_TOOL_CACHE.get(name);
+  if (cached) return cached;
+  const tool = {
     name,
     description: t.description,
     parameters: z.toJSONSchema(t.schema, { unrepresentable: "any" }) as PiTool["parameters"],
   };
+  PI_TOOL_CACHE.set(name, tool);
+  return tool;
 }
 
 function toExecutor(t: ReviewTool): (args: Record<string, unknown>) => Promise<unknown> {

@@ -33,7 +33,7 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
         url: "https://github.com/o/r/pull/1#discussion_r99",
       },
     ]),
-    resolveVerifiedSummaryCommentUrl: vi.fn(async () => undefined),
+    resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
     upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
     listPullRequestLabels: vi.fn(async () => []),
     setPullRequestLabels: vi.fn(async () => undefined),
@@ -44,7 +44,7 @@ import {
   createPullRequestReviewWithComments,
   listPullRequestLabels,
   listPullRequestReviewCommentsForReview,
-  resolveVerifiedSummaryCommentUrl,
+  resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
@@ -399,9 +399,11 @@ describe("publishReview", () => {
   });
 
   it("links pointer when shouldLinkToSummary and comment verifies", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(
-      "https://github.com/o/r/pull/1#issuecomment-99",
-    );
+    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+      id: 99,
+      url: "https://github.com/o/r/pull/1#issuecomment-99",
+      source: "hint",
+    });
 
     await publishReviewForTest({
       ...baseParams,
@@ -411,7 +413,7 @@ describe("publishReview", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(resolveVerifiedSummaryCommentUrl).toHaveBeenCalled();
+    expect(resolveVerifiedSummaryCommentRef).toHaveBeenCalled();
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
       "t",
       "o",
@@ -427,7 +429,7 @@ describe("publishReview", () => {
   });
 
   it("falls back to plain pointer when shouldLinkToSummary but no verified comment", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(undefined);
+    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce(null);
 
     await publishReviewForTest({
       ...baseParams,
@@ -448,9 +450,11 @@ describe("publishReview", () => {
   });
 
   it("posts repeat no-bugs COMMENT review when shouldLinkToSummary and zero findings", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(
-      "https://github.com/o/r/pull/1#issuecomment-99",
-    );
+    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+      id: 99,
+      url: "https://github.com/o/r/pull/1#issuecomment-99",
+      source: "hint",
+    });
     const publishState = testPublishState();
 
     await publishReviewForTest({
@@ -479,9 +483,11 @@ describe("publishReview", () => {
   });
 
   it("does not post repeat no-bugs review when shouldLinkToSummary but P3-only findings", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentUrl).mockResolvedValueOnce(
-      "https://github.com/o/r/pull/1#issuecomment-99",
-    );
+    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+      id: 99,
+      url: "https://github.com/o/r/pull/1#issuecomment-99",
+      source: "hint",
+    });
 
     await publishReviewForTest({
       ...baseParams,

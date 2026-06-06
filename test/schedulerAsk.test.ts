@@ -10,6 +10,7 @@ import { ACK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 
 function makeSlashInput(body: string) {
+  const command = body.slice(1).split(/\s+/, 1)[0] ?? "";
   return {
     headers: { event: "issue_comment", delivery: "d1", rawBody: Buffer.from("{}") },
     installationId: 42,
@@ -19,6 +20,7 @@ function makeSlashInput(body: string) {
     commentId: 99,
     commenterId: 1,
     body,
+    command,
     replyTarget: { kind: "prConversation" as const },
   };
 }

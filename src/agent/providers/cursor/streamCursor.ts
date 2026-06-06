@@ -56,6 +56,7 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
     const runContext = getCursorRunContext(context);
     let bridgeDispose: (() => Promise<void>) | undefined;
     let agent: Awaited<ReturnType<typeof Agent.create>> | undefined;
+    let ownsAgent = false;
 
     try {
       stream.push({ type: "start", partial });
@@ -69,29 +70,34 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         throw new Error("CURSOR_API_KEY is required for Cursor provider runs");
       }
 
-      const bridge = await createMcpBridge({
-        tools: context.tools ?? [],
-        executors: runContext.executors,
-        signal: options?.signal,
-        refreshBeforeTool: runContext.refreshBeforeTool,
-        maxToolRounds: runContext.maxToolRounds,
-        toolRoundCounter: runContext.toolRoundCounter,
-      });
-      bridgeDispose = bridge.dispose;
+      const bridge =
+        runContext.bridge ??
+        (await createMcpBridge({
+          tools: context.tools ?? [],
+          executors: runContext.executors,
+          signal: options?.signal,
+          refreshBeforeTool: runContext.refreshBeforeTool,
+          maxToolRounds: runContext.maxToolRounds,
+          toolRoundCounter: runContext.toolRoundCounter,
+        }));
+      if (!runContext.bridge) bridgeDispose = bridge.dispose;
 
       const { text: promptText, inputChars } = buildCursorPrompt(context);
       const textDeltas: string[] = [];
       let abortListener: (() => void) | undefined;
 
-      agent = await Agent.create({
-        apiKey,
-        model: { id: model.id },
-        local: {
-          cwd: runContext.cwd ?? process.cwd(),
-          settingSources: [],
-        },
-        mcpServers: bridge.mcpServers,
-      });
+      agent =
+        runContext.agent ??
+        (await Agent.create({
+          apiKey,
+          model: { id: model.id },
+          local: {
+            cwd: runContext.cwd ?? process.cwd(),
+            settingSources: [],
+          },
+          mcpServers: bridge.mcpServers,
+        }));
+      ownsAgent = !runContext.agent;
 
       let run: Awaited<ReturnType<typeof agent.send>> | null = null;
       abortListener = () => {
@@ -168,7 +174,7 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
       stream.push({ type: "error", reason: "error", error: partial });
     } finally {
       detachCursorRunContext(context);
-      if (agent) {
+      if (agent && ownsAgent) {
         const dispose = agent[Symbol.asyncDispose];
         if (typeof dispose === "function") {
           await Promise.resolve(dispose.call(agent)).catch(() => undefined);

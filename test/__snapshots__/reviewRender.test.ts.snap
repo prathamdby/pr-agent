@@ -113,3 +113,31 @@ Fix src/x.ts line 4.
 
 </details>"
 `;
+
+exports[`renderReviewSummaryComment > drops finding rows from the tail when compact mode still exceeds the body budget 1`] = `
+"## PR Agent Review
+
+> [!NOTE]
+> Adds a retry wrapper around the webhook dispatcher.
+
+<table>
+<tbody>
+<tr><td><strong>Effort</strong></td><td>Moderate · <code>3/5</code></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f0.ts#L1">Bug 0</a></strong><br><em>Summary only · <code>src/f0.ts</code> · line 1</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f1.ts#L2">Bug 1</a></strong><br><em>Summary only · <code>src/f1.ts</code> · line 2</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f10.ts#L11">Bug 10</a></strong><br><em>Summary only · <code>src/f10.ts</code> · line 11</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f11.ts#L12">Bug 11</a></strong><br><em>Summary only · <code>src/f11.ts</code> · line 12</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f2.ts#L3">Bug 2</a></strong><br><em>Summary only · <code>src/f2.ts</code> · line 3</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f3.ts#L4">Bug 3</a></strong><br><em>Summary only · <code>src/f3.ts</code> · line 4</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f4.ts#L5">Bug 4</a></strong><br><em>Summary only · <code>src/f4.ts</code> · line 5</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>Relevant tests</strong></td><td>partial</td></tr>
+<tr><td><strong>Security</strong></td><td>No security concerns identified</td></tr>
+</tbody>
+</table>
+
+> [!NOTE]
+> Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.
+
+> [!NOTE]
+> 5 finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted."
+`;

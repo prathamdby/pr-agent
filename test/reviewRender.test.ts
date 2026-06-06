@@ -372,6 +372,7 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain(REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX);
     expect(body).toContain("Bug 0");
     expect(body).not.toContain("Bug 9");
+    expect(body).toMatchSnapshot();
   });
 });
 

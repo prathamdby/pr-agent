@@ -4,7 +4,6 @@ import {
   parseAskQuestionResult,
   ASK_QUESTION_TOO_LONG_HINT,
 } from "../../commands/parseAskQuestion.js";
-import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import {
   ASK_USAGE_HINT,
   DEFERRED_HEAD_SHA,
@@ -37,6 +36,7 @@ export type SlashCommandInput = {
   readonly commentId: number;
   readonly commenterId: number;
   readonly body: string;
+  readonly command: string;
   readonly replyTarget: ReplyTarget;
   readonly codeAnchor?: CodeAnchor;
 };
@@ -213,12 +213,7 @@ export async function applySlashCommandIntake(
   input: SlashCommandInput,
   intakeLog: RequestLogger,
 ): Promise<void> {
-  const command = parseSlashCommand(input.body);
-  if (!command) {
-    await insertWebhookEvent(client, input.headers, "ignored_no_slash_command");
-    return;
-  }
-
+  const command = input.command;
   const event = await insertWebhookEvent(client, input.headers, `slash_${command}`);
   if (event.duplicate) {
     recordEvent(intakeLog, "deduped_delivery", {

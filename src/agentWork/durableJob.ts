@@ -4,18 +4,21 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import {
-  mintBotIdentity,
+  getAppBotIdentity,
   mintInstallationAuth,
+  type BotIdentity,
   type InstallationToken,
 } from "../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providerErrors.js";
-import { DEFERRED_HEAD_SHA } from "../settings/index.js";
+import { DEFERRED_HEAD_SHA, TOKEN_FRESHNESS_BUFFER_MS } from "../settings/index.js";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
   getWorkItem,
+  getWorkItemCore,
+  getWorkItemPayload,
   markWorkCancelled,
   markWorkCompleted,
   markWorkFailed,
@@ -25,12 +28,34 @@ import {
   updateRunningWorkHeadSha,
 } from "./repository.js";
 import { getPullRequestHeadSha } from "./githubPrSurface.js";
-import type { AgentWorkItem, ReviewWorkPayload } from "./types.js";
+import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload } from "./types.js";
 
 type DurableExecutionContext = {
   installation: InstallationToken;
   headSha: string;
 };
+
+const installationTokenCache = new Map<number, InstallationToken | Promise<InstallationToken>>();
+let botIdentityCache: Promise<BotIdentity> | undefined;
+
+function tokenIsFresh(token: InstallationToken): boolean {
+  return token.expiresAtTs - Date.now() > TOKEN_FRESHNESS_BUFFER_MS;
+}
+
+export function clearDurableAuthCachesForTest(): void {
+  if (process.env.NODE_ENV === "test") {
+    installationTokenCache.clear();
+    botIdentityCache = undefined;
+  }
+}
+
+function getCachedBotIdentity(cfg: Config): Promise<BotIdentity> {
+  botIdentityCache ??= getAppBotIdentity(cfg).catch((error: unknown) => {
+    botIdentityCache = undefined;
+    throw error;
+  });
+  return botIdentityCache;
+}
 
 type DurableExecutionResult = {
   readonly degraded?: boolean;
@@ -45,7 +70,7 @@ export type DurableJobSpec = {
   readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: "review" | "ask" | "description";
-  readonly acceptItem?: (item: AgentWorkItem) => boolean;
+  readonly acceptItem?: (item: AgentWorkItemCore) => boolean;
   readonly resolveHeadSha: (token: string, item: AgentWorkItem) => Promise<string>;
   readonly execute: (
     item: AgentWorkItem,
@@ -62,11 +87,28 @@ export async function mintInstallationToken(
   cfg: Config,
   installationId: number,
 ): Promise<InstallationToken> {
-  const auth = await mintInstallationAuth(cfg, installationId);
-  const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
-  const now = Date.now();
-  const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
-  return { token: auth.token, expiresAtTs, ttlMs: Math.max(0, expiresAtTs - now) };
+  const cached = installationTokenCache.get(installationId);
+  if (cached) {
+    const token = await cached;
+    if (tokenIsFresh(token)) return token;
+  }
+
+  const pending = (async () => {
+    const auth = await mintInstallationAuth(cfg, installationId);
+    const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
+    const now = Date.now();
+    const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
+    return { token: auth.token, expiresAtTs, ttlMs: Math.max(0, expiresAtTs - now) };
+  })();
+  installationTokenCache.set(installationId, pending);
+  try {
+    const token = await pending;
+    installationTokenCache.set(installationId, token);
+    return token;
+  } catch (error) {
+    installationTokenCache.delete(installationId);
+    throw error;
+  }
 }
 
 export function makeInstallationTokenRefresher(
@@ -81,15 +123,18 @@ export function makeInstallationTokenRefresher(
   };
 }
 
-export async function resolveWorkItemHeadSha(token: string, item: AgentWorkItem): Promise<string> {
+export async function resolveWorkItemHeadSha(
+  token: string,
+  item: AgentWorkItemCore,
+): Promise<string> {
   return item.headSha === DEFERRED_HEAD_SHA
     ? getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber)
     : item.headSha;
 }
 
-async function isBotCommenter(cfg: Config, token: string, commenterId?: number): Promise<boolean> {
+async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolean> {
   if (commenterId == null) return false;
-  const bot = await mintBotIdentity(cfg, token);
+  const bot = await getCachedBotIdentity(cfg);
   return bot.userId === commenterId;
 }
 
@@ -126,7 +171,10 @@ async function finishRescheduledParentWorkItem(
   }
 }
 
-function workItemAccepted(item: AgentWorkItem | null, spec: DurableJobSpec): item is AgentWorkItem {
+function workItemAccepted(
+  item: AgentWorkItemCore | null,
+  spec: DurableJobSpec,
+): item is AgentWorkItemCore {
   if (!item || item.type !== spec.type) return false;
   return !spec.acceptItem || spec.acceptItem(item);
 }
@@ -136,18 +184,29 @@ function workItemAccepted(item: AgentWorkItem | null, spec: DurableJobSpec): ite
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
  */
 export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
-  const fetched = await getWorkItem(spec.pool, spec.job.data.workItemId);
-  if (!workItemAccepted(fetched, spec)) return;
-  const item = fetched;
+  const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
+  if (!workItemAccepted(core, spec)) return;
+
+  let midScaffoldSkipChecksDisabled = false;
 
   const cancelIfSkippable = async () => {
-    if (!(await shouldSkipWork(spec.pool, item))) return false;
-    await markWorkCancelled(spec.pool, item.id);
+    if (midScaffoldSkipChecksDisabled) return false;
+    if (!(await shouldSkipWork(spec.pool, core))) return false;
+    await markWorkCancelled(spec.pool, core.id);
     return true;
   };
 
+  const recheckSkippableAndCancel = async () => {
+    midScaffoldSkipChecksDisabled = false;
+    return cancelIfSkippable();
+  };
+
   if (await cancelIfSkippable()) return;
-  if (!(await claimWorkForExecution(spec.pool, item.id))) return;
+  if (!(await claimWorkForExecution(spec.pool, core.id))) return;
+  midScaffoldSkipChecksDisabled = true;
+  const payload = await getWorkItemPayload(spec.pool, core.id);
+  if (!payload) return;
+  const item: AgentWorkItem = { ...core, payload };
 
   let installation: InstallationToken | undefined;
 
@@ -155,7 +214,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     installationToken: InstallationToken,
   ): Promise<DurableExecutionContext | undefined> {
     const commenterId = (item.payload as { commenterId?: number }).commenterId;
-    if (await isBotCommenter(spec.cfg, installationToken.token, commenterId)) {
+    if (await isBotCommenter(spec.cfg, commenterId)) {
       await markWorkCancelled(spec.pool, item.id);
       return undefined;
     }
@@ -165,7 +224,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       return { installation: installationToken, headSha };
     }
 
-    await cancelIfSkippable();
+    await recheckSkippableAndCancel();
     return undefined;
   }
 
@@ -184,14 +243,14 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    if (await cancelIfSkippable()) return;
+    if (await recheckSkippableAndCancel()) return;
     if (result.rescheduled) {
       await completeRescheduledResult(result);
       return;
     }
     if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
     if (!(await markWorkCompleted(spec.pool, item.id))) {
-      await cancelIfSkippable();
+      await recheckSkippableAndCancel();
       return;
     }
     logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
@@ -210,7 +269,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       });
       throw error;
     }
-    await cancelIfSkippable();
+    await recheckSkippableAndCancel();
   }
 
   async function invokeTerminalFailureHook(error: unknown): Promise<void> {
@@ -227,7 +286,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function handleDurableExecutionError(error: unknown): Promise<void> {
-    if (await cancelIfSkippable()) return;
+    if (await recheckSkippableAndCancel()) return;
     const message = error instanceof Error ? error.message : String(error);
     if (!isTerminalPgBossAttempt(spec.job)) {
       await markRetryingOrCancel(error, message);
@@ -235,7 +294,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     }
 
     if (!(await markWorkFailed(spec.pool, item.id, error))) {
-      await cancelIfSkippable();
+      await recheckSkippableAndCancel();
       return;
     }
     await invokeTerminalFailureHook(error);

@@ -6,6 +6,7 @@ import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
 import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
 import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
+import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
 
 export class WebhookParseError extends Error {
   constructor(
@@ -35,22 +36,37 @@ function parseOrThrow<T>(eventName: string, schema: z.ZodType<T>, payload: unkno
   }
 }
 
+function payloadAction(payload: unknown): string | undefined {
+  if (payload == null || typeof payload !== "object") return undefined;
+  const action = (payload as { action?: unknown }).action;
+  return typeof action === "string" ? action : undefined;
+}
+
 /**
  * Validates payloads for events we handle with strict shapes; unknown `X-GitHub-Event` values pass through as `ignored`.
  */
 export function parseGithubPayload(eventName: string, payload: unknown): ParsedGithubEvent {
   switch (eventName) {
     case "pull_request":
+      if (!AUTOMATED_PR_ACTIONS.has(payloadAction(payload) ?? "")) {
+        return { name: "ignored", data: payload };
+      }
       return {
         name: "pull_request",
         data: parseOrThrow(eventName, pullRequestWebhookSchema, payload),
       };
     case "issue_comment":
+      if (payloadAction(payload) !== "created") {
+        return { name: "ignored", data: payload };
+      }
       return {
         name: "issue_comment",
         data: parseOrThrow(eventName, issueCommentWebhookSchema, payload),
       };
     case "pull_request_review_comment":
+      if (payloadAction(payload) !== "created") {
+        return { name: "ignored", data: payload };
+      }
       return {
         name: "pull_request_review_comment",
         data: parseOrThrow(eventName, pullRequestReviewCommentWebhookSchema, payload),

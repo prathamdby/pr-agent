@@ -18,6 +18,7 @@ export type ListPullRequestFilesResult = {
   /** Omitted file count; lower bound when more list-files pages may remain. */
   readonly omittedCountLowerBound: number;
   readonly totalChanges: number;
+  readonly headSha?: string;
   readonly warning?: string;
 };
 
@@ -90,6 +91,7 @@ export async function listPullRequestFilesPaginated(
     pull_number: pullNumber,
   });
   const totalChanges = pull.additions + pull.deletions;
+  const headSha = pull.head?.sha;
 
   const files: PullRequestFileEntry[] = [];
 
@@ -150,7 +152,7 @@ export async function listPullRequestFilesPaginated(
   }
   const warning = warnings.length > 0 ? warnings.join(" ") : undefined;
 
-  return { files, truncated, omittedCountLowerBound, totalChanges, warning };
+  return { files, truncated, omittedCountLowerBound, totalChanges, headSha, warning };
 }
 
 function mapGithubFile(

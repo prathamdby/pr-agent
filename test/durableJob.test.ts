@@ -2,11 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
-import { runDurableWorkItem, type DurableJobSpec } from "../src/agentWork/durableJob.js";
+import {
+  clearDurableAuthCachesForTest,
+  runDurableWorkItem,
+  type DurableJobSpec,
+} from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
+  getWorkItemCore: vi.fn(),
+  getWorkItemPayload: vi.fn(),
   shouldSkipWork: vi.fn(),
   markWorkCancelled: vi.fn(),
   claimWorkForExecution: vi.fn(),
@@ -20,7 +26,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
 
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
-  mintBotIdentity: vi.fn(),
+  getAppBotIdentity: vi.fn(),
 }));
 
 import * as repo from "../src/agentWork/repository.js";
@@ -51,6 +57,28 @@ function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
   };
 }
 
+function coreOf(item: AgentWorkItem): Omit<AgentWorkItem, "payload"> {
+  const { payload: _payload, ...core } = item;
+  return core;
+}
+
+function mockFetchedItem(item: AgentWorkItem | null): void {
+  vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+  vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
+  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload ?? null);
+}
+
+function mockFetchedItems(...items: AgentWorkItem[]): void {
+  vi.mocked(repo.getWorkItem).mockReset();
+  vi.mocked(repo.getWorkItemCore).mockReset();
+  vi.mocked(repo.getWorkItemPayload).mockReset();
+  for (const item of items) {
+    vi.mocked(repo.getWorkItem).mockResolvedValueOnce(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValueOnce(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValueOnce(item.payload);
+  }
+}
+
 function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: string }> {
   return {
     id: "job-1",
@@ -75,6 +103,9 @@ function runReviewWorkItem(
 }
 
 function defaultMocks() {
+  vi.mocked(repo.getWorkItem).mockReset();
+  vi.mocked(repo.getWorkItemCore).mockReset();
+  vi.mocked(repo.getWorkItemPayload).mockReset();
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
   vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
   vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
@@ -87,13 +118,14 @@ function defaultMocks() {
     type: "token",
     tokenType: "installation",
     token: "tok",
-    expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     installationId: 42,
   } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-  vi.mocked(appAuth.mintBotIdentity).mockResolvedValue({
+  clearDurableAuthCachesForTest();
+  vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
-  } as Awaited<ReturnType<typeof appAuth.mintBotIdentity>>);
+  } as Awaited<ReturnType<typeof appAuth.getAppBotIdentity>>);
 }
 
 describe("runDurableWorkItem", () => {
@@ -104,7 +136,7 @@ describe("runDurableWorkItem", () => {
 
   it("happy path: claims, mints token, resolves head, executes, marks completed", async () => {
     const item = makeItem();
-    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    mockFetchedItem(item);
     const execute = vi.fn().mockResolvedValue({});
 
     await runReviewWorkItem({ resolveHeadSha: async () => "abc123", execute });
@@ -115,11 +147,12 @@ describe("runDurableWorkItem", () => {
     expect(execute.mock.calls[0]?.[1].installation.token).toBe("tok");
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1");
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(repo.shouldSkipWork).toHaveBeenCalledTimes(2);
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
   it("returns without executing when item is null", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(null);
+    mockFetchedItem(null);
     const execute = vi.fn();
     await runReviewWorkItem({ execute });
     expect(execute).not.toHaveBeenCalled();
@@ -127,21 +160,21 @@ describe("runDurableWorkItem", () => {
   });
 
   it("returns without executing when item type mismatches", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem({ type: "ask" }));
+    mockFetchedItem(makeItem({ type: "ask" }));
     const execute = vi.fn();
     await runReviewWorkItem({ execute });
     expect(execute).not.toHaveBeenCalled();
   });
 
   it("returns without executing when acceptItem rejects", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem({ reviewLens: null }));
+    mockFetchedItem(makeItem({ reviewLens: null }));
     const execute = vi.fn();
     await runReviewWorkItem({ acceptItem: (it) => it.reviewLens != null, execute });
     expect(execute).not.toHaveBeenCalled();
   });
 
   it("cancels and returns before claim when shouldSkipWork is true", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(true);
     const execute = vi.fn();
 
@@ -153,7 +186,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("returns without executing when claim fails", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue(false);
     const execute = vi.fn();
 
@@ -164,9 +197,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("cancels when payload.commenterId matches bot identity", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(
-      makeItem({ payload: { mode: "review", source: "slash", commenterId: 999 } }),
-    );
+    mockFetchedItem(makeItem({ payload: { mode: "review", source: "slash", commenterId: 999 } }));
     const execute = vi.fn();
 
     await runReviewWorkItem({ execute });
@@ -175,8 +206,25 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
   });
 
+  it("reuses installation token and app bot identity across jobs", async () => {
+    const first = makeItem({ payload: { mode: "review", source: "slash", commenterId: 1 } });
+    const second = makeItem({
+      id: "wi-2",
+      payload: { mode: "review", source: "slash", commenterId: 1 },
+    });
+    mockFetchedItems(first, second);
+    const execute = vi.fn().mockResolvedValue({});
+
+    await runReviewWorkItem({ execute });
+    await runReviewWorkItem({ job: makeJob(), execute });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
+    expect(appAuth.getAppBotIdentity).toHaveBeenCalledTimes(1);
+  });
+
   it("returns when updateRunningWorkHeadSha races and rejects the update", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(false);
     vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const execute = vi.fn();
@@ -189,7 +237,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("marks publish degraded when execute reports { degraded: true }", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     const execute = vi.fn().mockResolvedValue({ degraded: true });
 
     await runReviewWorkItem({ execute });
@@ -199,7 +247,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("on non-terminal pg-boss attempt: marks retrying and rethrows", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     const boom = new Error("transient");
     const execute = vi.fn().mockRejectedValue(boom);
 
@@ -210,7 +258,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("on terminal pg-boss attempt: marks failed and invokes onTerminalFailure", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     const boom = new Error("dead");
     const execute = vi.fn().mockRejectedValue(boom);
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
@@ -226,7 +274,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("onTerminalFailure errors are caught (no rethrow)", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     const execute = vi.fn().mockRejectedValue(new Error("dead"));
     const onTerminalFailure = vi.fn().mockRejectedValue(new Error("hook boom"));
 
@@ -236,7 +284,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("terminal failure with markWorkFailed=false skips onTerminalFailure", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(makeItem());
+    mockFetchedItem(makeItem());
     vi.mocked(repo.markWorkFailed).mockResolvedValue(false);
     const execute = vi.fn().mockRejectedValue(new Error("dead"));
     const onTerminalFailure = vi.fn();
@@ -247,7 +295,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("completes rescheduled parent via force mark when markWorkCompleted races", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(
+    mockFetchedItem(
       makeItem({
         status: "running",
         payload: {
@@ -274,7 +322,7 @@ describe("runDurableWorkItem", () => {
   });
 
   it("throws when rescheduled parent cannot be completed and replacement marker exists", async () => {
-    vi.mocked(repo.getWorkItem).mockResolvedValue(
+    mockFetchedItem(
       makeItem({
         status: "running",
         payload: {
