@@ -142,10 +142,12 @@ export async function fetchPriorInlineReviewFeedback(
   mode: ReviewMode,
   botUserId: number,
 ): Promise<PriorInlineFeedbackThread[]> {
-  const reviewIds = await listBotReviewIdsForLens(token, owner, repo, pullNumber, mode, botUserId);
+  const [reviewIds, comments] = await Promise.all([
+    listBotReviewIdsForLens(token, owner, repo, pullNumber, mode, botUserId),
+    listPullRequestReviewComments(token, owner, repo, pullNumber),
+  ]);
   if (reviewIds.size === 0) return [];
 
-  const comments = await listPullRequestReviewComments(token, owner, repo, pullNumber);
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
   const threads = new Map<number, ReviewCommentRow[]>();
 

@@ -12,7 +12,7 @@ import {
 import {
   formatMermaidValidationError,
   sanitizeMermaidDiagram,
-  validateMermaidDiagram,
+  validateSanitizedMermaidFence,
 } from "./mermaidDiagram.js";
 
 export type SubmitDescriptionState = {
@@ -82,7 +82,7 @@ export function buildSubmitDescriptionTool(params: {
     let payload = parsed.data;
     if (payload.changesDiagram?.trim()) {
       const sanitizedDiagram = sanitizeMermaidDiagram(payload.changesDiagram);
-      const mermaidIssues = validateMermaidDiagram(sanitizedDiagram);
+      const mermaidIssues = validateSanitizedMermaidFence(sanitizedDiagram);
       if (mermaidIssues.length > 0) {
         params.state.lastValidationError = formatMermaidValidationError(mermaidIssues);
         throw new Error(params.state.lastValidationError);

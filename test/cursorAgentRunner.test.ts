@@ -1,0 +1,65 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Agent } from "@cursor/sdk";
+import type { Config } from "../src/config.js";
+
+const completeMock = vi.hoisted(() =>
+  vi.fn(async (_model: unknown, context: { messages: unknown[] }) => ({
+    role: "assistant",
+    content: [{ type: "text", text: `answer ${context.messages.length}` }],
+    timestamp: Date.now(),
+  })),
+);
+const bridgeDisposeMock = vi.hoisted(() => vi.fn(async () => undefined));
+const createMcpBridgeMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    mcpServers: { test: { type: "http", url: "http://127.0.0.1" } },
+    dispose: bridgeDisposeMock,
+  })),
+);
+
+vi.mock("@earendil-works/pi-ai", () => ({
+  complete: completeMock,
+}));
+
+vi.mock("../src/agent/providers/cursor/mcpBridge.js", () => ({
+  createMcpBridge: createMcpBridgeMock,
+}));
+
+import { cursorAgentRunnerProvider } from "../src/agent/providers/cursor/agentRunner.js";
+
+const cfg = {
+  agentProvider: "cursor",
+  cursorApiKey: "cursor-key",
+  piModel: "auto",
+} as Config;
+
+describe("cursorAgentRunnerProvider", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("reuses one MCP bridge and Cursor Agent across session sends", async () => {
+    const agentDispose = vi.fn(async () => undefined);
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: agentDispose,
+    } as never);
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+    });
+
+    await expect(session.send("one")).resolves.toEqual({ text: "answer 1" });
+    await expect(session.send("two")).resolves.toEqual({ text: "answer 3" });
+    await session.dispose();
+
+    expect(createMcpBridgeMock).toHaveBeenCalledTimes(1);
+    expect(Agent.create).toHaveBeenCalledTimes(1);
+    expect(completeMock).toHaveBeenCalledTimes(2);
+    expect(agentDispose).toHaveBeenCalledTimes(1);
+    expect(bridgeDisposeMock).toHaveBeenCalledTimes(1);
+  });
+});

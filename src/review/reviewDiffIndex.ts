@@ -18,14 +18,15 @@ export function createCachedPrDiffIndex(): CachedPrDiffIndex {
   return { truncated: false, files: new Map(), listPullRequestFilesIngested: false };
 }
 
+const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+
 /** Parse unified diff patch into contiguous RIGHT-side line ranges (additions + context). */
 export function parseCommentableRightLineRanges(patch: string): CommentableRightLineRanges {
   const lines = new Set<number>();
-  const hunkRe = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
   let rightLine = 0;
 
   for (const rawLine of patch.split("\n")) {
-    const hunkMatch = rawLine.match(hunkRe);
+    const hunkMatch = rawLine.match(DIFF_HUNK_RE);
     if (hunkMatch) {
       rightLine = Number(hunkMatch[1]);
       continue;

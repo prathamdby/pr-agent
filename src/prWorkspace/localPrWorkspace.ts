@@ -285,6 +285,7 @@ export async function prepareLocalPrWorkspace(
   const askpass = await createAskpass(rootDir);
   const tokenFile = await writeTokenFile(rootDir, installationToken);
   const changedFiles = prFiles.files.map(mapGithubStatus);
+  const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
   const checkoutMode = selectLocalPrWorkspaceCheckoutMode(cfg, params.repositorySizeKb);
   const diffIndex = createCachedPrDiffIndex();
   const patchByPath = new Map<string, string>();
@@ -339,7 +340,7 @@ export async function prepareLocalPrWorkspace(
 
   async function getBlameForPath(path: string): Promise<string> {
     const normalized = path.replace(/\\/g, "/");
-    const changed = changedFiles.find((file) => file.path === normalized);
+    const changed = changedFileByPath.get(normalized);
     if (changed?.status === "deleted") {
       return "";
     }

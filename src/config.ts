@@ -39,6 +39,7 @@ import {
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
   DEFAULT_QUEUE_HEARTBEAT_SECONDS,
+  DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS,
   DEFAULT_QUEUE_RETENTION_SECONDS,
   DEFAULT_QUEUE_RETRY_DELAY_MAX_SECONDS,
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
@@ -234,6 +235,13 @@ export function loadConfig() {
     throw new Error("QUEUE_HEARTBEAT_SECONDS must be at least 10");
   }
 
+  const queuePollingIntervalSeconds = Number(
+    optionalEnv(ENV.QUEUE_POLLING_INTERVAL_SECONDS, String(DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS)),
+  );
+  if (!Number.isFinite(queuePollingIntervalSeconds) || queuePollingIntervalSeconds < 0.5) {
+    throw new Error("QUEUE_POLLING_INTERVAL_SECONDS must be at least 0.5");
+  }
+
   const queueRetentionSeconds = readPositiveNumber(
     ENV.QUEUE_RETENTION_SECONDS,
     DEFAULT_QUEUE_RETENTION_SECONDS,
@@ -380,6 +388,7 @@ export function loadConfig() {
     queueRetryDelayMaxSeconds,
     queueExpireInSeconds,
     queueHeartbeatSeconds,
+    queuePollingIntervalSeconds,
     queueRetentionSeconds,
     queueDeleteAfterSeconds,
     shutdownDrainTimeoutSeconds,

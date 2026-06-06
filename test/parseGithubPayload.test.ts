@@ -169,6 +169,30 @@ describe("parseGithubPayload", () => {
       WebhookParseError,
     );
   });
+
+  it("ignores pull_request actions outside the automated allowlist", () => {
+    const parsed = parseGithubPayload("pull_request", {
+      action: "labeled",
+      installation: { id: 1 },
+    });
+    expect(parsed.name).toBe("ignored");
+  });
+
+  it("ignores issue_comment actions other than created", () => {
+    const parsed = parseGithubPayload("issue_comment", {
+      action: "edited",
+      installation: { id: 1 },
+    });
+    expect(parsed.name).toBe("ignored");
+  });
+
+  it("ignores pull_request_review_comment actions other than created", () => {
+    const parsed = parseGithubPayload("pull_request_review_comment", {
+      action: "edited",
+      installation: { id: 1 },
+    });
+    expect(parsed.name).toBe("ignored");
+  });
 });
 
 describe("parseInstallationId", () => {

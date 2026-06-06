@@ -3,6 +3,7 @@ import type { ReviewPhase, ReviewValidationFailureKind } from "../settings/index
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }
+  | { readonly kind: "phase_span"; readonly phase: string; readonly durationMs: number }
   | {
       readonly kind: "tool_call";
       readonly name: string;
@@ -42,6 +43,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly anchorFailureFiles: readonly string[];
   readonly proseOnlyCollapsesByPhase: Record<string, number>;
   readonly phaseRoundCounts: Record<string, number>;
+  readonly phaseSpansMs: Record<string, number>;
   readonly rateLimitCircuitOpened: boolean;
   readonly tokenNearExpiryGuardHits: number;
   readonly diffCacheEmptyAtFirstSubmit: boolean;
@@ -68,6 +70,7 @@ type MutableReviewRunMetrics = {
   anchorFailureFiles: string[];
   proseOnlyCollapsesByPhase: Record<string, number>;
   phaseRoundCounts: Record<string, number>;
+  phaseSpansMs: Record<string, number>;
   rateLimitCircuitOpened: boolean;
   tokenNearExpiryGuardHits: number;
   diffCacheEmptyAtFirstSubmit: boolean;
@@ -98,6 +101,7 @@ function createEmptyMetrics(meta: {
     anchorFailureFiles: [],
     proseOnlyCollapsesByPhase: {},
     phaseRoundCounts: {},
+    phaseSpansMs: {},
     rateLimitCircuitOpened: false,
     tokenNearExpiryGuardHits: 0,
     diffCacheEmptyAtFirstSubmit: false,
@@ -135,6 +139,9 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
   switch (event.kind) {
     case "phase_enter":
       bumpRecord(metrics.phaseRoundCounts, event.phase);
+      break;
+    case "phase_span":
+      bumpRecord(metrics.phaseSpansMs, event.phase, event.durationMs);
       break;
     case "tool_call":
       metrics.toolCallCount += 1;
@@ -186,6 +193,19 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
   }
 }
 
+export async function recordReviewPhaseSpan<T>(phase: string, run: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  try {
+    return await run();
+  } finally {
+    recordReviewMetric({
+      kind: "phase_span",
+      phase,
+      durationMs: Date.now() - startedAt,
+    });
+  }
+}
+
 export function initReviewRunMetrics(meta: {
   provider: string;
   model: string;
@@ -227,6 +247,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     anchorFailureFiles: [...metrics.anchorFailureFiles],
     proseOnlyCollapsesByPhase: { ...metrics.proseOnlyCollapsesByPhase },
     phaseRoundCounts: { ...metrics.phaseRoundCounts },
+    phaseSpansMs: { ...metrics.phaseSpansMs },
     rateLimitCircuitOpened: metrics.rateLimitCircuitOpened,
     tokenNearExpiryGuardHits: metrics.tokenNearExpiryGuardHits,
     diffCacheEmptyAtFirstSubmit: metrics.diffCacheEmptyAtFirstSubmit,

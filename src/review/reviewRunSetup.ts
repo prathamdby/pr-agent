@@ -97,7 +97,8 @@ export function buildReviewRunSetup(params: {
     trustedContext,
   } = params;
 
-  let cachedDiffIndex: CachedPrDiffIndex = createCachedPrDiffIndex();
+  const cachedDiffIndex: CachedPrDiffIndex =
+    params.workspace?.diffIndex ?? createCachedPrDiffIndex();
   const submitState: SubmitReviewState = createSubmitReviewState({
     published: params.initialPublishState?.published,
     inlinePublished: params.initialPublishState?.inlinePublished,
@@ -125,14 +126,6 @@ export function buildReviewRunSetup(params: {
       return { piTools: gh.piTools, executors };
     },
   });
-
-  if (params.workspace) {
-    cachedDiffIndex.truncated = params.workspace.diffIndex.truncated;
-    cachedDiffIndex.listPullRequestFilesIngested = true;
-    for (const [path, file] of params.workspace.diffIndex.files.entries()) {
-      cachedDiffIndex.files.set(path, file);
-    }
-  }
 
   const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
   const buildSubmit = () =>

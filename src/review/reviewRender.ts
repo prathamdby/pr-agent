@@ -57,9 +57,13 @@ export {
 
 export type RenderContext = ReviewPublishContext;
 
+const CODE_FENCE_RE = /```/g;
+const HTML_COMMENT_DASH_RE = /--/g;
+const HTML_COMMENT_CLOSE_RE = />/g;
+
 /** Prevent model-authored text from closing a surrounding markdown code fence. */
 function escapeCodeFenceBreakers(text: string): string {
-  return text.replace(/```/g, "\\`\\`\\`");
+  return text.replace(CODE_FENCE_RE, "\\`\\`\\`");
 }
 
 function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
@@ -149,7 +153,7 @@ function sanitizeReviewMetaHeadSha(headSha: string): string {
 }
 
 function escapeHtmlCommentAttr(value: string): string {
-  return value.replace(/--/g, "-&#45;").replace(/>/g, "&gt;");
+  return value.replace(HTML_COMMENT_DASH_RE, "-&#45;").replace(HTML_COMMENT_CLOSE_RE, "&gt;");
 }
 
 function renderDroppedInlineAnchorNote(
@@ -528,7 +532,7 @@ export function fitReviewSummaryBody(
   },
   maxBodyChars: number,
 ): string {
-  const sortedCount = sortPlacements(ctx.placements).length;
+  const sortedCount = ctx.placements.length;
 
   const full = buildReviewSummaryBody(payload, ctx, {
     compact: false,
@@ -547,7 +551,11 @@ export function fitReviewSummaryBody(
     return compact;
   }
 
-  for (let limit = sortedCount - 1; limit >= 0; limit--) {
+  let lo = 0;
+  let hi = sortedCount - 1;
+  let best: string | null = null;
+  while (lo <= hi) {
+    const limit = Math.floor((lo + hi) / 2);
     const omitted = sortedCount - limit;
     const trimmed = buildReviewSummaryBody(payload, ctx, {
       compact: true,
@@ -557,9 +565,13 @@ export function fitReviewSummaryBody(
       omittedFindingCount: omitted,
     });
     if (trimmed.length <= maxBodyChars) {
-      return trimmed;
+      best = trimmed;
+      lo = limit + 1;
+    } else {
+      hi = limit - 1;
     }
   }
+  if (best) return best;
 
   return buildReviewSummaryBody(payload, ctx, {
     compact: true,

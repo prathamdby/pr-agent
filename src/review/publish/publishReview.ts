@@ -3,7 +3,7 @@ import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js"
 import {
   listPullRequestLabels,
   listPullRequestReviewCommentsForReview,
-  resolveVerifiedSummaryCommentUrl,
+  resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
   upsertReviewSummaryComment,
 } from "../../github/reviewPublish.js";
@@ -112,8 +112,9 @@ export async function publishReview(
   };
 
   let summaryCommentUrl: string | undefined;
+  let scannedSummaryCommentRef: { id: number; url: string } | null = null;
   if (params.shouldLinkToSummary) {
-    summaryCommentUrl = await resolveVerifiedSummaryCommentUrl(
+    const resolvedSummary = await resolveVerifiedSummaryCommentRef(
       token,
       owner,
       repo,
@@ -121,6 +122,11 @@ export async function publishReview(
       summarySentinel,
       params.summaryCommentIdHint,
     );
+    summaryCommentUrl = resolvedSummary?.url;
+    scannedSummaryCommentRef =
+      resolvedSummary?.source === "scan"
+        ? { id: resolvedSummary.id, url: resolvedSummary.url }
+        : null;
   }
 
   const publishMetaBase = {
@@ -186,14 +192,23 @@ export async function publishReview(
     staleReview: params.staleReview ?? false,
   });
 
-  const summary = await upsertReviewSummaryComment(
-    token,
-    owner,
-    repo,
-    prNumber,
-    summaryBody,
-    summarySentinel,
-  );
+  const shouldSyncLabels = cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity;
+  const labelsPromise = shouldSyncLabels
+    ? listPullRequestLabels(token, owner, repo, prNumber).catch((e: unknown) => e)
+    : Promise.resolve<string[] | null>(null);
+  const summaryUpsert =
+    scannedSummaryCommentRef != null
+      ? upsertReviewSummaryComment(
+          token,
+          owner,
+          repo,
+          prNumber,
+          summaryBody,
+          summarySentinel,
+          scannedSummaryCommentRef,
+        )
+      : upsertReviewSummaryComment(token, owner, repo, prNumber, summaryBody, summarySentinel);
+  const [summary, currentLabels] = await Promise.all([summaryUpsert, labelsPromise]);
   await params.recordPublishStep?.("summary_comment", {
     githubId: summary.id,
     meta: { updated: summary.updated, ...publishMetaBase },
@@ -207,17 +222,18 @@ export async function publishReview(
     updated: summary.updated,
   });
 
-  if (cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity) {
+  if (shouldSyncLabels) {
     try {
-      const current = await listPullRequestLabels(token, owner, repo, prNumber);
+      if (currentLabels instanceof Error) throw currentLabels;
+      if (!Array.isArray(currentLabels)) return;
       if (
-        labelsAlreadySynced(current, payload, {
+        labelsAlreadySynced(currentLabels, payload, {
           effort: cfg.enableReviewLabelsEffort,
           security: cfg.enableReviewLabelsSecurity,
         })
       ) {
         await params.recordPublishStep?.("labels", {
-          meta: { labels: current, alreadySynced: true },
+          meta: { labels: currentLabels, alreadySynced: true },
         });
         return;
       }
@@ -225,7 +241,7 @@ export async function publishReview(
         effort: cfg.enableReviewLabelsEffort,
         security: cfg.enableReviewLabelsSecurity,
       });
-      const next = syncReviewLabels(current, managed);
+      const next = syncReviewLabels(currentLabels, managed);
       await setPullRequestLabels(token, owner, repo, prNumber, next);
       await params.recordPublishStep?.("labels", { meta: { labels: next } });
       logDebug("review_labels_synced", { owner, repo, pr: prNumber, labels: next });

@@ -6,28 +6,48 @@ function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: numbe
   return aStart <= bEnd && bStart <= aEnd;
 }
 
-function isDuplicateFinding(existing: ReviewFinding, candidate: ReviewFinding): boolean {
-  if (existing.file !== candidate.file) return false;
+type NormalizedFinding = {
+  readonly finding: ReviewFinding;
+  readonly title: string;
+  readonly detail: string;
+};
+
+function dedupeKey(finding: NormalizedFinding): string {
+  return `${finding.finding.file}\0${finding.title}\0${finding.detail}`;
+}
+
+function isDuplicateFinding(existing: NormalizedFinding, candidate: NormalizedFinding): boolean {
   if (
-    !rangesOverlap(existing.startLine, existing.endLine, candidate.startLine, candidate.endLine)
+    !rangesOverlap(
+      existing.finding.startLine,
+      existing.finding.endLine,
+      candidate.finding.startLine,
+      candidate.finding.endLine,
+    )
   ) {
     return false;
   }
-  return (
-    normalizeFindingSubstance(existing.title) === normalizeFindingSubstance(candidate.title) &&
-    normalizeFindingSubstance(existing.detail) === normalizeFindingSubstance(candidate.detail)
-  );
+  return true;
 }
 
 /** Drop duplicates when same file, overlapping lines, and matching title/detail; keep higher severity. */
 export function dedupeReviewFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
   const sorted = [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
   const kept: ReviewFinding[] = [];
+  const buckets = new Map<string, NormalizedFinding[]>();
 
   for (const candidate of sorted) {
-    if (!kept.some((existing) => isDuplicateFinding(existing, candidate))) {
-      kept.push(candidate);
-    }
+    const normalized = {
+      finding: candidate,
+      title: normalizeFindingSubstance(candidate.title),
+      detail: normalizeFindingSubstance(candidate.detail),
+    };
+    const key = dedupeKey(normalized);
+    const bucket = buckets.get(key) ?? [];
+    if (bucket.some((existing) => isDuplicateFinding(existing, normalized))) continue;
+    bucket.push(normalized);
+    buckets.set(key, bucket);
+    kept.push(candidate);
   }
 
   return kept;

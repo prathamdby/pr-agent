@@ -80,14 +80,16 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           const durableQueueOptions = {
             groupConcurrency: cfg.installationGroupConcurrency,
             heartbeatRefreshSeconds: heartbeatRefresh,
+            pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
           };
+          const fastQueueOptions = { pollingIntervalSeconds: cfg.queuePollingIntervalSeconds };
           await cleanupStaleLocalPrWorkspaces(cfg);
           await ensureRetentionSchedule(boss, cfg);
           await Promise.all([
             registerPlainQueue<AckJobData>(
               boss,
               ACK_QUEUE,
-              { localConcurrency: cfg.ackConcurrency },
+              { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeAckJob(cfg, pool, job.data),
             ),
             registerMetadataQueue<ReviewJobData>(
@@ -108,17 +110,22 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               { localConcurrency: cfg.descriptionConcurrency, ...durableQueueOptions },
               (job) => executeDescriptionJob(cfg, pool, boss, job),
             ),
-            registerPlainQueue(boss, RETENTION_QUEUE, { localConcurrency: 1 }, async () => {
-              try {
-                const result = await runRetention(pool, cfg);
-                logInfo("retention_cleanup", result);
-              } catch (e) {
-                logError("retention_cleanup_failed", {
-                  message: e instanceof Error ? e.message : String(e),
-                });
-                throw e;
-              }
-            }),
+            registerPlainQueue(
+              boss,
+              RETENTION_QUEUE,
+              { localConcurrency: 1, ...fastQueueOptions },
+              async () => {
+                try {
+                  const result = await runRetention(pool, cfg);
+                  logInfo("retention_cleanup", result);
+                } catch (e) {
+                  logError("retention_cleanup_failed", {
+                    message: e instanceof Error ? e.message : String(e),
+                  });
+                  throw e;
+                }
+              },
+            ),
           ]);
           logInfo("agent_worker_started", {
             queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, RETENTION_QUEUE],

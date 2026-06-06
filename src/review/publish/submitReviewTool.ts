@@ -31,6 +31,12 @@ export type SubmitReviewState = {
   publishSuperseded: boolean;
 };
 
+const SUBMIT_REVIEW_SCHEMA = createReviewPayloadSchema();
+const REVIEW_PAYLOAD_MINIMAL_EXAMPLE_JSON = JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE);
+const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
+  unrepresentable: "any",
+}) as PiTool["parameters"];
+
 export function createSubmitReviewState(
   initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished" | "inlineReviewId">>,
 ): SubmitReviewState {
@@ -67,7 +73,6 @@ export function buildSubmitReviewTool(params: {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
 } {
-  const submitSchema = createReviewPayloadSchema();
   const mode = params.mode ?? "review";
 
   const summarySentinel = reviewSummarySentinelForMode(mode);
@@ -79,9 +84,9 @@ export function buildSubmitReviewTool(params: {
       `This publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
       "Fields: prCharacter (string), findings (array), estimatedEffort (integer 1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (string array, max 5).",
       "Each finding: severity P0|P1|P2|P3, file, startLine, endLine, title, detail; fixPrompt required for P0/P1/P2.",
-      `Minimal valid example: ${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE)}`,
+      `Minimal valid example: ${REVIEW_PAYLOAD_MINIMAL_EXAMPLE_JSON}`,
     ].join(" "),
-    parameters: z.toJSONSchema(submitSchema, { unrepresentable: "any" }) as PiTool["parameters"],
+    parameters: SUBMIT_REVIEW_PARAMETERS,
   };
 
   const executor = async (args: Record<string, unknown>) => {
@@ -127,7 +132,7 @@ export function buildSubmitReviewTool(params: {
       });
     }
 
-    const parsed = submitSchema.safeParse(coercedArgs);
+    const parsed = SUBMIT_REVIEW_SCHEMA.safeParse(coercedArgs);
     if (!parsed.success) {
       const formatted = formatReviewValidationError(parsed.error);
       params.state.lastValidationError = formatted.message;

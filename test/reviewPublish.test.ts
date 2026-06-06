@@ -2,22 +2,28 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 
 const listComments = vi.fn();
+const updateComment = vi.fn();
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: () => ({
     rest: {
       issues: {
         listComments,
+        updateComment,
       },
     },
   }),
 }));
 
-import { findIssueCommentBySentinel } from "../src/github/reviewPublish.js";
+import {
+  findIssueCommentBySentinel,
+  upsertReviewSummaryComment,
+} from "../src/github/reviewPublish.js";
 
 describe("findIssueCommentBySentinel", () => {
   beforeEach(() => {
     listComments.mockReset();
+    updateComment.mockReset();
   });
 
   it("paginates and returns the last matching comment across pages", async () => {
@@ -44,5 +50,31 @@ describe("findIssueCommentBySentinel", () => {
     const hit = await findIssueCommentBySentinel("tok", "o", "r", 1, REVIEW_SUMMARY_SENTINEL);
 
     expect(hit).toBeNull();
+  });
+
+  it("uses a scan-derived existing summary ref without paginating again", async () => {
+    listComments.mockResolvedValueOnce({
+      data: [{ id: 102, body: `${REVIEW_SUMMARY_SENTINEL}\n\nnewest` }],
+    });
+
+    const found = await findIssueCommentBySentinel("tok", "o", "r", 1, REVIEW_SUMMARY_SENTINEL);
+    const result = await upsertReviewSummaryComment(
+      "tok",
+      "o",
+      "r",
+      1,
+      `${REVIEW_SUMMARY_SENTINEL}\n\nupdated`,
+      REVIEW_SUMMARY_SENTINEL,
+      found,
+    );
+
+    expect(result).toEqual({ id: 102, updated: true });
+    expect(listComments).toHaveBeenCalledTimes(1);
+    expect(updateComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        comment_id: 102,
+        body: `${REVIEW_SUMMARY_SENTINEL}\n\nupdated`,
+      }),
+    );
   });
 });

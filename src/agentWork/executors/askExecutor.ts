@@ -10,8 +10,13 @@ import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJo
 import { getPullRequestHeadSha, postSlashReply } from "../githubPrSurface.js";
 import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
 
-async function publishAskAnswer(token: string, item: AgentWorkItem, answer: string): Promise<void> {
-  const body = sanitizeAskAnswerText(answer);
+async function publishAskAnswer(
+  token: string,
+  item: AgentWorkItem,
+  answer: string,
+  alreadySanitized = false,
+): Promise<void> {
+  const body = alreadySanitized ? answer : sanitizeAskAnswerText(answer);
   const replyTarget = (item.payload as AskWorkPayload).replyTarget;
   if (replyTarget.kind === "inlineReviewThread") {
     try {
@@ -88,7 +93,7 @@ export async function executeAskJob(
               tokenState,
             ),
           });
-          await publishAskAnswer(tokenState.installation.token, item, result.answer);
+          await publishAskAnswer(tokenState.installation.token, item, result.answer, true);
           return {};
         },
       );
@@ -104,6 +109,7 @@ export async function executeAskJob(
           message: "PR Agent could not complete this ask after retries. Please try again later.",
           replyTarget: payload.replyTarget,
         }),
+        true,
       );
     },
   });

@@ -268,6 +268,11 @@ export const SECONDARY_RATE_LIMIT_MAX_RETRIES = 3;
 export const COMMENTS_PAGE_SIZE = 100;
 export const COMMENT_PAGINATION_MAX_PAGES = 20;
 
+export const POSTGRES_POOL_MAX = 10;
+export const POSTGRES_IDLE_TIMEOUT_MS = 30_000;
+export const POSTGRES_CONNECTION_TIMEOUT_MS = 5_000;
+export const POSTGRES_STATEMENT_TIMEOUT_MS = 60_000;
+
 export const TOKEN_EXPIRED_TOOL_MESSAGE =
   "Installation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.";
 

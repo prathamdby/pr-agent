@@ -1,5 +1,6 @@
 import { complete } from "@earendil-works/pi-ai";
 import type { Context, Tool as PiTool } from "@earendil-works/pi-ai";
+import { Agent } from "@cursor/sdk";
 import type {
   AgentRunnerProvider,
   AgentRunnerSendOptions,
@@ -7,6 +8,7 @@ import type {
 } from "../interface.js";
 import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel } from "./models.js";
+import { createMcpBridge } from "./mcpBridge.js";
 
 function assistantText(content: Context["messages"][number]): string {
   if (content.role !== "assistant" || !Array.isArray(content.content)) return "";
@@ -30,16 +32,39 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     let savedExecutors: Record<string, AgentRunnerToolExecutor> | null = null;
     let activeMaxToolRounds: number | undefined;
     const toolRoundCounter = { count: 0 };
+    const apiKey = cfg.cursorApiKey?.trim();
+    if (!apiKey) {
+      throw new Error("CURSOR_API_KEY is required for Cursor provider runs");
+    }
+    const bridge = await createMcpBridge({
+      tools: () => context.tools ?? [],
+      executors: () => activeExecutors,
+      refreshBeforeTool,
+      maxToolRounds: () => activeMaxToolRounds,
+      toolRoundCounter,
+    });
+    const agent = await Agent.create({
+      apiKey,
+      model: { id: model.id },
+      local: {
+        cwd: cwd ?? process.cwd(),
+        settingSources: [],
+      },
+      mcpServers: bridge.mcpServers,
+    });
+    let disposed = false;
 
     const syncRunContext = (maxToolRounds?: number) => {
       activeMaxToolRounds = maxToolRounds;
       attachCursorRunContext(context, {
         executors: activeExecutors,
-        apiKey: cfg.cursorApiKey,
+        apiKey,
         cwd,
         refreshBeforeTool,
         maxToolRounds,
         toolRoundCounter,
+        agent,
+        bridge,
       });
     };
 
@@ -78,7 +103,15 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         savedExecutors = null;
       },
       async dispose() {
-        // Cursor MCP bridge lifecycle is scoped to each complete() call.
+        if (disposed) return;
+        disposed = true;
+        const disposeAgent = agent[Symbol.asyncDispose];
+        await Promise.allSettled([
+          typeof disposeAgent === "function"
+            ? Promise.resolve(disposeAgent.call(agent))
+            : Promise.resolve(),
+          bridge.dispose(),
+        ]);
       },
     };
   },
