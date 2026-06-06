@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
 import {
   clearDurableAuthCachesForTest,
+  mintInstallationToken,
   runDurableWorkItem,
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
@@ -151,6 +152,19 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
+  it("returns without executing when payload is missing after claim", async () => {
+    const item = makeItem();
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(null);
+    const execute = vi.fn();
+
+    await runReviewWorkItem({ execute });
+
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkCompleted).not.toHaveBeenCalled();
+  });
+
   it("returns without executing when item is null", async () => {
     mockFetchedItem(null);
     const execute = vi.fn();
@@ -204,6 +218,36 @@ describe("runDurableWorkItem", () => {
 
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
+  });
+
+  it("single-flights concurrent installation token mints", async () => {
+    clearDurableAuthCachesForTest();
+    let releaseMint!: () => void;
+    const mintGate = new Promise<void>((resolve) => {
+      releaseMint = resolve;
+    });
+    vi.mocked(appAuth.mintInstallationAuth).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          mintGate.then(() =>
+            resolve({
+              type: "token",
+              tokenType: "installation",
+              token: "tok",
+              expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+              installationId: 42,
+            } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>),
+          );
+        }),
+    );
+
+    const pending = Promise.all([mintInstallationToken(cfg, 42), mintInstallationToken(cfg, 42)]);
+    await Promise.resolve();
+    expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
+    releaseMint();
+    const [first, second] = await pending;
+    expect(first.token).toBe("tok");
+    expect(second.token).toBe("tok");
   });
 
   it("reuses installation token and app bot identity across jobs", async () => {

@@ -28,6 +28,7 @@ const cfg: Config = {
   queueRetryDelayMaxSeconds: 300,
   queueExpireInSeconds: 3600,
   queueHeartbeatSeconds: 60,
+  queuePollingIntervalSeconds: 0.5,
   queueRetentionSeconds: 1209600,
   queueDeleteAfterSeconds: 604800,
   installationGroupConcurrency: 2,

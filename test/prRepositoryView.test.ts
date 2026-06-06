@@ -59,6 +59,7 @@ vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
 }));
 
 import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
+import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 
 const params = {
   cfg: {} as never,
@@ -103,6 +104,17 @@ describe("prRepositoryView cache", () => {
   it("issues exactly one pulls.get while preparing the repository view", async () => {
     await withPrRepositoryView(params, async () => "ok");
     expect(state.pullsGetCalls).toBe(1);
+  });
+
+  it("shares one fetchPullRequestFiles call across concurrent holders", async () => {
+    const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
+    await Promise.all([
+      withPrRepositoryView(params, async () => "a"),
+      withPrRepositoryView(params, async () => "b"),
+    ]);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0]?.[0]).toBe("t");
+    fetchSpy.mockRestore();
   });
 
   it("re-prepares after a failed clone instead of caching the failure", async () => {
