@@ -4,7 +4,11 @@ import {
   getFastParamModelIds,
   initCursorModelCapabilities,
 } from "./modelCapabilities.js";
-import { assertCursorModelFastSelection, assertCursorModelId, listTopCursorModelIds } from "./models.js";
+import {
+  assertCursorModelFastSelection,
+  assertCursorModelId,
+  listTopCursorModelIds,
+} from "./models.js";
 import { registerCursorProvider } from "./register.js";
 
 export type CursorWorkerBootInfo = {

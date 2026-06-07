@@ -1,5 +1,5 @@
 import { Cursor, type ModelListItem } from "@cursor/sdk";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
 import {
   CURSOR_DEFAULT_CONTEXT_WINDOW,
   CURSOR_DEFAULT_MAX_TOKENS,
