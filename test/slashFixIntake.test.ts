@@ -3,8 +3,14 @@ import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { createOperationLogger } from "../src/evlog.js";
 import { applySlashCommandIntake } from "../src/agentWork/intake/slashIntake.js";
-import { ACK_QUEUE, FIX_QUEUE, FIX_USAGE_HINT } from "../src/settings/index.js";
+import {
+  ACK_QUEUE,
+  FIX_ALREADY_IN_PROGRESS,
+  FIX_QUEUE,
+  FIX_USAGE_HINT,
+} from "../src/settings/index.js";
 import type { SlashCommandInput } from "../src/agentWork/intake/applier.js";
+import type { FixTargetSelector } from "../src/agentWork/types.js";
 
 function makeInput(overrides: Partial<SlashCommandInput> = {}): SlashCommandInput {
   return {
@@ -33,7 +39,7 @@ function makeInput(overrides: Partial<SlashCommandInput> = {}): SlashCommandInpu
   };
 }
 
-function makeClient() {
+function makeClient(activeFixRows: Array<{ id: string; selector: FixTargetSelector }> = []) {
   const insertedWorkPayloads: unknown[] = [];
   const client = {
     query: vi.fn(async (sql: string, params?: unknown[]) => {
@@ -41,7 +47,13 @@ function makeClient() {
         return { rows: [{ id: "event-1" }], rowCount: 1 };
       }
       if (sql.includes("FROM agent_work_items")) {
-        return { rows: [], rowCount: 0 };
+        return {
+          rows: activeFixRows.map((row) => ({
+            id: row.id,
+            payload: { selector: row.selector },
+          })),
+          rowCount: activeFixRows.length,
+        };
       }
       if (sql.includes("INSERT INTO agent_work_items")) {
         insertedWorkPayloads.push(JSON.parse(String(params?.at(-1))));
@@ -79,6 +91,33 @@ describe("slash auto-fix intake", () => {
         commandCommentId: 101,
       }),
     ]);
+  });
+
+  it("rejects /fix when another target is already queued on the PR", async () => {
+    const sentJobs: Array<{ queue: string; data: Record<string, unknown> }> = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const { client, insertedWorkPayloads } = makeClient([
+      { id: "work-active", selector: { kind: "inline", inlineReviewCommentId: 77 } },
+    ]);
+
+    await applySlashCommandIntake(
+      boss,
+      client,
+      makeInput(),
+      createOperationLogger({ method: "POST", path: "/webhooks" }),
+    );
+
+    expect(sentJobs).toHaveLength(1);
+    expect(sentJobs[0]?.data.reply).toEqual({
+      target: makeInput().replyTarget,
+      body: FIX_ALREADY_IN_PROGRESS,
+    });
+    expect(insertedWorkPayloads).toEqual([]);
   });
 
   it("rejects /fix outside an inline reply before creating work", async () => {
