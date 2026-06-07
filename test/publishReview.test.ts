@@ -145,6 +145,31 @@ describe("publishReview", () => {
     ]);
   });
 
+  it("records auto-fix targets after inline enrichment when summary publish fails", async () => {
+    const recordAutoFixTargets = vi.fn(async () => undefined);
+    vi.mocked(upsertReviewSummaryComment).mockRejectedValueOnce(new Error("summary failed"));
+
+    await expect(
+      publishReviewForTest({
+        ...baseParams,
+        publishState: testPublishState(),
+        cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+        recordAutoFixTargets,
+      }),
+    ).rejects.toThrow("summary failed");
+
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([
+      expect.objectContaining({
+        placementKind: "inline",
+        inlineReviewCommentId: 99,
+        finding: expect.objectContaining({
+          severity: "P1",
+          file: "src/x.ts",
+        }),
+      }),
+    ]);
+  });
+
   it("suppresses inline review when stored fingerprint matches", async () => {
     const finding = payload.findings[0];
     const stored = fingerprintFinding(finding, "review");
