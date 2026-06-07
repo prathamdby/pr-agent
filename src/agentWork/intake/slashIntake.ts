@@ -216,7 +216,7 @@ async function handleSlashFix(ctx: SlashIntakeContext): Promise<void> {
     selector,
     includeQueued: true,
   });
-  if (conflict.kind === "fix_all" || conflict.kind === "same_target") {
+  if (conflict.kind !== "none") {
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,

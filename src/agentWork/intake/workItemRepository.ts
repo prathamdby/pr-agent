@@ -213,7 +213,6 @@ export async function createFixWorkItem(
 
 export type ActiveFixConflict =
   | { readonly kind: "none" }
-  | { readonly kind: "fix_all"; readonly workItemId: string }
   | { readonly kind: "same_target"; readonly workItemId: string }
   | { readonly kind: "any_fix"; readonly workItemId: string };
 
@@ -245,12 +244,13 @@ export async function findActiveFixConflict(
     if (params.selector.kind === "all") {
       return { kind: "any_fix", workItemId: row.id };
     }
-    if (activeSelector.kind === "all") {
-      return { kind: "fix_all", workItemId: row.id };
-    }
-    if (activeSelector.inlineReviewCommentId === params.selector.inlineReviewCommentId) {
+    if (
+      activeSelector.kind === "inline" &&
+      activeSelector.inlineReviewCommentId === params.selector.inlineReviewCommentId
+    ) {
       return { kind: "same_target", workItemId: row.id };
     }
+    return { kind: "any_fix", workItemId: row.id };
   }
 
   return { kind: "none" };
