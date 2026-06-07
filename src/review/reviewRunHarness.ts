@@ -22,6 +22,7 @@ import {
   type ReviewMode,
 } from "./reviewSchema.js";
 import type { ReviewRunResult } from "./reviewRun.js";
+import type { PersistAutoFixTargetInput } from "../autoFix/types.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -58,6 +59,7 @@ export async function runReviewHarness(params: {
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
+  recordAutoFixTargets?: (targets: readonly PersistAutoFixTargetInput[]) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;

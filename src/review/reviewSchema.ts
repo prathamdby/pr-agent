@@ -397,7 +397,9 @@ export function formatReviewValidationError(error: z.ZodError): {
   return { message: lines.join("\n"), failureKind, paths };
 }
 
-export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
+export function isInlineSeverity(
+  severity: ReviewFinding["severity"],
+): severity is "P0" | "P1" | "P2" {
   return severity === "P0" || severity === "P1" || severity === "P2";
 }
 

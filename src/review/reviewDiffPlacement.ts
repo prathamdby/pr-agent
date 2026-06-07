@@ -9,6 +9,8 @@ export type InlinePlacement = {
   readonly inlinePosted: boolean;
   /** Set at publish time when the inline thread exists on the Files tab. */
   readonly inlineCommentUrl?: string;
+  /** Set at publish time when the inline thread exists on the Files tab. */
+  readonly inlineCommentId?: number;
 };
 
 export function planInlinePlacements(

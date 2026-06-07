@@ -24,6 +24,7 @@ import {
 } from "./publish/submitReviewTool.js";
 import type { ReviewMode } from "./reviewSchema.js";
 import { buildReviewRunUserContent } from "./reviewUserMessage.js";
+import type { PersistAutoFixTargetInput } from "../autoFix/types.js";
 
 function systemPromptForReviewMode(reviewMode: ReviewMode): string {
   switch (reviewMode) {
@@ -79,6 +80,7 @@ export function buildReviewRunSetup(params: {
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
+  recordAutoFixTargets?: (targets: readonly PersistAutoFixTargetInput[]) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
@@ -140,6 +142,7 @@ export function buildReviewRunSetup(params: {
       shouldLinkToSummary: params.shouldLinkToSummary,
       summaryCommentIdHint: params.summaryCommentIdHint,
       recordPublishStep: params.recordPublishStep,
+      recordAutoFixTargets: params.recordAutoFixTargets,
       shouldAbortPublish: params.shouldAbortPublish,
       storedInlineFingerprints: params.storedInlineFingerprints,
       publishAbortState: params.publishAbortState,

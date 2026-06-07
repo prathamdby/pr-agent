@@ -19,6 +19,7 @@ import {
 import type { CachedPrDiffIndex } from "../reviewDiffIndex.js";
 import { runInlinePublishPhase } from "../reviewPublishInlinePhase.js";
 import {
+  fingerprintFinding,
   mergeInlineFingerprintRecords,
   suppressInlinePlacementsByFingerprint,
 } from "../reviewFindingFingerprint.js";
@@ -32,6 +33,7 @@ import {
   type ReviewPublishContext,
 } from "../reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
+import type { PersistAutoFixTargetInput } from "../../autoFix/types.js";
 
 function fingerprintsForInlineReviewStep(params: {
   storedInlineFingerprints: readonly string[];
@@ -62,6 +64,7 @@ export async function publishReview(
       step: "inline_review" | "summary_comment" | "labels",
       detail?: { githubId?: string | number; meta?: Record<string, unknown> },
     ) => Promise<void>;
+    recordAutoFixTargets?: (targets: readonly PersistAutoFixTargetInput[]) => Promise<void>;
     storedInlineFingerprints?: readonly string[];
     /** Reuse placements already computed during prepare; recomputed when omitted. */
     inlinePlacements?: readonly InlinePlacement[];
@@ -213,6 +216,24 @@ export async function publishReview(
     githubId: summary.id,
     meta: { updated: summary.updated, ...publishMetaBase },
   });
+  await params.recordAutoFixTargets?.(
+    summaryPlacements.flatMap((placement): PersistAutoFixTargetInput[] => {
+      const finding = placement.finding;
+      if (!isInlineSeverity(finding.severity) || !finding.fixPrompt) return [];
+      return [
+        {
+          finding: {
+            ...finding,
+            severity: finding.severity,
+            fixPrompt: finding.fixPrompt,
+          },
+          fingerprint: fingerprintFinding(finding, mode),
+          placementKind: placement.inlinePosted ? "inline" : "summary",
+          inlineReviewCommentId: placement.inlineCommentId,
+        },
+      ];
+    }),
+  );
   logDebug("review_published_summary", {
     mode,
     owner,

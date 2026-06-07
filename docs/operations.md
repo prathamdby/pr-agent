@@ -5,7 +5,7 @@ Behaviour semantics, deployment detail, and developer scripts for **pr-agent**. 
 ## What the service does
 
 - On **`pull_request`** (`opened`, `synchronize`, `reopened`), enqueues an automated general **review run** and a **description run**. Review workers add an acknowledgement reaction on the PR issue, post a **review progress comment** stub, run an agent loop, and upsert **`## PR Agent Review`** on the **PR conversation** when the model succeeds. Description workers merge generated content into the PR body under **`## PR Agent Description`**, preserving user-authored text above that header (by default the PR title is not overwritten). A pull request review on the Files tab (with inline P0 to P2 threads) is posted only when those severities are present; its **review pointer body** includes a collapsible **agent fix prompt** aggregating all findings.
-- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/describe`, `/review`, `/review-security`, and `/review-quality`, enqueues **agent work items**, and routes commands. **PR-surface I/O** (reactions, replies, reviews) is published by workers, not on the webhook fiber.
+- On **`issue_comment`** and **`pull_request_review_comment`** (`created` only), detects `/help`, `/ask`, `/describe`, `/review`, `/review-security`, `/review-quality`, `/fix`, and `/fix-all`, enqueues **agent work items**, and routes commands. **PR-surface I/O** (reactions, replies, reviews, fix commits) is published by workers, not on the webhook fiber.
 - Responds **`200`** after **durable intake** commits to Postgres and pg-boss jobs are enqueued (or **`503`** if intake cannot commit; GitHub may redeliver). Reactions, progress comments, reviews, and ask answers run in **`ROLE=worker`** and may appear seconds after the HTTP response. The webhook does not wait for LLM runs to finish.
 
 Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
@@ -18,7 +18,7 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 - **Review superseding:** on `pull_request` **`synchronize`**, newer automated general-lens work supersedes queued auto-reviews for the same PR and requests cooperative cancel on an in-flight auto-review. Slash-command reviews are not superseded.
 - **Agent loop (reviews):** capped at **`MAX_TOOL_ROUNDS`** (tools required on the first round). Each **review run** is a **single-pass review**: one investigation sweep, then one **`submitReview`** with all evidenced P0 to P2 findings. If **`submitReview`** never succeeds, publish-recovery nudges run up to **`MAX_REVIEW_PUBLISH_ATTEMPTS`**, then a plain-text fallback comment may be posted when structured publish is exhausted.
 - **Review pointer link:** on the second and later review runs per PR and **review lens**, the Files-tab pointer links to the existing **review summary comment** when it can be verified; the first completed summary for that lens uses plain text only.
-- **Worker concurrency:** review, ask, and acknowledgement jobs are capped per process by **`REVIEW_CONCURRENCY`** (default `2`), **`ASK_CONCURRENCY`** (default `1`), **`ACK_CONCURRENCY`** (default `2`), and **`DESCRIPTION_CONCURRENCY`** (default `1`) via pg-boss worker `localConcurrency` ([`src/agentWork/worker.ts`](../src/agentWork/worker.ts)). Multi-replica deployments remain at-least-once at the worker layer.
+- **Worker concurrency:** review, ask, auto-fix, and acknowledgement jobs are capped per process by **`REVIEW_CONCURRENCY`** (default `2`), **`ASK_CONCURRENCY`** (default `1`), **`FIX_CONCURRENCY`** (default `1`), **`ACK_CONCURRENCY`** (default `2`), and **`DESCRIPTION_CONCURRENCY`** (default `1`) via pg-boss worker `localConcurrency` ([`src/agentWork/worker.ts`](../src/agentWork/worker.ts)). Multi-replica deployments remain at-least-once at the worker layer.
 - **GitHub tools:** 11 investigation tools in [`src/agent/githubTools.ts`](../src/agent/githubTools.ts), plus 2 Context7 doc tools; the server publishes reviews only via **`submitReview`**. See [ADR 0004](adr/0004-native-pi-ai-toolset.md).
 - **Library docs lookup:** review and ask agents get Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api`. Set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [ADR 0003](adr/0003-context7-docs-tool.md).
 - **Cursor provider:** set **`AGENT_PROVIDER=cursor`**, **`CURSOR_API_KEY`**, and **`PI_MODEL`** (e.g. `composer-2.5`). Worker registers pi-ai api `cursor-sdk` and runs Cursor local agents with an HTTP MCP bridge to pr-agent's GitHub, Context7, and submitReview tools. See [ADR 0013](adr/0013-cursor-sdk-provider.md).
@@ -27,6 +27,8 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 - **`/review-security`:** trigger-only deep security **review lens** (see [NOTICES.md](../NOTICES.md)). Never runs on `pull_request` webhooks. Posts **`## PR Agent Security Review`**, which can coexist with the general **review summary comment**.
 - **`/review-quality`:** trigger-only deep quality **review lens** (see [NOTICES.md](../NOTICES.md) and [ADR 0016](adr/0016-review-quality-lens.md)). Never runs on `pull_request` webhooks. Posts **`## PR Agent Quality Review`**.
 - **`/ask`:** interactive Q&A about PR code. Runs on the **`agent-work-ask`** pg-boss queue. See [ADR 0008](adr/0008-ask-command.md).
+- **`/fix`:** write-capable auto-fix for one persisted PR Agent inline finding. It only works as a reply to that inline thread. The worker checks that the issuer has `write`, `maintain`, or `admin` on the base repo before any agent run.
+- **`/fix-all`:** write-capable auto-fix for current P0 to P2 findings from the latest completed bundle for each review lens. It only works in the PR conversation. Auto-fix runs serialize per PR and use direct push, with a replacement PR fallback when direct push is denied.
 - **Lightweight review completion:** automated general reviews on docs-only trivial PRs may finish without a full **review run** (**trivial change exemption**). See [ADR 0014](adr/0014-lightweight-review-completion.md).
 
 ## Large PRs and GitHub rate limits
@@ -39,7 +41,8 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 
 ### Docker and Docker Compose
 
-- **Stack:** [docker-compose.yml](../docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
+- **Stack:** [docker-compose.yml](../docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews, descriptions, asks, and fixes; web-only is not sufficient.
+- **GitHub App permissions:** auto-fix requires **Contents read/write** in addition to **Issues** and **Pull requests** read/write and **Metadata** read.
 - **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)).
 - **Health:** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable (orchestrator readiness gating).
 - **Webhook URL** (default Compose ports): `http://<host>:7224/webhooks`.
@@ -65,7 +68,7 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 - Production boot uses a **web/worker split** (`ROLE` env).
 - **Web:** [`processWebhookRequestEffect`](../src/effect/programs/processWebhookRequestEffect.ts) → [`WebhookDispatcher`](../src/effect/services/webhookDispatcher.ts) → [`WebhookHandlers`](../src/effect/services/webhookHandlers.ts) + [`AgentWorkScheduler`](../src/agentWork/scheduler.ts) (Postgres + pg-boss enqueue).
-- **Worker:** [`agentWorkWorkerLive`](../src/agentWork/runtime.ts) consumes acknowledgement, review, ask, and description queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).
+- **Worker:** [`agentWorkWorkerLive`](../src/agentWork/runtime.ts) consumes acknowledgement, review, ask, description, and fix queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).
 
 ### Local development edge cases
 

@@ -1,17 +1,17 @@
 import crypto from "node:crypto";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
 import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
-import { prResourceKey, type PrRef } from "../types.js";
+import { prResourceKey, type FixTargetSelector, type PrRef } from "../types.js";
 
 async function insertQueuedAgentWorkItem(
   client: PoolClient,
   params: {
     id: string;
     webhookEventId: string;
-    type: "review" | "description" | "ask";
+    type: "review" | "description" | "ask" | "fix";
     source: WorkSource;
     ref: PrRef;
     reviewLens: ReviewMode | null;
@@ -20,16 +20,17 @@ async function insertQueuedAgentWorkItem(
     payload: unknown;
   },
 ): Promise<void> {
-  if (params.type === "ask") {
+  if (params.type === "ask" || params.type === "fix") {
     await client.query(
       `INSERT INTO agent_work_items (
 		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
 		   head_sha, resource_key, priority, payload
 		 )
-		 VALUES ($1, $2, 'ask', $3, 'queued', $4, $5, $6, $7, $8, $9, 50, $10::jsonb)`,
+		 VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12::jsonb)`,
       [
         params.id,
         params.webhookEventId,
+        params.type,
         params.source,
         params.ref.owner,
         params.ref.repo,
@@ -37,6 +38,7 @@ async function insertQueuedAgentWorkItem(
         params.ref.installationId,
         params.ref.headSha,
         params.resourceKey,
+        params.priority,
         JSON.stringify(params.payload),
       ],
     );
@@ -173,6 +175,85 @@ export async function createAskWorkItem(
     },
   });
   return id;
+}
+
+export async function createFixWorkItem(
+  client: PoolClient,
+  params: {
+    webhookEventId: string;
+    ref: PrRef;
+    selector: FixTargetSelector;
+    replyTarget: ReplyTarget;
+    commandCommentId: number;
+    commenterId: number;
+    commenterLogin?: string;
+  },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  await insertQueuedAgentWorkItem(client, {
+    id,
+    webhookEventId: params.webhookEventId,
+    type: "fix",
+    source: "slash",
+    ref: params.ref,
+    reviewLens: null,
+    resourceKey: prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
+    priority: 50,
+    payload: {
+      selector: params.selector,
+      replyTarget: params.replyTarget,
+      repositorySizeKb: params.ref.repositorySizeKb,
+      commenterId: params.commenterId,
+      commenterLogin: params.commenterLogin,
+      commandCommentId: params.commandCommentId,
+    },
+  });
+  return id;
+}
+
+export type ActiveFixConflict =
+  | { readonly kind: "none" }
+  | { readonly kind: "fix_all"; readonly workItemId: string }
+  | { readonly kind: "same_target"; readonly workItemId: string }
+  | { readonly kind: "any_fix"; readonly workItemId: string };
+
+export async function findActiveFixConflict(
+  client: Pool | PoolClient,
+  params: {
+    resourceKey: string;
+    selector: FixTargetSelector;
+    excludeWorkItemId?: string;
+    includeQueued: boolean;
+  },
+): Promise<ActiveFixConflict> {
+  const statuses = params.includeQueued ? ["queued", "running"] : ["running"];
+  const result = await client.query<{ id: string; payload: { selector?: FixTargetSelector } }>(
+    `SELECT id, payload
+       FROM agent_work_items
+      WHERE resource_key = $1
+        AND type = 'fix'
+        AND status = ANY($2::text[])
+        AND ($3::uuid IS NULL OR id <> $3::uuid)
+      ORDER BY created_at ASC
+      LIMIT 50`,
+    [params.resourceKey, statuses, params.excludeWorkItemId ?? null],
+  );
+
+  for (const row of result.rows) {
+    const activeSelector = row.payload.selector;
+    if (!activeSelector) continue;
+    if (params.selector.kind === "all") {
+      return { kind: "any_fix", workItemId: row.id };
+    }
+    if (activeSelector.kind === "all") {
+      return { kind: "fix_all", workItemId: row.id };
+    }
+    if (activeSelector.inlineReviewCommentId === params.selector.inlineReviewCommentId) {
+      return { kind: "same_target", workItemId: row.id };
+    }
+  }
+
+  return { kind: "none" };
 }
 
 export async function fetchActiveWorkItem(

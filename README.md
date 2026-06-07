@@ -8,9 +8,9 @@
 
 </div>
 
-> **Async by design.** Webhooks return **`200`** after durable intake (Postgres + pg-boss enqueue). Reactions, progress comments, reviews, descriptions, and ask answers publish on **`ROLE=worker`** and may appear seconds later.
+> **Async by design.** Webhooks return **`200`** after durable intake (Postgres + pg-boss enqueue). Reactions, progress comments, reviews, descriptions, ask answers, and auto-fix replies publish on **`ROLE=worker`** and may appear seconds later.
 
-PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces (full shallow checkout of the PR head for context) and GitHub APIs for publish.
+PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks, fixes) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces and GitHub APIs for publish.
 
 Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](docs/configuration.md). Behaviour and deployment: [docs/operations.md](docs/operations.md). Queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
 
@@ -35,7 +35,7 @@ Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](d
 1. Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
 2. Set **Webhook URL** to `https://<host>/webhooks` and **Webhook secret** to match `WEBHOOK_SECRET`.
 3. Subscribe to events: **`pull_request`**, **`issue_comment`**, **`pull_request_review_comment`** (do not require `pull_request_review`).
-4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read, **Metadata** read.
+4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read.
 5. Install the app on target orgs or repos. Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in `.env` (see [`.env.example`](.env.example)).
 
 ### 2. Docker Compose (recommended)
@@ -52,7 +52,7 @@ docker compose up
 - Webhook URL (default ports): `http://<host>:7224/webhooks`
 - **`GET /health`**: liveness (`ok`)
 - **`GET /ready`**: readiness (Postgres reachable)
-- Both **`pr-agent-web`** (`ROLE=web`) and **`pr-agent-worker`** (`ROLE=worker`) are required for reviews and asks.
+- Both **`pr-agent-web`** (`ROLE=web`) and **`pr-agent-worker`** (`ROLE=worker`) are required for reviews, descriptions, asks, and fixes.
 
 More deployment detail: [docs/operations.md](docs/operations.md).
 
@@ -69,7 +69,7 @@ pnpm install
 # terminal 1: enqueue only
 ROLE=web DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
 
-# terminal 2: reviews, descriptions, asks
+# terminal 2: reviews, descriptions, asks, fixes
 ROLE=worker DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
 ```
 
@@ -162,6 +162,7 @@ General bug-and-correctness reviews run on PR open and sync. **`/review-security
 | Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
 | Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
 | Ask                     | No                     | `/ask <question>`  | PR conversation or inline diff **code anchor**                                            |
+| Auto-fix                | No                     | `/fix`, `/fix-all` | Worker commits fixes for persisted P0 to P2 PR Agent findings                             |
 | Help                    | No                     | `/help`            | Worker-published guidance                                                                 |
 | Lightweight auto-review | docs-only trivial PRs  | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
 
@@ -212,19 +213,22 @@ flowchart LR
   Boss --> RevQ[review queue]
   Boss --> AskQ[ask queue]
   Boss --> DescQ[description queue]
+  Boss --> FixQ[fix queue]
   AckQ --> Worker["ROLE=worker executors"]
   RevQ --> Worker
   AskQ --> Worker
   DescQ --> Worker
+  FixQ --> Worker
   Worker --> LLM[LLM plus tools]
   LLM --> Publish[GitHub PR-surface publish]
 ```
 
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items**.
-2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description).
+2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, fix).
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
-4. **Review / ask / description workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** (depth-1 full head checkout + GitHub PR-file diff metadata), agent harness, **PR-surface I/O**.
+4. **Review / ask / description / fix workers** ([`executors/`](src/agentWork/executors/)): installation token, local PR workspace, agent harness, **PR-surface I/O**. Auto-fix runs use a split workspace: provider-visible scratch space plus a server-owned writable checkout.
 5. **Reviews** ([`runFullPrReview`](src/review/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
+6. **Auto-fix** ([`executeFixJob`](src/agentWork/executors/fixExecutor.ts)): resolve persisted findings, check issuer permission, let the agent edit only through server tools, commit with the GitHub App bot identity, then direct-push or open a replacement PR.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).
 
@@ -236,7 +240,7 @@ Postgres, pg-boss, and GitHub App credentials run on your infrastructure. Webhoo
 
 ### LLM providers
 
-Review, description, and ask content is sent to your configured model provider during worker runs only (Pi/OpenAI, Cursor, or others per `PI_PROVIDER` / `AGENT_PROVIDER`). See your provider's data policy (for example [OpenAI](https://openai.com/enterprise-privacy) or Cursor).
+Review, description, ask, and auto-fix context is sent to your configured model provider during worker runs only (Pi/OpenAI, Cursor, or others per `PI_PROVIDER` / `AGENT_PROVIDER`). See your provider's data policy (for example [OpenAI](https://openai.com/enterprise-privacy) or Cursor).
 
 ### Context7 (optional)
 

@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { runFullPrReview } from "../../review/reviewRun.js";
+import { recordAutoFixBundle } from "../../autoFix/repository.js";
 import { buildTrustedReviewContextForReview } from "../../review/reviewTrustedContext.js";
 import { fetchReviewPreflightMetadata } from "../../review/reviewPreflightFiles.js";
 import {
@@ -171,6 +172,14 @@ export async function executeReviewJob(
                 githubId: detail?.githubId,
                 detail: detail?.meta,
               }),
+            recordAutoFixTargets: (targets) =>
+              recordAutoFixBundle(pool, {
+                workItemId: item.id,
+                resourceKey: item.resourceKey,
+                reviewLens,
+                headSha,
+                targets,
+              }).then(() => undefined),
             reviewSource: payload.source,
             staleHeadRescheduled: payload.staleHeadRescheduled,
             publishAbortState,

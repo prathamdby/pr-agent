@@ -17,7 +17,7 @@ export type PublishStep =
 type AgentWorkRow = {
   id: string;
   webhook_event_id: string | null;
-  type: "review" | "ask" | "description";
+  type: "review" | "ask" | "description" | "fix";
   source: "auto" | "slash";
   status: WorkStatus;
   owner: string;
@@ -239,100 +239,6 @@ export async function shouldSkipWork(
     row.status === "cancelled" ||
     row.cancel_requested_at != null
   );
-}
-
-export async function hasPriorCompletedSummaryPublish(
-  pool: Pool,
-  resourceKey: string,
-  reviewLens: ReviewWorkPayload["mode"],
-  excludeWorkItemId: string,
-): Promise<boolean> {
-  const row = await queryOne<{ exists: number }>(
-    pool,
-    `SELECT 1 AS exists
-		   FROM publish_records
-		  WHERE resource_key = $1
-		    AND review_lens = $2
-		    AND step = 'summary_comment'
-		    AND status = 'completed'
-		    AND work_item_id <> $3
-		  LIMIT 1`,
-    [resourceKey, reviewLens, excludeWorkItemId],
-  );
-  return row != null;
-}
-
-export async function getSummaryCommentGithubId(
-  pool: Pool,
-  resourceKey: string,
-  reviewLens: ReviewWorkPayload["mode"],
-): Promise<number | null> {
-  const row = await queryOne<{ github_id: string }>(
-    pool,
-    `SELECT github_id
-		   FROM publish_records
-		  WHERE resource_key = $1
-		    AND review_lens = $2
-		    AND step IN ('summary_comment', 'progress_comment')
-		    AND status = 'completed'
-		    AND github_id IS NOT NULL
-		  ORDER BY updated_at DESC
-		  LIMIT 1`,
-    [resourceKey, reviewLens],
-  );
-  if (!row?.github_id) return null;
-  const id = Number(row.github_id);
-  return Number.isFinite(id) ? id : null;
-}
-
-export async function getReviewPublishState(
-  pool: Pool,
-  workItemId: string,
-  resourceKey: string,
-  reviewLens: ReviewWorkPayload["mode"],
-): Promise<{
-  inlinePublished: boolean;
-  summaryPublished: boolean;
-  inlineReviewId: number | null;
-}> {
-  const { rows } = await pool.query<{ step: string; github_id: string | null }>(
-    `SELECT step, github_id
-		   FROM publish_records
-		  WHERE resource_key = $1
-		    AND review_lens = $2
-		    AND work_item_id = $3
-		    AND status = 'completed'
-		    AND step IN ('inline_review', 'summary_comment')`,
-    [resourceKey, reviewLens, workItemId],
-  );
-  const steps = new Set(rows.map((r) => r.step));
-  const inlineRow = rows.find((r) => r.step === "inline_review");
-  const inlineReviewId =
-    inlineRow?.github_id != null && Number.isFinite(Number(inlineRow.github_id))
-      ? Number(inlineRow.github_id)
-      : null;
-  return {
-    inlinePublished: steps.has("inline_review"),
-    summaryPublished: steps.has("summary_comment"),
-    inlineReviewId,
-  };
-}
-
-export async function getStoredInlineFingerprints(
-  pool: Pool,
-  resourceKey: string,
-  reviewLens: ReviewWorkPayload["mode"],
-): Promise<string[]> {
-  const { rows } = await pool.query<{ detail: Record<string, unknown> }>(
-    `SELECT detail
-       FROM publish_records
-      WHERE resource_key = $1
-        AND review_lens = $2
-        AND step = 'inline_review'
-        AND status = 'completed'`,
-    [resourceKey, reviewLens],
-  );
-  return mergeStoredInlineFingerprints(rows);
 }
 
 function mergeStoredInlineFingerprints(

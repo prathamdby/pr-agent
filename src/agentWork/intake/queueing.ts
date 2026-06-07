@@ -2,15 +2,23 @@ import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import { pgBossDb } from "../../db/postgres.js";
-import { ACK_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
+import {
+  ACK_QUEUE,
+  ASK_QUEUE,
+  DESCRIPTION_QUEUE,
+  FIX_QUEUE,
+  REVIEW_QUEUE,
+} from "../../settings/index.js";
 import {
   descriptionSingletonKey,
+  fixSingletonKey,
   installationGroupId,
   prResourceKey,
   reviewSingletonKey,
   type AckJobData,
   type AskJobData,
   type DescriptionJobData,
+  type FixJobData,
   type JobCorrelation,
   type PrRef,
   type ReviewJobData,
@@ -93,6 +101,22 @@ export async function enqueueDescription(
   await requireBossJobSend(boss, DESCRIPTION_QUEUE, data, {
     db: pgBossDb(client),
     singletonKey: descriptionSingletonKey(resourceKey),
+    group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
+export async function enqueueFix(
+  boss: PgBoss,
+  client: PoolClient,
+  ref: PrRef,
+  workItemId: string,
+  correlation: JobCorrelation,
+): Promise<void> {
+  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  const data: FixJobData = { kind: "fix", workItemId, ...correlation };
+  await requireBossJobSend(boss, FIX_QUEUE, data, {
+    db: pgBossDb(client),
+    singletonKey: fixSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }

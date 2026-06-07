@@ -3,11 +3,13 @@ export const ACK_QUEUE = "agent-work-ack";
 export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
+export const FIX_QUEUE = "agent-work-fix";
 export const RETENTION_QUEUE = "agent-work-retention";
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
 export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
+export const FIX_DEAD_LETTER_QUEUE = "agent-work-fix-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
@@ -29,6 +31,24 @@ export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
 export const DESCRIPTION_VALIDATION_REPAIR_ROUNDS = 3;
 export const DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 export const MAX_DESCRIPTION_PAYLOAD_PR_FILES = 20;
+
+/** Auto-fix slash commands. */
+export const FIX_USAGE_HINT = "`/fix` only works as a reply to a PR Agent inline review finding.";
+export const FIX_ALL_USAGE_HINT = "`/fix-all` only works in the PR conversation.";
+export const FIX_ALREADY_IN_PROGRESS =
+  "An auto-fix run is already queued or in progress for this pull request.";
+export const FIX_TARGET_ALREADY_IN_PROGRESS =
+  "An auto-fix run for this finding is already queued or in progress.";
+export const FIX_TARGET_UNMAPPED =
+  "I could not map this thread to a persisted PR Agent finding. Run a fresh review first.";
+export const FIX_TARGET_STALE =
+  "This finding belongs to an older PR head. Run a fresh review before auto-fixing it.";
+export const FIX_UNAUTHORIZED =
+  "You need write, maintain, or admin permission on the base repository to run auto-fix.";
+export const FIX_NO_TARGETS = "No eligible P0-P2 PR Agent findings are available to auto-fix.";
+export const FIX_NOTHING_APPLIED = "Auto-fix did not apply any changes.";
+export const FIX_PUSH_STALE =
+  "The PR head changed while auto-fix was running. I did not publish any commits.";
 
 /** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
@@ -302,12 +322,15 @@ export const SLASH_HELP_BODY = [
   "- `/review` — general bug-and-correctness review (also runs automatically on PR open/sync)",
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
   "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
+  "- `/fix` — auto-fix the PR Agent inline finding in this thread",
+  "- `/fix-all` — auto-fix current P0-P2 PR Agent findings from the PR conversation",
   "",
   "Notes:",
   "- Automated `/describe` runs on PR `opened` only; `/review` runs on `opened` / `synchronize` / `reopened`.",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
   "- `/review`, `/review-security`, and `/review-quality` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
+  "- `/fix` and `/fix-all` require write, maintain, or admin permission on the base repository.",
   "- Some security issues may appear in both passes; pick the command that matches your question.",
   "- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");

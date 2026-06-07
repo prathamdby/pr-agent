@@ -37,6 +37,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Review worker concurrency | `REVIEW_CONCURRENCY`                        | `2`                      | pg-boss review queue workers                            |
 | Ask worker concurrency    | `ASK_CONCURRENCY`                           | `1`                      | pg-boss ask queue workers                               |
 | Description concurrency   | `DESCRIPTION_CONCURRENCY`                   | `1`                      | pg-boss description queue workers                       |
+| Auto-fix concurrency      | `FIX_CONCURRENCY`                           | `1`                      | pg-boss auto-fix queue workers                          |
 | Description tool rounds   | `MAX_TOOL_ROUNDS_DESCRIBE`                  | `16`                     | agent investigation cap for `/describe`                 |
 | Description AI title      | `DESCRIPTION_GENERATE_TITLE`                | `false`                  | when false, keep existing PR title on publish           |
 | Ack worker concurrency    | `ACK_CONCURRENCY`                           | `2`                      | reactions + progress stub                               |
@@ -56,6 +57,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Retention enabled         | `RETENTION_ENABLED`                         | `true`                   | toggle the scheduled cleanup sweep                      |
 | Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`                       | `12`                     |                                                         |
 | Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                   | `2`                      |                                                         |
+| Auto-fix tool rounds      | `MAX_FIX_TOOL_ROUNDS`                       | `24`                     | per auto-fix target group                               |
 | Webhook time budget       | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | log warning only                                        |
 | Context7 API key          | `CONTEXT7_API_KEY`                          | empty                    | optional                                                |
 | Label effort              | `ENABLE_REVIEW_LABELS_EFFORT`               | `true`                   |                                                         |
@@ -112,12 +114,27 @@ These are related but not wired together on INSERT today.
 | `ACK_QUEUE`                        | `agent-work-ack`                    |
 | `REVIEW_QUEUE`                     | `agent-work-review`                 |
 | `ASK_QUEUE`                        | `agent-work-ask`                    |
+| `DESCRIPTION_QUEUE`                | `agent-work-description`            |
+| `FIX_QUEUE`                        | `agent-work-fix`                    |
 | `*_DEAD_LETTER_QUEUE`              | DLQ names                           |
 | `DEFERRED_HEAD_SHA`                | worker resolves head SHA            |
 | `AUTOMATED_PR_ACTIONS`             | opened, synchronize, reopened       |
 | `AUTOMATED_DESCRIPTION_PR_ACTIONS` | opened only (use `/describe` after) |
 | `AUTOMATED_REVIEW_LENS`            | `review`                            |
 | `MAX_STORED_COMMENT_TEXT_LEN`      | 16384                               |
+
+### Auto-fix
+
+| Symbol                                     | Role                                          |
+| ------------------------------------------ | --------------------------------------------- |
+| `FIX_USAGE_HINT`                           | `/fix` misuse reply                           |
+| `FIX_ALL_USAGE_HINT`                       | `/fix-all` misuse reply                       |
+| `FIX_ALREADY_IN_PROGRESS`                  | active auto-fix rejection                     |
+| `FIX_TARGET_ALREADY_IN_PROGRESS`           | duplicate same-thread `/fix` rejection        |
+| `FIX_TARGET_UNMAPPED` / `FIX_TARGET_STALE` | invalid persisted target replies              |
+| `FIX_UNAUTHORIZED`                         | missing write/maintain/admin permission reply |
+| `FIX_NO_TARGETS` / `FIX_NOTHING_APPLIED`   | no-op result replies                          |
+| `FIX_PUSH_STALE`                           | PR head moved during auto-fix                 |
 
 ### Review output
 

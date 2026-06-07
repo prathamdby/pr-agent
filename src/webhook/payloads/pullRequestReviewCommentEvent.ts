@@ -12,8 +12,10 @@ export const pullRequestReviewCommentWebhookSchema = z.object({
     id: z.number(),
     user: z.object({
       id: z.number(),
+      login: z.string().optional(),
     }),
     body: z.string().nullish(),
+    in_reply_to_id: z.number().nullable().optional(),
     path: z.string().optional(),
     line: z.number().optional(),
     start_line: z.number().nullable().optional(),

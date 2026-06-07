@@ -111,6 +111,7 @@ export const WebhookHandlersCore = Layer.effect(
               repositorySizeKb: data.repository.size,
               prNumber: data.issue.number,
               commenterId: data.comment.user.id,
+              commenterLogin: data.comment.user.login,
               commentId: data.comment.id,
               body,
               command,
@@ -148,6 +149,7 @@ export const WebhookHandlersCore = Layer.effect(
               repositorySizeKb: data.repository.size,
               prNumber: data.pull_request.number,
               commenterId: data.comment.user.id,
+              commenterLogin: data.comment.user.login,
               commentId: data.comment.id,
               body,
               command,
@@ -157,6 +159,7 @@ export const WebhookHandlersCore = Layer.effect(
                 inReplyToCommentId: data.comment.id,
               },
               codeAnchor: codeAnchorFromReviewComment(data.comment),
+              inlineReplyToCommentId: data.comment.in_reply_to_id ?? undefined,
             },
             intakeLog,
           );

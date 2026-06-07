@@ -157,20 +157,6 @@ export async function resolveVerifiedSummaryCommentRef(
   return found ? { ...found, source: "scan" } : null;
 }
 
-/** Resolves a verified summary/progress comment URL; never returns an unverified stored id. */
-export async function resolveVerifiedSummaryCommentUrl(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  sentinel: string,
-  hintCommentId?: number | null,
-): Promise<string | undefined> {
-  return (
-    await resolveVerifiedSummaryCommentRef(token, owner, repo, prNumber, sentinel, hintCommentId)
-  )?.url;
-}
-
 async function createIssueComment(
   token: string,
   owner: string,

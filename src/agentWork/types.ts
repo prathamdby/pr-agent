@@ -4,7 +4,7 @@ import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 
-type WorkType = "review" | "ask" | "description";
+type WorkType = "review" | "ask" | "description" | "fix";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
 
 export type WebhookHeaders = {
@@ -69,6 +69,11 @@ export type DescriptionJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
+export type FixJobData = JobCorrelation & {
+  readonly kind: "fix";
+  readonly workItemId: string;
+};
+
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;
@@ -101,6 +106,24 @@ export type DescriptionWorkPayload = {
   readonly commenterId?: number;
 };
 
+export type FixTargetSelector =
+  | {
+      readonly kind: "inline";
+      readonly inlineReviewCommentId: number;
+    }
+  | {
+      readonly kind: "all";
+    };
+
+export type FixWorkPayload = {
+  readonly selector: FixTargetSelector;
+  readonly replyTarget: ReplyTarget;
+  readonly repositorySizeKb?: number;
+  readonly commenterId?: number;
+  readonly commenterLogin?: string;
+  readonly commandCommentId: number;
+};
+
 export type AgentWorkItem = PrRef & {
   readonly id: string;
   readonly webhookEventId: string | null;
@@ -110,7 +133,7 @@ export type AgentWorkItem = PrRef & {
   readonly reviewLens: ReviewMode | null;
   readonly resourceKey: string;
   readonly attemptCount: number;
-  readonly payload: ReviewWorkPayload | AskWorkPayload | DescriptionWorkPayload;
+  readonly payload: ReviewWorkPayload | AskWorkPayload | DescriptionWorkPayload | FixWorkPayload;
   readonly cancelRequestedAt: Date | null;
 };
 
@@ -139,6 +162,10 @@ export function reviewSingletonKey(resourceKey: string, lens: ReviewMode): strin
 
 export function descriptionSingletonKey(resourceKey: string): string {
   return `${resourceKey}:description`;
+}
+
+export function fixSingletonKey(resourceKey: string): string {
+  return `${resourceKey}:fix`;
 }
 
 export function installationGroupId(installationId: number): string {

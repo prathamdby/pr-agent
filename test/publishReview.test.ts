@@ -121,6 +121,30 @@ describe("publishReview", () => {
     expect(publishState.inlineReviewId).toBe(1);
   });
 
+  it("records auto-fix targets with inline comment ids after summary publish", async () => {
+    const recordAutoFixTargets = vi.fn(async () => undefined);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordAutoFixTargets,
+    });
+
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([
+      expect.objectContaining({
+        fingerprint: fingerprintFinding(payload.findings[0], "review"),
+        placementKind: "inline",
+        inlineReviewCommentId: 99,
+        finding: expect.objectContaining({
+          severity: "P1",
+          file: "src/x.ts",
+          fixPrompt: "Fix src/x.ts line 4.",
+        }),
+      }),
+    ]);
+  });
+
   it("suppresses inline review when stored fingerprint matches", async () => {
     const finding = payload.findings[0];
     const stored = fingerprintFinding(finding, "review");
@@ -137,6 +161,28 @@ describe("publishReview", () => {
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("Summary only");
     expect(summaryBody).toContain("Bug");
+  });
+
+  it("records summary-only auto-fix targets without inline comment ids", async () => {
+    const finding = payload.findings[0];
+    const stored = fingerprintFinding(finding, "review");
+    const recordAutoFixTargets = vi.fn(async () => undefined);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      storedInlineFingerprints: [stored],
+      recordAutoFixTargets,
+    });
+
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([
+      expect.objectContaining({
+        placementKind: "summary",
+        inlineReviewCommentId: undefined,
+        finding: expect.objectContaining({ severity: "P1", file: "src/x.ts" }),
+      }),
+    ]);
   });
 
   it("preserves stored fingerprints on inline_review step when all inline suppressed", async () => {
@@ -261,6 +307,19 @@ describe("publishReview", () => {
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
     expect(publishState.inlinePublished).toBe(true);
+  });
+
+  it("records an empty auto-fix target set when a review publishes no eligible findings", async () => {
+    const recordAutoFixTargets = vi.fn(async () => undefined);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      payload: { ...payload, findings: [] },
+      recordAutoFixTargets,
+    });
+
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([]);
   });
 
   it("uses COMMENT when only P2 findings", async () => {

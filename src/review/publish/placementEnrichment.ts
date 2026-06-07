@@ -29,6 +29,6 @@ export function enrichPlacementsWithInlineCommentUrls(
     const comment = bucket[index];
     if (!comment) return placement;
     anchorUseIndex.set(key, index + 1);
-    return { ...placement, inlineCommentUrl: comment.url };
+    return { ...placement, inlineCommentId: comment.id, inlineCommentUrl: comment.url };
   });
 }

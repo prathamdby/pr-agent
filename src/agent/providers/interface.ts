@@ -29,5 +29,6 @@ export type AgentRunnerProvider = {
     readonly tools: readonly PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
     readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+    readonly cursorSandbox?: boolean;
   }) => Promise<AgentRunnerSession>;
 };

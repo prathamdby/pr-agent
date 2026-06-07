@@ -19,6 +19,7 @@ import {
   type ReviewMode,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
+import type { PersistAutoFixTargetInput } from "../../autoFix/types.js";
 
 export type SubmitReviewState = {
   published: boolean;
@@ -66,6 +67,7 @@ export function buildSubmitReviewTool(params: {
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
+  recordAutoFixTargets?: (targets: readonly PersistAutoFixTargetInput[]) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   publishAbortState?: { staleHead?: boolean };
@@ -223,6 +225,7 @@ export function buildSubmitReviewTool(params: {
         shouldLinkToSummary: params.shouldLinkToSummary,
         summaryCommentIdHint: params.summaryCommentIdHint,
         recordPublishStep: params.recordPublishStep,
+        recordAutoFixTargets: params.recordAutoFixTargets,
         storedInlineFingerprints: params.storedInlineFingerprints,
         staleReview: params.publishAbortState?.staleHead === true,
       });

@@ -8,6 +8,10 @@ import {
   ASK_USAGE_HINT,
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
+  FIX_ALL_USAGE_HINT,
+  FIX_ALREADY_IN_PROGRESS,
+  FIX_TARGET_ALREADY_IN_PROGRESS,
+  FIX_USAGE_HINT,
   MAX_STORED_COMMENT_TEXT_LEN,
   SLASH_HELP_BODY,
 } from "../../settings/index.js";
@@ -35,23 +39,28 @@ export type SlashCommandInput = {
   readonly prNumber: number;
   readonly commentId: number;
   readonly commenterId: number;
+  readonly commenterLogin?: string;
   readonly body: string;
   readonly command: string;
   readonly replyTarget: ReplyTarget;
   readonly codeAnchor?: CodeAnchor;
+  readonly inlineReplyToCommentId?: number;
 };
 import {
   enqueueAck,
   enqueueAsk,
   enqueueDescription,
+  enqueueFix,
   enqueueReview,
   jobCorrelation,
 } from "./queueing.js";
 import {
   createAskWorkItem,
   createDescriptionWorkItem,
+  createFixWorkItem,
   createReviewWorkItem,
   fetchActiveWorkItem,
+  findActiveFixConflict,
 } from "./workItemRepository.js";
 
 function clampStoredCommentText(text: string): string {
@@ -186,6 +195,105 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
   });
 }
 
+async function handleSlashFix(ctx: SlashIntakeContext): Promise<void> {
+  if (
+    ctx.input.replyTarget.kind !== "inlineReviewThread" ||
+    ctx.input.inlineReplyToCommentId == null
+  ) {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: FIX_USAGE_HINT },
+    });
+    return;
+  }
+
+  const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  const selector = {
+    kind: "inline" as const,
+    inlineReviewCommentId: ctx.input.inlineReplyToCommentId,
+  };
+  const conflict = await findActiveFixConflict(ctx.client, {
+    resourceKey,
+    selector,
+    includeQueued: true,
+  });
+  if (conflict.kind === "fix_all" || conflict.kind === "same_target") {
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body:
+          conflict.kind === "same_target"
+            ? FIX_TARGET_ALREADY_IN_PROGRESS
+            : FIX_ALREADY_IN_PROGRESS,
+      },
+    });
+    return;
+  }
+
+  const workItemId = await createFixWorkItem(ctx.client, {
+    webhookEventId: ctx.eventId,
+    ref: ctx.ref,
+    selector,
+    replyTarget: ctx.input.replyTarget,
+    commandCommentId: ctx.input.commentId,
+    commenterId: ctx.input.commenterId,
+    commenterLogin: ctx.input.commenterLogin,
+  });
+  await enqueueSlashAck(ctx, { workItemId });
+  await enqueueFix(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
+  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
+    type: "fix",
+    source: "slash",
+    workItemId,
+    resourceKey,
+    selector: selector.kind,
+    inlineReviewCommentId: selector.inlineReviewCommentId,
+    ...ctx.correlation,
+  });
+}
+
+async function handleSlashFixAll(ctx: SlashIntakeContext): Promise<void> {
+  if (ctx.input.replyTarget.kind !== "prConversation") {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: FIX_ALL_USAGE_HINT },
+    });
+    return;
+  }
+
+  const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  const selector = { kind: "all" as const };
+  const conflict = await findActiveFixConflict(ctx.client, {
+    resourceKey,
+    selector,
+    includeQueued: true,
+  });
+  if (conflict.kind !== "none") {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: FIX_ALREADY_IN_PROGRESS },
+    });
+    return;
+  }
+
+  const workItemId = await createFixWorkItem(ctx.client, {
+    webhookEventId: ctx.eventId,
+    ref: ctx.ref,
+    selector,
+    replyTarget: ctx.input.replyTarget,
+    commandCommentId: ctx.input.commentId,
+    commenterId: ctx.input.commenterId,
+    commenterLogin: ctx.input.commenterLogin,
+  });
+  await enqueueSlashAck(ctx, { workItemId });
+  await enqueueFix(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
+  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
+    type: "fix",
+    source: "slash",
+    workItemId,
+    resourceKey,
+    selector: selector.kind,
+    ...ctx.correlation,
+  });
+}
+
 async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
   await enqueueSlashAck(ctx, {
     reply: {
@@ -205,6 +313,8 @@ const SLASH_INTAKE_HANDLERS: Record<
   review: (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
   "review-security": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
   "review-quality": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
+  fix: (ctx) => handleSlashFix(ctx),
+  "fix-all": (ctx) => handleSlashFixAll(ctx),
 };
 
 export async function applySlashCommandIntake(

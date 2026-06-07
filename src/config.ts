@@ -7,6 +7,7 @@ import {
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_DESCRIPTION_GENERATE_TITLE,
+  DEFAULT_FIX_CONCURRENCY,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
@@ -27,6 +28,7 @@ import {
   DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
   DEFAULT_MAX_ASK_TOOL_ROUNDS,
+  DEFAULT_MAX_FIX_TOOL_ROUNDS,
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
   DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS,
@@ -205,6 +207,7 @@ export function loadConfig() {
     ENV.DESCRIPTION_CONCURRENCY,
     DEFAULT_DESCRIPTION_CONCURRENCY,
   );
+  const fixConcurrency = readPositiveNumber(ENV.FIX_CONCURRENCY, DEFAULT_FIX_CONCURRENCY);
   const maxToolRoundsDescribe = readPositiveNumber(
     ENV.MAX_TOOL_ROUNDS_DESCRIBE,
     DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
@@ -276,6 +279,7 @@ export function loadConfig() {
     ENV.MAX_ASK_FINALIZE_ROUNDS,
     DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
   );
+  const maxFixToolRounds = readPositiveNumber(ENV.MAX_FIX_TOOL_ROUNDS, DEFAULT_MAX_FIX_TOOL_ROUNDS);
 
   const webhookTimeoutMs = readPositiveNumber(ENV.WEBHOOK_TIMEOUT_MS, DEFAULT_WEBHOOK_TIMEOUT_MS);
 
@@ -381,6 +385,7 @@ export function loadConfig() {
     askConcurrency,
     ackConcurrency,
     descriptionConcurrency,
+    fixConcurrency,
     maxToolRoundsDescribe,
     descriptionGenerateTitle,
     queueRetryLimit,
@@ -399,6 +404,7 @@ export function loadConfig() {
     installationGroupConcurrency,
     maxAskToolRounds,
     maxAskFinalizeRounds,
+    maxFixToolRounds,
     webhookTimeoutMs,
     context7ApiKey,
     cursorApiKey,

@@ -4,6 +4,7 @@ import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import type { WorkSource } from "./reviewSchema.js";
 import type { ReviewMode } from "./reviewSchema.js";
 import { runReviewHarness } from "./reviewRunHarness.js";
+import type { PersistAutoFixTargetInput } from "../autoFix/types.js";
 
 export type ReviewRunResult = {
   lastAssistant: AssistantMessage;
@@ -34,6 +35,7 @@ export async function runFullPrReview(params: {
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
+  recordAutoFixTargets?: (targets: readonly PersistAutoFixTargetInput[]) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
   trustedContext?: string;

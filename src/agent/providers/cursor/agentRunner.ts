@@ -20,7 +20,15 @@ function assistantText(content: Context["messages"][number]): string {
 }
 
 export const cursorAgentRunnerProvider: AgentRunnerProvider = {
-  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool }) {
+  async createSession({
+    cfg,
+    cwd,
+    systemPrompt,
+    tools,
+    executors,
+    refreshBeforeTool,
+    cursorSandbox,
+  }) {
     const context: Context = {
       systemPrompt,
       messages: [],
@@ -49,6 +57,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       local: {
         cwd: cwd ?? process.cwd(),
         settingSources: [],
+        ...(cursorSandbox ? { sandboxOptions: { enabled: true } } : {}),
       },
       mcpServers: bridge.mcpServers,
     });
