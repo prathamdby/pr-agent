@@ -1,4 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resetCursorModelCapabilitiesForTests,
+  setCursorModelCapabilitiesForTests,
+} from "../src/agent/providers/cursor/modelCapabilities.js";
 import { Agent } from "@cursor/sdk";
 import type { Config } from "../src/config.js";
 
@@ -36,6 +40,11 @@ const cfg = {
 describe("cursorAgentRunnerProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setCursorModelCapabilitiesForTests(["composer-2.5"]);
+  });
+
+  afterEach(() => {
+    resetCursorModelCapabilitiesForTests();
   });
 
   it("passes explicit fast=false for composer-2.5", async () => {
@@ -57,6 +66,31 @@ describe("cursorAgentRunnerProvider", () => {
         model: {
           id: "composer-2.5",
           params: [{ id: "fast", value: "false" }],
+        },
+      }),
+    );
+  });
+
+  it("passes fast=true for gpt-5.5-fast", async () => {
+    setCursorModelCapabilitiesForTests(["gpt-5.5"]);
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: vi.fn(),
+    } as never);
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg: { ...cfg, piModel: "gpt-5.5-fast" },
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+    });
+    await session.dispose();
+
+    expect(Agent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: {
+          id: "gpt-5.5",
+          params: [{ id: "fast", value: "true" }],
         },
       }),
     );

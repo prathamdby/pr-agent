@@ -1,5 +1,9 @@
 import type { ModelSelection } from "@cursor/sdk";
 import type { Api, Model } from "@earendil-works/pi-ai";
+import {
+  getFastParamModelIds,
+  isCursorModelCapabilitiesInitialized,
+} from "./modelCapabilities.js";
 
 export const CURSOR_PROVIDER = "cursor";
 export const CURSOR_API = "cursor-sdk" as const satisfies Api;
@@ -21,8 +25,6 @@ const CURSOR_MODEL_CATALOG: readonly CursorCatalogEntry[] = [
   { id: "auto", contextWindow: 200_000, maxTokens: 16_384 },
 ] as const;
 
-const CURSOR_FAST_PARAM_MODEL_IDS = new Set(["composer-2.5", "composer-2"]);
-
 function buildCursorModel(entry: CursorCatalogEntry): Model<typeof CURSOR_API> {
   return {
     id: entry.id,
@@ -42,9 +44,15 @@ const catalogById = new Map<string, Model<typeof CURSOR_API>>(
   CURSOR_MODEL_CATALOG.map((entry) => [entry.id, buildCursorModel(entry)]),
 );
 
+function catalogFastModelIds(): string[] {
+  if (!isCursorModelCapabilitiesInitialized()) return [];
+  const fastIds = getFastParamModelIds();
+  return [...catalogById.keys()].filter((id) => fastIds.has(id));
+}
+
 export function listCursorModelIds(): string[] {
   const ids = [...catalogById.keys()];
-  for (const id of CURSOR_FAST_PARAM_MODEL_IDS) {
+  for (const id of catalogFastModelIds()) {
     ids.push(`${id}${CURSOR_FAST_MODEL_SUFFIX}`);
   }
   return ids;
@@ -55,18 +63,15 @@ function parseCursorModelId(modelId: string): { readonly baseId: string; readonl
   if (!trimmed.endsWith(CURSOR_FAST_MODEL_SUFFIX)) {
     return { baseId: trimmed, fast: false };
   }
-  const baseId = trimmed.slice(0, -CURSOR_FAST_MODEL_SUFFIX.length);
-  if (!CURSOR_FAST_PARAM_MODEL_IDS.has(baseId)) {
-    throw new Error(
-      `PI_MODEL "${modelId}" is not a supported Cursor model. Supported: ${listCursorModelIds().join(", ")}`,
-    );
-  }
-  return { baseId, fast: true };
+  return {
+    baseId: trimmed.slice(0, -CURSOR_FAST_MODEL_SUFFIX.length),
+    fast: true,
+  };
 }
 
 export function toCursorSdkModelSelection(modelId: string): ModelSelection {
   const { baseId, fast } = parseCursorModelId(modelId);
-  if (!CURSOR_FAST_PARAM_MODEL_IDS.has(baseId)) {
+  if (!getFastParamModelIds().has(baseId)) {
     return { id: baseId };
   }
   return {
@@ -87,6 +92,19 @@ function resolveCursorCatalogId(modelId: string): string {
 
 export function assertCursorModelId(modelId: string): void {
   resolveCursorCatalogId(modelId);
+}
+
+export function assertCursorModelFastSelection(modelId: string): void {
+  const { baseId, fast } = parseCursorModelId(modelId);
+  if (!fast) return;
+  if (!getFastParamModelIds().has(baseId)) {
+    const supportedFast = catalogFastModelIds();
+    const hint =
+      supportedFast.length > 0
+        ? supportedFast.map((id) => `${id}${CURSOR_FAST_MODEL_SUFFIX}`).join(", ")
+        : "none";
+    throw new Error(`PI_MODEL "${modelId}" does not support fast mode. Supported: ${hint}`);
+  }
 }
 
 export function getCursorModel(modelId: string): Model<typeof CURSOR_API> {

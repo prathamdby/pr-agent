@@ -1,0 +1,58 @@
+[
+  {
+    "id": "composer-2.5",
+    "displayName": "Composer 2.5",
+    "parameters": [
+      {
+        "id": "fast",
+        "values": [
+          { "value": "true" },
+          { "value": "false" }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "composer-2",
+    "displayName": "Composer 2",
+    "parameters": [
+      {
+        "id": "fast",
+        "values": [
+          { "value": "true" },
+          { "value": "false" }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "gpt-5.5",
+    "displayName": "GPT-5.5",
+    "parameters": [
+      {
+        "id": "fast",
+        "values": [
+          { "value": "true" },
+          { "value": "false" }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "claude-opus-4-7",
+    "displayName": "Claude Opus 4.7",
+    "parameters": [
+      {
+        "id": "fast",
+        "values": [
+          { "value": "true" },
+          { "value": "false" }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "auto",
+    "displayName": "Auto"
+  }
+]

@@ -28,9 +28,18 @@ async function main() {
   logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
     if (cfg.agentProvider === "cursor") {
+      const { getFastParamModelIds, initCursorModelCapabilities } =
+        await import("./agent/providers/cursor/modelCapabilities.js");
+      const { assertCursorModelFastSelection } =
+        await import("./agent/providers/cursor/models.js");
       const { registerCursorProvider } = await import("./agent/providers/cursor/register.js");
+      await initCursorModelCapabilities(cfg.cursorApiKey);
+      assertCursorModelFastSelection(cfg.piModel);
       registerCursorProvider();
-      logInfo("cursor_provider_registered", { api: "cursor-sdk" });
+      logInfo("cursor_provider_registered", {
+        api: "cursor-sdk",
+        fast_models: [...getFastParamModelIds()],
+      });
     }
     startAgentWorker(cfg);
     return;
