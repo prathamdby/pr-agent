@@ -7,7 +7,7 @@ export type CursorExecutor = (args: Record<string, unknown>) => Promise<unknown>
 export type CursorRunContext = {
   readonly executors: Record<string, CursorExecutor>;
   readonly apiKey: string;
-  readonly sdkModelSelection?: ModelSelection;
+  readonly sdkModelSelection: ModelSelection;
   readonly cwd?: string;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly maxToolRounds?: number;

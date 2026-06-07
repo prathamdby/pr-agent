@@ -6,7 +6,7 @@ import {
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import { streamCursor } from "../src/agent/providers/cursor/streamCursor.js";
 import { attachCursorRunContext } from "../src/agent/providers/cursor/runContext.js";
-import { getCursorModel } from "../src/agent/providers/cursor/models.js";
+import { getCursorModel, toCursorSdkModelSelection } from "../src/agent/providers/cursor/models.js";
 import {
   CURSOR_RUN_ERROR_PREFIX,
   CURSOR_STARTUP_ERROR_PREFIX,
@@ -33,6 +33,7 @@ function attachExecutors(context: Context): void {
   attachCursorRunContext(context, {
     executors: { noop: async () => "ok" },
     apiKey: "cursor_test_key",
+    sdkModelSelection: toCursorSdkModelSelection("composer-2.5"),
   });
 }
 

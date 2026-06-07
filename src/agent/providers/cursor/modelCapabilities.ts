@@ -4,9 +4,7 @@ import {
   CURSOR_DEFAULT_CONTEXT_WINDOW,
   CURSOR_DEFAULT_MAX_TOKENS,
 } from "../../../settings/constants.js";
-
-const CURSOR_PROVIDER = "cursor";
-const CURSOR_API = "cursor-sdk" as const satisfies Api;
+import { CURSOR_API, CURSOR_PROVIDER } from "./constants.js";
 
 const FAST_PARAM_ID = "fast";
 const ZERO_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };

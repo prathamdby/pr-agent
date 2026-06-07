@@ -1,5 +1,6 @@
 import type { ModelSelection } from "@cursor/sdk";
-import type { Api, Model } from "@earendil-works/pi-ai";
+import type { Model } from "@earendil-works/pi-ai";
+import { CURSOR_API, CURSOR_PROVIDER } from "./constants.js";
 import {
   getCursorCatalogById,
   getCursorCatalogItems,
@@ -7,14 +8,15 @@ import {
   isCursorModelCapabilitiesInitialized,
 } from "./modelCapabilities.js";
 
-export const CURSOR_PROVIDER = "cursor";
-export const CURSOR_API = "cursor-sdk" as const satisfies Api;
+export { CURSOR_API, CURSOR_PROVIDER } from "./constants.js";
 const CURSOR_FAST_MODEL_SUFFIX = "-fast";
 
 function catalogFastModelIds(): string[] {
   if (!isCursorModelCapabilitiesInitialized()) return [];
   const fastIds = getFastParamModelIds();
-  return [...getCursorCatalogById().keys()].filter((id) => fastIds.has(id));
+  return getCursorCatalogItems()
+    .filter((item) => fastIds.has(item.id))
+    .map((item) => item.id);
 }
 
 export function listCursorModelIds(): string[] {
