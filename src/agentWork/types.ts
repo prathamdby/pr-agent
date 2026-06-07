@@ -115,6 +115,12 @@ export type FixTargetSelector =
       readonly kind: "all";
     };
 
+export type FixPublishCheckpoint = {
+  readonly kind: "direct" | "fallback";
+  readonly headSha: string;
+  readonly replyBody: string;
+};
+
 export type FixWorkPayload = {
   readonly selector: FixTargetSelector;
   readonly replyTarget: ReplyTarget;
@@ -122,6 +128,7 @@ export type FixWorkPayload = {
   readonly commenterId?: number;
   readonly commenterLogin?: string;
   readonly commandCommentId: number;
+  readonly publishCheckpoint?: FixPublishCheckpoint;
 };
 
 export type AgentWorkItem = PrRef & {

@@ -4,7 +4,13 @@ import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
 import { DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
-import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
+import type {
+  AgentWorkItem,
+  AgentWorkItemCore,
+  FixPublishCheckpoint,
+  ReviewWorkPayload,
+  WorkStatus,
+} from "./types.js";
 
 export type PublishLens = ReviewWorkPayload["mode"] | typeof DESCRIPTION_PUBLISH_LENS;
 export type PublishStep =
@@ -387,5 +393,22 @@ export async function recordPublishStep(
       params.githubId == null ? null : String(params.githubId),
       JSON.stringify(params.detail ?? {}),
     ],
+  );
+}
+
+export async function recordFixPublishCheckpoint(
+  pool: Pool,
+  params: {
+    workItemId: string;
+    checkpoint: FixPublishCheckpoint;
+  },
+): Promise<void> {
+  await pool.query(
+    `UPDATE agent_work_items
+        SET payload = jsonb_set(payload, '{publishCheckpoint}', $2::jsonb, true),
+            updated_at = now()
+      WHERE id = $1
+        AND status = 'running'`,
+    [params.workItemId, JSON.stringify(params.checkpoint)],
   );
 }

@@ -29,6 +29,7 @@ import type { AutoFixTarget, AutoFixTargetGroup } from "../../autoFix/types.js";
 import { getAppBotIdentity, postSlashReply } from "../githubPrSurface.js";
 import { resolveWorkItemHeadSha, runDurableWorkItem } from "../durableJob.js";
 import { findActiveFixConflict } from "../intake/workItemRepository.js";
+import { recordFixPublishCheckpoint } from "../repository.js";
 import type { FixJobData, FixWorkPayload } from "../types.js";
 
 const FIX_ALL_LENSES = ["review", "review-security", "review-quality"] as const;
@@ -49,6 +50,19 @@ function fallbackBranchName(workItemId: string, prNumber: number): string {
 
 function changedPathsFromCommits(commits: readonly AutoFixCommit[]): string[] {
   return [...new Set(commits.flatMap((commit) => commit.changedPaths))].toSorted();
+}
+
+function recoverPublishedReply(payload: FixWorkPayload, currentHeadSha: string): string | null {
+  const checkpoint = payload.publishCheckpoint;
+  if (!checkpoint) return null;
+  if (checkpoint.kind === "fallback") return checkpoint.replyBody;
+  return checkpoint.headSha === currentHeadSha ? checkpoint.replyBody : null;
+}
+
+function publishedHeadSha(commits: readonly AutoFixCommit[]): string {
+  const headSha = commits.at(-1)?.sha;
+  if (!headSha) throw new Error("Auto-fix publish checkpoint requires at least one commit");
+  return headSha;
 }
 
 async function postFixReply(
@@ -133,6 +147,11 @@ export async function executeFixJob(
         item.repo,
         item.prNumber,
       );
+      const recoveredReply = recoverPublishedReply(payload, branchContext.headSha);
+      if (recoveredReply) {
+        await postFixReply(env.installation.token, { ...item, payload }, recoveredReply);
+        return {};
+      }
       if (branchContext.headSha !== env.headSha) {
         await postFixReply(env.installation.token, { ...item, payload }, FIX_PUSH_STALE);
         return {};
@@ -250,6 +269,16 @@ export async function executeFixJob(
               workItemId: item.id,
               message: error instanceof Error ? error.message : String(error),
             });
+            const latestAfterPushFailure = await getPullRequestBranchContext(
+              env.installation.token,
+              item.owner,
+              item.repo,
+              item.prNumber,
+            );
+            if (latestAfterPushFailure.headSha !== env.headSha) {
+              await postFixReply(env.installation.token, { ...item, payload }, FIX_PUSH_STALE);
+              return {};
+            }
             const branch = fallbackBranchName(item.id, item.prNumber);
             const expectedSha = await getBranchHeadSha(
               env.installation.token,
@@ -276,16 +305,21 @@ export async function executeFixJob(
             fallbackPr = { url: replacement.url, reused: replacement.reused };
           }
 
-          await postFixReply(
-            env.installation.token,
-            { ...item, payload },
-            renderAutoFixFinalReply({
-              commits,
-              fallbackPr,
-              skipped,
-              changedPaths: changedPathsFromCommits(commits),
-            }),
-          );
+          const replyBody = renderAutoFixFinalReply({
+            commits,
+            fallbackPr,
+            skipped,
+            changedPaths: changedPathsFromCommits(commits),
+          });
+          await recordFixPublishCheckpoint(pool, {
+            workItemId: item.id,
+            checkpoint: {
+              kind: fallbackPr ? "fallback" : "direct",
+              headSha: publishedHeadSha(commits),
+              replyBody,
+            },
+          });
+          await postFixReply(env.installation.token, { ...item, payload }, replyBody);
           return {};
         }
 

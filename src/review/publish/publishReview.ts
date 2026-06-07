@@ -47,6 +47,28 @@ function fingerprintsForInlineReviewStep(params: {
   );
 }
 
+function autoFixTargetsForPlacements(
+  placements: readonly InlinePlacement[],
+  mode: ReviewMode,
+): PersistAutoFixTargetInput[] {
+  return placements.flatMap((placement): PersistAutoFixTargetInput[] => {
+    const finding = placement.finding;
+    if (!isInlineSeverity(finding.severity) || !finding.fixPrompt) return [];
+    return [
+      {
+        finding: {
+          ...finding,
+          severity: finding.severity,
+          fixPrompt: finding.fixPrompt,
+        },
+        fingerprint: fingerprintFinding(finding, mode),
+        placementKind: placement.inlinePosted ? "inline" : "summary",
+        inlineReviewCommentId: placement.inlineCommentId,
+      },
+    ];
+  });
+}
+
 export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
@@ -187,6 +209,8 @@ export async function publishReview(
     }
   }
 
+  await params.recordAutoFixTargets?.(autoFixTargetsForPlacements(summaryPlacements, mode));
+
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
     summarySentinel,
@@ -216,24 +240,6 @@ export async function publishReview(
     githubId: summary.id,
     meta: { updated: summary.updated, ...publishMetaBase },
   });
-  await params.recordAutoFixTargets?.(
-    summaryPlacements.flatMap((placement): PersistAutoFixTargetInput[] => {
-      const finding = placement.finding;
-      if (!isInlineSeverity(finding.severity) || !finding.fixPrompt) return [];
-      return [
-        {
-          finding: {
-            ...finding,
-            severity: finding.severity,
-            fixPrompt: finding.fixPrompt,
-          },
-          fingerprint: fingerprintFinding(finding, mode),
-          placementKind: placement.inlinePosted ? "inline" : "summary",
-          inlineReviewCommentId: placement.inlineCommentId,
-        },
-      ];
-    }),
-  );
   logDebug("review_published_summary", {
     mode,
     owner,
