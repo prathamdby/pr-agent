@@ -66,7 +66,10 @@ function resolvePatchForFile(
     return {
       patch: rawPatch,
       patchOmitted: undefined,
-      state: { patchCapReached: false, patchBytes: state.patchBytes + patchLen },
+      state: {
+        patchCapReached: false,
+        patchBytes: state.patchBytes + patchLen,
+      },
       patchOmittedCountDelta: 0,
     };
   }
@@ -152,7 +155,14 @@ export async function listPullRequestFilesPaginated(
   }
   const warning = warnings.length > 0 ? warnings.join(" ") : undefined;
 
-  return { files, truncated, omittedCountLowerBound, totalChanges, headSha, warning };
+  return {
+    files,
+    truncated,
+    omittedCountLowerBound,
+    totalChanges,
+    headSha,
+    warning,
+  };
 }
 
 function mapGithubFile(

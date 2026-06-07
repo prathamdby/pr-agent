@@ -114,7 +114,10 @@ export const WebhookHandlersCore = Layer.effect(
               commentId: data.comment.id,
               body,
               command,
-              replyTarget: { kind: "prConversation", prNumber: data.issue.number },
+              replyTarget: {
+                kind: "prConversation",
+                prNumber: data.issue.number,
+              },
             },
             intakeLog,
           );

@@ -15,7 +15,11 @@ export type CachedPrDiffIndex = {
 };
 
 export function createCachedPrDiffIndex(): CachedPrDiffIndex {
-  return { truncated: false, files: new Map(), listPullRequestFilesIngested: false };
+  return {
+    truncated: false,
+    files: new Map(),
+    listPullRequestFilesIngested: false,
+  };
 }
 
 const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
@@ -95,7 +99,10 @@ export function ingestListPullRequestFilesResult(
     const patchOmitted = file.patchOmitted === true || file.patch == null || file.patch === "";
     const commentableRightLineRanges =
       !patchOmitted && file.patch ? parseCommentableRightLineRanges(file.patch) : [];
-    index.files.set(file.filename, { patchOmitted, commentableRightLineRanges });
+    index.files.set(file.filename, {
+      patchOmitted,
+      commentableRightLineRanges,
+    });
   }
 }
 

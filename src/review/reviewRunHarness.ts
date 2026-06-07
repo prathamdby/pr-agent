@@ -60,7 +60,10 @@ export async function runReviewHarness(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
   reviewSource?: WorkSource;
   staleHeadRescheduled?: boolean;
   publishAbortState?: { staleHead?: boolean };

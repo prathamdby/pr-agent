@@ -35,7 +35,10 @@ export async function runFullPrReview(params: {
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
   trustedContext?: string;
   storedInlineFingerprints?: readonly string[];
   cwd?: string;

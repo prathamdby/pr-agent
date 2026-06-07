@@ -43,7 +43,10 @@ export function buildDescriptionRunSetup(params: {
   workspace?: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
 }): DescriptionRunSetup {
   const {
     cfg,

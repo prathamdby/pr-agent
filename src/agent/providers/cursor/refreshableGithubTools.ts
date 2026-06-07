@@ -18,14 +18,20 @@ export function createRefreshableToolExecutors(params: {
   initialToken: string;
   tokenExpiresAtTs: number;
   build: (token: string) => ToolExecutorBundle;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
   githubToolNames?: ReadonlySet<string>;
 }): RefreshableToolExecutors {
   let activeToken = params.initialToken;
   let activeExpiresAtTs = params.tokenExpiresAtTs;
   let built = params.build(activeToken);
   const executorStore: Record<string, CursorExecutor> = { ...built.executors };
-  let bundle: ToolExecutorBundle = { piTools: built.piTools, executors: executorStore };
+  let bundle: ToolExecutorBundle = {
+    piTools: built.piTools,
+    executors: executorStore,
+  };
   const githubExecutorNames = params.githubToolNames ?? new Set(Object.keys(executorStore));
 
   const refreshBeforeTool = async (toolName: string): Promise<void> => {

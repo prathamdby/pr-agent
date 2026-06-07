@@ -36,7 +36,10 @@ function formatMessage(message: Message): string {
   }
 }
 
-export function buildCursorPrompt(context: Context): { text: string; inputChars: number } {
+export function buildCursorPrompt(context: Context): {
+  text: string;
+  inputChars: number;
+} {
   const sections: string[] = [];
   if (context.systemPrompt?.trim()) {
     sections.push(`System:\n${context.systemPrompt.trim()}`);

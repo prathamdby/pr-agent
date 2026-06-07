@@ -71,7 +71,11 @@ describe("effect webhook program integration", () => {
         Effect.provide(dispatcherLayer),
         Effect.provideService(
           IntakeLogger,
-          createOperationLogger({ method: "POST", path: "/webhooks", requestId: "d1" }),
+          createOperationLogger({
+            method: "POST",
+            path: "/webhooks",
+            requestId: "d1",
+          }),
         ),
       ),
     );

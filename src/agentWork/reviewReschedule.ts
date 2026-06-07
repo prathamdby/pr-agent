@@ -59,7 +59,9 @@ export async function createSlashReviewRescheduleWorkItem(
 
   if (!replacementWorkItemId) {
     replacementWorkItemId = crypto.randomUUID();
-    const marker = JSON.stringify({ staleHeadReplacementWorkItemId: replacementWorkItemId });
+    const marker = JSON.stringify({
+      staleHeadReplacementWorkItemId: replacementWorkItemId,
+    });
     const updateResult = await pool.query<{ replacement_id: string }>(
       `UPDATE agent_work_items
          SET payload = payload || $2::jsonb,
@@ -204,7 +206,11 @@ export async function enqueueSlashReviewReschedule(
       throw new Error("pg-boss did not enqueue replacement review ack job");
     }
 
-    const reviewData: ReviewJobData = { kind: "review", workItemId, ...correlation };
+    const reviewData: ReviewJobData = {
+      kind: "review",
+      workItemId,
+      ...correlation,
+    };
     const reviewJobId = await boss.send(REVIEW_QUEUE, reviewData, {
       singletonKey: reviewSingletonKey(item.resourceKey, reviewLens),
       group: { id: installationGroupId(item.installationId) },

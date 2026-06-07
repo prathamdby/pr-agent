@@ -294,7 +294,10 @@ describe("publishReview", () => {
   });
 
   it("still resolves inline comment URLs when inline review was published earlier", async () => {
-    const publishState = testPublishState({ inlinePublished: true, inlineReviewId: 1 });
+    const publishState = testPublishState({
+      inlinePublished: true,
+      inlineReviewId: 1,
+    });
 
     await publishReviewForTest({
       ...baseParams,

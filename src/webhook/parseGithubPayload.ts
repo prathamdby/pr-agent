@@ -22,7 +22,10 @@ export class WebhookParseError extends Error {
 export type ParsedGithubEvent =
   | { name: "pull_request"; data: PullRequestWebhookPayload }
   | { name: "issue_comment"; data: IssueCommentWebhookPayload }
-  | { name: "pull_request_review_comment"; data: PullRequestReviewCommentWebhookPayload }
+  | {
+      name: "pull_request_review_comment";
+      data: PullRequestReviewCommentWebhookPayload;
+    }
   | { name: "ignored"; data: unknown };
 
 function parseOrThrow<T>(eventName: string, schema: z.ZodType<T>, payload: unknown): T {

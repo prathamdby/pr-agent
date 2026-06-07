@@ -105,7 +105,11 @@ export async function applyAutomatedPullRequestIntake(
       repo: ref.repo,
       prNumber: ref.prNumber,
       targets: ackTargets,
-      progress: { lens: AUTOMATED_REVIEW_LENS, headSha: ref.headSha, source: "auto" },
+      progress: {
+        lens: AUTOMATED_REVIEW_LENS,
+        headSha: ref.headSha,
+        source: "auto",
+      },
       ...correlation,
     };
     await enqueueAck(boss, client, ackData);

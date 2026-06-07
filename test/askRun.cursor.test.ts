@@ -33,7 +33,12 @@ vi.mock("@earendil-works/pi-ai", () => ({
   getModel: vi.fn(),
   complete: vi.fn(async () => ({
     role: "assistant" as const,
-    content: [{ type: "text" as const, text: "The function validates input before use." }],
+    content: [
+      {
+        type: "text" as const,
+        text: "The function validates input before use.",
+      },
+    ],
     api: "cursor-sdk",
     provider: "cursor",
     model: "composer-2.5",

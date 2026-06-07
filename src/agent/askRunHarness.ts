@@ -45,7 +45,11 @@ export async function runAskHarness(params: AskRunParams): Promise<AskRunResult>
     const answerText =
       lastText.length > 0
         ? formatAskReply({ question, answer: lastText, replyTarget })
-        : formatAskFailureReply({ question, message: ASK_FAILURE_MESSAGE, replyTarget });
+        : formatAskFailureReply({
+            question,
+            message: ASK_FAILURE_MESSAGE,
+            replyTarget,
+          });
 
     logInfo("ask_run_completed", {
       provider: cfg.agentProvider,

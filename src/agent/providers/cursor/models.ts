@@ -33,7 +33,10 @@ export function listTopCursorModelIds(limit = 10): string[] {
     .map((item) => item.id);
 }
 
-function parseCursorModelId(modelId: string): { readonly baseId: string; readonly fast: boolean } {
+function parseCursorModelId(modelId: string): {
+  readonly baseId: string;
+  readonly fast: boolean;
+} {
   const trimmed = modelId.trim();
   if (!trimmed.endsWith(CURSOR_FAST_MODEL_SUFFIX)) {
     return { baseId: trimmed, fast: false };

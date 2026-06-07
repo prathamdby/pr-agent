@@ -86,10 +86,18 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
 function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
   const status = file.status;
   if (status === "renamed" && file.previousFilename) {
-    return { path: file.filename, status: "renamed", oldPath: file.previousFilename };
+    return {
+      path: file.filename,
+      status: "renamed",
+      oldPath: file.previousFilename,
+    };
   }
   if (status === "copied" && file.previousFilename) {
-    return { path: file.filename, status: "copied", oldPath: file.previousFilename };
+    return {
+      path: file.filename,
+      status: "copied",
+      oldPath: file.previousFilename,
+    };
   }
   const mapped: ChangedFileStatus =
     status === "added"

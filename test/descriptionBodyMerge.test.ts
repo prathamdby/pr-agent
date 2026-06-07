@@ -20,7 +20,10 @@ describe("mergeDescriptionIntoPrBody", () => {
 
   it("replaces only agent block on re-run", () => {
     const current = `User intro\n\n___\n\n${DESCRIPTION_AGENT_HEADER}\n\nOld agent content`;
-    const merged = mergeDescriptionIntoPrBody({ currentBody: current, agentBlock });
+    const merged = mergeDescriptionIntoPrBody({
+      currentBody: current,
+      agentBlock,
+    });
     expect(merged.startsWith("User intro")).toBe(true);
     expect(merged).toContain(agentBlock);
     expect(merged).not.toContain("Old agent content");

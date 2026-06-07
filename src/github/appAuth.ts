@@ -108,10 +108,15 @@ export async function mintBotIdentity(
     const status = httpStatus(e);
     if (status !== 403) throw e;
 
-    logDebug("resolved_bot_identity_fallback_jwt_slug", { githubAppId: cfg.githubAppId });
+    logDebug("resolved_bot_identity_fallback_jwt_slug", {
+      githubAppId: cfg.githubAppId,
+    });
     u = await resolveBotIdentityViaAppSlug(cfg);
   }
 
-  logDebug("resolved_bot_identity", { login: u.login, githubAppId: cfg.githubAppId });
+  logDebug("resolved_bot_identity", {
+    login: u.login,
+    githubAppId: cfg.githubAppId,
+  });
   return u;
 }

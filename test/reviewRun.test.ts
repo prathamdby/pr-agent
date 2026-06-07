@@ -88,7 +88,9 @@ function reviewParams(
 describe("runFullPrReview mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sendMock.mockImplementation(async () => ({ text: "analysis without submitReview" }));
+    sendMock.mockImplementation(async () => ({
+      text: "analysis without submitReview",
+    }));
   });
 
   it("requires finite tokenExpiresAtTs", async () => {
@@ -121,7 +123,9 @@ describe("runFullPrReview mode", () => {
 
   it("selects general system prompt by default", async () => {
     await runFullPrReview(
-      reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 } }),
+      reviewParams({
+        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+      }),
     );
 
     expect(capturedSystemPrompt).toContain("senior staff software engineer");
@@ -143,7 +147,9 @@ describe("runFullPrReview mode", () => {
 describe("runFullPrReview publish retries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sendMock.mockImplementation(async () => ({ text: "analysis without submitReview" }));
+    sendMock.mockImplementation(async () => ({
+      text: "analysis without submitReview",
+    }));
   });
 
   it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {
@@ -183,7 +189,9 @@ describe("runFullPrReview publish retries", () => {
     const infoSpy = vi.spyOn(evlog, "logInfo");
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
       await runFullPrReview(
-        reviewParams({ cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 } }),
+        reviewParams({
+          cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        }),
       );
     });
     expect(infoSpy).toHaveBeenCalledWith(

@@ -37,7 +37,9 @@ function toPiTool(name: string, t: LocalTool): PiTool {
   return {
     name,
     description: t.description,
-    parameters: z.toJSONSchema(t.schema, { unrepresentable: "any" }) as PiTool["parameters"],
+    parameters: z.toJSONSchema(t.schema, {
+      unrepresentable: "any",
+    }) as PiTool["parameters"],
   };
 }
 
@@ -147,7 +149,11 @@ export function buildLocalWorkspaceTools(
           reason: "Binary file cannot be read as text.",
         };
       }
-      return { path: normalized, size: buf.length, content: buf.toString("utf8") };
+      return {
+        path: normalized,
+        size: buf.length,
+        content: buf.toString("utf8"),
+      };
     },
   };
 
@@ -223,7 +229,10 @@ export function buildLocalWorkspaceTools(
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
       assertPathAllowedForAsk(normalized, pathGate);
-      return { path: normalized, diff: await workspace.getDiffForPath(normalized) };
+      return {
+        path: normalized,
+        diff: await workspace.getDiffForPath(normalized),
+      };
     },
   };
 
@@ -242,7 +251,10 @@ export function buildLocalWorkspaceTools(
         return { path: normalized, ...refused, blame: null };
       }
       const blame = redactPorcelainBlame(await workspace.getBlameForPath(normalized));
-      return sanitizeToolResultForAsk("getWorkspaceBlame", { path: normalized, blame });
+      return sanitizeToolResultForAsk("getWorkspaceBlame", {
+        path: normalized,
+        blame,
+      });
     },
   };
 

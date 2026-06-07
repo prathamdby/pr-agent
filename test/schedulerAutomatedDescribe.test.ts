@@ -8,7 +8,11 @@ import { ACK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/settings/inde
 import * as postgres from "../src/db/postgres.js";
 
 function makeAutomatedHeaders() {
-  return { event: "pull_request", delivery: "d-auto", rawBody: Buffer.from("{}") };
+  return {
+    event: "pull_request",
+    delivery: "d-auto",
+    rawBody: Buffer.from("{}"),
+  };
 }
 
 function makePrRef() {
@@ -56,7 +60,10 @@ describe("makeAgentWorkScheduler automated describe", () => {
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss);
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
 
     await Effect.runPromise(
       scheduler.submitAutomatedReview(makeAutomatedHeaders(), makePrRef(), "opened", intakeLog),
@@ -81,7 +88,10 @@ describe("makeAgentWorkScheduler automated describe", () => {
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss);
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
 
     await Effect.runPromise(
       scheduler.submitAutomatedReview(

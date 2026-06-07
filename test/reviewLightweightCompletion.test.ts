@@ -58,7 +58,11 @@ describe("tryLightweightAutoReviewCompletion", () => {
       },
     });
 
-    expect(result).toEqual({ handled: true, published: false, reason: "skipped" });
+    expect(result).toEqual({
+      handled: true,
+      published: false,
+      reason: "skipped",
+    });
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
   });

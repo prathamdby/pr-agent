@@ -14,7 +14,11 @@ import {
 } from "../review/reviewDiffIndex.js";
 
 export type ListPullRequestFilesToolOutput = {
-  files: Array<PullRequestFileEntry & { commentableRightLineRanges: CommentableRightLineRanges }>;
+  files: Array<
+    PullRequestFileEntry & {
+      commentableRightLineRanges: CommentableRightLineRanges;
+    }
+  >;
   truncated: boolean;
   omittedCountLowerBound: number;
   totalChanges: number;
@@ -40,7 +44,9 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
   const tool = {
     name,
     description: t.description,
-    parameters: z.toJSONSchema(t.schema, { unrepresentable: "any" }) as PiTool["parameters"],
+    parameters: z.toJSONSchema(t.schema, {
+      unrepresentable: "any",
+    }) as PiTool["parameters"],
   };
   PI_TOOL_CACHE.set(name, tool);
   return tool;
@@ -131,7 +137,11 @@ export function buildGithubTools(
       pullNumber: z.number().describe("Pull request number"),
     }),
     run: async ({ owner, repo, pullNumber }) => {
-      const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: pullNumber });
+      const { data } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: pullNumber,
+      });
       return {
         number: data.number,
         title: data.title,
@@ -167,7 +177,12 @@ export function buildGithubTools(
       perPage: z.number().optional().default(30).describe("Number of results to return (max 100)"),
     }),
     run: async ({ owner, repo, state, perPage }) => {
-      const { data } = await octokit.rest.pulls.list({ owner, repo, state, per_page: perPage });
+      const { data } = await octokit.rest.pulls.list({
+        owner,
+        repo,
+        state,
+        per_page: perPage,
+      });
       return data.map((pr) => ({
         number: pr.number,
         title: pr.title,
@@ -252,11 +267,20 @@ export function buildGithubTools(
         .describe("Branch, tag, or commit SHA (defaults to the default branch)"),
     }),
     run: async ({ owner, repo, path, ref }) => {
-      const { data } = await octokit.rest.repos.getContent({ owner, repo, path, ref });
+      const { data } = await octokit.rest.repos.getContent({
+        owner,
+        repo,
+        path,
+        ref,
+      });
       if (Array.isArray(data)) {
         return {
           type: "directory" as const,
-          entries: data.map((e) => ({ name: e.name, type: e.type, path: e.path })),
+          entries: data.map((e) => ({
+            name: e.name,
+            type: e.type,
+            path: e.path,
+          })),
         };
       }
       if (data.type !== "file") {
@@ -472,8 +496,15 @@ export function buildGithubTools(
       perPage: z.number().optional().default(30).describe("Number of branches to return (max 100)"),
     }),
     run: async ({ owner, repo, perPage }) => {
-      const { data } = await octokit.rest.repos.listBranches({ owner, repo, per_page: perPage });
-      return data.map((branch) => ({ name: branch.name, sha: branch.commit.sha }));
+      const { data } = await octokit.rest.repos.listBranches({
+        owner,
+        repo,
+        per_page: perPage,
+      });
+      return data.map((branch) => ({
+        name: branch.name,
+        sha: branch.commit.sha,
+      }));
     },
   });
 
@@ -489,7 +520,10 @@ export function buildGithubTools(
       perPage: z.number().optional().default(10).describe("Number of results to return (max 30)"),
     }),
     run: async ({ query, perPage }) => {
-      const { data } = await octokit.rest.search.code({ q: query, per_page: perPage });
+      const { data } = await octokit.rest.search.code({
+        q: query,
+        per_page: perPage,
+      });
       return {
         totalCount: data.total_count,
         items: data.items.map((item) => ({

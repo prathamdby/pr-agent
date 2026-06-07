@@ -35,7 +35,12 @@ function sleep(ms) {
 async function timeStep([phase, fixedMs, bucket]) {
   const started = performance.now();
   await sleep(fixedMs);
-  return { phase, bucket, elapsedMs: performance.now() - started, fixedStubMs: fixedMs };
+  return {
+    phase,
+    bucket,
+    elapsedMs: performance.now() - started,
+    fixedStubMs: fixedMs,
+  };
 }
 
 for (const scenario of scenarios) {

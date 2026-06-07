@@ -98,7 +98,11 @@ export async function mintInstallationToken(
     const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
     const now = Date.now();
     const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
-    return { token: auth.token, expiresAtTs, ttlMs: Math.max(0, expiresAtTs - now) };
+    return {
+      token: auth.token,
+      expiresAtTs,
+      ttlMs: Math.max(0, expiresAtTs - now),
+    };
   })();
   installationTokenCache.set(installationId, pending);
   try {
@@ -148,18 +152,30 @@ async function finishRescheduledParentWorkItem(
   type: DurableJobSpec["type"],
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId)) {
-    logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+    logInfo("agent_work_completed", {
+      type,
+      workItemId: itemId,
+      rescheduled: true,
+    });
     return;
   }
   const refreshed = await getWorkItem(pool, itemId);
   if (refreshed?.status === "completed") {
-    logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+    logInfo("agent_work_completed", {
+      type,
+      workItemId: itemId,
+      rescheduled: true,
+    });
     return;
   }
   const payload = refreshed?.payload as ReviewWorkPayload | undefined;
   if (payload?.staleHeadReplacementWorkItemId) {
     if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
-      logInfo("agent_work_completed", { type, workItemId: itemId, rescheduled: true });
+      logInfo("agent_work_completed", {
+        type,
+        workItemId: itemId,
+        rescheduled: true,
+      });
       return;
     }
     throw new Error(

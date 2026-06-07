@@ -132,9 +132,17 @@ describe("buildGithubTools — happy paths", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ pullsGet }));
 
-    const out = await executors.getPullRequest({ owner: "o", repo: "r", pullNumber: 3 });
+    const out = await executors.getPullRequest({
+      owner: "o",
+      repo: "r",
+      pullNumber: 3,
+    });
 
-    expect(pullsGet).toHaveBeenCalledWith({ owner: "o", repo: "r", pull_number: 3 });
+    expect(pullsGet).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      pull_number: 3,
+    });
     expect(out).toMatchObject({
       number: 3,
       authorLogin: "octocat",
@@ -163,11 +171,19 @@ describe("buildGithubTools — happy paths", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ pullsList }));
 
-    const out = (await executors.listPullRequests({ owner: "o", repo: "r" })) as Array<{
+    const out = (await executors.listPullRequests({
+      owner: "o",
+      repo: "r",
+    })) as Array<{
       authorLogin: string;
     }>;
 
-    expect(pullsList).toHaveBeenCalledWith({ owner: "o", repo: "r", state: "open", per_page: 30 });
+    expect(pullsList).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      state: "open",
+      per_page: 30,
+    });
     expect(out[0]).toMatchObject({ authorLogin: "octocat" });
   });
 
@@ -538,7 +554,10 @@ describe("buildGithubTools — happy paths", () => {
       data: [
         {
           sha: "abc",
-          commit: { message: "m", author: { name: "Git Name", date: "2024-01-01" } },
+          commit: {
+            message: "m",
+            author: { name: "Git Name", date: "2024-01-01" },
+          },
           author: { login: "octocat" },
           html_url: "u",
         },
@@ -546,12 +565,18 @@ describe("buildGithubTools — happy paths", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposListCommits }));
 
-    const out = (await executors.listCommits({ owner: "o", repo: "r" })) as Array<{
+    const out = (await executors.listCommits({
+      owner: "o",
+      repo: "r",
+    })) as Array<{
       authorName: string;
       authorLogin: string;
     }>;
 
-    expect(out[0]).toMatchObject({ authorName: "Git Name", authorLogin: "octocat" });
+    expect(out[0]).toMatchObject({
+      authorName: "Git Name",
+      authorLogin: "octocat",
+    });
   });
 
   it("getCommit returns `changes` (not totalChanges) and mapped files", async () => {
@@ -576,7 +601,11 @@ describe("buildGithubTools — happy paths", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposGetCommit }));
 
-    const out = (await executors.getCommit({ owner: "o", repo: "r", ref: "abc" })) as {
+    const out = (await executors.getCommit({
+      owner: "o",
+      repo: "r",
+      ref: "abc",
+    })) as {
       changes: number;
       authorName: string;
       authorLogin: string;
@@ -622,7 +651,10 @@ describe("buildGithubTools — happy paths", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposListBranches }));
 
-    const out = (await executors.listBranches({ owner: "o", repo: "r" })) as Array<{
+    const out = (await executors.listBranches({
+      owner: "o",
+      repo: "r",
+    })) as Array<{
       name: string;
       sha: string;
     }>;
@@ -671,7 +703,11 @@ describe("getFileContent — three branches", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposGetContent }));
 
-    const out = (await executors.getFileContent({ owner: "o", repo: "r", path: "src/f.ts" })) as {
+    const out = (await executors.getFileContent({
+      owner: "o",
+      repo: "r",
+      path: "src/f.ts",
+    })) as {
       type: string;
       content: string;
     };
@@ -694,7 +730,11 @@ describe("getFileContent — three branches", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposGetContent }));
 
-    const out = (await executors.getFileContent({ owner: "o", repo: "r", path: "src" })) as {
+    const out = (await executors.getFileContent({
+      owner: "o",
+      repo: "r",
+      path: "src",
+    })) as {
       type: string;
       entries: Array<{ name: string }>;
     };
@@ -709,7 +749,11 @@ describe("getFileContent — three branches", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposGetContent }));
 
-    const out = (await executors.getFileContent({ owner: "o", repo: "r", path: "src/link" })) as {
+    const out = (await executors.getFileContent({
+      owner: "o",
+      repo: "r",
+      path: "src/link",
+    })) as {
       type: string;
       path: string;
     };
@@ -730,7 +774,11 @@ describe("getFileContent — three branches", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposGetContent }));
 
-    const out = (await executors.getFileContent({ owner: "o", repo: "r", path: "big.bin" })) as {
+    const out = (await executors.getFileContent({
+      owner: "o",
+      repo: "r",
+      path: "big.bin",
+    })) as {
       type: string;
       content: string | null;
       note?: string;
@@ -759,13 +807,23 @@ describe("getFileContent — three branches", () => {
     });
     const { executors } = buildWithStub(makeOctokitStub({ reposGetContent }));
 
-    const out = (await executors.getFileContent({ owner: "o", repo: "r", path: "empty.txt" })) as {
+    const out = (await executors.getFileContent({
+      owner: "o",
+      repo: "r",
+      path: "empty.txt",
+    })) as {
       type: string;
       content: string | null;
       note?: string;
     };
 
-    expect(out).toEqual({ type: "file", path: "empty.txt", sha: "e69de29", size: 0, content: "" });
+    expect(out).toEqual({
+      type: "file",
+      path: "empty.txt",
+      sha: "e69de29",
+      size: 0,
+      content: "",
+    });
     expect(out.note).toBeUndefined();
   });
 });
@@ -805,7 +863,12 @@ describe("getBlame — branches and error paths", () => {
     );
     const { executors } = buildWithStub(makeOctokitStub({ graphql }));
 
-    const out = (await executors.getBlame({ owner: "o", repo: "r", path: "f.ts", ref: "abc" })) as {
+    const out = (await executors.getBlame({
+      owner: "o",
+      repo: "r",
+      path: "f.ts",
+      ref: "abc",
+    })) as {
       rangeCount: number;
       ranges: unknown[];
     };
@@ -829,7 +892,10 @@ describe("getBlame — branches and error paths", () => {
       path: "f.ts",
       ref: "abc",
       line: 7,
-    })) as { rangeCount: number; ranges: Array<{ startingLine: number; endingLine: number }> };
+    })) as {
+      rangeCount: number;
+      ranges: Array<{ startingLine: number; endingLine: number }>;
+    };
 
     expect(out.rangeCount).toBe(1);
     expect(out.ranges[0]).toMatchObject({ startingLine: 6, endingLine: 10 });

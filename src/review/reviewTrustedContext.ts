@@ -55,5 +55,7 @@ export async function buildTrustedReviewContextForReview(params: {
     params.onPriorFeedbackError?.(error);
   }
 
-  return buildTrustedReviewContextBlock(params.preflight, { priorInlineFeedback });
+  return buildTrustedReviewContextBlock(params.preflight, {
+    priorInlineFeedback,
+  });
 }

@@ -22,7 +22,10 @@ export type AskRunParams = {
   question: string;
   replyTarget: ReplyTarget;
   codeAnchor?: CodeAnchor;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
   cwd?: string;
   workspace?: LocalPrWorkspace;
 };

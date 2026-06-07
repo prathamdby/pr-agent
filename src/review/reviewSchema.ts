@@ -160,7 +160,10 @@ function coercePositiveInt(value: unknown): number | undefined {
   return undefined;
 }
 
-function stripWholeStringCodeFence(value: string): { text: string; stripped: boolean } {
+function stripWholeStringCodeFence(value: string): {
+  text: string;
+  stripped: boolean;
+} {
   const trimmed = value.trim();
   const fenceMatch = /^```(?:\w+)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
   if (!fenceMatch) return { text: value, stripped: false };
@@ -178,7 +181,10 @@ function coerceReviewTextField(
   if (doubleEscaped) coercions.push(`${coercionPrefix}_double_escape`);
   if (stripped) coercions.push(`${coercionPrefix}_fence_strip`);
   else if (trimmed !== raw) coercions.push(`${coercionPrefix}_trim`);
-  return { text: trimmed, changed: doubleEscaped || stripped || trimmed !== raw };
+  return {
+    text: trimmed,
+    changed: doubleEscaped || stripped || trimmed !== raw,
+  };
 }
 
 function coerceSeverity(value: unknown): ReviewFinding["severity"] | undefined {
@@ -196,7 +202,10 @@ function coerceSeverity(value: unknown): ReviewFinding["severity"] | undefined {
   return undefined;
 }
 
-function unwrapPayloadEnvelope(raw: unknown): { value: unknown; coercions: string[] } {
+function unwrapPayloadEnvelope(raw: unknown): {
+  value: unknown;
+  coercions: string[];
+} {
   if (typeof raw !== "object" || raw == null) return { value: raw, coercions: [] };
   const obj = raw as Record<string, unknown>;
   for (const key of ["review", "payload", "result", "data"] as const) {

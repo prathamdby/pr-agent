@@ -8,8 +8,15 @@ describe("evlog wide events", () => {
   });
 
   it("recordEvent appends linearly without array-merge duplication", () => {
-    evlog.initEvlog("debug", { silent: true, suppressDrainWarning: true, maxWideEvents: 128 });
-    const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+    evlog.initEvlog("debug", {
+      silent: true,
+      suppressDrainWarning: true,
+      maxWideEvents: 128,
+    });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+    });
     for (let i = 0; i < 50; i++) {
       evlog.recordEvent(logger, `evt_${i}`, { i }, "info");
     }
@@ -20,7 +27,10 @@ describe("evlog wide events", () => {
 
   it("drops debug sub-events when LOG_LEVEL is info", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
-    const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+    });
     evlog.recordEvent(logger, "debug_evt", {}, "debug");
     evlog.recordEvent(logger, "info_evt", {}, "info");
     vi.spyOn(logger, "emit").mockResolvedValue(null);
@@ -32,8 +42,15 @@ describe("evlog wide events", () => {
   });
 
   it("caps sub-events at LOG_MAX_WIDE_EVENTS", () => {
-    evlog.initEvlog("debug", { silent: true, suppressDrainWarning: true, maxWideEvents: 5 });
-    const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+    evlog.initEvlog("debug", {
+      silent: true,
+      suppressDrainWarning: true,
+      maxWideEvents: 5,
+    });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+    });
     for (let i = 0; i < 7; i++) {
       evlog.recordEvent(logger, `evt_${i}`, {}, "info");
     }
@@ -43,9 +60,16 @@ describe("evlog wide events", () => {
   });
 
   it("resets maxWideEvents when re-initialized without option", () => {
-    evlog.initEvlog("debug", { silent: true, suppressDrainWarning: true, maxWideEvents: 5 });
+    evlog.initEvlog("debug", {
+      silent: true,
+      suppressDrainWarning: true,
+      maxWideEvents: 5,
+    });
     evlog.initEvlog("debug", { silent: true, suppressDrainWarning: true });
-    const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+    });
     for (let i = 0; i < 10; i++) {
       evlog.recordEvent(logger, `evt_${i}`, {}, "info");
     }
@@ -54,7 +78,10 @@ describe("evlog wide events", () => {
 
   it("recordEvent accepts undefined fields without throwing", () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
-    const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+    });
     expect(() => evlog.recordEvent(logger, "no_fields")).not.toThrow();
     expect(() => evlog.recordEvent(logger, "explicit_undefined", undefined)).not.toThrow();
     const events = logger.getContext().events as Array<Record<string, unknown>>;
@@ -65,7 +92,10 @@ describe("evlog wide events", () => {
 
   it("recordEvent skips debug-level entries when LOG_LEVEL is info", () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
-    const logger = evlog.createOperationLogger({ method: "JOB", path: "/test" });
+    const logger = evlog.createOperationLogger({
+      method: "JOB",
+      path: "/test",
+    });
     evlog.recordEvent(logger, "skipped", {}, "debug");
     expect((logger.getContext().events as unknown[] | undefined)?.length ?? 0).toBe(0);
     evlog.recordEvent(logger, "kept", {}, "info");

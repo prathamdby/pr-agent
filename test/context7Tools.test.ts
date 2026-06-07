@@ -66,7 +66,9 @@ describe("buildContext7Tools — executors", () => {
 
     try {
       const { executors } = buildContext7Tools({ apiKey: "" });
-      const out = (await executors.resolveLibraryId({ libraryName: "react" })) as string;
+      const out = (await executors.resolveLibraryId({
+        libraryName: "react",
+      })) as string;
 
       expect(fetchSpy).toHaveBeenCalledTimes(1);
       const [url, init] = fetchSpy.mock.calls[0];

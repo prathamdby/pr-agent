@@ -65,7 +65,9 @@ type SlashIntakeContext = {
   readonly eventId: string;
   readonly correlation: JobCorrelation;
   readonly ref: PrRef;
-  readonly baseAck: Omit<AckJobData, "workItemId" | "progress" | "reply"> & { kind: "ack" };
+  readonly baseAck: Omit<AckJobData, "workItemId" | "progress" | "reply"> & {
+    kind: "ack";
+  };
   readonly intakeLog: RequestLogger;
 };
 
@@ -90,7 +92,10 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
   const askParse = parseAskQuestionResult(ctx.input.body);
   if (askParse.kind === "too_long") {
     await enqueueSlashAck(ctx, {
-      reply: { target: ctx.input.replyTarget, body: ASK_QUESTION_TOO_LONG_HINT },
+      reply: {
+        target: ctx.input.replyTarget,
+        body: ASK_QUESTION_TOO_LONG_HINT,
+      },
     });
     return;
   }
@@ -122,10 +127,16 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  const existing = await fetchActiveWorkItem(ctx.client, { kind: "description", resourceKey });
+  const existing = await fetchActiveWorkItem(ctx.client, {
+    kind: "description",
+    resourceKey,
+  });
   if (existing) {
     await enqueueSlashAck(ctx, {
-      reply: { target: ctx.input.replyTarget, body: DESCRIPTION_ALREADY_IN_PROGRESS },
+      reply: {
+        target: ctx.input.replyTarget,
+        body: DESCRIPTION_ALREADY_IN_PROGRESS,
+      },
     });
     return;
   }

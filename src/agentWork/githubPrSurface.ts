@@ -11,7 +11,11 @@ export async function getPullRequestHeadSha(
   prNumber: number,
 ): Promise<string> {
   const octokit = installationOctokit(token);
-  const { data } = await octokit.rest.pulls.get({ owner, repo, pull_number: prNumber });
+  const { data } = await octokit.rest.pulls.get({
+    owner,
+    repo,
+    pull_number: prNumber,
+  });
   return data.head.sha;
 }
 

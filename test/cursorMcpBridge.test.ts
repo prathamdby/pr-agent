@@ -54,7 +54,9 @@ describe("createMcpBridge", () => {
 
   it("rejects requests without bearer token", async () => {
     await withNoopBridge(async (bridge) => {
-      const res = await fetch(bridge.mcpServers["pr-agent"].url, { method: "POST" });
+      const res = await fetch(bridge.mcpServers["pr-agent"].url, {
+        method: "POST",
+      });
       expect(res.status).toBe(401);
     });
   });
@@ -62,7 +64,11 @@ describe("createMcpBridge", () => {
   it("records tool_call metrics via ambient logger", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/mcp" }, async () => {
-      initReviewRunMetrics({ provider: "cursor", model: "composer-2.5", mode: "review" });
+      initReviewRunMetrics({
+        provider: "cursor",
+        model: "composer-2.5",
+        mode: "review",
+      });
       await withNoopBridge(async (bridge) => {
         const client = await connectClient(bridge.mcpServers["pr-agent"]);
         const result = await client.callTool({ name: "noop", arguments: {} });
@@ -76,12 +82,22 @@ describe("createMcpBridge", () => {
   it("records tool_call failures for unknown tools", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/mcp" }, async () => {
-      initReviewRunMetrics({ provider: "cursor", model: "composer-2.5", mode: "review" });
+      initReviewRunMetrics({
+        provider: "cursor",
+        model: "composer-2.5",
+        mode: "review",
+      });
       await withNoopBridge(async (bridge) => {
         const client = await connectClient(bridge.mcpServers["pr-agent"]);
-        const result = await client.callTool({ name: "missing", arguments: {} });
+        const result = await client.callTool({
+          name: "missing",
+          arguments: {},
+        });
         expect(result.isError).toBe(true);
-        expect(snapshotReviewRunMetrics()).toMatchObject({ toolCallCount: 1, toolCallErrors: 1 });
+        expect(snapshotReviewRunMetrics()).toMatchObject({
+          toolCallCount: 1,
+          toolCallErrors: 1,
+        });
         await client.close();
       });
     });

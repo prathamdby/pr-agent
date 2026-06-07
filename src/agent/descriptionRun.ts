@@ -23,7 +23,10 @@ export async function runFullPrDescription(params: {
   workspace?: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
 }): Promise<DescriptionRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");

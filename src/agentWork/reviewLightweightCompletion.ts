@@ -9,8 +9,16 @@ import type { AgentWorkItem } from "./types.js";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }
-  | { readonly handled: true; readonly published: false; readonly reason: "skipped" }
-  | { readonly handled: true; readonly published: true; readonly summaryId: number | string };
+  | {
+      readonly handled: true;
+      readonly published: false;
+      readonly reason: "skipped";
+    }
+  | {
+      readonly handled: true;
+      readonly published: true;
+      readonly summaryId: number | string;
+    };
 
 /** Auto-review docs-only path: publish lightweight summary or skip when work is cancelled. */
 export async function tryLightweightAutoReviewCompletion(

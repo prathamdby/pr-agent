@@ -14,7 +14,11 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 vi.mock("../src/agent/githubTools.js", () => ({
   buildGithubTools: vi.fn(() => ({
     piTools: [
-      { name: "getPullRequest", description: "d", parameters: { type: "object", properties: {} } },
+      {
+        name: "getPullRequest",
+        description: "d",
+        parameters: { type: "object", properties: {} },
+      },
       {
         name: "listPullRequestFiles",
         description: "d",
@@ -153,7 +157,9 @@ describe("runFullPrReview cursor provider", () => {
     });
 
     expect(vi.mocked(complete).mock.calls.length).toBeGreaterThan(0);
-    const context = vi.mocked(complete).mock.calls[0][1] as { systemPrompt: string };
+    const context = vi.mocked(complete).mock.calls[0][1] as {
+      systemPrompt: string;
+    };
     expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
     expect(result.publishAttempts).toBe(3);
     expect(result.published).toBe(false);
