@@ -1,4 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resetCursorModelCapabilitiesForTests,
+  setCursorModelsForTests,
+} from "../src/agent/providers/cursor/modelCapabilities.js";
 import type { Config } from "../src/config.js";
 import * as evlog from "../src/evlog.js";
 
@@ -73,9 +77,22 @@ const cursorCfg = {
   maxPrFilesPatchBytes: 500_000,
 } satisfies Config;
 
+const cursorCatalog = [
+  {
+    id: "composer-2.5",
+    displayName: "Composer 2.5",
+    parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+  },
+];
+
 describe("runAskRun cursor provider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setCursorModelsForTests(cursorCatalog);
+  });
+
+  afterEach(() => {
+    resetCursorModelCapabilitiesForTests();
   });
 
   it("returns assistant text from a single complete call", async () => {

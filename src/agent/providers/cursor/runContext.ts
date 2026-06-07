@@ -1,5 +1,5 @@
 import type { Context } from "@earendil-works/pi-ai";
-import type { Agent } from "@cursor/sdk";
+import type { Agent, ModelSelection } from "@cursor/sdk";
 import type { McpBridgeHandle } from "./mcpBridge.js";
 
 export type CursorExecutor = (args: Record<string, unknown>) => Promise<unknown>;
@@ -7,6 +7,7 @@ export type CursorExecutor = (args: Record<string, unknown>) => Promise<unknown>
 export type CursorRunContext = {
   readonly executors: Record<string, CursorExecutor>;
   readonly apiKey: string;
+  readonly sdkModelSelection: ModelSelection;
   readonly cwd?: string;
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly maxToolRounds?: number;

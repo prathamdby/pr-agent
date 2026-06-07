@@ -1,14 +1,24 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent, CursorAgentError } from "@cursor/sdk";
+import {
+  resetCursorModelCapabilitiesForTests,
+  setCursorModelsForTests,
+} from "../src/agent/providers/cursor/modelCapabilities.js";
 import { streamCursor } from "../src/agent/providers/cursor/streamCursor.js";
 import { attachCursorRunContext } from "../src/agent/providers/cursor/runContext.js";
-import { getCursorModel } from "../src/agent/providers/cursor/models.js";
+import { getCursorModel, toCursorSdkModelSelection } from "../src/agent/providers/cursor/models.js";
 import {
   CURSOR_RUN_ERROR_PREFIX,
   CURSOR_STARTUP_ERROR_PREFIX,
 } from "../src/agent/providers/cursor/errors.js";
 import type { Context } from "@earendil-works/pi-ai";
 
+const composerModel = {
+  id: "composer-2.5",
+  displayName: "Composer 2.5",
+  parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+} as const;
+setCursorModelsForTests([composerModel]);
 const model = getCursorModel("composer-2.5");
 
 function baseContext(): Context {
@@ -23,12 +33,18 @@ function attachExecutors(context: Context): void {
   attachCursorRunContext(context, {
     executors: { noop: async () => "ok" },
     apiKey: "cursor_test_key",
+    sdkModelSelection: toCursorSdkModelSelection("composer-2.5"),
   });
 }
 
 describe("streamCursor", () => {
   beforeEach(() => {
     vi.mocked(Agent.create).mockReset();
+    setCursorModelsForTests([composerModel]);
+  });
+
+  afterEach(() => {
+    resetCursorModelCapabilitiesForTests();
   });
 
   it("returns done message with approximate usage", async () => {

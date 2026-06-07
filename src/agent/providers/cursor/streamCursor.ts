@@ -90,7 +90,7 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         runContext.agent ??
         (await Agent.create({
           apiKey,
-          model: { id: model.id },
+          model: runContext.sdkModelSelection,
           local: {
             cwd: runContext.cwd ?? process.cwd(),
             settingSources: [],

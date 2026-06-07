@@ -1,4 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  resetCursorModelCapabilitiesForTests,
+  setCursorModelsForTests,
+} from "../src/agent/providers/cursor/modelCapabilities.js";
 import type { Config } from "../src/config.js";
 import * as evlog from "../src/evlog.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
@@ -102,9 +106,22 @@ const cursorCfg = {
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;
 
+const cursorCatalog = [
+  {
+    id: "composer-2.5",
+    displayName: "Composer 2.5",
+    parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+  },
+];
+
 describe("runFullPrReview cursor provider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setCursorModelsForTests(cursorCatalog);
+  });
+
+  afterEach(() => {
+    resetCursorModelCapabilitiesForTests();
   });
 
   it("rejects non-finite tokenExpiresAtTs", async () => {
