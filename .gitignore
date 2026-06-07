@@ -3,6 +3,8 @@ node_modules/
 dist/
 .env
 *.log
+*.tsbuildinfo
 .DS_Store
 site/out/
 site/.next/
+site/.output/

@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import { DOCS_URL } from "@/lib/site";
 
@@ -27,7 +26,7 @@ export function Hero() {
         </p>
 
         <div className="flex flex-wrap items-center gap-3">
-          <Link
+          <a
             href={DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
@@ -35,13 +34,13 @@ export function Hero() {
           >
             Get started
             <ChevronRight className="h-4 w-4" aria-hidden="true" />
-          </Link>
-          <Link
+          </a>
+          <a
             href="#examples"
             className="inline-flex items-center rounded-md border border-neutral-300 px-4 py-2.5 text-neutral-700 hover:bg-neutral-50 transition-colors"
           >
             See examples
-          </Link>
+          </a>
         </div>
 
         <p className="mt-3 text-xs text-neutral-400">

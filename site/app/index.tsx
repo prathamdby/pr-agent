@@ -1,3 +1,4 @@
+import { createFileRoute } from "@tanstack/react-router";
 import { Header } from "@/components/header";
 import { Hero } from "@/components/hero";
 import { Features } from "@/components/features";
@@ -10,7 +11,11 @@ import { Quickstart } from "@/components/quickstart";
 import { Footer } from "@/components/footer";
 import { JsonLd } from "@/components/json-ld";
 
-export default function Home() {
+export const Route = createFileRoute("/")({
+  component: Home,
+});
+
+function Home() {
   return (
     <>
       <JsonLd />
