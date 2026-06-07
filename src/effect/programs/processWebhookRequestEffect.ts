@@ -1,10 +1,16 @@
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import type { Config } from "../../config.js";
 import { emitOperationLogger, recordEvent } from "../../evlog.js";
+import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { IntakeLogger } from "../intakeLogger.js";
 import { WebhookHandlerError } from "../errors.js";
 import { WebhookDispatcher } from "../services/webhookDispatcher.js";
+
+type DispatchResult =
+  | { readonly kind: "ok" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "timeout" };
 
 export type WebhookRequestLike = {
   method: string;
@@ -103,14 +109,32 @@ export function processWebhookHttpRequestEffect(
     }
 
     const t0 = Date.now();
-    const result = yield* dispatcher
+    const responseBudgetMs = Math.max(1, cfg.webhookTimeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
+    const result: DispatchResult = yield* dispatcher
       .dispatch({
         cfg,
         headers: { delivery, event: githubEvent, rawBody: req.rawBody },
         payload,
       })
       .pipe(
-        Effect.map(() => ({ ok: true as const })),
+        Effect.timeout(Duration.millis(responseBudgetMs)),
+        Effect.map(() => ({ kind: "ok" as const })),
+        Effect.catchTag("TimeoutException", () =>
+          Effect.sync(() => {
+            recordEvent(
+              intakeLog,
+              "webhook_timeout_budget_exceeded",
+              {
+                event: githubEvent,
+                delivery: logDelivery,
+                budgetMs: cfg.webhookTimeoutMs,
+                responseBudgetMs,
+              },
+              "warn",
+            );
+            return { kind: "timeout" as const };
+          }),
+        ),
         Effect.catchTag("WebhookHandlerError", (err: WebhookHandlerError) =>
           Effect.sync(() => {
             recordEvent(
@@ -123,22 +147,31 @@ export function processWebhookHttpRequestEffect(
               },
               "error",
             );
-            return { ok: false as const };
+            return { kind: "failed" as const };
           }),
         ),
       );
     const elapsedMs = Date.now() - t0;
 
-    if (!result.ok) {
+    if (result.kind !== "ok") {
       const response = {
         status: 503,
         body: "service unavailable",
       } satisfies WebhookResponseLike;
       intakeLog.set({
-        webhook: { status: response.status, elapsedMs, handlerFailed: true },
+        webhook: {
+          status: response.status,
+          elapsedMs,
+          handlerFailed: result.kind === "failed",
+          timeout: result.kind === "timeout",
+          responseBudgetMs,
+        },
       });
       yield* Effect.promise(() =>
-        emitOperationLogger(intakeLog, { event: "webhook_handler_error" }),
+        emitOperationLogger(intakeLog, {
+          event:
+            result.kind === "timeout" ? "webhook_timeout_budget_exceeded" : "webhook_handler_error",
+        }),
       );
       return response;
     }
@@ -155,6 +188,7 @@ export function processWebhookHttpRequestEffect(
         elapsedMs,
         budgetExceeded: elapsedMs > cfg.webhookTimeoutMs,
         budgetMs: cfg.webhookTimeoutMs,
+        responseBudgetMs,
       },
     });
     if (elapsedMs > cfg.webhookTimeoutMs) {

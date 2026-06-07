@@ -31,7 +31,7 @@ This repo already runs reviews through a Pi-AI tool loop with native GitHub REST
 ## Consequences
 
 - Ask runs may take longer than upstream's single-call `/ask` but can trace symbols across the repo beyond the inline hunk.
-- The webhook returns **`200`** after durable intake and enqueue; the ask **answer** is posted asynchronously by `ROLE=worker`. `WEBHOOK_TIMEOUT_MS` remains a logging-only intake budget.
+- The webhook returns **`200`** after durable intake and enqueue; the ask **answer** is posted asynchronously by `ROLE=worker`. If intake exceeds the configured webhook response budget, the request returns **`503`** before GitHub reports a delivery timeout.
 - `CONTEXT.md` gains **Ask run**, **Ask queue**, and **Code anchor** terms distinct from review vocabulary.
 
 ## Current implementation (2025-05)
