@@ -28,14 +28,20 @@ async function main() {
   logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
     if (cfg.agentProvider === "cursor") {
-      const { initCursorWorker } = await import("./agent/providers/cursor/workerBoot.js");
-      const boot = await initCursorWorker(cfg);
-      logInfo("cursor_provider_registered", {
-        api: "cursor-sdk",
-        model_count: boot.modelCount,
-        top_models: boot.topModels,
-        fast_models: boot.fastModels,
-      });
+      try {
+        const { initCursorWorker } = await import("./agent/providers/cursor/workerBoot.js");
+        const boot = await initCursorWorker(cfg);
+        logInfo("cursor_provider_registered", {
+          api: "cursor-sdk",
+          model_count: boot.modelCount,
+          top_models: boot.topModels,
+          fast_models: boot.fastModels,
+        });
+      } catch (e) {
+        console.error(e instanceof Error ? e.message : e);
+        process.exit(1);
+        return;
+      }
     }
     startAgentWorker(cfg);
     return;

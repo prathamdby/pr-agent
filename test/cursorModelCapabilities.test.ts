@@ -51,6 +51,21 @@ describe("cursor model capabilities", () => {
     expect(fastIds).toEqual(new Set(["composer-2.5", "composer-latest"]));
   });
 
+  it("maps aliases to canonical ids in model selection", () => {
+    setCursorModelsForTests([
+      {
+        id: "composer-2.5",
+        displayName: "Composer 2.5",
+        aliases: ["composer-latest"],
+        parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+      },
+    ]);
+    expect(toCursorSdkModelSelection("composer-latest-fast")).toEqual({
+      id: "composer-2.5",
+      params: [{ id: "fast", value: "true" }],
+    });
+  });
+
   it("exposes initialized fast ids to model selection", () => {
     setCursorModelsForTests([
       { id: "gpt-5.5", displayName: "GPT-5.5", parameters: [{ id: "fast", values: [] }] },

@@ -45,12 +45,13 @@ function parseCursorModelId(modelId: string): { readonly baseId: string; readonl
 }
 
 export function toCursorSdkModelSelection(modelId: string): ModelSelection {
-  const { baseId, fast } = parseCursorModelId(modelId);
-  if (!getFastParamModelIds().has(baseId)) {
-    return { id: baseId };
+  const { fast } = parseCursorModelId(modelId);
+  const catalogId = resolveCursorCatalogId(modelId);
+  if (!getFastParamModelIds().has(catalogId)) {
+    return { id: catalogId };
   }
   return {
-    id: baseId,
+    id: catalogId,
     params: [{ id: "fast", value: fast ? "true" : "false" }],
   };
 }
