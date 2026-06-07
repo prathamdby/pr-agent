@@ -8,3 +8,4 @@ dist/
 site/out/
 site/.next/
 site/.output/
+site/.vercel/
