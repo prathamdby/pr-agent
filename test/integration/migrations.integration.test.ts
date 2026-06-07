@@ -9,6 +9,8 @@ const EXPECTED_MIGRATIONS = [
   "003_description_work.sql",
   "004_indexes.sql",
   "005_retention_indexes.sql",
+  "006_auto_fix.sql",
+  "007_decouple_auto_fix_work_items.sql",
 ];
 
 describe.skipIf(!hasDatabase)("migrations (integration)", () => {

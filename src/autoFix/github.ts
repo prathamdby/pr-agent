@@ -113,3 +113,25 @@ export async function getBranchHeadSha(
     throw error;
   }
 }
+
+export async function isCommitReachableFromHead(
+  token: string,
+  owner: string,
+  repo: string,
+  ancestorSha: string,
+  headSha: string,
+): Promise<boolean> {
+  if (ancestorSha === headSha) return true;
+  const octokit = installationOctokit(token);
+  try {
+    const { data } = await octokit.rest.repos.compareCommitsWithBasehead({
+      owner,
+      repo,
+      basehead: `${ancestorSha}...${headSha}`,
+    });
+    return data.status === "ahead" || data.status === "identical";
+  } catch (error) {
+    if (httpStatus(error) === 404) return false;
+    throw error;
+  }
+}

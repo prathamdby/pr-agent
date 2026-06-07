@@ -20,7 +20,9 @@ import {
   getBranchHeadSha,
   getPullRequestBranchContext,
   getRepositoryPermission,
+  isCommitReachableFromHead,
   permissionCanAutoFix,
+  type PullRequestBranchContext,
 } from "../../autoFix/github.js";
 import { renderAutoFixFinalReply, type AutoFixSkippedTarget } from "../../autoFix/reply.js";
 import { runAutoFixTargetGroup } from "../../autoFix/run.js";
@@ -53,11 +55,29 @@ function changedPathsFromCommits(commits: readonly AutoFixCommit[]): string[] {
   return [...new Set(commits.flatMap((commit) => commit.changedPaths))].toSorted();
 }
 
-function recoverPublishedReply(payload: FixWorkPayload, currentHeadSha: string): string | null {
+function repositoryParts(fullName: string): { owner: string; repo: string } {
+  const [owner, repo] = fullName.split("/");
+  if (!owner || !repo) throw new Error(`Invalid GitHub repository full name: ${fullName}`);
+  return { owner, repo };
+}
+
+async function recoverPublishedReply(
+  token: string,
+  payload: FixWorkPayload,
+  branchContext: PullRequestBranchContext,
+): Promise<string | null> {
   const checkpoint = payload.publishCheckpoint;
   if (!checkpoint) return null;
   if (checkpoint.kind === "fallback") return checkpoint.replyBody;
-  return checkpoint.headSha === currentHeadSha ? checkpoint.replyBody : null;
+  const headRepo = repositoryParts(branchContext.headRepoFullName);
+  const reachable = await isCommitReachableFromHead(
+    token,
+    headRepo.owner,
+    headRepo.repo,
+    checkpoint.headSha,
+    branchContext.headSha,
+  );
+  return reachable ? checkpoint.replyBody : null;
 }
 
 function publishedHeadSha(commits: readonly AutoFixCommit[]): string {
@@ -172,7 +192,11 @@ export async function executeFixJob(
         item.repo,
         item.prNumber,
       );
-      const recoveredReply = recoverPublishedReply(payload, branchContext.headSha);
+      const recoveredReply = await recoverPublishedReply(
+        env.installation.token,
+        payload,
+        branchContext,
+      );
       if (recoveredReply) {
         await postFixReply(env.installation.token, { ...item, payload }, recoveredReply);
         return {};
@@ -274,6 +298,20 @@ export async function executeFixJob(
         }
 
         if (commits.length > 0) {
+          const directReplyBody = renderAutoFixFinalReply({
+            commits,
+            skipped,
+            changedPaths: changedPathsFromCommits(commits),
+          });
+          await recordFixPublishCheckpoint(pool, {
+            workItemId: item.id,
+            checkpoint: {
+              kind: "direct",
+              headSha: publishedHeadSha(commits),
+              replyBody: directReplyBody,
+            },
+          });
+
           const latestBeforePush = await getPullRequestBranchContext(
             env.installation.token,
             item.owner,
@@ -286,7 +324,7 @@ export async function executeFixJob(
           }
 
           const headRemoteUrl = `https://github.com/${branchContext.headRepoFullName}.git`;
-          let fallbackPr: { url: string; reused: boolean } | undefined;
+          let replyBody = directReplyBody;
           try {
             await workspace.pushHeadToBranch(headRemoteUrl, branchContext.headRef);
           } catch (error) {
@@ -327,23 +365,22 @@ export async function executeFixJob(
                 `Work item: ${item.id}`,
               ].join("\n"),
             });
-            fallbackPr = { url: replacement.url, reused: replacement.reused };
+            const fallbackPr = { url: replacement.url, reused: replacement.reused };
+            replyBody = renderAutoFixFinalReply({
+              commits,
+              fallbackPr,
+              skipped,
+              changedPaths: changedPathsFromCommits(commits),
+            });
+            await recordFixPublishCheckpoint(pool, {
+              workItemId: item.id,
+              checkpoint: {
+                kind: "fallback",
+                headSha: publishedHeadSha(commits),
+                replyBody,
+              },
+            });
           }
-
-          const replyBody = renderAutoFixFinalReply({
-            commits,
-            fallbackPr,
-            skipped,
-            changedPaths: changedPathsFromCommits(commits),
-          });
-          await recordFixPublishCheckpoint(pool, {
-            workItemId: item.id,
-            checkpoint: {
-              kind: fallbackPr ? "fallback" : "direct",
-              headSha: publishedHeadSha(commits),
-              replyBody,
-            },
-          });
           await postFixReply(env.installation.token, { ...item, payload }, replyBody);
           return {};
         }

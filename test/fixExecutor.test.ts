@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => ({
   findActiveFixConflict: vi.fn(),
   getRepositoryPermission: vi.fn(),
   getPullRequestBranchContext: vi.fn(),
+  isCommitReachableFromHead: vi.fn(),
   getBranchHeadSha: vi.fn(),
   createOrReuseFallbackPullRequest: vi.fn(),
   findAutoFixTargetByInlineComment: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("../src/agentWork/intake/workItemRepository.js", () => ({
 
 vi.mock("../src/autoFix/github.js", () => ({
   getPullRequestBranchContext: mocks.getPullRequestBranchContext,
+  isCommitReachableFromHead: mocks.isCommitReachableFromHead,
   getRepositoryPermission: mocks.getRepositoryPermission,
   permissionCanAutoFix: (permission: string) =>
     permission === "write" || permission === "maintain" || permission === "admin",
@@ -182,6 +184,9 @@ describe("executeFixJob", () => {
     vi.clearAllMocks();
     mocks.findActiveFixConflict.mockResolvedValue({ kind: "none" });
     mocks.getRepositoryPermission.mockResolvedValue("write");
+    mocks.isCommitReachableFromHead.mockImplementation(
+      async (_token, _owner, _repo, ancestorSha, headSha) => ancestorSha === headSha,
+    );
     mocks.findAutoFixTargetByInlineComment.mockResolvedValue(target());
     mocks.findLatestAutoFixTargetsByLens.mockResolvedValue([]);
     mocks.fetchPullRequestFiles.mockResolvedValue({ headSha: ORIGINAL_HEAD, files: [] });
@@ -269,7 +274,37 @@ describe("executeFixJob", () => {
     );
   });
 
-  it("records a publish checkpoint after a successful direct push", async () => {
+  it("replies from a direct checkpoint when the commit is already on the PR branch", async () => {
+    const replyBody = "Auto-fix applied commits:\n- bbbbbbbbbbbb Auto-fix P1: Bug";
+    const payload: FixWorkPayload = {
+      ...basePayload,
+      publishCheckpoint: { kind: "direct", headSha: FIX_HEAD, replyBody },
+    };
+    mocks.getPullRequestBranchContext.mockResolvedValueOnce(branchContext(MOVED_HEAD));
+    mocks.isCommitReachableFromHead.mockResolvedValueOnce(true);
+
+    await runExecutor(payload, MOVED_HEAD);
+
+    expect(mocks.isCommitReachableFromHead).toHaveBeenCalledWith(
+      "tok",
+      "acme",
+      "app",
+      FIX_HEAD,
+      MOVED_HEAD,
+    );
+    expect(mocks.findAutoFixTargetByInlineComment).not.toHaveBeenCalled();
+    expect(mocks.prepareAutoFixWorkspace).not.toHaveBeenCalled();
+    expect(mocks.runAutoFixTargetGroup).not.toHaveBeenCalled();
+    expect(mocks.postSlashReply).toHaveBeenCalledWith(
+      "tok",
+      "acme",
+      "app",
+      basePayload.replyTarget,
+      replyBody,
+    );
+  });
+
+  it("records a direct publish checkpoint before pushing", async () => {
     const ws = workspace();
     mocks.prepareAutoFixWorkspace.mockResolvedValue(ws);
     mocks.getPullRequestBranchContext
@@ -286,10 +321,10 @@ describe("executeFixJob", () => {
         replyBody: expect.stringContaining("Auto-fix applied commits:"),
       }),
     });
-    expect(ws.pushHeadToBranch.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0],
-    );
     expect(mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0]).toBeLessThan(
+      ws.pushHeadToBranch.mock.invocationCallOrder[0],
+    );
+    expect(ws.pushHeadToBranch.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.postSlashReply.mock.invocationCallOrder[0],
     );
   });

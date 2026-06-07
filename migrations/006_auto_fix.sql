@@ -4,7 +4,7 @@ ALTER TABLE agent_work_items ADD CONSTRAINT agent_work_items_type_check
 
 CREATE TABLE IF NOT EXISTS auto_fix_bundles (
   id uuid PRIMARY KEY,
-  work_item_id uuid NOT NULL REFERENCES agent_work_items(id) ON DELETE CASCADE,
+  work_item_id uuid NOT NULL,
   resource_key text NOT NULL,
   review_lens text NOT NULL CHECK (review_lens IN ('review', 'review-security', 'review-quality')),
   head_sha text NOT NULL,
@@ -17,7 +17,7 @@ CREATE INDEX IF NOT EXISTS auto_fix_bundles_resource_lens_created_idx
 CREATE TABLE IF NOT EXISTS auto_fix_targets (
   id uuid PRIMARY KEY,
   bundle_id uuid NOT NULL REFERENCES auto_fix_bundles(id) ON DELETE CASCADE,
-  work_item_id uuid NOT NULL REFERENCES agent_work_items(id) ON DELETE CASCADE,
+  work_item_id uuid NOT NULL,
   resource_key text NOT NULL,
   review_lens text NOT NULL CHECK (review_lens IN ('review', 'review-security', 'review-quality')),
   head_sha text NOT NULL,

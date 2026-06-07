@@ -1,0 +1,2 @@
+ALTER TABLE auto_fix_bundles DROP CONSTRAINT IF EXISTS auto_fix_bundles_work_item_id_fkey;
+ALTER TABLE auto_fix_targets DROP CONSTRAINT IF EXISTS auto_fix_targets_work_item_id_fkey;
