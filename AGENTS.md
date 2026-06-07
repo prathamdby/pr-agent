@@ -64,7 +64,8 @@ When a change alters **runtime topology**, update the Mermaid diagram in [README
 
 - **`pnpm dev` does not load `.env`** — the app has no dotenv dependency. Use `node --env-file=.env --import tsx src/index.ts` (with `ROLE=web` or `ROLE=worker` set in `.env` or the shell) instead of `pnpm dev` when you need `.env` values.
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key** — `loadConfig()` calls `crypto.createPrivateKey()` and throws on placeholders. For local-only dev, generate a throwaway key: `openssl genrsa 2048 > key.pem` and set the `.env` value to the escaped content.
-- **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`.
+- **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`. Use `sudo docker …` for container commands when `/var/run/docker.sock` is root-owned.
+- **Node engine** — `package.json` requires Node `>=22.19.0`; cloud VMs may ship `22.14.x` (pnpm warns but tests and runtime work).
 - **Tests (`pnpm test`)** are pure unit/integration tests and do not need Postgres or any running service.
 - **Lint/fmt commands**: `pnpm lint` (oxlint, type-aware), `pnpm typecheck` (tsc), `pnpm fmt:check` (oxfmt). Combined: `pnpm check:code`.
 - **Ignored build scripts warning** from pnpm is expected for some transitive deps (`esbuild`, `protobufjs`). **`sqlite3` is approved** in `package.json` (`pnpm.onlyBuiltDependencies`) because `@cursor/sdk` needs its native binding when `PI_PROVIDER=cursor`. The Docker image compiles `sqlite3` in the `deps` stage (with `python3`/`make`/`g++`) and copies `node_modules` into runtime — do not run a fresh `pnpm install --prod` in the final stage without build tools.
