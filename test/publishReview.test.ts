@@ -145,7 +145,7 @@ describe("publishReview", () => {
     ]);
   });
 
-  it("omits inline auto-fix targets when inline comment ids cannot be enriched", async () => {
+  it("records summary auto-fix targets when inline comment ids cannot be enriched", async () => {
     const recordAutoFixTargets = vi.fn(async () => undefined);
     vi.mocked(listPullRequestReviewCommentsForReview).mockResolvedValueOnce([]);
 
@@ -156,10 +156,20 @@ describe("publishReview", () => {
       recordAutoFixTargets,
     });
 
-    expect(recordAutoFixTargets).toHaveBeenCalledWith([]);
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([
+      expect.objectContaining({
+        placementKind: "summary",
+        inlineReviewCommentId: undefined,
+        finding: expect.objectContaining({
+          severity: "P1",
+          file: "src/x.ts",
+          fixPrompt: "Fix src/x.ts line 4.",
+        }),
+      }),
+    ]);
   });
 
-  it("omits inline auto-fix targets when inline enrichment fails", async () => {
+  it("records summary auto-fix targets when inline enrichment fails", async () => {
     const recordAutoFixTargets = vi.fn(async () => undefined);
     vi.mocked(listPullRequestReviewCommentsForReview).mockRejectedValueOnce(
       new Error("enrichment failed"),
@@ -172,7 +182,17 @@ describe("publishReview", () => {
       recordAutoFixTargets,
     });
 
-    expect(recordAutoFixTargets).toHaveBeenCalledWith([]);
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([
+      expect.objectContaining({
+        placementKind: "summary",
+        inlineReviewCommentId: undefined,
+        finding: expect.objectContaining({
+          severity: "P1",
+          file: "src/x.ts",
+          fixPrompt: "Fix src/x.ts line 4.",
+        }),
+      }),
+    ]);
   });
 
   it("records auto-fix targets after inline enrichment when summary publish fails", async () => {

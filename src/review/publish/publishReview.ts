@@ -55,7 +55,8 @@ function autoFixTargetsForPlacements(
     const finding = placement.finding;
     if (!isInlineSeverity(finding.severity) || !finding.fixPrompt) return [];
     const inlineReviewCommentId = placement.inlinePosted ? placement.inlineCommentId : undefined;
-    if (placement.inlinePosted && inlineReviewCommentId == null) return [];
+    const placementKind =
+      placement.inlinePosted && inlineReviewCommentId != null ? "inline" : "summary";
     return [
       {
         finding: {
@@ -64,8 +65,8 @@ function autoFixTargetsForPlacements(
           fixPrompt: finding.fixPrompt,
         },
         fingerprint: fingerprintFinding(finding, mode),
-        placementKind: placement.inlinePosted ? "inline" : "summary",
-        inlineReviewCommentId,
+        placementKind,
+        inlineReviewCommentId: placementKind === "inline" ? inlineReviewCommentId : undefined,
       },
     ];
   });

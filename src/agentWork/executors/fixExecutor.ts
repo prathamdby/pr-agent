@@ -33,9 +33,18 @@ import { getAppBotIdentity, postSlashReply } from "../githubPrSurface.js";
 import { resolveWorkItemHeadSha, runDurableWorkItem } from "../durableJob.js";
 import { findActiveFixConflict } from "../intake/workItemRepository.js";
 import { recordFixPublishCheckpoint } from "../repository.js";
-import type { FixJobData, FixTargetSelector, FixWorkPayload } from "../types.js";
+import type {
+  FixJobData,
+  FixPublishCheckpoint,
+  FixTargetSelector,
+  FixWorkPayload,
+} from "../types.js";
 
 const FIX_ALL_LENSES = ["review", "review-security", "review-quality"] as const;
+
+type PublishedRecovery =
+  | { readonly kind: "alreadyReplied" }
+  | { readonly kind: "needsReply"; readonly checkpoint: FixPublishCheckpoint };
 
 function commitMessageForGroup(group: AutoFixTargetGroup): string {
   const first = group.targets[0];
@@ -65,10 +74,12 @@ async function recoverPublishedReply(
   token: string,
   payload: FixWorkPayload,
   branchContext: PullRequestBranchContext,
-): Promise<string | null> {
+): Promise<PublishedRecovery | null> {
   const checkpoint = payload.publishCheckpoint;
   if (!checkpoint) return null;
-  if (checkpoint.kind === "fallback") return checkpoint.replyBody;
+  if (checkpoint.kind === "fallback") {
+    return checkpoint.replyPosted ? { kind: "alreadyReplied" } : { kind: "needsReply", checkpoint };
+  }
   const headRepo = repositoryParts(branchContext.headRepoFullName);
   const reachable = await isCommitReachableFromHead(
     token,
@@ -77,7 +88,8 @@ async function recoverPublishedReply(
     checkpoint.headSha,
     branchContext.headSha,
   );
-  return reachable ? checkpoint.replyBody : null;
+  if (!reachable) return null;
+  return checkpoint.replyPosted ? { kind: "alreadyReplied" } : { kind: "needsReply", checkpoint };
 }
 
 function publishedHeadSha(commits: readonly AutoFixCommit[]): string {
@@ -192,13 +204,24 @@ export async function executeFixJob(
         item.repo,
         item.prNumber,
       );
-      const recoveredReply = await recoverPublishedReply(
+      const publishedRecovery = await recoverPublishedReply(
         env.installation.token,
         payload,
         branchContext,
       );
-      if (recoveredReply) {
-        await postFixReply(env.installation.token, { ...item, payload }, recoveredReply);
+      if (publishedRecovery?.kind === "alreadyReplied") {
+        return {};
+      }
+      if (publishedRecovery?.kind === "needsReply") {
+        await postFixReply(
+          env.installation.token,
+          { ...item, payload },
+          publishedRecovery.checkpoint.replyBody,
+        );
+        await recordFixPublishCheckpoint(pool, {
+          workItemId: item.id,
+          checkpoint: { ...publishedRecovery.checkpoint, replyPosted: true },
+        });
         return {};
       }
       if (branchContext.headSha !== env.headSha) {
@@ -303,13 +326,15 @@ export async function executeFixJob(
             skipped,
             changedPaths: changedPathsFromCommits(commits),
           });
+          let publishCheckpoint: FixPublishCheckpoint = {
+            kind: "direct",
+            headSha: publishedHeadSha(commits),
+            replyBody: directReplyBody,
+            replyPosted: false,
+          };
           await recordFixPublishCheckpoint(pool, {
             workItemId: item.id,
-            checkpoint: {
-              kind: "direct",
-              headSha: publishedHeadSha(commits),
-              replyBody: directReplyBody,
-            },
+            checkpoint: publishCheckpoint,
           });
 
           const latestBeforePush = await getPullRequestBranchContext(
@@ -372,16 +397,22 @@ export async function executeFixJob(
               skipped,
               changedPaths: changedPathsFromCommits(commits),
             });
+            publishCheckpoint = {
+              kind: "fallback",
+              headSha: publishedHeadSha(commits),
+              replyBody,
+              replyPosted: false,
+            };
             await recordFixPublishCheckpoint(pool, {
               workItemId: item.id,
-              checkpoint: {
-                kind: "fallback",
-                headSha: publishedHeadSha(commits),
-                replyBody,
-              },
+              checkpoint: publishCheckpoint,
             });
           }
           await postFixReply(env.installation.token, { ...item, payload }, replyBody);
+          await recordFixPublishCheckpoint(pool, {
+            workItemId: item.id,
+            checkpoint: { ...publishCheckpoint, replyPosted: true },
+          });
           return {};
         }
 

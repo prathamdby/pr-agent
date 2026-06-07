@@ -304,6 +304,22 @@ describe("executeFixJob", () => {
     );
   });
 
+  it("does not repost a reply from an already completed checkpoint", async () => {
+    const replyBody = "Auto-fix applied commits:\n- bbbbbbbbbbbb Auto-fix P1: Bug";
+    const payload: FixWorkPayload = {
+      ...basePayload,
+      publishCheckpoint: { kind: "direct", headSha: FIX_HEAD, replyBody, replyPosted: true },
+    };
+    mocks.getPullRequestBranchContext.mockResolvedValueOnce(branchContext(FIX_HEAD));
+
+    await runExecutor(payload, FIX_HEAD);
+
+    expect(mocks.findAutoFixTargetByInlineComment).not.toHaveBeenCalled();
+    expect(mocks.prepareAutoFixWorkspace).not.toHaveBeenCalled();
+    expect(mocks.runAutoFixTargetGroup).not.toHaveBeenCalled();
+    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+  });
+
   it("records a direct publish checkpoint before pushing", async () => {
     const ws = workspace();
     mocks.prepareAutoFixWorkspace.mockResolvedValue(ws);
@@ -319,6 +335,7 @@ describe("executeFixJob", () => {
         kind: "direct",
         headSha: FIX_HEAD,
         replyBody: expect.stringContaining("Auto-fix applied commits:"),
+        replyPosted: false,
       }),
     });
     expect(mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0]).toBeLessThan(
@@ -327,5 +344,13 @@ describe("executeFixJob", () => {
     expect(ws.pushHeadToBranch.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.postSlashReply.mock.invocationCallOrder[0],
     );
+    expect(mocks.recordFixPublishCheckpoint).toHaveBeenLastCalledWith(pool, {
+      workItemId: "work-1",
+      checkpoint: expect.objectContaining({
+        kind: "direct",
+        headSha: FIX_HEAD,
+        replyPosted: true,
+      }),
+    });
   });
 });

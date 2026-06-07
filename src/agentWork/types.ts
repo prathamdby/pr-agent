@@ -119,6 +119,7 @@ export type FixPublishCheckpoint = {
   readonly kind: "direct" | "fallback";
   readonly headSha: string;
   readonly replyBody: string;
+  readonly replyPosted?: boolean;
 };
 
 export type FixWorkPayload = {

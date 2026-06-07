@@ -54,7 +54,9 @@ export async function recordAutoFixBundle(
     headSha: string;
     targets: readonly PersistAutoFixTargetInput[];
   },
-): Promise<string> {
+): Promise<string | null> {
+  if (params.targets.length === 0) return null;
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -146,6 +148,11 @@ export async function findLatestAutoFixTargetsByLens(
          FROM auto_fix_bundles
         WHERE resource_key = $1
           AND review_lens = ANY($2::text[])
+          AND EXISTS (
+            SELECT 1
+              FROM auto_fix_targets t
+             WHERE t.bundle_id = auto_fix_bundles.id
+          )
         ORDER BY review_lens, created_at DESC
      )
      SELECT t.id, t.bundle_id, t.work_item_id, t.resource_key, t.review_lens, t.head_sha,
