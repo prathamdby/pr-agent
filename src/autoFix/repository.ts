@@ -133,6 +133,34 @@ export async function findAutoFixTargetByInlineComment(
   return targets[0] ?? null;
 }
 
+export async function findAutoFixTargetByInlineLocation(
+  client: Pool | PoolClient,
+  params: {
+    resourceKey: string;
+    filePath: string;
+    line: number;
+  },
+): Promise<AutoFixTarget | null> {
+  const targets = await selectTargets(
+    client,
+    `SELECT t.id, t.bundle_id, t.work_item_id, t.resource_key, t.review_lens, t.head_sha,
+            t.fingerprint, t.severity, t.file_path, t.start_line, t.end_line, t.title,
+            t.detail, t.fix_prompt, t.placement_kind, t.inline_review_comment_id
+       FROM auto_fix_targets t
+       JOIN auto_fix_bundles b ON b.id = t.bundle_id
+      WHERE t.resource_key = $1
+        AND t.placement_kind = 'inline'
+        AND t.inline_review_comment_id IS NULL
+        AND t.file_path = $2
+        AND t.start_line <= $3
+        AND t.end_line >= $3
+      ORDER BY b.created_at DESC
+      LIMIT 1`,
+    [params.resourceKey, params.filePath, params.line],
+  );
+  return targets[0] ?? null;
+}
+
 export async function findLatestAutoFixTargetsByLens(
   client: Pool | PoolClient,
   params: {

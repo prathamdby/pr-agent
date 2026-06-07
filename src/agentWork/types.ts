@@ -115,12 +115,45 @@ export type FixTargetSelector =
       readonly kind: "all";
     };
 
-export type FixPublishCheckpoint = {
-  readonly kind: "direct" | "fallback";
-  readonly headSha: string;
-  readonly replyBody: string;
-  readonly replyPosted?: boolean;
+export type FixPublishReplyState = {
+  readonly commits: readonly {
+    readonly sha: string;
+    readonly message: string;
+  }[];
+  readonly skipped: readonly {
+    readonly target: {
+      readonly severity: "P0" | "P1" | "P2";
+      readonly filePath: string;
+      readonly startLine: number;
+      readonly title: string;
+    };
+    readonly reason: string;
+  }[];
+  readonly changedPaths: readonly string[];
 };
+
+export type FixPublishCheckpoint =
+  | {
+      readonly kind: "direct";
+      readonly headSha: string;
+      readonly replyBody: string;
+      readonly replyPosted?: boolean;
+    }
+  | {
+      readonly kind: "fallbackBranch";
+      readonly headSha: string;
+      readonly branch: string;
+      readonly baseOwner: string;
+      readonly baseRepo: string;
+      readonly baseRef: string;
+      readonly replyState: FixPublishReplyState;
+    }
+  | {
+      readonly kind: "fallback";
+      readonly headSha: string;
+      readonly replyBody: string;
+      readonly replyPosted?: boolean;
+    };
 
 export type FixWorkPayload = {
   readonly selector: FixTargetSelector;

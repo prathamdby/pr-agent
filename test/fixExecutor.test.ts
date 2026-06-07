@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   getBranchHeadSha: vi.fn(),
   createOrReuseFallbackPullRequest: vi.fn(),
   findAutoFixTargetByInlineComment: vi.fn(),
+  findAutoFixTargetByInlineLocation: vi.fn(),
   findLatestAutoFixTargetsByLens: vi.fn(),
   fetchPullRequestFiles: vi.fn(),
   getAppBotIdentity: vi.fn(),
@@ -26,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   prepareAutoFixWorkspace: vi.fn(),
   runAutoFixTargetGroup: vi.fn(),
   recordFixPublishCheckpoint: vi.fn(),
-  findPullRequestReviewCommentThreadRootId: vi.fn(),
+  findPullRequestReviewCommentThreadRoot: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/durableJob.js", () => ({
@@ -50,6 +51,7 @@ vi.mock("../src/autoFix/github.js", () => ({
 
 vi.mock("../src/autoFix/repository.js", () => ({
   findAutoFixTargetByInlineComment: mocks.findAutoFixTargetByInlineComment,
+  findAutoFixTargetByInlineLocation: mocks.findAutoFixTargetByInlineLocation,
   findLatestAutoFixTargetsByLens: mocks.findLatestAutoFixTargetsByLens,
 }));
 
@@ -76,7 +78,7 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => ({
 }));
 
 vi.mock("../src/github/reviewCommentThreads.js", () => ({
-  findPullRequestReviewCommentThreadRootId: mocks.findPullRequestReviewCommentThreadRootId,
+  findPullRequestReviewCommentThreadRoot: mocks.findPullRequestReviewCommentThreadRoot,
 }));
 
 import { executeFixJob } from "../src/agentWork/executors/fixExecutor.js";
@@ -101,6 +103,20 @@ const basePayload: FixWorkPayload = {
   commenterLogin: "dev",
   commandCommentId: 456,
 };
+
+function reviewCommentRoot(commentId: number) {
+  return {
+    id: commentId,
+    inReplyToId: null,
+    pullRequestReviewId: 1,
+    userId: 1,
+    body: "body",
+    path: "src/app.ts",
+    line: 1,
+    originalLine: 1,
+    htmlUrl: "https://github.com/acme/app/pull/7#discussion_r99",
+  };
+}
 
 function branchContext(headSha: string) {
   return {
@@ -188,6 +204,7 @@ describe("executeFixJob", () => {
       async (_token, _owner, _repo, ancestorSha, headSha) => ancestorSha === headSha,
     );
     mocks.findAutoFixTargetByInlineComment.mockResolvedValue(target());
+    mocks.findAutoFixTargetByInlineLocation.mockResolvedValue(null);
     mocks.findLatestAutoFixTargetsByLens.mockResolvedValue([]);
     mocks.fetchPullRequestFiles.mockResolvedValue({ headSha: ORIGINAL_HEAD, files: [] });
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1, login: "pr-agent[bot]" });
@@ -198,8 +215,8 @@ describe("executeFixJob", () => {
       url: "https://github.com/acme/app/pull/12",
       reused: false,
     });
-    mocks.findPullRequestReviewCommentThreadRootId.mockImplementation(
-      async (_token, _owner, _repo, _prNumber, commentId) => commentId,
+    mocks.findPullRequestReviewCommentThreadRoot.mockImplementation(
+      async (_token, _owner, _repo, _prNumber, commentId) => reviewCommentRoot(commentId),
     );
   });
 
@@ -209,7 +226,7 @@ describe("executeFixJob", () => {
       ...basePayload,
       selector: { kind: "inline", inlineReviewCommentId: 77 },
     };
-    mocks.findPullRequestReviewCommentThreadRootId.mockResolvedValueOnce(99);
+    mocks.findPullRequestReviewCommentThreadRoot.mockResolvedValueOnce(reviewCommentRoot(99));
     mocks.prepareAutoFixWorkspace.mockResolvedValue(ws);
     mocks.getPullRequestBranchContext
       .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD))
@@ -229,6 +246,27 @@ describe("executeFixJob", () => {
     });
   });
 
+  it("falls back to root comment location when the inline target has no stored comment id", async () => {
+    const ws = workspace();
+    mocks.findAutoFixTargetByInlineComment.mockResolvedValueOnce(null);
+    mocks.findAutoFixTargetByInlineLocation.mockResolvedValueOnce(
+      target({ inlineReviewCommentId: null }),
+    );
+    mocks.prepareAutoFixWorkspace.mockResolvedValue(ws);
+    mocks.getPullRequestBranchContext
+      .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD))
+      .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD));
+
+    await runExecutor(basePayload);
+
+    expect(mocks.findAutoFixTargetByInlineLocation).toHaveBeenCalledWith(pool, {
+      resourceKey: "acme/app#7",
+      filePath: "src/app.ts",
+      line: 1,
+    });
+    expect(mocks.runAutoFixTargetGroup).toHaveBeenCalled();
+  });
+
   it("rechecks the PR head before falling back after a direct push failure", async () => {
     const ws = workspace();
     ws.pushHeadToBranch.mockRejectedValueOnce(new Error("push denied"));
@@ -243,6 +281,7 @@ describe("executeFixJob", () => {
     expect(ws.pushHeadToBranch).toHaveBeenCalledTimes(1);
     expect(mocks.getBranchHeadSha).not.toHaveBeenCalled();
     expect(mocks.createOrReuseFallbackPullRequest).not.toHaveBeenCalled();
+    expect(mocks.recordFixPublishCheckpoint).not.toHaveBeenCalled();
     expect(mocks.postSlashReply).toHaveBeenCalledWith(
       "tok",
       "acme",
@@ -320,7 +359,7 @@ describe("executeFixJob", () => {
     expect(mocks.postSlashReply).not.toHaveBeenCalled();
   });
 
-  it("records a direct publish checkpoint before pushing", async () => {
+  it("records a direct publish checkpoint after pushing and before replying", async () => {
     const ws = workspace();
     mocks.prepareAutoFixWorkspace.mockResolvedValue(ws);
     mocks.getPullRequestBranchContext
@@ -338,10 +377,10 @@ describe("executeFixJob", () => {
         replyPosted: false,
       }),
     });
-    expect(mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0]).toBeLessThan(
-      ws.pushHeadToBranch.mock.invocationCallOrder[0],
-    );
     expect(ws.pushHeadToBranch.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0],
+    );
+    expect(mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.postSlashReply.mock.invocationCallOrder[0],
     );
     expect(mocks.recordFixPublishCheckpoint).toHaveBeenLastCalledWith(pool, {
@@ -352,5 +391,78 @@ describe("executeFixJob", () => {
         replyPosted: true,
       }),
     });
+  });
+
+  it("records a fallback branch checkpoint after fallback push before creating the PR", async () => {
+    const ws = workspace();
+    ws.pushHeadToBranch.mockRejectedValueOnce(new Error("push denied"));
+    mocks.prepareAutoFixWorkspace.mockResolvedValue(ws);
+    mocks.createOrReuseFallbackPullRequest.mockRejectedValueOnce(new Error("PR create failed"));
+    mocks.getPullRequestBranchContext
+      .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD))
+      .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD))
+      .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD));
+
+    await expect(runExecutor(basePayload)).rejects.toThrow("PR create failed");
+
+    expect(mocks.recordFixPublishCheckpoint).toHaveBeenCalledWith(pool, {
+      workItemId: "work-1",
+      checkpoint: expect.objectContaining({
+        kind: "fallbackBranch",
+        headSha: FIX_HEAD,
+        branch: "pr-agent/fix/pr-7-work-1",
+      }),
+    });
+    expect(ws.pushHeadToBranch.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0],
+    );
+    expect(mocks.recordFixPublishCheckpoint.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.createOrReuseFallbackPullRequest.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("resumes replacement PR creation from a fallback branch checkpoint", async () => {
+    const branch = "pr-agent/fix/pr-7-work-1";
+    const payload: FixWorkPayload = {
+      ...basePayload,
+      publishCheckpoint: {
+        kind: "fallbackBranch",
+        headSha: FIX_HEAD,
+        branch,
+        baseOwner: "acme",
+        baseRepo: "app",
+        baseRef: "main",
+        replyState: {
+          commits: [{ sha: FIX_HEAD, message: "Auto-fix P1: Bug" }],
+          skipped: [],
+          changedPaths: ["src/app.ts"],
+        },
+      },
+    };
+    mocks.getPullRequestBranchContext.mockResolvedValueOnce(branchContext(ORIGINAL_HEAD));
+    mocks.getBranchHeadSha.mockResolvedValueOnce(FIX_HEAD);
+
+    await runExecutor(payload);
+
+    expect(mocks.findAutoFixTargetByInlineComment).not.toHaveBeenCalled();
+    expect(mocks.prepareAutoFixWorkspace).not.toHaveBeenCalled();
+    expect(mocks.runAutoFixTargetGroup).not.toHaveBeenCalled();
+    expect(mocks.createOrReuseFallbackPullRequest).toHaveBeenCalledWith("tok", {
+      owner: "acme",
+      repo: "app",
+      headBranch: branch,
+      baseBranch: "main",
+      title: "Auto-fix PR Agent findings for #7",
+      body: "Auto-fix replacement for #7.\n\nWork item: work-1",
+    });
+    expect(mocks.postSlashReply).toHaveBeenCalledWith(
+      "tok",
+      "acme",
+      "app",
+      basePayload.replyTarget,
+      expect.stringContaining(
+        "Auto-fix opened replacement PR: https://github.com/acme/app/pull/12",
+      ),
+    );
   });
 });

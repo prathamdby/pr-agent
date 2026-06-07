@@ -1,6 +1,14 @@
 import { FIX_NOTHING_APPLIED } from "../settings/index.js";
-import type { AutoFixCommit } from "./workspace.js";
 import type { AutoFixTarget } from "./types.js";
+
+type RenderAutoFixCommit = {
+  readonly sha: string;
+  readonly message: string;
+};
+type RenderAutoFixSkippedTarget = {
+  readonly target: Pick<AutoFixTarget, "severity" | "filePath" | "startLine" | "title">;
+  readonly reason: string;
+};
 
 export type AutoFixSkippedTarget = {
   readonly target: AutoFixTarget;
@@ -8,9 +16,9 @@ export type AutoFixSkippedTarget = {
 };
 
 export function renderAutoFixFinalReply(params: {
-  commits: readonly AutoFixCommit[];
+  commits: readonly RenderAutoFixCommit[];
   fallbackPr?: { readonly url: string; readonly reused: boolean };
-  skipped: readonly AutoFixSkippedTarget[];
+  skipped: readonly RenderAutoFixSkippedTarget[];
   changedPaths: readonly string[];
 }): string {
   const lines: string[] = [];

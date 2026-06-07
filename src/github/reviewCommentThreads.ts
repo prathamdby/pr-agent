@@ -67,15 +67,16 @@ export function rootReviewCommentId(
   return current.id;
 }
 
-export async function findPullRequestReviewCommentThreadRootId(
+export async function findPullRequestReviewCommentThreadRoot(
   token: string,
   owner: string,
   repo: string,
   pullNumber: number,
   commentId: number,
-): Promise<number> {
+): Promise<PullRequestReviewCommentThreadRow | null> {
   const comments = await listPullRequestReviewCommentThreadRows(token, owner, repo, pullNumber);
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
   const comment = byId.get(commentId);
-  return comment ? rootReviewCommentId(comment, byId) : commentId;
+  if (!comment) return null;
+  return byId.get(rootReviewCommentId(comment, byId)) ?? comment;
 }
