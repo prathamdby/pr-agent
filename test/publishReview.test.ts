@@ -145,6 +145,36 @@ describe("publishReview", () => {
     ]);
   });
 
+  it("omits inline auto-fix targets when inline comment ids cannot be enriched", async () => {
+    const recordAutoFixTargets = vi.fn(async () => undefined);
+    vi.mocked(listPullRequestReviewCommentsForReview).mockResolvedValueOnce([]);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordAutoFixTargets,
+    });
+
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([]);
+  });
+
+  it("omits inline auto-fix targets when inline enrichment fails", async () => {
+    const recordAutoFixTargets = vi.fn(async () => undefined);
+    vi.mocked(listPullRequestReviewCommentsForReview).mockRejectedValueOnce(
+      new Error("enrichment failed"),
+    );
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordAutoFixTargets,
+    });
+
+    expect(recordAutoFixTargets).toHaveBeenCalledWith([]);
+  });
+
   it("records auto-fix targets after inline enrichment when summary publish fails", async () => {
     const recordAutoFixTargets = vi.fn(async () => undefined);
     vi.mocked(upsertReviewSummaryComment).mockRejectedValueOnce(new Error("summary failed"));

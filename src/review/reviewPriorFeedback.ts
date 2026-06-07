@@ -10,6 +10,11 @@ import {
 import { installationOctokit } from "../github/appAuth.js";
 import { paginateOctokitPages } from "../github/paginateOctokit.js";
 import { escapeTablePlainCell } from "../github/markdownFormat.js";
+import {
+  listPullRequestReviewCommentThreadRows,
+  rootReviewCommentId,
+  type PullRequestReviewCommentThreadRow,
+} from "../github/reviewCommentThreads.js";
 import type { ReviewMode } from "./reviewSchema.js";
 
 export type PriorInlineFeedbackThread = {
@@ -19,18 +24,6 @@ export type PriorInlineFeedbackThread = {
   botTitleSnippet: string;
   humanReplies: string[];
   threadUrl: string;
-};
-
-type ReviewCommentRow = {
-  id: number;
-  inReplyToId: number | null;
-  pullRequestReviewId: number | null;
-  userId: number | null;
-  body: string;
-  path: string | null;
-  line: number | null;
-  originalLine: number | null;
-  htmlUrl: string;
 };
 
 function truncateText(text: string, maxChars: number): string {
@@ -51,41 +44,6 @@ export function classifyReviewLensFromPointerBody(body: string): ReviewMode | nu
   if (body.includes(QUALITY_REVIEW_POINTER_BODY)) return "review-quality";
   if (body.includes(REVIEW_POINTER_BODY)) return "review";
   return null;
-}
-
-async function listPullRequestReviewComments(
-  token: string,
-  owner: string,
-  repo: string,
-  pullNumber: number,
-): Promise<ReviewCommentRow[]> {
-  const octokit = installationOctokit(token);
-  const comments = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviewComments({
-        owner,
-        repo,
-        pull_number: pullNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
-
-  return comments.map((comment) => ({
-    id: comment.id,
-    inReplyToId: comment.in_reply_to_id ?? null,
-    pullRequestReviewId: comment.pull_request_review_id ?? null,
-    userId: comment.user?.id ?? null,
-    body: comment.body ?? "",
-    path: comment.path ?? null,
-    line: comment.line ?? null,
-    originalLine: comment.original_line ?? null,
-    htmlUrl: comment.html_url,
-  }));
 }
 
 async function listBotReviewIdsForLens(
@@ -121,19 +79,6 @@ async function listBotReviewIdsForLens(
   return reviewIds;
 }
 
-function rootCommentId(comment: ReviewCommentRow, byId: Map<number, ReviewCommentRow>): number {
-  let current = comment;
-  const seen = new Set<number>();
-  while (current.inReplyToId != null) {
-    if (seen.has(current.id)) break;
-    seen.add(current.id);
-    const parent = byId.get(current.inReplyToId);
-    if (!parent) break;
-    current = parent;
-  }
-  return current.id;
-}
-
 export async function fetchPriorInlineReviewFeedback(
   token: string,
   owner: string,
@@ -144,15 +89,15 @@ export async function fetchPriorInlineReviewFeedback(
 ): Promise<PriorInlineFeedbackThread[]> {
   const [reviewIds, comments] = await Promise.all([
     listBotReviewIdsForLens(token, owner, repo, pullNumber, mode, botUserId),
-    listPullRequestReviewComments(token, owner, repo, pullNumber),
+    listPullRequestReviewCommentThreadRows(token, owner, repo, pullNumber),
   ]);
   if (reviewIds.size === 0) return [];
 
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
-  const threads = new Map<number, ReviewCommentRow[]>();
+  const threads = new Map<number, PullRequestReviewCommentThreadRow[]>();
 
   for (const comment of comments) {
-    const rootId = rootCommentId(comment, byId);
+    const rootId = rootReviewCommentId(comment, byId);
     const bucket = threads.get(rootId) ?? [];
     bucket.push(comment);
     threads.set(rootId, bucket);

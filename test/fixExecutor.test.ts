@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   prepareAutoFixWorkspace: vi.fn(),
   runAutoFixTargetGroup: vi.fn(),
   recordFixPublishCheckpoint: vi.fn(),
+  findPullRequestReviewCommentThreadRootId: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/durableJob.js", () => ({
@@ -70,6 +71,10 @@ vi.mock("../src/autoFix/run.js", () => ({
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/agentWork/repository.js")>()),
   recordFixPublishCheckpoint: mocks.recordFixPublishCheckpoint,
+}));
+
+vi.mock("../src/github/reviewCommentThreads.js", () => ({
+  findPullRequestReviewCommentThreadRootId: mocks.findPullRequestReviewCommentThreadRootId,
 }));
 
 import { executeFixJob } from "../src/agentWork/executors/fixExecutor.js";
@@ -187,6 +192,35 @@ describe("executeFixJob", () => {
       number: 12,
       url: "https://github.com/acme/app/pull/12",
       reused: false,
+    });
+    mocks.findPullRequestReviewCommentThreadRootId.mockImplementation(
+      async (_token, _owner, _repo, _prNumber, commentId) => commentId,
+    );
+  });
+
+  it("resolves an inline reply to the thread root before conflict and target lookup", async () => {
+    const ws = workspace();
+    const payload: FixWorkPayload = {
+      ...basePayload,
+      selector: { kind: "inline", inlineReviewCommentId: 77 },
+    };
+    mocks.findPullRequestReviewCommentThreadRootId.mockResolvedValueOnce(99);
+    mocks.prepareAutoFixWorkspace.mockResolvedValue(ws);
+    mocks.getPullRequestBranchContext
+      .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD))
+      .mockResolvedValueOnce(branchContext(ORIGINAL_HEAD));
+
+    await runExecutor(payload);
+
+    expect(mocks.findActiveFixConflict).toHaveBeenCalledWith(pool, {
+      resourceKey: "acme/app#7",
+      selector: { kind: "inline", inlineReviewCommentId: 99 },
+      excludeWorkItemId: "work-1",
+      includeQueued: false,
+    });
+    expect(mocks.findAutoFixTargetByInlineComment).toHaveBeenCalledWith(pool, {
+      resourceKey: "acme/app#7",
+      inlineReviewCommentId: 99,
     });
   });
 

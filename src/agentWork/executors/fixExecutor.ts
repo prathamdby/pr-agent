@@ -26,11 +26,12 @@ import { renderAutoFixFinalReply, type AutoFixSkippedTarget } from "../../autoFi
 import { runAutoFixTargetGroup } from "../../autoFix/run.js";
 import { prepareAutoFixWorkspace, type AutoFixCommit } from "../../autoFix/workspace.js";
 import type { AutoFixTarget, AutoFixTargetGroup } from "../../autoFix/types.js";
+import { findPullRequestReviewCommentThreadRootId } from "../../github/reviewCommentThreads.js";
 import { getAppBotIdentity, postSlashReply } from "../githubPrSurface.js";
 import { resolveWorkItemHeadSha, runDurableWorkItem } from "../durableJob.js";
 import { findActiveFixConflict } from "../intake/workItemRepository.js";
 import { recordFixPublishCheckpoint } from "../repository.js";
-import type { FixJobData, FixWorkPayload } from "../types.js";
+import type { FixJobData, FixTargetSelector, FixWorkPayload } from "../types.js";
 
 const FIX_ALL_LENSES = ["review", "review-security", "review-quality"] as const;
 
@@ -80,9 +81,9 @@ async function postFixReply(
 
 async function resolveTargets(
   pool: Pool,
-  item: { resourceKey: string; payload: FixWorkPayload },
+  item: { resourceKey: string; selector: FixTargetSelector },
 ): Promise<AutoFixTarget[]> {
-  const selector = item.payload.selector;
+  const selector = item.selector;
   if (selector.kind === "inline") {
     const target = await findAutoFixTargetByInlineComment(pool, {
       resourceKey: item.resourceKey,
@@ -94,6 +95,24 @@ async function resolveTargets(
     resourceKey: item.resourceKey,
     lenses: FIX_ALL_LENSES,
   });
+}
+
+async function resolveFixTargetSelector(
+  token: string,
+  item: { owner: string; repo: string; prNumber: number; selector: FixTargetSelector },
+): Promise<FixTargetSelector> {
+  const selector = item.selector;
+  if (selector.kind !== "inline") return selector;
+  const rootId = await findPullRequestReviewCommentThreadRootId(
+    token,
+    item.owner,
+    item.repo,
+    item.prNumber,
+    selector.inlineReviewCommentId,
+  );
+  return rootId === selector.inlineReviewCommentId
+    ? selector
+    : { kind: "inline", inlineReviewCommentId: rootId };
 }
 
 async function ensureAuthorized(
@@ -121,9 +140,15 @@ export async function executeFixJob(
     resolveHeadSha: resolveWorkItemHeadSha,
     execute: async (item, env) => {
       const payload = item.payload as FixWorkPayload;
+      const selector = await resolveFixTargetSelector(env.installation.token, {
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        selector: payload.selector,
+      });
       const conflict = await findActiveFixConflict(pool, {
         resourceKey: item.resourceKey,
-        selector: payload.selector,
+        selector,
         excludeWorkItemId: item.id,
         includeQueued: false,
       });
@@ -159,9 +184,9 @@ export async function executeFixJob(
 
       const resolvedTargets = await resolveTargets(pool, {
         resourceKey: item.resourceKey,
-        payload,
+        selector,
       });
-      if (payload.selector.kind === "inline" && resolvedTargets.length === 0) {
+      if (selector.kind === "inline" && resolvedTargets.length === 0) {
         await postFixReply(env.installation.token, { ...item, payload }, FIX_TARGET_UNMAPPED);
         return {};
       }
