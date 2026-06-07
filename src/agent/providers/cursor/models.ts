@@ -73,9 +73,10 @@ export function assertCursorModelId(modelId: string): void {
 }
 
 export function assertCursorModelFastSelection(modelId: string): void {
-  const { baseId, fast } = parseCursorModelId(modelId);
+  const { fast } = parseCursorModelId(modelId);
   if (!fast) return;
-  if (!getFastParamModelIds().has(baseId)) {
+  const catalogId = resolveCursorCatalogId(modelId);
+  if (!getFastParamModelIds().has(catalogId)) {
     const supportedFast = catalogFastModelIds();
     const hint =
       supportedFast.length > 0

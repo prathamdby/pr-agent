@@ -82,6 +82,22 @@ describe("cursor models", () => {
     expect(() => assertCursorModelFastSelection("auto-fast")).toThrow(/does not support fast mode/);
   });
 
+  it("validates fast selection against canonical catalog ids", () => {
+    setCursorModelsForTests([
+      {
+        id: "composer-2.5",
+        displayName: "Composer 2.5",
+        aliases: ["composer-latest"],
+        parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+      },
+    ]);
+    expect(() => assertCursorModelFastSelection("composer-latest-fast")).not.toThrow();
+    expect(toCursorSdkModelSelection("composer-latest-fast")).toEqual({
+      id: "composer-2.5",
+      params: [{ id: "fast", value: "true" }],
+    });
+  });
+
   it("rejects unknown model ids", () => {
     expect(() => assertCursorModelId("not-a-real-model")).toThrow(/not a supported Cursor model/);
     expect(() => getCursorModel("not-a-real-model")).toThrow(/not a supported Cursor model/);
