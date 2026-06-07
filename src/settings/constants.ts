@@ -19,6 +19,10 @@ export const AUTOMATED_REVIEW_LENS = "review" as const;
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 
+/** pi-ai metadata when mapping Cursor.models.list() items. */
+export const CURSOR_DEFAULT_CONTEXT_WINDOW = 200_000;
+export const CURSOR_DEFAULT_MAX_TOKENS = 16_384;
+
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";
 export const DESCRIPTION_BODY_SEPARATOR = "\n\n___\n\n";

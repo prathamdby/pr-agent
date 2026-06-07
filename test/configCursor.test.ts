@@ -34,7 +34,7 @@ describe("loadConfig agent provider", () => {
     expect(cfg.cursorApiKey).toBe("cursor_test_key");
   });
 
-  it("rejects unknown PI_MODEL when AGENT_PROVIDER=cursor", async () => {
+  it("defers PI_MODEL validation until worker boot", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
@@ -43,7 +43,7 @@ describe("loadConfig agent provider", () => {
       CURSOR_API_KEY: "cursor_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
-    expect(() => loadConfig()).toThrow(/not a supported Cursor model/);
+    expect(() => loadConfig()).not.toThrow();
   });
 
   it("rejects AGENT_PROVIDER=cursor without CURSOR_API_KEY", async () => {
