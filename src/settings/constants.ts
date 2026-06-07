@@ -276,6 +276,7 @@ export const POSTGRES_POOL_MAX = 10;
 export const POSTGRES_IDLE_TIMEOUT_MS = 30_000;
 export const POSTGRES_CONNECTION_TIMEOUT_MS = 5_000;
 export const POSTGRES_STATEMENT_TIMEOUT_MS = 60_000;
+export const GITHUB_WEBHOOK_RESPONSE_MARGIN_MS = 2_000;
 
 export const TOKEN_EXPIRED_TOOL_MESSAGE =
   "Installation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.";

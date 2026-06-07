@@ -125,7 +125,7 @@ describe("processWebhookHttpRequestEffect", () => {
     expect(out).toEqual({ status: 200, body: "ok" });
   });
 
-  it("warns when handling exceeds the timeout budget", async () => {
+  it("returns 503 when handling exceeds the timeout budget", async () => {
     const slowDispatcherLayer = Layer.succeed(
       WebhookDispatcher,
       WebhookDispatcher.of({
@@ -138,7 +138,7 @@ describe("processWebhookHttpRequestEffect", () => {
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
     try {
-      await Effect.runPromise(
+      const out = await Effect.runPromise(
         withIntake(
           processWebhookHttpRequestEffect(tightCfg, {
             method: "POST",
@@ -153,11 +153,12 @@ describe("processWebhookHttpRequestEffect", () => {
         ),
       );
 
+      expect(out).toEqual({ status: 503, body: "service unavailable" });
       const budgetWarn = recordSpy.mock.calls.find(
         (c) => c[1] === "webhook_timeout_budget_exceeded",
       );
       expect(budgetWarn).toBeDefined();
-      expect(budgetWarn?.[2]).toMatchObject({ budgetMs: 1 });
+      expect(budgetWarn?.[2]).toMatchObject({ budgetMs: 1, responseBudgetMs: 1 });
     } finally {
       recordSpy.mockRestore();
     }

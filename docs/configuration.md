@@ -56,7 +56,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Retention enabled         | `RETENTION_ENABLED`                         | `true`                   | toggle the scheduled cleanup sweep                                                                                                                                                                                                                                                                                                                         |
 | Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`                       | `12`                     |                                                                                                                                                                                                                                                                                                                                                            |
 | Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                   | `2`                      |                                                                                                                                                                                                                                                                                                                                                            |
-| Webhook time budget       | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | log warning only                                                                                                                                                                                                                                                                                                                                           |
+| Webhook response budget   | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | returns 503 when intake exceeds this budget minus the GitHub response margin                                                                                                                                                                                                                                                                               |
 | Context7 API key          | `CONTEXT7_API_KEY`                          | empty                    | optional                                                                                                                                                                                                                                                                                                                                                   |
 | Label effort              | `ENABLE_REVIEW_LABELS_EFFORT`               | `true`                   |                                                                                                                                                                                                                                                                                                                                                            |
 | Label security            | `ENABLE_REVIEW_LABELS_SECURITY`             | `false`                  |                                                                                                                                                                                                                                                                                                                                                            |
@@ -219,13 +219,14 @@ These are related but not wired together on INSERT today.
 
 ### Other
 
-| Symbol                        | Role                                 |
-| ----------------------------- | ------------------------------------ |
-| `CONTEXT7_BASE_URL`           | Context7 API                         |
-| `MAX_LOG_MESSAGE_LEN`         | 2000                                 |
-| `SLASH_HELP_BODY`             | `/help` text                         |
-| `MIGRATIONS_DIR_NAME`         | `migrations`                         |
-| `MIGRATION_ADVISORY_LOCK_KEY` | runMigrations cross-process lock     |
-| `HEALTH_DB_PING_TIMEOUT_MS`   | 2000 (`/ready` Postgres ping budget) |
+| Symbol                              | Role                                          |
+| ----------------------------------- | --------------------------------------------- |
+| `CONTEXT7_BASE_URL`                 | Context7 API                                  |
+| `MAX_LOG_MESSAGE_LEN`               | 2000                                          |
+| `SLASH_HELP_BODY`                   | `/help` text                                  |
+| `MIGRATIONS_DIR_NAME`               | `migrations`                                  |
+| `MIGRATION_ADVISORY_LOCK_KEY`       | runMigrations cross-process lock              |
+| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS` | 2000ms margin before GitHub's webhook timeout |
+| `HEALTH_DB_PING_TIMEOUT_MS`         | 2000 (`/ready` Postgres ping budget)          |
 
 Prompt prose (investigator contracts) remains in `src/review/reviewPromptBlocks.ts` and `src/agent/securityPrompt.ts`.
