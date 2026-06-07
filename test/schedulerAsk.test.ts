@@ -12,7 +12,11 @@ import * as postgres from "../src/db/postgres.js";
 function makeSlashInput(body: string) {
   const command = body.slice(1).split(/\s+/, 1)[0] ?? "";
   return {
-    headers: { event: "issue_comment", delivery: "d1", rawBody: Buffer.from("{}") },
+    headers: {
+      event: "issue_comment",
+      delivery: "d1",
+      rawBody: Buffer.from("{}"),
+    },
     installationId: 42,
     owner: "acme",
     repo: "app",
@@ -48,7 +52,10 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss);
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
     const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
 
     await Effect.runPromise(
@@ -86,7 +93,10 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss);
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
 
     await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/ask"), intakeLog));
 

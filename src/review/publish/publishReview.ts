@@ -244,10 +244,20 @@ export async function publishReview(
       const next = syncReviewLabels(currentLabels, managed);
       await setPullRequestLabels(token, owner, repo, prNumber, next);
       await params.recordPublishStep?.("labels", { meta: { labels: next } });
-      logDebug("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
+      logDebug("review_labels_synced", {
+        owner,
+        repo,
+        pr: prNumber,
+        labels: next,
+      });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      logWarn("review_labels_sync_failed", { owner, repo, pr: prNumber, message });
+      logWarn("review_labels_sync_failed", {
+        owner,
+        repo,
+        pr: prNumber,
+        message,
+      });
     }
   }
 }

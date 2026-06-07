@@ -4,10 +4,17 @@ import type { ReviewMode } from "../review/reviewSchema.js";
 import type { SingletonSlotDb } from "./singletonQueue.js";
 
 export type AutoWorkSupersedeTarget =
-  | { readonly kind: "review"; readonly resourceKey: string; readonly lens: ReviewMode }
+  | {
+      readonly kind: "review";
+      readonly resourceKey: string;
+      readonly lens: ReviewMode;
+    }
   | { readonly kind: "description"; readonly resourceKey: string };
 
-function supersedeQueuedSql(target: AutoWorkSupersedeTarget): { sql: string; params: unknown[] } {
+function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
+  sql: string;
+  params: unknown[];
+} {
   if (target.kind === "review") {
     return {
       sql: `UPDATE agent_work_items
@@ -32,7 +39,10 @@ function supersedeQueuedSql(target: AutoWorkSupersedeTarget): { sql: string; par
   };
 }
 
-function cancelRunningSql(target: AutoWorkSupersedeTarget): { sql: string; params: unknown[] } {
+function cancelRunningSql(target: AutoWorkSupersedeTarget): {
+  sql: string;
+  params: unknown[];
+} {
   if (target.kind === "review") {
     return {
       sql: `UPDATE agent_work_items
@@ -62,7 +72,10 @@ export async function replaceAutoWorkItem(params: {
   readonly client: PoolClient;
   readonly target: AutoWorkSupersedeTarget;
   readonly createWorkItem: () => Promise<string>;
-}): Promise<{ readonly workItemId: string; readonly supersededIds: readonly string[] }> {
+}): Promise<{
+  readonly workItemId: string;
+  readonly supersededIds: readonly string[];
+}> {
   const queuedQuery = supersedeQueuedSql(params.target);
   const runningQuery = cancelRunningSql(params.target);
   const queued = await params.client.query<{ id: string }>(queuedQuery.sql, queuedQuery.params);

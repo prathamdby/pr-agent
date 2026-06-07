@@ -183,7 +183,10 @@ describe("runDurableWorkItem", () => {
   it("returns without executing when acceptItem rejects", async () => {
     mockFetchedItem(makeItem({ reviewLens: null }));
     const execute = vi.fn();
-    await runReviewWorkItem({ acceptItem: (it) => it.reviewLens != null, execute });
+    await runReviewWorkItem({
+      acceptItem: (it) => it.reviewLens != null,
+      execute,
+    });
     expect(execute).not.toHaveBeenCalled();
   });
 
@@ -211,7 +214,11 @@ describe("runDurableWorkItem", () => {
   });
 
   it("cancels when payload.commenterId matches bot identity", async () => {
-    mockFetchedItem(makeItem({ payload: { mode: "review", source: "slash", commenterId: 999 } }));
+    mockFetchedItem(
+      makeItem({
+        payload: { mode: "review", source: "slash", commenterId: 999 },
+      }),
+    );
     const execute = vi.fn();
 
     await runReviewWorkItem({ execute });
@@ -251,7 +258,9 @@ describe("runDurableWorkItem", () => {
   });
 
   it("reuses installation token and app bot identity across jobs", async () => {
-    const first = makeItem({ payload: { mode: "review", source: "slash", commenterId: 1 } });
+    const first = makeItem({
+      payload: { mode: "review", source: "slash", commenterId: 1 },
+    });
     const second = makeItem({
       id: "wi-2",
       payload: { mode: "review", source: "slash", commenterId: 1 },

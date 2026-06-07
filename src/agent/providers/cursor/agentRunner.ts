@@ -76,8 +76,14 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
         toolRoundCounter.count = 0;
         syncRunContext(opts?.maxToolRounds ?? activeMaxToolRounds);
-        context.messages.push({ role: "user", content: prompt, timestamp: Date.now() });
-        const assistant = await complete(model, context, { apiKey: cfg.cursorApiKey });
+        context.messages.push({
+          role: "user",
+          content: prompt,
+          timestamp: Date.now(),
+        });
+        const assistant = await complete(model, context, {
+          apiKey: cfg.cursorApiKey,
+        });
         context.messages.push(assistant);
         return { text: assistantText(assistant) };
       },

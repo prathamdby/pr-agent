@@ -7,7 +7,10 @@ import { REVIEW_PROGRESS_NOTE } from "../src/settings/index.js";
 
 describe("progressComment fallback wording", () => {
   it("uses neutral failure notice without attempt counts or server logs", () => {
-    const body = renderReviewFailureNotice({ mode: "review", retryCommand: "/review" });
+    const body = renderReviewFailureNotice({
+      mode: "review",
+      retryCommand: "/review",
+    });
     expect(body).toContain("[!CAUTION]");
     expect(body).toContain("Review did not finish");
     expect(body).toContain("/review");

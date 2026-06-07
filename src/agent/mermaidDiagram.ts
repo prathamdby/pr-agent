@@ -92,7 +92,10 @@ function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
   }
 
   if (body.includes("```")) {
-    issues.push({ line: 1, message: "Do not nest code fences inside the diagram." });
+    issues.push({
+      line: 1,
+      message: "Do not nest code fences inside the diagram.",
+    });
   }
   if (body.includes("`")) {
     issues.push({ line: 1, message: "Remove backticks from diagram labels." });

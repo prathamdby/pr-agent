@@ -74,7 +74,9 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, [".env", "src/ok.ts"]);
       const pathGate = createAskPathGate();
       pathGate.addPaths(["src/ok.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits(), { pathGate });
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits(), {
+        pathGate,
+      });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
       };

@@ -26,7 +26,9 @@ export type PreparePrRepositoryViewParams = {
   readonly repositorySizeKb?: number;
 };
 
-type CachedPrRepositoryView = PrRepositoryView & { readonly cleanup: () => Promise<void> };
+type CachedPrRepositoryView = PrRepositoryView & {
+  readonly cleanup: () => Promise<void>;
+};
 
 type CacheEntry = {
   refcount: number;

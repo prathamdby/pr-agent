@@ -82,7 +82,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             heartbeatRefreshSeconds: heartbeatRefresh,
             pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
           };
-          const fastQueueOptions = { pollingIntervalSeconds: cfg.queuePollingIntervalSeconds };
+          const fastQueueOptions = {
+            pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
+          };
           await cleanupStaleLocalPrWorkspaces(cfg);
           await ensureRetentionSchedule(boss, cfg);
           await Promise.all([
@@ -95,7 +97,10 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             registerMetadataQueue<ReviewJobData>(
               boss,
               REVIEW_QUEUE,
-              { localConcurrency: cfg.reviewConcurrency, ...durableQueueOptions },
+              {
+                localConcurrency: cfg.reviewConcurrency,
+                ...durableQueueOptions,
+              },
               (job) => executeReviewJob(cfg, pool, boss, job),
             ),
             registerMetadataQueue<AskJobData>(
@@ -107,7 +112,10 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             registerMetadataQueue<DescriptionJobData>(
               boss,
               DESCRIPTION_QUEUE,
-              { localConcurrency: cfg.descriptionConcurrency, ...durableQueueOptions },
+              {
+                localConcurrency: cfg.descriptionConcurrency,
+                ...durableQueueOptions,
+              },
               (job) => executeDescriptionJob(cfg, pool, boss, job),
             ),
             registerPlainQueue(
@@ -145,7 +153,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           }
           const blockedReviewKeys = await boss.getBlockedKeys(REVIEW_QUEUE);
           if (blockedReviewKeys.length > 0) {
-            logWarn("agent_review_queue_blocked_keys", { keys: blockedReviewKeys });
+            logWarn("agent_review_queue_blocked_keys", {
+              keys: blockedReviewKeys,
+            });
           }
         },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),

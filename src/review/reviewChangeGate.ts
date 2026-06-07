@@ -13,7 +13,10 @@ export type TrivialChangeGateInput = {
 
 export type TrivialChangeGateResult =
   | { readonly exempt: true }
-  | { readonly exempt: false; readonly reason: "truncated" | "empty" | "not_docs_only" };
+  | {
+      readonly exempt: false;
+      readonly reason: "truncated" | "empty" | "not_docs_only";
+    };
 
 const ROOT_DOC_STEM = /^(readme|license|changelog)$/i;
 const DOCS_DIR_EXTENSIONS = new Set([".md", ".mdx"]);

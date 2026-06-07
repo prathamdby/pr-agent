@@ -15,7 +15,11 @@ describe("reviewRunMetrics", () => {
 
   it("is a no-op without ambient operation logger", () => {
     expect(() =>
-      recordReviewMetric({ kind: "tool_call", name: "getPullRequest", ok: true }),
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "getPullRequest",
+        ok: true,
+      }),
     ).not.toThrow();
     expect(snapshotReviewRunMetrics()).toBeNull();
   });
@@ -23,23 +27,46 @@ describe("reviewRunMetrics", () => {
   it("records discriminated union events on ambient context", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
-      initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
       recordReviewMetric({ kind: "phase_enter", phase: "investigation" });
-      recordReviewMetric({ kind: "tool_call", name: "listPullRequestFiles", ok: true });
-      recordReviewMetric({ kind: "tool_call", name: "submitReview", ok: false });
-      recordReviewMetric({ kind: "submit_validated", coercions: ["finding_severity_alias"] });
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "listPullRequestFiles",
+        ok: true,
+      });
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "submitReview",
+        ok: false,
+      });
+      recordReviewMetric({
+        kind: "submit_validated",
+        coercions: ["finding_severity_alias"],
+      });
       recordReviewMetric({
         kind: "validation_failed",
         failureKind: "missing_field",
         paths: ["findings"],
       });
-      recordReviewMetric({ kind: "anchor_failure", count: 2, files: ["a.ts", "b.ts"] });
+      recordReviewMetric({
+        kind: "anchor_failure",
+        count: 2,
+        files: ["a.ts", "b.ts"],
+      });
       recordReviewMetric({ kind: "prose_only", phase: "pre_submit" });
       recordReviewMetric({ kind: "rate_limit_circuit_opened" });
       recordReviewMetric({ kind: "token_near_expiry_guard" });
       recordReviewMetric({ kind: "diff_cache_empty_at_submit" });
       recordReviewMetric({ kind: "publish_attempted" });
-      recordReviewMetric({ kind: "published", findingsCount: 1, severities: ["P1"] });
+      recordReviewMetric({
+        kind: "published",
+        findingsCount: 1,
+        severities: ["P1"],
+      });
       setReviewRunMetricFields({ published: true, publishAttempts: 1 });
 
       const snapshot = snapshotReviewRunMetrics();
@@ -73,7 +100,11 @@ describe("reviewRunMetrics", () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     const infoSpy = vi.spyOn(evlog, "logInfo");
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
-      initReviewRunMetrics({ provider: "cursor", model: "composer-2.5", mode: "review-security" });
+      initReviewRunMetrics({
+        provider: "cursor",
+        model: "composer-2.5",
+        mode: "review-security",
+      });
       setReviewRunMetricFields({ published: false, publishAttempts: 2 });
       logReviewRunCompleted({ extra: true });
     });

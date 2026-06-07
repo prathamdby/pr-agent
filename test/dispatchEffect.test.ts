@@ -92,7 +92,10 @@ function buildLayers(trace: Trace) {
 }
 
 function runDispatch(input: Parameters<typeof dispatchGithubEventEffect>[0], trace: Trace) {
-  const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+  const intakeLog = createOperationLogger({
+    method: "POST",
+    path: "/webhooks",
+  });
   return dispatchGithubEventEffect(input).pipe(
     Effect.provide(buildLayers(trace)),
     Effect.provideService(IntakeLogger, intakeLog),
@@ -122,7 +125,11 @@ describe("dispatchGithubEventEffect ordering", () => {
         runDispatch(
           {
             cfg,
-            headers: { event: "pull_request", delivery: "d0", rawBody: Buffer.from("{}") },
+            headers: {
+              event: "pull_request",
+              delivery: "d0",
+              rawBody: Buffer.from("{}"),
+            },
             payload: {},
           },
           trace,
@@ -147,7 +154,11 @@ describe("dispatchGithubEventEffect ordering", () => {
         runDispatch(
           {
             cfg,
-            headers: { event: "ping", delivery: "d2", rawBody: Buffer.from("{}") },
+            headers: {
+              event: "ping",
+              delivery: "d2",
+              rawBody: Buffer.from("{}"),
+            },
             payload: {},
           },
           trace,
@@ -182,7 +193,11 @@ describe("dispatchGithubEventEffect ordering", () => {
         runDispatch(
           {
             cfg,
-            headers: { event: "pull_request", delivery: "d3", rawBody: Buffer.from("{}") },
+            headers: {
+              event: "pull_request",
+              delivery: "d3",
+              rawBody: Buffer.from("{}"),
+            },
             payload: {},
           },
           trace,

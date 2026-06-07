@@ -20,7 +20,10 @@ export function buildReviewPathProfile(changedFiles: readonly string[]): ReviewP
     }
     if (found.size === categories.length) break;
   }
-  return { changedFiles, riskCategories: categories.filter((category) => found.has(category)) };
+  return {
+    changedFiles,
+    riskCategories: categories.filter((category) => found.has(category)),
+  };
 }
 
 export function formatReviewPathProfileBlock(profile: ReviewPathProfile): string {

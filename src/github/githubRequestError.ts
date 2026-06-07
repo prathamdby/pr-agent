@@ -62,7 +62,10 @@ function graphqlRateLimitErrors(err: unknown): Array<{ type?: string }> {
   const e = err as {
     errors?: Array<{ type?: string }>;
     data?: { errors?: Array<{ type?: string }> };
-    response?: { errors?: Array<{ type?: string }>; data?: { errors?: Array<{ type?: string }> } };
+    response?: {
+      errors?: Array<{ type?: string }>;
+      data?: { errors?: Array<{ type?: string }> };
+    };
   };
   return e.errors ?? e.response?.errors ?? e.data?.errors ?? e.response?.data?.errors ?? [];
 }
@@ -278,11 +281,17 @@ function resolveRetryAfter(
     const resetMs = Number(meta.rateLimitReset) * 1000;
     if (Number.isFinite(resetMs)) {
       const seconds = Math.max(1, Math.ceil((resetMs - now) / 1000) + 1);
-      return { retryAfterSeconds: seconds, retryAfterSource: "x-ratelimit-reset" };
+      return {
+        retryAfterSeconds: seconds,
+        retryAfterSource: "x-ratelimit-reset",
+      };
     }
   }
 
-  return { retryAfterSeconds: DEFAULT_COOLDOWN_SECONDS, retryAfterSource: "default" };
+  return {
+    retryAfterSeconds: DEFAULT_COOLDOWN_SECONDS,
+    retryAfterSource: "default",
+  };
 }
 
 export function isRateLimitClassification(classification: GithubToolErrorClassification): boolean {

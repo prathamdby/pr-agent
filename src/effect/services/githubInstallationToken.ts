@@ -41,8 +41,15 @@ export const GithubInstallationTokenLive = Layer.effect(
             const ttlMs = Number.isFinite(parsed)
               ? Math.max(0, expiresAtTs - now)
               : INSTALLATION_TOKEN_FALLBACK_TTL_MS;
-            logDebug("minted_installation_token", { installationId, expiresAt: auth.expiresAt });
-            return { token: auth.token, expiresAtTs, ttlMs } satisfies InstallationToken;
+            logDebug("minted_installation_token", {
+              installationId,
+              expiresAt: auth.expiresAt,
+            });
+            return {
+              token: auth.token,
+              expiresAtTs,
+              ttlMs,
+            } satisfies InstallationToken;
           }),
         ),
     });

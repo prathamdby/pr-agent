@@ -76,7 +76,11 @@ describe("buildScopedAskExecutors", () => {
     const gate = createAskPathGate();
     const executors = buildScopedAskExecutors(base, scope, gate);
     const result = await executors.getPullRequest({});
-    expect(result).toMatchObject({ owner: "acme", repo: "app", pullNumber: 42 });
+    expect(result).toMatchObject({
+      owner: "acme",
+      repo: "app",
+      pullNumber: 42,
+    });
   });
 
   it("injects repo into searchCode query", async () => {
@@ -85,7 +89,9 @@ describe("buildScopedAskExecutors", () => {
     };
     const gate = createAskPathGate();
     const executors = buildScopedAskExecutors(base, scope, gate);
-    const result = (await executors.searchCode({ query: "useState" })) as { query: string };
+    const result = (await executors.searchCode({ query: "useState" })) as {
+      query: string;
+    };
     expect(result.query).toContain("repo:acme/app");
   });
 
@@ -143,7 +149,12 @@ describe("buildScopedAskExecutors", () => {
       content: "KEY=value",
     });
     expect(base.getFileContent).toHaveBeenCalledWith(
-      expect.objectContaining({ owner: "acme", repo: "app", path: ".env", ref: "abc123" }),
+      expect.objectContaining({
+        owner: "acme",
+        repo: "app",
+        path: ".env",
+        ref: "abc123",
+      }),
     );
   });
 

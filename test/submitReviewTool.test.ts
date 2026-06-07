@@ -190,7 +190,11 @@ describe("submitReview tool", () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     const valid = validPayload();
     await evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
-      initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
       const state = createSubmitReviewState();
       const { executor } = buildSubmitReviewTool({
         cfg,
@@ -235,7 +239,9 @@ describe("submitReview tool", () => {
       cachedDiffIndex: index,
       canEnforceDiffCacheBeforeSubmit: () => false,
     });
-    const payload = validPayload({ findings: [finding({ title: "Bad anchor" })] });
+    const payload = validPayload({
+      findings: [finding({ title: "Bad anchor" })],
+    });
     await executor(payload);
     expect(publishReview).toHaveBeenCalledTimes(1);
   });
@@ -252,7 +258,14 @@ describe("submitReview tool", () => {
       cachedDiffIndex: index,
     });
     const valid = validPayload({
-      findings: [finding({ file: "src/x.ts", startLine: 1, endLine: 1, title: "Zero-file PR" })],
+      findings: [
+        finding({
+          file: "src/x.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Zero-file PR",
+        }),
+      ],
     });
     await executor(valid);
     expect(publishReview).toHaveBeenCalledTimes(1);
@@ -274,7 +287,11 @@ describe("submitReview tool", () => {
       ],
     });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
-      initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
       const state = createSubmitReviewState();
       const { executor } = buildSubmitReviewTool({
         cfg,

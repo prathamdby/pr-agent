@@ -72,7 +72,13 @@ describe("reviewPriorFeedback", () => {
       rest: {
         pulls: {
           listReviews: vi.fn(async () => ({
-            data: [{ id: reviewId, user: { id: botUserId }, body: REVIEW_POINTER_BODY }],
+            data: [
+              {
+                id: reviewId,
+                user: { id: botUserId },
+                body: REVIEW_POINTER_BODY,
+              },
+            ],
           })),
           listReviewComments: vi.fn(async () => ({
             data: [

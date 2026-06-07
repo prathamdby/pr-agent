@@ -48,7 +48,10 @@ function get(port: number, path: string): Promise<{ status: number; body: string
         const chunks: Buffer[] = [];
         res.on("data", (c) => chunks.push(Buffer.from(c)));
         res.on("end", () => {
-          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") });
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
         });
       })
       .on("error", reject);
@@ -68,13 +71,20 @@ function postSigned(
         port,
         path,
         method: "POST",
-        headers: { "content-type": "application/json", "content-length": body.length, ...headers },
+        headers: {
+          "content-type": "application/json",
+          "content-length": body.length,
+          ...headers,
+        },
       },
       (res) => {
         const chunks: Buffer[] = [];
         res.on("data", (c) => chunks.push(Buffer.from(c)));
         res.on("end", () => {
-          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") });
+          resolve({
+            status: res.statusCode ?? 0,
+            body: Buffer.concat(chunks).toString("utf8"),
+          });
         });
       },
     );

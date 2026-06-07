@@ -77,8 +77,13 @@ export function processWebhookHttpRequestEffect(
     const sig = req.headers["x-hub-signature-256"];
     if (!verifyGithubWebhookSignature(cfg.webhookSecret, req.rawBody, sig)) {
       recordEvent(intakeLog, "invalid_signature", undefined, "warn");
-      const response = { status: 401, body: "invalid signature" } satisfies WebhookResponseLike;
-      intakeLog.set({ webhook: { status: response.status, signatureInvalid: true } });
+      const response = {
+        status: 401,
+        body: "invalid signature",
+      } satisfies WebhookResponseLike;
+      intakeLog.set({
+        webhook: { status: response.status, signatureInvalid: true },
+      });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_signature" }));
       return response;
     }
@@ -88,7 +93,10 @@ export function processWebhookHttpRequestEffect(
       payload = JSON.parse(req.rawBody.toString("utf8")) as Record<string, unknown>;
     } catch {
       recordEvent(intakeLog, "invalid_json", undefined, "warn");
-      const response = { status: 400, body: "invalid json" } satisfies WebhookResponseLike;
+      const response = {
+        status: 400,
+        body: "invalid json",
+      } satisfies WebhookResponseLike;
       intakeLog.set({ webhook: { status: response.status } });
       yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "invalid_json" }));
       return response;
@@ -122,8 +130,13 @@ export function processWebhookHttpRequestEffect(
     const elapsedMs = Date.now() - t0;
 
     if (!result.ok) {
-      const response = { status: 503, body: "service unavailable" } satisfies WebhookResponseLike;
-      intakeLog.set({ webhook: { status: response.status, elapsedMs, handlerFailed: true } });
+      const response = {
+        status: 503,
+        body: "service unavailable",
+      } satisfies WebhookResponseLike;
+      intakeLog.set({
+        webhook: { status: response.status, elapsedMs, handlerFailed: true },
+      });
       yield* Effect.promise(() =>
         emitOperationLogger(intakeLog, { event: "webhook_handler_error" }),
       );

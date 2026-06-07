@@ -39,7 +39,9 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
   return {
     name,
     description: t.description,
-    parameters: z.toJSONSchema(t.schema, { unrepresentable: "any" }) as PiTool["parameters"],
+    parameters: z.toJSONSchema(t.schema, {
+      unrepresentable: "any",
+    }) as PiTool["parameters"],
   };
 }
 

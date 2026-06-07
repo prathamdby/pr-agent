@@ -9,7 +9,10 @@ import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../src/settings/index.js";
 describe("renderAnchorMenuBlock", () => {
   it("returns empty string for empty cache", () => {
     expect(
-      renderAnchorMenuBlock(createCachedPrDiffIndex(), { maxFiles: 40, maxRangesPerFile: 20 }),
+      renderAnchorMenuBlock(createCachedPrDiffIndex(), {
+        maxFiles: 40,
+        maxRangesPerFile: 20,
+      }),
     ).toBe("");
   });
 
@@ -23,7 +26,10 @@ describe("renderAnchorMenuBlock", () => {
         },
       ],
     });
-    const block = renderAnchorMenuBlock(index, { maxFiles: 40, maxRangesPerFile: 20 });
+    const block = renderAnchorMenuBlock(index, {
+      maxFiles: 40,
+      maxRangesPerFile: 20,
+    });
     expect(block).toContain(`<${REVIEW_ANCHOR_MENU_BLOCK_LABEL} untrusted="true">`);
     expect(block).toContain(`</${REVIEW_ANCHOR_MENU_BLOCK_LABEL}>`);
     expect(block).toContain("src/a.ts:");
@@ -43,7 +49,10 @@ describe("renderAnchorMenuBlock", () => {
         },
       ],
     });
-    const block = renderAnchorMenuBlock(index, { maxFiles: 1, maxRangesPerFile: 10 });
+    const block = renderAnchorMenuBlock(index, {
+      maxFiles: 1,
+      maxRangesPerFile: 10,
+    });
     expect(block).toContain("…1 more files");
   });
 });

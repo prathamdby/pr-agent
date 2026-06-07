@@ -3,7 +3,11 @@ import type { ReviewPhase, ReviewValidationFailureKind } from "../settings/index
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }
-  | { readonly kind: "phase_span"; readonly phase: string; readonly durationMs: number }
+  | {
+      readonly kind: "phase_span";
+      readonly phase: string;
+      readonly durationMs: number;
+    }
   | {
       readonly kind: "tool_call";
       readonly name: string;
@@ -16,7 +20,11 @@ export type ReviewMetricEvent =
       readonly failureKind: ReviewValidationFailureKind;
       readonly paths: readonly string[];
     }
-  | { readonly kind: "anchor_failure"; readonly count: number; readonly files: readonly string[] }
+  | {
+      readonly kind: "anchor_failure";
+      readonly count: number;
+      readonly files: readonly string[];
+    }
   | { readonly kind: "prose_only"; readonly phase: ReviewPhase }
   | { readonly kind: "rate_limit_circuit_opened" }
   | { readonly kind: "token_near_expiry_guard" }

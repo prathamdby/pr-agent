@@ -77,7 +77,9 @@ describe("githubRequestError", () => {
 
   it("classifies Bad credentials as auth when token is near expiry (HttpError)", () => {
     const err = httpError(401, "Bad credentials - https://docs.github.com/rest");
-    const c = classifyGithubToolError(err, { expiresAtTs: Date.now() + 30_000 });
+    const c = classifyGithubToolError(err, {
+      expiresAtTs: Date.now() + 30_000,
+    });
     expect(c.classification).toBe("auth");
   });
 
@@ -86,7 +88,9 @@ describe("githubRequestError", () => {
       "x-ratelimit-remaining": "0",
       "x-ratelimit-resource": "core",
     });
-    const c = classifyGithubToolError(err, { expiresAtTs: Date.now() + 30_000 });
+    const c = classifyGithubToolError(err, {
+      expiresAtTs: Date.now() + 30_000,
+    });
     expect(c.classification).toBe("rate_limit");
   });
 
@@ -190,7 +194,9 @@ describe("githubRequestError", () => {
   it("logGithubToolRequestError emits github_tool_request_error for non-HTTP errors", () => {
     const warn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
     const err = new TypeError("fetch failed");
-    const classified = classifyGithubToolError(err, { expiresAtTs: youngExpiry });
+    const classified = classifyGithubToolError(err, {
+      expiresAtTs: youngExpiry,
+    });
     const logCtx = {
       expiresAtTs: youngExpiry,
       owner: "o",

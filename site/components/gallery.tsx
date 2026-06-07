@@ -1,5 +1,3 @@
-import Image from "next/image";
-
 const screenshots = [
   {
     src: "/screenshots/review.example.png",
@@ -44,13 +42,14 @@ export function Gallery() {
           {screenshots.map((shot) => (
             <figure key={shot.caption}>
               <div className="rounded-md border border-neutral-200 overflow-hidden">
-                <Image
+                <img
                   src={shot.src}
                   alt={shot.alt}
                   width={800}
                   height={450}
                   className="w-full h-auto"
                   loading="lazy"
+                  decoding="async"
                 />
               </div>
               <figcaption className="mt-2 text-sm text-neutral-500">

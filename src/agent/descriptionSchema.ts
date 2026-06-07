@@ -99,7 +99,14 @@ function coercePrFiles(value: unknown): DescriptionPrFile[] | undefined {
     const label = trimString(row.label);
     if (!filename || !changesTitle || !label) return [];
     const changesSummary = trimString(row.changesSummary ?? row.changes_summary);
-    return [{ filename, changesTitle, label, ...(changesSummary ? { changesSummary } : {}) }];
+    return [
+      {
+        filename,
+        changesTitle,
+        label,
+        ...(changesSummary ? { changesSummary } : {}),
+      },
+    ];
   });
   return files.length > 0 ? files : undefined;
 }

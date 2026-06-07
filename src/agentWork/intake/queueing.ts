@@ -89,7 +89,11 @@ export async function enqueueDescription(
   correlation: JobCorrelation,
 ): Promise<void> {
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-  const data: DescriptionJobData = { kind: "description", workItemId, ...correlation };
+  const data: DescriptionJobData = {
+    kind: "description",
+    workItemId,
+    ...correlation,
+  };
   await requireBossJobSend(boss, DESCRIPTION_QUEUE, data, {
     db: pgBossDb(client),
     singletonKey: descriptionSingletonKey(resourceKey),

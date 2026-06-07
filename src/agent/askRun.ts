@@ -19,7 +19,11 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       metaRefusal: true,
     });
     return {
-      answer: formatAskReply({ question, answer: ASK_META_REFUSAL, replyTarget }),
+      answer: formatAskReply({
+        question,
+        answer: ASK_META_REFUSAL,
+        replyTarget,
+      }),
       replied: true,
     };
   }

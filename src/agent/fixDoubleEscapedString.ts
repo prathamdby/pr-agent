@@ -31,7 +31,10 @@ function unescapeDoubleEscapedSequences(value: string): string {
 }
 
 /** Unwrap model output where JSON string escapes were emitted literally (e.g. `\\n` instead of newline). */
-export function fixDoubleEscapedString(value: string): { text: string; fixed: boolean } {
+export function fixDoubleEscapedString(value: string): {
+  text: string;
+  fixed: boolean;
+} {
   if (!HAS_DOUBLE_ESCAPED_SEQUENCE_RE.test(value)) {
     return { text: value, fixed: false };
   }

@@ -181,7 +181,11 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
         const counter = options.toolRoundCounter ?? { count: 0 };
         counter.count += 1;
         if (counter.count > maxToolRounds) {
-          safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
+          safeRecordReviewMetric({
+            kind: "tool_call",
+            name: toolName,
+            ok: false,
+          });
           return executorResultToMcp(
             `Tool round limit (${maxToolRounds}) reached; call submitReview with your findings.`,
             true,
@@ -196,7 +200,11 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       }
       const exec = resolveOption(options.executors)[toolName];
       if (!exec) {
-        safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
+        safeRecordReviewMetric({
+          kind: "tool_call",
+          name: toolName,
+          ok: false,
+        });
         return {
           content: [{ type: "text", text: `Unknown tool: ${toolName}` }],
           isError: true,

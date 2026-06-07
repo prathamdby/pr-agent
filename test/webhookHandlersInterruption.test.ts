@@ -73,13 +73,20 @@ describe("WebhookHandlers Effect resolution", () => {
 
     const HandlersWithFailingScheduler = handlerTestLayers(failingScheduler);
 
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
         yield* handlers.issueComment(
           cfg,
-          { event: "issue_comment", delivery: "d1", rawBody: Buffer.from("{}") },
+          {
+            event: "issue_comment",
+            delivery: "d1",
+            rawBody: Buffer.from("{}"),
+          },
           issueCommentData,
         );
       }).pipe(
@@ -122,13 +129,20 @@ describe("WebhookHandlers Effect resolution", () => {
       comment: { id: 99, user: { id: 7 }, body: "hello" },
     } as never;
 
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
         yield* handlers.issueComment(
           cfg,
-          { event: "issue_comment", delivery: "d2", rawBody: Buffer.from("{}") },
+          {
+            event: "issue_comment",
+            delivery: "d2",
+            rawBody: Buffer.from("{}"),
+          },
           nonSlash,
         );
       }).pipe(Effect.provide(Handlers), Effect.provideService(IntakeLogger, intakeLog)),
@@ -162,14 +176,21 @@ describe("WebhookHandlers Effect resolution", () => {
       ...issueCommentData,
       comment: { id: 99, user: { id: 42 }, body: "/help" },
     } as never;
-    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
 
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const handlers = yield* WebhookHandlers;
         yield* handlers.issueComment(
           cfg,
-          { event: "issue_comment", delivery: "d3", rawBody: Buffer.from("{}") },
+          {
+            event: "issue_comment",
+            delivery: "d3",
+            rawBody: Buffer.from("{}"),
+          },
           botSlash,
         );
       }).pipe(Effect.provide(Handlers), Effect.provideService(IntakeLogger, intakeLog)),

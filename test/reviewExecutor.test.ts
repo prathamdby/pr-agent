@@ -129,7 +129,11 @@ describe("executeReviewJob", () => {
     mocks.runDurableWorkItem.mockImplementation(async (spec) => {
       const item = makeItem("slash");
       await spec.execute(item, {
-        installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+        installation: {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
         headSha: "head",
       });
     });
@@ -164,7 +168,11 @@ describe("executeReviewJob", () => {
     mocks.runDurableWorkItem.mockImplementation(async (spec) => {
       const item = makeItem("auto");
       await spec.execute(item, {
-        installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+        installation: {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
         headSha: "head",
       });
     });

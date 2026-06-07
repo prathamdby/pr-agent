@@ -29,7 +29,10 @@ export async function runDescriptionHarness(params: {
   workspace?: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
 }): Promise<DescriptionRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.agentProvider;
@@ -69,8 +72,11 @@ export async function runDescriptionHarness(params: {
   };
 
   try {
-    lastText = (await session.send(setup.userContent, { maxToolRounds: cfg.maxToolRoundsDescribe }))
-      .text;
+    lastText = (
+      await session.send(setup.userContent, {
+        maxToolRounds: cfg.maxToolRoundsDescribe,
+      })
+    ).text;
 
     for (
       let nudge = 0;

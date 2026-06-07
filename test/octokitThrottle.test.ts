@@ -7,7 +7,10 @@ import {
 } from "../src/settings/index.js";
 
 describe("octokitThrottle hooks", () => {
-  const options = { method: "GET", url: "https://api.github.com/repos/o/r/pulls/1" } as never;
+  const options = {
+    method: "GET",
+    url: "https://api.github.com/repos/o/r/pulls/1",
+  } as never;
   const octokit = {} as never;
 
   it("onRateLimit retries for retryCount 0 and 1", () => {

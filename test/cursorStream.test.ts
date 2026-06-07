@@ -24,7 +24,13 @@ const model = getCursorModel("composer-2.5");
 function baseContext(): Context {
   return {
     systemPrompt: "Review system prompt",
-    messages: [{ role: "user", content: "Review this pull request", timestamp: Date.now() }],
+    messages: [
+      {
+        role: "user",
+        content: "Review this pull request",
+        timestamp: Date.now(),
+      },
+    ],
     tools: [{ name: "noop", description: "noop", parameters: { type: "object" } }],
   };
 }
@@ -68,7 +74,9 @@ describe("streamCursor", () => {
 
     const context = baseContext();
     attachExecutors(context);
-    const result = await streamCursor(model, context, { apiKey: "cursor_test_key" }).result();
+    const result = await streamCursor(model, context, {
+      apiKey: "cursor_test_key",
+    }).result();
 
     expect(result.stopReason).toBe("stop");
     expect(
@@ -84,7 +92,9 @@ describe("streamCursor", () => {
 
     const context = baseContext();
     attachExecutors(context);
-    const result = await streamCursor(model, context, { apiKey: "cursor_test_key" }).result();
+    const result = await streamCursor(model, context, {
+      apiKey: "cursor_test_key",
+    }).result();
 
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toContain(CURSOR_STARTUP_ERROR_PREFIX);
@@ -95,7 +105,11 @@ describe("streamCursor", () => {
     vi.mocked(Agent.create).mockImplementation(async () => {
       const run = {
         cancel: vi.fn(),
-        wait: vi.fn().mockResolvedValue({ status: "error", id: "run-err-9", result: null }),
+        wait: vi.fn().mockResolvedValue({
+          status: "error",
+          id: "run-err-9",
+          result: null,
+        }),
       };
       return {
         send: vi.fn(async () => run),
@@ -105,7 +119,9 @@ describe("streamCursor", () => {
 
     const context = baseContext();
     attachExecutors(context);
-    const result = await streamCursor(model, context, { apiKey: "cursor_test_key" }).result();
+    const result = await streamCursor(model, context, {
+      apiKey: "cursor_test_key",
+    }).result();
 
     expect(result.errorMessage).toBe(`${CURSOR_RUN_ERROR_PREFIX} run-err-9`);
   });

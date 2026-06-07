@@ -81,7 +81,10 @@ export function buildReviewRunSetup(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshInstallationToken?: () => Promise<{
+    token: string;
+    expiresAtTs: number;
+  }>;
   publishAbortState?: { staleHead?: boolean };
 }): ReviewRunSetup {
   const {

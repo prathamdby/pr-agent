@@ -50,7 +50,10 @@ function withIntake<R, E, A>(
   effect: Effect.Effect<A, E, R | WebhookDispatcher | IntakeLogger>,
   dispatcherLayer: Layer.Layer<WebhookDispatcher>,
 ) {
-  const intakeLog = evlog.createOperationLogger({ method: "POST", path: "/webhooks" });
+  const intakeLog = evlog.createOperationLogger({
+    method: "POST",
+    path: "/webhooks",
+  });
   return effect.pipe(
     Effect.provide(dispatcherLayer),
     Effect.provideService(IntakeLogger, intakeLog),
@@ -78,7 +81,11 @@ describe("processWebhookHttpRequestEffect", () => {
       ),
     );
 
-    expect(out).toEqual({ status: 200, body: "ok", contentType: "text/plain; charset=utf-8" });
+    expect(out).toEqual({
+      status: 200,
+      body: "ok",
+      contentType: "text/plain; charset=utf-8",
+    });
   });
 
   it("returns invalid signature", async () => {
@@ -105,7 +112,10 @@ describe("processWebhookHttpRequestEffect", () => {
         processWebhookHttpRequestEffect(cfg, {
           method: "POST",
           url: "/webhooks",
-          headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "ping",
+          },
           rawBody: body,
         }),
         stubDispatcherLayer,
@@ -133,7 +143,10 @@ describe("processWebhookHttpRequestEffect", () => {
           processWebhookHttpRequestEffect(tightCfg, {
             method: "POST",
             url: "/webhooks",
-            headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+            headers: {
+              "x-hub-signature-256": sign(body),
+              "x-github-event": "ping",
+            },
             rawBody: body,
           }),
           slowDispatcherLayer,
@@ -155,7 +168,12 @@ describe("processWebhookHttpRequestEffect", () => {
       WebhookDispatcher,
       WebhookDispatcher.of({
         dispatch: () =>
-          Effect.fail(new WebhookHandlerError({ cause: new Error("boom"), message: "boom" })),
+          Effect.fail(
+            new WebhookHandlerError({
+              cause: new Error("boom"),
+              message: "boom",
+            }),
+          ),
       }),
     );
 
@@ -168,7 +186,10 @@ describe("processWebhookHttpRequestEffect", () => {
           processWebhookHttpRequestEffect(cfg, {
             method: "POST",
             url: "/webhooks",
-            headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+            headers: {
+              "x-hub-signature-256": sign(body),
+              "x-github-event": "ping",
+            },
             rawBody: body,
           }),
           failingDispatcherLayer,
@@ -201,7 +222,10 @@ describe("processWebhookHttpRequestEffect", () => {
           processWebhookHttpRequestEffect(cfg, {
             method: "POST",
             url: "/webhooks",
-            headers: { "x-hub-signature-256": sign(body), "x-github-event": "ping" },
+            headers: {
+              "x-hub-signature-256": sign(body),
+              "x-github-event": "ping",
+            },
             rawBody: body,
           }),
           stubDispatcherLayer,

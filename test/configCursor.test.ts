@@ -2,7 +2,9 @@ import crypto from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 function testPrivateKeyPem(): string {
-  const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const { privateKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
   return privateKey.export({ type: "pkcs1", format: "pem" }).toString();
 }
 

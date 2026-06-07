@@ -82,7 +82,9 @@ export async function listPullRequestReviewCommentsForReview(
 }
 
 export type IssueCommentRef = { id: number; url: string };
-export type ResolvedSummaryCommentRef = IssueCommentRef & { source: "hint" | "scan" };
+export type ResolvedSummaryCommentRef = IssueCommentRef & {
+  source: "hint" | "scan";
+};
 
 async function getIssueCommentIfSentinel(
   token: string,

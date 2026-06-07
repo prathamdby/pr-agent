@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import { normalizeGithubAppPrivateKey } from "../src/config.js";
 
 function testPrivateKeyPem(): string {
-  const { privateKey } = crypto.generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const { privateKey } = crypto.generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
   return privateKey.export({ type: "pkcs1", format: "pem" }).toString();
 }
 

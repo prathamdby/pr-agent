@@ -10,7 +10,9 @@ export const issueCommentWebhookSchema = z.object({
       number: z.number(),
       pull_request: z.unknown(),
     })
-    .refine((i) => i.pull_request != null, { message: "issue must belong to a pull request" }),
+    .refine((i) => i.pull_request != null, {
+      message: "issue must belong to a pull request",
+    }),
   comment: z.object({
     id: z.number(),
     user: z.object({

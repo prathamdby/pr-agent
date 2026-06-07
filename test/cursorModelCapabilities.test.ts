@@ -68,7 +68,11 @@ describe("cursor model capabilities", () => {
 
   it("exposes initialized fast ids to model selection", () => {
     setCursorModelsForTests([
-      { id: "gpt-5.5", displayName: "GPT-5.5", parameters: [{ id: "fast", values: [] }] },
+      {
+        id: "gpt-5.5",
+        displayName: "GPT-5.5",
+        parameters: [{ id: "fast", values: [] }],
+      },
       {
         id: "claude-opus-4-7",
         displayName: "Claude Opus 4.7",
