@@ -4,7 +4,7 @@ import type { ModelListItem } from "@cursor/sdk";
 import {
   discoverFastParamModelIds,
   resetCursorModelCapabilitiesForTests,
-  setCursorModelCapabilitiesForTests,
+  setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import { toCursorSdkModelSelection } from "../src/agent/providers/cursor/models.js";
 
@@ -16,7 +16,14 @@ describe("cursor model capabilities", () => {
   it("discovers fast param from Cursor.models.list items", () => {
     const fastIds = discoverFastParamModelIds(cursorModelsList as ModelListItem[]);
     expect(fastIds).toEqual(
-      new Set(["composer-2.5", "composer-2", "gpt-5.5", "claude-opus-4-7"]),
+      new Set([
+        "composer-2.5",
+        "composer-2",
+        "gpt-5.5",
+        "gpt-5.4-high",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+      ]),
     );
   });
 
@@ -45,7 +52,10 @@ describe("cursor model capabilities", () => {
   });
 
   it("exposes initialized fast ids to model selection", () => {
-    setCursorModelCapabilitiesForTests(["gpt-5.5", "claude-opus-4-7"]);
+    setCursorModelsForTests([
+      { id: "gpt-5.5", displayName: "GPT-5.5", parameters: [{ id: "fast", values: [] }] },
+      { id: "claude-opus-4-7", displayName: "Claude Opus 4.7", parameters: [{ id: "fast", values: [] }] },
+    ]);
     expect(toCursorSdkModelSelection("gpt-5.5")).toEqual({
       id: "gpt-5.5",
       params: [{ id: "fast", value: "false" }],

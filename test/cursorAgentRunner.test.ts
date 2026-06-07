@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   resetCursorModelCapabilitiesForTests,
-  setCursorModelCapabilitiesForTests,
+  setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import { Agent } from "@cursor/sdk";
 import type { Config } from "../src/config.js";
@@ -40,7 +40,14 @@ const cfg = {
 describe("cursorAgentRunnerProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setCursorModelCapabilitiesForTests(["composer-2.5"]);
+    setCursorModelsForTests([
+      {
+        id: "composer-2.5",
+        displayName: "Composer 2.5",
+        parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+      },
+      { id: "auto", displayName: "Auto" },
+    ]);
   });
 
   afterEach(() => {
@@ -72,7 +79,13 @@ describe("cursorAgentRunnerProvider", () => {
   });
 
   it("passes fast=true for gpt-5.5-fast", async () => {
-    setCursorModelCapabilitiesForTests(["gpt-5.5"]);
+    setCursorModelsForTests([
+      {
+        id: "gpt-5.5",
+        displayName: "GPT-5.5",
+        parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+      },
+    ]);
     vi.mocked(Agent.create).mockResolvedValue({
       send: vi.fn(),
       [Symbol.asyncDispose]: vi.fn(),

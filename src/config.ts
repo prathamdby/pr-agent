@@ -1,6 +1,5 @@
 import crypto from "node:crypto";
 import { getProviders, type KnownProvider } from "@earendil-works/pi-ai";
-import { assertCursorModelId } from "./agent/providers/cursor/models.js";
 import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,
@@ -174,9 +173,6 @@ export function loadConfig() {
   const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
   if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
     throw new Error(`Missing required environment variable: ${ENV.CURSOR_API_KEY}`);
-  }
-  if (agentProvider === "cursor") {
-    assertCursorModelId(piModel);
   }
   const cursorApiKey = agentProvider === "cursor" ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
   const modelProviderKeys = {

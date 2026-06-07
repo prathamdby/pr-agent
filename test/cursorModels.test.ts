@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import cursorModelsList from "./fixtures/cursorModelsList.json";
+import type { ModelListItem } from "@cursor/sdk";
 import {
   resetCursorModelCapabilitiesForTests,
-  setCursorModelCapabilitiesForTests,
+  setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import {
   assertCursorModelFastSelection,
@@ -11,14 +13,15 @@ import {
   getCursorModel,
   isCursorProvider,
   listCursorModelIds,
+  listTopCursorModelIds,
   toCursorSdkModelSelection,
 } from "../src/agent/providers/cursor/models.js";
 
-const FAST_CAPABLE_MODELS = ["composer-2.5", "composer-2", "gpt-5.5", "claude-opus-4-7"];
+const catalog = cursorModelsList as ModelListItem[];
 
 describe("cursor models", () => {
   beforeEach(() => {
-    setCursorModelCapabilitiesForTests(FAST_CAPABLE_MODELS);
+    setCursorModelsForTests(catalog);
   });
 
   afterEach(() => {
@@ -33,6 +36,22 @@ describe("cursor models", () => {
     expect(model.api).toBe(CURSOR_API);
     expect(model.provider).toBe(CURSOR_PROVIDER);
     expect(model.id).toBe("composer-2.5");
+    expect(model.name).toBe("Composer 2.5");
+  });
+
+  it("lists the first ten catalog ids", () => {
+    expect(listTopCursorModelIds()).toEqual([
+      "composer-2.5",
+      "composer-2",
+      "gpt-5.5",
+      "gpt-5.4-high",
+      "claude-opus-4-7",
+      "claude-opus-4-8",
+      "claude-4.6-sonnet-high-thinking",
+      "gpt-5.3-codex-high",
+      "gemini-3.1-pro",
+      "auto",
+    ]);
   });
 
   it("maps fast-capable models to explicit fast params", () => {

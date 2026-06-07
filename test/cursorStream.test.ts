@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent, CursorAgentError } from "@cursor/sdk";
 import {
   resetCursorModelCapabilitiesForTests,
-  setCursorModelCapabilitiesForTests,
+  setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import { streamCursor } from "../src/agent/providers/cursor/streamCursor.js";
 import { attachCursorRunContext } from "../src/agent/providers/cursor/runContext.js";
@@ -13,7 +13,12 @@ import {
 } from "../src/agent/providers/cursor/errors.js";
 import type { Context } from "@earendil-works/pi-ai";
 
-setCursorModelCapabilitiesForTests(["composer-2.5"]);
+const composerModel = {
+  id: "composer-2.5",
+  displayName: "Composer 2.5",
+  parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
+} as const;
+setCursorModelsForTests([composerModel]);
 const model = getCursorModel("composer-2.5");
 
 function baseContext(): Context {
@@ -34,7 +39,7 @@ function attachExecutors(context: Context): void {
 describe("streamCursor", () => {
   beforeEach(() => {
     vi.mocked(Agent.create).mockReset();
-    setCursorModelCapabilitiesForTests(["composer-2.5"]);
+    setCursorModelsForTests([composerModel]);
   });
 
   afterEach(() => {

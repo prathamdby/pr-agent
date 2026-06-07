@@ -28,7 +28,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Postgres URL              | `DATABASE_URL`                              | —                        | required                                                |
 | Agent provider            | `AGENT_PROVIDER`                            | `pi`                     | `pi` or `cursor` runner                                 |
 | LLM provider              | `PI_PROVIDER`                               | `openai`                 | Pi coding-agent model provider                          |
-| LLM model                 | `PI_MODEL`                                  | `gpt-4o-mini`            | Cursor runner also uses this model id; append `-fast` when the SDK exposes a `fast` parameter (e.g. `gpt-5.5-fast`) |
+| LLM model                 | `PI_MODEL`                                  | `gpt-4o-mini`            | Cursor runner uses ids from `Cursor.models.list()` (validated at worker boot). Common ids: `composer-2.5`, `composer-2`, `gpt-5.5`, `gpt-5.4-high`, `claude-opus-4-7`, `claude-opus-4-8`, `claude-4.6-sonnet-high-thinking`, `gpt-5.3-codex-high`, `gemini-3.1-pro`, `auto`. Append `-fast` when the SDK exposes a `fast` parameter (e.g. `gpt-5.5-fast`). |
 | Cursor API key            | `CURSOR_API_KEY`                            | empty                    | required when `AGENT_PROVIDER=cursor`                   |
 | Provider prompt timeout   | `PROVIDER_PROMPT_TIMEOUT_MS`                | `300000`                 | inactivity cap: abort if no provider activity this long |
 | Review tool rounds        | `MAX_TOOL_ROUNDS`                           | `24`                     | per review run                                          |
@@ -200,6 +200,8 @@ These are related but not wired together on INSERT today.
 
 | Symbol                               | Default   |
 | ------------------------------------ | --------- |
+| `CURSOR_DEFAULT_CONTEXT_WINDOW`      | 200000    |
+| `CURSOR_DEFAULT_MAX_TOKENS`          | 16384     |
 | `CURSOR_MCP_BIND_HOST`               | 127.0.0.1 |
 | `CURSOR_MCP_TOKEN_BYTES`             | 32        |
 | `CURSOR_MCP_SERVER_START_TIMEOUT_MS` | 5000      |
