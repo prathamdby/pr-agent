@@ -38,6 +38,54 @@ describe("cursorAgentRunnerProvider", () => {
     vi.clearAllMocks();
   });
 
+  it("passes explicit fast=false for composer-2.5", async () => {
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: vi.fn(),
+    } as never);
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg: { ...cfg, piModel: "composer-2.5" },
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+    });
+    await session.dispose();
+
+    expect(Agent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: {
+          id: "composer-2.5",
+          params: [{ id: "fast", value: "false" }],
+        },
+      }),
+    );
+  });
+
+  it("passes fast=true only for composer-2.5-fast", async () => {
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: vi.fn(),
+    } as never);
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg: { ...cfg, piModel: "composer-2.5-fast" },
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+    });
+    await session.dispose();
+
+    expect(Agent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: {
+          id: "composer-2.5",
+          params: [{ id: "fast", value: "true" }],
+        },
+      }),
+    );
+  });
+
   it("reuses one MCP bridge and Cursor Agent across session sends", async () => {
     const agentDispose = vi.fn(async () => undefined);
     vi.mocked(Agent.create).mockResolvedValue({
@@ -58,6 +106,11 @@ describe("cursorAgentRunnerProvider", () => {
 
     expect(createMcpBridgeMock).toHaveBeenCalledTimes(1);
     expect(Agent.create).toHaveBeenCalledTimes(1);
+    expect(Agent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: { id: "auto" },
+      }),
+    );
     expect(completeMock).toHaveBeenCalledTimes(2);
     expect(agentDispose).toHaveBeenCalledTimes(1);
     expect(bridgeDisposeMock).toHaveBeenCalledTimes(1);

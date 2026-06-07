@@ -126,7 +126,7 @@ PI_MODEL=composer-2.5
 ```
 
 - **`CURSOR_API_KEY`**: required when `AGENT_PROVIDER=cursor`.
-- **`PI_MODEL`**: Cursor model id. Supported values include `composer-2.5`, `composer-2`, `gpt-5.5`, `claude-opus-4-7`, and `auto` (see [`src/agent/providers/cursor/models.ts`](src/agent/providers/cursor/models.ts)).
+- **`PI_MODEL`**: Cursor model id. Supported values include `composer-2.5`, `composer-2`, `gpt-5.5`, `claude-opus-4-7`, and `auto` (see [`src/agent/providers/cursor/models.ts`](src/agent/providers/cursor/models.ts)). Append `-fast` for Composer fast tier (for example `composer-2.5-fast`). Plain `composer-2.5` uses the standard tier.
 - **`PI_PROVIDER`** is ignored for Cursor runs.
 
 Restart **`pr-agent-worker`** (or the `ROLE=worker` process) after changing provider env vars.

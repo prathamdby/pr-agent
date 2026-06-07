@@ -6,6 +6,7 @@ import {
   type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { Agent, CursorAgentError } from "@cursor/sdk";
+import { toCursorSdkModelSelection } from "./models.js";
 import { approximateCursorUsage, buildCursorPrompt } from "./promptBuilder.js";
 import { createMcpBridge } from "./mcpBridge.js";
 import { detachCursorRunContext, getCursorRunContext } from "./runContext.js";
@@ -90,7 +91,7 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         runContext.agent ??
         (await Agent.create({
           apiKey,
-          model: { id: model.id },
+          model: runContext.sdkModelSelection ?? toCursorSdkModelSelection(model.id),
           local: {
             cwd: runContext.cwd ?? process.cwd(),
             settingSources: [],

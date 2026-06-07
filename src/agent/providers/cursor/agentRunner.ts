@@ -7,7 +7,7 @@ import type {
   AgentRunnerToolExecutor,
 } from "../interface.js";
 import { attachCursorRunContext } from "./runContext.js";
-import { getCursorModel } from "./models.js";
+import { getCursorModel, toCursorSdkModelSelection } from "./models.js";
 import { createMcpBridge } from "./mcpBridge.js";
 
 function assistantText(content: Context["messages"][number]): string {
@@ -28,6 +28,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     };
     let activeExecutors = executors;
     const model = getCursorModel(cfg.piModel);
+    const sdkModelSelection = toCursorSdkModelSelection(cfg.piModel);
     let savedTools: PiTool[] | null = null;
     let savedExecutors: Record<string, AgentRunnerToolExecutor> | null = null;
     let activeMaxToolRounds: number | undefined;
@@ -45,7 +46,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     });
     const agent = await Agent.create({
       apiKey,
-      model: { id: model.id },
+      model: sdkModelSelection,
       local: {
         cwd: cwd ?? process.cwd(),
         settingSources: [],
@@ -59,6 +60,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       attachCursorRunContext(context, {
         executors: activeExecutors,
         apiKey,
+        sdkModelSelection,
         cwd,
         refreshBeforeTool,
         maxToolRounds,

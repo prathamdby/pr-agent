@@ -28,7 +28,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Postgres URL              | `DATABASE_URL`                              | —                        | required                                                |
 | Agent provider            | `AGENT_PROVIDER`                            | `pi`                     | `pi` or `cursor` runner                                 |
 | LLM provider              | `PI_PROVIDER`                               | `openai`                 | Pi coding-agent model provider                          |
-| LLM model                 | `PI_MODEL`                                  | `gpt-4o-mini`            | Cursor runner also uses this model id                   |
+| LLM model                 | `PI_MODEL`                                  | `gpt-4o-mini`            | Cursor runner also uses this model id; append `-fast` for Composer fast tier (e.g. `composer-2.5-fast`) |
 | Cursor API key            | `CURSOR_API_KEY`                            | empty                    | required when `AGENT_PROVIDER=cursor`                   |
 | Provider prompt timeout   | `PROVIDER_PROMPT_TIMEOUT_MS`                | `300000`                 | inactivity cap: abort if no provider activity this long |
 | Review tool rounds        | `MAX_TOOL_ROUNDS`                           | `24`                     | per review run                                          |
