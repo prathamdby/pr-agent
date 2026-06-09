@@ -5,7 +5,7 @@ function testPrivateKeyPem(): string {
   const { privateKey } = crypto.generateKeyPairSync("rsa", {
     modulusLength: 2048,
   });
-  return privateKey.export({ type: "pkcs1", format: "pem" }).toString();
+  return privateKey.export({ type: "pkcs1", format: "pem" });
 }
 
 const BASE_ENV = {
