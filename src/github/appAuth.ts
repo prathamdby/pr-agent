@@ -7,7 +7,6 @@ import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { httpStatus } from "./httpStatus.js";
 
-// @ts-expect-error — nested @octokit/core versions between rest, retry, and throttling plugins
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
 
