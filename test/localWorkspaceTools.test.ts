@@ -18,16 +18,20 @@ function testLimits(): LocalWorkspaceToolLimits {
   };
 }
 
-function mockWorkspace(agentCwd: string, checkoutPaths: Iterable<string>): LocalPrWorkspace {
+function mockWorkspace(
+  agentCwd: string,
+  checkoutPaths: Iterable<string>,
+  changedFiles: LocalPrWorkspace["changedFiles"] = [{ path: "src/changed.ts", status: "modified" }],
+): LocalPrWorkspace {
   const paths = new Set(checkoutPaths);
   return {
     rootDir: agentCwd,
     privateGitDir: agentCwd,
     agentCwd,
-    changedFiles: [{ path: "src/changed.ts", status: "modified" }],
+    changedFiles,
     checkoutPaths: paths,
     diffIndex: createCachedPrDiffIndex(),
-    stats: { truncated: false, totalChanges: 1, fileCount: 1 },
+    stats: { truncated: false, totalChanges: 1, fileCount: changedFiles.length },
     getDiffForPath: async () => "",
     getBlameForPath: async () => "",
     isPathInCheckout: (path) => paths.has(path),
@@ -77,6 +81,50 @@ describe("local workspace tools", () => {
       const { executors } = buildLocalWorkspaceTools(workspace, testLimits(), {
         pathGate,
       });
+      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
+        matches: Array<{ path: string }>;
+      };
+
+      expect(out.matches.map((m) => m.path)).toEqual(["src/ok.ts"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("listChangedFiles hides ignored files and reports the count", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const workspace = mockWorkspace(
+        root,
+        [],
+        [
+          { path: "src/index.ts", status: "modified" },
+          { path: "pnpm-lock.yaml", status: "modified" },
+          { path: "src/api/__generated__/types.ts", status: "added" },
+        ],
+      );
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const out = (await executors.listChangedFiles?.({})) as {
+        files: Array<{ path: string }>;
+        ignored?: number;
+      };
+      expect(out.files.map((f) => f.path)).toEqual(["src/index.ts"]);
+      expect(out.ignored).toBe(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("searchWorkspace skips ignored generated and vendored files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await mkdir(join(root, "src"), { recursive: true });
+      await mkdir(join(root, "dist"), { recursive: true });
+      await writeFile(join(root, "src", "ok.ts"), "const needle = 1;\n");
+      await writeFile(join(root, "dist", "bundle.js"), "var needle = 2;\n");
+
+      const workspace = mockWorkspace(root, ["src/ok.ts", "dist/bundle.js"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
       };

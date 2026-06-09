@@ -12,6 +12,7 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "./askSafety.js";
+import { isIgnoredReviewPath } from "./ignoredPaths.js";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
@@ -113,16 +114,21 @@ export function buildLocalWorkspaceTools(
   const listChangedFiles: LocalTool = {
     description: "List files changed in this pull request from the local PR workspace.",
     schema: z.object({}),
-    run: async () => ({
-      files: workspace.changedFiles.map((file) => ({
-        path: file.path,
-        oldPath: file.oldPath,
-        status: file.status,
-        presentInCheckout: workspace.checkoutPaths.has(file.path),
-      })),
-      truncated: workspace.stats.truncated,
-      ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
-    }),
+    run: async () => {
+      const visible = workspace.changedFiles.filter((file) => !isIgnoredReviewPath(file.path));
+      const ignored = workspace.changedFiles.length - visible.length;
+      return {
+        files: visible.map((file) => ({
+          path: file.path,
+          oldPath: file.oldPath,
+          status: file.status,
+          presentInCheckout: workspace.checkoutPaths.has(file.path),
+        })),
+        ...(ignored > 0 ? { ignored } : {}),
+        truncated: workspace.stats.truncated,
+        ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
+      };
+    },
   };
 
   const readWorkspaceFile: LocalTool = {
@@ -181,6 +187,10 @@ export function buildLocalWorkspaceTools(
             filesScanned,
             reason: `Stopped after scanning ${limits.searchMaxFiles} files.`,
           };
+        }
+
+        if (isIgnoredReviewPath(path)) {
+          continue;
         }
 
         if (!pathAllowedForAsk(path, pathGate)) {

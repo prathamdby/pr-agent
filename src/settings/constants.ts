@@ -103,6 +103,101 @@ export const REVIEW_RISK_PATH_PATTERNS: Readonly<
   test: [/(^|\/)test(?:s)?\//i, /\.test\.[a-z]+$/i, /\.spec\.[a-z]+$/i],
 };
 
+/**
+ * Glob patterns for files the review agent should not list, search, or read.
+ * Generated code, lockfiles, vendored deps, build artifacts, and binary assets
+ * waste investigation tokens without affecting review quality. Doublestar-style
+ * globs: `**` crosses path segments, `*` stays within one, `{a,b}` expands.
+ * Matched case-insensitively against repo-relative POSIX paths by
+ * `isIgnoredReviewPath` in `src/agent/ignoredPaths.ts`.
+ */
+export const DEFAULT_REVIEW_IGNORE_GLOBS: readonly string[] = [
+  // Dependency directories
+  "**/node_modules/**",
+  "**/bower_components/**",
+  "**/jspm_packages/**",
+  "**/.pnp/**",
+  "**/.yarn/**",
+  "**/vendor/**",
+  "**/oh_modules/**",
+  "**/Pods/**",
+  // Lockfiles
+  "**/*.lock",
+  "**/package-lock.json",
+  "**/npm-shrinkwrap.json",
+  "**/pnpm-lock.yaml",
+  "**/bun.lock",
+  "**/bun.lockb",
+  "**/go.sum",
+  // Generated code
+  "**/__generated__/**",
+  "**/__generated/**",
+  "**/generated/**",
+  "**/*.generated.*",
+  "**/*.gen.*",
+  "**/*.g.dart",
+  "**/*.freezed.dart",
+  "**/*.pb.go",
+  "**/*.pb.cc",
+  "**/*.pb.h",
+  "**/*.pb.dart",
+  "**/*_pb.js",
+  "**/*_pb.ts",
+  "**/*_pb2.py",
+  "**/*_pb2_grpc.py",
+  // Build output
+  "**/dist/**",
+  "**/build/**",
+  "**/out/**",
+  "**/.next/**",
+  "**/.nuxt/**",
+  "**/.svelte-kit/**",
+  "**/.output/**",
+  "**/.turbo/**",
+  "**/.parcel-cache/**",
+  "**/.cache/**",
+  "**/coverage/**",
+  "**/target/**",
+  "**/obj/**",
+  "**/*.tsbuildinfo",
+  // Minified bundles and source maps
+  "**/*.min.js",
+  "**/*.min.mjs",
+  "**/*.min.css",
+  "**/*.min.html",
+  "**/*.map",
+  // Test/build snapshots
+  "**/__snapshots__/**",
+  "**/*.snap",
+  // Compiled artifacts and bytecode
+  "**/__pycache__/**",
+  "**/*.pyc",
+  "**/*.pyo",
+  "**/*.class",
+  "**/*.o",
+  "**/*.obj",
+  "**/*.a",
+  "**/*.so",
+  "**/*.dylib",
+  "**/*.dll",
+  "**/*.exe",
+  // Binary assets and media
+  "**/*.{png,jpg,jpeg,gif,bmp,ico,webp,tif,tiff,svg}",
+  "**/*.{woff,woff2,ttf,otf,eot}",
+  "**/*.{mp3,mp4,mov,avi,webm,wav,flac,ogg}",
+  "**/*.{zip,gz,tgz,tar,rar,7z,bz2,xz}",
+  "**/*.{pdf,doc,docx,xls,xlsx,ppt,pptx}",
+  // Generated docs and tooling output
+  "**/.docusaurus/**",
+  "**/_site/**",
+  "**/storybook-static/**",
+  "**/.terraform/**",
+  // VCS and OS cruft
+  "**/.git/**",
+  "**/.DS_Store",
+  "**/Thumbs.db",
+];
+
 export const MAX_REVIEW_FOLLOW_UPS = 5;
 export const REVIEW_EFFORT_MIN = 1;
 export const REVIEW_EFFORT_MAX = 5;
