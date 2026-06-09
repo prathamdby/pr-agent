@@ -115,6 +115,58 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("readWorkspaceFile refuses ignored paths even when changed in the PR", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await mkdir(join(root, "src"), { recursive: true });
+      await writeFile(join(root, "pnpm-lock.yaml"), "lockfileVersion: 9\n");
+      await writeFile(join(root, "src", "ok.ts"), "export const ok = true;\n");
+
+      const workspace = mockWorkspace(
+        root,
+        ["pnpm-lock.yaml", "src/ok.ts"],
+        [
+          { path: "pnpm-lock.yaml", status: "modified" },
+          { path: "src/ok.ts", status: "modified" },
+        ],
+      );
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const ignored = (await executors.readWorkspaceFile?.({ path: "pnpm-lock.yaml" })) as {
+        refused?: boolean;
+        reason?: string;
+      };
+      const allowed = (await executors.readWorkspaceFile?.({ path: "src/ok.ts" })) as {
+        content?: string;
+      };
+
+      expect(ignored.refused).toBe(true);
+      expect(allowed.content).toContain("ok");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("getWorkspaceDiff refuses ignored paths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const workspace = mockWorkspace(
+        root,
+        [],
+        [{ path: "src/api/__generated__/types.ts", status: "added" }],
+      );
+      workspace.getDiffForPath = async () => "should not be called";
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const out = (await executors.getWorkspaceDiff?.({
+        path: "src/api/__generated__/types.ts",
+      })) as { refused?: boolean; diff: string | null };
+
+      expect(out.refused).toBe(true);
+      expect(out.diff).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("searchWorkspace skips ignored generated and vendored files", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

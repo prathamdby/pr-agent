@@ -33,6 +33,7 @@ describe("isIgnoredReviewPath", () => {
     expect(isIgnoredReviewPath("README.md")).toBe(false);
     expect(isIgnoredReviewPath("docs/configuration.md")).toBe(false);
     expect(isIgnoredReviewPath("src/components/Button.tsx")).toBe(false);
+    expect(isIgnoredReviewPath("src/vendor/partner.ts")).toBe(false);
   });
 
   it("compileIgnoreGlobs expands braces into separate matchers", () => {

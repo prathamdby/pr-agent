@@ -59,10 +59,20 @@ function primePathGate(
   pathGate: AskPathGate,
   extraAllowedPaths?: readonly string[],
 ): void {
-  pathGate.addPaths(workspace.changedFiles.map((file) => file.path));
+  pathGate.addPaths(
+    workspace.changedFiles.map((file) => file.path).filter((path) => !isIgnoredReviewPath(path)),
+  );
   if (extraAllowedPaths?.length) {
     pathGate.addPaths(extraAllowedPaths);
   }
+}
+
+function refuseIfIgnoredPath(normalized: string): { refused: true; reason: string } | null {
+  if (!isIgnoredReviewPath(normalized)) return null;
+  return {
+    refused: true,
+    reason: "Path is on the review ignore list (generated, vendored, or build output).",
+  };
 }
 
 function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
@@ -137,6 +147,8 @@ export function buildLocalWorkspaceTools(
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
+      const ignored = refuseIfIgnoredPath(normalized);
+      if (ignored) return { path: normalized, ...ignored };
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
@@ -238,6 +250,8 @@ export function buildLocalWorkspaceTools(
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
+      const ignored = refuseIfIgnoredPath(normalized);
+      if (ignored) return { path: normalized, ...ignored, diff: null };
       assertPathAllowedForAsk(normalized, pathGate);
       return {
         path: normalized,
@@ -251,6 +265,8 @@ export function buildLocalWorkspaceTools(
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
+      const ignored = refuseIfIgnoredPath(normalized);
+      if (ignored) return { path: normalized, ...ignored, blame: null };
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {

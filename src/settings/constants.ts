@@ -118,7 +118,7 @@ export const DEFAULT_REVIEW_IGNORE_GLOBS: readonly string[] = [
   "**/jspm_packages/**",
   "**/.pnp/**",
   "**/.yarn/**",
-  "**/vendor/**",
+  "vendor/**",
   "**/oh_modules/**",
   "**/Pods/**",
   // Lockfiles
