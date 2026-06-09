@@ -12,6 +12,7 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "./askSafety.js";
+import { isIgnoredReviewPath } from "./ignoredPaths.js";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
@@ -58,10 +59,20 @@ function primePathGate(
   pathGate: AskPathGate,
   extraAllowedPaths?: readonly string[],
 ): void {
-  pathGate.addPaths(workspace.changedFiles.map((file) => file.path));
+  pathGate.addPaths(
+    workspace.changedFiles.map((file) => file.path).filter((path) => !isIgnoredReviewPath(path)),
+  );
   if (extraAllowedPaths?.length) {
     pathGate.addPaths(extraAllowedPaths);
   }
+}
+
+function refuseIfIgnoredPath(normalized: string): { refused: true; reason: string } | null {
+  if (!isIgnoredReviewPath(normalized)) return null;
+  return {
+    refused: true,
+    reason: "Path is on the review ignore list (generated, vendored, or build output).",
+  };
 }
 
 function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
@@ -113,16 +124,21 @@ export function buildLocalWorkspaceTools(
   const listChangedFiles: LocalTool = {
     description: "List files changed in this pull request from the local PR workspace.",
     schema: z.object({}),
-    run: async () => ({
-      files: workspace.changedFiles.map((file) => ({
-        path: file.path,
-        oldPath: file.oldPath,
-        status: file.status,
-        presentInCheckout: workspace.checkoutPaths.has(file.path),
-      })),
-      truncated: workspace.stats.truncated,
-      ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
-    }),
+    run: async () => {
+      const visible = workspace.changedFiles.filter((file) => !isIgnoredReviewPath(file.path));
+      const ignored = workspace.changedFiles.length - visible.length;
+      return {
+        files: visible.map((file) => ({
+          path: file.path,
+          oldPath: file.oldPath,
+          status: file.status,
+          presentInCheckout: workspace.checkoutPaths.has(file.path),
+        })),
+        ...(ignored > 0 ? { ignored } : {}),
+        truncated: workspace.stats.truncated,
+        ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
+      };
+    },
   };
 
   const readWorkspaceFile: LocalTool = {
@@ -131,6 +147,8 @@ export function buildLocalWorkspaceTools(
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
+      const ignored = refuseIfIgnoredPath(normalized);
+      if (ignored) return { path: normalized, ...ignored };
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
@@ -183,6 +201,10 @@ export function buildLocalWorkspaceTools(
           };
         }
 
+        if (isIgnoredReviewPath(path)) {
+          continue;
+        }
+
         if (!pathAllowedForAsk(path, pathGate)) {
           continue;
         }
@@ -228,6 +250,8 @@ export function buildLocalWorkspaceTools(
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
+      const ignored = refuseIfIgnoredPath(normalized);
+      if (ignored) return { path: normalized, ...ignored, diff: null };
       assertPathAllowedForAsk(normalized, pathGate);
       return {
         path: normalized,
@@ -241,6 +265,8 @@ export function buildLocalWorkspaceTools(
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
+      const ignored = refuseIfIgnoredPath(normalized);
+      if (ignored) return { path: normalized, ...ignored, blame: null };
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
