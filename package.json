@@ -24,42 +24,37 @@
     "site:generate-og": "pnpm --filter pr-agent-landing generate:og"
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.13",
-    "@earendil-works/pi-ai": "^0.75.3",
-    "@earendil-works/pi-coding-agent": "^0.75.3",
+    "@cursor/sdk": "^1.0.17",
+    "@earendil-works/pi-ai": "^0.78.0",
+    "@earendil-works/pi-coding-agent": "^0.78.0",
     "@effect/platform": "0.96.1",
     "@effect/platform-node": "0.106.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "@octokit/auth-app": "^8.1.2",
-    "@octokit/core": "^7.0.0",
+    "@octokit/auth-app": "^8.2.0",
+    "@octokit/core": "^7.0.6",
     "@octokit/plugin-retry": "^8.1.0",
     "@octokit/plugin-throttling": "^11.0.3",
-    "@octokit/request-error": "^7.0.0",
-    "@octokit/rest": "^21.1.1",
+    "@octokit/request-error": "^7.1.0",
+    "@octokit/rest": "^22.0.1",
     "@octokit/types": "^16.0.0",
     "effect": "3.21.2",
-    "evlog": "^2.17.0",
+    "evlog": "^2.18.1",
     "pg": "^8.21.0",
     "pg-boss": "^12.18.2",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/node": "^22.13.14",
+    "@types/node": "^25.9.1",
     "@types/pg": "^8.20.0",
-    "oxfmt": "^0.49.0",
-    "oxlint": "^1.64.0",
-    "oxlint-tsgolint": "^0.22.1",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2",
-    "vitest": "^3.2.4"
+    "oxfmt": "^0.53.0",
+    "oxlint": "^1.68.0",
+    "oxlint-tsgolint": "^0.23.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.8"
   },
   "engines": {
     "node": ">=22.19.0"
   },
-  "packageManager": "pnpm@10.34.1+sha512.b58fbde6dca66a929538021581f648b4570b6ca19b18e7cbd7f2c07a7b24454155388dacdf08f2af3678e88a6d1fe04f9d609df24bf51735a060ea041b374ab7",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "sqlite3"
-    ]
-  }
+  "packageManager": "pnpm@11.5.2+sha512.71c631e382066efc25625d5cf029075de07b61b37f6e27350fbd84b1bda5864c8c1967adc280776b45c30a715c0359a3be08fef42d5bb09e2b99029979692916"
 }
