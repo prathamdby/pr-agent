@@ -238,6 +238,7 @@ describe("piAgentRunnerProvider.send", () => {
     });
 
     vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     try {
       const sendPromise = runnerSession.send("question");
       // Three activity bursts spanning > idle window, each arriving before it elapses.
@@ -253,7 +254,9 @@ describe("piAgentRunnerProvider.send", () => {
       resolvePrompt?.();
       await expect(sendPromise).resolves.toEqual({ text: "Final answer." });
       expect(abort).not.toHaveBeenCalled();
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
     } finally {
+      setIntervalSpy.mockRestore();
       vi.useRealTimers();
     }
   });

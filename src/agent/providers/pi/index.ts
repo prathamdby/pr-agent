@@ -121,21 +121,30 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         // large-but-progressing reviews finish while genuine hangs are still cut off.
         const idleTimeoutMs = cfg.providerPromptTimeoutMs;
         const idleTimeoutEnabled = typeof idleTimeoutMs === "number" && idleTimeoutMs > 0;
-        let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+        let idleCheckHandle: ReturnType<typeof setInterval> | undefined;
         let rejectOnIdle: ((error: Error) => void) | undefined;
-        const armIdleTimer = () => {
-          if (!idleTimeoutEnabled) return;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          timeoutHandle = setTimeout(() => {
-            void session.abort();
-            rejectOnIdle?.(
-              new Error(`Provider prompt timeout: no activity for ${idleTimeoutMs}ms`),
-            );
-          }, idleTimeoutMs);
+        let lastActivityAt = Date.now();
+        let idleRejected = false;
+        const markActivity = () => {
+          lastActivityAt = Date.now();
+        };
+        const rejectForIdle = () => {
+          if (idleRejected) return;
+          idleRejected = true;
+          void session.abort();
+          rejectOnIdle?.(new Error(`Provider prompt timeout: no activity for ${idleTimeoutMs}ms`));
+        };
+        const startIdleTimer = () => {
+          const checkEveryMs = Math.max(1, Math.min(idleTimeoutMs, 1000));
+          idleCheckHandle = setInterval(() => {
+            if (Date.now() - lastActivityAt >= idleTimeoutMs) {
+              rejectForIdle();
+            }
+          }, checkEveryMs);
         };
         const unsubscribe = session.subscribe((event) => {
           // Any streamed event (token update, tool execution, turn boundary) is forward progress.
-          armIdleTimer();
+          markActivity();
           if (event.type !== "turn_end") return;
           sessionToolTurnCount += 1;
           // A tool-free turn is the terminal turn of prompt(); capture only that answer text.
@@ -150,7 +159,8 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
           if (idleTimeoutEnabled) {
             const idle = new Promise<never>((_, reject) => {
               rejectOnIdle = reject;
-              armIdleTimer();
+              markActivity();
+              startIdleTimer();
             });
             await Promise.race([run, idle]);
           } else {
@@ -158,7 +168,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
           }
           return { text: finalText };
         } finally {
-          if (timeoutHandle) clearTimeout(timeoutHandle);
+          if (idleCheckHandle) clearInterval(idleCheckHandle);
           unsubscribe();
         }
       },
