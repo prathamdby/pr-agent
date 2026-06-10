@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { WebhookHeaders } from "../types.js";
 
 type EventRecord = {
@@ -16,7 +16,7 @@ export function dedupeKey(headers: WebhookHeaders): string {
 }
 
 export async function insertWebhookEvent(
-  client: PoolClient,
+  client: Pool | PoolClient,
   headers: WebhookHeaders,
   decision: string,
 ): Promise<EventRecord> {

@@ -1,4 +1,4 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { AUTOMATED_REVIEW_LENS, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
 import {
@@ -28,7 +28,7 @@ export type { SlashCommandInput };
 export { applySlashCommandIntake };
 
 export async function recordIgnoredWebhook(
-  client: PoolClient,
+  client: Pool | PoolClient,
   headers: WebhookHeaders,
   decision: string,
   intakeLog: RequestLogger,
