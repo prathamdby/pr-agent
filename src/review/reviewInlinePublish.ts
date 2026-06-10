@@ -95,8 +95,6 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
   const dropOrder = [...attemptPlacements].toSorted((a, b) =>
     compareReviewFindingsBySeverityFileLine(b.finding, a.finding),
   );
-  const maxFallbackAttempts = attemptPlacements.length;
-  let fallbackAttempts = 0;
 
   while (attemptPlacements.length > 0) {
     const prevCount = attemptPlacements.length;
@@ -125,10 +123,6 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
         throw error;
       }
       const hintedDrop = hintedLineResolutionDrop(attemptPlacements, error);
-      if (hintedDrop == null) {
-        if (fallbackAttempts >= maxFallbackAttempts) break;
-        fallbackAttempts += 1;
-      }
       const dropped = hintedDrop ?? fallbackLineResolutionDrop(attemptPlacements, dropOrder);
       if (dropped.length === 0) {
         break;
