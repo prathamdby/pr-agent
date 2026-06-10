@@ -257,6 +257,59 @@ describe("buildGithubTools — happy paths", () => {
     expect(out.truncated).toBe(false);
   });
 
+  it("listPullRequestFiles fetches known file pages concurrently", async () => {
+    const page1 = Array.from({ length: 100 }, (_, i) => ({
+      filename: `a${i}.ts`,
+      status: "modified",
+      additions: 1,
+      deletions: 1,
+      changes: 2,
+      patch: `@@a${i}`,
+    }));
+    const page2 = [
+      {
+        filename: "b.ts",
+        status: "added",
+        additions: 1,
+        deletions: 0,
+        changes: 1,
+        patch: "@@b",
+      },
+    ];
+    let releasePage1!: (response: { data: typeof page1 }) => void;
+    const page1Pending = new Promise<{ data: typeof page1 }>((resolve) => {
+      releasePage1 = resolve;
+    });
+    const pullsListFiles = vi.fn((args: { readonly page: number }) =>
+      args.page === 1 ? page1Pending : Promise.resolve({ data: page2 }),
+    );
+    const pullsGet = vi.fn().mockResolvedValue({
+      data: {
+        additions: 101,
+        deletions: 0,
+        changed_files: 101,
+      },
+    });
+    const { executors } = buildWithStub(makeOctokitStub({ pullsGet, pullsListFiles }));
+
+    const outPromise = runListPullRequestFiles(executors, {
+      owner: "o",
+      repo: "r",
+      pullNumber: 3,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pullsListFiles).toHaveBeenCalledTimes(2);
+    expect(pullsListFiles.mock.calls.map(([args]) => args.page)).toEqual([1, 2]);
+
+    releasePage1({ data: page1 });
+    const out = await outPromise;
+
+    expect(out.files).toHaveLength(101);
+    expect(out.files[100].patch).toBe("@@b");
+  });
+
   it("listPullRequestFiles truncates at maxPrFilesListed", async () => {
     const rows = Array.from({ length: 5 }, (_, i) => ({
       filename: `f${i}.ts`,

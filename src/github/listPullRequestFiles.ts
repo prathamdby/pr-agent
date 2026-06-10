@@ -106,6 +106,10 @@ export async function listPullRequestFilesPaginated(
   });
   const totalChanges = pull.additions + pull.deletions;
   const headSha = pull.head?.sha;
+  const changedFileCount =
+    typeof pull.changed_files === "number" && pull.changed_files >= 0
+      ? pull.changed_files
+      : undefined;
 
   const files: PullRequestFileEntry[] = [];
 
@@ -116,22 +120,11 @@ export async function listPullRequestFilesPaginated(
   let patchOmittedCount = 0;
   let patchCapReached = false;
 
-  for (let page = 1; ; page++) {
-    const { data } = await octokit.rest.pulls.listFiles({
-      owner,
-      repo,
-      pull_number: pullNumber,
-      per_page: 100,
-      page,
-    });
-    if (data.length === 0) break;
+  function consumeFilePage(data: readonly GithubFile[]): number {
     let consumed = 0;
     for (const file of data) {
       if (files.length >= limits.maxPrFilesListed) {
-        truncated = true;
-        omittedCountLowerBound += data.length - consumed;
-        if (data.length === 100) omittedCountIsLowerBound = true;
-        break;
+        return data.length - consumed;
       }
 
       const resolved = resolvePatchForFile(
@@ -146,8 +139,42 @@ export async function listPullRequestFilesPaginated(
       files.push(mapGithubFile(file, resolved.patch, resolved.patchOmitted));
       consumed++;
     }
-    if (truncated) break;
-    if (data.length < 100) break;
+    return 0;
+  }
+
+  const fetchFilePage = async (page: number) =>
+    octokit.rest.pulls.listFiles({
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: 100,
+      page,
+    });
+
+  if (changedFileCount != null) {
+    const listedFileCount = Math.min(changedFileCount, limits.maxPrFilesListed);
+    const pageCount = Math.ceil(listedFileCount / 100);
+    const pages = await Promise.all(
+      Array.from({ length: pageCount }, (_, index) => fetchFilePage(index + 1)),
+    );
+    for (const { data } of pages) {
+      consumeFilePage(data);
+    }
+    omittedCountLowerBound = Math.max(0, changedFileCount - files.length);
+    truncated = omittedCountLowerBound > 0;
+  } else {
+    for (let page = 1; ; page++) {
+      const { data } = await fetchFilePage(page);
+      if (data.length === 0) break;
+      const omittedInPage = consumeFilePage(data);
+      if (omittedInPage > 0) {
+        truncated = true;
+        omittedCountLowerBound += omittedInPage;
+        if (data.length === 100) omittedCountIsLowerBound = true;
+        break;
+      }
+      if (data.length < 100) break;
+    }
   }
 
   const warnings: string[] = [];
