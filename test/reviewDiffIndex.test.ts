@@ -119,6 +119,27 @@ describe("reviewDiffIndex", () => {
     expect(parseCommentableRightLineRanges(patch)).toEqual([[4, 4]]);
   });
 
+  it("resolves anchors when hunks produce out-of-order commentable ranges", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: [
+            "@@ -1000000,1 +1000000,1 @@",
+            "+line 1000000",
+            "@@ -10,1 +10,1 @@",
+            "+line 10",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 5, 15)).toBe(10);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 1, 1_000_000_000)).toBe(10);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 11, 999_999)).toBeNull();
+  });
+
   it("cachedDiffForLines omits gap lines from commentable ranges", () => {
     const index = cachedDiffForFiles([{ file: "src/x.ts", lines: [5, 7] }]);
     expect(resolveInlineAnchorLine(index, "src/x.ts", 5, 5)).toBe(5);

@@ -152,17 +152,31 @@ export async function listPullRequestFilesPaginated(
       page,
     });
 
-  const listedFileCount = Math.min(
-    pull.changed_files,
+  const filesPerPage = 100;
+  const maxFilesToList = Math.min(
     limits.maxPrFilesListed,
     GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
   );
-  const pageCount = Math.ceil(listedFileCount / 100);
-  for (let page = 1; page <= pageCount; page++) {
+  let page = 1;
+  let lastPageSize = 0;
+  while (files.length < maxFilesToList) {
     const { data } = await fetchFilePage(page);
+    lastPageSize = data.length;
+    if (data.length === 0) break;
     consumeFilePage(data);
+    page++;
+    if (data.length < filesPerPage) break;
+    if (files.length >= maxFilesToList) break;
   }
-  const omittedCountLowerBound = Math.max(0, pull.changed_files - files.length);
+
+  let omittedCountLowerBound = Math.max(0, pull.changed_files - files.length);
+  if (files.length >= maxFilesToList && lastPageSize === filesPerPage) {
+    const overflowResult = await fetchFilePage(page);
+    const overflowPage = overflowResult?.data;
+    if (overflowPage && overflowPage.length > 0) {
+      omittedCountLowerBound = Math.max(omittedCountLowerBound, overflowPage.length);
+    }
+  }
   const truncated = omittedCountLowerBound > 0;
 
   const warnings: string[] = [];

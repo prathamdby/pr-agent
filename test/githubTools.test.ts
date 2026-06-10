@@ -620,7 +620,7 @@ describe("buildGithubTools — happy paths", () => {
       pullNumber: 1,
     });
 
-    expect(pullsListFiles).toHaveBeenCalledTimes(3);
+    expect(pullsListFiles).toHaveBeenCalledTimes(4);
     expect(out.truncated).toBe(true);
     expect(out.omittedCountLowerBound).toBe(100);
     expect(out.warning).toMatch(/100 omitted/i);
@@ -653,7 +653,7 @@ describe("buildGithubTools — happy paths", () => {
       pullNumber: 1,
     });
 
-    expect(pullsListFiles).toHaveBeenCalledTimes(githubFileListApiCap / filesPerPage);
+    expect(pullsListFiles).toHaveBeenCalledTimes(githubFileListApiCap / filesPerPage + 1);
     expect(out.files).toHaveLength(githubFileListApiCap);
     expect(out.truncated).toBe(true);
     expect(out.omittedCountLowerBound).toBe(100);
@@ -694,7 +694,7 @@ describe("buildGithubTools — happy paths", () => {
       pullNumber: 1,
     });
 
-    expect(pullsListFiles).toHaveBeenCalledTimes(2);
+    expect(pullsListFiles).toHaveBeenCalledTimes(3);
     expect(out.files).toHaveLength(150);
     expect(out.truncated).toBe(true);
   });

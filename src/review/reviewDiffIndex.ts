@@ -133,12 +133,15 @@ export function resolveInlineAnchorLine(
   if (!entry || entry.patchOmitted || entry.commentableRightLineRanges.length === 0) return null;
   const lo = Math.min(startLine, endLine);
   const hi = Math.max(startLine, endLine);
+  let anchor: number | null = null;
   for (const [start, end] of entry.commentableRightLineRanges) {
-    if (end < lo) continue;
-    if (start > hi) return null;
-    return Math.max(lo, start);
+    if (end < lo || start > hi) continue;
+    const candidate = Math.max(lo, start);
+    if (anchor === null || candidate < anchor) {
+      anchor = candidate;
+    }
   }
-  return null;
+  return anchor;
 }
 
 function formatRangePair([start, end]: [number, number]): string {
