@@ -3,7 +3,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 
 const publicDir = join(import.meta.dirname, "..", "public");
-const logoPath = join(publicDir, "logo.png");
+const logoPath = join(import.meta.dirname, "..", "assets", "logo-source.png");
 const outPath = join(publicDir, "og-image.png");
 
 const width = 1200;
@@ -49,7 +49,7 @@ await sharp(background)
     { input: logo, left: logoLeft, top: logoTop },
     { input: textOverlay, left: 0, top: 0 },
   ])
-  .png()
+  .png({ compressionLevel: 9, palette: true, colors: 128 })
   .toFile(outPath);
 
 console.log(`Wrote ${outPath}`);

@@ -1,5 +1,6 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
+import { SITE_ORIGIN } from "@/lib/site";
 import appCss from "./globals.css?url";
 
 export const Route = createRootRoute({
@@ -49,7 +50,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:image",
-        content: "/og-image.png",
+        content: `${SITE_ORIGIN}/og-image.png`,
       },
       {
         property: "og:image:width",
@@ -77,7 +78,7 @@ export const Route = createRootRoute({
       },
       {
         name: "twitter:image",
-        content: "/og-image.png",
+        content: `${SITE_ORIGIN}/og-image.png`,
       },
     ],
     links: [
@@ -87,11 +88,11 @@ export const Route = createRootRoute({
       },
       {
         rel: "icon",
-        href: "/logo.png",
+        href: "/favicon.png",
       },
       {
         rel: "apple-touch-icon",
-        href: "/logo.png",
+        href: "/apple-touch-icon.png",
       },
     ],
   }),
