@@ -144,6 +144,14 @@ describe("local PR workspace", () => {
         expect(
           fullWorkspace.diffIndex.files.get("src.txt")?.commentableRightLineRanges.length,
         ).toBeGreaterThan(0);
+        const fullPartialCloneFilter = await git(root, [
+          "--git-dir",
+          fullWorkspace.privateGitDir,
+          "config",
+          "--get",
+          "remote.origin.partialclonefilter",
+        ]).catch(() => "");
+        expect(fullPartialCloneFilter).toBe("");
         expect(() => assertWorkspacePath(fullWorkspace.agentCwd, "../escape")).toThrow(/traversal/);
       } finally {
         await fullWorkspace.cleanup();
@@ -179,6 +187,14 @@ describe("local PR workspace", () => {
       });
       try {
         expect(sparseWorkspace.checkoutMode).toBe("sparse");
+        const sparsePartialCloneFilter = await git(root, [
+          "--git-dir",
+          sparseWorkspace.privateGitDir,
+          "config",
+          "--get",
+          "remote.origin.partialclonefilter",
+        ]);
+        expect(sparsePartialCloneFilter).toBe("blob:none");
         expect(await readFile(join(sparseWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
         expect(await readFile(join(sparseWorkspace.agentCwd, "renamed.txt"), "utf8")).toContain(
           "gone",

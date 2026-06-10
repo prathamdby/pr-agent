@@ -367,10 +367,16 @@ export async function prepareLocalPrWorkspace(
     await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
     await git(["remote", "add", "origin", remoteUrl], cfg.localWorkspaceCloneTimeoutMs);
     const prRef = `+refs/pull/${prNumber}/head:refs/heads/${PR_HEAD_REF}`;
-    await git(
-      ["fetch", "--no-tags", "--depth=1", "--no-recurse-submodules", "origin", prRef],
-      cfg.localWorkspaceFetchTimeoutMs,
-    );
+    const fetchArgs = [
+      "fetch",
+      "--no-tags",
+      "--depth=1",
+      ...(checkoutMode === "sparse" ? ["--filter=blob:none"] : []),
+      "--no-recurse-submodules",
+      "origin",
+      prRef,
+    ];
+    await git(fetchArgs, cfg.localWorkspaceFetchTimeoutMs);
     if (checkoutMode === "sparse") {
       await git(["config", "core.sparseCheckout", "true"], cfg.localWorkspaceCloneTimeoutMs);
       await git(["config", "core.sparseCheckoutCone", "false"], cfg.localWorkspaceCloneTimeoutMs);
