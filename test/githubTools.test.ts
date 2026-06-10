@@ -310,6 +310,44 @@ describe("buildGithubTools — happy paths", () => {
     expect(out.files[100].patch).toBe("@@b");
   });
 
+  it("listPullRequestFiles reuses the pull payload within one tool bundle", async () => {
+    const pullsGet = vi.fn().mockResolvedValue({
+      data: {
+        additions: 1,
+        deletions: 0,
+        changed_files: 1,
+        head: { sha: "h".repeat(40) },
+      },
+    });
+    const pullsListFiles = vi.fn().mockResolvedValue({
+      data: [
+        {
+          filename: "a.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          changes: 1,
+          patch: "@@a",
+        },
+      ],
+    });
+    const { executors } = buildWithStub(makeOctokitStub({ pullsGet, pullsListFiles }));
+
+    await runListPullRequestFiles(executors, {
+      owner: "o",
+      repo: "r",
+      pullNumber: 3,
+    });
+    await runListPullRequestFiles(executors, {
+      owner: "o",
+      repo: "r",
+      pullNumber: 3,
+    });
+
+    expect(pullsGet).toHaveBeenCalledTimes(1);
+    expect(pullsListFiles).toHaveBeenCalledTimes(2);
+  });
+
   it("listPullRequestFiles truncates at maxPrFilesListed", async () => {
     const rows = Array.from({ length: 5 }, (_, i) => ({
       filename: `f${i}.ts`,

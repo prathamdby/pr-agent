@@ -128,6 +128,35 @@ export function buildGithubTools(
 } {
   const octokit = installationOctokit(token);
   const fileLimits = limits;
+  type PullRequestData = Awaited<ReturnType<typeof octokit.rest.pulls.get>>["data"];
+  const pullRequestByKey = new Map<string, Promise<PullRequestData>>();
+
+  const getPullRequestData = (
+    owner: string,
+    repo: string,
+    pullNumber: number,
+  ): Promise<PullRequestData> => {
+    const key = `${owner}/${repo}#${pullNumber}`;
+    let cached = pullRequestByKey.get(key);
+    if (!cached) {
+      const pending = octokit.rest.pulls
+        .get({
+          owner,
+          repo,
+          pull_number: pullNumber,
+        })
+        .then(({ data }) => data)
+        .catch((error: unknown) => {
+          if (pullRequestByKey.get(key) === pending) {
+            pullRequestByKey.delete(key);
+          }
+          throw error;
+        });
+      cached = pending;
+      pullRequestByKey.set(key, cached);
+    }
+    return cached;
+  };
 
   const getPullRequest = defineTool({
     description: "Get detailed information about a specific pull request",
@@ -137,11 +166,7 @@ export function buildGithubTools(
       pullNumber: z.number().describe("Pull request number"),
     }),
     run: async ({ owner, repo, pullNumber }) => {
-      const { data } = await octokit.rest.pulls.get({
-        owner,
-        repo,
-        pull_number: pullNumber,
-      });
+      const data = await getPullRequestData(owner, repo, pullNumber);
       return {
         number: data.number,
         title: data.title,
@@ -206,12 +231,14 @@ export function buildGithubTools(
       pullNumber: z.number().describe("Pull request number"),
     }),
     run: async ({ owner, repo, pullNumber }) => {
+      const pull = await getPullRequestData(owner, repo, pullNumber);
       const result = await listPullRequestFilesPaginated(
         octokit,
         owner,
         repo,
         pullNumber,
         fileLimits,
+        pull,
       );
       return {
         files: result.files.map((file) => ({
