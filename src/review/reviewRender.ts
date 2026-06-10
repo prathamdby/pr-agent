@@ -423,9 +423,9 @@ function buildReviewSummaryBody(
   },
   options: SummaryRenderOptions,
 ): string {
-  let sortedPlacements = sortPlacements(ctx.placements);
+  let visiblePlacements = [...ctx.placements];
   if (options.findingRowLimit != null) {
-    sortedPlacements = sortedPlacements.slice(0, options.findingRowLimit);
+    visiblePlacements = visiblePlacements.slice(0, options.findingRowLimit);
   }
   const overview = options.compact
     ? payload.prCharacter.trim().slice(0, REVIEW_OVERVIEW_COMPACT_MAX_CHARS)
@@ -443,10 +443,10 @@ function buildReviewSummaryBody(
 
   const summaryOnlyAccordions: string[] = [];
 
-  if (sortedPlacements.length === 0) {
+  if (visiblePlacements.length === 0) {
     tableRows.push([renderTableStrong("Findings"), escapeTableHtml(REVIEW_FINDINGS_NONE)]);
   } else {
-    for (const placement of sortedPlacements) {
+    for (const placement of visiblePlacements) {
       const f = placement.finding;
       tableRows.push([
         renderTableStrong(f.severity),
@@ -532,9 +532,11 @@ export function fitReviewSummaryBody(
   },
   maxBodyChars: number,
 ): string {
-  const sortedCount = ctx.placements.length;
+  const sortedPlacements = sortPlacements(ctx.placements);
+  const sortedCtx = { ...ctx, placements: sortedPlacements };
+  const sortedCount = sortedPlacements.length;
 
-  const full = buildReviewSummaryBody(payload, ctx, {
+  const full = buildReviewSummaryBody(payload, sortedCtx, {
     compact: false,
     includeSummaryAccordions: true,
   });
@@ -542,7 +544,7 @@ export function fitReviewSummaryBody(
     return full;
   }
 
-  const compact = buildReviewSummaryBody(payload, ctx, {
+  const compact = buildReviewSummaryBody(payload, sortedCtx, {
     compact: true,
     includeSummaryAccordions: false,
     compactionNote: true,
@@ -557,7 +559,7 @@ export function fitReviewSummaryBody(
   while (lo <= hi) {
     const limit = Math.floor((lo + hi) / 2);
     const omitted = sortedCount - limit;
-    const trimmed = buildReviewSummaryBody(payload, ctx, {
+    const trimmed = buildReviewSummaryBody(payload, sortedCtx, {
       compact: true,
       includeSummaryAccordions: false,
       compactionNote: true,
@@ -573,7 +575,7 @@ export function fitReviewSummaryBody(
   }
   if (best) return best;
 
-  return buildReviewSummaryBody(payload, ctx, {
+  return buildReviewSummaryBody(payload, sortedCtx, {
     compact: true,
     includeSummaryAccordions: false,
     compactionNote: true,
