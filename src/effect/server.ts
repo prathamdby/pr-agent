@@ -13,14 +13,35 @@ function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
 }
 
+function requestPath(url: string): string {
+  return url.split("?")[0] ?? url;
+}
+
 function buildEffectWebhookApp(cfg: Config) {
   return HttpRouter.empty.pipe(
     HttpRouter.all(
       "*",
       Effect.gen(function* () {
         const req = yield* HttpServerRequest.HttpServerRequest;
+        const path = requestPath(req.url);
+
+        if (req.method === "GET" && path === "/health") {
+          return HttpServerResponse.text("ok", {
+            status: 200,
+            contentType: "text/plain; charset=utf-8",
+          });
+        }
+
+        if (req.method === "GET" && path === "/ready") {
+          const dispatcher = yield* WebhookDispatcher;
+          const ready = yield* dispatcher.ping();
+          return HttpServerResponse.text(ready ? "ready" : "not ready", {
+            status: ready ? 200 : 503,
+            contentType: "text/plain; charset=utf-8",
+          });
+        }
+
         const rawBody = Buffer.from(yield* req.arrayBuffer);
-        const path = req.url.split("?")[0] ?? req.url;
         const intakeLog = createOperationLogger({
           method: req.method,
           path,

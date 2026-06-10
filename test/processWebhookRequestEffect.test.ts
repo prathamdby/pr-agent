@@ -42,16 +42,17 @@ describe("processWebhookHttpRequestEffect", () => {
   );
 
   it("returns health response", async () => {
+    const intakeLog = evlog.createOperationLogger({
+      method: "GET",
+      path: "/health",
+    });
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookHttpRequestEffect(cfg, {
-          method: "GET",
-          url: "/health",
-          headers: {},
-          rawBody: Buffer.alloc(0),
-        }),
-        stubDispatcherLayer,
-      ),
+      processWebhookHttpRequestEffect(cfg, {
+        method: "GET",
+        url: "/health",
+        headers: {},
+        rawBody: Buffer.alloc(0),
+      }).pipe(Effect.provide(stubDispatcherLayer), Effect.provideService(IntakeLogger, intakeLog)),
     );
 
     expect(out).toEqual({
@@ -59,6 +60,31 @@ describe("processWebhookHttpRequestEffect", () => {
       body: "ok",
       contentType: "text/plain; charset=utf-8",
     });
+    expect(intakeLog.getContext().emitted).toBeUndefined();
+    expect(intakeLog.getContext().events).toBeUndefined();
+  });
+
+  it("returns ready response without emitting an operation log", async () => {
+    const intakeLog = evlog.createOperationLogger({
+      method: "GET",
+      path: "/ready",
+    });
+    const out = await Effect.runPromise(
+      processWebhookHttpRequestEffect(cfg, {
+        method: "GET",
+        url: "/ready",
+        headers: {},
+        rawBody: Buffer.alloc(0),
+      }).pipe(Effect.provide(stubDispatcherLayer), Effect.provideService(IntakeLogger, intakeLog)),
+    );
+
+    expect(out).toEqual({
+      status: 200,
+      body: "ready",
+      contentType: "text/plain; charset=utf-8",
+    });
+    expect(intakeLog.getContext().emitted).toBeUndefined();
+    expect(intakeLog.getContext().events).toBeUndefined();
   });
 
   it("returns invalid signature", async () => {

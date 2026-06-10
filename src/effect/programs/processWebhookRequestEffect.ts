@@ -33,10 +33,31 @@ export function processWebhookHttpRequestEffect(
   cfg: Config,
   req: WebhookRequestLike,
 ): Effect.Effect<WebhookResponseLike, never, WebhookDispatcher | IntakeLogger> {
+  const path = requestPath(req.url);
+
+  if (req.method === "GET" && path === "/health") {
+    return Effect.succeed({
+      status: 200,
+      body: "ok",
+      contentType: "text/plain; charset=utf-8",
+    } satisfies WebhookResponseLike);
+  }
+
+  if (req.method === "GET" && path === "/ready") {
+    return Effect.gen(function* () {
+      const dispatcher = yield* WebhookDispatcher;
+      const ready = yield* dispatcher.ping();
+      return {
+        status: ready ? 200 : 503,
+        body: ready ? "ready" : "not ready",
+        contentType: "text/plain; charset=utf-8",
+      } satisfies WebhookResponseLike;
+    });
+  }
+
   return Effect.gen(function* () {
     const intakeLog = yield* IntakeLogger;
     const dispatcher = yield* WebhookDispatcher;
-    const path = requestPath(req.url);
     const delivery = req.headers["x-github-delivery"];
     const githubEvent = req.headers["x-github-event"] ?? "";
     const logDelivery = delivery ?? "(missing)";
@@ -46,31 +67,6 @@ export function processWebhookHttpRequestEffect(
       webhook: { method: req.method, path },
       runtime: "effect",
     });
-
-    if (req.method === "GET" && path === "/health") {
-      const response = {
-        status: 200,
-        body: "ok",
-        contentType: "text/plain; charset=utf-8",
-      } satisfies WebhookResponseLike;
-      recordEvent(intakeLog, "health_check", { status: response.status }, "debug");
-      intakeLog.set({ webhook: { status: response.status } });
-      yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "health_check" }));
-      return response;
-    }
-
-    if (req.method === "GET" && path === "/ready") {
-      const ready = yield* dispatcher.ping();
-      const response = {
-        status: ready ? 200 : 503,
-        body: ready ? "ready" : "not ready",
-        contentType: "text/plain; charset=utf-8",
-      } satisfies WebhookResponseLike;
-      recordEvent(intakeLog, "ready_check", { status: response.status, ready }, "debug");
-      intakeLog.set({ webhook: { status: response.status } });
-      yield* Effect.promise(() => emitOperationLogger(intakeLog, { event: "ready_check" }));
-      return response;
-    }
 
     if (req.method !== "POST" || path !== "/webhooks") {
       const response = { status: 404, body: "" } satisfies WebhookResponseLike;
