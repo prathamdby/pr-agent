@@ -7,6 +7,7 @@ import {
   assertPullRequestFilesHeadSha,
   fetchPullRequestFiles,
   type ListPullRequestFilesResult,
+  type PullRequestForFileList,
 } from "../github/listPullRequestFiles.js";
 import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../settings/index.js";
 import {
@@ -29,6 +30,7 @@ export type PreparePrRepositoryViewParams = {
   readonly headSha: string;
   readonly installationToken: string;
   readonly prFiles?: ListPullRequestFilesResult;
+  readonly pullRequest?: PullRequestForFileList;
   readonly repositorySizeKb?: number;
 };
 
@@ -81,6 +83,7 @@ async function prepareUncached(
         maxPrFilesListed: params.cfg.maxPrFilesListed,
         maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
       },
+      params.pullRequest,
     ));
   assertPullRequestFilesHeadSha(prFiles, params.headSha);
   const workspace = await prepareLocalPrWorkspace({

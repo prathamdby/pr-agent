@@ -147,6 +147,21 @@ describe("prRepositoryView cache", () => {
     fetchSpy.mockRestore();
   });
 
+  it("passes a resolved pull payload into file fetching", async () => {
+    const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
+    const pullRequest = {
+      additions: 0,
+      deletions: 0,
+      changed_files: 0,
+      head: { sha: "h".repeat(40) },
+    };
+
+    await withPrRepositoryView({ ...params, pullRequest }, async () => "ok");
+
+    expect(fetchSpy.mock.calls[0]?.[5]).toBe(pullRequest);
+    fetchSpy.mockRestore();
+  });
+
   it("uses prefetched pull request files when supplied", async () => {
     const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
 

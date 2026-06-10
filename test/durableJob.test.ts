@@ -153,6 +153,26 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
   });
 
+  it("passes resolved pull payload into execution context", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    const pullRequest = {
+      additions: 1,
+      deletions: 0,
+      changed_files: 1,
+      head: { sha: "abc123" },
+    };
+    const execute = vi.fn().mockResolvedValue({});
+
+    await runReviewWorkItem({
+      resolveHeadSha: async () => ({ headSha: "abc123", pullRequest }),
+      execute,
+    });
+
+    expect(repo.updateRunningWorkHeadSha).toHaveBeenCalledWith(pool, "wi-1", "abc123");
+    expect(execute.mock.calls[0]?.[1].pullRequest).toBe(pullRequest);
+  });
+
   it("returns without executing when payload is missing after claim", async () => {
     const item = makeItem();
     vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));

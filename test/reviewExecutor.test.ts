@@ -21,7 +21,7 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
     token: "t",
     expiresAtTs: Date.now() + 60_000,
   })),
-  resolveWorkItemHeadSha: vi.fn(async () => "head"),
+  resolveWorkItemHead: vi.fn(async () => ({ headSha: "head" })),
   runDurableWorkItem: mocks.runDurableWorkItem,
 }));
 
@@ -62,6 +62,7 @@ vi.mock("../src/review/reviewTrustedContext.js", () => ({
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getAppBotIdentity: vi.fn(async () => ({ userId: 1 })),
+  getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
   getPullRequestHeadSha: vi.fn(async () => "head"),
 }));
 
@@ -87,6 +88,12 @@ const prFiles = {
   omittedCountLowerBound: 0,
   totalChanges: 2,
   headSha: "head",
+};
+const pullRequest = {
+  additions: 1,
+  deletions: 1,
+  changed_files: 1,
+  head: { sha: "head" },
 };
 
 function makeItem(source: "auto" | "slash"): AgentWorkItem {
@@ -181,6 +188,7 @@ describe("executeReviewJob", () => {
           ttlMs: 60_000,
         },
         headSha: "head",
+        pullRequest,
       });
     });
   });
@@ -251,6 +259,15 @@ describe("executeReviewJob", () => {
     expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).toMatchObject({
       prFiles,
+    });
+  });
+
+  it("passes resolved pull payload into repository preparation", async () => {
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
+    expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).toMatchObject({
+      pullRequest,
     });
   });
 

@@ -35,7 +35,7 @@ import { buildStaleSlashReviewRescheduleResult } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/progressComment.js";
 import {
   makeInstallationTokenRefresher,
-  resolveWorkItemHeadSha,
+  resolveWorkItemHead,
   runDurableWorkItem,
 } from "../durableJob.js";
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
@@ -53,7 +53,7 @@ export async function executeReviewJob(
     job,
     type: "review",
     acceptItem: (item) => item.reviewLens != null,
-    resolveHeadSha: resolveWorkItemHeadSha,
+    resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const reviewLens = item.reviewLens!;
       const payload = item.payload as ReviewWorkPayload;
@@ -151,6 +151,7 @@ export async function executeReviewJob(
           headSha,
           installationToken: tokenState.installation.token,
           prFiles: prefetchedPrFiles,
+          pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {

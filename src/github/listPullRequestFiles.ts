@@ -29,10 +29,12 @@ export type ListPullRequestFilesLimits = {
 
 type Octokit = ReturnType<typeof installationOctokit>;
 type GithubFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["data"][number];
-export type PullRequestForFileList = Pick<
-  RestEndpointMethodTypes["pulls"]["get"]["response"]["data"],
-  "additions" | "deletions" | "changed_files" | "head"
->;
+export type PullRequestForFileList = {
+  readonly additions: number;
+  readonly deletions: number;
+  readonly changed_files?: number | null;
+  readonly head?: { readonly sha?: string | null } | null;
+};
 
 type PatchBudgetState = {
   patchCapReached: boolean;
@@ -114,7 +116,7 @@ export async function listPullRequestFilesPaginated(
       })
     ).data;
   const totalChanges = pull.additions + pull.deletions;
-  const headSha = pull.head?.sha;
+  const headSha = pull.head?.sha ?? undefined;
   const changedFileCount =
     typeof pull.changed_files === "number" && pull.changed_files >= 0
       ? pull.changed_files
@@ -235,7 +237,8 @@ export async function fetchPullRequestFiles(
   repo: string,
   pullNumber: number,
   limits: ListPullRequestFilesLimits,
+  pullRequest?: PullRequestForFileList,
 ): Promise<ListPullRequestFilesResult> {
   const octokit = installationOctokit(token);
-  return listPullRequestFilesPaginated(octokit, owner, repo, pullNumber, limits);
+  return listPullRequestFilesPaginated(octokit, owner, repo, pullNumber, limits, pullRequest);
 }
