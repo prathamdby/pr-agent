@@ -9,6 +9,7 @@
     "dev": "node --import tsx src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "oxlint --type-aware",
+    "lint:backend": "oxlint --type-aware --ignore-pattern 'site/**'",
     "lint:fix": "oxlint --type-aware --fix",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",

@@ -60,7 +60,7 @@ jobs:
       - run: pnpm run check:effect-versions
       - run: pnpm run check:prod-deps
       - run: pnpm run typecheck
-      - run: pnpm run lint
+      - run: pnpm run lint:backend
       - run: pnpm run fmt:check
       - run: pnpm test
       - run: pnpm run build

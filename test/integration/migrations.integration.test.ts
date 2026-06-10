@@ -34,7 +34,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
 
   it("creates retention-supporting indexes", async () => {
     const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
-      "SELECT indexname FROM pg_indexes WHERE tablename = 'agent_work_items'",
+      "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'agent_work_items'",
     );
     const names = rows.map((r) => r.indexname);
     expect(names).toContain("agent_work_items_superseded_by_idx");
