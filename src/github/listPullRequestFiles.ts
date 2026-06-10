@@ -158,10 +158,8 @@ export async function listPullRequestFilesPaginated(
     GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
   );
   const pageCount = Math.ceil(listedFileCount / 100);
-  const pages = await Promise.all(
-    Array.from({ length: pageCount }, (_, index) => fetchFilePage(index + 1)),
-  );
-  for (const { data } of pages) {
+  for (let page = 1; page <= pageCount; page++) {
+    const { data } = await fetchFilePage(page);
     consumeFilePage(data);
   }
   const omittedCountLowerBound = Math.max(0, pull.changed_files - files.length);

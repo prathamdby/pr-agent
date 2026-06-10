@@ -271,7 +271,7 @@ describe("buildGithubTools — happy paths", () => {
     expect(out.truncated).toBe(false);
   });
 
-  it("listPullRequestFiles fetches known file pages concurrently", async () => {
+  it("listPullRequestFiles fetches known file pages sequentially", async () => {
     const page1 = Array.from({ length: 100 }, (_, i) => ({
       filename: `a${i}.ts`,
       status: "modified",
@@ -312,12 +312,13 @@ describe("buildGithubTools — happy paths", () => {
       pullNumber: 3,
     });
 
-    await vi.waitFor(() => expect(pullsListFiles).toHaveBeenCalledTimes(2));
-    expect(pullsListFiles.mock.calls.map(([args]) => args.page)).toEqual([1, 2]);
+    await vi.waitFor(() => expect(pullsListFiles).toHaveBeenCalledTimes(1));
+    expect(pullsListFiles.mock.calls.map(([args]) => args.page)).toEqual([1]);
 
     releasePage1({ data: page1 });
     const out = await outPromise;
 
+    expect(pullsListFiles.mock.calls.map(([args]) => args.page)).toEqual([1, 2]);
     expect(out.files).toHaveLength(101);
     expect(out.files[100].patch).toBe("@@b");
   });

@@ -86,7 +86,9 @@ describe("buildContext7Tools — executors", () => {
       expect(u.searchParams.get("libraryName")).toBe("react");
       expect(u.searchParams.get("query")).toBe("react");
       expect(headersOf(init).Authorization).toBeUndefined();
-      expect(out).toBe('{"results":[{"id":"/facebook/react","title":"React"}]}');
+      expect(out).toBe(
+        JSON.stringify({ results: [{ id: "/facebook/react", title: "React" }] }, null, 2),
+      );
     } finally {
       fetchSpy.mockRestore();
     }
