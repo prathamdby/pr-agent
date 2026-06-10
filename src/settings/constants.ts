@@ -22,6 +22,8 @@ export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 export const CURSOR_DEFAULT_CONTEXT_WINDOW = 200_000;
 export const CURSOR_DEFAULT_MAX_TOKENS = 16_384;
 
+export const LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY = 32;
+
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";
 export const DESCRIPTION_BODY_SEPARATOR = "\n\n___\n\n";

@@ -198,6 +198,12 @@ These are related but not wired together on INSERT today.
 | `COMMENT_PAGINATION_MAX_PAGES`       | 20      |
 | `GITHUB_REACTION_EYES`               | eyes    |
 
+### Local PR workspace
+
+| Symbol                                  | Default |
+| --------------------------------------- | ------- |
+| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY` | 32      |
+
 ### Cursor SDK bridge
 
 | Symbol                               | Default   |

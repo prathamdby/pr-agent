@@ -1,5 +1,5 @@
 import { execFile as execFileCb } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -94,6 +94,7 @@ describe("local PR workspace", () => {
       await writeFile(join(repo, "src.txt"), "one\n");
       await writeFile(join(repo, "delete.txt"), "gone\n");
       await writeFile(join(repo, "support.txt"), "helper\n");
+      await symlink("support.txt", join(repo, "support-link.txt"));
       await git(repo, ["add", "."]);
       await git(repo, ["commit", "-m", "base"]);
       const baseSha = await git(repo, ["rev-parse", "HEAD"]);
@@ -139,6 +140,12 @@ describe("local PR workspace", () => {
         expect(await readFile(join(fullWorkspace.agentCwd, "support.txt"), "utf8")).toContain(
           "helper",
         );
+        await expect(
+          readFile(join(fullWorkspace.agentCwd, "support-link.txt"), "utf8"),
+        ).rejects.toThrow();
+        await expect(
+          writeFile(join(fullWorkspace.agentCwd, "src.txt"), "mutate"),
+        ).rejects.toThrow();
         expect(await fullWorkspace.getBlameForPath("src.txt")).toContain("src.txt");
         expect(fullWorkspace.diffIndex.listPullRequestFilesIngested).toBe(true);
         expect(
