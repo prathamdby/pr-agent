@@ -1,4 +1,4 @@
-import { PgBoss, type QueueOptions } from "pg-boss";
+import { PgBoss, type ConstructorOptions, type QueueOptions } from "pg-boss";
 import type { Config } from "../config.js";
 import { logWarn, logError } from "../evlog.js";
 import {
@@ -13,6 +13,8 @@ import {
 } from "../settings/index.js";
 import type { QueueConfig } from "./types.js";
 
+type BossConfig = Pick<Config, "databaseUrl" | "role">;
+
 function queueDefaults(cfg: QueueConfig): QueueOptions {
   return {
     retryLimit: cfg.queueRetryLimit,
@@ -26,11 +28,18 @@ function queueDefaults(cfg: QueueConfig): QueueOptions {
   };
 }
 
-export async function createStartedBoss(cfg: Pick<Config, "databaseUrl">): Promise<PgBoss> {
-  const boss = new PgBoss({
+export function bossConstructorOptions(cfg: BossConfig): ConstructorOptions {
+  const workerOwnsMaintenance = cfg.role === "worker";
+  return {
     connectionString: cfg.databaseUrl,
     application_name: "pr-agent",
-  });
+    schedule: workerOwnsMaintenance,
+    supervise: workerOwnsMaintenance,
+  };
+}
+
+export async function createStartedBoss(cfg: BossConfig): Promise<PgBoss> {
+  const boss = new PgBoss(bossConstructorOptions(cfg));
   boss.on("error", (error) => logError("pg_boss_error", { message: error.message }));
   boss.on("warning", (warning) => logWarn("pg_boss_warning", { message: warning.message }));
   await boss.start();

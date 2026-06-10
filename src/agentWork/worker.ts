@@ -9,6 +9,7 @@ import {
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE,
+  RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
 } from "../settings/index.js";
 import {
@@ -71,6 +72,13 @@ function registerMetadataQueue<T>(
   });
 }
 
+export function retentionQueueWorkOptions(): Parameters<PgBoss["work"]>[1] {
+  return {
+    localConcurrency: 1,
+    pollingIntervalSeconds: RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
+  };
+}
+
 export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
   Layer.scopedDiscard(
     Effect.acquireRelease(
@@ -121,7 +129,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             registerPlainQueue(
               boss,
               RETENTION_QUEUE,
-              { localConcurrency: 1, ...fastQueueOptions },
+              retentionQueueWorkOptions(),
               async () => {
                 try {
                   const result = await runRetention(pool, cfg);

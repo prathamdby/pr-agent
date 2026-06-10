@@ -212,10 +212,15 @@ flowchart LR
   Boss --> RevQ[review queue]
   Boss --> AskQ[ask queue]
   Boss --> DescQ[description queue]
+  Boss --> RetQ[retention queue]
   AckQ --> Worker["ROLE=worker executors"]
   RevQ --> Worker
   AskQ --> Worker
   DescQ --> Worker
+  RetQ --> Worker
+  Worker --> Retention[retention cleanup]
+  Retention --> Dedupe
+  Retention --> Items
   Worker --> LLM[LLM plus tools]
   LLM --> Publish[GitHub PR-surface publish]
 ```
@@ -223,8 +228,9 @@ flowchart LR
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items**.
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description).
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
-4. **Review / ask / description workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** (depth-1 full head checkout + GitHub PR-file diff metadata), agent harness, **PR-surface I/O**.
-5. **Reviews** ([`runFullPrReview`](src/review/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
+4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
+5. **Review / ask / description workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** (depth-1 full head checkout + GitHub PR-file diff metadata), agent harness, **PR-surface I/O**.
+6. **Reviews** ([`runFullPrReview`](src/review/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).
 
