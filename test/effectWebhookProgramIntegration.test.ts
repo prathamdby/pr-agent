@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import { createOperationLogger } from "../src/evlog.js";
-import { processWebhookHttpRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
+import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 import { Layer } from "effect";
@@ -32,9 +32,7 @@ describe("effect webhook program integration", () => {
     const body = Buffer.from(JSON.stringify(payload));
 
     const res = await Effect.runPromise(
-      processWebhookHttpRequestEffect(cfg, {
-        method: "POST",
-        url: "/webhooks",
+      processWebhookPostRequestEffect(cfg, {
         headers: {
           "x-hub-signature-256": sign(cfg.webhookSecret, body),
           "x-github-event": "ping",

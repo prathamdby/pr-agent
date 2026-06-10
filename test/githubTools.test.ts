@@ -52,7 +52,9 @@ function makeOctokitStub(fns: FnMap = {}) {
   return {
     rest: {
       pulls: {
-        get: fns.pullsGet ?? vi.fn().mockResolvedValue({ data: { additions: 0, deletions: 0 } }),
+        get:
+          fns.pullsGet ??
+          vi.fn().mockResolvedValue({ data: { additions: 0, deletions: 0, changed_files: 0 } }),
         list: fns.pullsList ?? vi.fn(),
         listFiles: fns.pullsListFiles ?? vi.fn(),
         listReviews: fns.pullsListReviews ?? vi.fn(),
@@ -75,6 +77,16 @@ function makeOctokitStub(fns: FnMap = {}) {
 function buildWithStub(stub: ReturnType<typeof makeOctokitStub>) {
   vi.spyOn(appAuth, "installationOctokit").mockReturnValue(stub);
   return buildGithubTools("tok");
+}
+
+function pullsGetForFileCount(changedFiles: number, additions = changedFiles, deletions = 0) {
+  return vi.fn().mockResolvedValue({
+    data: {
+      additions,
+      deletions,
+      changed_files: changedFiles,
+    },
+  });
 }
 
 describe("buildGithubTools — surface", () => {
@@ -230,7 +242,9 @@ describe("buildGithubTools — happy paths", () => {
           },
         ],
       });
-    const { executors } = buildWithStub(makeOctokitStub({ pullsListFiles }));
+    const { executors } = buildWithStub(
+      makeOctokitStub({ pullsGet: pullsGetForFileCount(101), pullsListFiles }),
+    );
 
     const out = await runListPullRequestFiles(executors, {
       owner: "o",
@@ -355,8 +369,11 @@ describe("buildGithubTools — happy paths", () => {
       changes: 2,
       patch: `@@${i}`,
     }));
+    const pullsGet = pullsGetForFileCount(5);
     const pullsListFiles = vi.fn().mockResolvedValue({ data: rows });
-    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsGet, pullsListFiles }),
+    );
     const { executors } = buildGithubTools("tok", {
       maxPrFilesListed: 3,
       maxPrFilesPatchBytes: 500_000,
@@ -377,6 +394,7 @@ describe("buildGithubTools — happy paths", () => {
 
   it("listPullRequestFiles warns when patch bytes exceed maxPrFilesPatchBytes", async () => {
     const bigPatch = "x".repeat(200);
+    const pullsGet = pullsGetForFileCount(2);
     const pullsListFiles = vi.fn().mockResolvedValue({
       data: [
         {
@@ -397,7 +415,9 @@ describe("buildGithubTools — happy paths", () => {
         },
       ],
     });
-    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsGet, pullsListFiles }),
+    );
     const { executors } = buildGithubTools("tok", {
       maxPrFilesListed: 10,
       maxPrFilesPatchBytes: 250,
@@ -468,8 +488,11 @@ describe("buildGithubTools — happy paths", () => {
         changes: 2,
       })),
     ];
+    const pullsGet = pullsGetForFileCount(10);
     const pullsListFiles = vi.fn().mockResolvedValueOnce({ data: page });
-    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsGet, pullsListFiles }),
+    );
     const { executors } = buildGithubTools("tok", {
       maxPrFilesListed: 5,
       maxPrFilesPatchBytes: 250,
@@ -489,6 +512,7 @@ describe("buildGithubTools — happy paths", () => {
   it("listPullRequestFiles stops pagination when patch byte cap is reached", async () => {
     const bigPatch = "x".repeat(202);
     const smallPatch = "x".repeat(49);
+    const pullsGet = pullsGetForFileCount(3);
     const pullsListFiles = vi.fn().mockResolvedValueOnce({
       data: [
         {
@@ -517,7 +541,9 @@ describe("buildGithubTools — happy paths", () => {
         },
       ],
     });
-    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsGet, pullsListFiles }),
+    );
     const { executors } = buildGithubTools("tok", {
       maxPrFilesListed: 10,
       maxPrFilesPatchBytes: 250,
@@ -544,7 +570,7 @@ describe("buildGithubTools — happy paths", () => {
       changes: 2,
     }));
     const pullsListFiles = vi.fn().mockResolvedValue({ data: rows });
-    const pullsGet = vi.fn().mockResolvedValue({ data: { additions: 8, deletions: 2 } });
+    const pullsGet = pullsGetForFileCount(5, 8, 2);
     vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
       makeOctokitStub({ pullsListFiles, pullsGet }),
     );
@@ -565,7 +591,7 @@ describe("buildGithubTools — happy paths", () => {
     expect(pullsGet).toHaveBeenCalledOnce();
   });
 
-  it("listPullRequestFiles uses at-least omitted count when more pages remain", async () => {
+  it("listPullRequestFiles uses changed_files for omitted count", async () => {
     const page = Array.from({ length: 100 }, (_, i) => ({
       filename: `f${i}.ts`,
       status: "modified",
@@ -577,9 +603,11 @@ describe("buildGithubTools — happy paths", () => {
       .fn()
       .mockResolvedValueOnce({ data: page })
       .mockResolvedValueOnce({ data: page })
-      .mockResolvedValueOnce({ data: page })
       .mockResolvedValueOnce({ data: page });
-    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+    const pullsGet = pullsGetForFileCount(400);
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsGet, pullsListFiles }),
+    );
     const { executors } = buildGithubTools("tok", {
       maxPrFilesListed: 300,
       maxPrFilesPatchBytes: 500_000,
@@ -591,10 +619,10 @@ describe("buildGithubTools — happy paths", () => {
       pullNumber: 1,
     });
 
-    expect(pullsListFiles).toHaveBeenCalledTimes(4);
+    expect(pullsListFiles).toHaveBeenCalledTimes(3);
     expect(out.truncated).toBe(true);
     expect(out.omittedCountLowerBound).toBe(100);
-    expect(out.warning).toMatch(/at least 100 omitted/i);
+    expect(out.warning).toMatch(/100 omitted/i);
   });
 
   it("listPullRequestFiles stops pagination once maxPrFilesListed is reached", async () => {
@@ -616,7 +644,10 @@ describe("buildGithubTools — happy paths", () => {
       .fn()
       .mockResolvedValueOnce({ data: page1 })
       .mockResolvedValueOnce({ data: page2 });
-    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(makeOctokitStub({ pullsListFiles }));
+    const pullsGet = pullsGetForFileCount(200);
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsGet, pullsListFiles }),
+    );
     const { executors } = buildGithubTools("tok", {
       maxPrFilesListed: 150,
       maxPrFilesPatchBytes: 500_000,

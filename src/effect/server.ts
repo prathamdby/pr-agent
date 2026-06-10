@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
 import { IntakeLogger } from "./intakeLogger.js";
-import { processWebhookHttpRequestEffect } from "./programs/processWebhookRequestEffect.js";
+import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
 import { WebhookDispatcher, buildWebhookDispatcherLive } from "./services/webhookDispatcher.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
@@ -137,9 +137,7 @@ function buildEffectWebhookApp(cfg: Config) {
           context: { role: "web" },
         });
 
-        const result = yield* processWebhookHttpRequestEffect(cfg, {
-          method: req.method,
-          url: req.url,
+        const result = yield* processWebhookPostRequestEffect(cfg, {
           headers: {
             "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
             "x-github-event": singleHeader(req.headers["x-github-event"]),

@@ -10,7 +10,6 @@ import {
   recordIgnoredWebhook,
   type SlashCommandInput,
 } from "./intake/applier.js";
-import { planAutomatedPullRequestIntake } from "./intake/planner.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
@@ -45,16 +44,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 
     submitAutomatedReview: (headers, ref, action, intakeLog) =>
       Effect.tryPromise({
-        try: async () => {
-          const plan = planAutomatedPullRequestIntake(action);
-          if (plan.kinds.length === 0) {
-            await recordIgnoredWebhook(pool, headers, `ignored_pull_request_${action}`, intakeLog);
-            return;
-          }
-          await inTransaction(pool, (client) =>
-            applyAutomatedPullRequestIntake(boss, client, headers, ref, action, intakeLog),
-          );
-        },
+        try: () => applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

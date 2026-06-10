@@ -31,7 +31,7 @@ function placement(f: ReviewFinding): InlinePlacement {
 
 describe("publishInlineReviewComments", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    vi.mocked(createPullRequestReviewWithComments).mockReset();
   });
 
   it("drops failing anchor and publishes the rest", async () => {
@@ -87,6 +87,43 @@ describe("publishInlineReviewComments", () => {
     expect(result.postedPlacements.map((p) => p.finding.file)).toEqual(["src/b.ts", "src/c.ts"]);
     expect(result.anchorDroppedPlacements.map((p) => p.finding.file)).toEqual(["src/a.ts"]);
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not spend halving attempts on single-anchor hints", async () => {
+    const placements = Array.from({ length: 20 }, (_, i) =>
+      placement(finding(i < 13 ? "P1" : "P2", `src/${i}.ts`, i + 1)),
+    );
+    for (const placement of placements.slice(0, 13)) {
+      vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce({
+        message: "Line could not be resolved",
+        response: {
+          data: {
+            errors: [{ path: placement.finding.file, line: placement.inlineLine }],
+          },
+        },
+      });
+    }
+    vi.mocked(createPullRequestReviewWithComments).mockResolvedValueOnce({
+      id: 9,
+      url: "https://example.com/review/9",
+    });
+
+    const result = await publishInlineReviewComments("token", "o", "r", 1, {
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      commitId: "sha",
+      inlinePlacements: placements,
+      renderCommentBody: (f) => f.title,
+    });
+
+    expect(result.review?.id).toBe(9);
+    expect(result.postedPlacements.map((p) => p.finding.file)).toEqual(
+      placements.slice(13).map((p) => p.finding.file),
+    );
+    expect(result.anchorDroppedPlacements.map((p) => p.finding.file)).toEqual(
+      placements.slice(0, 13).map((p) => p.finding.file),
+    );
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(14);
   });
 
   it("bisects generic line failures and reuses rendered comment bodies", async () => {

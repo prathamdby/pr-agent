@@ -9,6 +9,7 @@ import {
   type ListPullRequestFilesResult,
   type PullRequestForFileList,
 } from "../github/listPullRequestFiles.js";
+import { logWarn } from "../evlog.js";
 import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../settings/index.js";
 import {
   prepareLocalPrWorkspace,
@@ -164,7 +165,15 @@ async function releasePrRepositoryView(
     cache.delete(key);
     entry.view = null;
     entry.prepare = null;
-    void view.cleanup();
+    void view.cleanup().catch((error: unknown) => {
+      logWarn("pr_repository_view_cleanup_failed", {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        headSha: params.headSha,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
   }, PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
   entry.releaseTimer = timer;
   unrefTimer(timer);

@@ -4,7 +4,6 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import {
-  evictInstallationOctokit,
   getAppBotIdentity,
   mintInstallationAuth,
   type BotIdentity,
@@ -67,12 +66,10 @@ type DurableExecutionResult = {
   readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
 };
 
-export type DurableHeadResolution =
-  | string
-  | {
-      readonly headSha: string;
-      readonly pullRequest?: PullRequestForFileList;
-    };
+export type DurableHeadResolution = {
+  readonly headSha: string;
+  readonly pullRequest?: PullRequestForFileList;
+};
 
 export type DurableJobSpec = {
   readonly cfg: Config;
@@ -101,7 +98,6 @@ export async function mintInstallationToken(
   if (cached) {
     const token = await cached;
     if (tokenIsFresh(token)) return token;
-    evictInstallationOctokit(token.token);
   }
 
   const pending = (async () => {
@@ -141,16 +137,10 @@ export function makeInstallationTokenRefresher(
 export async function resolveWorkItemHead(
   token: string,
   item: AgentWorkItemCore,
-): Promise<Exclude<DurableHeadResolution, string>> {
+): Promise<DurableHeadResolution> {
   return item.headSha === DEFERRED_HEAD_SHA
     ? getPullRequestHead(token, item.owner, item.repo, item.prNumber)
     : { headSha: item.headSha };
-}
-
-function normalizeHeadResolution(
-  resolution: DurableHeadResolution,
-): Exclude<DurableHeadResolution, string> {
-  return typeof resolution === "string" ? { headSha: resolution } : resolution;
 }
 
 async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolean> {
@@ -252,15 +242,13 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       return undefined;
     }
 
-    const resolvedHead = normalizeHeadResolution(
-      await spec.resolveHeadSha(installationToken.token, item),
-    );
+    const resolvedHead = await spec.resolveHeadSha(installationToken.token, item);
     const headSha = resolvedHead.headSha;
     if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha)) {
       return {
         installation: installationToken,
         headSha,
-        ...(resolvedHead.pullRequest ? { pullRequest: resolvedHead.pullRequest } : {}),
+        pullRequest: resolvedHead.pullRequest,
       };
     }
 

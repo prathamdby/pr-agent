@@ -19,6 +19,7 @@ vi.mock("../src/github/appAuth.js", () => ({
               head: { sha: "h".repeat(40) },
               additions: 0,
               deletions: 0,
+              changed_files: 0,
             },
           };
         },

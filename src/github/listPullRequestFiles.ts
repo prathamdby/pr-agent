@@ -15,7 +15,7 @@ export type PullRequestFileEntry = {
 export type ListPullRequestFilesResult = {
   readonly files: readonly PullRequestFileEntry[];
   readonly truncated: boolean;
-  /** Omitted file count; lower bound when more list-files pages may remain. */
+  /** Omitted file count after the list-files cap is applied. */
   readonly omittedCountLowerBound: number;
   readonly totalChanges: number;
   readonly headSha?: string;
@@ -32,7 +32,7 @@ type GithubFile = RestEndpointMethodTypes["pulls"]["listFiles"]["response"]["dat
 export type PullRequestForFileList = {
   readonly additions: number;
   readonly deletions: number;
-  readonly changed_files?: number | null;
+  readonly changed_files: number;
   readonly head?: { readonly sha?: string | null } | null;
 };
 
@@ -117,25 +117,16 @@ export async function listPullRequestFilesPaginated(
     ).data;
   const totalChanges = pull.additions + pull.deletions;
   const headSha = pull.head?.sha ?? undefined;
-  const changedFileCount =
-    typeof pull.changed_files === "number" && pull.changed_files >= 0
-      ? pull.changed_files
-      : undefined;
 
   const files: PullRequestFileEntry[] = [];
-
-  let truncated = false;
-  let omittedCountLowerBound = 0;
-  let omittedCountIsLowerBound = false;
   let patchBytes = 0;
   let patchOmittedCount = 0;
   let patchCapReached = false;
 
-  function consumeFilePage(data: readonly GithubFile[]): number {
-    let consumed = 0;
+  function consumeFilePage(data: readonly GithubFile[]): void {
     for (const file of data) {
       if (files.length >= limits.maxPrFilesListed) {
-        return data.length - consumed;
+        return;
       }
 
       const resolved = resolvePatchForFile(
@@ -148,9 +139,7 @@ export async function listPullRequestFilesPaginated(
       patchOmittedCount += resolved.patchOmittedCountDelta;
 
       files.push(mapGithubFile(file, resolved.patch, resolved.patchOmitted));
-      consumed++;
     }
-    return 0;
   }
 
   const fetchFilePage = async (page: number) =>
@@ -162,39 +151,21 @@ export async function listPullRequestFilesPaginated(
       page,
     });
 
-  if (changedFileCount != null) {
-    const listedFileCount = Math.min(changedFileCount, limits.maxPrFilesListed);
-    const pageCount = Math.ceil(listedFileCount / 100);
-    const pages = await Promise.all(
-      Array.from({ length: pageCount }, (_, index) => fetchFilePage(index + 1)),
-    );
-    for (const { data } of pages) {
-      consumeFilePage(data);
-    }
-    omittedCountLowerBound = Math.max(0, changedFileCount - files.length);
-    truncated = omittedCountLowerBound > 0;
-  } else {
-    for (let page = 1; ; page++) {
-      const { data } = await fetchFilePage(page);
-      if (data.length === 0) break;
-      const omittedInPage = consumeFilePage(data);
-      if (omittedInPage > 0) {
-        truncated = true;
-        omittedCountLowerBound += omittedInPage;
-        if (data.length === 100) omittedCountIsLowerBound = true;
-        break;
-      }
-      if (data.length < 100) break;
-    }
+  const listedFileCount = Math.min(pull.changed_files, limits.maxPrFilesListed);
+  const pageCount = Math.ceil(listedFileCount / 100);
+  const pages = await Promise.all(
+    Array.from({ length: pageCount }, (_, index) => fetchFilePage(index + 1)),
+  );
+  for (const { data } of pages) {
+    consumeFilePage(data);
   }
+  const omittedCountLowerBound = Math.max(0, pull.changed_files - files.length);
+  const truncated = omittedCountLowerBound > 0;
 
   const warnings: string[] = [];
   if (truncated) {
-    const omittedLabel = omittedCountIsLowerBound
-      ? `at least ${omittedCountLowerBound}`
-      : String(omittedCountLowerBound);
     warnings.push(
-      `Change set truncated to ${limits.maxPrFilesListed} files (${omittedLabel} omitted).`,
+      `Change set truncated to ${limits.maxPrFilesListed} files (${omittedCountLowerBound} omitted).`,
     );
   }
   if (patchOmittedCount > 0) {

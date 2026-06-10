@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import * as evlog from "../src/evlog.js";
 import { IntakeLogger } from "../src/effect/intakeLogger.js";
-import { processWebhookHttpRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
+import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 import { WebhookHandlerError } from "../src/effect/errors.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -32,7 +32,7 @@ function withIntake<R, E, A>(
   );
 }
 
-describe("processWebhookHttpRequestEffect", () => {
+describe("processWebhookPostRequestEffect", () => {
   const stubDispatcherLayer = Layer.succeed(
     WebhookDispatcher,
     WebhookDispatcher.of({
@@ -41,59 +41,11 @@ describe("processWebhookHttpRequestEffect", () => {
     }),
   );
 
-  it("returns health response", async () => {
-    const intakeLog = evlog.createOperationLogger({
-      method: "GET",
-      path: "/health",
-    });
-    const out = await Effect.runPromise(
-      processWebhookHttpRequestEffect(cfg, {
-        method: "GET",
-        url: "/health",
-        headers: {},
-        rawBody: Buffer.alloc(0),
-      }).pipe(Effect.provide(stubDispatcherLayer), Effect.provideService(IntakeLogger, intakeLog)),
-    );
-
-    expect(out).toEqual({
-      status: 200,
-      body: "ok",
-      contentType: "text/plain; charset=utf-8",
-    });
-    expect(intakeLog.getContext().emitted).toBeUndefined();
-    expect(intakeLog.getContext().events).toBeUndefined();
-  });
-
-  it("returns ready response without emitting an operation log", async () => {
-    const intakeLog = evlog.createOperationLogger({
-      method: "GET",
-      path: "/ready",
-    });
-    const out = await Effect.runPromise(
-      processWebhookHttpRequestEffect(cfg, {
-        method: "GET",
-        url: "/ready",
-        headers: {},
-        rawBody: Buffer.alloc(0),
-      }).pipe(Effect.provide(stubDispatcherLayer), Effect.provideService(IntakeLogger, intakeLog)),
-    );
-
-    expect(out).toEqual({
-      status: 200,
-      body: "ready",
-      contentType: "text/plain; charset=utf-8",
-    });
-    expect(intakeLog.getContext().emitted).toBeUndefined();
-    expect(intakeLog.getContext().events).toBeUndefined();
-  });
-
   it("returns invalid signature", async () => {
     const body = Buffer.from("{}");
     const out = await Effect.runPromise(
       withIntake(
-        processWebhookHttpRequestEffect(cfg, {
-          method: "POST",
-          url: "/webhooks",
+        processWebhookPostRequestEffect(cfg, {
           headers: { "x-hub-signature-256": "sha256=bad" },
           rawBody: body,
         }),
@@ -108,9 +60,7 @@ describe("processWebhookHttpRequestEffect", () => {
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
     const out = await Effect.runPromise(
       withIntake(
-        processWebhookHttpRequestEffect(cfg, {
-          method: "POST",
-          url: "/webhooks",
+        processWebhookPostRequestEffect(cfg, {
           headers: {
             "x-hub-signature-256": sign(body),
             "x-github-event": "ping",
@@ -140,9 +90,7 @@ describe("processWebhookHttpRequestEffect", () => {
     try {
       const out = await Effect.runPromise(
         withIntake(
-          processWebhookHttpRequestEffect(tightCfg, {
-            method: "POST",
-            url: "/webhooks",
+          processWebhookPostRequestEffect(tightCfg, {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",
@@ -185,9 +133,7 @@ describe("processWebhookHttpRequestEffect", () => {
     try {
       const out = await Effect.runPromise(
         withIntake(
-          processWebhookHttpRequestEffect(cfg, {
-            method: "POST",
-            url: "/webhooks",
+          processWebhookPostRequestEffect(cfg, {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",
@@ -221,9 +167,7 @@ describe("processWebhookHttpRequestEffect", () => {
       const order: string[] = [];
       const responsePromise = Effect.runPromise(
         withIntake(
-          processWebhookHttpRequestEffect(cfg, {
-            method: "POST",
-            url: "/webhooks",
+          processWebhookPostRequestEffect(cfg, {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",

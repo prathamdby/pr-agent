@@ -105,13 +105,21 @@ function injectRepoIntoSearchQuery(query: string, owner: string, repo: string): 
   return `${query} ${repoQualifier}`.trim();
 }
 
+function stableToolArgsKey(args: Record<string, unknown>): string {
+  return JSON.stringify(
+    Object.keys(args)
+      .toSorted()
+      .map((key) => [key, args[key]]),
+  );
+}
+
 export function buildScopedAskExecutors(
   base: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
   scope: AskToolScope,
   gate: AskPathGate,
 ): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
   const scoped: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {};
-  let listPullRequestFilesPromise: Promise<unknown> | undefined;
+  const listPullRequestFilesPromises = new Map<string, Promise<unknown>>();
 
   for (const [name, fn] of Object.entries(base)) {
     scoped[name] = async (args) => {
@@ -152,10 +160,15 @@ export function buildScopedAskExecutors(
       }
 
       if (name === "listPullRequestFiles") {
-        listPullRequestFilesPromise ??= fn(merged).catch((error: unknown) => {
-          listPullRequestFilesPromise = undefined;
-          throw error;
-        });
+        const cacheKey = stableToolArgsKey(merged);
+        let listPullRequestFilesPromise = listPullRequestFilesPromises.get(cacheKey);
+        if (!listPullRequestFilesPromise) {
+          listPullRequestFilesPromise = fn(merged).catch((error: unknown) => {
+            listPullRequestFilesPromises.delete(cacheKey);
+            throw error;
+          });
+          listPullRequestFilesPromises.set(cacheKey, listPullRequestFilesPromise);
+        }
         const out = await listPullRequestFilesPromise;
         if (
           out &&

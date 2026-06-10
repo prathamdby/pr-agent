@@ -26,7 +26,6 @@ vi.mock("../src/agentWork/repository.js", () => ({
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({
-  evictInstallationOctokit: vi.fn(),
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
 }));
@@ -99,7 +98,7 @@ function runReviewWorkItem(
     boss,
     job: makeJob(),
     type: "review",
-    resolveHeadSha: async () => "x",
+    resolveHeadSha: async () => ({ headSha: "x" }),
     ...overrides,
   });
 }
@@ -141,7 +140,7 @@ describe("runDurableWorkItem", () => {
     mockFetchedItem(item);
     const execute = vi.fn().mockResolvedValue({});
 
-    await runReviewWorkItem({ resolveHeadSha: async () => "abc123", execute });
+    await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
 
     expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
     expect(execute).toHaveBeenCalledTimes(1);
@@ -297,7 +296,7 @@ describe("runDurableWorkItem", () => {
     expect(appAuth.getAppBotIdentity).toHaveBeenCalledTimes(1);
   });
 
-  it("evicts stale installation Octokit when refreshing the token", async () => {
+  it("refreshes stale installation tokens", async () => {
     clearDurableAuthCachesForTest();
     vi.mocked(appAuth.mintInstallationAuth)
       .mockResolvedValueOnce({
@@ -320,7 +319,6 @@ describe("runDurableWorkItem", () => {
 
     expect(first.token).toBe("old-token");
     expect(second.token).toBe("new-token");
-    expect(appAuth.evictInstallationOctokit).toHaveBeenCalledWith("old-token");
     expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(2);
   });
 

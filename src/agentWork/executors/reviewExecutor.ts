@@ -40,6 +40,11 @@ import {
 } from "../durableJob.js";
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkPayload } from "../types.js";
+
+type SettledPriorInlineFeedback =
+  | { readonly ok: true; readonly value: string | undefined }
+  | { readonly ok: false; readonly error: unknown };
+
 export async function executeReviewJob(
   cfg: Config,
   pool: Pool,
@@ -122,26 +127,30 @@ export async function executeReviewJob(
         }
       }
 
-      const botIdentity = getAppBotIdentity(cfg);
-      const priorInlineFeedback = botIdentity.then((bot) =>
-        fetchPriorInlineFeedbackBlockForReview({
-          token: tokenState.installation.token,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          reviewLens,
-          botUserId: bot.userId,
-          onPriorFeedbackError: (error) => {
-            logWarn("prior_inline_feedback_fetch_failed", {
-              owner: item.owner,
-              repo: item.repo,
-              pr: item.prNumber,
-              reviewLens,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          },
-        }),
-      );
+      const priorInlineFeedback: Promise<SettledPriorInlineFeedback> = getAppBotIdentity(cfg)
+        .then((bot) =>
+          fetchPriorInlineFeedbackBlockForReview({
+            token: tokenState.installation.token,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            reviewLens,
+            botUserId: bot.userId,
+            onPriorFeedbackError: (error) => {
+              logWarn("prior_inline_feedback_fetch_failed", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                reviewLens,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            },
+          }),
+        )
+        .then(
+          (value) => ({ ok: true, value }),
+          (error: unknown) => ({ ok: false, error }),
+        );
       return withPrRepositoryView(
         {
           cfg,
@@ -155,10 +164,11 @@ export async function executeReviewJob(
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
-          const priorInlineFeedbackBlock = await priorInlineFeedback;
+          const priorInlineFeedbackResult = await priorInlineFeedback;
+          if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
           const trustedContext = buildTrustedReviewContextForReview({
             preflight: repositoryView.preflight,
-            priorInlineFeedback: priorInlineFeedbackBlock,
+            priorInlineFeedback: priorInlineFeedbackResult.value,
           });
 
           const result = await runFullPrReview({

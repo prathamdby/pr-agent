@@ -3,7 +3,7 @@ import {
   type InlineReviewComment,
 } from "../github/reviewPublish.js";
 import { withTransientReviewRetry } from "../github/reviewPublishRetry.js";
-import type { FingerprintedInlinePlacement, InlinePlacement } from "./reviewDiffPlacement.js";
+import type { InlinePlacement } from "./reviewDiffPlacement.js";
 import {
   isLineResolutionPublishError,
   lineResolutionPublishErrorHint,
@@ -56,17 +56,22 @@ function matchesLineResolutionHint(
   return hint.path != null || hint.line != null;
 }
 
-function lineResolutionDropBatch<TPlacement extends InlinePlacement>(
+function hintedLineResolutionDrop<TPlacement extends InlinePlacement>(
   placements: readonly TPlacement[],
-  dropOrder: readonly TPlacement[],
   error: unknown,
-): TPlacement[] {
+): TPlacement[] | undefined {
   const hint = lineResolutionPublishErrorHint(error);
   if (hint != null) {
     const matches = placements.filter((placement) => matchesLineResolutionHint(placement, hint));
     if (matches.length === 1) return matches;
   }
+  return undefined;
+}
 
+function fallbackLineResolutionDrop<TPlacement extends InlinePlacement>(
+  placements: readonly TPlacement[],
+  dropOrder: readonly TPlacement[],
+): TPlacement[] {
   const active = new Set(placements);
   const dropCount = Math.max(1, Math.ceil(placements.length / 2));
   const dropped: TPlacement[] = [];
@@ -78,38 +83,28 @@ function lineResolutionDropBatch<TPlacement extends InlinePlacement>(
   return dropped;
 }
 
-export async function publishInlineReviewComments(
+export async function publishInlineReviewComments<TPlacement extends InlinePlacement>(
   token: string,
   owner: string,
   repo: string,
   pullNumber: number,
-  params: InlinePublishParams<FingerprintedInlinePlacement>,
-): Promise<InlinePublishResult<FingerprintedInlinePlacement>>;
-export async function publishInlineReviewComments(
-  token: string,
-  owner: string,
-  repo: string,
-  pullNumber: number,
-  params: InlinePublishParams<InlinePlacement>,
-): Promise<InlinePublishResult>;
-export async function publishInlineReviewComments(
-  token: string,
-  owner: string,
-  repo: string,
-  pullNumber: number,
-  params: InlinePublishParams<InlinePlacement>,
-): Promise<InlinePublishResult> {
+  params: InlinePublishParams<TPlacement>,
+): Promise<InlinePublishResult<TPlacement>> {
   let attemptPlacements = params.inlinePlacements.filter(
     (placement) => placement.inlinePosted && placement.inlineLine != null,
   );
-  const anchorDroppedPlacements: InlinePlacement[] = [];
+  const anchorDroppedPlacements: TPlacement[] = [];
   const commentByPlacement = new Map<InlinePlacement, InlineReviewComment>();
   const dropOrder = [...attemptPlacements].toSorted((a, b) =>
     compareReviewFindingsBySeverityFileLine(b.finding, a.finding),
   );
-  const maxAttempts = Math.max(1, Math.ceil(Math.log2(attemptPlacements.length)) + 2);
+  const maxFallbackAttempts = Math.max(
+    1,
+    Math.ceil(Math.log2(Math.max(1, attemptPlacements.length))) + 2,
+  );
+  let fallbackAttempts = 0;
 
-  for (let attempt = 0; attempt < maxAttempts && attemptPlacements.length > 0; attempt++) {
+  while (attemptPlacements.length > 0) {
     const prevCount = attemptPlacements.length;
     const comments = inlineCommentsFromPlacements(
       attemptPlacements,
@@ -135,7 +130,12 @@ export async function publishInlineReviewComments(
       if (!isLineResolutionPublishError(error)) {
         throw error;
       }
-      const dropped = lineResolutionDropBatch(attemptPlacements, dropOrder, error);
+      const hintedDrop = hintedLineResolutionDrop(attemptPlacements, error);
+      if (hintedDrop == null) {
+        if (fallbackAttempts >= maxFallbackAttempts) break;
+        fallbackAttempts += 1;
+      }
+      const dropped = hintedDrop ?? fallbackLineResolutionDrop(attemptPlacements, dropOrder);
       if (dropped.length === 0) {
         break;
       }

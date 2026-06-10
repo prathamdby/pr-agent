@@ -6,10 +6,18 @@ import type { Config } from "../config.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { httpStatus } from "./httpStatus.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "./githubRequestError.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
-const installationOctokitByToken = new Map<string, InstallationOctokit>();
+type CachedInstallationOctokit = {
+  readonly octokit: InstallationOctokit;
+  expiresAtTs: number;
+  evictionTimer: ReturnType<typeof setTimeout> | null;
+};
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const installationOctokitByToken = new Map<string, CachedInstallationOctokit>();
 
 export type BotIdentity = { userId: number; login: string };
 
@@ -34,23 +42,68 @@ export async function mintInstallationAuth(
   });
 }
 
-export function installationOctokit(token: string): InstallationOctokit {
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer === "object" && "unref" in timer) {
+    timer.unref();
+  }
+}
+
+function clearInstallationOctokitEntry(entry: CachedInstallationOctokit): void {
+  if (!entry.evictionTimer) return;
+  clearTimeout(entry.evictionTimer);
+  entry.evictionTimer = null;
+}
+
+function scheduleInstallationOctokitEviction(
+  token: string,
+  entry: CachedInstallationOctokit,
+): void {
+  clearInstallationOctokitEntry(entry);
+  const delayMs = Math.max(0, Math.min(entry.expiresAtTs - Date.now(), MAX_TIMER_DELAY_MS));
+  const timer = setTimeout(() => {
+    const current = installationOctokitByToken.get(token);
+    if (current !== entry || current.expiresAtTs > Date.now()) return;
+    installationOctokitByToken.delete(token);
+  }, delayMs);
+  entry.evictionTimer = timer;
+  unrefTimer(timer);
+}
+
+export function installationOctokit(token: string, expiresAtTs?: number): InstallationOctokit {
+  const now = Date.now();
   const cached = installationOctokitByToken.get(token);
-  if (cached) return cached;
+  if (cached) {
+    if (cached.expiresAtTs <= now) {
+      clearInstallationOctokitEntry(cached);
+      installationOctokitByToken.delete(token);
+    } else {
+      if (expiresAtTs != null && expiresAtTs !== cached.expiresAtTs) {
+        cached.expiresAtTs = expiresAtTs;
+        scheduleInstallationOctokitEviction(token, cached);
+      }
+      return cached.octokit;
+    }
+  }
+
   const octokit = new ThrottledOctokit({
     auth: token,
     throttle: { onRateLimit, onSecondaryRateLimit },
   });
-  installationOctokitByToken.set(token, octokit);
+  const entry = {
+    octokit,
+    expiresAtTs: expiresAtTs ?? now + INSTALLATION_TOKEN_FALLBACK_TTL_MS,
+    evictionTimer: null,
+  };
+  installationOctokitByToken.set(token, entry);
+  scheduleInstallationOctokitEviction(token, entry);
   return octokit;
-}
-
-export function evictInstallationOctokit(token: string): void {
-  installationOctokitByToken.delete(token);
 }
 
 export function clearInstallationOctokitCacheForTest(): void {
   if (process.env.NODE_ENV === "test") {
+    for (const entry of installationOctokitByToken.values()) {
+      clearInstallationOctokitEntry(entry);
+    }
     installationOctokitByToken.clear();
   }
 }
