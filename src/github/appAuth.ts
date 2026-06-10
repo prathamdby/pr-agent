@@ -69,7 +69,24 @@ async function mintAppJwtToken(
 /**
  * When `GET /user` rejects installation tokens (“Resource not accessible by integration”), resolve bot id via JWT + public {@link https://api.github.com/users/{slug}%5Bbot%5D} profile.
  */
-const appBotIdentityByAppId = new Map<string, BotIdentity>();
+const appBotIdentityByAppId = new Map<string, BotIdentity | Promise<BotIdentity>>();
+
+export function clearAppBotIdentityCacheForTest(): void {
+  if (process.env.NODE_ENV === "test") {
+    appBotIdentityByAppId.clear();
+  }
+}
+
+export function prewarmAppBotIdentity(
+  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+): void {
+  void getAppBotIdentity(cfg).catch((error: unknown) => {
+    logDebug("app_bot_identity_prewarm_failed", {
+      githubAppId: cfg.githubAppId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
+}
 
 /** Resolve the app's bot user id without minting an installation token. */
 export async function getAppBotIdentity(
@@ -77,9 +94,19 @@ export async function getAppBotIdentity(
 ): Promise<BotIdentity> {
   const cached = appBotIdentityByAppId.get(cfg.githubAppId);
   if (cached) return cached;
-  const identity = await resolveBotIdentityViaAppSlug(cfg);
-  appBotIdentityByAppId.set(cfg.githubAppId, identity);
-  return identity;
+
+  const pending = resolveBotIdentityViaAppSlug(cfg);
+  appBotIdentityByAppId.set(cfg.githubAppId, pending);
+  try {
+    const identity = await pending;
+    appBotIdentityByAppId.set(cfg.githubAppId, identity);
+    return identity;
+  } catch (error) {
+    if (appBotIdentityByAppId.get(cfg.githubAppId) === pending) {
+      appBotIdentityByAppId.delete(cfg.githubAppId);
+    }
+    throw error;
+  }
 }
 
 async function resolveBotIdentityViaAppSlug(
