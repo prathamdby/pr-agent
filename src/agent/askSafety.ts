@@ -111,6 +111,7 @@ export function buildScopedAskExecutors(
   gate: AskPathGate,
 ): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
   const scoped: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {};
+  let listPullRequestFilesPromise: Promise<unknown> | undefined;
 
   for (const [name, fn] of Object.entries(base)) {
     scoped[name] = async (args) => {
@@ -151,7 +152,11 @@ export function buildScopedAskExecutors(
       }
 
       if (name === "listPullRequestFiles") {
-        const out = await fn(merged);
+        listPullRequestFilesPromise ??= fn(merged).catch((error: unknown) => {
+          listPullRequestFilesPromise = undefined;
+          throw error;
+        });
+        const out = await listPullRequestFilesPromise;
         if (
           out &&
           typeof out === "object" &&
