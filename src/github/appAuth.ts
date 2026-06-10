@@ -9,6 +9,7 @@ import { httpStatus } from "./httpStatus.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
+const installationOctokitByToken = new Map<string, InstallationOctokit>();
 
 export type BotIdentity = { userId: number; login: string };
 
@@ -34,10 +35,24 @@ export async function mintInstallationAuth(
 }
 
 export function installationOctokit(token: string): InstallationOctokit {
-  return new ThrottledOctokit({
+  const cached = installationOctokitByToken.get(token);
+  if (cached) return cached;
+  const octokit = new ThrottledOctokit({
     auth: token,
     throttle: { onRateLimit, onSecondaryRateLimit },
   });
+  installationOctokitByToken.set(token, octokit);
+  return octokit;
+}
+
+export function evictInstallationOctokit(token: string): void {
+  installationOctokitByToken.delete(token);
+}
+
+export function clearInstallationOctokitCacheForTest(): void {
+  if (process.env.NODE_ENV === "test") {
+    installationOctokitByToken.clear();
+  }
 }
 
 async function mintAppJwtToken(

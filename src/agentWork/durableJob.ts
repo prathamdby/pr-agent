@@ -4,6 +4,7 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import {
+  evictInstallationOctokit,
   getAppBotIdentity,
   mintInstallationAuth,
   type BotIdentity,
@@ -91,6 +92,7 @@ export async function mintInstallationToken(
   if (cached) {
     const token = await cached;
     if (tokenIsFresh(token)) return token;
+    evictInstallationOctokit(token.token);
   }
 
   const pending = (async () => {

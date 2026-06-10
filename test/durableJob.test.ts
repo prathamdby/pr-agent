@@ -26,6 +26,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({
+  evictInstallationOctokit: vi.fn(),
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
 }));
@@ -274,6 +275,33 @@ describe("runDurableWorkItem", () => {
     expect(execute).toHaveBeenCalledTimes(2);
     expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
     expect(appAuth.getAppBotIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it("evicts stale installation Octokit when refreshing the token", async () => {
+    clearDurableAuthCachesForTest();
+    vi.mocked(appAuth.mintInstallationAuth)
+      .mockResolvedValueOnce({
+        type: "token",
+        tokenType: "installation",
+        token: "old-token",
+        expiresAt: new Date(Date.now() + 1_000).toISOString(),
+        installationId: 42,
+      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>)
+      .mockResolvedValueOnce({
+        type: "token",
+        tokenType: "installation",
+        token: "new-token",
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        installationId: 42,
+      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
+
+    const first = await mintInstallationToken(cfg, 42);
+    const second = await mintInstallationToken(cfg, 42);
+
+    expect(first.token).toBe("old-token");
+    expect(second.token).toBe("new-token");
+    expect(appAuth.evictInstallationOctokit).toHaveBeenCalledWith("old-token");
+    expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(2);
   });
 
   it("returns when updateRunningWorkHeadSha races and rejects the update", async () => {
