@@ -35,6 +35,17 @@ type PatchBudgetState = {
   patchBytes: number;
 };
 
+export function assertPullRequestFilesHeadSha(
+  prFiles: ListPullRequestFilesResult,
+  expectedHeadSha: string,
+): void {
+  if (prFiles.headSha?.toLowerCase() !== expectedHeadSha.toLowerCase()) {
+    throw new Error(
+      `Pull request head SHA ${prFiles.headSha ?? "unknown"} does not match work item headSha ${expectedHeadSha}`,
+    );
+  }
+}
+
 function resolvePatchForFile(
   rawPatch: string | undefined,
   state: PatchBudgetState,

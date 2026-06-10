@@ -1,9 +1,14 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import {
+  assertPullRequestFilesHeadSha,
+  fetchPullRequestFiles,
+  type ListPullRequestFilesResult,
+} from "../../github/listPullRequestFiles.js";
 import { runFullPrReview } from "../../review/reviewRun.js";
 import { buildTrustedReviewContextForReview } from "../../review/reviewTrustedContext.js";
-import { fetchReviewPreflightMetadata } from "../../review/reviewPreflightFiles.js";
+import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/reviewPreflightFiles.js";
 import {
   reviewRetrySlashCommandForMode,
   reviewSummarySentinelForMode,
@@ -73,17 +78,23 @@ export async function executeReviewJob(
       const headSha = env.headSha;
       let staleHeadAtPublish = false;
       const publishAbortState: { staleHead?: boolean } = {};
+      let prefetchedPrFiles: ListPullRequestFilesResult | undefined;
 
       if (payload.source === "auto") {
-        const preflight = await recordReviewPhaseSpan("preflight", () =>
-          fetchReviewPreflightMetadata(
+        prefetchedPrFiles = await recordReviewPhaseSpan("preflight", () =>
+          fetchPullRequestFiles(
             tokenState.installation.token,
             item.owner,
             item.repo,
             item.prNumber,
-            { maxPrFilesListed: cfg.maxPrFilesListed },
+            {
+              maxPrFilesListed: cfg.maxPrFilesListed,
+              maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+            },
           ),
         );
+        assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
+        const preflight = buildReviewPreflightMetadataFromPullRequestFiles(prefetchedPrFiles);
         const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
           item,
           reviewLens,
@@ -117,6 +128,7 @@ export async function executeReviewJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          prFiles: prefetchedPrFiles,
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {

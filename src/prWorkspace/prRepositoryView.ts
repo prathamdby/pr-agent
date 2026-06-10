@@ -3,7 +3,11 @@ import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
 } from "../review/reviewPreflightFiles.js";
-import { fetchPullRequestFiles } from "../github/listPullRequestFiles.js";
+import {
+  assertPullRequestFilesHeadSha,
+  fetchPullRequestFiles,
+  type ListPullRequestFilesResult,
+} from "../github/listPullRequestFiles.js";
 import {
   prepareLocalPrWorkspace,
   selectLocalPrWorkspaceCheckoutMode,
@@ -23,6 +27,7 @@ export type PreparePrRepositoryViewParams = {
   readonly prNumber: number;
   readonly headSha: string;
   readonly installationToken: string;
+  readonly prFiles?: ListPullRequestFilesResult;
   readonly repositorySizeKb?: number;
 };
 
@@ -51,21 +56,19 @@ function cacheKey(
 async function prepareUncached(
   params: PreparePrRepositoryViewParams,
 ): Promise<CachedPrRepositoryView> {
-  const prFiles = await fetchPullRequestFiles(
-    params.installationToken,
-    params.owner,
-    params.repo,
-    params.prNumber,
-    {
-      maxPrFilesListed: params.cfg.maxPrFilesListed,
-      maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
-    },
-  );
-  if (prFiles.headSha?.toLowerCase() !== params.headSha.toLowerCase()) {
-    throw new Error(
-      `Pull request head SHA ${prFiles.headSha ?? "unknown"} does not match work item headSha ${params.headSha}`,
-    );
-  }
+  const prFiles =
+    params.prFiles ??
+    (await fetchPullRequestFiles(
+      params.installationToken,
+      params.owner,
+      params.repo,
+      params.prNumber,
+      {
+        maxPrFilesListed: params.cfg.maxPrFilesListed,
+        maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
+      },
+    ));
+  assertPullRequestFilesHeadSha(prFiles, params.headSha);
   const workspace = await prepareLocalPrWorkspace({
     cfg: params.cfg,
     owner: params.owner,

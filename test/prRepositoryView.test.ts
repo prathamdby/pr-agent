@@ -31,6 +31,7 @@ vi.mock("../src/github/appAuth.js", () => ({
 vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.js")>();
   return {
+    assertPullRequestFilesHeadSha: actual.assertPullRequestFilesHeadSha,
     fetchPullRequestFiles: (...args: Parameters<typeof actual.fetchPullRequestFiles>) =>
       actual.fetchPullRequestFiles(...args),
   };
@@ -68,6 +69,13 @@ const params = {
   prNumber: 1,
   headSha: "h".repeat(40),
   installationToken: "t",
+};
+const prFiles = {
+  files: [],
+  truncated: false,
+  omittedCountLowerBound: 0,
+  totalChanges: 0,
+  headSha: "h".repeat(40),
 };
 
 describe("prRepositoryView cache", () => {
@@ -114,6 +122,16 @@ describe("prRepositoryView cache", () => {
     ]);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     expect(fetchSpy.mock.calls[0]?.[0]).toBe("t");
+    fetchSpy.mockRestore();
+  });
+
+  it("uses prefetched pull request files when supplied", async () => {
+    const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
+
+    await withPrRepositoryView({ ...params, prFiles }, async () => "ok");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(state.prepareCalls).toBe(1);
     fetchSpy.mockRestore();
   });
 

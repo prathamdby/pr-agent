@@ -6,7 +6,7 @@ import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
   loadPublishContext: vi.fn(),
-  fetchPreflight: vi.fn(),
+  fetchPrFiles: vi.fn(),
   lightweight: vi.fn(),
   runFullPrReview: vi.fn(),
   withPrRepositoryView: vi.fn(),
@@ -29,9 +29,13 @@ vi.mock("../src/agentWork/repository.js", () => ({
   shouldSkipWork: vi.fn(),
 }));
 
-vi.mock("../src/review/reviewPreflightFiles.js", () => ({
-  fetchReviewPreflightMetadata: mocks.fetchPreflight,
-}));
+vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.js")>();
+  return {
+    assertPullRequestFilesHeadSha: actual.assertPullRequestFilesHeadSha,
+    fetchPullRequestFiles: mocks.fetchPrFiles,
+  };
+});
 
 vi.mock("../src/agentWork/reviewLightweightCompletion.js", () => ({
   tryLightweightAutoReviewCompletion: mocks.lightweight,
@@ -74,6 +78,13 @@ import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
 const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
+const prFiles = {
+  files: [{ filename: "src/a.ts", status: "modified", additions: 1, deletions: 1, changes: 2 }],
+  truncated: false,
+  omittedCountLowerBound: 0,
+  totalChanges: 2,
+  headSha: "head",
+};
 
 function makeItem(source: "auto" | "slash"): AgentWorkItem {
   return {
@@ -148,7 +159,7 @@ describe("executeReviewJob", () => {
       storedInlineFingerprints: [],
       summaryCommentGithubId: null,
     });
-    mocks.fetchPreflight.mockResolvedValue({ fileCount: 1 });
+    mocks.fetchPrFiles.mockResolvedValue(prFiles);
     mocks.lightweight.mockResolvedValue({ handled: false });
     mocks.runFullPrReview.mockResolvedValue({
       published: true,
@@ -179,7 +190,7 @@ describe("executeReviewJob", () => {
   it("skips preflight for slash reviews", async () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.fetchPreflight).not.toHaveBeenCalled();
+    expect(mocks.fetchPrFiles).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
     expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
   });
@@ -200,9 +211,41 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.fetchPreflight).toHaveBeenCalledTimes(1);
-    expect(mocks.lightweight).toHaveBeenCalledTimes(1);
+    expect(mocks.fetchPrFiles).toHaveBeenCalledTimes(1);
+    expect(mocks.lightweight).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        preflight: {
+          files: [{ filename: "src/a.ts" }],
+          truncated: false,
+          fileCount: 1,
+          totalChanges: 2,
+        },
+      }),
+    );
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+  });
+
+  it("passes auto preflight files into repository preparation", async () => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec) => {
+      const item = makeItem("auto");
+      await spec.execute(item, {
+        installation: {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
+        headSha: "head",
+      });
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.fetchPrFiles).toHaveBeenCalledTimes(1);
+    expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
+    expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).toMatchObject({
+      prFiles,
+    });
   });
 });
