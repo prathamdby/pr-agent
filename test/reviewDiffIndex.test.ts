@@ -86,6 +86,11 @@ describe("reviewDiffIndex", () => {
     ]);
   });
 
+  it("keeps right-side ranges contiguous across deleted lines", () => {
+    const patch = ["@@ -5,3 +5,2 @@", "+added", "-removed", " context"].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([[5, 6]]);
+  });
+
   it("ignores no-newline marker lines when advancing right-side line numbers", () => {
     const patch = ["@@ -4,1 +4,2 @@", "+added", "\\ No newline at end of file"].join("\n");
     expect(parseCommentableRightLineRanges(patch)).toEqual([[4, 4]]);
