@@ -14,6 +14,9 @@ const mocks = vi.hoisted(() => ({
   buildStaleReschedule: vi.fn(),
   buildTrustedContext: vi.fn(),
   fetchPriorFeedback: vi.fn(),
+  getAppBotIdentity: vi.fn(),
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/durableJob.js", () => ({
@@ -61,9 +64,14 @@ vi.mock("../src/review/reviewTrustedContext.js", () => ({
 }));
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getAppBotIdentity: vi.fn(async () => ({ userId: 1 })),
+  getAppBotIdentity: mocks.getAppBotIdentity,
   getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
   getPullRequestHeadSha: vi.fn(async () => "head"),
+}));
+
+vi.mock("../src/evlog.js", () => ({
+  logInfo: mocks.logInfo,
+  logWarn: mocks.logWarn,
 }));
 
 vi.mock("../src/github/reviewPublish.js", () => ({
@@ -159,6 +167,7 @@ function reviewJob(): JobWithMetadata<ReviewJobData> {
 describe("executeReviewJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getAppBotIdentity.mockResolvedValue({ userId: 1 });
     mocks.loadPublishContext.mockResolvedValue({
       publishState: {
         inlinePublished: false,
@@ -298,5 +307,23 @@ describe("executeReviewJob", () => {
       preflight: { preflight: true },
       priorInlineFeedback: "prior block",
     });
+  });
+
+  it("logs bot identity failures before rethrowing prior feedback errors", async () => {
+    mocks.getAppBotIdentity.mockRejectedValueOnce(new Error("identity unavailable"));
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
+      "identity unavailable",
+    );
+
+    expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
+      owner: "o",
+      repo: "r",
+      pr: 1,
+      reviewLens: "review",
+      message: "identity unavailable",
+    });
+    expect(mocks.fetchPriorFeedback).not.toHaveBeenCalled();
+    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
   });
 });

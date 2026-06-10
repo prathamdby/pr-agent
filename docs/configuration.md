@@ -187,16 +187,17 @@ These are related but not wired together on INSERT today.
 
 ### GitHub API
 
-| Symbol                               | Default |
-| ------------------------------------ | ------- |
-| `TOKEN_FRESHNESS_BUFFER_MS`          | 60000   |
-| `INSTALLATION_TOKEN_FALLBACK_TTL_MS` | 1h      |
-| `DEFAULT_COOLDOWN_SECONDS`           | 60      |
-| `PRIMARY_RATE_LIMIT_MAX_RETRIES`     | 2       |
-| `SECONDARY_RATE_LIMIT_MAX_RETRIES`   | 3       |
-| `COMMENTS_PAGE_SIZE`                 | 100     |
-| `COMMENT_PAGINATION_MAX_PAGES`       | 20      |
-| `GITHUB_REACTION_EYES`               | eyes    |
+| Symbol                                    | Default |
+| ----------------------------------------- | ------- |
+| `TOKEN_FRESHNESS_BUFFER_MS`               | 60000   |
+| `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h      |
+| `DEFAULT_COOLDOWN_SECONDS`                | 60      |
+| `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2       |
+| `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3       |
+| `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000    |
+| `COMMENTS_PAGE_SIZE`                      | 100     |
+| `COMMENT_PAGINATION_MAX_PAGES`            | 20      |
+| `GITHUB_REACTION_EYES`                    | eyes    |
 
 ### Local PR workspace
 

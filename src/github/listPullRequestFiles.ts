@@ -1,4 +1,5 @@
 import type { RestEndpointMethodTypes } from "@octokit/rest";
+import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 
 export type PullRequestFileEntry = {
@@ -151,7 +152,11 @@ export async function listPullRequestFilesPaginated(
       page,
     });
 
-  const listedFileCount = Math.min(pull.changed_files, limits.maxPrFilesListed);
+  const listedFileCount = Math.min(
+    pull.changed_files,
+    limits.maxPrFilesListed,
+    GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
+  );
   const pageCount = Math.ceil(listedFileCount / 100);
   const pages = await Promise.all(
     Array.from({ length: pageCount }, (_, index) => fetchFilePage(index + 1)),
@@ -165,7 +170,7 @@ export async function listPullRequestFilesPaginated(
   const warnings: string[] = [];
   if (truncated) {
     warnings.push(
-      `Change set truncated to ${limits.maxPrFilesListed} files (${omittedCountLowerBound} omitted).`,
+      `Change set truncated to ${files.length} files (${omittedCountLowerBound} omitted).`,
     );
   }
   if (patchOmittedCount > 0) {

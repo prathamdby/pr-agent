@@ -127,7 +127,20 @@ export async function executeReviewJob(
         }
       }
 
+      const logPriorFeedbackError = (error: unknown) => {
+        logWarn("prior_inline_feedback_fetch_failed", {
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+          reviewLens,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      };
       const priorInlineFeedback: Promise<SettledPriorInlineFeedback> = getAppBotIdentity(cfg)
+        .catch((error: unknown) => {
+          logPriorFeedbackError(error);
+          throw error;
+        })
         .then((bot) =>
           fetchPriorInlineFeedbackBlockForReview({
             token: tokenState.installation.token,
@@ -136,15 +149,7 @@ export async function executeReviewJob(
             prNumber: item.prNumber,
             reviewLens,
             botUserId: bot.userId,
-            onPriorFeedbackError: (error) => {
-              logWarn("prior_inline_feedback_fetch_failed", {
-                owner: item.owner,
-                repo: item.repo,
-                pr: item.prNumber,
-                reviewLens,
-                message: error instanceof Error ? error.message : String(error),
-              });
-            },
+            onPriorFeedbackError: logPriorFeedbackError,
           }),
         )
         .then(

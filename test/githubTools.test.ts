@@ -625,6 +625,40 @@ describe("buildGithubTools — happy paths", () => {
     expect(out.warning).toMatch(/100 omitted/i);
   });
 
+  it("listPullRequestFiles stops at GitHub's file-list API cap", async () => {
+    const githubFileListApiCap = 3_000;
+    const filesPerPage = 100;
+    const pullsListFiles = vi.fn(async ({ page }: { page: number }) => ({
+      data: Array.from({ length: filesPerPage }, (_, i) => ({
+        filename: `p${page}-${i}.ts`,
+        status: "modified",
+        additions: 1,
+        deletions: 1,
+        changes: 2,
+      })),
+    }));
+    const pullsGet = pullsGetForFileCount(githubFileListApiCap + 100);
+    vi.spyOn(appAuth, "installationOctokit").mockReturnValue(
+      makeOctokitStub({ pullsGet, pullsListFiles }),
+    );
+    const { executors } = buildGithubTools("tok", {
+      maxPrFilesListed: githubFileListApiCap + 100,
+      maxPrFilesPatchBytes: 500_000,
+    });
+
+    const out = await runListPullRequestFiles(executors, {
+      owner: "o",
+      repo: "r",
+      pullNumber: 1,
+    });
+
+    expect(pullsListFiles).toHaveBeenCalledTimes(githubFileListApiCap / filesPerPage);
+    expect(out.files).toHaveLength(githubFileListApiCap);
+    expect(out.truncated).toBe(true);
+    expect(out.omittedCountLowerBound).toBe(100);
+    expect(out.warning).toMatch(/truncated to 3000 files/i);
+  });
+
   it("listPullRequestFiles stops pagination once maxPrFilesListed is reached", async () => {
     const page1 = Array.from({ length: 100 }, (_, i) => ({
       filename: `a${i}.ts`,
