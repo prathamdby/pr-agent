@@ -167,6 +167,7 @@ export async function applyAutomatedPullRequestIntake(
 ): Promise<void> {
   const plan = planAutomatedPullRequestIntake(action);
   if (plan.kinds.length === 0) {
+    // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.
     await recordIgnoredWebhook(pool, headers, `ignored_pull_request_${action}`, intakeLog);
     return;
   }

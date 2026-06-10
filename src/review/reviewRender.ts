@@ -413,6 +413,7 @@ export function renderReviewPointerBody(
   return { body, truncated };
 }
 
+/** Expects `ctx.placements` pre-sorted by severity, file, and line (`sortPlacements`). */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
   ctx: RenderContext & {
