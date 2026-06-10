@@ -224,6 +224,7 @@ These are related but not wired together on INSERT today.
 | ----------------------------------- | --------------------------------------------- |
 | `CONTEXT7_BASE_URL`                 | Context7 API                                  |
 | `MAX_LOG_MESSAGE_LEN`               | 2000                                          |
+| `MAX_LOG_REDACTION_SCAN_LEN`        | 8000                                          |
 | `SLASH_HELP_BODY`                   | `/help` text                                  |
 | `MIGRATIONS_DIR_NAME`               | `migrations`                                  |
 | `MIGRATION_ADVISORY_LOCK_KEY`       | runMigrations cross-process lock              |

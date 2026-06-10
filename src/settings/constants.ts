@@ -296,6 +296,7 @@ export const CURSOR_MCP_SERVER_NAME = "pr-agent";
 
 /** Logging. */
 export const MAX_LOG_MESSAGE_LEN = 2_000;
+export const MAX_LOG_REDACTION_SCAN_LEN = MAX_LOG_MESSAGE_LEN * 4;
 
 /** Slash command help (scheduler ack replies). */
 export const SLASH_HELP_BODY = [
