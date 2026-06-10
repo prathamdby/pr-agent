@@ -12,6 +12,8 @@ const mocks = vi.hoisted(() => ({
   withPrRepositoryView: vi.fn(),
   runDurableWorkItem: vi.fn(),
   buildStaleReschedule: vi.fn(),
+  buildTrustedContext: vi.fn(),
+  fetchPriorFeedback: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/durableJob.js", () => ({
@@ -54,7 +56,8 @@ vi.mock("../src/prWorkspace/index.js", () => ({
 }));
 
 vi.mock("../src/review/reviewTrustedContext.js", () => ({
-  buildTrustedReviewContextForReview: vi.fn(async () => "trusted"),
+  buildTrustedReviewContextForReview: mocks.buildTrustedContext,
+  fetchPriorInlineFeedbackBlockForReview: mocks.fetchPriorFeedback,
 }));
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
@@ -166,6 +169,8 @@ describe("executeReviewJob", () => {
       publishAttempts: 1,
       publishSuperseded: false,
     });
+    mocks.buildTrustedContext.mockResolvedValue("trusted");
+    mocks.fetchPriorFeedback.mockResolvedValue(undefined);
     mockRepositoryView();
     mocks.runDurableWorkItem.mockImplementation(async (spec) => {
       const item = makeItem("slash");
@@ -246,6 +251,37 @@ describe("executeReviewJob", () => {
     expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).toMatchObject({
       prFiles,
+    });
+  });
+
+  it("fetches prior feedback while the repository view prepares", async () => {
+    let releaseRepositoryView!: () => void;
+    const repositoryViewPreparing = new Promise<void>((resolve) => {
+      releaseRepositoryView = resolve;
+    });
+    mocks.withPrRepositoryView.mockImplementation(async (_params, run) => {
+      await repositoryViewPreparing;
+      return run({
+        preflight: { preflight: true },
+        agentCwd: "/tmp",
+        workspace: undefined,
+      });
+    });
+    mocks.fetchPriorFeedback.mockResolvedValue("prior block");
+
+    const review = executeReviewJob(cfg, pool, boss, reviewJob());
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1);
+    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+
+    releaseRepositoryView();
+    await review;
+
+    expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
+      preflight: { preflight: true },
+      priorInlineFeedback: "prior block",
     });
   });
 });

@@ -7,7 +7,10 @@ import {
   type ListPullRequestFilesResult,
 } from "../../github/listPullRequestFiles.js";
 import { runFullPrReview } from "../../review/reviewRun.js";
-import { buildTrustedReviewContextForReview } from "../../review/reviewTrustedContext.js";
+import {
+  buildTrustedReviewContextForReview,
+  fetchPriorInlineFeedbackBlockForReview,
+} from "../../review/reviewTrustedContext.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/reviewPreflightFiles.js";
 import {
   reviewRetrySlashCommandForMode,
@@ -120,6 +123,25 @@ export async function executeReviewJob(
       }
 
       const botIdentity = getAppBotIdentity(cfg);
+      const priorInlineFeedback = botIdentity.then((bot) =>
+        fetchPriorInlineFeedbackBlockForReview({
+          token: tokenState.installation.token,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          reviewLens,
+          botUserId: bot.userId,
+          onPriorFeedbackError: (error) => {
+            logWarn("prior_inline_feedback_fetch_failed", {
+              owner: item.owner,
+              repo: item.repo,
+              pr: item.prNumber,
+              reviewLens,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          },
+        }),
+      );
       return withPrRepositoryView(
         {
           cfg,
@@ -132,24 +154,10 @@ export async function executeReviewJob(
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
-          const bot = await botIdentity;
-          const trustedContext = await buildTrustedReviewContextForReview({
+          const priorInlineFeedbackBlock = await priorInlineFeedback;
+          const trustedContext = buildTrustedReviewContextForReview({
             preflight: repositoryView.preflight,
-            token: tokenState.installation.token,
-            owner: item.owner,
-            repo: item.repo,
-            prNumber: item.prNumber,
-            reviewLens,
-            botUserId: bot.userId,
-            onPriorFeedbackError: (error) => {
-              logWarn("prior_inline_feedback_fetch_failed", {
-                owner: item.owner,
-                repo: item.repo,
-                pr: item.prNumber,
-                reviewLens,
-                message: error instanceof Error ? error.message : String(error),
-              });
-            },
+            priorInlineFeedback: priorInlineFeedbackBlock,
           });
 
           const result = await runFullPrReview({
