@@ -1,14 +1,8 @@
-import {
-  HttpRouter,
-  HttpServer,
-  HttpServerError,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "@effect/platform";
-import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer, Option } from "effect";
+import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import { NodeHttpServer, NodeHttpServerRequest, NodeRuntime } from "@effect/platform-node";
+import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
-import { createServer, type Server } from "node:http";
+import { createServer, type IncomingMessage, type Server } from "node:http";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
 import { IntakeLogger } from "./intakeLogger.js";
@@ -35,15 +29,6 @@ function parseContentLength(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
 }
 
-function isMaxBodySizeError(error: unknown): boolean {
-  return (
-    error instanceof HttpServerError.RequestError &&
-    error.reason === "Decode" &&
-    error.cause instanceof Error &&
-    error.cause.message === "maxBytes exceeded"
-  );
-}
-
 function readRawBody(
   req: HttpServerRequest.HttpServerRequest,
   maxBodyBytes: number,
@@ -53,10 +38,56 @@ function readRawBody(
     return Effect.succeed(BODY_TOO_LARGE);
   }
 
-  return HttpServerRequest.withMaxBodySize(req.arrayBuffer, Option.some(maxBodyBytes)).pipe(
-    Effect.map((body) => ({ kind: "ok", rawBody: Buffer.from(body) }) satisfies BodyReadResult),
-    Effect.catchIf(isMaxBodySizeError, () => Effect.succeed(BODY_TOO_LARGE)),
+  return Effect.tryPromise(() =>
+    readNodeRawBody(NodeHttpServerRequest.toIncomingMessage(req), maxBodyBytes),
   );
+}
+
+function readNodeRawBody(req: IncomingMessage, maxBodyBytes: number): Promise<BodyReadResult> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+    let settled = false;
+
+    function cleanup() {
+      req.off("data", onData);
+      req.off("end", onEnd);
+      req.off("error", onError);
+    }
+
+    function settle(result: BodyReadResult) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(result);
+    }
+
+    function onData(chunk: Buffer | string) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      totalBytes += buffer.length;
+      if (totalBytes > maxBodyBytes) {
+        req.pause();
+        settle(BODY_TOO_LARGE);
+        return;
+      }
+      chunks.push(buffer);
+    }
+
+    function onEnd() {
+      settle({ kind: "ok", rawBody: Buffer.concat(chunks) });
+    }
+
+    function onError(error: Error) {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(error);
+    }
+
+    req.on("data", onData);
+    req.once("end", onEnd);
+    req.once("error", onError);
+  });
 }
 
 function payloadTooLargeResponse() {

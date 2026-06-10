@@ -74,32 +74,65 @@ function postChunked(
   headers: Record<string, string>,
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
-    const req = http.request(
-      {
-        hostname: "127.0.0.1",
-        port,
-        path,
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "transfer-encoding": "chunked",
-          ...headers,
-        },
-      },
-      (res) => {
-        const resChunks: Buffer[] = [];
-        res.on("data", (c) => resChunks.push(Buffer.from(c)));
-        res.on("end", () => {
-          resolve({
-            status: res.statusCode ?? 0,
-            body: Buffer.concat(resChunks).toString("utf8"),
-          });
-        });
-      },
-    );
-    req.on("error", reject);
-    for (const chunk of chunks) req.write(chunk);
-    req.end();
+    let settled = false;
+    const responseChunks: Buffer[] = [];
+    const resolveResponse = () => {
+      if (settled) return;
+      settled = true;
+      const text = Buffer.concat(responseChunks).toString("utf8");
+      const sep = text.indexOf("\r\n\r\n");
+      if (sep < 0) {
+        reject(new Error("chunked response ended before headers"));
+        return;
+      }
+      const head = text.slice(0, sep);
+      const body = text.slice(sep + 4);
+      const statusLine = head.split("\r\n")[0] ?? "";
+      const status = Number(statusLine.split(" ")[1] ?? 0);
+      resolve({ status, body });
+    };
+    const rejectIfNoResponse = (error: Error) => {
+      if (settled) return;
+      if (responseChunks.length > 0) {
+        resolveResponse();
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
+    const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
+      const headerLines = Object.entries({
+        "Content-Type": "application/json",
+        "Transfer-Encoding": "chunked",
+        ...headers,
+      }).map(([name, value]) => `${name}: ${value}`);
+      const reqHead = [
+        `POST ${path} HTTP/1.1`,
+        `Host: 127.0.0.1:${port}`,
+        ...headerLines,
+        "Connection: close",
+        "",
+        "",
+      ].join("\r\n");
+      const chunkFrames = chunks.flatMap((chunk) => [
+        Buffer.from(`${chunk.length.toString(16)}\r\n`),
+        chunk,
+        Buffer.from("\r\n"),
+      ]);
+      sock.end(Buffer.concat([Buffer.from(reqHead), ...chunkFrames, Buffer.from("0\r\n\r\n")]));
+    });
+    sock.on("data", (c) => responseChunks.push(Buffer.from(c)));
+    sock.on("end", resolveResponse);
+    sock.on("close", () => {
+      if (settled) return;
+      if (responseChunks.length > 0) {
+        resolveResponse();
+        return;
+      }
+      settled = true;
+      reject(new Error("chunked socket closed before response"));
+    });
+    sock.on("error", rejectIfNoResponse);
   });
 }
 

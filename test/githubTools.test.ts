@@ -298,9 +298,7 @@ describe("buildGithubTools — happy paths", () => {
       pullNumber: 3,
     });
 
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(pullsListFiles).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(pullsListFiles).toHaveBeenCalledTimes(2));
     expect(pullsListFiles.mock.calls.map(([args]) => args.page)).toEqual([1, 2]);
 
     releasePage1({ data: page1 });

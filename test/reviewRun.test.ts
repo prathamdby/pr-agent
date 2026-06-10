@@ -10,27 +10,35 @@ vi.mock("../src/github/reviewPublish.js", () => ({
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
 }));
 
-const sendMock = vi.fn(async () => ({ text: "analysis without submitReview" }));
 type ReviewExecutor = (args: Record<string, unknown>) => Promise<unknown>;
-let capturedExecutors: Record<string, ReviewExecutor> = {};
-const createSessionMock = vi.fn(
-  async (params: { systemPrompt: string; executors: Record<string, ReviewExecutor> }) => {
-    capturedSystemPrompt = params.systemPrompt;
-    capturedExecutors = params.executors;
-    return {
-      send: sendMock,
-      restrictToTools: vi.fn(),
-      restoreTools: vi.fn(),
-      dispose: vi.fn(async () => undefined),
-    };
-  },
-);
 
-let capturedSystemPrompt = "";
+const reviewRunMocks = vi.hoisted(() => {
+  const state: {
+    capturedExecutors: Record<string, ReviewExecutor>;
+    capturedSystemPrompt: string;
+  } = {
+    capturedExecutors: {},
+    capturedSystemPrompt: "",
+  };
+  const sendMock = vi.fn(async () => ({ text: "analysis without submitReview" }));
+  const createSessionMock = vi.fn(
+    async (params: { systemPrompt: string; executors: Record<string, ReviewExecutor> }) => {
+      state.capturedSystemPrompt = params.systemPrompt;
+      state.capturedExecutors = params.executors;
+      return {
+        send: sendMock,
+        restrictToTools: vi.fn(),
+        restoreTools: vi.fn(),
+        dispose: vi.fn(async () => undefined),
+      };
+    },
+  );
+  return { state, sendMock, createSessionMock };
+});
 
 vi.mock("../src/agent/providers/pi/index.js", () => ({
   piAgentRunnerProvider: {
-    createSession: createSessionMock,
+    createSession: reviewRunMocks.createSessionMock,
   },
 }));
 
@@ -67,7 +75,7 @@ function reviewParams(
 describe("runFullPrReview mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sendMock.mockImplementation(async () => ({
+    reviewRunMocks.sendMock.mockImplementation(async () => ({
       text: "analysis without submitReview",
     }));
   });
@@ -86,7 +94,7 @@ describe("runFullPrReview mode", () => {
       }),
     );
 
-    expect(capturedSystemPrompt).toBe(automatedSecuritySystemPrompt);
+    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(automatedSecuritySystemPrompt);
   });
 
   it("selects quality system prompt when mode is review-quality", async () => {
@@ -97,7 +105,7 @@ describe("runFullPrReview mode", () => {
       }),
     );
 
-    expect(capturedSystemPrompt).toBe(automatedQualitySystemPrompt);
+    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(automatedQualitySystemPrompt);
   });
 
   it("selects general system prompt by default", async () => {
@@ -107,8 +115,8 @@ describe("runFullPrReview mode", () => {
       }),
     );
 
-    expect(capturedSystemPrompt).toContain("senior staff software engineer");
-    expect(capturedSystemPrompt).not.toBe(automatedSecuritySystemPrompt);
+    expect(reviewRunMocks.state.capturedSystemPrompt).toContain("senior staff software engineer");
+    expect(reviewRunMocks.state.capturedSystemPrompt).not.toBe(automatedSecuritySystemPrompt);
   });
 
   it("uses security fallback heading when security publish is exhausted", async () => {
@@ -126,7 +134,7 @@ describe("runFullPrReview mode", () => {
 describe("runFullPrReview publish retries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sendMock.mockImplementation(async () => ({
+    reviewRunMocks.sendMock.mockImplementation(async () => ({
       text: "analysis without submitReview",
     }));
   });
@@ -186,9 +194,9 @@ describe("runFullPrReview publish retries", () => {
   });
 
   it("aborts early and does not post fallback comment if shouldAbortPublish returns true", async () => {
-    sendMock.mockImplementation(async () => {
+    reviewRunMocks.sendMock.mockImplementation(async () => {
       try {
-        await capturedExecutors.submitReview({
+        await reviewRunMocks.state.capturedExecutors.submitReview({
           prCharacter: "Does things.",
           findings: [],
           estimatedEffort: 1,

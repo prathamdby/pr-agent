@@ -63,9 +63,8 @@ describe("app bot identity cache", () => {
     const release = holdAuthenticatedAppResponse();
 
     const pending = Promise.all([getAppBotIdentity(cfg), getAppBotIdentity(cfg)]);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(getAuthenticated).toHaveBeenCalledTimes(1));
     expect(authFn).toHaveBeenCalledTimes(1);
-    expect(getAuthenticated).toHaveBeenCalledTimes(1);
 
     release();
     const [first, second] = await pending;
@@ -78,10 +77,9 @@ describe("app bot identity cache", () => {
     const release = holdAuthenticatedAppResponse();
 
     prewarmAppBotIdentity(cfg);
-    await Promise.resolve();
+    await vi.waitFor(() => expect(getAuthenticated).toHaveBeenCalledTimes(1));
     const pending = getAppBotIdentity(cfg);
     expect(authFn).toHaveBeenCalledTimes(1);
-    expect(getAuthenticated).toHaveBeenCalledTimes(1);
 
     release();
     await expect(pending).resolves.toEqual({ userId: 123, login: "pr-agent[bot]" });

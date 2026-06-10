@@ -288,9 +288,7 @@ describe("executeReviewJob", () => {
 
     const review = executeReviewJob(cfg, pool, boss, reviewJob());
 
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1));
     expect(mocks.runFullPrReview).not.toHaveBeenCalled();
 
     releaseRepositoryView();
