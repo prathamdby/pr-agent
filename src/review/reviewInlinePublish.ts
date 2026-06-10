@@ -4,7 +4,11 @@ import {
 } from "../github/reviewPublish.js";
 import { withTransientReviewRetry } from "../github/reviewPublishRetry.js";
 import type { FingerprintedInlinePlacement, InlinePlacement } from "./reviewDiffPlacement.js";
-import { isLineResolutionPublishError } from "../github/reviewErrors.js";
+import {
+  isLineResolutionPublishError,
+  lineResolutionPublishErrorHint,
+  type LineResolutionPublishErrorHint,
+} from "../github/reviewErrors.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import type { ReviewFinding } from "./reviewSchema.js";
 
@@ -26,38 +30,52 @@ export type InlinePublishResult<TPlacement extends InlinePlacement = InlinePlace
 function inlineCommentsFromPlacements(
   placements: readonly InlinePlacement[],
   renderCommentBody: (finding: ReviewFinding) => string,
+  commentByPlacement: Map<InlinePlacement, InlineReviewComment>,
 ): InlineReviewComment[] {
   return placements.flatMap((placement) => {
     if (!placement.inlinePosted || placement.inlineLine == null) return [];
-    return [
-      {
-        path: placement.finding.file,
-        line: placement.inlineLine,
-        side: "RIGHT" as const,
-        body: renderCommentBody(placement.finding),
-      },
-    ];
+    const cached = commentByPlacement.get(placement);
+    if (cached) return [cached];
+    const comment = {
+      path: placement.finding.file,
+      line: placement.inlineLine,
+      side: "RIGHT" as const,
+      body: renderCommentBody(placement.finding),
+    };
+    commentByPlacement.set(placement, comment);
+    return [comment];
   });
 }
 
-/** Drop lowest-severity inline placement first when GitHub rejects line anchors. */
-function dropLowestPriorityInlinePlacement<TPlacement extends InlinePlacement>(
-  placements: TPlacement[],
-): {
-  remaining: TPlacement[];
-  dropped: TPlacement | null;
-} {
-  if (placements.length === 0) {
-    return { remaining: placements, dropped: null };
+function matchesLineResolutionHint(
+  placement: InlinePlacement,
+  hint: LineResolutionPublishErrorHint,
+): boolean {
+  if (hint.path != null && placement.finding.file !== hint.path) return false;
+  if (hint.line != null && placement.inlineLine !== hint.line) return false;
+  return hint.path != null || hint.line != null;
+}
+
+function lineResolutionDropBatch<TPlacement extends InlinePlacement>(
+  placements: readonly TPlacement[],
+  dropOrder: readonly TPlacement[],
+  error: unknown,
+): TPlacement[] {
+  const hint = lineResolutionPublishErrorHint(error);
+  if (hint != null) {
+    const matches = placements.filter((placement) => matchesLineResolutionHint(placement, hint));
+    if (matches.length === 1) return matches;
   }
-  const ordered = [...placements].toSorted((a, b) =>
-    compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
-  );
-  const dropped = ordered[ordered.length - 1];
-  return {
-    remaining: placements.filter((placement) => placement !== dropped),
-    dropped,
-  };
+
+  const active = new Set(placements);
+  const dropCount = Math.max(1, Math.ceil(placements.length / 2));
+  const dropped: TPlacement[] = [];
+  for (const placement of dropOrder) {
+    if (!active.has(placement)) continue;
+    dropped.push(placement);
+    if (dropped.length >= dropCount) break;
+  }
+  return dropped;
 }
 
 export async function publishInlineReviewComments(
@@ -85,11 +103,19 @@ export async function publishInlineReviewComments(
     (placement) => placement.inlinePosted && placement.inlineLine != null,
   );
   const anchorDroppedPlacements: InlinePlacement[] = [];
-  const initialCount = attemptPlacements.length;
+  const commentByPlacement = new Map<InlinePlacement, InlineReviewComment>();
+  const dropOrder = [...attemptPlacements].toSorted((a, b) =>
+    compareReviewFindingsBySeverityFileLine(b.finding, a.finding),
+  );
+  const maxAttempts = Math.max(1, Math.ceil(Math.log2(attemptPlacements.length)) + 2);
 
-  for (let attempt = 0; attempt < initialCount && attemptPlacements.length > 0; attempt++) {
+  for (let attempt = 0; attempt < maxAttempts && attemptPlacements.length > 0; attempt++) {
     const prevCount = attemptPlacements.length;
-    const comments = inlineCommentsFromPlacements(attemptPlacements, params.renderCommentBody);
+    const comments = inlineCommentsFromPlacements(
+      attemptPlacements,
+      params.renderCommentBody,
+      commentByPlacement,
+    );
     try {
       const review = await withTransientReviewRetry(() =>
         createPullRequestReviewWithComments(token, owner, repo, pullNumber, {
@@ -109,15 +135,19 @@ export async function publishInlineReviewComments(
       if (!isLineResolutionPublishError(error)) {
         throw error;
       }
-      const { remaining, dropped } = dropLowestPriorityInlinePlacement(attemptPlacements);
-      if (!dropped) {
+      const dropped = lineResolutionDropBatch(attemptPlacements, dropOrder, error);
+      if (dropped.length === 0) {
         break;
       }
-      anchorDroppedPlacements.push({
-        ...dropped,
-        inlinePosted: false,
-        inlineLine: dropped.inlineLine,
-      });
+      const droppedSet = new Set(dropped);
+      for (const placement of dropped) {
+        anchorDroppedPlacements.push({
+          ...placement,
+          inlinePosted: false,
+          inlineLine: placement.inlineLine,
+        });
+      }
+      const remaining = attemptPlacements.filter((placement) => !droppedSet.has(placement));
       if (remaining.length >= prevCount) {
         break;
       }
