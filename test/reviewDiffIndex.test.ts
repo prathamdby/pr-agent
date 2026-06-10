@@ -32,6 +32,27 @@ describe("reviewDiffIndex", () => {
     expect(resolveInlineAnchorLine(index, "src/missing.ts", 1, 1)).toBeNull();
   });
 
+  it("resolves large finding spans from sorted commentable ranges", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: [
+            "@@ -10,1 +10,1 @@",
+            "+line 10",
+            "@@ -1000000,1 +1000000,1 @@",
+            "+line 1000000",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 1, 1_000_000_000)).toBe(10);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 11, 999_999)).toBeNull();
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 11, 1_000_000_000)).toBe(1_000_000);
+  });
+
   it("mutates the same index object passed in", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {

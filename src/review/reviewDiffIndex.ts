@@ -122,13 +122,6 @@ export function wrapListPullRequestFilesDiffIngestion(
   };
 }
 
-function lineInRanges(line: number, ranges: CommentableRightLineRanges): boolean {
-  for (const [start, end] of ranges) {
-    if (line >= start && line <= end) return true;
-  }
-  return false;
-}
-
 /** Pick first commentable RIGHT line inside the finding range, or null for summary-only. */
 export function resolveInlineAnchorLine(
   index: CachedPrDiffIndex | undefined,
@@ -141,8 +134,10 @@ export function resolveInlineAnchorLine(
   if (!entry || entry.patchOmitted || entry.commentableRightLineRanges.length === 0) return null;
   const lo = Math.min(startLine, endLine);
   const hi = Math.max(startLine, endLine);
-  for (let line = lo; line <= hi; line++) {
-    if (lineInRanges(line, entry.commentableRightLineRanges)) return line;
+  for (const [start, end] of entry.commentableRightLineRanges) {
+    if (end < lo) continue;
+    if (start > hi) return null;
+    return Math.max(lo, start);
   }
   return null;
 }
