@@ -1,6 +1,12 @@
-import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
+import {
+  HttpRouter,
+  HttpServer,
+  HttpServerError,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "@effect/platform";
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import crypto from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { Config } from "../config.js";
@@ -15,6 +21,49 @@ function singleHeader(v: string | string[] | undefined): string | undefined {
 
 function requestPath(url: string): string {
   return url.split("?")[0] ?? url;
+}
+
+type BodyReadResult =
+  | { readonly kind: "ok"; readonly rawBody: Buffer }
+  | { readonly kind: "too_large" };
+
+const BODY_TOO_LARGE = { kind: "too_large" } satisfies BodyReadResult;
+
+function parseContentLength(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
+function isMaxBodySizeError(error: unknown): boolean {
+  return (
+    error instanceof HttpServerError.RequestError &&
+    error.reason === "Decode" &&
+    error.cause instanceof Error &&
+    error.cause.message === "maxBytes exceeded"
+  );
+}
+
+function readRawBody(
+  req: HttpServerRequest.HttpServerRequest,
+  maxBodyBytes: number,
+): Effect.Effect<BodyReadResult, unknown> {
+  const contentLength = parseContentLength(singleHeader(req.headers["content-length"]));
+  if (contentLength !== undefined && contentLength > maxBodyBytes) {
+    return Effect.succeed(BODY_TOO_LARGE);
+  }
+
+  return HttpServerRequest.withMaxBodySize(req.arrayBuffer, Option.some(maxBodyBytes)).pipe(
+    Effect.map((body) => ({ kind: "ok", rawBody: Buffer.from(body) }) satisfies BodyReadResult),
+    Effect.catchIf(isMaxBodySizeError, () => Effect.succeed(BODY_TOO_LARGE)),
+  );
+}
+
+function payloadTooLargeResponse() {
+  return HttpServerResponse.text("payload too large", {
+    status: 413,
+    contentType: "text/plain; charset=utf-8",
+  });
 }
 
 function buildEffectWebhookApp(cfg: Config) {
@@ -41,7 +90,15 @@ function buildEffectWebhookApp(cfg: Config) {
           });
         }
 
-        const rawBody = Buffer.from(yield* req.arrayBuffer);
+        if (req.method !== "POST" || path !== "/webhooks") {
+          return HttpServerResponse.text("", { status: 404 });
+        }
+
+        const body = yield* readRawBody(req, cfg.webhookMaxBodyBytes);
+        if (body.kind === "too_large") {
+          return payloadTooLargeResponse();
+        }
+
         const intakeLog = createOperationLogger({
           method: req.method,
           path,
@@ -57,7 +114,7 @@ function buildEffectWebhookApp(cfg: Config) {
             "x-github-event": singleHeader(req.headers["x-github-event"]),
             "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
           },
-          rawBody,
+          rawBody: body.rawBody,
         }).pipe(Effect.provideService(IntakeLogger, intakeLog));
 
         return HttpServerResponse.text(result.body, {

@@ -55,6 +55,7 @@ import {
   DEFAULT_RETENTION_CRON,
   DEFAULT_RETENTION_ENABLED,
   DEFAULT_WEBHOOK_TIMEOUT_MS,
+  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
   ENV,
   EXTERNAL_ENV,
 } from "./settings/index.js";
@@ -273,6 +274,10 @@ export function loadConfig() {
     DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
   );
 
+  const webhookMaxBodyBytes = readPositiveNumber(
+    ENV.WEBHOOK_MAX_BODY_BYTES,
+    DEFAULT_WEBHOOK_MAX_BODY_BYTES,
+  );
   const webhookTimeoutMs = readPositiveNumber(ENV.WEBHOOK_TIMEOUT_MS, DEFAULT_WEBHOOK_TIMEOUT_MS);
 
   const context7ApiKey = optionalEnv(ENV.CONTEXT7_API_KEY, DEFAULT_CONTEXT7_API_KEY);
@@ -395,6 +400,7 @@ export function loadConfig() {
     installationGroupConcurrency,
     maxAskToolRounds,
     maxAskFinalizeRounds,
+    webhookMaxBodyBytes,
     webhookTimeoutMs,
     context7ApiKey,
     cursorApiKey,

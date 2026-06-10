@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
   ENV,
@@ -61,6 +62,7 @@ describe("settings inventory", () => {
     expect(readExample(ENV.MAX_PR_FILES_PATCH_BYTES)).toBe(
       String(DEFAULT_MAX_PR_FILES_PATCH_BYTES),
     );
+    expect(readExample(ENV.WEBHOOK_MAX_BODY_BYTES)).toBe(String(DEFAULT_WEBHOOK_MAX_BODY_BYTES));
     expect(documented.length).toBeGreaterThan(20);
   });
 });

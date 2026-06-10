@@ -45,6 +45,7 @@ const baseTestConfig: Config = {
   installationGroupConcurrency: 2,
   maxAskToolRounds: 12,
   maxAskFinalizeRounds: 2,
+  webhookMaxBodyBytes: 25_000_000,
   webhookTimeoutMs: 10_000,
   context7ApiKey: "",
   cursorApiKey: "",
