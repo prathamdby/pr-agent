@@ -77,11 +77,6 @@ async function context7Get(url: string, apiKey: string): Promise<string> {
     throw new Error(`Context7 ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`);
   }
 
-  const contentType = res.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const body = await res.json();
-    return JSON.stringify(body, null, 2);
-  }
   return await res.text();
 }
 

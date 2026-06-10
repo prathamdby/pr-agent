@@ -13,13 +13,20 @@ const noopBridgeSpec = {
   executors: { noop: async () => "ok" },
 };
 
-async function withNoopBridge<T>(fn: (bridge: NoopBridge) => Promise<T>): Promise<T> {
-  const bridge = await createMcpBridge(noopBridgeSpec);
+async function withBridge<T>(
+  spec: Parameters<typeof createMcpBridge>[0],
+  fn: (bridge: NoopBridge) => Promise<T>,
+): Promise<T> {
+  const bridge = await createMcpBridge(spec);
   try {
     return await fn(bridge);
   } finally {
     await bridge.dispose();
   }
+}
+
+async function withNoopBridge<T>(fn: (bridge: NoopBridge) => Promise<T>): Promise<T> {
+  return withBridge(noopBridgeSpec, fn);
 }
 
 function expectHttpMcpConfig(config: NoopBridge["mcpServers"][string] | undefined) {
@@ -119,5 +126,23 @@ describe("createMcpBridge", () => {
       expect(result.isError).not.toBe(true);
       await client.close();
     });
+  });
+
+  it("serializes object tool results as compact JSON", async () => {
+    await withBridge(
+      {
+        tools: [{ name: "object", description: "object", parameters: { type: "object" } }],
+        executors: { object: async () => ({ answer: 42, nested: { ok: true } }) },
+      },
+      async (bridge) => {
+        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+        const result = await client.callTool({ name: "object", arguments: {} });
+        expect(result.content).toContainEqual({
+          type: "text",
+          text: '{"answer":42,"nested":{"ok":true}}',
+        });
+        await client.close();
+      },
+    );
   });
 });

@@ -64,7 +64,8 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));
 
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, defineTool } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
 const cfg = makeTestConfig({
@@ -164,6 +165,27 @@ describe("piAgentRunnerProvider.send", () => {
 
     const result = await runnerSession.send("question");
     expect(result.text).toBe("Visible answer.");
+  });
+
+  it("serializes object tool results as compact JSON", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [{ name: "object", description: "object", parameters: { type: "object" } }],
+      executors: { object: async () => ({ answer: 42, nested: { ok: true } }) },
+    });
+
+    const tool = vi.mocked(defineTool).mock.calls.at(-1)?.[0];
+    expect(tool).toBeDefined();
+    if (!tool) throw new Error("expected Pi tool");
+    await expect(
+      tool.execute("tool-call-id", {}, undefined, undefined, {} as ExtensionContext),
+    ).resolves.toMatchObject({
+      content: [{ type: "text", text: '{"answer":42,"nested":{"ok":true}}' }],
+    });
   });
 
   it("aborts and rejects when a prompt exceeds the configured timeout", async () => {

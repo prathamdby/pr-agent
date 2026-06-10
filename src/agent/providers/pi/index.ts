@@ -21,7 +21,7 @@ import type {
 } from "../interface.js";
 
 function toolResultToText(result: unknown): string {
-  return typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  return typeof result === "string" ? result : JSON.stringify(result);
 }
 
 function assistantMessageText(message: TurnEndEvent["message"]): string {
