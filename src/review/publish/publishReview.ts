@@ -112,7 +112,7 @@ export async function publishReview(
   };
 
   let summaryCommentUrl: string | undefined;
-  let scannedSummaryCommentRef: { id: number; url: string } | null = null;
+  let knownSummaryCommentRef: { id: number; url: string } | null = null;
   if (params.shouldLinkToSummary) {
     const resolvedSummary = await resolveVerifiedSummaryCommentRef(
       token,
@@ -123,10 +123,9 @@ export async function publishReview(
       params.summaryCommentIdHint,
     );
     summaryCommentUrl = resolvedSummary?.url;
-    scannedSummaryCommentRef =
-      resolvedSummary?.source === "scan"
-        ? { id: resolvedSummary.id, url: resolvedSummary.url }
-        : null;
+    knownSummaryCommentRef = resolvedSummary
+      ? { id: resolvedSummary.id, url: resolvedSummary.url }
+      : null;
   }
 
   const publishMetaBase = {
@@ -197,7 +196,7 @@ export async function publishReview(
     ? listPullRequestLabels(token, owner, repo, prNumber).catch((e: unknown) => e)
     : Promise.resolve<string[] | null>(null);
   const summaryUpsert =
-    scannedSummaryCommentRef != null
+    knownSummaryCommentRef != null
       ? upsertReviewSummaryComment(
           token,
           owner,
@@ -205,7 +204,7 @@ export async function publishReview(
           prNumber,
           summaryBody,
           summarySentinel,
-          scannedSummaryCommentRef,
+          knownSummaryCommentRef,
         )
       : upsertReviewSummaryComment(token, owner, repo, prNumber, summaryBody, summarySentinel);
   const [summary, currentLabels] = await Promise.all([summaryUpsert, labelsPromise]);

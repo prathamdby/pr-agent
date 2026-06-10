@@ -432,7 +432,15 @@ describe("publishReview", () => {
         ),
       }),
     );
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.any(String),
+      REVIEW_SUMMARY_SENTINEL,
+      { id: 99, url: "https://github.com/o/r/pull/1#issuecomment-99" },
+    );
   });
 
   it("falls back to plain pointer when shouldLinkToSummary but no verified comment", async () => {
