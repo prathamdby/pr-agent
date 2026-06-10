@@ -68,6 +68,29 @@ describe("reviewDiffIndex", () => {
     expect(resolveInlineAnchorLine(index, "src/x.ts", 4, 4)).toBe(4);
   });
 
+  it("skips already ingested file patches", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: ["@@ -4,1 +4,1 @@", "+first"].join("\n"),
+        },
+      ],
+    });
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: ["@@ -40,1 +40,1 @@", "+second"].join("\n"),
+        },
+      ],
+    });
+
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 4, 4)).toBe(4);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 40, 40)).toBeNull();
+  });
+
   it("returns null when patch omitted", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {
