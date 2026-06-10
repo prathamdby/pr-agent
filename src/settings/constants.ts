@@ -23,6 +23,7 @@ export const CURSOR_DEFAULT_CONTEXT_WINDOW = 200_000;
 export const CURSOR_DEFAULT_MAX_TOKENS = 16_384;
 
 export const LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY = 32;
+export const PR_REPOSITORY_VIEW_RELEASE_GRACE_MS = 60_000;
 
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";

@@ -8,6 +8,7 @@ import {
   fetchPullRequestFiles,
   type ListPullRequestFilesResult,
 } from "../github/listPullRequestFiles.js";
+import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../settings/index.js";
 import {
   prepareLocalPrWorkspace,
   selectLocalPrWorkspaceCheckoutMode,
@@ -39,9 +40,22 @@ type CacheEntry = {
   refcount: number;
   view: CachedPrRepositoryView | null;
   prepare: Promise<CachedPrRepositoryView> | null;
+  releaseTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const cache = new Map<string, CacheEntry>();
+
+function cancelReleaseTimer(entry: CacheEntry): void {
+  if (!entry.releaseTimer) return;
+  clearTimeout(entry.releaseTimer);
+  entry.releaseTimer = null;
+}
+
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer === "object" && "unref" in timer) {
+    timer.unref();
+  }
+}
 
 function cacheKey(
   params: Pick<
@@ -112,9 +126,10 @@ async function acquirePrRepositoryView(
   const key = cacheKey(params);
   let entry = cache.get(key);
   if (!entry) {
-    entry = { refcount: 0, view: null, prepare: null };
+    entry = { refcount: 0, view: null, prepare: null, releaseTimer: null };
     cache.set(key, entry);
   }
+  cancelReleaseTimer(entry);
   entry.refcount += 1;
   try {
     return await prepareEntry(entry, params);
@@ -135,11 +150,21 @@ async function releasePrRepositoryView(
   if (!entry) return;
   entry.refcount -= 1;
   if (entry.refcount > 0) return;
-  cache.delete(key);
   const view = entry.view;
-  entry.view = null;
-  entry.prepare = null;
-  if (view) await view.cleanup();
+  if (!view) {
+    cache.delete(key);
+    entry.prepare = null;
+    return;
+  }
+  const timer = setTimeout(() => {
+    if (entry.refcount > 0) return;
+    cache.delete(key);
+    entry.view = null;
+    entry.prepare = null;
+    void view.cleanup();
+  }, PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
+  entry.releaseTimer = timer;
+  unrefTimer(timer);
 }
 
 export async function withPrRepositoryView<T>(

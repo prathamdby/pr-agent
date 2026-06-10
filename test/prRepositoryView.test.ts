@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   prepareCalls: 0,
@@ -61,6 +61,7 @@ vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
 
 import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
+import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../src/settings/index.js";
 
 const params = {
   cfg: {} as never,
@@ -79,7 +80,13 @@ const prFiles = {
 };
 
 describe("prRepositoryView cache", () => {
-  afterEach(() => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(async () => {
+    await vi.runOnlyPendingTimersAsync();
+    vi.useRealTimers();
     state.prepareCalls = 0;
     state.failNext = false;
     state.pullsGetCalls = 0;
@@ -106,6 +113,21 @@ describe("prRepositoryView cache", () => {
     expect(a).toBe(1);
     expect(b).toBe(2);
     expect(state.prepareCalls).toBe(1);
+    expect(state.cleanup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
+    expect(state.cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses a released view during the grace period", async () => {
+    await withPrRepositoryView(params, async () => "first");
+    expect(state.prepareCalls).toBe(1);
+    expect(state.cleanup).not.toHaveBeenCalled();
+
+    await withPrRepositoryView(params, async () => "second");
+    expect(state.prepareCalls).toBe(1);
+    expect(state.cleanup).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
     expect(state.cleanup).toHaveBeenCalledTimes(1);
   });
 
@@ -143,6 +165,8 @@ describe("prRepositoryView cache", () => {
     const result = await withPrRepositoryView(params, async () => "ok");
     expect(result).toBe("ok");
     expect(state.prepareCalls).toBe(2);
+    expect(state.cleanup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
     expect(state.cleanup).toHaveBeenCalledTimes(1);
   });
 });

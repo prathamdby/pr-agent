@@ -203,6 +203,7 @@ These are related but not wired together on INSERT today.
 | Symbol                                  | Default |
 | --------------------------------------- | ------- |
 | `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY` | 32      |
+| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`   | 60000   |
 
 ### Cursor SDK bridge
 
