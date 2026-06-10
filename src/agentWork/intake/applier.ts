@@ -21,7 +21,7 @@ import {
 import { planAutomatedPullRequestIntake } from "./planner.js";
 import { enqueueAck, enqueueDescription, enqueueReview, jobCorrelation } from "./queueing.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
-import { dedupeKey, insertWebhookEvent } from "./webhookEvents.js";
+import { insertWebhookEvent } from "./webhookEvents.js";
 import { createDescriptionWorkItem, createReviewWorkItem } from "./workItemRepository.js";
 
 export type { SlashCommandInput };
@@ -36,7 +36,7 @@ export async function recordIgnoredWebhook(
   const event = await insertWebhookEvent(client, headers, decision);
   if (event.duplicate) {
     recordEvent(intakeLog, "deduped_delivery", {
-      dedupeKey: dedupeKey(headers),
+      dedupeKey: event.dedupeKey,
       event: headers.event,
     });
   }
@@ -59,7 +59,7 @@ export async function applyAutomatedPullRequestIntake(
   const event = await insertWebhookEvent(client, headers, "automated_review_enqueued");
   if (event.duplicate) {
     recordEvent(intakeLog, "deduped_delivery", {
-      dedupeKey: dedupeKey(headers),
+      dedupeKey: event.dedupeKey,
       event: headers.event,
     });
     return;

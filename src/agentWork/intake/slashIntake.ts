@@ -24,7 +24,7 @@ import {
 } from "../types.js";
 import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
-import { dedupeKey, insertWebhookEvent } from "./webhookEvents.js";
+import { insertWebhookEvent } from "./webhookEvents.js";
 
 export type SlashCommandInput = {
   readonly headers: WebhookHeaders;
@@ -228,7 +228,7 @@ export async function applySlashCommandIntake(
   const event = await insertWebhookEvent(client, input.headers, `slash_${command}`);
   if (event.duplicate) {
     recordEvent(intakeLog, "deduped_delivery", {
-      dedupeKey: dedupeKey(input.headers),
+      dedupeKey: event.dedupeKey,
       event: input.headers.event,
     });
     return;
