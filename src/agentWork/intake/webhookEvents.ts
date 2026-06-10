@@ -2,11 +2,17 @@ import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { WebhookHeaders } from "../types.js";
 
-type EventRecord = {
-  readonly id: string;
-  readonly duplicate: boolean;
-  readonly dedupeKey: string;
-};
+type EventRecord =
+  | {
+      readonly id: string;
+      readonly duplicate: false;
+      readonly dedupeKey: string;
+    }
+  | {
+      readonly id?: undefined;
+      readonly duplicate: true;
+      readonly dedupeKey: string;
+    };
 
 function bodySha(rawBody: Buffer): string {
   return crypto.createHash("sha256").update(rawBody).digest("hex");
@@ -38,9 +44,15 @@ export async function insertWebhookEvent(
     [id, keys.dedupeKey, headers.delivery ?? null, headers.event ?? "", keys.bodySha256, decision],
   );
   const inserted = result.rows[0]?.id;
+  if (inserted == null) {
+    return {
+      duplicate: true,
+      dedupeKey: keys.dedupeKey,
+    };
+  }
   return {
-    id: inserted ?? "",
-    duplicate: inserted == null,
+    id: inserted,
+    duplicate: false,
     dedupeKey: keys.dedupeKey,
   };
 }

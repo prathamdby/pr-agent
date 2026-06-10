@@ -73,14 +73,11 @@ function fallbackLineResolutionDrop<TPlacement extends InlinePlacement>(
   dropOrder: readonly TPlacement[],
 ): TPlacement[] {
   const active = new Set(placements);
-  const dropCount = Math.max(1, Math.ceil(placements.length / 2));
-  const dropped: TPlacement[] = [];
   for (const placement of dropOrder) {
     if (!active.has(placement)) continue;
-    dropped.push(placement);
-    if (dropped.length >= dropCount) break;
+    return [placement];
   }
-  return dropped;
+  return [];
 }
 
 export async function publishInlineReviewComments<TPlacement extends InlinePlacement>(
@@ -98,10 +95,7 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
   const dropOrder = [...attemptPlacements].toSorted((a, b) =>
     compareReviewFindingsBySeverityFileLine(b.finding, a.finding),
   );
-  const maxFallbackAttempts = Math.max(
-    1,
-    Math.ceil(Math.log2(Math.max(1, attemptPlacements.length))) + 2,
-  );
+  const maxFallbackAttempts = attemptPlacements.length;
   let fallbackAttempts = 0;
 
   while (attemptPlacements.length > 0) {

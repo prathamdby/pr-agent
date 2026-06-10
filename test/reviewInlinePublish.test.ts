@@ -126,7 +126,7 @@ describe("publishInlineReviewComments", () => {
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(14);
   });
 
-  it("bisects generic line failures and reuses rendered comment bodies", async () => {
+  it("drops one generic line failure and reuses rendered comment bodies", async () => {
     vi.mocked(createPullRequestReviewWithComments)
       .mockRejectedValueOnce(new Error("Line could not be resolved"))
       .mockResolvedValueOnce({ id: 9, url: "https://example.com/review/9" });
@@ -146,9 +146,9 @@ describe("publishInlineReviewComments", () => {
 
     const secondAttempt = vi.mocked(createPullRequestReviewWithComments).mock.calls[1]?.[4];
     expect(result.review?.id).toBe(9);
-    expect(result.postedPlacements).toHaveLength(4);
-    expect(result.anchorDroppedPlacements).toHaveLength(4);
-    expect(secondAttempt?.comments).toHaveLength(4);
+    expect(result.postedPlacements).toHaveLength(7);
+    expect(result.anchorDroppedPlacements).toHaveLength(1);
+    expect(secondAttempt?.comments).toHaveLength(7);
     expect(renderCommentBody).toHaveBeenCalledTimes(8);
   });
 
