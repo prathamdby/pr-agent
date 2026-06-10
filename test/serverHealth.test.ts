@@ -1,7 +1,7 @@
 import http from "node:http";
 import net from "node:net";
 import crypto from "node:crypto";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { initEvlog } from "../src/evlog.js";
@@ -321,8 +321,9 @@ describe("effect webhook server (end-to-end)", () => {
     expect(dispatchCalls).toBe(0);
   });
 
-  it("rejects chunked bodies over the configured limit while reading", async () => {
+  it("closes chunked bodies over the configured limit while reading", async () => {
     let dispatchCalls = 0;
+    const destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
     handle = await startEffectServer({
       cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
       dispatch: () =>
@@ -330,22 +331,22 @@ describe("effect webhook server (end-to-end)", () => {
           dispatchCalls += 1;
         }),
     });
-    const addr = handle.server.address();
-    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+    try {
+      const addr = handle.server.address();
+      if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
 
-    const res = await postChunked(
-      addr.port,
-      "/webhooks",
-      [Buffer.from('{"zen":'), Buffer.from('"too large"}')],
-      {
-        "x-hub-signature-256": "sha256=bad",
-        "x-github-event": "ping",
-        "x-github-delivery": "too-large-chunked",
-      },
-    );
-    expect(res.status).toBe(413);
-    expect(res.body).toBe("payload too large");
-    expect(dispatchCalls).toBe(0);
+      await expect(
+        postChunked(addr.port, "/webhooks", [Buffer.from('{"zen":'), Buffer.from('"too large"}')], {
+          "x-hub-signature-256": "sha256=bad",
+          "x-github-event": "ping",
+          "x-github-delivery": "too-large-chunked",
+        }),
+      ).rejects.toThrow("chunked response ended before headers");
+      expect(dispatchCalls).toBe(0);
+      expect(destroySpy).toHaveBeenCalled();
+    } finally {
+      destroySpy.mockRestore();
+    }
   });
 
   it("handles duplicate x-hub-signature-256 headers gracefully (no crash; 401)", async () => {

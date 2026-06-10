@@ -66,7 +66,7 @@ function readNodeRawBody(req: IncomingMessage, maxBodyBytes: number): Promise<Bo
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       totalBytes += buffer.length;
       if (totalBytes > maxBodyBytes) {
-        req.pause();
+        req.destroy();
         settle(BODY_TOO_LARGE);
         return;
       }
