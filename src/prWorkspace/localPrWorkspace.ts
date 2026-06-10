@@ -37,7 +37,9 @@ export type LocalPrWorkspace = {
   readonly privateGitDir: string;
   readonly agentCwd: string;
   readonly changedFiles: readonly LocalPrChangedFile[];
+  readonly changedFileByPath: ReadonlyMap<string, LocalPrChangedFile>;
   readonly checkoutPaths: ReadonlySet<string>;
+  readonly sortedCheckoutPaths: readonly string[];
   readonly checkoutMode: LocalPrWorkspaceCheckoutMode;
   readonly diffIndex: CachedPrDiffIndex;
   readonly stats: {
@@ -314,6 +316,7 @@ export async function prepareLocalPrWorkspace(
     });
 
   let checkoutPaths = new Set<string>();
+  let sortedCheckoutPaths: string[] = [];
 
   function isPathInCheckout(path: string): boolean {
     return checkoutPaths.has(path.replace(/\\/g, "/"));
@@ -383,13 +386,16 @@ export async function prepareLocalPrWorkspace(
     await rm(askpass, { force: true });
     await rm(tokenFile, { force: true });
     checkoutPaths = await prepareCheckedOutTree(agentCwd);
+    sortedCheckoutPaths = [...checkoutPaths].toSorted();
 
     return {
       rootDir,
       privateGitDir,
       agentCwd,
       changedFiles,
+      changedFileByPath,
       checkoutPaths,
+      sortedCheckoutPaths,
       checkoutMode,
       diffIndex,
       stats: {

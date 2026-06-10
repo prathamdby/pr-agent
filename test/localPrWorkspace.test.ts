@@ -135,8 +135,15 @@ describe("local PR workspace", () => {
           status: "renamed",
           oldPath: "delete.txt",
         });
+        expect(fullWorkspace.changedFileByPath.get("renamed.txt")).toMatchObject({
+          status: "renamed",
+          oldPath: "delete.txt",
+        });
         expect(await readFile(join(fullWorkspace.agentCwd, "src.txt"), "utf8")).toContain("two");
         expect(fullWorkspace.checkoutPaths.has("support.txt")).toBe(true);
+        expect(fullWorkspace.sortedCheckoutPaths).toEqual(
+          [...fullWorkspace.checkoutPaths].toSorted(),
+        );
         expect(await readFile(join(fullWorkspace.agentCwd, "support.txt"), "utf8")).toContain(
           "helper",
         );
