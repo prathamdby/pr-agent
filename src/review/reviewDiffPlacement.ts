@@ -11,6 +11,10 @@ export type InlinePlacement = {
   readonly inlineCommentUrl?: string;
 };
 
+export type FingerprintedInlinePlacement = InlinePlacement & {
+  readonly inlineFingerprint: string;
+};
+
 export function planInlinePlacements(
   findings: ReviewFinding[],
   diffIndex: CachedPrDiffIndex | undefined,
@@ -33,6 +37,14 @@ export function planInlinePlacements(
   });
 }
 
+export function applyInlineCommentCap(
+  placements: readonly FingerprintedInlinePlacement[],
+  maxInlineComments: number,
+): { placements: FingerprintedInlinePlacement[]; inlineCommentCapExcluded: number };
+export function applyInlineCommentCap(
+  placements: readonly InlinePlacement[],
+  maxInlineComments: number,
+): { placements: InlinePlacement[]; inlineCommentCapExcluded: number };
 export function applyInlineCommentCap(
   placements: readonly InlinePlacement[],
   maxInlineComments: number,

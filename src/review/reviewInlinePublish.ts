@@ -3,15 +3,23 @@ import {
   type InlineReviewComment,
 } from "../github/reviewPublish.js";
 import { withTransientReviewRetry } from "../github/reviewPublishRetry.js";
-import type { InlinePlacement } from "./reviewDiffPlacement.js";
+import type { FingerprintedInlinePlacement, InlinePlacement } from "./reviewDiffPlacement.js";
 import { isLineResolutionPublishError } from "../github/reviewErrors.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import type { ReviewFinding } from "./reviewSchema.js";
 
-export type InlinePublishResult = {
+type InlinePublishParams<TPlacement extends InlinePlacement> = {
+  renderReviewBody: (anchorDroppedPlacements: readonly InlinePlacement[]) => string;
+  event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
+  commitId?: string;
+  inlinePlacements: readonly TPlacement[];
+  renderCommentBody: (finding: ReviewFinding) => string;
+};
+
+export type InlinePublishResult<TPlacement extends InlinePlacement = InlinePlacement> = {
   review?: { id: number; url: string };
-  postedPlacements: InlinePlacement[];
-  anchorDroppedPlacements: InlinePlacement[];
+  postedPlacements: TPlacement[];
+  anchorDroppedPlacements: TPlacement[];
   lineResolutionFallback: boolean;
 };
 
@@ -33,9 +41,11 @@ function inlineCommentsFromPlacements(
 }
 
 /** Drop lowest-severity inline placement first when GitHub rejects line anchors. */
-function dropLowestPriorityInlinePlacement(placements: InlinePlacement[]): {
-  remaining: InlinePlacement[];
-  dropped: InlinePlacement | null;
+function dropLowestPriorityInlinePlacement<TPlacement extends InlinePlacement>(
+  placements: TPlacement[],
+): {
+  remaining: TPlacement[];
+  dropped: TPlacement | null;
 } {
   if (placements.length === 0) {
     return { remaining: placements, dropped: null };
@@ -55,13 +65,21 @@ export async function publishInlineReviewComments(
   owner: string,
   repo: string,
   pullNumber: number,
-  params: {
-    renderReviewBody: (anchorDroppedPlacements: readonly InlinePlacement[]) => string;
-    event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
-    commitId?: string;
-    inlinePlacements: readonly InlinePlacement[];
-    renderCommentBody: (finding: ReviewFinding) => string;
-  },
+  params: InlinePublishParams<FingerprintedInlinePlacement>,
+): Promise<InlinePublishResult<FingerprintedInlinePlacement>>;
+export async function publishInlineReviewComments(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  params: InlinePublishParams<InlinePlacement>,
+): Promise<InlinePublishResult>;
+export async function publishInlineReviewComments(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  params: InlinePublishParams<InlinePlacement>,
 ): Promise<InlinePublishResult> {
   let attemptPlacements = params.inlinePlacements.filter(
     (placement) => placement.inlinePosted && placement.inlineLine != null,
@@ -83,10 +101,7 @@ export async function publishInlineReviewComments(
       );
       return {
         review,
-        postedPlacements: attemptPlacements.map((placement) => ({
-          ...placement,
-          inlinePosted: true,
-        })),
+        postedPlacements: attemptPlacements,
         anchorDroppedPlacements,
         lineResolutionFallback: anchorDroppedPlacements.length > 0,
       };

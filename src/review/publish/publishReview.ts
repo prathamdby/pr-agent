@@ -14,11 +14,13 @@ import { renderReviewSummaryComment } from "../reviewRender.js";
 import {
   applyInlineCommentCap,
   planInlinePlacements,
+  type FingerprintedInlinePlacement,
   type InlinePlacement,
 } from "../reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../reviewDiffIndex.js";
 import { runInlinePublishPhase } from "../reviewPublishInlinePhase.js";
 import {
+  fingerprintInlinePlacements,
   mergeInlineFingerprintRecords,
   suppressInlinePlacementsByFingerprint,
 } from "../reviewFindingFingerprint.js";
@@ -26,24 +28,11 @@ import {
   reviewEventForFindings,
   isInlineSeverity,
   reviewSummarySentinelForMode,
-  type ReviewFinding,
   type ReviewMode,
   type ReviewPayload,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
-
-function fingerprintsForInlineReviewStep(params: {
-  storedInlineFingerprints: readonly string[];
-  inlinePostedFindings: readonly ReviewFinding[];
-  mode: ReviewMode;
-}): string[] {
-  return mergeInlineFingerprintRecords(
-    params.storedInlineFingerprints,
-    params.inlinePostedFindings,
-    params.mode,
-  );
-}
 
 export async function publishReview(
   params: ReviewPublishContext & {
@@ -71,27 +60,22 @@ export async function publishReview(
   const mode = params.mode ?? "review";
   const summarySentinel = reviewSummarySentinelForMode(mode);
   const storedInlineFingerprints = params.storedInlineFingerprints ?? [];
-  const inlineReviewFingerprints = (inlinePostedFindings: readonly ReviewFinding[]) =>
-    fingerprintsForInlineReviewStep({
-      storedInlineFingerprints,
-      inlinePostedFindings,
-      mode,
-    });
+  const inlineReviewFingerprints = (placements: readonly FingerprintedInlinePlacement[]) =>
+    mergeInlineFingerprintRecords(storedInlineFingerprints, placements);
 
-  let placements = params.inlinePlacements
-    ? [...params.inlinePlacements]
-    : planInlinePlacements(payload.findings, params.cachedDiffIndex);
-  const suppression = suppressInlinePlacementsByFingerprint(
-    placements,
+  let placements = fingerprintInlinePlacements(
+    params.inlinePlacements
+      ? [...params.inlinePlacements]
+      : planInlinePlacements(payload.findings, params.cachedDiffIndex),
     mode,
-    storedInlineFingerprints,
   );
+  const suppression = suppressInlinePlacementsByFingerprint(placements, storedInlineFingerprints);
   placements = suppression.placements;
   const inlineCap = applyInlineCommentCap(placements, MAX_INLINE_REVIEW_COMMENTS);
   placements = inlineCap.placements;
   const inlineFindings = placements.filter((p) => p.inlinePosted);
   const event = reviewEventForFindings(payload.findings);
-  let summaryPlacements = placements;
+  let summaryPlacements: InlinePlacement[] = placements;
   let inlineReviewId = publishState.inlineReviewId;
   const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
   if (diffCacheEmpty) {

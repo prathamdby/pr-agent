@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fingerprintFinding,
+  fingerprintInlinePlacements,
   mergeInlineFingerprintRecords,
   parseStoredInlineFingerprints,
   suppressInlinePlacementsByFingerprint,
@@ -47,7 +48,7 @@ describe("parseStoredInlineFingerprints", () => {
 describe("suppressInlinePlacementsByFingerprint", () => {
   it("suppresses inline posting for stored fingerprints only", () => {
     const fingerprint = fingerprintFinding(finding, "review");
-    const { placements, suppressedInlineCount } = suppressInlinePlacementsByFingerprint(
+    const fingerprintedPlacements = fingerprintInlinePlacements(
       [
         {
           finding,
@@ -56,6 +57,9 @@ describe("suppressInlinePlacementsByFingerprint", () => {
         },
       ],
       "review",
+    );
+    const { placements, suppressedInlineCount } = suppressInlinePlacementsByFingerprint(
+      fingerprintedPlacements,
       [fingerprint],
     );
     expect(suppressedInlineCount).toBe(1);
@@ -65,7 +69,11 @@ describe("suppressInlinePlacementsByFingerprint", () => {
 
 describe("mergeInlineFingerprintRecords", () => {
   it("merges prior and new fingerprints", () => {
-    const merged = mergeInlineFingerprintRecords(["old"], [finding], "review");
+    const placements = fingerprintInlinePlacements(
+      [{ finding, inlineLine: 10, inlinePosted: true }],
+      "review",
+    );
+    const merged = mergeInlineFingerprintRecords(["old"], placements);
     expect(merged).toContain("old");
     expect(merged).toContain(fingerprintFinding(finding, "review"));
   });

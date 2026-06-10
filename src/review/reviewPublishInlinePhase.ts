@@ -3,6 +3,7 @@ import { withTransientReviewRetry } from "../github/reviewPublishRetry.js";
 import { logWarn, logDebug } from "../evlog.js";
 import {
   downgradePlacementsAfterInlineFailure,
+  type FingerprintedInlinePlacement,
   mergeDroppedIntoSummaryPlacements,
   type InlinePlacement,
 } from "./reviewDiffPlacement.js";
@@ -12,7 +13,7 @@ import {
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
 } from "./reviewRender.js";
-import type { ReviewFinding, ReviewMode, ReviewPayload } from "./reviewSchema.js";
+import type { ReviewMode, ReviewPayload } from "./reviewSchema.js";
 import type { SubmitReviewState } from "./publish/submitReviewTool.js";
 
 export type InlinePublishPhaseContext = {
@@ -25,7 +26,6 @@ export type InlinePublishPhaseContext = {
 export type InlinePublishPhaseResult = {
   inlineReviewId: number | null;
   summaryPlacements: InlinePlacement[];
-  inlinePostedFindings: ReviewFinding[];
   anchorDroppedCount: number;
   lineResolutionFallback: boolean;
   agentFixPromptTruncated: boolean;
@@ -48,14 +48,14 @@ export async function runInlinePublishPhase(params: {
   mode: ReviewMode;
   payload: ReviewPayload;
   ctx: InlinePublishPhaseContext;
-  placements: readonly InlinePlacement[];
-  inlineFindings: readonly InlinePlacement[];
+  placements: readonly FingerprintedInlinePlacement[];
+  inlineFindings: readonly FingerprintedInlinePlacement[];
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   summaryCommentUrl?: string;
   shouldLinkToSummary: boolean;
   publishState: SubmitReviewState;
   publishMetaBase: Record<string, unknown>;
-  inlineReviewFingerprints: (findings: readonly ReviewFinding[]) => string[];
+  inlineReviewFingerprints: (placements: readonly FingerprintedInlinePlacement[]) => string[];
   recordPublishStep?: (
     step: "inline_review",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -74,12 +74,12 @@ export async function runInlinePublishPhase(params: {
     inlineReviewFingerprints,
     recordPublishStep,
   } = params;
-  let summaryPlacements = [...params.placements];
+  let summaryPlacements: InlinePlacement[] = [...params.placements];
   let inlineReviewId = publishState.inlineReviewId;
   let anchorDroppedCount = 0;
   let lineResolutionFallback = false;
   let agentFixPromptTruncated = false;
-  let inlinePostedFindings: ReviewFinding[] = [];
+  let inlinePostedPlacements: FingerprintedInlinePlacement[] = [];
 
   if (params.inlineFindings.length > 0) {
     try {
@@ -117,7 +117,7 @@ export async function runInlinePublishPhase(params: {
         );
         anchorDroppedCount = inlineResult.anchorDroppedPlacements.length;
         lineResolutionFallback = inlineResult.lineResolutionFallback;
-        inlinePostedFindings = inlineResult.postedPlacements.map((placement) => placement.finding);
+        inlinePostedPlacements = inlineResult.postedPlacements;
 
         agentFixPromptTruncated = lastPointerTruncated;
         if (lastPointerTruncated) {
@@ -145,7 +145,7 @@ export async function runInlinePublishPhase(params: {
             url: inlineResult.review.url,
             event,
             agentFixPromptTruncated,
-            fingerprints: inlineReviewFingerprints(inlinePostedFindings),
+            fingerprints: inlineReviewFingerprints(inlinePostedPlacements),
             droppedInlineCount: anchorDroppedCount,
             lineResolutionFallback,
             ...publishMetaBase,
@@ -158,7 +158,7 @@ export async function runInlinePublishPhase(params: {
           pr: ctx.prNumber,
           reviewId: inlineResult.review.id,
           event,
-          inlineCount: inlinePostedFindings.length,
+          inlineCount: inlinePostedPlacements.length,
           droppedInlineCount: anchorDroppedCount,
           agentFixPromptTruncated,
         });
@@ -282,7 +282,6 @@ export async function runInlinePublishPhase(params: {
   return {
     inlineReviewId,
     summaryPlacements,
-    inlinePostedFindings,
     anchorDroppedCount,
     lineResolutionFallback,
     agentFixPromptTruncated,
