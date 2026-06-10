@@ -7,6 +7,7 @@ describe("parseSlashCommand", () => {
     expect(parseSlashCommand("/review-security")).toBe("review-security");
     expect(parseSlashCommand("/review-quality")).toBe("review-quality");
     expect(parseSlashCommand(" \n/help")).toBe("help");
+    expect(parseSlashCommand(" \r\n/ask question\n/review")).toBe("ask");
   });
 
   it("is case-sensitive for token", () => {
@@ -15,6 +16,7 @@ describe("parseSlashCommand", () => {
 
   it("returns null when no command", () => {
     expect(parseSlashCommand("hello")).toBe(null);
+    expect(parseSlashCommand("hello\n/review")).toBe(null);
     expect(parseSlashCommand("")).toBe(null);
   });
 });

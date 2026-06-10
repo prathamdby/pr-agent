@@ -1,8 +1,8 @@
 import { MAX_ASK_QUESTION_CHARS, askQuestionTooLongHint } from "../settings/index.js";
+import { firstNonEmptyLine } from "./firstNonEmptyLine.js";
 
 export const ASK_QUESTION_TOO_LONG_HINT = askQuestionTooLongHint();
 
-const LINE_SPLIT_RE = /\r?\n/;
 const ASK_COMMAND_RE = /^\/ask(?:\s+(.*))?$/;
 
 /**
@@ -10,8 +10,7 @@ const ASK_COMMAND_RE = /^\/ask(?:\s+(.*))?$/;
  * Supports optional surrounding quotes on the question text.
  */
 function askRestFromBody(body: string): string | null {
-  const lines = body.split(LINE_SPLIT_RE);
-  const first = lines.find((l) => l.trim().length > 0) ?? "";
+  const first = firstNonEmptyLine(body);
   const m = first.match(ASK_COMMAND_RE);
   if (!m) return null;
 
