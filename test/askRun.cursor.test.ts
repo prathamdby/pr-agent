@@ -3,8 +3,8 @@ import {
   resetCursorModelCapabilitiesForTests,
   setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
-import type { Config } from "../src/config.js";
 import * as evlog from "../src/evlog.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("../src/agent/askSafety.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agent/askSafety.js")>();
@@ -58,29 +58,15 @@ vi.mock("@earendil-works/pi-ai", () => ({
 import { complete } from "@earendil-works/pi-ai";
 import { runAskRun } from "../src/agent/askRun.js";
 
-const cursorCfg = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
+const cursorCfg = makeTestConfig({
   agentProvider: "cursor",
-  piProvider: "openai",
   piModel: "composer-2.5",
   cursorApiKey: "cursor_test_key",
   maxToolRounds: 2,
-  maxReviewPublishAttempts: 3,
-  maxReviewPublishCalls: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  maxAskToolRounds: 12,
-  maxAskFinalizeRounds: 2,
-  webhookTimeoutMs: 10_000,
-  logLevel: "error",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500_000,
-} satisfies Config;
+});
 
 const cursorCatalog = [
   {
@@ -112,7 +98,7 @@ describe("runAskRun cursor provider", () => {
       prNumber: 1,
       headSha: "sha",
       question: "What does this function do?",
-      replyTarget: { kind: "issue_comment", commentId: 42 },
+      replyTarget: { kind: "prConversation", prNumber: 1 },
     });
 
     expect(vi.mocked(complete)).toHaveBeenCalledTimes(1);

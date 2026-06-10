@@ -34,7 +34,10 @@ describe("settings inventory", () => {
     const content = fs.readFileSync(ENV_EXAMPLE_PATH, "utf8");
     const documented = parseEnvExampleKeys(content);
     const documentedSet = new Set(documented);
-    const cataloguedKeys = new Set([...Object.values(ENV), ...Object.values(EXTERNAL_ENV)]);
+    const cataloguedKeys: ReadonlySet<string> = new Set([
+      ...Object.values(ENV),
+      ...Object.values(EXTERNAL_ENV),
+    ]);
 
     for (const key of Object.values(ENV)) {
       expect(documentedSet.has(key), `missing ${key} in .env.example`).toBe(true);

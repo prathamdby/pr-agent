@@ -1,50 +1,24 @@
 import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
-import type { Config } from "../src/config.js";
 import { createOperationLogger } from "../src/evlog.js";
 import { processWebhookHttpRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 import { Layer } from "effect";
+import { makeTestConfig } from "./helpers/config.js";
 
-const cfg: Config = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "fake",
+const cfg = makeTestConfig({
   webhookSecret: "secret",
-  databaseUrl: "postgres://test",
-  role: "web",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
-  maxToolRounds: 24,
   maxAskFinalizeRounds: 6,
-  maxReviewPublishAttempts: 3,
-  reviewConcurrency: 2,
-  askConcurrency: 1,
-  ackConcurrency: 2,
-  queueRetryLimit: 3,
-  queueRetryDelaySeconds: 30,
-  queueRetryDelayMaxSeconds: 300,
-  queueExpireInSeconds: 3600,
-  queueHeartbeatSeconds: 60,
-  queueRetentionSeconds: 1209600,
-  queueDeleteAfterSeconds: 604800,
-  installationGroupConcurrency: 2,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500000,
-  logLevel: "error",
-};
+});
 
 const dispatcherLayer = Layer.succeed(
   WebhookDispatcher,
   WebhookDispatcher.of({
     dispatch: () => Effect.void,
+    ping: () => Effect.succeed(true),
   }),
 );
 

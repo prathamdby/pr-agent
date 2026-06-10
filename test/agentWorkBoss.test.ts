@@ -12,11 +12,9 @@ describe("bossConstructorOptions", () => {
   });
 
   it("disables pg-boss maintenance on the web role", () => {
-    expect(bossConstructorOptions({ databaseUrl: "postgres://test", role: "web" })).toMatchObject(
-      {
-        schedule: false,
-        supervise: false,
-      },
-    );
+    expect(bossConstructorOptions({ databaseUrl: "postgres://test", role: "web" })).toMatchObject({
+      schedule: false,
+      supervise: false,
+    });
   });
 });

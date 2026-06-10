@@ -24,6 +24,7 @@ function mockWorkspace(agentCwd: string, checkoutPaths: Iterable<string>): Local
     rootDir: agentCwd,
     privateGitDir: agentCwd,
     agentCwd,
+    checkoutMode: "full",
     changedFiles: [{ path: "src/changed.ts", status: "modified" }],
     checkoutPaths: paths,
     diffIndex: createCachedPrDiffIndex(),

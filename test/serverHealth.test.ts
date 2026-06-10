@@ -3,43 +3,16 @@ import net from "node:net";
 import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
-import type { Config } from "../src/config.js";
 import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const testCfg: Config = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "fake",
+const testCfg = makeTestConfig({
   webhookSecret: "secret",
-  databaseUrl: "postgres://test",
-  role: "web",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
-  maxToolRounds: 24,
   maxAskFinalizeRounds: 6,
-  maxReviewPublishAttempts: 3,
-  reviewConcurrency: 2,
-  askConcurrency: 1,
-  ackConcurrency: 2,
-  queueRetryLimit: 3,
-  queueRetryDelaySeconds: 30,
-  queueRetryDelayMaxSeconds: 300,
-  queueExpireInSeconds: 3600,
-  queueHeartbeatSeconds: 60,
-  queueRetentionSeconds: 1209600,
-  queueDeleteAfterSeconds: 604800,
-  installationGroupConcurrency: 2,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500000,
-  logLevel: "error",
-};
+});
 
 function get(port: number, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {

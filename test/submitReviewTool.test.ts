@@ -14,6 +14,7 @@ import {
 } from "../src/review/reviewDiffIndex.js";
 import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/review/reviewRunMetrics.js";
 import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("../src/review/publish/publishReview.js", () => ({
   publishReview: vi.fn(async () => undefined),
@@ -21,29 +22,14 @@ vi.mock("../src/review/publish/publishReview.js", () => ({
 
 import { publishReview } from "../src/review/publish/publishReview.js";
 
-const cfg = {
+const cfg = makeTestConfig({
   port: 3000,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
-  piProvider: "openai" as const,
-  piModel: "gpt-4o-mini",
   maxToolRounds: 1,
-  maxReviewPublishAttempts: 3,
-  maxReviewPublishCalls: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  logLevel: "info" as const,
-  reviewInjectAnchorMenu: true,
-  reviewRequireDiffCacheBeforeSubmit: true,
-  reviewAnchorMenuMaxFiles: 40,
-  reviewAnchorMenuMaxRangesPerFile: 20,
-};
+  logLevel: "info",
+});
 
 function validPayload(overrides: Record<string, unknown> = {}) {
   return {

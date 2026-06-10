@@ -4,7 +4,7 @@ import {
   setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import { Agent } from "@cursor/sdk";
-import type { Config } from "../src/config.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 const completeMock = vi.hoisted(() =>
   vi.fn(async (_model: unknown, context: { messages: unknown[] }) => ({
@@ -31,11 +31,11 @@ vi.mock("../src/agent/providers/cursor/mcpBridge.js", () => ({
 
 import { cursorAgentRunnerProvider } from "../src/agent/providers/cursor/agentRunner.js";
 
-const cfg = {
+const cfg = makeTestConfig({
   agentProvider: "cursor",
   cursorApiKey: "cursor-key",
   piModel: "auto",
-} as Config;
+});
 
 describe("cursorAgentRunnerProvider", () => {
   beforeEach(() => {

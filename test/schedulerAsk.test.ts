@@ -25,7 +25,7 @@ function makeSlashInput(body: string) {
     commenterId: 1,
     body,
     command,
-    replyTarget: { kind: "prConversation" as const },
+    replyTarget: { kind: "prConversation" as const, prNumber: 7 },
   };
 }
 
@@ -65,7 +65,7 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
     expect(sentJobs[0]?.data.reply).toEqual({
-      target: { kind: "prConversation" },
+      target: { kind: "prConversation", prNumber: 7 },
       body: ASK_QUESTION_TOO_LONG_HINT,
     });
     expect(boss.send).toHaveBeenCalledTimes(1);
@@ -102,7 +102,7 @@ describe("makeAgentWorkScheduler /ask slash", () => {
 
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.data.reply).toEqual({
-      target: { kind: "prConversation" },
+      target: { kind: "prConversation", prNumber: 7 },
       body: ASK_USAGE_HINT,
     });
   });

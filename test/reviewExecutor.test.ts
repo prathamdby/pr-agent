@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { Config } from "../src/config.js";
-import type { AgentWorkItem } from "../src/agentWork/types.js";
+import type { AgentWorkItem, ReviewJobData } from "../src/agentWork/types.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
   loadPublishContext: vi.fn(),
@@ -71,7 +71,7 @@ vi.mock("../src/review/reviewRunMetrics.js", () => ({
 
 import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
 
-const cfg = { agentProvider: "pi", piModel: "test" } as Config;
+const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
@@ -103,6 +103,36 @@ function mockRepositoryView() {
       workspace: undefined,
     }),
   );
+}
+
+function reviewJob(): JobWithMetadata<ReviewJobData> {
+  const now = new Date();
+  return {
+    id: "job-1",
+    name: "agent-work-review",
+    data: { kind: "review", workItemId: "wi-1" },
+    expireInSeconds: 3600,
+    heartbeatSeconds: null,
+    signal: new AbortController().signal,
+    priority: 0,
+    state: "active",
+    retryLimit: 3,
+    retryCount: 0,
+    retryDelay: 0,
+    retryBackoff: false,
+    startAfter: now,
+    startedOn: now,
+    singletonKey: null,
+    singletonOn: null,
+    deleteAfterSeconds: 0,
+    createdOn: now,
+    completedOn: null,
+    keepUntil: now,
+    policy: "standard",
+    heartbeatOn: null,
+    deadLetter: "",
+    output: {},
+  };
 }
 
 describe("executeReviewJob", () => {
@@ -140,24 +170,14 @@ describe("executeReviewJob", () => {
   });
 
   it("loads publish context in one batched db-read span", async () => {
-    await executeReviewJob(cfg, pool, boss, {
-      id: "job-1",
-      data: { workItemId: "wi-1" },
-      retryCount: 0,
-      retryLimit: 3,
-    } as JobWithMetadata<{ workItemId: string }>);
+    await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.loadPublishContext).toHaveBeenCalledTimes(1);
     expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
   });
 
   it("skips preflight for slash reviews", async () => {
-    await executeReviewJob(cfg, pool, boss, {
-      id: "job-1",
-      data: { workItemId: "wi-1" },
-      retryCount: 0,
-      retryLimit: 3,
-    } as JobWithMetadata<{ workItemId: string }>);
+    await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.fetchPreflight).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
@@ -178,12 +198,7 @@ describe("executeReviewJob", () => {
     });
     mocks.lightweight.mockResolvedValue({ handled: true, published: true });
 
-    await executeReviewJob(cfg, pool, boss, {
-      id: "job-1",
-      data: { workItemId: "wi-1" },
-      retryCount: 0,
-      retryLimit: 3,
-    } as JobWithMetadata<{ workItemId: string }>);
+    await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.fetchPreflight).toHaveBeenCalledTimes(1);
     expect(mocks.lightweight).toHaveBeenCalledTimes(1);

@@ -17,6 +17,10 @@ import {
 } from "./helpers/reviewPublishTestHelpers.js";
 import { fingerprintFinding } from "../src/review/reviewFindingFingerprint.js";
 
+type RecordPublishStep = NonNullable<
+  Parameters<typeof publishReviewForTest>[0]["recordPublishStep"]
+>;
+
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
   return {
@@ -142,7 +146,7 @@ describe("publishReview", () => {
   it("preserves stored fingerprints on inline_review step when all inline suppressed", async () => {
     const finding = payload.findings[0];
     const stored = fingerprintFinding(finding, "review");
-    const recordPublishStep = vi.fn(async () => undefined);
+    const recordPublishStep = vi.fn<RecordPublishStep>(async () => undefined);
 
     await publishReviewForTest({
       ...baseParams,
@@ -154,7 +158,7 @@ describe("publishReview", () => {
 
     const inlineStep = recordPublishStep.mock.calls.find(([step]) => step === "inline_review");
     expect(inlineStep).toBeDefined();
-    const meta = inlineStep?.[1]?.meta as { fingerprints?: string[] } | undefined;
+    const meta = inlineStep?.[1]?.meta;
     expect(meta?.fingerprints).toEqual([stored]);
   });
 

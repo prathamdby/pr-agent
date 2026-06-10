@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Config } from "../src/config.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 type MockTurnEndEvent = {
   type: "turn_end";
@@ -67,30 +67,13 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
-const cfg = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
-  agentProvider: "pi",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
+const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
   maxToolRounds: 2,
-  maxReviewPublishAttempts: 3,
-  maxReviewPublishCalls: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  maxAskToolRounds: 12,
-  maxAskFinalizeRounds: 2,
-  webhookTimeoutMs: 10_000,
-  logLevel: "error",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500_000,
-  context7ApiKey: "",
-} satisfies Config;
+});
 
 describe("piAgentRunnerProvider.send", () => {
   beforeEach(() => {

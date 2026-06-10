@@ -17,7 +17,7 @@ const composerModel = {
   id: "composer-2.5",
   displayName: "Composer 2.5",
   parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
-} as const;
+};
 setCursorModelsForTests([composerModel]);
 const model = getCursorModel("composer-2.5");
 
@@ -88,7 +88,9 @@ describe("streamCursor", () => {
   });
 
   it("maps CursorAgentError to cursor_startup_error", async () => {
-    vi.mocked(Agent.create).mockRejectedValue(new CursorAgentError("auth failed", true));
+    vi.mocked(Agent.create).mockRejectedValue(
+      new CursorAgentError("auth failed", { isRetryable: true }),
+    );
 
     const context = baseContext();
     attachExecutors(context);

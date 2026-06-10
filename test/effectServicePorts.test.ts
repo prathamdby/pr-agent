@@ -1,45 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
-import type { Config } from "../src/config.js";
+import { createOperationLogger } from "../src/evlog.js";
+import { IntakeLogger } from "../src/effect/intakeLogger.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const cfg: Config = {
+const cfg = makeTestConfig({
   port: 3000,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
-  databaseUrl: "postgres://test",
-  role: "web",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
-  maxToolRounds: 24,
   maxAskFinalizeRounds: 6,
-  maxReviewPublishAttempts: 3,
-  reviewConcurrency: 2,
-  askConcurrency: 1,
-  ackConcurrency: 2,
-  queueRetryLimit: 3,
-  queueRetryDelaySeconds: 30,
-  queueRetryDelayMaxSeconds: 300,
-  queueExpireInSeconds: 3600,
-  queueHeartbeatSeconds: 60,
-  queueRetentionSeconds: 1209600,
-  queueDeleteAfterSeconds: 604800,
-  installationGroupConcurrency: 2,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500000,
-  logLevel: "error",
-};
+});
 
 const dispatcherLayer = Layer.succeed(
   WebhookDispatcher,
   WebhookDispatcher.of({
     dispatch: () => Effect.void,
+    ping: () => Effect.succeed(true),
   }),
 );
 
@@ -63,6 +39,14 @@ describe("effect service ports", () => {
       });
     });
 
-    await Effect.runPromise(program.pipe(Effect.provide(dispatcherLayer)));
+    await Effect.runPromise(
+      program.pipe(
+        Effect.provide(dispatcherLayer),
+        Effect.provideService(
+          IntakeLogger,
+          createOperationLogger({ method: "POST", path: "/webhooks" }),
+        ),
+      ),
+    );
   });
 });

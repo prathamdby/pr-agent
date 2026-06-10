@@ -126,22 +126,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               },
               (job) => executeDescriptionJob(cfg, pool, boss, job),
             ),
-            registerPlainQueue(
-              boss,
-              RETENTION_QUEUE,
-              retentionQueueWorkOptions(),
-              async () => {
-                try {
-                  const result = await runRetention(pool, cfg);
-                  logInfo("retention_cleanup", result);
-                } catch (e) {
-                  logError("retention_cleanup_failed", {
-                    message: e instanceof Error ? e.message : String(e),
-                  });
-                  throw e;
-                }
-              },
-            ),
+            registerPlainQueue(boss, RETENTION_QUEUE, retentionQueueWorkOptions(), async () => {
+              try {
+                const result = await runRetention(pool, cfg);
+                logInfo("retention_cleanup", result);
+              } catch (e) {
+                logError("retention_cleanup_failed", {
+                  message: e instanceof Error ? e.message : String(e),
+                });
+                throw e;
+              }
+            }),
           ]);
           logInfo("agent_worker_started", {
             queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, RETENTION_QUEUE],

@@ -4,13 +4,32 @@ import { buildGithubTools, type ListPullRequestFilesToolOutput } from "../src/ag
 
 type GithubExecutors = ReturnType<typeof buildGithubTools>["executors"];
 
+function isListPullRequestFilesToolOutput(value: unknown): value is ListPullRequestFilesToolOutput {
+  return (
+    value != null &&
+    typeof value === "object" &&
+    "files" in value &&
+    Array.isArray(value.files) &&
+    "truncated" in value &&
+    typeof value.truncated === "boolean" &&
+    "omittedCountLowerBound" in value &&
+    typeof value.omittedCountLowerBound === "number" &&
+    "totalChanges" in value &&
+    typeof value.totalChanges === "number"
+  );
+}
+
 async function runListPullRequestFiles(
   executors: GithubExecutors,
   args: { owner: string; repo: string; pullNumber: number },
 ): Promise<ListPullRequestFilesToolOutput> {
   const listFiles = executors.listPullRequestFiles;
   if (!listFiles) throw new Error("listPullRequestFiles executor missing");
-  return await listFiles(args);
+  const result = await listFiles(args);
+  if (!isListPullRequestFilesToolOutput(result)) {
+    throw new Error("listPullRequestFiles returned an unexpected shape");
+  }
+  return result;
 }
 
 type FnMap = Partial<{

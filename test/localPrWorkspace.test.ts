@@ -4,34 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import type { Config } from "../src/config.js";
 import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
 import {
   assertWorkspacePath,
   prepareLocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 const execFile = promisify(execFileCb);
 
 async function git(cwd: string, args: readonly string[]): Promise<string> {
   const { stdout } = await execFile("git", args, { cwd });
   return stdout.trim();
-}
-
-function testConfig(): Config {
-  return {
-    localWorkspaceCloneTimeoutMs: 30_000,
-    localWorkspaceFetchTimeoutMs: 30_000,
-    localWorkspaceSearchMaxFiles: 20,
-    localWorkspaceMaxFileBytes: 100_000,
-    localWorkspaceSearchMaxTotalBytes: 1_000_000,
-    localWorkspaceMaxDiffBytes: 1_000_000,
-    localWorkspaceMinFreeSpaceBytes: 1,
-    localWorkspaceFullCloneMaxRepoKb: 1_000,
-    localWorkspaceStaleCleanupAgeSeconds: 1,
-    maxPrFilesListed: 300,
-    maxPrFilesPatchBytes: 500_000,
-  } as Config;
 }
 
 async function buildPrFilesFromRepo(
@@ -45,7 +29,7 @@ async function buildPrFilesFromRepo(
     "--find-renames",
     `${baseSha}..${headSha}`,
   ]);
-  const files: ListPullRequestFilesResult["files"] = [];
+  const files: Array<ListPullRequestFilesResult["files"][number]> = [];
   let totalChanges = 0;
 
   for (const line of nameStatus.split("\n")) {
@@ -126,7 +110,7 @@ describe("local PR workspace", () => {
 
       const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
 
-      const cfg = testConfig();
+      const cfg = makeTestConfig();
       const fullWorkspace = await prepareLocalPrWorkspace({
         cfg,
         owner: "owner",

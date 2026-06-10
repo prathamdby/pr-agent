@@ -44,9 +44,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(names).not.toContain("agent_work_items_status_idx");
     expect(names).not.toContain("agent_work_items_status_completed_at_idx");
     expect(names).not.toContain("agent_work_items_installation_status_idx");
-    expect(rows.map((r) => r.indexdef).join("\n")).toContain(
-      "COALESCE(completed_at, updated_at)",
-    );
+    expect(rows.map((r) => r.indexdef).join("\n")).toContain("COALESCE(completed_at, updated_at)");
 
     const publishIndexes = await pool.query<{ indexname: string }>(
       "SELECT indexname FROM pg_indexes WHERE tablename = 'publish_records'",

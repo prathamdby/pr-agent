@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Config } from "../src/config.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const sendMock = vi.fn(async () => ({ text: "done" }));
-const createSessionMock = vi.fn(async () => ({
+const sendMock = vi.fn(async (_message: string) => ({ text: "done" }));
+const createSessionMock = vi.fn(async (_params: unknown) => ({
   send: sendMock,
   restrictToTools: vi.fn(),
   restoreTools: vi.fn(),
@@ -54,16 +54,13 @@ vi.mock("../src/review/reviewRunSetup.js", async (importOriginal) => {
 
 import { runReviewHarness } from "../src/review/reviewRunHarness.js";
 
-const cfg = {
-  agentProvider: "pi",
+const cfg = makeTestConfig({
   piModel: "test",
   maxToolRounds: 2,
   maxReviewPublishAttempts: 1,
-  maxReviewPublishCalls: 2,
-  reviewInjectAnchorMenu: true,
   reviewAnchorMenuMaxFiles: 10,
   reviewAnchorMenuMaxRangesPerFile: 5,
-} as Config;
+});
 
 describe("runReviewHarness", () => {
   beforeEach(() => {
@@ -86,8 +83,8 @@ describe("runReviewHarness", () => {
     expect(createSessionMock).toHaveBeenCalledTimes(1);
     expect(sendMock).toHaveBeenCalledTimes(4);
     expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
-    expect(String(sendMock.mock.calls[1]?.[0])).toContain("commentable RIGHT-side line ranges");
-    expect(String(sendMock.mock.calls[2]?.[0])).toContain("submitReview");
-    expect(String(sendMock.mock.calls[3]?.[0])).toContain("submitReview");
+    expect(sendMock.mock.calls[1]?.[0]).toContain("commentable RIGHT-side line ranges");
+    expect(sendMock.mock.calls[2]?.[0]).toContain("submitReview");
+    expect(sendMock.mock.calls[3]?.[0]).toContain("submitReview");
   });
 });

@@ -35,7 +35,7 @@ if (hits.size > 0) {
   console.error(
     [
       "Production dependency graph includes evlog framework adapter peers:",
-      ...[...hits].sort().map((hit) => `- ${hit}`),
+      ...[...hits].toSorted((a, b) => a.localeCompare(b)).map((hit) => `- ${hit}`),
     ].join("\n"),
   );
   process.exit(1);
