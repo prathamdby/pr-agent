@@ -1,5 +1,6 @@
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import { inTransaction } from "../../db/postgres.js";
 import { AUTOMATED_REVIEW_LENS, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
 import {
   replaceAutoWorkItem,
@@ -18,17 +19,17 @@ import {
   reviewSingletonKey,
   descriptionSingletonKey,
 } from "../types.js";
-import { planAutomatedPullRequestIntake } from "./planner.js";
+import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
 import { enqueueAck, enqueueDescription, enqueueReview, jobCorrelation } from "./queueing.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
-import { dedupeKey, insertWebhookEvent } from "./webhookEvents.js";
+import { insertWebhookEvent } from "./webhookEvents.js";
 import { createDescriptionWorkItem, createReviewWorkItem } from "./workItemRepository.js";
 
 export type { SlashCommandInput };
 export { applySlashCommandIntake };
 
 export async function recordIgnoredWebhook(
-  client: PoolClient,
+  client: Pool | PoolClient,
   headers: WebhookHeaders,
   decision: string,
   intakeLog: RequestLogger,
@@ -36,30 +37,25 @@ export async function recordIgnoredWebhook(
   const event = await insertWebhookEvent(client, headers, decision);
   if (event.duplicate) {
     recordEvent(intakeLog, "deduped_delivery", {
-      dedupeKey: dedupeKey(headers),
+      dedupeKey: event.dedupeKey,
       event: headers.event,
     });
   }
 }
 
-export async function applyAutomatedPullRequestIntake(
+async function applyPlannedAutomatedPullRequestIntake(
   boss: PgBoss,
   client: PoolClient,
   headers: WebhookHeaders,
   ref: PrRef,
   action: string,
   intakeLog: RequestLogger,
+  plan: AutomatedPrIntakePlan,
 ): Promise<void> {
-  const plan = planAutomatedPullRequestIntake(action);
-  if (plan.kinds.length === 0) {
-    await insertWebhookEvent(client, headers, `ignored_pull_request_${action}`);
-    return;
-  }
-
   const event = await insertWebhookEvent(client, headers, "automated_review_enqueued");
   if (event.duplicate) {
     recordEvent(intakeLog, "deduped_delivery", {
-      dedupeKey: dedupeKey(headers),
+      dedupeKey: event.dedupeKey,
       event: headers.event,
     });
     return;
@@ -159,4 +155,24 @@ export async function applyAutomatedPullRequestIntake(
       ...correlation,
     });
   }
+}
+
+export async function applyAutomatedPullRequestIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  ref: PrRef,
+  action: string,
+  intakeLog: RequestLogger,
+): Promise<void> {
+  const plan = planAutomatedPullRequestIntake(action);
+  if (plan.kinds.length === 0) {
+    // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.
+    await recordIgnoredWebhook(pool, headers, `ignored_pull_request_${action}`, intakeLog);
+    return;
+  }
+
+  await inTransaction(pool, (client) =>
+    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, action, intakeLog, plan),
+  );
 }

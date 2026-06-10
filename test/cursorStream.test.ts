@@ -17,7 +17,7 @@ const composerModel = {
   id: "composer-2.5",
   displayName: "Composer 2.5",
   parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
-} as const;
+};
 setCursorModelsForTests([composerModel]);
 const model = getCursorModel("composer-2.5");
 
@@ -87,8 +87,75 @@ describe("streamCursor", () => {
     expect(result.usage.totalTokens).toBeGreaterThan(0);
   });
 
+  it("sends only the latest user message on reused-agent follow-up sends", async () => {
+    const sendMock = vi.fn(async (_prompt, opts) => {
+      opts?.onDelta?.({ update: { type: "text-delta", text: "Follow-up answer" } });
+      return {
+        cancel: vi.fn(),
+        wait: vi.fn().mockResolvedValue({
+          status: "completed",
+          result: "Follow-up answer",
+          id: "run-2",
+        }),
+      };
+    });
+    const context: Context = {
+      systemPrompt: "Review system prompt",
+      messages: [
+        {
+          role: "user",
+          content: "Review this pull request",
+          timestamp: 1,
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Initial answer" }],
+          api: "cursor-sdk",
+          provider: "cursor",
+          model: "composer-2.5",
+          usage: {
+            input: 4,
+            output: 4,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 8,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp: 2,
+        },
+        {
+          role: "user",
+          content: "Repair the inline comments",
+          timestamp: 3,
+        },
+      ],
+      tools: [],
+    };
+    attachCursorRunContext(context, {
+      executors: {},
+      apiKey: "cursor_test_key",
+      sdkModelSelection: toCursorSdkModelSelection("composer-2.5"),
+      agent: {
+        send: sendMock,
+        [Symbol.asyncDispose]: vi.fn(),
+      } as unknown as Awaited<ReturnType<typeof Agent.create>>,
+    });
+
+    const result = await streamCursor(model, context, {
+      apiKey: "cursor_test_key",
+    }).result();
+
+    expect(Agent.create).not.toHaveBeenCalled();
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock.mock.calls[0]?.[0]).toEqual({ text: "Repair the inline comments" });
+    expect(result.usage.input).toBe(Math.ceil("Repair the inline comments".length / 4));
+  });
+
   it("maps CursorAgentError to cursor_startup_error", async () => {
-    vi.mocked(Agent.create).mockRejectedValue(new CursorAgentError("auth failed", true));
+    vi.mocked(Agent.create).mockRejectedValue(
+      new CursorAgentError("auth failed", { isRetryable: true }),
+    );
 
     const context = baseContext();
     attachExecutors(context);

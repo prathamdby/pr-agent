@@ -65,7 +65,7 @@ function primePathGate(
 }
 
 function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
-  return workspace.changedFiles.find((file) => file.path === path.replace(/\\/g, "/"));
+  return workspace.changedFileByPath.get(path.replace(/\\/g, "/"));
 }
 
 async function refuseUnlessReadableFile(
@@ -165,12 +165,11 @@ export function buildLocalWorkspaceTools(
       maxResults: z.number().int().positive().optional().default(20),
     }),
     run: async ({ query, maxResults }) => {
-      const files = [...workspace.checkoutPaths].toSorted();
       const matches: Array<{ path: string; line: number; text: string }> = [];
       let filesScanned = 0;
       let bytesScanned = 0;
 
-      for (const path of files) {
+      for (const path of workspace.sortedCheckoutPaths) {
         if (matches.length >= maxResults) {
           return { matches, truncated: true, filesScanned };
         }

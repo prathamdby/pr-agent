@@ -1,52 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { Cause, Effect, Exit, Layer } from "effect";
-import type { Config } from "../src/config.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { BotIdentity } from "../src/effect/services/botIdentity.js";
 import { createOperationLogger } from "../src/evlog.js";
 import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
+import type { IssueCommentWebhookPayload } from "../src/webhook/payloads/issueCommentEvent.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const cfg: Config = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
-  databaseUrl: "postgres://test",
-  role: "web",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
-  maxToolRounds: 24,
+const cfg = makeTestConfig({
   maxAskFinalizeRounds: 6,
-  maxReviewPublishAttempts: 3,
-  reviewConcurrency: 2,
   askConcurrency: 1,
-  ackConcurrency: 2,
-  queueRetryLimit: 3,
-  queueRetryDelaySeconds: 30,
-  queueRetryDelayMaxSeconds: 300,
-  queueExpireInSeconds: 3600,
-  queueHeartbeatSeconds: 60,
-  queueRetentionSeconds: 1209600,
-  queueDeleteAfterSeconds: 604800,
-  installationGroupConcurrency: 2,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500000,
-  logLevel: "error",
-};
+});
 
-const issueCommentData = {
+const issueCommentData: IssueCommentWebhookPayload = {
   action: "created",
   installation: { id: 1 },
   repository: { owner: { login: "o" }, name: "r" },
-  issue: { number: 1 },
+  issue: { number: 1, pull_request: {} },
   comment: { id: 99, user: { id: 7 }, body: "/help" },
-} as never;
+};
 
 function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
   const bot = Layer.succeed(
@@ -68,6 +42,7 @@ describe("WebhookHandlers Effect resolution", () => {
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.fail(new Error("scheduler failed")),
+        ping: () => Effect.succeed(true),
       }),
     );
 
@@ -120,6 +95,7 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
+        ping: () => Effect.succeed(true),
       }),
     );
 
@@ -127,7 +103,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const nonSlash = {
       ...issueCommentData,
       comment: { id: 99, user: { id: 7 }, body: "hello" },
-    } as never;
+    };
 
     const intakeLog = createOperationLogger({
       method: "POST",
@@ -168,6 +144,7 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
+        ping: () => Effect.succeed(true),
       }),
     );
 
@@ -175,7 +152,7 @@ describe("WebhookHandlers Effect resolution", () => {
     const botSlash = {
       ...issueCommentData,
       comment: { id: 99, user: { id: 42 }, body: "/help" },
-    } as never;
+    };
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",

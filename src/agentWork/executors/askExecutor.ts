@@ -7,7 +7,7 @@ import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
-import { getPullRequestHeadSha, postSlashReply } from "../githubPrSurface.js";
+import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
 import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
 
 async function publishAskAnswer(
@@ -57,7 +57,7 @@ export async function executeAskJob(
     job,
     type: "ask",
     resolveHeadSha: (token, item) =>
-      getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber),
+      getPullRequestHead(token, item.owner, item.repo, item.prNumber),
     execute: async (item, env) => {
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
@@ -70,6 +70,7 @@ export async function executeAskJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {

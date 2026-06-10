@@ -25,6 +25,7 @@ function httpError(
       url: "https://api.github.com/test",
       headers,
       data: { message },
+      retryCount: 0,
     },
   });
 }

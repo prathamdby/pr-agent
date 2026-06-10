@@ -144,7 +144,7 @@ export function softwareApplicationJsonLd() {
       name: "prathamdby",
       url: "https://github.com/prathamdby",
     },
-    screenshot: "/screenshots/review.example.png",
+    screenshot: "/screenshots/review.example.webp",
   };
 }
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "tanstack-start",
-  "installCommand": "cd .. && corepack enable && pnpm install --frozen-lockfile",
+  "installCommand": "cd .. && corepack enable && pnpm install --frozen-lockfile --filter pr-agent-landing...",
   "buildCommand": "pnpm run build"
 }

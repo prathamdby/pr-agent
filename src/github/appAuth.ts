@@ -6,9 +6,18 @@ import type { Config } from "../config.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { httpStatus } from "./httpStatus.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "./githubRequestError.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;
+type CachedInstallationOctokit = {
+  readonly octokit: InstallationOctokit;
+  expiresAtTs: number;
+  evictionTimer: ReturnType<typeof setTimeout> | null;
+};
+
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
+const installationOctokitByToken = new Map<string, CachedInstallationOctokit>();
 
 export type BotIdentity = { userId: number; login: string };
 
@@ -33,11 +42,70 @@ export async function mintInstallationAuth(
   });
 }
 
-export function installationOctokit(token: string): InstallationOctokit {
-  return new ThrottledOctokit({
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer === "object" && "unref" in timer) {
+    timer.unref();
+  }
+}
+
+function clearInstallationOctokitEntry(entry: CachedInstallationOctokit): void {
+  if (!entry.evictionTimer) return;
+  clearTimeout(entry.evictionTimer);
+  entry.evictionTimer = null;
+}
+
+function scheduleInstallationOctokitEviction(
+  token: string,
+  entry: CachedInstallationOctokit,
+): void {
+  clearInstallationOctokitEntry(entry);
+  const delayMs = Math.max(0, Math.min(entry.expiresAtTs - Date.now(), MAX_TIMER_DELAY_MS));
+  const timer = setTimeout(() => {
+    const current = installationOctokitByToken.get(token);
+    if (current !== entry || current.expiresAtTs > Date.now()) return;
+    installationOctokitByToken.delete(token);
+  }, delayMs);
+  entry.evictionTimer = timer;
+  unrefTimer(timer);
+}
+
+export function installationOctokit(token: string, expiresAtTs?: number): InstallationOctokit {
+  const now = Date.now();
+  const cached = installationOctokitByToken.get(token);
+  if (cached) {
+    if (cached.expiresAtTs <= now) {
+      clearInstallationOctokitEntry(cached);
+      installationOctokitByToken.delete(token);
+    } else {
+      if (expiresAtTs != null && expiresAtTs !== cached.expiresAtTs) {
+        cached.expiresAtTs = expiresAtTs;
+        scheduleInstallationOctokitEviction(token, cached);
+      }
+      return cached.octokit;
+    }
+  }
+
+  const octokit = new ThrottledOctokit({
     auth: token,
     throttle: { onRateLimit, onSecondaryRateLimit },
   });
+  const entry = {
+    octokit,
+    expiresAtTs: expiresAtTs ?? now + INSTALLATION_TOKEN_FALLBACK_TTL_MS,
+    evictionTimer: null,
+  };
+  installationOctokitByToken.set(token, entry);
+  scheduleInstallationOctokitEviction(token, entry);
+  return octokit;
+}
+
+export function clearInstallationOctokitCacheForTest(): void {
+  if (process.env.NODE_ENV === "test") {
+    for (const entry of installationOctokitByToken.values()) {
+      clearInstallationOctokitEntry(entry);
+    }
+    installationOctokitByToken.clear();
+  }
 }
 
 async function mintAppJwtToken(
@@ -54,7 +122,24 @@ async function mintAppJwtToken(
 /**
  * When `GET /user` rejects installation tokens (“Resource not accessible by integration”), resolve bot id via JWT + public {@link https://api.github.com/users/{slug}%5Bbot%5D} profile.
  */
-const appBotIdentityByAppId = new Map<string, BotIdentity>();
+const appBotIdentityByAppId = new Map<string, BotIdentity | Promise<BotIdentity>>();
+
+export function clearAppBotIdentityCacheForTest(): void {
+  if (process.env.NODE_ENV === "test") {
+    appBotIdentityByAppId.clear();
+  }
+}
+
+export function prewarmAppBotIdentity(
+  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
+): void {
+  void getAppBotIdentity(cfg).catch((error: unknown) => {
+    logDebug("app_bot_identity_prewarm_failed", {
+      githubAppId: cfg.githubAppId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
+}
 
 /** Resolve the app's bot user id without minting an installation token. */
 export async function getAppBotIdentity(
@@ -62,9 +147,19 @@ export async function getAppBotIdentity(
 ): Promise<BotIdentity> {
   const cached = appBotIdentityByAppId.get(cfg.githubAppId);
   if (cached) return cached;
-  const identity = await resolveBotIdentityViaAppSlug(cfg);
-  appBotIdentityByAppId.set(cfg.githubAppId, identity);
-  return identity;
+
+  const pending = resolveBotIdentityViaAppSlug(cfg);
+  appBotIdentityByAppId.set(cfg.githubAppId, pending);
+  try {
+    const identity = await pending;
+    appBotIdentityByAppId.set(cfg.githubAppId, identity);
+    return identity;
+  } catch (error) {
+    if (appBotIdentityByAppId.get(cfg.githubAppId) === pending) {
+      appBotIdentityByAppId.delete(cfg.githubAppId);
+    }
+    throw error;
+  }
 }
 
 async function resolveBotIdentityViaAppSlug(

@@ -11,7 +11,7 @@ import { buildAskRunSetup } from "./askRunSetup.js";
 export async function runAskHarness(params: AskRunParams): Promise<AskRunResult> {
   const { cfg, question, replyTarget } = params;
   const { refreshableGh, primePathGate } = buildAskRunSetup(params);
-  await primePathGate();
+  const primePathGatePromise = primePathGate();
 
   const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
   const tools = [...refreshableGh.bundle.piTools, ...ctx7.piTools];
@@ -26,6 +26,7 @@ export async function runAskHarness(params: AskRunParams): Promise<AskRunResult>
     executors,
     refreshBeforeTool: refreshableGh.refreshBeforeTool,
   });
+  await primePathGatePromise;
 
   try {
     const sendOpts = { maxToolRounds: cfg.maxAskToolRounds };

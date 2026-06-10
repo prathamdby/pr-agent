@@ -32,6 +32,27 @@ describe("reviewDiffIndex", () => {
     expect(resolveInlineAnchorLine(index, "src/missing.ts", 1, 1)).toBeNull();
   });
 
+  it("resolves large finding spans from sorted commentable ranges", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: [
+            "@@ -10,1 +10,1 @@",
+            "+line 10",
+            "@@ -1000000,1 +1000000,1 @@",
+            "+line 1000000",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 1, 1_000_000_000)).toBe(10);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 11, 999_999)).toBeNull();
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 11, 1_000_000_000)).toBe(1_000_000);
+  });
+
   it("mutates the same index object passed in", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {
@@ -45,6 +66,29 @@ describe("reviewDiffIndex", () => {
 
     expect(index.files.size).toBe(1);
     expect(resolveInlineAnchorLine(index, "src/x.ts", 4, 4)).toBe(4);
+  });
+
+  it("skips already ingested file patches", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: ["@@ -4,1 +4,1 @@", "+first"].join("\n"),
+        },
+      ],
+    });
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: ["@@ -40,1 +40,1 @@", "+second"].join("\n"),
+        },
+      ],
+    });
+
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 4, 4)).toBe(4);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 40, 40)).toBeNull();
   });
 
   it("returns null when patch omitted", () => {
@@ -65,9 +109,35 @@ describe("reviewDiffIndex", () => {
     ]);
   });
 
+  it("keeps right-side ranges contiguous across deleted lines", () => {
+    const patch = ["@@ -5,3 +5,2 @@", "+added", "-removed", " context"].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([[5, 6]]);
+  });
+
   it("ignores no-newline marker lines when advancing right-side line numbers", () => {
     const patch = ["@@ -4,1 +4,2 @@", "+added", "\\ No newline at end of file"].join("\n");
     expect(parseCommentableRightLineRanges(patch)).toEqual([[4, 4]]);
+  });
+
+  it("resolves anchors when hunks produce out-of-order commentable ranges", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: [
+            "@@ -1000000,1 +1000000,1 @@",
+            "+line 1000000",
+            "@@ -10,1 +10,1 @@",
+            "+line 10",
+          ].join("\n"),
+        },
+      ],
+    });
+
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 5, 15)).toBe(10);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 1, 1_000_000_000)).toBe(10);
+    expect(resolveInlineAnchorLine(index, "src/x.ts", 11, 999_999)).toBeNull();
   });
 
   it("cachedDiffForLines omits gap lines from commentable ranges", () => {

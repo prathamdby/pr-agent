@@ -34,6 +34,8 @@ describe("parseAskQuestion", () => {
 
   it("uses first non-empty line only", () => {
     expect(parseAskQuestion(" \n/ask what is this?")).toBe("what is this?");
+    expect(parseAskQuestion(" \r\n/ask what is this?\n/ask ignored")).toBe("what is this?");
+    expect(parseAskQuestion("hello\n/ask ignored")).toBe(null);
   });
 
   it("is case-sensitive on /ask token", () => {

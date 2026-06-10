@@ -20,12 +20,16 @@ function testLimits(): LocalWorkspaceToolLimits {
 
 function mockWorkspace(agentCwd: string, checkoutPaths: Iterable<string>): LocalPrWorkspace {
   const paths = new Set(checkoutPaths);
+  const changedFiles = [{ path: "src/changed.ts", status: "modified" }] as const;
   return {
     rootDir: agentCwd,
     privateGitDir: agentCwd,
     agentCwd,
-    changedFiles: [{ path: "src/changed.ts", status: "modified" }],
+    checkoutMode: "full",
+    changedFiles,
+    changedFileByPath: new Map(changedFiles.map((file) => [file.path, file])),
     checkoutPaths: paths,
+    sortedCheckoutPaths: [...paths].toSorted(),
     diffIndex: createCachedPrDiffIndex(),
     stats: { truncated: false, totalChanges: 1, fileCount: 1 },
     getDiffForPath: async () => "",

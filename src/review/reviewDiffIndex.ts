@@ -26,22 +26,38 @@ const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
 
 /** Parse unified diff patch into contiguous RIGHT-side line ranges (additions + context). */
 export function parseCommentableRightLineRanges(patch: string): CommentableRightLineRanges {
-  const lines = new Set<number>();
+  const ranges: CommentableRightLineRanges = [];
   let rightLine = 0;
+  let range: [number, number] | undefined;
+
+  const addCommentableLine = (line: number) => {
+    if (!range) {
+      range = [line, line];
+      return;
+    }
+    if (line === range[1] + 1) {
+      range[1] = line;
+      return;
+    }
+    ranges.push(range);
+    range = [line, line];
+  };
 
   for (const rawLine of patch.split("\n")) {
-    const hunkMatch = rawLine.match(DIFF_HUNK_RE);
-    if (hunkMatch) {
-      rightLine = Number(hunkMatch[1]);
-      continue;
+    if (rawLine.startsWith("@@")) {
+      const hunkMatch = rawLine.match(DIFF_HUNK_RE);
+      if (hunkMatch) {
+        rightLine = Number(hunkMatch[1]);
+        continue;
+      }
     }
     if (rawLine.startsWith("+") && !rawLine.startsWith("+++")) {
-      lines.add(rightLine);
+      addCommentableLine(rightLine);
       rightLine++;
       continue;
     }
     if (rawLine.startsWith(" ") && rawLine.length > 0) {
-      lines.add(rightLine);
+      addCommentableLine(rightLine);
       rightLine++;
       continue;
     }
@@ -56,25 +72,7 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     }
   }
 
-  return compressLineRanges([...lines].toSorted((a, b) => a - b));
-}
-
-function compressLineRanges(sortedLines: number[]): CommentableRightLineRanges {
-  if (sortedLines.length === 0) return [];
-  const ranges: CommentableRightLineRanges = [];
-  let start = sortedLines[0];
-  let prev = start;
-  for (let i = 1; i < sortedLines.length; i++) {
-    const line = sortedLines[i];
-    if (line === prev + 1) {
-      prev = line;
-      continue;
-    }
-    ranges.push([start, prev]);
-    start = line;
-    prev = line;
-  }
-  ranges.push([start, prev]);
+  if (range) ranges.push(range);
   return ranges;
 }
 
@@ -96,6 +94,7 @@ export function ingestListPullRequestFilesResult(
     index.truncated = true;
   }
   for (const file of result.files ?? []) {
+    if (index.files.has(file.filename)) continue;
     const patchOmitted = file.patchOmitted === true || file.patch == null || file.patch === "";
     const commentableRightLineRanges =
       !patchOmitted && file.patch ? parseCommentableRightLineRanges(file.patch) : [];
@@ -122,13 +121,6 @@ export function wrapListPullRequestFilesDiffIngestion(
   };
 }
 
-function lineInRanges(line: number, ranges: CommentableRightLineRanges): boolean {
-  for (const [start, end] of ranges) {
-    if (line >= start && line <= end) return true;
-  }
-  return false;
-}
-
 /** Pick first commentable RIGHT line inside the finding range, or null for summary-only. */
 export function resolveInlineAnchorLine(
   index: CachedPrDiffIndex | undefined,
@@ -141,10 +133,15 @@ export function resolveInlineAnchorLine(
   if (!entry || entry.patchOmitted || entry.commentableRightLineRanges.length === 0) return null;
   const lo = Math.min(startLine, endLine);
   const hi = Math.max(startLine, endLine);
-  for (let line = lo; line <= hi; line++) {
-    if (lineInRanges(line, entry.commentableRightLineRanges)) return line;
+  let anchor: number | null = null;
+  for (const [start, end] of entry.commentableRightLineRanges) {
+    if (end < lo || start > hi) continue;
+    const candidate = Math.max(lo, start);
+    if (anchor === null || candidate < anchor) {
+      anchor = candidate;
+    }
   }
-  return null;
+  return anchor;
 }
 
 function formatRangePair([start, end]: [number, number]): string {

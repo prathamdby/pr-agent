@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   prepareCalls: 0,
@@ -19,6 +19,7 @@ vi.mock("../src/github/appAuth.js", () => ({
               head: { sha: "h".repeat(40) },
               additions: 0,
               deletions: 0,
+              changed_files: 0,
             },
           };
         },
@@ -31,6 +32,7 @@ vi.mock("../src/github/appAuth.js", () => ({
 vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.js")>();
   return {
+    assertPullRequestFilesHeadSha: actual.assertPullRequestFilesHeadSha,
     fetchPullRequestFiles: (...args: Parameters<typeof actual.fetchPullRequestFiles>) =>
       actual.fetchPullRequestFiles(...args),
   };
@@ -60,6 +62,7 @@ vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
 
 import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
+import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../src/settings/index.js";
 
 const params = {
   cfg: {} as never,
@@ -69,9 +72,22 @@ const params = {
   headSha: "h".repeat(40),
   installationToken: "t",
 };
+const prFiles = {
+  files: [],
+  truncated: false,
+  omittedCountLowerBound: 0,
+  totalChanges: 0,
+  headSha: "h".repeat(40),
+};
 
 describe("prRepositoryView cache", () => {
-  afterEach(() => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(async () => {
+    await vi.runOnlyPendingTimersAsync();
+    vi.useRealTimers();
     state.prepareCalls = 0;
     state.failNext = false;
     state.pullsGetCalls = 0;
@@ -98,6 +114,21 @@ describe("prRepositoryView cache", () => {
     expect(a).toBe(1);
     expect(b).toBe(2);
     expect(state.prepareCalls).toBe(1);
+    expect(state.cleanup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
+    expect(state.cleanup).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses a released view during the grace period", async () => {
+    await withPrRepositoryView(params, async () => "first");
+    expect(state.prepareCalls).toBe(1);
+    expect(state.cleanup).not.toHaveBeenCalled();
+
+    await withPrRepositoryView(params, async () => "second");
+    expect(state.prepareCalls).toBe(1);
+    expect(state.cleanup).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
     expect(state.cleanup).toHaveBeenCalledTimes(1);
   });
 
@@ -117,6 +148,31 @@ describe("prRepositoryView cache", () => {
     fetchSpy.mockRestore();
   });
 
+  it("passes a resolved pull payload into file fetching", async () => {
+    const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
+    const pullRequest = {
+      additions: 0,
+      deletions: 0,
+      changed_files: 0,
+      head: { sha: "h".repeat(40) },
+    };
+
+    await withPrRepositoryView({ ...params, pullRequest }, async () => "ok");
+
+    expect(fetchSpy.mock.calls[0]?.[5]).toBe(pullRequest);
+    fetchSpy.mockRestore();
+  });
+
+  it("uses prefetched pull request files when supplied", async () => {
+    const fetchSpy = vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles");
+
+    await withPrRepositoryView({ ...params, prFiles }, async () => "ok");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(state.prepareCalls).toBe(1);
+    fetchSpy.mockRestore();
+  });
+
   it("re-prepares after a failed clone instead of caching the failure", async () => {
     state.failNext = true;
     await expect(withPrRepositoryView(params, async () => 1)).rejects.toThrow(/clone failed/);
@@ -125,6 +181,8 @@ describe("prRepositoryView cache", () => {
     const result = await withPrRepositoryView(params, async () => "ok");
     expect(result).toBe("ok");
     expect(state.prepareCalls).toBe(2);
+    expect(state.cleanup).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
     expect(state.cleanup).toHaveBeenCalledTimes(1);
   });
 });

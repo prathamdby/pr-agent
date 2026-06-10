@@ -1,4 +1,4 @@
-import { installationOctokit } from "../github/appAuth.js";
+import type { ListPullRequestFilesResult } from "../github/listPullRequestFiles.js";
 import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import type { PreflightFileEntry } from "./reviewChangeGate.js";
 
@@ -9,45 +9,15 @@ export type ReviewPreflightMetadata = {
   readonly totalChanges: number;
 };
 
-export async function fetchReviewPreflightMetadata(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  limits: { maxPrFilesListed: number },
-): Promise<ReviewPreflightMetadata> {
-  const octokit = installationOctokit(token);
-  const files: PreflightFileEntry[] = [];
-  let truncated = false;
-  let totalChanges = 0;
-
-  for (let page = 1; ; page++) {
-    const { data } = await octokit.rest.pulls.listFiles({
-      owner,
-      repo,
-      pull_number: prNumber,
-      per_page: 100,
-      page,
-    });
-    if (data.length === 0) break;
-
-    for (const file of data) {
-      if (files.length >= limits.maxPrFilesListed) {
-        truncated = true;
-        break;
-      }
-      files.push({ filename: file.filename });
-      totalChanges += file.changes;
-    }
-
-    if (truncated || data.length < 100) break;
-  }
-
+export function buildReviewPreflightMetadataFromPullRequestFiles(
+  prFiles: ListPullRequestFilesResult,
+): ReviewPreflightMetadata {
+  const files = prFiles.files.map((file) => ({ filename: file.filename }));
   return {
     files,
-    truncated,
+    truncated: prFiles.truncated,
     fileCount: files.length,
-    totalChanges,
+    totalChanges: prFiles.totalChanges,
   };
 }
 

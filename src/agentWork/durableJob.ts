@@ -13,6 +13,7 @@ import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/githubRequestError
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providerErrors.js";
 import { DEFERRED_HEAD_SHA, TOKEN_FRESHNESS_BUFFER_MS } from "../settings/index.js";
+import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
@@ -27,12 +28,13 @@ import {
   shouldSkipWork,
   updateRunningWorkHeadSha,
 } from "./repository.js";
-import { getPullRequestHeadSha } from "./githubPrSurface.js";
+import { getPullRequestHead } from "./githubPrSurface.js";
 import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload } from "./types.js";
 
 type DurableExecutionContext = {
   installation: InstallationToken;
   headSha: string;
+  pullRequest?: PullRequestForFileList;
 };
 
 const installationTokenCache = new Map<number, InstallationToken | Promise<InstallationToken>>();
@@ -64,6 +66,11 @@ type DurableExecutionResult = {
   readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
 };
 
+export type DurableHeadResolution = {
+  readonly headSha: string;
+  readonly pullRequest?: PullRequestForFileList;
+};
+
 export type DurableJobSpec = {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -71,7 +78,7 @@ export type DurableJobSpec = {
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: "review" | "ask" | "description";
   readonly acceptItem?: (item: AgentWorkItemCore) => boolean;
-  readonly resolveHeadSha: (token: string, item: AgentWorkItem) => Promise<string>;
+  readonly resolveHeadSha: (token: string, item: AgentWorkItem) => Promise<DurableHeadResolution>;
   readonly execute: (
     item: AgentWorkItem,
     env: DurableExecutionContext,
@@ -127,13 +134,13 @@ export function makeInstallationTokenRefresher(
   };
 }
 
-export async function resolveWorkItemHeadSha(
+export async function resolveWorkItemHead(
   token: string,
   item: AgentWorkItemCore,
-): Promise<string> {
+): Promise<DurableHeadResolution> {
   return item.headSha === DEFERRED_HEAD_SHA
-    ? getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber)
-    : item.headSha;
+    ? getPullRequestHead(token, item.owner, item.repo, item.prNumber)
+    : { headSha: item.headSha };
 }
 
 async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolean> {
@@ -235,9 +242,14 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       return undefined;
     }
 
-    const headSha = await spec.resolveHeadSha(installationToken.token, item);
+    const resolvedHead = await spec.resolveHeadSha(installationToken.token, item);
+    const headSha = resolvedHead.headSha;
     if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha)) {
-      return { installation: installationToken, headSha };
+      return {
+        installation: installationToken,
+        headSha,
+        pullRequest: resolvedHead.pullRequest,
+      };
     }
 
     await recheckSkippableAndCancel();

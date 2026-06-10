@@ -4,6 +4,7 @@ export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
 export const RETENTION_QUEUE = "agent-work-retention";
+export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
@@ -20,6 +21,9 @@ export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 /** pi-ai metadata when mapping Cursor.models.list() items. */
 export const CURSOR_DEFAULT_CONTEXT_WINDOW = 200_000;
 export const CURSOR_DEFAULT_MAX_TOKENS = 16_384;
+
+export const LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY = 32;
+export const PR_REPOSITORY_VIEW_RELEASE_GRACE_MS = 60_000;
 
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";
@@ -269,6 +273,7 @@ export const BAD_CREDENTIALS_MESSAGE = /bad credentials/i;
 export const INSTALLATION_TOKEN_FALLBACK_TTL_MS = 60 * 60 * 1000;
 export const PRIMARY_RATE_LIMIT_MAX_RETRIES = 2;
 export const SECONDARY_RATE_LIMIT_MAX_RETRIES = 3;
+export const GITHUB_PULL_REQUEST_FILES_API_MAX_FILES = 3_000;
 export const COMMENTS_PAGE_SIZE = 100;
 export const COMMENT_PAGINATION_MAX_PAGES = 20;
 
@@ -295,6 +300,7 @@ export const CURSOR_MCP_SERVER_NAME = "pr-agent";
 
 /** Logging. */
 export const MAX_LOG_MESSAGE_LEN = 2_000;
+export const MAX_LOG_REDACTION_SCAN_LEN = MAX_LOG_MESSAGE_LEN * 4;
 
 /** Slash command help (scheduler ack replies). */
 export const SLASH_HELP_BODY = [

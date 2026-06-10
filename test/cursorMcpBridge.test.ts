@@ -6,14 +6,18 @@ import { checkMcpBearerAuth, createMcpBridge } from "../src/agent/providers/curs
 import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/review/reviewRunMetrics.js";
 
 type NoopBridge = Awaited<ReturnType<typeof createMcpBridge>>;
+type HttpMcpServerConfig = Extract<NoopBridge["mcpServers"][string], { type?: "http" | "sse" }>;
 
 const noopBridgeSpec = {
   tools: [{ name: "noop", description: "noop", parameters: { type: "object" } }],
   executors: { noop: async () => "ok" },
 };
 
-async function withNoopBridge<T>(fn: (bridge: NoopBridge) => Promise<T>): Promise<T> {
-  const bridge = await createMcpBridge(noopBridgeSpec);
+async function withBridge<T>(
+  spec: Parameters<typeof createMcpBridge>[0],
+  fn: (bridge: NoopBridge) => Promise<T>,
+): Promise<T> {
+  const bridge = await createMcpBridge(spec);
   try {
     return await fn(bridge);
   } finally {
@@ -21,7 +25,19 @@ async function withNoopBridge<T>(fn: (bridge: NoopBridge) => Promise<T>): Promis
   }
 }
 
-async function connectClient(config: NoopBridge["mcpServers"]["pr-agent"]): Promise<Client> {
+async function withNoopBridge<T>(fn: (bridge: NoopBridge) => Promise<T>): Promise<T> {
+  return withBridge(noopBridgeSpec, fn);
+}
+
+function expectHttpMcpConfig(config: NoopBridge["mcpServers"][string] | undefined) {
+  expect(config?.type).toBe("http");
+  if (config == null || config.type !== "http") {
+    throw new Error("expected HTTP MCP server config");
+  }
+  return config;
+}
+
+async function connectClient(config: HttpMcpServerConfig): Promise<Client> {
   const transport = new StreamableHTTPClientTransport(new URL(config.url), {
     requestInit: { headers: config.headers },
   });
@@ -45,16 +61,16 @@ describe("createMcpBridge", () => {
 
   it("exposes http mcp server config on loopback", async () => {
     await withNoopBridge(async (bridge) => {
-      const config = bridge.mcpServers["pr-agent"];
-      expect(config?.type).toBe("http");
-      expect(config?.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp\//);
-      expect(config?.headers?.Authorization).toMatch(/^Bearer /);
+      const config = expectHttpMcpConfig(bridge.mcpServers["pr-agent"]);
+      expect(config.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/mcp\//);
+      expect(config.headers?.Authorization).toMatch(/^Bearer /);
     });
   });
 
   it("rejects requests without bearer token", async () => {
     await withNoopBridge(async (bridge) => {
-      const res = await fetch(bridge.mcpServers["pr-agent"].url, {
+      const config = expectHttpMcpConfig(bridge.mcpServers["pr-agent"]);
+      const res = await fetch(config.url, {
         method: "POST",
       });
       expect(res.status).toBe(401);
@@ -70,7 +86,7 @@ describe("createMcpBridge", () => {
         mode: "review",
       });
       await withNoopBridge(async (bridge) => {
-        const client = await connectClient(bridge.mcpServers["pr-agent"]);
+        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
         const result = await client.callTool({ name: "noop", arguments: {} });
         expect(result.isError).not.toBe(true);
         expect(snapshotReviewRunMetrics()?.toolCallCount).toBe(1);
@@ -88,7 +104,7 @@ describe("createMcpBridge", () => {
         mode: "review",
       });
       await withNoopBridge(async (bridge) => {
-        const client = await connectClient(bridge.mcpServers["pr-agent"]);
+        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
         const result = await client.callTool({
           name: "missing",
           arguments: {},
@@ -105,10 +121,28 @@ describe("createMcpBridge", () => {
 
   it("completes tool RPC without operation logger", async () => {
     await withNoopBridge(async (bridge) => {
-      const client = await connectClient(bridge.mcpServers["pr-agent"]);
+      const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
       const result = await client.callTool({ name: "noop", arguments: {} });
       expect(result.isError).not.toBe(true);
       await client.close();
     });
+  });
+
+  it("serializes object tool results as compact JSON", async () => {
+    await withBridge(
+      {
+        tools: [{ name: "object", description: "object", parameters: { type: "object" } }],
+        executors: { object: async () => ({ answer: 42, nested: { ok: true } }) },
+      },
+      async (bridge) => {
+        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+        const result = await client.callTool({ name: "object", arguments: {} });
+        expect(result.content).toContainEqual({
+          type: "text",
+          text: '{"answer":42,"nested":{"ok":true}}',
+        });
+        await client.close();
+      },
+    );
   });
 });

@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
-import type { Config } from "../src/config.js";
 import { WebhookParseError } from "../src/webhook/parseGithubPayload.js";
 import { createOperationLogger } from "../src/evlog.js";
 import { dispatchGithubEventEffect } from "../src/effect/programs/dispatchEffect.js";
@@ -8,47 +7,21 @@ import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookHandlers } from "../src/effect/services/webhookHandlers.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import * as parseModule from "../src/webhook/parseGithubPayload.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const cfg: Config = {
+const cfg = makeTestConfig({
   port: 3000,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
-  databaseUrl: "postgres://test",
-  role: "web",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
-  maxToolRounds: 24,
   maxAskFinalizeRounds: 6,
-  maxReviewPublishAttempts: 3,
-  reviewConcurrency: 2,
-  askConcurrency: 1,
-  ackConcurrency: 2,
-  queueRetryLimit: 3,
-  queueRetryDelaySeconds: 30,
-  queueRetryDelayMaxSeconds: 300,
-  queueExpireInSeconds: 3600,
-  queueHeartbeatSeconds: 60,
-  queueRetentionSeconds: 1209600,
-  queueDeleteAfterSeconds: 604800,
-  installationGroupConcurrency: 2,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500000,
-  logLevel: "error",
-};
+});
 
 type Trace = {
-  recordIgnored: ReturnType<typeof vi.fn>;
-  submitAutomatedReview: ReturnType<typeof vi.fn>;
-  submitSlashCommand: ReturnType<typeof vi.fn>;
-  pullRequest: ReturnType<typeof vi.fn>;
-  issueComment: ReturnType<typeof vi.fn>;
-  pullRequestReviewComment: ReturnType<typeof vi.fn>;
+  recordIgnored: (...args: unknown[]) => void;
+  submitAutomatedReview: (...args: unknown[]) => void;
+  submitSlashCommand: (...args: unknown[]) => void;
+  pullRequest: (...args: unknown[]) => void;
+  issueComment: (...args: unknown[]) => void;
+  pullRequestReviewComment: (...args: unknown[]) => void;
 };
 
 function buildLayers(trace: Trace) {
@@ -67,6 +40,7 @@ function buildLayers(trace: Trace) {
         Effect.sync(() => {
           trace.submitSlashCommand(input, intakeLog);
         }),
+      ping: () => Effect.succeed(true),
     }),
   );
 

@@ -3,7 +3,14 @@ import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
 } from "../review/reviewPreflightFiles.js";
-import { fetchPullRequestFiles } from "../github/listPullRequestFiles.js";
+import {
+  assertPullRequestFilesHeadSha,
+  fetchPullRequestFiles,
+  type ListPullRequestFilesResult,
+  type PullRequestForFileList,
+} from "../github/listPullRequestFiles.js";
+import { logWarn } from "../evlog.js";
+import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../settings/index.js";
 import {
   prepareLocalPrWorkspace,
   selectLocalPrWorkspaceCheckoutMode,
@@ -23,6 +30,8 @@ export type PreparePrRepositoryViewParams = {
   readonly prNumber: number;
   readonly headSha: string;
   readonly installationToken: string;
+  readonly prFiles?: ListPullRequestFilesResult;
+  readonly pullRequest?: PullRequestForFileList;
   readonly repositorySizeKb?: number;
 };
 
@@ -34,9 +43,22 @@ type CacheEntry = {
   refcount: number;
   view: CachedPrRepositoryView | null;
   prepare: Promise<CachedPrRepositoryView> | null;
+  releaseTimer: ReturnType<typeof setTimeout> | null;
 };
 
 const cache = new Map<string, CacheEntry>();
+
+function cancelReleaseTimer(entry: CacheEntry): void {
+  if (!entry.releaseTimer) return;
+  clearTimeout(entry.releaseTimer);
+  entry.releaseTimer = null;
+}
+
+function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+  if (typeof timer === "object" && "unref" in timer) {
+    timer.unref();
+  }
+}
 
 function cacheKey(
   params: Pick<
@@ -51,21 +73,20 @@ function cacheKey(
 async function prepareUncached(
   params: PreparePrRepositoryViewParams,
 ): Promise<CachedPrRepositoryView> {
-  const prFiles = await fetchPullRequestFiles(
-    params.installationToken,
-    params.owner,
-    params.repo,
-    params.prNumber,
-    {
-      maxPrFilesListed: params.cfg.maxPrFilesListed,
-      maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
-    },
-  );
-  if (prFiles.headSha?.toLowerCase() !== params.headSha.toLowerCase()) {
-    throw new Error(
-      `Pull request head SHA ${prFiles.headSha ?? "unknown"} does not match work item headSha ${params.headSha}`,
-    );
-  }
+  const prFiles =
+    params.prFiles ??
+    (await fetchPullRequestFiles(
+      params.installationToken,
+      params.owner,
+      params.repo,
+      params.prNumber,
+      {
+        maxPrFilesListed: params.cfg.maxPrFilesListed,
+        maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
+      },
+      params.pullRequest,
+    ));
+  assertPullRequestFilesHeadSha(prFiles, params.headSha);
   const workspace = await prepareLocalPrWorkspace({
     cfg: params.cfg,
     owner: params.owner,
@@ -109,9 +130,10 @@ async function acquirePrRepositoryView(
   const key = cacheKey(params);
   let entry = cache.get(key);
   if (!entry) {
-    entry = { refcount: 0, view: null, prepare: null };
+    entry = { refcount: 0, view: null, prepare: null, releaseTimer: null };
     cache.set(key, entry);
   }
+  cancelReleaseTimer(entry);
   entry.refcount += 1;
   try {
     return await prepareEntry(entry, params);
@@ -132,11 +154,29 @@ async function releasePrRepositoryView(
   if (!entry) return;
   entry.refcount -= 1;
   if (entry.refcount > 0) return;
-  cache.delete(key);
   const view = entry.view;
-  entry.view = null;
-  entry.prepare = null;
-  if (view) await view.cleanup();
+  if (!view) {
+    cache.delete(key);
+    entry.prepare = null;
+    return;
+  }
+  const timer = setTimeout(() => {
+    if (entry.refcount > 0) return;
+    cache.delete(key);
+    entry.view = null;
+    entry.prepare = null;
+    void view.cleanup().catch((error: unknown) => {
+      logWarn("pr_repository_view_cleanup_failed", {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        headSha: params.headSha,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }, PR_REPOSITORY_VIEW_RELEASE_GRACE_MS);
+  entry.releaseTimer = timer;
+  unrefTimer(timer);
 }
 
 export async function withPrRepositoryView<T>(

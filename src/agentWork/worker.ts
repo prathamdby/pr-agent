@@ -9,6 +9,7 @@ import {
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE,
+  RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
 } from "../settings/index.js";
 import {
@@ -71,6 +72,13 @@ function registerMetadataQueue<T>(
   });
 }
 
+export function retentionQueueWorkOptions(): Parameters<PgBoss["work"]>[1] {
+  return {
+    localConcurrency: 1,
+    pollingIntervalSeconds: RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
+  };
+}
+
 export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
   Layer.scopedDiscard(
     Effect.acquireRelease(
@@ -118,22 +126,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               },
               (job) => executeDescriptionJob(cfg, pool, boss, job),
             ),
-            registerPlainQueue(
-              boss,
-              RETENTION_QUEUE,
-              { localConcurrency: 1, ...fastQueueOptions },
-              async () => {
-                try {
-                  const result = await runRetention(pool, cfg);
-                  logInfo("retention_cleanup", result);
-                } catch (e) {
-                  logError("retention_cleanup_failed", {
-                    message: e instanceof Error ? e.message : String(e),
-                  });
-                  throw e;
-                }
-              },
-            ),
+            registerPlainQueue(boss, RETENTION_QUEUE, retentionQueueWorkOptions(), async () => {
+              try {
+                const result = await runRetention(pool, cfg);
+                logInfo("retention_cleanup", result);
+              } catch (e) {
+                logError("retention_cleanup_failed", {
+                  message: e instanceof Error ? e.message : String(e),
+                });
+                throw e;
+              }
+            }),
           ]);
           logInfo("agent_worker_started", {
             queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, RETENTION_QUEUE],

@@ -113,4 +113,68 @@ describe("reviewPriorFeedback", () => {
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual(["False positive — already handled upstream"]);
   });
+
+  it("groups nested replies under the bot root comment", async () => {
+    const botUserId = 1;
+    const humanUserId = 2;
+    const reviewId = 100;
+
+    vi.mocked(installationOctokit).mockReturnValue({
+      rest: {
+        pulls: {
+          listReviews: vi.fn(async () => ({
+            data: [
+              {
+                id: reviewId,
+                user: { id: botUserId },
+                body: REVIEW_POINTER_BODY,
+              },
+            ],
+          })),
+          listReviewComments: vi.fn(async () => ({
+            data: [
+              {
+                id: 10,
+                in_reply_to_id: null,
+                pull_request_review_id: reviewId,
+                user: { id: botUserId },
+                body: "**P1** · **Missing await**",
+                path: "src/a.ts",
+                line: 4,
+                html_url: "https://github.com/o/r/pull/1#discussion_r10",
+              },
+              {
+                id: 11,
+                in_reply_to_id: 10,
+                pull_request_review_id: null,
+                user: { id: humanUserId },
+                body: "Still a false positive",
+                path: "src/a.ts",
+                line: 4,
+                html_url: "https://github.com/o/r/pull/1#discussion_r11",
+              },
+              {
+                id: 12,
+                in_reply_to_id: 11,
+                pull_request_review_id: null,
+                user: { id: humanUserId },
+                body: "The helper already awaits it",
+                path: "src/a.ts",
+                line: 4,
+                html_url: "https://github.com/o/r/pull/1#discussion_r12",
+              },
+            ],
+          })),
+        },
+      },
+    } as never);
+
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
+
+    expect(threads).toHaveLength(1);
+    expect(threads[0]?.humanReplies).toEqual([
+      "Still a false positive",
+      "The helper already awaits it",
+    ]);
+  });
 });

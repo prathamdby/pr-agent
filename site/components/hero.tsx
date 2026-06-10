@@ -1,5 +1,21 @@
-import { ChevronRight } from "lucide-react";
 import { DOCS_URL } from "@/lib/site";
+
+function ChevronRightIcon({ className }: { readonly className: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
 
 export function Hero() {
   return (
@@ -7,7 +23,7 @@ export function Hero() {
       <div className="mx-auto max-w-xl">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-sm text-neutral-600">
           <span>Reviews · Descriptions · Q&A</span>
-          <ChevronRight className="h-3 w-3" aria-hidden="true" />
+          <ChevronRightIcon className="h-3 w-3" />
         </div>
 
         <h1 id="hero-heading" className="text-2xl leading-tight mb-4">
@@ -33,7 +49,7 @@ export function Hero() {
             className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-700 transition-colors"
           >
             Get started
-            <ChevronRight className="h-4 w-4" aria-hidden="true" />
+            <ChevronRightIcon className="h-4 w-4" />
           </a>
           <a
             href="#examples"

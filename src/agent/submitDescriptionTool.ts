@@ -29,6 +29,17 @@ export function createSubmitDescriptionState(): SubmitDescriptionState {
   };
 }
 
+const SUBMIT_DESCRIPTION_DESCRIPTION = [
+  "Submit the completed PR description exactly once.",
+  "Pass a DescriptionPayload object matching the schema.",
+  "This merges generated content into the pull request body under the PR Agent description header.",
+  `Minimal valid example: ${JSON.stringify(DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE)}`,
+].join(" ");
+
+const SUBMIT_DESCRIPTION_PARAMETERS = z.toJSONSchema(descriptionPayloadSchema, {
+  unrepresentable: "any",
+}) as PiTool["parameters"];
+
 export function buildSubmitDescriptionTool(params: {
   cfg: Config;
   token: string;
@@ -44,15 +55,8 @@ export function buildSubmitDescriptionTool(params: {
 } {
   const piTool: PiTool = {
     name: "submitDescription",
-    description: [
-      "Submit the completed PR description exactly once.",
-      "Pass a DescriptionPayload object matching the schema.",
-      "This merges generated content into the pull request body under the PR Agent description header.",
-      `Minimal valid example: ${JSON.stringify(DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE)}`,
-    ].join(" "),
-    parameters: z.toJSONSchema(descriptionPayloadSchema, {
-      unrepresentable: "any",
-    }) as PiTool["parameters"],
+    description: SUBMIT_DESCRIPTION_DESCRIPTION,
+    parameters: SUBMIT_DESCRIPTION_PARAMETERS,
   };
 
   const executor = async (args: Record<string, unknown>) => {

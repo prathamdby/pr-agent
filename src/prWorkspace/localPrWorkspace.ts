@@ -13,6 +13,7 @@ import {
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
 } from "../review/reviewDiffIndex.js";
+import { LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY } from "../settings/index.js";
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
@@ -36,7 +37,9 @@ export type LocalPrWorkspace = {
   readonly privateGitDir: string;
   readonly agentCwd: string;
   readonly changedFiles: readonly LocalPrChangedFile[];
+  readonly changedFileByPath: ReadonlyMap<string, LocalPrChangedFile>;
   readonly checkoutPaths: ReadonlySet<string>;
+  readonly sortedCheckoutPaths: readonly string[];
   readonly checkoutMode: LocalPrWorkspaceCheckoutMode;
   readonly diffIndex: CachedPrDiffIndex;
   readonly stats: {
@@ -181,61 +184,47 @@ async function writeTokenFile(rootDir: string, token: string): Promise<string> {
   return tokenFile;
 }
 
-async function removeSymlinks(dir: string): Promise<void> {
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isSymbolicLink()) {
-      await rm(full, { force: true });
-    } else if (entry.isDirectory()) {
-      await removeSymlinks(full);
-    }
-  }
-}
-
-async function setReadOnly(dir: string): Promise<void> {
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await setReadOnly(full);
-      await chmod(full, 0o555);
-    } else {
-      await chmod(full, 0o444);
-    }
-  }
-  await chmod(dir, 0o555);
-}
-
-async function makeWritable(dir: string): Promise<void> {
+async function makeDirectoriesWritable(dir: string): Promise<void> {
   await chmod(dir, 0o755).catch(() => undefined);
   for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
-      await makeWritable(full);
-    } else {
-      await chmod(full, 0o644).catch(() => undefined);
+      await makeDirectoriesWritable(full);
     }
   }
 }
 
 async function removeWorkspace(rootDir: string): Promise<void> {
-  await makeWritable(rootDir);
+  await makeDirectoriesWritable(rootDir);
   await rm(rootDir, { recursive: true, force: true });
 }
 
-async function indexCheckedOutFiles(agentCwd: string): Promise<Set<string>> {
+async function prepareCheckedOutTree(dir: string, prefix = ""): Promise<Set<string>> {
   const paths = new Set<string>();
-  async function walk(dir: string, prefix: string) {
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full, rel);
-      } else if (entry.isFile()) {
-        paths.add(rel.replace(/\\/g, "/"));
-      }
-    }
+  const entries = await readdir(dir, { withFileTypes: true });
+
+  for (let i = 0; i < entries.length; i += LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY) {
+    await Promise.all(
+      entries.slice(i, i + LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY).map(async (entry) => {
+        const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+        const full = join(dir, entry.name);
+        if (entry.isSymbolicLink()) {
+          await rm(full, { force: true });
+          return;
+        }
+        if (entry.isDirectory()) {
+          const childPaths = await prepareCheckedOutTree(full, rel);
+          for (const path of childPaths) paths.add(path);
+          return;
+        }
+        if (entry.isFile()) {
+          paths.add(rel.replace(/\\/g, "/"));
+        }
+        await chmod(full, 0o444);
+      }),
+    );
   }
-  await walk(agentCwd, "");
+  await chmod(dir, 0o555);
   return paths;
 }
 
@@ -327,6 +316,7 @@ export async function prepareLocalPrWorkspace(
     });
 
   let checkoutPaths = new Set<string>();
+  let sortedCheckoutPaths: string[] = [];
 
   function isPathInCheckout(path: string): boolean {
     return checkoutPaths.has(path.replace(/\\/g, "/"));
@@ -367,10 +357,16 @@ export async function prepareLocalPrWorkspace(
     await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
     await git(["remote", "add", "origin", remoteUrl], cfg.localWorkspaceCloneTimeoutMs);
     const prRef = `+refs/pull/${prNumber}/head:refs/heads/${PR_HEAD_REF}`;
-    await git(
-      ["fetch", "--no-tags", "--depth=1", "--no-recurse-submodules", "origin", prRef],
-      cfg.localWorkspaceFetchTimeoutMs,
-    );
+    const fetchArgs = [
+      "fetch",
+      "--no-tags",
+      "--depth=1",
+      ...(checkoutMode === "sparse" ? ["--filter=blob:none"] : []),
+      "--no-recurse-submodules",
+      "origin",
+      prRef,
+    ];
+    await git(fetchArgs, cfg.localWorkspaceFetchTimeoutMs);
     if (checkoutMode === "sparse") {
       await git(["config", "core.sparseCheckout", "true"], cfg.localWorkspaceCloneTimeoutMs);
       await git(["config", "core.sparseCheckoutCone", "false"], cfg.localWorkspaceCloneTimeoutMs);
@@ -389,16 +385,17 @@ export async function prepareLocalPrWorkspace(
 
     await rm(askpass, { force: true });
     await rm(tokenFile, { force: true });
-    await removeSymlinks(agentCwd);
-    checkoutPaths = await indexCheckedOutFiles(agentCwd);
-    await setReadOnly(agentCwd);
+    checkoutPaths = await prepareCheckedOutTree(agentCwd);
+    sortedCheckoutPaths = [...checkoutPaths].toSorted();
 
     return {
       rootDir,
       privateGitDir,
       agentCwd,
       changedFiles,
+      changedFileByPath,
       checkoutPaths,
+      sortedCheckoutPaths,
       checkoutMode,
       diffIndex,
       stats: {

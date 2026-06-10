@@ -129,6 +129,44 @@ describe("buildScopedAskExecutors", () => {
     expect(gate.prChangedPaths.has(".env")).toBe(true);
   });
 
+  it("reuses the first listPullRequestFiles result", async () => {
+    const base = {
+      listPullRequestFiles: vi.fn(async () => ({
+        files: [{ filename: ".env" }, { filename: "src/a.ts" }],
+      })),
+    };
+    const gate = createAskPathGate();
+    const executors = buildScopedAskExecutors(base, scope, gate);
+
+    const [first, second] = await Promise.all([
+      executors.listPullRequestFiles({}),
+      executors.listPullRequestFiles({}),
+    ]);
+
+    expect(base.listPullRequestFiles).toHaveBeenCalledTimes(1);
+    expect(first).toBe(second);
+    expect(gate.prChangedPaths.has(".env")).toBe(true);
+  });
+
+  it("does not reuse listPullRequestFiles results for different args", async () => {
+    const base = {
+      listPullRequestFiles: vi.fn(async (args: Record<string, unknown>) => ({
+        files: [{ filename: `src/${String(args.filter)}.ts` }],
+        filter: args.filter,
+      })),
+    };
+    const gate = createAskPathGate();
+    const executors = buildScopedAskExecutors(base, scope, gate);
+
+    const first = await executors.listPullRequestFiles({ filter: "a" });
+    const second = await executors.listPullRequestFiles({ filter: "b" });
+
+    expect(base.listPullRequestFiles).toHaveBeenCalledTimes(2);
+    expect(first).not.toBe(second);
+    expect(gate.prChangedPaths.has("src/a.ts")).toBe(true);
+    expect(gate.prChangedPaths.has("src/b.ts")).toBe(true);
+  });
+
   it("allows getFileContent on sensitive PR files after listPullRequestFiles", async () => {
     const base = {
       listPullRequestFiles: vi.fn(async () => ({

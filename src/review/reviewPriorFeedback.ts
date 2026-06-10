@@ -121,17 +121,39 @@ async function listBotReviewIdsForLens(
   return reviewIds;
 }
 
-function rootCommentId(comment: ReviewCommentRow, byId: Map<number, ReviewCommentRow>): number {
+function rootCommentId(
+  comment: ReviewCommentRow,
+  byId: Map<number, ReviewCommentRow>,
+  rootById: Map<number, number>,
+): number {
+  const cachedRoot = rootById.get(comment.id);
+  if (cachedRoot != null) return cachedRoot;
+
   let current = comment;
   const seen = new Set<number>();
+  const path: number[] = [];
   while (current.inReplyToId != null) {
+    const currentCachedRoot = rootById.get(current.id);
+    if (currentCachedRoot != null) {
+      for (const id of path) {
+        rootById.set(id, currentCachedRoot);
+      }
+      return currentCachedRoot;
+    }
     if (seen.has(current.id)) break;
     seen.add(current.id);
+    path.push(current.id);
     const parent = byId.get(current.inReplyToId);
     if (!parent) break;
     current = parent;
   }
-  return current.id;
+
+  const rootId = current.id;
+  rootById.set(rootId, rootId);
+  for (const id of path) {
+    rootById.set(id, rootId);
+  }
+  return rootId;
 }
 
 export async function fetchPriorInlineReviewFeedback(
@@ -149,10 +171,11 @@ export async function fetchPriorInlineReviewFeedback(
   if (reviewIds.size === 0) return [];
 
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
+  const rootById = new Map<number, number>();
   const threads = new Map<number, ReviewCommentRow[]>();
 
   for (const comment of comments) {
-    const rootId = rootCommentId(comment, byId);
+    const rootId = rootCommentId(comment, byId, rootById);
     const bucket = threads.get(rootId) ?? [];
     bucket.push(comment);
     threads.set(rootId, bucket);

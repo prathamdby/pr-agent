@@ -1,45 +1,19 @@
 import http from "node:http";
 import net from "node:net";
 import crypto from "node:crypto";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const testCfg: Config = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "fake",
+const testCfg = makeTestConfig({
   webhookSecret: "secret",
-  databaseUrl: "postgres://test",
-  role: "web",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
-  maxToolRounds: 24,
   maxAskFinalizeRounds: 6,
-  maxReviewPublishAttempts: 3,
-  reviewConcurrency: 2,
-  askConcurrency: 1,
-  ackConcurrency: 2,
-  queueRetryLimit: 3,
-  queueRetryDelaySeconds: 30,
-  queueRetryDelayMaxSeconds: 300,
-  queueExpireInSeconds: 3600,
-  queueHeartbeatSeconds: 60,
-  queueRetentionSeconds: 1209600,
-  queueDeleteAfterSeconds: 604800,
-  installationGroupConcurrency: 2,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500000,
-  logLevel: "error",
-};
+});
 
 function get(port: number, path: string): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
@@ -93,6 +67,75 @@ function postSigned(
   });
 }
 
+function postChunked(
+  port: number,
+  path: string,
+  chunks: readonly Buffer[],
+  headers: Record<string, string>,
+): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const responseChunks: Buffer[] = [];
+    const resolveResponse = () => {
+      if (settled) return;
+      settled = true;
+      const text = Buffer.concat(responseChunks).toString("utf8");
+      const sep = text.indexOf("\r\n\r\n");
+      if (sep < 0) {
+        reject(new Error("chunked response ended before headers"));
+        return;
+      }
+      const head = text.slice(0, sep);
+      const body = text.slice(sep + 4);
+      const statusLine = head.split("\r\n")[0] ?? "";
+      const status = Number(statusLine.split(" ")[1] ?? 0);
+      resolve({ status, body });
+    };
+    const rejectIfNoResponse = (error: Error) => {
+      if (settled) return;
+      if (responseChunks.length > 0) {
+        resolveResponse();
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
+    const sock = net.createConnection({ host: "127.0.0.1", port }, () => {
+      const headerLines = Object.entries({
+        "Content-Type": "application/json",
+        "Transfer-Encoding": "chunked",
+        ...headers,
+      }).map(([name, value]) => `${name}: ${value}`);
+      const reqHead = [
+        `POST ${path} HTTP/1.1`,
+        `Host: 127.0.0.1:${port}`,
+        ...headerLines,
+        "Connection: close",
+        "",
+        "",
+      ].join("\r\n");
+      const chunkFrames = chunks.flatMap((chunk) => [
+        Buffer.from(`${chunk.length.toString(16)}\r\n`),
+        chunk,
+        Buffer.from("\r\n"),
+      ]);
+      sock.end(Buffer.concat([Buffer.from(reqHead), ...chunkFrames, Buffer.from("0\r\n\r\n")]));
+    });
+    sock.on("data", (c) => responseChunks.push(Buffer.from(c)));
+    sock.on("end", resolveResponse);
+    sock.on("close", () => {
+      if (settled) return;
+      if (responseChunks.length > 0) {
+        resolveResponse();
+        return;
+      }
+      settled = true;
+      reject(new Error("chunked socket closed before response"));
+    });
+    sock.on("error", rejectIfNoResponse);
+  });
+}
+
 function postRaw(
   port: number,
   path: string,
@@ -140,18 +183,26 @@ function signBody(secret: string, body: Buffer): string {
 
 type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
 
-function startEffectServer(pingResult = true): Promise<Handle> {
+function startEffectServer({
+  pingResult = true,
+  cfg = testCfg,
+  dispatch = () => Effect.void,
+}: {
+  readonly pingResult?: boolean;
+  readonly cfg?: Config;
+  readonly dispatch?: () => Effect.Effect<void>;
+} = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
     const dispatcherLayer = Layer.succeed(
       WebhookDispatcher,
       WebhookDispatcher.of({
-        dispatch: () => Effect.void,
+        dispatch,
         ping: () => Effect.succeed(pingResult),
       }),
     );
     const layer = buildEffectWebhookLayer(
-      testCfg,
+      cfg,
       () => {
         captured = http.createServer();
         captured.once("listening", () => {
@@ -196,7 +247,7 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("returns 200 ready for GET /ready when the DB ping succeeds", async () => {
-    handle = await startEffectServer(true);
+    handle = await startEffectServer({ pingResult: true });
     const addr = handle.server.address();
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
     const res = await get(addr.port, "/ready");
@@ -205,7 +256,7 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("returns 503 not ready for GET /ready when the DB ping fails", async () => {
-    handle = await startEffectServer(false);
+    handle = await startEffectServer({ pingResult: false });
     const addr = handle.server.address();
     if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
     const res = await get(addr.port, "/ready");
@@ -245,6 +296,57 @@ describe("effect webhook server (end-to-end)", () => {
     const res = await postSigned(addr.port, "/webhooks", body, {});
     expect(res.status).toBe(401);
     expect(res.body).toBe("invalid signature");
+  });
+
+  it("rejects bodies over the configured Content-Length before signature checks", async () => {
+    let dispatchCalls = 0;
+    handle = await startEffectServer({
+      cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
+      dispatch: () =>
+        Effect.sync(() => {
+          dispatchCalls += 1;
+        }),
+    });
+    const addr = handle.server.address();
+    if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+
+    const body = Buffer.from(JSON.stringify({ zen: "too large" }));
+    const res = await postSigned(addr.port, "/webhooks", body, {
+      "x-hub-signature-256": "sha256=bad",
+      "x-github-event": "ping",
+      "x-github-delivery": "too-large-content-length",
+    });
+    expect(res.status).toBe(413);
+    expect(res.body).toBe("payload too large");
+    expect(dispatchCalls).toBe(0);
+  });
+
+  it("closes chunked bodies over the configured limit while reading", async () => {
+    let dispatchCalls = 0;
+    const destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
+    handle = await startEffectServer({
+      cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
+      dispatch: () =>
+        Effect.sync(() => {
+          dispatchCalls += 1;
+        }),
+    });
+    try {
+      const addr = handle.server.address();
+      if (typeof addr !== "object" || !addr?.port) throw new Error("no port");
+
+      await expect(
+        postChunked(addr.port, "/webhooks", [Buffer.from('{"zen":'), Buffer.from('"too large"}')], {
+          "x-hub-signature-256": "sha256=bad",
+          "x-github-event": "ping",
+          "x-github-delivery": "too-large-chunked",
+        }),
+      ).rejects.toThrow("chunked response ended before headers");
+      expect(dispatchCalls).toBe(0);
+      expect(destroySpy).toHaveBeenCalled();
+    } finally {
+      destroySpy.mockRestore();
+    }
   });
 
   it("handles duplicate x-hub-signature-256 headers gracefully (no crash; 401)", async () => {

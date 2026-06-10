@@ -66,7 +66,7 @@ function piToolToMcpTool(tool: PiTool): McpTool {
 }
 
 function executorResultToMcp(result: unknown, isError = false): CallToolResult {
-  const text = typeof result === "string" ? result : JSON.stringify(result, null, 2);
+  const text = typeof result === "string" ? result : JSON.stringify(result);
   return {
     content: [{ type: "text", text }],
     isError: isError || undefined,

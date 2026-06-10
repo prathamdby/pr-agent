@@ -11,6 +11,10 @@ export type InlinePlacement = {
   readonly inlineCommentUrl?: string;
 };
 
+export type FingerprintedInlinePlacement = InlinePlacement & {
+  readonly inlineFingerprint: string;
+};
+
 export function planInlinePlacements(
   findings: ReviewFinding[],
   diffIndex: CachedPrDiffIndex | undefined,
@@ -33,10 +37,10 @@ export function planInlinePlacements(
   });
 }
 
-export function applyInlineCommentCap(
-  placements: readonly InlinePlacement[],
+export function applyInlineCommentCap<TPlacement extends InlinePlacement>(
+  placements: readonly TPlacement[],
   maxInlineComments: number,
-): { placements: InlinePlacement[]; inlineCommentCapExcluded: number } {
+): { placements: TPlacement[]; inlineCommentCapExcluded: number } {
   const posted = placements
     .map((placement, index) => ({ placement, index }))
     .filter(({ placement }) => placement.inlinePosted);

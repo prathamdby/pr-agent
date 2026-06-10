@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Config } from "../src/config.js";
 import { ASK_FAILURE_MESSAGE } from "../src/settings/index.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("../src/agent/askSafety.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agent/askSafety.js")>();
@@ -43,29 +43,12 @@ vi.mock("../src/agent/providers/index.js", () => ({
 
 import { runAskHarness } from "../src/agent/askRunHarness.js";
 
-const cfg = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
-  agentProvider: "pi",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
+const cfg = makeTestConfig({
   maxToolRounds: 2,
-  maxReviewPublishAttempts: 3,
-  maxReviewPublishCalls: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  maxAskToolRounds: 12,
-  maxAskFinalizeRounds: 2,
-  webhookTimeoutMs: 10_000,
-  logLevel: "error",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500_000,
-  context7ApiKey: "",
-} satisfies Config;
+});
 
 const askParams = {
   cfg,

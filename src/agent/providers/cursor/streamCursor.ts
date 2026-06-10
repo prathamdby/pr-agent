@@ -6,7 +6,7 @@ import {
   type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { Agent, CursorAgentError } from "@cursor/sdk";
-import { approximateCursorUsage, buildCursorPrompt } from "./promptBuilder.js";
+import { approximateCursorUsage, buildCursorSendText } from "./promptBuilder.js";
 import { createMcpBridge } from "./mcpBridge.js";
 import { detachCursorRunContext, getCursorRunContext } from "./runContext.js";
 import { formatCursorRunError, formatCursorStartupError } from "./errors.js";
@@ -82,7 +82,9 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         }));
       if (!runContext.bridge) bridgeDispose = bridge.dispose;
 
-      const { text: promptText, inputChars } = buildCursorPrompt(context);
+      const { text: promptText, inputChars } = buildCursorSendText(context, {
+        reuseAgentConversation: Boolean(runContext.agent),
+      });
       const textDeltas: string[] = [];
       let abortListener: (() => void) | undefined;
 

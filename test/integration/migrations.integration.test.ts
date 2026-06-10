@@ -9,6 +9,7 @@ const EXPECTED_MIGRATIONS = [
   "003_description_work.sql",
   "004_indexes.sql",
   "005_retention_indexes.sql",
+  "006_retention_fk_indexes.sql",
 ];
 
 describe.skipIf(!hasDatabase)("migrations (integration)", () => {
@@ -31,14 +32,26 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     }
   });
 
-  it("creates the agent work item indexes", async () => {
-    const { rows } = await pool.query<{ indexname: string }>(
-      "SELECT indexname FROM pg_indexes WHERE tablename = 'agent_work_items'",
+  it("creates retention-supporting indexes", async () => {
+    const { rows } = await pool.query<{ indexname: string; indexdef: string }>(
+      "SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'agent_work_items'",
     );
     const names = rows.map((r) => r.indexname);
     expect(names).toContain("agent_work_items_superseded_by_idx");
     expect(names).toContain("agent_work_items_resource_type_status_idx");
-    expect(names).toContain("agent_work_items_status_completed_at_idx");
+    expect(names).toContain("agent_work_items_webhook_event_id_idx");
+    expect(names).toContain("agent_work_items_status_retention_age_idx");
+    expect(names).not.toContain("agent_work_items_status_idx");
+    expect(names).not.toContain("agent_work_items_status_completed_at_idx");
+    expect(names).not.toContain("agent_work_items_installation_status_idx");
+    expect(rows.map((r) => r.indexdef).join("\n")).toContain("COALESCE(completed_at, updated_at)");
+
+    const publishIndexes = await pool.query<{ indexname: string }>(
+      "SELECT indexname FROM pg_indexes WHERE tablename = 'publish_records'",
+    );
+    expect(publishIndexes.rows.map((r) => r.indexname)).toContain(
+      "publish_records_work_item_id_idx",
+    );
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {

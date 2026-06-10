@@ -56,6 +56,7 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Retention enabled         | `RETENTION_ENABLED`                         | `true`                   | toggle the scheduled cleanup sweep                                                                                                                                                                                                                                                                                                                         |
 | Ask tool rounds           | `MAX_ASK_TOOL_ROUNDS`                       | `12`                     |                                                                                                                                                                                                                                                                                                                                                            |
 | Ask finalize rounds       | `MAX_ASK_FINALIZE_ROUNDS`                   | `2`                      |                                                                                                                                                                                                                                                                                                                                                            |
+| Webhook body byte cap     | `WEBHOOK_MAX_BODY_BYTES`                    | `25000000`               | rejects request bodies above this size before signature verification or JSON parsing                                                                                                                                                                                                                                                                       |
 | Webhook response budget   | `WEBHOOK_TIMEOUT_MS`                        | `10000`                  | returns 503 when intake exceeds this budget minus the GitHub response margin                                                                                                                                                                                                                                                                               |
 | Context7 API key          | `CONTEXT7_API_KEY`                          | empty                    | optional                                                                                                                                                                                                                                                                                                                                                   |
 | Label effort              | `ENABLE_REVIEW_LABELS_EFFORT`               | `true`                   |                                                                                                                                                                                                                                                                                                                                                            |
@@ -107,17 +108,18 @@ These are related but not wired together on INSERT today.
 
 ### Agent work (queues)
 
-| Symbol                             | Value / role                        |
-| ---------------------------------- | ----------------------------------- |
-| `ACK_QUEUE`                        | `agent-work-ack`                    |
-| `REVIEW_QUEUE`                     | `agent-work-review`                 |
-| `ASK_QUEUE`                        | `agent-work-ask`                    |
-| `*_DEAD_LETTER_QUEUE`              | DLQ names                           |
-| `DEFERRED_HEAD_SHA`                | worker resolves head SHA            |
-| `AUTOMATED_PR_ACTIONS`             | opened, synchronize, reopened       |
-| `AUTOMATED_DESCRIPTION_PR_ACTIONS` | opened only (use `/describe` after) |
-| `AUTOMATED_REVIEW_LENS`            | `review`                            |
-| `MAX_STORED_COMMENT_TEXT_LEN`      | 16384                               |
+| Symbol                                     | Value / role                        |
+| ------------------------------------------ | ----------------------------------- |
+| `ACK_QUEUE`                                | `agent-work-ack`                    |
+| `REVIEW_QUEUE`                             | `agent-work-review`                 |
+| `ASK_QUEUE`                                | `agent-work-ask`                    |
+| `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                  |
+| `*_DEAD_LETTER_QUEUE`                      | DLQ names                           |
+| `DEFERRED_HEAD_SHA`                        | worker resolves head SHA            |
+| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened       |
+| `AUTOMATED_DESCRIPTION_PR_ACTIONS`         | opened only (use `/describe` after) |
+| `AUTOMATED_REVIEW_LENS`                    | `review`                            |
+| `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                               |
 
 ### Review output
 
@@ -185,16 +187,24 @@ These are related but not wired together on INSERT today.
 
 ### GitHub API
 
-| Symbol                               | Default |
-| ------------------------------------ | ------- |
-| `TOKEN_FRESHNESS_BUFFER_MS`          | 60000   |
-| `INSTALLATION_TOKEN_FALLBACK_TTL_MS` | 1h      |
-| `DEFAULT_COOLDOWN_SECONDS`           | 60      |
-| `PRIMARY_RATE_LIMIT_MAX_RETRIES`     | 2       |
-| `SECONDARY_RATE_LIMIT_MAX_RETRIES`   | 3       |
-| `COMMENTS_PAGE_SIZE`                 | 100     |
-| `COMMENT_PAGINATION_MAX_PAGES`       | 20      |
-| `GITHUB_REACTION_EYES`               | eyes    |
+| Symbol                                    | Default |
+| ----------------------------------------- | ------- |
+| `TOKEN_FRESHNESS_BUFFER_MS`               | 60000   |
+| `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h      |
+| `DEFAULT_COOLDOWN_SECONDS`                | 60      |
+| `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2       |
+| `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3       |
+| `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000    |
+| `COMMENTS_PAGE_SIZE`                      | 100     |
+| `COMMENT_PAGINATION_MAX_PAGES`            | 20      |
+| `GITHUB_REACTION_EYES`                    | eyes    |
+
+### Local PR workspace
+
+| Symbol                                  | Default |
+| --------------------------------------- | ------- |
+| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY` | 32      |
+| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`   | 60000   |
 
 ### Cursor SDK bridge
 
@@ -223,6 +233,7 @@ These are related but not wired together on INSERT today.
 | ----------------------------------- | --------------------------------------------- |
 | `CONTEXT7_BASE_URL`                 | Context7 API                                  |
 | `MAX_LOG_MESSAGE_LEN`               | 2000                                          |
+| `MAX_LOG_REDACTION_SCAN_LEN`        | 8000                                          |
 | `SLASH_HELP_BODY`                   | `/help` text                                  |
 | `MIGRATIONS_DIR_NAME`               | `migrations`                                  |
 | `MIGRATION_ADVISORY_LOCK_KEY`       | runMigrations cross-process lock              |

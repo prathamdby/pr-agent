@@ -1,6 +1,7 @@
 import { loadConfig, type Config } from "./config.js";
 import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { startEffectWebhookServer } from "./effect/server.js";
+import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
 async function main() {
   let cfg: Config;
@@ -46,6 +47,7 @@ async function main() {
     startAgentWorker(cfg);
     return;
   }
+  prewarmAppBotIdentity(cfg);
   startEffectWebhookServer(cfg);
 }
 

@@ -32,7 +32,7 @@ const getLibraryDocsSchema = z.object({
 type ReviewTool = {
   readonly description: string;
   readonly schema: z.ZodType;
-  readonly run: (parsed: any) => Promise<unknown>;
+  readonly run: (parsed: any, apiKey: string) => Promise<unknown>;
 };
 
 function toPiTool(name: string, t: ReviewTool): PiTool {
@@ -45,8 +45,11 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
   };
 }
 
-function toExecutor(t: ReviewTool): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(t.schema.parse(args));
+function toExecutor(
+  t: ReviewTool,
+  apiKey: string,
+): (args: Record<string, unknown>) => Promise<unknown> {
+  return async (args) => t.run(t.schema.parse(args), apiKey);
 }
 
 function authHeader(apiKey: string): Record<string, string> {
@@ -78,12 +81,44 @@ async function context7Get(url: string, apiKey: string): Promise<string> {
   }
 
   const contentType = res.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const body = await res.json();
+  if (contentType.toLowerCase().includes("application/json")) {
+    const body: unknown = await res.json();
     return JSON.stringify(body, null, 2);
   }
   return await res.text();
 }
+
+const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
+  resolveLibraryId: {
+    description:
+      "Resolve an external library name (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known.",
+    schema: resolveLibraryIdSchema,
+    run: async ({ libraryName, query }, apiKey) => {
+      const params = new URLSearchParams({
+        libraryName,
+        query: query?.trim() || libraryName,
+      });
+      return context7Get(`${CONTEXT7_BASE_URL}/v2/libs/search?${params.toString()}`, apiKey);
+    },
+  },
+  getLibraryDocs: {
+    description:
+      "Fetch current documentation for a third-party library by its Context7 library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding.",
+    schema: getLibraryDocsSchema,
+    run: async ({ libraryId, topic }, apiKey) => {
+      const params = new URLSearchParams({
+        libraryId,
+        type: "txt",
+      });
+      const topicTrimmed = topic?.trim();
+      if (topicTrimmed) params.set("query", topicTrimmed);
+      return context7Get(`${CONTEXT7_BASE_URL}/v2/context?${params.toString()}`, apiKey);
+    },
+  },
+};
+
+const CONTEXT7_TOOL_ENTRIES = Object.entries(CONTEXT7_TOOLS);
+const CONTEXT7_PI_TOOLS = CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => toPiTool(name, tool));
 
 /**
  * Library-docs lookup tools the review agent uses to verify upstream API claims.
@@ -95,39 +130,10 @@ export function buildContext7Tools({ apiKey }: { apiKey: string }): {
   piTools: PiTool[];
   executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
-  const resolveLibraryId: ReviewTool = {
-    description:
-      "Resolve an external library name (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known.",
-    schema: resolveLibraryIdSchema,
-    run: async ({ libraryName, query }) => {
-      const params = new URLSearchParams({
-        libraryName,
-        query: query?.trim() || libraryName,
-      });
-      return context7Get(`${CONTEXT7_BASE_URL}/v2/libs/search?${params.toString()}`, apiKey);
-    },
-  };
-
-  const getLibraryDocs: ReviewTool = {
-    description:
-      "Fetch current documentation for a third-party library by its Context7 library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding.",
-    schema: getLibraryDocsSchema,
-    run: async ({ libraryId, topic }) => {
-      const params = new URLSearchParams({
-        libraryId,
-        type: "txt",
-      });
-      const topicTrimmed = topic?.trim();
-      if (topicTrimmed) params.set("query", topicTrimmed);
-      return context7Get(`${CONTEXT7_BASE_URL}/v2/context?${params.toString()}`, apiKey);
-    },
-  };
-
-  const tools = { resolveLibraryId, getLibraryDocs };
-  const entries = Object.entries(tools);
-
   return {
-    piTools: entries.map(([name, t]) => toPiTool(name, t)),
-    executors: Object.fromEntries(entries.map(([name, t]) => [name, toExecutor(t)])),
+    piTools: [...CONTEXT7_PI_TOOLS],
+    executors: Object.fromEntries(
+      CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => [name, toExecutor(tool, apiKey)]),
+    ),
   };
 }

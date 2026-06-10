@@ -20,6 +20,7 @@ describe("parseGithubPayload", () => {
     };
     const p = parseGithubPayload("pull_request", raw);
     expect(p.name).toBe("pull_request");
+    if (p.name !== "pull_request") throw new Error("expected pull_request payload");
     expect(p.data.installation.id).toBe(42);
     expect(p.data.repository.size).toBe(1234);
     expect(p.data.pull_request.head.sha).toBe("abc");
@@ -67,6 +68,7 @@ describe("parseGithubPayload", () => {
 
     const p = parseGithubPayload("pull_request", raw);
     expect(p.name).toBe("pull_request");
+    if (p.name !== "pull_request") throw new Error("expected pull_request payload");
     expect(p.data.repository.owner.login).toBe("o");
     expect(p.data.pull_request.head.sha).toBe("abc");
   });
@@ -116,6 +118,7 @@ describe("parseGithubPayload", () => {
 
     const p = parseGithubPayload("issue_comment", raw);
     expect(p.name).toBe("issue_comment");
+    if (p.name !== "issue_comment") throw new Error("expected issue_comment payload");
     expect(p.data.issue.number).toBe(3);
     expect(p.data.comment.body).toBe("/review");
   });
@@ -157,6 +160,9 @@ describe("parseGithubPayload", () => {
 
     const p = parseGithubPayload("pull_request_review_comment", raw);
     expect(p.name).toBe("pull_request_review_comment");
+    if (p.name !== "pull_request_review_comment") {
+      throw new Error("expected pull_request_review_comment payload");
+    }
     expect(p.data.pull_request.number).toBe(3);
     expect(p.data.comment.id).toBe(100);
     expect(p.data.comment.path).toBe("src/hook.ts");

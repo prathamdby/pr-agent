@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { MAX_LOG_MESSAGE_LEN, MAX_LOG_REDACTION_SCAN_LEN } from "../src/settings/index.js";
 import { sanitizeLogMessage } from "../src/security/sanitizeLogMessage.js";
 
 describe("sanitizeLogMessage", () => {
@@ -30,6 +31,23 @@ describe("sanitizeLogMessage", () => {
 
   it("truncates to 2000 characters", () => {
     const long = "x".repeat(2500);
-    expect(sanitizeLogMessage(long)).toHaveLength(2000);
+    expect(sanitizeLogMessage(long)).toHaveLength(MAX_LOG_MESSAGE_LEN);
+  });
+
+  it("redacts tokens before final truncation", () => {
+    const secret = "ghs_0123456789012345678901234567890123";
+    const out = sanitizeLogMessage(
+      `clone failed ${secret} ${"x".repeat(MAX_LOG_REDACTION_SCAN_LEN)}`,
+    );
+    expect(out).not.toContain(secret);
+    expect(out).toContain("[redacted]");
+    expect(out).toHaveLength(MAX_LOG_MESSAGE_LEN);
+  });
+
+  it("redacts private key starts that run past the scan cap", () => {
+    const out = sanitizeLogMessage(
+      `failed -----BEGIN RSA PRIVATE KEY-----\n${"x".repeat(MAX_LOG_REDACTION_SCAN_LEN * 2)}`,
+    );
+    expect(out).toBe("failed [redacted]");
   });
 });

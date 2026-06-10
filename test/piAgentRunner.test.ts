@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import type { Config } from "../src/config.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 type MockTurnEndEvent = {
   type: "turn_end";
@@ -64,33 +64,17 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));
 
-import { createAgentSession } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, defineTool } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
-const cfg = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "k",
-  webhookSecret: "s",
-  agentProvider: "pi",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
+const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
   maxToolRounds: 2,
-  maxReviewPublishAttempts: 3,
-  maxReviewPublishCalls: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  maxAskToolRounds: 12,
-  maxAskFinalizeRounds: 2,
-  webhookTimeoutMs: 10_000,
-  logLevel: "error",
   enableReviewLabelsEffort: false,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500_000,
-  context7ApiKey: "",
-} satisfies Config;
+});
 
 describe("piAgentRunnerProvider.send", () => {
   beforeEach(() => {
@@ -183,6 +167,27 @@ describe("piAgentRunnerProvider.send", () => {
     expect(result.text).toBe("Visible answer.");
   });
 
+  it("serializes object tool results as compact JSON", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [{ name: "object", description: "object", parameters: { type: "object" } }],
+      executors: { object: async () => ({ answer: 42, nested: { ok: true } }) },
+    });
+
+    const tool = vi.mocked(defineTool).mock.calls.at(-1)?.[0];
+    expect(tool).toBeDefined();
+    if (!tool) throw new Error("expected Pi tool");
+    await expect(
+      tool.execute("tool-call-id", {}, undefined, undefined, {} as ExtensionContext),
+    ).resolves.toMatchObject({
+      content: [{ type: "text", text: '{"answer":42,"nested":{"ok":true}}' }],
+    });
+  });
+
   it("aborts and rejects when a prompt exceeds the configured timeout", async () => {
     const abort = vi.fn();
     const session = {
@@ -233,6 +238,7 @@ describe("piAgentRunnerProvider.send", () => {
     });
 
     vi.useFakeTimers();
+    const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     try {
       const sendPromise = runnerSession.send("question");
       // Three activity bursts spanning > idle window, each arriving before it elapses.
@@ -248,7 +254,9 @@ describe("piAgentRunnerProvider.send", () => {
       resolvePrompt?.();
       await expect(sendPromise).resolves.toEqual({ text: "Final answer." });
       expect(abort).not.toHaveBeenCalled();
+      expect(setIntervalSpy).toHaveBeenCalledTimes(1);
     } finally {
+      setIntervalSpy.mockRestore();
       vi.useRealTimers();
     }
   });

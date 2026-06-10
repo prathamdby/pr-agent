@@ -30,8 +30,16 @@ function buildTrustedReviewContextBlock(
   return blocks.join("\n");
 }
 
-export async function buildTrustedReviewContextForReview(params: {
+export function buildTrustedReviewContextForReview(params: {
   preflight: ReviewPreflightMetadata;
+  priorInlineFeedback?: string;
+}): string {
+  return buildTrustedReviewContextBlock(params.preflight, {
+    priorInlineFeedback: params.priorInlineFeedback,
+  });
+}
+
+export async function fetchPriorInlineFeedbackBlockForReview(params: {
   token: string;
   owner: string;
   repo: string;
@@ -39,8 +47,7 @@ export async function buildTrustedReviewContextForReview(params: {
   reviewLens: ReviewMode;
   botUserId: number;
   onPriorFeedbackError?: (error: unknown) => void;
-}): Promise<string> {
-  let priorInlineFeedback: string | undefined;
+}): Promise<string | undefined> {
   try {
     const threads = await fetchPriorInlineReviewFeedback(
       params.token,
@@ -50,12 +57,9 @@ export async function buildTrustedReviewContextForReview(params: {
       params.reviewLens,
       params.botUserId,
     );
-    priorInlineFeedback = formatPriorInlineFeedbackBlock(threads) || undefined;
+    return formatPriorInlineFeedbackBlock(threads) || undefined;
   } catch (error) {
     params.onPriorFeedbackError?.(error);
+    return undefined;
   }
-
-  return buildTrustedReviewContextBlock(params.preflight, {
-    priorInlineFeedback,
-  });
 }

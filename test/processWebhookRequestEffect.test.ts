@@ -1,46 +1,18 @@
 import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
-import type { Config } from "../src/config.js";
 import * as evlog from "../src/evlog.js";
 import { IntakeLogger } from "../src/effect/intakeLogger.js";
-import { processWebhookHttpRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
+import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 import { WebhookHandlerError } from "../src/effect/errors.js";
+import { makeTestConfig } from "./helpers/config.js";
 
-const cfg: Config = {
-  port: 0,
-  githubAppId: "1",
-  githubAppPrivateKey: "fake",
+const cfg = makeTestConfig({
   webhookSecret: "secret",
-  databaseUrl: "postgres://test",
-  role: "web",
-  piProvider: "openai",
-  piModel: "gpt-4o-mini",
-  maxToolRounds: 24,
   maxAskFinalizeRounds: 6,
-  maxReviewPublishAttempts: 3,
-  reviewConcurrency: 2,
   askConcurrency: 3,
-  ackConcurrency: 2,
-  queueRetryLimit: 3,
-  queueRetryDelaySeconds: 30,
-  queueRetryDelayMaxSeconds: 300,
-  queueExpireInSeconds: 3600,
-  queueHeartbeatSeconds: 60,
-  queuePollingIntervalSeconds: 0.5,
-  queueRetentionSeconds: 1209600,
-  queueDeleteAfterSeconds: 604800,
-  installationGroupConcurrency: 2,
-  maxAskToolRounds: 12,
-  webhookTimeoutMs: 10000,
-  context7ApiKey: "",
-  enableReviewLabelsEffort: true,
-  enableReviewLabelsSecurity: false,
-  maxPrFilesListed: 300,
-  maxPrFilesPatchBytes: 500000,
-  logLevel: "error",
-};
+});
 
 function sign(body: Buffer): string {
   return `sha256=${crypto.createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`;
@@ -60,41 +32,20 @@ function withIntake<R, E, A>(
   );
 }
 
-describe("processWebhookHttpRequestEffect", () => {
+describe("processWebhookPostRequestEffect", () => {
   const stubDispatcherLayer = Layer.succeed(
     WebhookDispatcher,
     WebhookDispatcher.of({
       dispatch: () => Effect.void,
+      ping: () => Effect.succeed(true),
     }),
   );
-
-  it("returns health response", async () => {
-    const out = await Effect.runPromise(
-      withIntake(
-        processWebhookHttpRequestEffect(cfg, {
-          method: "GET",
-          url: "/health",
-          headers: {},
-          rawBody: Buffer.alloc(0),
-        }),
-        stubDispatcherLayer,
-      ),
-    );
-
-    expect(out).toEqual({
-      status: 200,
-      body: "ok",
-      contentType: "text/plain; charset=utf-8",
-    });
-  });
 
   it("returns invalid signature", async () => {
     const body = Buffer.from("{}");
     const out = await Effect.runPromise(
       withIntake(
-        processWebhookHttpRequestEffect(cfg, {
-          method: "POST",
-          url: "/webhooks",
+        processWebhookPostRequestEffect(cfg, {
           headers: { "x-hub-signature-256": "sha256=bad" },
           rawBody: body,
         }),
@@ -109,9 +60,7 @@ describe("processWebhookHttpRequestEffect", () => {
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
     const out = await Effect.runPromise(
       withIntake(
-        processWebhookHttpRequestEffect(cfg, {
-          method: "POST",
-          url: "/webhooks",
+        processWebhookPostRequestEffect(cfg, {
           headers: {
             "x-hub-signature-256": sign(body),
             "x-github-event": "ping",
@@ -130,19 +79,18 @@ describe("processWebhookHttpRequestEffect", () => {
       WebhookDispatcher,
       WebhookDispatcher.of({
         dispatch: () => Effect.sleep("20 millis"),
+        ping: () => Effect.succeed(true),
       }),
     );
 
     const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
-    const tightCfg: Config = { ...cfg, webhookTimeoutMs: 1 };
+    const tightCfg = { ...cfg, webhookTimeoutMs: 1 };
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
     try {
       const out = await Effect.runPromise(
         withIntake(
-          processWebhookHttpRequestEffect(tightCfg, {
-            method: "POST",
-            url: "/webhooks",
+          processWebhookPostRequestEffect(tightCfg, {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",
@@ -175,6 +123,7 @@ describe("processWebhookHttpRequestEffect", () => {
               message: "boom",
             }),
           ),
+        ping: () => Effect.succeed(true),
       }),
     );
 
@@ -184,9 +133,7 @@ describe("processWebhookHttpRequestEffect", () => {
     try {
       const out = await Effect.runPromise(
         withIntake(
-          processWebhookHttpRequestEffect(cfg, {
-            method: "POST",
-            url: "/webhooks",
+          processWebhookPostRequestEffect(cfg, {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",
@@ -220,9 +167,7 @@ describe("processWebhookHttpRequestEffect", () => {
       const order: string[] = [];
       const responsePromise = Effect.runPromise(
         withIntake(
-          processWebhookHttpRequestEffect(cfg, {
-            method: "POST",
-            url: "/webhooks",
+          processWebhookPostRequestEffect(cfg, {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",

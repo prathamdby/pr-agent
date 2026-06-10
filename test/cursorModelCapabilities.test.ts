@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import cursorModelsList from "./fixtures/cursorModelsList.json";
+import cursorModelsList from "./fixtures/cursorModelsList.json" with { type: "json" };
 import type { ModelListItem } from "@cursor/sdk";
 import {
   discoverFastParamModelIds,

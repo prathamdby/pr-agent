@@ -29,6 +29,15 @@ describe("buildContext7Tools — surface", () => {
     expect(piTools.map((t) => t.name).toSorted()).toEqual(["getLibraryDocs", "resolveLibraryId"]);
   });
 
+  it("keeps static parameter schemas identical across builds", () => {
+    const first = buildContext7Tools({ apiKey: "" });
+    const second = buildContext7Tools({ apiKey: "ctx7sk-test" });
+
+    for (let i = 0; i < first.piTools.length; i++) {
+      expect(second.piTools[i]?.parameters).toBe(first.piTools[i]?.parameters);
+    }
+  });
+
   it("resolveLibraryId parameters declare object type and require libraryName", () => {
     const { piTools } = buildContext7Tools({ apiKey: "" });
     const tool = piTools.find((t) => t.name === "resolveLibraryId");
@@ -77,7 +86,9 @@ describe("buildContext7Tools — executors", () => {
       expect(u.searchParams.get("libraryName")).toBe("react");
       expect(u.searchParams.get("query")).toBe("react");
       expect(headersOf(init).Authorization).toBeUndefined();
-      expect(out).toContain("/facebook/react");
+      expect(out).toBe(
+        JSON.stringify({ results: [{ id: "/facebook/react", title: "React" }] }, null, 2),
+      );
     } finally {
       fetchSpy.mockRestore();
     }

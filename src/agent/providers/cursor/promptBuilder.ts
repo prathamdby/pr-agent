@@ -52,6 +52,30 @@ export function buildCursorPrompt(context: Context): {
   return { text, inputChars: text.length };
 }
 
+export function buildCursorSendText(
+  context: Context,
+  options: { readonly reuseAgentConversation: boolean },
+): {
+  text: string;
+  inputChars: number;
+} {
+  const hasPriorAssistantMessage = context.messages
+    .slice(0, -1)
+    .some((message) => message.role === "assistant");
+  if (options.reuseAgentConversation && hasPriorAssistantMessage) {
+    for (let index = context.messages.length - 1; index >= 0; index -= 1) {
+      const message = context.messages[index];
+      if (message?.role === "user") {
+        const text = formatMessageContent(message.content).trim();
+        return { text, inputChars: text.length };
+      }
+    }
+    return { text: "", inputChars: 0 };
+  }
+
+  return buildCursorPrompt(context);
+}
+
 export function approximateCursorUsage(
   inputChars: number,
   outputChars: number,

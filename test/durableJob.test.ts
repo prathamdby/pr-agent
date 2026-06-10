@@ -98,7 +98,7 @@ function runReviewWorkItem(
     boss,
     job: makeJob(),
     type: "review",
-    resolveHeadSha: async () => "x",
+    resolveHeadSha: async () => ({ headSha: "x" }),
     ...overrides,
   });
 }
@@ -140,7 +140,7 @@ describe("runDurableWorkItem", () => {
     mockFetchedItem(item);
     const execute = vi.fn().mockResolvedValue({});
 
-    await runReviewWorkItem({ resolveHeadSha: async () => "abc123", execute });
+    await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
 
     expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
     expect(execute).toHaveBeenCalledTimes(1);
@@ -150,6 +150,26 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
     expect(repo.shouldSkipWork).toHaveBeenCalledTimes(2);
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
+  });
+
+  it("passes resolved pull payload into execution context", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    const pullRequest = {
+      additions: 1,
+      deletions: 0,
+      changed_files: 1,
+      head: { sha: "abc123" },
+    };
+    const execute = vi.fn().mockResolvedValue({});
+
+    await runReviewWorkItem({
+      resolveHeadSha: async () => ({ headSha: "abc123", pullRequest }),
+      execute,
+    });
+
+    expect(repo.updateRunningWorkHeadSha).toHaveBeenCalledWith(pool, "wi-1", "abc123");
+    expect(execute.mock.calls[0]?.[1].pullRequest).toBe(pullRequest);
   });
 
   it("returns without executing when payload is missing after claim", async () => {
@@ -274,6 +294,32 @@ describe("runDurableWorkItem", () => {
     expect(execute).toHaveBeenCalledTimes(2);
     expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
     expect(appAuth.getAppBotIdentity).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes stale installation tokens", async () => {
+    clearDurableAuthCachesForTest();
+    vi.mocked(appAuth.mintInstallationAuth)
+      .mockResolvedValueOnce({
+        type: "token",
+        tokenType: "installation",
+        token: "old-token",
+        expiresAt: new Date(Date.now() + 1_000).toISOString(),
+        installationId: 42,
+      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>)
+      .mockResolvedValueOnce({
+        type: "token",
+        tokenType: "installation",
+        token: "new-token",
+        expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+        installationId: 42,
+      } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
+
+    const first = await mintInstallationToken(cfg, 42);
+    const second = await mintInstallationToken(cfg, 42);
+
+    expect(first.token).toBe("old-token");
+    expect(second.token).toBe("new-token");
+    expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(2);
   });
 
   it("returns when updateRunningWorkHeadSha races and rejects the update", async () => {

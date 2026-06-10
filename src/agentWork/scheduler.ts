@@ -38,19 +38,13 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
       Effect.tryPromise({
-        try: () =>
-          inTransaction(pool, (client) =>
-            recordIgnoredWebhook(client, headers, decision, intakeLog),
-          ),
+        try: () => recordIgnoredWebhook(pool, headers, decision, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 
     submitAutomatedReview: (headers, ref, action, intakeLog) =>
       Effect.tryPromise({
-        try: () =>
-          inTransaction(pool, (client) =>
-            applyAutomatedPullRequestIntake(boss, client, headers, ref, action, intakeLog),
-          ),
+        try: () => applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

@@ -13,7 +13,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      site: ${{ steps.filter.outputs.site }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            backend:
+              - ".github/workflows/ci.yml"
+              - ".dockerignore"
+              - ".env.example"
+              - ".npmrc"
+              - "Dockerfile"
+              - "migrations/**"
+              - "package.json"
+              - "pnpm-lock.yaml"
+              - "pnpm-workspace.yaml"
+              - "scripts/**"
+              - "src/**"
+              - "test/**"
+              - "tsconfig*.json"
+              - "vitest*.config.ts"
+            site:
+              - ".github/workflows/ci.yml"
+              - "pnpm-lock.yaml"
+              - "pnpm-workspace.yaml"
+              - "site/**"
+
   check:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -22,15 +56,18 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --filter pr-agent...
       - run: pnpm run check:effect-versions
+      - run: pnpm run check:prod-deps
       - run: pnpm run typecheck
-      - run: pnpm run lint
+      - run: pnpm run lint:backend
       - run: pnpm run fmt:check
       - run: pnpm test
       - run: pnpm run build
 
   integration:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -55,10 +92,12 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --filter pr-agent...
       - run: pnpm run test:integration
 
   site:
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,5 +106,5 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile --filter pr-agent-landing...
       - run: pnpm run site:build

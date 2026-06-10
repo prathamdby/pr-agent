@@ -9,7 +9,7 @@ import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { recordPublishStep, shouldSkipWork } from "../repository.js";
 import {
   makeInstallationTokenRefresher,
-  resolveWorkItemHeadSha,
+  resolveWorkItemHead,
   runDurableWorkItem,
 } from "../durableJob.js";
 import { type DescriptionJobData, type DescriptionWorkPayload } from "../types.js";
@@ -25,7 +25,7 @@ export async function executeDescriptionJob(
     boss,
     job,
     type: "description",
-    resolveHeadSha: resolveWorkItemHeadSha,
+    resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
@@ -38,6 +38,7 @@ export async function executeDescriptionJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
