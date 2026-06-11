@@ -62,6 +62,13 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "sqlite3"
-    ]
+    ],
+    "peerDependencyRules": {
+      "ignoreMissing": [
+        "@effect/cluster",
+        "@effect/rpc",
+        "@effect/sql"
+      ]
+    }
   }
 }
