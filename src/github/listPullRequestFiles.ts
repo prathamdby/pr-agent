@@ -153,10 +153,7 @@ export async function listPullRequestFilesPaginated(
     });
 
   const filesPerPage = 100;
-  const maxFilesToList = Math.min(
-    limits.maxPrFilesListed,
-    GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
-  );
+  const maxFilesToList = Math.min(limits.maxPrFilesListed, GITHUB_PULL_REQUEST_FILES_API_MAX_FILES);
   let page = 1;
   let lastPageSize = 0;
   while (files.length < maxFilesToList) {

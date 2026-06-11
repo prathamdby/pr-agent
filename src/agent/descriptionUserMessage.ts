@@ -1,3 +1,5 @@
+import { wrapUntrustedBlock } from "./promptBlocks.js";
+
 export function buildDescriptionUserContent(params: {
   owner: string;
   repo: string;
@@ -10,7 +12,7 @@ export function buildDescriptionUserContent(params: {
     `Target repository: ${owner}/${repo}`,
     `Pull request #: ${prNumber}`,
     `Head commit SHA: ${headSha}`,
-    userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
+    userSupplement ? `\n${wrapUntrustedBlock("user_supplement", userSupplement)}\n` : "",
     "",
     "Inspect the changed files and diff, then call submitDescription once with a complete DescriptionPayload.",
   ].join("\n");
