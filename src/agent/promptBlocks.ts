@@ -3,7 +3,12 @@ function escapeRegExp(value: string): string {
 }
 
 function neutralizeUntrustedBlockTags(label: string, text: string): string {
-  const tagPattern = new RegExp(`<\\s*/?\\s*${escapeRegExp(label)}(?=[\\s>/\\p{Cf}])[^>]*>`, "giu");
+  const tagGap = "[\\s\\p{Cf}]*";
+  const labelPattern = label.split("").map(escapeRegExp).join("\\p{Cf}*");
+  const tagPattern = new RegExp(
+    `<${tagGap}/?${tagGap}${labelPattern}(?=[\\s>/\\p{Cf}])[^>]*>`,
+    "giu",
+  );
   return text.replace(tagPattern, (tag) => tag.replaceAll("<", "&lt;").replaceAll(">", "&gt;"));
 }
 
