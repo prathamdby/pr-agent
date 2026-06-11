@@ -72,7 +72,7 @@ importers:
         version: 3.21.2
       evlog:
         specifier: ^2.18.1
-        version: 2.18.1(@tanstack/start-client-core@1.170.6)(express@5.2.1)(hono@4.12.23)(react@19.2.7)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0))
+        version: 2.18.1
       pg:
         specifier: ^8.21.0
         version: 8.21.0
@@ -5862,13 +5862,7 @@ snapshots:
     dependencies:
       eventsource-parser: 3.1.0
 
-  evlog@2.18.1(@tanstack/start-client-core@1.170.6)(express@5.2.1)(hono@4.12.23)(react@19.2.7)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)):
-    optionalDependencies:
-      '@tanstack/start-client-core': 1.170.6
-      express: 5.2.1
-      hono: 4.12.23
-      react: 19.2.7
-      vite: 8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.4)(yaml@2.9.0)
+  evlog@2.18.1: {}
 
   expand-template@2.0.3: {}
 
