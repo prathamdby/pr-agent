@@ -1,3 +1,4 @@
+import { wrapUntrustedBlock } from "../agent/promptBlocks.js";
 import type { ReviewMode } from "./reviewSchema.js";
 
 export function buildReviewRunUserContent(params: {
@@ -14,7 +15,7 @@ export function buildReviewRunUserContent(params: {
     `Target repository: ${owner}/${repo}`,
     `Pull request #: ${prNumber}`,
     `Head commit SHA: ${headSha}`,
-    userSupplement ? `\nAdditional instruction:\n${userSupplement}\n` : "",
+    userSupplement ? `\n${wrapUntrustedBlock("user_supplement", userSupplement)}\n` : "",
     trustedContext ? `\n${trustedContext}\n` : "",
     "",
     closingInstructionForReviewMode(reviewMode),
