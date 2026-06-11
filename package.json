@@ -23,7 +23,8 @@
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
     "site:dev": "pnpm --filter pr-agent-landing dev",
     "site:build": "pnpm --filter pr-agent-landing build",
-    "site:generate-og": "pnpm --filter pr-agent-landing generate:og"
+    "site:generate-og": "pnpm --filter pr-agent-landing generate:og",
+    "sandcastle": "tsx .sandcastle/main.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.17",
@@ -46,6 +47,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@ai-hero/sandcastle": "^0.7.0",
     "@types/node": "^25.9.1",
     "@types/pg": "^8.20.0",
     "oxfmt": "^0.53.0",
