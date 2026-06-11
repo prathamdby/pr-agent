@@ -82,6 +82,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     // Extract and validate the <plan> JSON into a typed object. Throws
     // StructuredOutputError if the tag is missing, the JSON is malformed, or
     // validation fails — which aborts the loop.
+    promptArgs: {
+      LIST_TASKS_COMMAND:
+        'gh issue list --state open --label Sandcastle --limit 100 --json number,title,body,labels,comments --jq \'[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]\'',
+    },
     output: sandcastle.Output.object({ tag: "plan", schema: planSchema }),
   });
 
@@ -127,6 +131,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
             TASK_ID: issue.id,
             ISSUE_TITLE: issue.title,
             BRANCH: issue.branch,
+            VIEW_TASK_COMMAND: `gh issue view ${issue.id}`,
           },
         });
 
@@ -207,6 +212,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
       // A markdown list of issue IDs and titles, one per line.
       ISSUES: completedIssues.map((i) => `- ${i.id}: ${i.title}`).join("\n"),
+      CLOSE_TASK_COMMAND: 'gh issue close <ID> --comment "Completed by Sandcastle"',
     },
   });
 

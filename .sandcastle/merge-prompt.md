@@ -17,7 +17,7 @@ After all branches are merged, stage and make a single commit summarizing the me
 
 For each branch that was merged, close its issue using the following command:
 
-`gh issue close <ID> --comment "Completed by Sandcastle"`
+`{{CLOSE_TASK_COMMAND}}`
 
 Here are all the issues:
 
