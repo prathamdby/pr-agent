@@ -21,27 +21,28 @@ export type StaleSlashReviewRescheduleResult = {
   readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
 };
 
+type SlashReviewRescheduleWorkItem = {
+  readonly replacementWorkItemId: string;
+  readonly headSha: string;
+};
+
 export async function buildStaleSlashReviewRescheduleResult(
   pool: Pool,
   item: AgentWorkItem,
   token: string,
 ): Promise<StaleSlashReviewRescheduleResult> {
   const latestHeadSha = await getPullRequestHeadSha(token, item.owner, item.repo, item.prNumber);
-  const replacementWorkItemId = await createSlashReviewRescheduleWorkItem(
-    pool,
-    item,
-    latestHeadSha,
-  );
+  const replacement = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
   return {
     rescheduled: true,
-    replacementWorkItemId,
+    replacementWorkItemId: replacement.replacementWorkItemId,
     afterComplete: async (boss, activePgBossJobId) => {
       await enqueueSlashReviewReschedule(
         pool,
         boss,
         item,
-        replacementWorkItemId,
-        latestHeadSha,
+        replacement.replacementWorkItemId,
+        replacement.headSha,
         activePgBossJobId,
       );
     },
@@ -52,7 +53,7 @@ export async function createSlashReviewRescheduleWorkItem(
   pool: Pool,
   item: AgentWorkItem,
   latestHeadSha: string,
-): Promise<string> {
+): Promise<SlashReviewRescheduleWorkItem> {
   const payload = item.payload as ReviewWorkPayload;
   const reviewLens = item.reviewLens!;
   let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
@@ -89,16 +90,16 @@ export async function createSlashReviewRescheduleWorkItem(
     staleHeadReplacementWorkItemId: replacementWorkItemId,
   };
 
-  await pool.query(
+  const insertResult = await pool.query<{ head_sha: string }>(
     `INSERT INTO agent_work_items (
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
        head_sha, review_lens, resource_key, priority, payload
      )
      VALUES ($1, $2, 'review', 'slash', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
      ON CONFLICT (id) DO UPDATE SET
-       head_sha = EXCLUDED.head_sha,
        payload = EXCLUDED.payload,
-       updated_at = now()`,
+       updated_at = now()
+     RETURNING head_sha`,
     [
       replacementWorkItemId,
       item.webhookEventId,
@@ -113,7 +114,10 @@ export async function createSlashReviewRescheduleWorkItem(
     ],
   );
 
-  return replacementWorkItemId;
+  return {
+    replacementWorkItemId,
+    headSha: insertResult.rows[0].head_sha,
+  };
 }
 
 async function claimStaleHeadReplacementEnqueue(pool: Pool, parentId: string): Promise<boolean> {
@@ -146,7 +150,7 @@ export async function enqueueSlashReviewReschedule(
   boss: PgBoss,
   item: AgentWorkItem,
   workItemId: string,
-  latestHeadSha: string,
+  replacementHeadSha: string,
   activePgBossJobId?: string,
 ): Promise<void> {
   const reviewLens = item.reviewLens!;
@@ -187,25 +191,6 @@ export async function enqueueSlashReviewReschedule(
       skipJobId: activePgBossJobId,
     });
 
-    const ackData: AckJobData = {
-      kind: "ack",
-      workItemId,
-      installationId: item.installationId,
-      owner: item.owner,
-      repo: item.repo,
-      prNumber: item.prNumber,
-      targets: [],
-      progress: { lens: reviewLens, headSha: latestHeadSha, source: "slash" },
-      ...correlation,
-    };
-    const ackJobId = await boss.send(ACK_QUEUE, ackData, {
-      priority: 100,
-      group: { id: installationGroupId(item.installationId) },
-    });
-    if (ackJobId == null) {
-      throw new Error("pg-boss did not enqueue replacement review ack job");
-    }
-
     const reviewData: ReviewJobData = {
       kind: "review",
       workItemId,
@@ -219,6 +204,25 @@ export async function enqueueSlashReviewReschedule(
       throw new Error("pg-boss did not enqueue replacement review job");
     }
 
+    const ackData: AckJobData = {
+      kind: "ack",
+      workItemId,
+      installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+      targets: [],
+      progress: { lens: reviewLens, headSha: replacementHeadSha, source: "slash" },
+      ...correlation,
+    };
+    const ackJobId = await boss.send(ACK_QUEUE, ackData, {
+      priority: 100,
+      group: { id: installationGroupId(item.installationId) },
+    });
+    if (ackJobId == null) {
+      throw new Error("pg-boss did not enqueue replacement review ack job");
+    }
+
     logInfo("review_stale_head_rescheduled", {
       owner: item.owner,
       repo: item.repo,
@@ -227,7 +231,7 @@ export async function enqueueSlashReviewReschedule(
       previousWorkItemId: item.id,
       replacementWorkItemId: workItemId,
       previousHeadSha: item.headSha,
-      latestHeadSha,
+      latestHeadSha: replacementHeadSha,
     });
   } catch (e) {
     await releaseStaleHeadReplacementEnqueueClaim(pool, item.id);
