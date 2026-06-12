@@ -166,8 +166,6 @@ These are related but not wired together on INSERT today.
 | `VALIDATION_REPAIR_ROUNDS`           | 3                                      |
 | `PUBLISH_RECOVERY_ROUNDS`            | 4                                      |
 | `PUBLISH_RECOVERY_PROMPTS`           | recovery nudge strings                 |
-| `REVIEW_*_CIRCUIT_OPEN_*`            | rate-limit circuit messages            |
-| `ASK_*_CIRCUIT_OPEN_*`               | ask circuit messages                   |
 | `PUBLISH_BUDGET_EXHAUSTED_MESSAGE`   | submitReview guard                     |
 | `REVIEW_DIFF_CACHE_REQUIRED_MESSAGE` | submitReview diff-cache guard          |
 | `REVIEW_ANCHOR_MENU_BLOCK_LABEL`     | untrusted anchor menu block label      |
