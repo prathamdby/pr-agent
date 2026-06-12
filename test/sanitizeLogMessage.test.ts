@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { MAX_LOG_MESSAGE_LEN, MAX_LOG_REDACTION_SCAN_LEN } from "../src/settings/index.js";
 import { sanitizeLogMessage } from "../src/security/sanitizeLogMessage.js";
 
+const jwtLikeSecret = `eyJ${"a".repeat(10)}.${"b".repeat(10)}.${"c".repeat(5)}`;
+
 describe("sanitizeLogMessage", () => {
   it("strips null bytes", () => {
     expect(sanitizeLogMessage("fail\0here")).toBe("failhere");
@@ -22,6 +24,23 @@ describe("sanitizeLogMessage", () => {
     expect(out).not.toContain("ghs_0123456789012345678901234567890123");
     expect(out).toContain("[redacted]");
   });
+
+  it.each([
+    "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    jwtLikeSecret,
+    "sk_live_1234567890abcdef",
+  ])("redacts boundary secret %s", (secret) => {
+    const out = sanitizeLogMessage(`leak ${secret} end`);
+    expect(out).not.toContain(secret);
+    expect(out).toContain("[redacted]");
+  });
+
+  it.each(["skylight", "eyJsomething", "secret key rotation"])(
+    "preserves non-secret text %s",
+    (text) => {
+      expect(sanitizeLogMessage(text)).toBe(text);
+    },
+  );
 
   it("redacts Authorization headers", () => {
     expect(sanitizeLogMessage("Authorization: Bearer xyz")).toBe("[redacted]");

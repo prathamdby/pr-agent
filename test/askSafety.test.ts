@@ -9,6 +9,8 @@ import {
 } from "../src/agent/askSafety.js";
 import { sanitizeAskAnswerText } from "../src/agent/formatAskReply.js";
 
+const jwtLikeSecret = `eyJ${"a".repeat(10)}.${"b".repeat(10)}.${"c".repeat(5)}`;
+
 describe("classifyAskQuestionIntent", () => {
   it("classifies normal code questions as code", () => {
     expect(classifyAskQuestionIntent("What does this hook do?")).toBe("code");
@@ -40,12 +42,34 @@ describe("isSensitivePath and path gate", () => {
     expect(isSensitivePath(".env")).toBe(true);
     expect(isSensitivePath("config/.env.production")).toBe(true);
     expect(isSensitivePath("certs/server.pem")).toBe(true);
+    expect(isSensitivePath("id_ed25519")).toBe(true);
+    expect(isSensitivePath("ssh/id_ecdsa.pub")).toBe(true);
+    expect(isSensitivePath(".git-credentials")).toBe(true);
+    expect(isSensitivePath(".aws/credentials")).toBe(true);
+    expect(isSensitivePath(".pypirc")).toBe(true);
+    expect(isSensitivePath(".dockercfg")).toBe(true);
+    expect(isSensitivePath("certs/server.key")).toBe(true);
     expect(isSensitivePath("src/index.ts")).toBe(false);
+    expect(isSensitivePath("src/key-utils.ts")).toBe(false);
+    expect(isSensitivePath("keys.md")).toBe(false);
   });
 
   it("blocks sensitive paths not in PR changed files", () => {
     const gate = createAskPathGate();
     expect(() => assertPathAllowedForAsk(".env", gate)).toThrow(/blocked for sensitive path/);
+  });
+
+  it.each([
+    "id_ed25519",
+    "ssh/id_ecdsa.pub",
+    ".git-credentials",
+    ".aws/credentials",
+    ".pypirc",
+    ".dockercfg",
+    "foo.key",
+  ])("blocks new sensitive path %s", (path) => {
+    const gate = createAskPathGate();
+    expect(() => assertPathAllowedForAsk(path, gate)).toThrow(/blocked for sensitive path/);
   });
 
   it("allows sensitive paths in PR changed files", () => {
@@ -222,11 +246,28 @@ describe("redactOutboundSecrets", () => {
     expect(redactOutboundSecrets("see postgres://user:pass@host/db")).toContain("[redacted]");
   });
 
+  it.each([
+    "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    jwtLikeSecret,
+    "sk_live_1234567890abcdef",
+  ])("redacts boundary secret %s", (secret) => {
+    const out = redactOutboundSecrets(`leak ${secret} end`);
+    expect(out).not.toContain(secret);
+    expect(out).toContain("[redacted]");
+  });
+
   it("preserves normal code identifiers", () => {
     expect(redactOutboundSecrets("Use the `useHydrationSafeDistance` hook.")).toBe(
       "Use the `useHydrationSafeDistance` hook.",
     );
   });
+
+  it.each(["skylight", "eyJsomething", "secret key rotation"])(
+    "preserves non-secret text %s",
+    (text) => {
+      expect(redactOutboundSecrets(text)).toBe(text);
+    },
+  );
 
   it("redacts non-Bearer Authorization headers", () => {
     expect(redactOutboundSecrets("header Authorization: Token abc123")).not.toContain("abc123");

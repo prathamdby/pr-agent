@@ -238,6 +238,9 @@ export const BOT_SECRET_PATTERNS: readonly RegExp[] = [
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
   /\bDATABASE_URL\s*=\s*\S+/gi,
   /\b(?:OPENAI|ANTHROPIC|GOOGLE_GENERATIVE_AI|CURSOR|CONTEXT7)_API_KEY\s*=\s*\S+/gi,
+  /\bAWS_SECRET_ACCESS_KEY\s*[=:]\s*\S+/gi,
+  /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}\b/g,
+  /\bsk_(?:live|test)_[A-Za-z0-9]{10,}\b/g,
 ];
 
 export const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
@@ -245,9 +248,16 @@ export const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)\.env\.[^/]+$/i,
   /\.pem$/i,
   /(^|\/)id_rsa(?:\.pub)?$/i,
+  /(^|\/)id_ed25519(?:\.pub)?$/i,
+  /(^|\/)id_ecdsa(?:\.pub)?$/i,
   /(^|\/)\.npmrc$/i,
   /(^|\/)secrets?\./i,
   /(^|\/)\.netrc$/i,
+  /(^|\/)\.git-credentials$/i,
+  /(^|\/)\.aws\/credentials$/i,
+  /(^|\/)\.pypirc$/i,
+  /(^|\/)\.dockercfg$/i,
+  /\.key$/i,
 ];
 
 export const ASK_TOOLS_WITH_OWNER_REPO = new Set([
