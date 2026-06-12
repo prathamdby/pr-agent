@@ -120,19 +120,16 @@ export async function runReviewHarness(params: {
     lastText = (await session.send(setup.userContent, investigationOpts)).text;
     if (!shouldContinueReviewRun(setup)) return;
 
+    let anchorMenuBlock: string | undefined;
     if (
       cfg.reviewInjectAnchorMenu &&
       setup.cachedDiffIndex.files.size > 0 &&
       shouldContinueReviewRun(setup)
     ) {
-      const anchorMenu = renderAnchorMenuBlock(setup.cachedDiffIndex, {
+      anchorMenuBlock = renderAnchorMenuBlock(setup.cachedDiffIndex, {
         maxFiles: cfg.reviewAnchorMenuMaxFiles,
         maxRangesPerFile: cfg.reviewAnchorMenuMaxRangesPerFile,
       });
-      if (anchorMenu) {
-        lastText = (await session.send(anchorMenu, investigationOpts)).text;
-        if (!shouldContinueReviewRun(setup)) return;
-      }
     }
 
     if (shouldContinueReviewRun(setup)) {
@@ -140,7 +137,9 @@ export async function runReviewHarness(params: {
       for (let round = 0; round < 2 && shouldContinueReviewRun(setup); round++) {
         const prompt =
           round === 0
-            ? [PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE].join("\n\n")
+            ? [anchorMenuBlock, PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE]
+                .filter(Boolean)
+                .join("\n\n")
             : PRE_SUBMIT_REMINDER;
         lastText = await sendSubmitOnlyRepair(prompt);
         if (!shouldContinueReviewRun(setup)) break;
