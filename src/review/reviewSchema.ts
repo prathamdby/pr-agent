@@ -6,6 +6,7 @@ import {
   REVIEW_EFFORT_MIN,
   REVIEW_FINDING_DETAIL_MAX_CHARS,
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
+  REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
@@ -66,6 +67,8 @@ const reviewFindingSchema = z
     title: z.string().min(1).max(REVIEW_FINDING_TITLE_MAX_CHARS),
     detail: z.string().min(1).max(REVIEW_FINDING_DETAIL_MAX_CHARS),
     fixPrompt: z.string().max(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS).optional(),
+    suggestedCode: z.string().max(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS).optional(),
+    confidence: z.number().int().min(1).max(5).optional(),
   })
   .superRefine((f, ctx) => {
     if (f.startLine > f.endLine) {

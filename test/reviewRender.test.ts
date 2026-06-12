@@ -97,6 +97,52 @@ describe("renderReviewSummaryComment", () => {
     expect(body).not.toContain("/blob/abc123def456/");
   });
 
+  it("renders confidence beside severity when present", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+          confidence: 4,
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings),
+    });
+
+    expect(body).toContain("<strong>P1 · c4</strong>");
+  });
+
+  it("omits confidence label when absent", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings),
+    });
+
+    expect(body).toContain("<strong>P1</strong>");
+    expect(body).not.toContain("c4");
+  });
+
   it("(b) P0 + P3 mix", () => {
     const payload = basePayload({
       findings: [
@@ -452,6 +498,61 @@ describe("renderInlineThreadBody", () => {
     );
     expect(body).toContain("\\`\\`\\`ts");
     expect(body).not.toContain("Wrap with ```ts");
+  });
+
+  it("renders single-line suggestedCode as a suggestion fence", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P1",
+        file: "src/b.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Missing await",
+        detail: "Promise not awaited in handler.",
+        fixPrompt: "Await the promise before returning.",
+        suggestedCode: "return await run();",
+      },
+      inlineCtx,
+    );
+
+    expect(body).toContain("```suggestion\nreturn await run();\n```");
+  });
+
+  it("does not render suggestedCode for multi-line anchors", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P1",
+        file: "src/b.ts",
+        startLine: 1,
+        endLine: 2,
+        title: "Missing await",
+        detail: "Promise not awaited in handler.",
+        fixPrompt: "Await the promise before returning.",
+        suggestedCode: "return await run();",
+      },
+      inlineCtx,
+    );
+
+    expect(body).not.toContain("```suggestion");
+  });
+
+  it("drops suggestedCode when it contains a fence breaker", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P1",
+        file: "src/b.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Fence break",
+        detail: "Model returned markdown fences.",
+        fixPrompt: "Replace the return statement.",
+        suggestedCode: "return ```literal```;",
+      },
+      inlineCtx,
+    );
+
+    expect(body).not.toContain("```suggestion");
+    expect(body).not.toContain("\\`\\`\\`literal");
   });
 });
 

@@ -144,6 +144,38 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
     }
   });
 
+  it("preserves suggestedCode and confidence through finding coercion", () => {
+    const suggestedCode = "if (ok) {\n  return ```literal```;\n}";
+    const { value, coercions } = coerceReviewPayloadInput({
+      prCharacter: "x",
+      findings: [
+        {
+          severity: "P1 (High)",
+          file: "a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "t",
+          detail: "d",
+          fixPrompt: "fix",
+          suggestedCode,
+          confidence: 4,
+        },
+      ],
+      estimatedEffort: 1,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    });
+
+    expect(coercions).toContain("finding_severity_alias");
+    const parsed = reviewPayloadSchema.safeParse(value);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.findings[0]?.suggestedCode).toBe(suggestedCode);
+      expect(parsed.data.findings[0]?.confidence).toBe(4);
+    }
+  });
+
   it("strips fences only when wrapping entire trimmed value", () => {
     const wrapped = coerceReviewPayloadInput({
       prCharacter: "```\nSummary text\n```",

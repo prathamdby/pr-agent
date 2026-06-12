@@ -14,6 +14,11 @@ export const singlePassReviewContract = [
 export const fixPromptFieldContract =
   "fixPrompt (P0/P1/P2 only): one or two sentences — state the bug and fix direction. Do not repeat file or line (the server adds a location header). Under ~60 words.";
 
+export const suggestedCodeAndConfidenceFieldContract = [
+  "suggestedCode (optional): include only when the fix is a contiguous replacement for exactly the anchored startLine..endLine lines. Never use it for partial edits, context rewrites, or fixes that need nearby untouched lines.",
+  "confidence: integer 1-5 for each finding. 5 means certain and evidenced. 1 means speculative or weakly evidenced.",
+].join("\n- ");
+
 /** Round-0 pre-submit nudge: exhaustive checklist + submit instruction (harness only). */
 export const PRE_SUBMIT_ROUND0_PROMPT = [
   "Before submitReview, confirm every changed file was inspected and all evidenced P0–P2 are in this payload.",

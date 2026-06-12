@@ -45,6 +45,7 @@ describe("loadConfig validation", () => {
     expect(cfg.logRedact).toBe(true);
     expect(cfg.role).toBe("web");
     expect(cfg.logLevel).toBe("info");
+    expect(cfg.reviewMinConfidence).toBe(1);
   });
 
   it("rejects a non-numeric positive knob", async () => {
@@ -61,6 +62,23 @@ describe("loadConfig validation", () => {
   it("rejects zero for positive-only knobs", async () => {
     await expect(load({ REVIEW_CONCURRENCY: "0" })).rejects.toThrow(
       /REVIEW_CONCURRENCY must be a positive number/,
+    );
+  });
+
+  it("parses review min confidence", async () => {
+    const cfg = await load({ REVIEW_MIN_CONFIDENCE: "3" });
+    expect(cfg.reviewMinConfidence).toBe(3);
+  });
+
+  it("rejects review min confidence outside the finding confidence range", async () => {
+    await expect(load({ REVIEW_MIN_CONFIDENCE: "0" })).rejects.toThrow(
+      /REVIEW_MIN_CONFIDENCE must be an integer from 1 to 5/,
+    );
+    await expect(load({ REVIEW_MIN_CONFIDENCE: "6" })).rejects.toThrow(
+      /REVIEW_MIN_CONFIDENCE must be an integer from 1 to 5/,
+    );
+    await expect(load({ REVIEW_MIN_CONFIDENCE: "2.5" })).rejects.toThrow(
+      /REVIEW_MIN_CONFIDENCE must be an integer from 1 to 5/,
     );
   });
 
