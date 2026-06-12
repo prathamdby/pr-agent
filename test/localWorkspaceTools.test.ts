@@ -16,6 +16,7 @@ import {
   type GitGrepWorkspaceParams,
   type LocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
+import { LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE } from "../src/settings/index.js";
 
 const exec = promisify(execFile);
 
@@ -296,6 +297,33 @@ describe("local workspace tools", () => {
 
       expect(out.matches.map((match) => match.path)).toEqual(["src/file-999.ts"]);
       expect(durationMs).toBeLessThan(1000);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("searchWorkspace searches allowed paths across grep pathspec chunks", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const files: Record<string, string> = {
+        "src/changed.ts": "export const changed = true;\n",
+      };
+      const fileCount = LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE + 5;
+      for (let i = 0; i < fileCount; i++) {
+        files[`src/chunk-${i.toString().padStart(4, "0")}.ts`] =
+          i === fileCount - 1 ? "const needle = true;\n" : "const other = true;\n";
+      }
+      await writeWorkspaceFiles(root, files);
+
+      const workspace = mockWorkspace(root, Object.keys(files));
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
+        matches: Array<{ path: string }>;
+      };
+
+      expect(out.matches.map((match) => match.path)).toEqual([
+        `src/chunk-${(fileCount - 1).toString().padStart(4, "0")}.ts`,
+      ]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -13,7 +13,10 @@ import {
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
 } from "../review/reviewDiffIndex.js";
-import { LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY } from "../settings/index.js";
+import {
+  LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
+  LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
+} from "../settings/index.js";
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
@@ -65,6 +68,10 @@ export type GitGrepWorkspaceParams = {
 export type GitGrepWorkspaceResult = {
   readonly matches: readonly GitGrepWorkspaceMatch[];
   readonly truncated: boolean;
+};
+
+type GitGrepChunkResult = GitGrepWorkspaceResult & {
+  readonly stdoutBytes: number;
 };
 
 export type GitGrepWorkspaceMatch = {
@@ -215,12 +222,20 @@ function literalPathspec(path: string): string {
   return `:(literal)${path}`;
 }
 
-export async function gitGrepWorkspace(
+function pathspecChunks(paths?: readonly string[]): string[][] {
+  if (paths == null) return [["."]];
+  const chunks: string[][] = [];
+  for (let i = 0; i < paths.length; i += LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE) {
+    chunks.push(paths.slice(i, i + LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE).map(literalPathspec));
+  }
+  return chunks;
+}
+
+async function gitGrepWorkspaceChunk(
   workspace: Pick<LocalPrWorkspace, "privateGitDir" | "agentCwd">,
   params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
-): Promise<GitGrepWorkspaceResult> {
-  if (params.paths?.length === 0) return { matches: [], truncated: false };
-  const pathspecs = params.paths?.map(literalPathspec) ?? ["."];
+  pathspecs: readonly string[],
+): Promise<GitGrepChunkResult> {
   try {
     const { stdout } = await execGit(
       [
@@ -242,14 +257,53 @@ export async function gitGrepWorkspace(
         maxBufferBytes: params.maxOutputBytes,
       },
     );
-    return { matches: parseGitGrepOutput(stdout), truncated: false };
+    return {
+      matches: parseGitGrepOutput(stdout),
+      truncated: false,
+      stdoutBytes: Buffer.byteLength(stdout),
+    };
   } catch (error) {
-    if (failedWithExitCode(error, 1)) return { matches: [], truncated: false };
+    if (failedWithExitCode(error, 1)) return { matches: [], truncated: false, stdoutBytes: 0 };
     if (failedWithMaxBuffer(error)) {
-      return { matches: parseGitGrepOutput(errorStdout(error)), truncated: true };
+      const stdout = errorStdout(error);
+      return {
+        matches: parseGitGrepOutput(stdout),
+        truncated: true,
+        stdoutBytes: Buffer.byteLength(stdout),
+      };
     }
     throw error;
   }
+}
+
+export async function gitGrepWorkspace(
+  workspace: Pick<LocalPrWorkspace, "privateGitDir" | "agentCwd">,
+  params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
+): Promise<GitGrepWorkspaceResult> {
+  if (params.paths?.length === 0) return { matches: [], truncated: false };
+  const matches: GitGrepWorkspaceMatch[] = [];
+  let truncated = false;
+  let outputBytes = 0;
+  for (const pathspecs of pathspecChunks(params.paths)) {
+    const remainingBytes =
+      params.maxOutputBytes == null ? undefined : Math.max(params.maxOutputBytes - outputBytes, 1);
+    const result = await gitGrepWorkspaceChunk(
+      workspace,
+      { ...params, maxOutputBytes: remainingBytes },
+      pathspecs,
+    );
+    outputBytes += result.stdoutBytes;
+    matches.push(...result.matches);
+    if (
+      result.truncated ||
+      matches.length > params.maxResults ||
+      (params.maxOutputBytes != null && outputBytes >= params.maxOutputBytes)
+    ) {
+      truncated = true;
+      break;
+    }
+  }
+  return { matches, truncated };
 }
 
 async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
