@@ -1,5 +1,6 @@
 import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../settings/index.js";
 import { wrapUntrustedBlock } from "../agent/promptBlocks.js";
+import { escapeTableHtml } from "../github/markdownFormat.js";
 
 export type CommentableRightLineRanges = Array<[number, number]>;
 
@@ -194,7 +195,7 @@ export function renderAnchorMenuBlock(
       file.commentableRightLineRanges.length > caps.maxRangesPerFile
         ? ` …${file.commentableRightLineRanges.length - caps.maxRangesPerFile} more ranges`
         : "";
-    lines.push(`- ${filename}: ${formatted}${rangeSuffix}`);
+    lines.push(`- ${escapeTableHtml(filename)}: ${formatted}${rangeSuffix}`);
   }
   if (entries.length > caps.maxFiles) {
     lines.push(`…${entries.length - caps.maxFiles} more files`);

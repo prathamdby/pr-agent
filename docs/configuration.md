@@ -178,14 +178,14 @@ These are related but not wired together on INSERT today.
 
 ### Ask safety
 
-| Symbol                                                     | Default                                   |
-| ---------------------------------------------------------- | ----------------------------------------- |
-| `MAX_ASK_QUESTION_CHARS`                                   | 8192                                      |
-| `ASK_META_REFUSAL`                                         | meta-probe reply                          |
-| `BOT_META_PATTERNS`                                        | regex set                                 |
-| `BOT_SECRET_PATTERNS`                                      | outbound redaction (ask + review publish) |
-| `SENSITIVE_PATH_PATTERNS`                                  | path gate                                 |
-| `ASK_TOOLS_WITH_OWNER_REPO` / `ASK_TOOLS_WITH_PULL_NUMBER` | tool scope sets                           |
+| Symbol                                                     | Default                                                                            |
+| ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `MAX_ASK_QUESTION_CHARS`                                   | 8192                                                                               |
+| `ASK_META_REFUSAL`                                         | meta-probe reply                                                                   |
+| `BOT_META_PATTERNS`                                        | regex set                                                                          |
+| `BOT_SECRET_PATTERNS`                                      | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens |
+| `SENSITIVE_PATH_PATTERNS`                                  | ask path gate for env files, key material, and credential stores                   |
+| `ASK_TOOLS_WITH_OWNER_REPO` / `ASK_TOOLS_WITH_PULL_NUMBER` | tool scope sets                                                                    |
 
 ### GitHub API
 

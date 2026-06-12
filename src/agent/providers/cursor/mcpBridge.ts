@@ -50,7 +50,9 @@ export function checkMcpBearerAuth(
 ): boolean {
   if (!authorizationHeader) return false;
   const [scheme, value] = authorizationHeader.split(" ", 2);
-  return scheme?.toLowerCase() === "bearer" && value === token;
+  if (scheme?.toLowerCase() !== "bearer" || !value) return false;
+  if (Buffer.byteLength(value) !== Buffer.byteLength(token)) return false;
+  return crypto.timingSafeEqual(Buffer.from(value), Buffer.from(token));
 }
 
 function resolveOption<T>(value: T | (() => T)): T {
