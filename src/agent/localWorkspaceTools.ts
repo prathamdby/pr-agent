@@ -159,66 +159,21 @@ export function buildLocalWorkspaceTools(
 
   const searchWorkspace: LocalTool = {
     description:
-      "Search the full local PR workspace checkout for a literal string. Skips binary and oversized files.",
+      "Search the full local PR workspace checkout with git grep for a literal string. Skips binary files. filesScanned is the matched file count after path filtering.",
     schema: z.object({
       query: z.string().min(1),
       maxResults: z.number().int().positive().optional().default(20),
     }),
     run: async ({ query, maxResults }) => {
-      const matches: Array<{ path: string; line: number; text: string }> = [];
-      let filesScanned = 0;
-      let bytesScanned = 0;
-
-      for (const path of workspace.sortedCheckoutPaths) {
-        if (matches.length >= maxResults) {
-          return { matches, truncated: true, filesScanned };
-        }
-        if (filesScanned >= limits.searchMaxFiles) {
-          return {
-            matches,
-            truncated: true,
-            filesScanned,
-            reason: `Stopped after scanning ${limits.searchMaxFiles} files.`,
-          };
-        }
-
-        if (!pathAllowedForAsk(path, pathGate)) {
-          continue;
-        }
-
-        const safePath = assertWorkspacePath(workspace.agentCwd, path);
-        let info;
-        try {
-          info = await stat(safePath);
-        } catch {
-          continue;
-        }
-        if (!info.isFile() || info.size > limits.maxFileBytes) continue;
-
-        if (bytesScanned + info.size > limits.searchMaxTotalBytes) {
-          return {
-            matches,
-            truncated: true,
-            filesScanned,
-            reason: `Stopped after ${limits.searchMaxTotalBytes} bytes scanned.`,
-          };
-        }
-        bytesScanned += info.size;
-        filesScanned++;
-
-        const buf = await readFile(safePath).catch(() => Buffer.alloc(0));
-        if (looksBinary(buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)))) continue;
-        const content = buf.toString("utf8");
-        const lines = content.split("\n");
-        for (const [index, line] of lines.entries()) {
-          if (!line.includes(query)) continue;
-          matches.push({ path, line: index + 1, text: line });
-          if (matches.length >= maxResults) {
-            return { matches, truncated: true, filesScanned };
-          }
-        }
-      }
-      return { matches, truncated: false, filesScanned };
+      const allowedMatches = (await workspace.grepLiteral({ query, maxResults })).filter((match) =>
+        pathAllowedForAsk(match.path, pathGate),
+      );
+      const matchedFiles = new Set(allowedMatches.map((match) => match.path));
+      return {
+        matches: allowedMatches.slice(0, maxResults),
+        truncated: allowedMatches.length > maxResults,
+        filesScanned: matchedFiles.size,
+      };
     },
   };
 

@@ -48,10 +48,24 @@ export type LocalPrWorkspace = {
     readonly fileCount: number;
     readonly warning?: string;
   };
+  readonly grepLiteral: (
+    params: GitGrepWorkspaceParams,
+  ) => Promise<readonly GitGrepWorkspaceMatch[]>;
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
   readonly isPathInCheckout: (path: string) => boolean;
   readonly cleanup: () => Promise<void>;
+};
+
+export type GitGrepWorkspaceParams = {
+  readonly query: string;
+  readonly maxResults: number;
+};
+
+export type GitGrepWorkspaceMatch = {
+  readonly path: string;
+  readonly line: number;
+  readonly text: string;
 };
 
 export type PrepareLocalPrWorkspaceParams = {
@@ -130,6 +144,7 @@ async function execGit(
     tokenFile?: string;
     askpass?: string;
     workTree?: string;
+    processCwd?: string;
   },
 ): Promise<{ stdout: string; stderr: string }> {
   const env = {
@@ -142,11 +157,70 @@ async function execGit(
     ...(opts.askpass ? { GIT_ASKPASS: opts.askpass, GIT_TOKEN_FILE: opts.tokenFile ?? "" } : {}),
   };
   return exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
-    cwd: opts.cwd,
+    cwd: opts.processCwd ?? opts.cwd,
     env,
     timeout: opts.timeoutMs,
     maxBuffer: 20 * 1024 * 1024,
   });
+}
+
+function failedWithExitCode(error: unknown, code: number): boolean {
+  if (typeof error !== "object" || error === null || !("code" in error)) return false;
+  return error.code === code;
+}
+
+function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
+  const matches: GitGrepWorkspaceMatch[] = [];
+  let offset = 0;
+  while (offset < stdout.length) {
+    const pathEnd = stdout.indexOf("\0", offset);
+    if (pathEnd < 0) break;
+    const lineEnd = stdout.indexOf("\0", pathEnd + 1);
+    if (lineEnd < 0) break;
+    const textEnd = stdout.indexOf("\n", lineEnd + 1);
+    const line = Number(stdout.slice(pathEnd + 1, lineEnd));
+    const text = textEnd < 0 ? stdout.slice(lineEnd + 1) : stdout.slice(lineEnd + 1, textEnd);
+    if (Number.isInteger(line) && line > 0) {
+      matches.push({
+        path: stdout.slice(offset, pathEnd),
+        line,
+        text,
+      });
+    }
+    offset = textEnd < 0 ? stdout.length : textEnd + 1;
+  }
+  return matches;
+}
+
+export async function gitGrepWorkspace(
+  workspace: Pick<LocalPrWorkspace, "privateGitDir" | "agentCwd">,
+  params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
+): Promise<readonly GitGrepWorkspaceMatch[]> {
+  try {
+    const { stdout } = await execGit(
+      [
+        "grep",
+        "-nF",
+        "-I",
+        "-z",
+        `--max-count=${params.maxResults + 1}`,
+        "-e",
+        params.query,
+        "--",
+        ".",
+      ],
+      {
+        cwd: workspace.privateGitDir,
+        timeoutMs: params.timeoutMs,
+        workTree: workspace.agentCwd,
+        processCwd: workspace.agentCwd,
+      },
+    );
+    return parseGitGrepOutput(stdout);
+  } catch (error) {
+    if (failedWithExitCode(error, 1)) return [];
+    throw error;
+  }
 }
 
 async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
@@ -351,6 +425,12 @@ export async function prepareLocalPrWorkspace(
       : stdout;
   }
 
+  const grepLiteral = (grepParams: GitGrepWorkspaceParams) =>
+    gitGrepWorkspace(
+      { privateGitDir, agentCwd },
+      { ...grepParams, timeoutMs: cfg.localWorkspaceFetchTimeoutMs },
+    );
+
   try {
     await mkdir(privateGitDir, { recursive: true });
     await mkdir(agentCwd, { recursive: true });
@@ -404,6 +484,7 @@ export async function prepareLocalPrWorkspace(
         fileCount: changedFiles.length,
         warning: prFiles.warning,
       },
+      grepLiteral,
       getDiffForPath,
       getBlameForPath,
       isPathInCheckout,
