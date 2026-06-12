@@ -43,20 +43,41 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     range = [line, line];
   };
 
-  for (const rawLine of patch.split("\n")) {
+  const finishRanges = () => {
+    if (range) {
+      ranges.push(range);
+    }
+    return ranges;
+  };
+
+  if (patch === "") return ranges;
+
+  const lines = patch.endsWith("\n") ? patch.slice(0, -1).split("\n") : patch.split("\n");
+  let seenHunk = false;
+
+  for (const rawLine of lines) {
     if (rawLine.startsWith("@@")) {
       const hunkMatch = rawLine.match(DIFF_HUNK_RE);
-      if (hunkMatch) {
-        rightLine = Number(hunkMatch[1]);
-        continue;
-      }
+      if (!hunkMatch) return finishRanges();
+      rightLine = Number(hunkMatch[1]);
+      seenHunk = true;
+      continue;
+    }
+    if (
+      !seenHunk &&
+      (rawLine.startsWith("diff --git ") ||
+        rawLine.startsWith("index ") ||
+        rawLine.startsWith("--- ") ||
+        rawLine.startsWith("+++ "))
+    ) {
+      continue;
     }
     if (rawLine.startsWith("+") && !rawLine.startsWith("+++")) {
       addCommentableLine(rightLine);
       rightLine++;
       continue;
     }
-    if (rawLine.startsWith(" ") && rawLine.length > 0) {
+    if (rawLine.startsWith(" ") || rawLine.length === 0) {
       addCommentableLine(rightLine);
       rightLine++;
       continue;
@@ -67,13 +88,10 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     if (rawLine.startsWith("\\")) {
       continue;
     }
-    if (rawLine.length > 0) {
-      rightLine++;
-    }
+    return finishRanges();
   }
 
-  if (range) ranges.push(range);
-  return ranges;
+  return finishRanges();
 }
 
 export type ListPullRequestFilesToolResult = {
