@@ -54,12 +54,14 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
 
   const lines = patch.endsWith("\n") ? patch.slice(0, -1).split("\n") : patch.split("\n");
   let seenHunk = false;
+  let rightLinesRemaining = 0;
 
   for (const rawLine of lines) {
     if (rawLine.startsWith("@@")) {
       const hunkMatch = rawLine.match(DIFF_HUNK_RE);
       if (!hunkMatch) return finishRanges();
       rightLine = Number(hunkMatch[1]);
+      rightLinesRemaining = Number(hunkMatch[2] ?? "1");
       seenHunk = true;
       continue;
     }
@@ -69,11 +71,21 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
     if (rawLine.startsWith("+") && !rawLine.startsWith("+++")) {
       addCommentableLine(rightLine);
       rightLine++;
+      rightLinesRemaining--;
       continue;
     }
-    if (rawLine.startsWith(" ") || rawLine.length === 0) {
+    if (rawLine.startsWith(" ")) {
       addCommentableLine(rightLine);
       rightLine++;
+      rightLinesRemaining--;
+      continue;
+    }
+    if (rawLine.length === 0) {
+      if (rightLinesRemaining > 0) {
+        addCommentableLine(rightLine);
+        rightLine++;
+        rightLinesRemaining--;
+      }
       continue;
     }
     if (rawLine.startsWith("-") && !rawLine.startsWith("---")) {

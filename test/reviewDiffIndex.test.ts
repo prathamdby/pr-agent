@@ -139,6 +139,19 @@ describe("reviewDiffIndex", () => {
     expect(parseCommentableRightLineRanges(patch)).toEqual([[10, 10]]);
   });
 
+  it("does not treat empty split segments between hunks as context lines", () => {
+    const patch = ["@@ -5,1 +5,1 @@", "+line5", "", "@@ -7,1 +7,1 @@", "+line7"].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([
+      [5, 5],
+      [7, 7],
+    ]);
+  });
+
+  it("does not treat repeated trailing patch newlines as context lines", () => {
+    const patch = ["@@ -10,1 +10,1 @@", "+added", "", ""].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([[10, 10]]);
+  });
+
   it("returns ranges before a malformed hunk header and stops anchoring", () => {
     const patch = ["@@ -4,1 +4,2 @@", " context", "+added", "@@ garbage @@", "+after"].join("\n");
     expect(parseCommentableRightLineRanges(patch)).toEqual([[4, 5]]);
