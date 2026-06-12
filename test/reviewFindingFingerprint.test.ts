@@ -35,6 +35,21 @@ describe("fingerprintFinding", () => {
     const other = { ...finding, detail: "different substance" };
     expect(fingerprintFinding(finding, "review")).not.toBe(fingerprintFinding(other, "review"));
   });
+
+  it("matches when a finding shifts within the same line bucket", () => {
+    const shifted = { ...finding, startLine: 13, endLine: 15 };
+    expect(fingerprintFinding(finding, "review")).toBe(fingerprintFinding(shifted, "review"));
+  });
+
+  it("differs when title changes", () => {
+    const other = { ...finding, title: "Leaked token" };
+    expect(fingerprintFinding(finding, "review")).not.toBe(fingerprintFinding(other, "review"));
+  });
+
+  it("differs for identical findings in distant line buckets", () => {
+    const distant = { ...finding, startLine: 400, endLine: 402 };
+    expect(fingerprintFinding(finding, "review")).not.toBe(fingerprintFinding(distant, "review"));
+  });
 });
 
 describe("parseStoredInlineFingerprints", () => {

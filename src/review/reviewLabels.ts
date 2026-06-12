@@ -1,14 +1,35 @@
-import { LABEL_REVIEW_EFFORT_PREFIX, LABEL_SECURITY_CONCERN } from "../settings/index.js";
-import type { ReviewPayload } from "./reviewSchema.js";
+import {
+  LABEL_QUALITY_EFFORT_PREFIX,
+  LABEL_REVIEW_EFFORT_PREFIX,
+  LABEL_SECURITY_CONCERN,
+  LABEL_SECURITY_EFFORT_PREFIX,
+} from "../settings/index.js";
+import type { ReviewMode, ReviewPayload } from "./reviewSchema.js";
+
+function reviewEffortLabelPrefix(mode: ReviewMode): string {
+  switch (mode) {
+    case "review-security":
+      return LABEL_SECURITY_EFFORT_PREFIX;
+    case "review-quality":
+      return LABEL_QUALITY_EFFORT_PREFIX;
+    case "review":
+      return LABEL_REVIEW_EFFORT_PREFIX;
+  }
+  const exhaustive: never = mode;
+  return exhaustive;
+}
 
 export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean },
+  mode: ReviewMode = "review",
 ): boolean {
   if (opts.effort) {
-    const effortLabel = `${LABEL_REVIEW_EFFORT_PREFIX}${payload.estimatedEffort}/5`;
-    if (!currentLabels.includes(effortLabel)) return false;
+    const effortPrefix = reviewEffortLabelPrefix(mode);
+    const effortLabel = `${effortPrefix}${payload.estimatedEffort}/5`;
+    const currentEffortLabels = currentLabels.filter((label) => label.startsWith(effortPrefix));
+    if (currentEffortLabels.length !== 1 || currentEffortLabels[0] !== effortLabel) return false;
   }
   if (opts.security) {
     const wantsSecurity = payload.securityConcerns != null;
@@ -20,10 +41,11 @@ export function labelsAlreadySynced(
 export function reviewLabelsFromPayload(
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean },
+  mode: ReviewMode = "review",
 ): string[] {
   const labels: string[] = [];
   if (opts.effort) {
-    labels.push(`${LABEL_REVIEW_EFFORT_PREFIX}${payload.estimatedEffort}/5`);
+    labels.push(`${reviewEffortLabelPrefix(mode)}${payload.estimatedEffort}/5`);
   }
   if (opts.security && payload.securityConcerns != null) {
     labels.push(LABEL_SECURITY_CONCERN);
@@ -31,9 +53,14 @@ export function reviewLabelsFromPayload(
   return labels;
 }
 
-export function syncReviewLabels(currentLabels: string[], nextManaged: string[]): string[] {
+export function syncReviewLabels(
+  currentLabels: string[],
+  nextManaged: string[],
+  mode: ReviewMode = "review",
+): string[] {
+  const effortPrefix = reviewEffortLabelPrefix(mode);
   const preserved = currentLabels.filter(
-    (name) => !name.startsWith(LABEL_REVIEW_EFFORT_PREFIX) && name !== LABEL_SECURITY_CONCERN,
+    (name) => !name.startsWith(effortPrefix) && name !== LABEL_SECURITY_CONCERN,
   );
   return [...preserved, ...nextManaged];
 }

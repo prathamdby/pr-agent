@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE } from "../settings/index.js";
 import type { FingerprintedInlinePlacement, InlinePlacement } from "./reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewMode } from "./reviewSchema.js";
 
@@ -11,13 +12,13 @@ export function normalizeFindingSubstance(text: string): string {
 }
 
 export function fingerprintFinding(finding: ReviewFinding, mode: ReviewMode): string {
+  const lineBucket = Math.floor(finding.startLine / REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE);
   const material = [
     mode,
     finding.file,
-    String(finding.startLine),
-    String(finding.endLine),
     normalizeFindingSubstance(finding.title),
     normalizeFindingSubstance(finding.detail),
+    String(lineBucket),
   ].join("|");
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 16);
 }

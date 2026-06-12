@@ -406,6 +406,31 @@ describe("publishReview", () => {
     ]);
   });
 
+  it("syncs quality effort without removing review effort", async () => {
+    vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
+      "Review effort 3/5",
+      "Quality effort 1/5",
+      "bug",
+    ]);
+
+    await publishReviewForTest({
+      ...baseParams,
+      mode: "review-quality",
+      publishState: testPublishState(),
+      cfg: {
+        enableReviewLabelsEffort: true,
+        enableReviewLabelsSecurity: false,
+      },
+      payload: { ...payload, estimatedEffort: 4 },
+    });
+
+    expect(setPullRequestLabels).toHaveBeenCalledWith("t", "o", "r", 1, [
+      "Review effort 3/5",
+      "bug",
+      "Quality effort 4/5",
+    ]);
+  });
+
   it("links pointer when shouldLinkToSummary and comment verifies", async () => {
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
       id: 99,
