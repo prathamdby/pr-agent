@@ -1,0 +1,177 @@
+import { randomUUID } from "node:crypto";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { Pool } from "pg";
+import { runMigrations } from "../../src/db/migrations.js";
+import {
+  claimWorkForExecution,
+  forceMarkRescheduledParentCompleted,
+  markWorkCancelled,
+  markWorkCompleted,
+  markWorkRetrying,
+} from "../../src/agentWork/repository.js";
+import type { WorkStatus } from "../../src/agentWork/types.js";
+import { hasDatabase, integrationPool } from "./db.js";
+
+const OWNER = "repo-it";
+
+type InsertWorkItemInput = {
+  readonly status?: WorkStatus;
+  readonly attemptCount?: number;
+  readonly cancelRequestedAt?: string | null;
+  readonly payload?: Record<string, unknown>;
+};
+
+type WorkRow = {
+  readonly status: WorkStatus;
+  readonly attempt_count: number;
+  readonly started_at: Date | null;
+  readonly completed_at: Date | null;
+  readonly cancel_requested_at: Date | null;
+  readonly last_error: string | null;
+};
+
+describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
+  let pool: Pool;
+
+  beforeAll(async () => {
+    pool = integrationPool();
+    await runMigrations(pool);
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  afterEach(async () => {
+    await pool.query("DELETE FROM agent_work_items WHERE owner = $1", [OWNER]);
+  });
+
+  async function insertWorkItem(input: InsertWorkItemInput = {}): Promise<string> {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, attempt_count, cancel_requested_at, payload
+       )
+       VALUES ($1, 'review', 'auto', $2, $3, 'r', 1, 1, 'h', 'review', $4, $5, $6, $7::jsonb)`,
+      [
+        id,
+        input.status ?? "queued",
+        OWNER,
+        `repo-it-${id}`,
+        input.attemptCount ?? 0,
+        input.cancelRequestedAt ?? null,
+        JSON.stringify(input.payload ?? {}),
+      ],
+    );
+    return id;
+  }
+
+  async function getWorkRow(id: string): Promise<WorkRow> {
+    const { rows } = await pool.query<WorkRow>(
+      `SELECT status, attempt_count, started_at, completed_at, cancel_requested_at, last_error
+         FROM agent_work_items
+        WHERE id = $1`,
+      [id],
+    );
+    const row = rows[0];
+    if (!row) throw new Error(`missing work item ${id}`);
+    return row;
+  }
+
+  it("claims queued work and increments attempt count", async () => {
+    const id = await insertWorkItem();
+
+    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+
+    const row = await getWorkRow(id);
+    expect(row.status).toBe("running");
+    expect(row.attempt_count).toBe(1);
+    expect(row.started_at).toBeInstanceOf(Date);
+  });
+
+  it("claims running work through the resume path", async () => {
+    const id = await insertWorkItem();
+
+    await claimWorkForExecution(pool, id);
+    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+
+    const row = await getWorkRow(id);
+    expect(row.status).toBe("running");
+    expect(row.attempt_count).toBe(1);
+  });
+
+  it("does not claim work after cancellation is requested", async () => {
+    const id = await insertWorkItem({ cancelRequestedAt: new Date().toISOString() });
+
+    await expect(claimWorkForExecution(pool, id)).resolves.toBe(false);
+
+    const row = await getWorkRow(id);
+    expect(row.status).toBe("queued");
+    expect(row.attempt_count).toBe(0);
+  });
+
+  it("completes running work once only", async () => {
+    const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+
+    await expect(markWorkCompleted(pool, id)).resolves.toBe(true);
+    await expect(markWorkCompleted(pool, id)).resolves.toBe(false);
+
+    const row = await getWorkRow(id);
+    expect(row.status).toBe("completed");
+    expect(row.completed_at).toBeInstanceOf(Date);
+  });
+
+  it("prevents completion after cancellation wins", async () => {
+    const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+
+    await markWorkCancelled(pool, id);
+
+    await expect(markWorkCompleted(pool, id)).resolves.toBe(false);
+    await expect(getWorkRow(id)).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  it("requeues retrying work and increments attempt on the next claim", async () => {
+    const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+
+    await expect(markWorkRetrying(pool, id, new Error("retry me"))).resolves.toBe(true);
+
+    const retrying = await getWorkRow(id);
+    expect(retrying.status).toBe("queued");
+    expect(retrying.attempt_count).toBe(1);
+    expect(retrying.last_error).toBe("retry me");
+
+    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+    await expect(getWorkRow(id)).resolves.toMatchObject({
+      status: "running",
+      attempt_count: 2,
+    });
+  });
+
+  it("only force-completes rescheduled parents with a replacement marker", async () => {
+    const ordinary = await insertWorkItem({ status: "running", attemptCount: 1 });
+    const rescheduled = await insertWorkItem({
+      status: "queued",
+      payload: { staleHeadReplacementWorkItemId: "replacement-wi" },
+    });
+
+    await expect(forceMarkRescheduledParentCompleted(pool, ordinary)).resolves.toBe(false);
+    await expect(forceMarkRescheduledParentCompleted(pool, rescheduled)).resolves.toBe(true);
+
+    await expect(getWorkRow(ordinary)).resolves.toMatchObject({ status: "running" });
+    await expect(getWorkRow(rescheduled)).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("allows concurrent double-claim through one running resume", async () => {
+    const id = await insertWorkItem();
+
+    await expect(
+      Promise.all([claimWorkForExecution(pool, id), claimWorkForExecution(pool, id)]),
+    ).resolves.toEqual([true, true]);
+
+    await expect(getWorkRow(id)).resolves.toMatchObject({
+      status: "running",
+      attempt_count: 1,
+    });
+  });
+});
