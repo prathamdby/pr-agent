@@ -120,6 +120,37 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("searchWorkspace applies the path gate before the grep output cap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        ".env": Array.from({ length: 5 }, () => `SECRET=needle ${"x".repeat(200)}`).join("\n"),
+        "src/changed.ts": "export const changed = true;\n",
+        "zzz/allowed.ts": "export const needle = true;\n",
+      });
+
+      const workspace = mockWorkspace(root, [".env", "src/changed.ts", "zzz/allowed.ts"]);
+      const pathGate = createAskPathGate();
+      pathGate.addPaths(["zzz/allowed.ts"]);
+      const { executors } = buildLocalWorkspaceTools(
+        workspace,
+        testLimits({ searchMaxTotalBytes: 500 }),
+        { pathGate },
+      );
+      const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
+        matches: Array<{ path: string; text: string }>;
+        truncated: boolean;
+      };
+
+      expect(out).toMatchObject({
+        matches: [{ path: "zzz/allowed.ts", text: "export const needle = true;" }],
+        truncated: false,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("searchWorkspace honors maxResults truncation", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

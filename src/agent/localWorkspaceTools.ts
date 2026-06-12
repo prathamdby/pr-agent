@@ -165,18 +165,22 @@ export function buildLocalWorkspaceTools(
       maxResults: z.number().int().positive().optional().default(20),
     }),
     run: async ({ query, maxResults }) => {
+      const allowedPaths = workspace.sortedCheckoutPaths.filter((path) =>
+        pathAllowedForAsk(path, pathGate),
+      );
+      if (allowedPaths.length === 0) {
+        return { matches: [], truncated: false, filesScanned: 0 };
+      }
       const result = await workspace.grepLiteral({
         query,
         maxResults,
         maxOutputBytes: limits.searchMaxTotalBytes,
+        paths: allowedPaths,
       });
-      const allowedMatches = result.matches.filter((match) =>
-        pathAllowedForAsk(match.path, pathGate),
-      );
-      const matchedFiles = new Set(allowedMatches.map((match) => match.path));
+      const matchedFiles = new Set(result.matches.map((match) => match.path));
       return {
-        matches: allowedMatches.slice(0, maxResults),
-        truncated: result.truncated || allowedMatches.length > maxResults,
+        matches: result.matches.slice(0, maxResults),
+        truncated: result.truncated || result.matches.length > maxResults,
         filesScanned: matchedFiles.size,
       };
     },

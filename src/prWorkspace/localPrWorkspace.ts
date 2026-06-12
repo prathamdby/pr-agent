@@ -59,6 +59,7 @@ export type GitGrepWorkspaceParams = {
   readonly query: string;
   readonly maxResults: number;
   readonly maxOutputBytes?: number;
+  readonly paths?: readonly string[];
 };
 
 export type GitGrepWorkspaceResult = {
@@ -210,10 +211,16 @@ function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
   return matches;
 }
 
+function literalPathspec(path: string): string {
+  return `:(literal)${path}`;
+}
+
 export async function gitGrepWorkspace(
   workspace: Pick<LocalPrWorkspace, "privateGitDir" | "agentCwd">,
   params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
 ): Promise<GitGrepWorkspaceResult> {
+  if (params.paths?.length === 0) return { matches: [], truncated: false };
+  const pathspecs = params.paths?.map(literalPathspec) ?? ["."];
   try {
     const { stdout } = await execGit(
       [
@@ -225,7 +232,7 @@ export async function gitGrepWorkspace(
         "-e",
         params.query,
         "--",
-        ".",
+        ...pathspecs,
       ],
       {
         cwd: workspace.privateGitDir,
