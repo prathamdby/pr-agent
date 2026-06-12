@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../src/settings/index.js";
 
 function testPrivateKeyPem(): string {
   const { privateKey } = crypto.generateKeyPairSync("rsa", {
@@ -29,6 +30,7 @@ describe("loadConfig validation", () => {
 
   afterEach(() => {
     process.env = { ...saved };
+    vi.restoreAllMocks();
   });
 
   it("applies documented defaults", async () => {
@@ -80,5 +82,25 @@ describe("loadConfig validation", () => {
 
   it("rejects an invalid enum", async () => {
     await expect(load({ ROLE: "bad" })).rejects.toThrow(/ROLE must be one of web, worker/);
+  });
+
+  it("clamps max PR files listed to the GitHub API cap with a warning", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cfg = await load({ MAX_PR_FILES_LISTED: "5000" });
+
+    expect(cfg.maxPrFilesListed).toBe(GITHUB_PULL_REQUEST_FILES_API_MAX_FILES);
+    expect(warn).toHaveBeenCalledWith(
+      `MAX_PR_FILES_LISTED=5000 exceeds GitHub pull request files API cap ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}; using ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}.`,
+    );
+  });
+
+  it("keeps max PR files listed below the GitHub API cap unchanged", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const cfg = await load({ MAX_PR_FILES_LISTED: "2500" });
+
+    expect(cfg.maxPrFilesListed).toBe(2500);
+    expect(warn).not.toHaveBeenCalled();
   });
 });

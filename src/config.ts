@@ -58,6 +58,7 @@ import {
   DEFAULT_WEBHOOK_MAX_BODY_BYTES,
   ENV,
   EXTERNAL_ENV,
+  GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
 } from "./settings/index.js";
 
 function requireEnv(name: string): string {
@@ -291,7 +292,19 @@ export function loadConfig() {
     DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   );
 
-  const maxPrFilesListed = readPositiveNumber(ENV.MAX_PR_FILES_LISTED, DEFAULT_MAX_PR_FILES_LISTED);
+  const configuredMaxPrFilesListed = readPositiveNumber(
+    ENV.MAX_PR_FILES_LISTED,
+    DEFAULT_MAX_PR_FILES_LISTED,
+  );
+  const maxPrFilesListed = Math.min(
+    configuredMaxPrFilesListed,
+    GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
+  );
+  if (configuredMaxPrFilesListed > GITHUB_PULL_REQUEST_FILES_API_MAX_FILES) {
+    console.warn(
+      `${ENV.MAX_PR_FILES_LISTED}=${configuredMaxPrFilesListed} exceeds GitHub pull request files API cap ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}; using ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}.`,
+    );
+  }
   const maxPrFilesPatchBytes = readPositiveNumber(
     ENV.MAX_PR_FILES_PATCH_BYTES,
     DEFAULT_MAX_PR_FILES_PATCH_BYTES,
