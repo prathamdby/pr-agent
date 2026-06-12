@@ -281,6 +281,14 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
       coercions.push("finding_endLine_number");
     }
   }
+  if ("confidence" in r) {
+    const n = coercePositiveInt(r.confidence);
+    if (n != null && n >= 1 && n <= 5 && n !== r.confidence) {
+      touch();
+      f.confidence = n;
+      coercions.push("finding_confidence_number");
+    }
+  }
   for (const field of ["file", "title"] as const) {
     if (field in r && typeof r[field] === "string") {
       const { text, changed } = coerceReviewTextField(r[field], `finding_${field}`, coercions);

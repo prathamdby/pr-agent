@@ -144,7 +144,7 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
     }
   });
 
-  it("preserves suggestedCode and confidence through finding coercion", () => {
+  it("preserves suggestedCode and coerces confidence through finding coercion", () => {
     const suggestedCode = "if (ok) {\n  return ```literal```;\n}";
     const { value, coercions } = coerceReviewPayloadInput({
       prCharacter: "x",
@@ -158,7 +158,7 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
           detail: "d",
           fixPrompt: "fix",
           suggestedCode,
-          confidence: 4,
+          confidence: "4",
         },
       ],
       estimatedEffort: 1,
@@ -168,6 +168,7 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
     });
 
     expect(coercions).toContain("finding_severity_alias");
+    expect(coercions).toContain("finding_confidence_number");
     const parsed = reviewPayloadSchema.safeParse(value);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
