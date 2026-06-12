@@ -162,6 +162,34 @@ describe("reviewDiffIndex", () => {
     expect(parseCommentableRightLineRanges(patch)).toEqual([[1, 2]]);
   });
 
+  it("ignores rename metadata before the first hunk", () => {
+    const patch = [
+      "diff --git a/old.txt b/new.txt",
+      "similarity index 86%",
+      "rename from old.txt",
+      "rename to new.txt",
+      "index 5626abf..f719efd 100644",
+      "--- a/old.txt",
+      "+++ b/new.txt",
+      "@@ -1,1 +1,1 @@",
+      "+renamed",
+    ].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([[1, 1]]);
+  });
+
+  it("ignores new-file metadata before the first hunk", () => {
+    const patch = [
+      "diff --git a/new.txt b/new.txt",
+      "new file mode 100644",
+      "index 0000000..f719efd",
+      "--- /dev/null",
+      "+++ b/new.txt",
+      "@@ -0,0 +1,1 @@",
+      "+added",
+    ].join("\n");
+    expect(parseCommentableRightLineRanges(patch)).toEqual([[1, 1]]);
+  });
+
   it("returns empty ranges for empty patches and deletion-only patches", () => {
     const patch = ["@@ -4,2 +4,0 @@", "-removed", "-gone"].join("\n");
     expect(parseCommentableRightLineRanges("")).toEqual([]);

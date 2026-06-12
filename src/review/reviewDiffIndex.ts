@@ -63,13 +63,7 @@ export function parseCommentableRightLineRanges(patch: string): CommentableRight
       seenHunk = true;
       continue;
     }
-    if (
-      !seenHunk &&
-      (rawLine.startsWith("diff --git ") ||
-        rawLine.startsWith("index ") ||
-        rawLine.startsWith("--- ") ||
-        rawLine.startsWith("+++ "))
-    ) {
+    if (!seenHunk) {
       continue;
     }
     if (rawLine.startsWith("+") && !rawLine.startsWith("+++")) {
