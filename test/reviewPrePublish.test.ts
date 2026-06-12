@@ -123,4 +123,28 @@ describe("prepareReviewPayloadForPublish", () => {
     );
     expect(result.prepared.placements[0]?.finding).toBe(result.prepared.payload.findings[0]);
   });
+
+  it("drops scored findings below the configured confidence threshold", () => {
+    const payload = makePayload({
+      findings: [
+        makeFinding({ title: "Low confidence", confidence: 2 }),
+        makeFinding({ title: "Meets threshold", confidence: 3 }),
+        makeFinding({ title: "Unscored" }),
+      ],
+    });
+
+    const result = prepareReviewPayloadForPublish({
+      payload,
+      mode: "review",
+      reviewMinConfidence: 3,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.prepared.payload.findings.map((finding) => finding.title)).toEqual([
+      "Meets threshold",
+      "Unscored",
+    ]);
+    expect(result.prepared.placements).toHaveLength(2);
+  });
 });

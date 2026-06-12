@@ -47,6 +47,7 @@ import {
   DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES,
   DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
   DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
+  DEFAULT_REVIEW_MIN_CONFIDENCE,
   DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
@@ -97,6 +98,14 @@ function readEnum<T extends string>(name: string, allowed: readonly T[], default
     throw new Error(`${name} must be one of ${allowed.join(", ")}`);
   }
   return value as T;
+}
+
+function readIntegerInRange(name: string, defaultValue: number, min: number, max: number): number {
+  const value = Number(optionalEnv(name, String(defaultValue)));
+  if (!Number.isInteger(value) || value < min || value > max) {
+    throw new Error(`${name} must be an integer from ${min} to ${max}`);
+  }
+  return value;
 }
 
 function stripMatchingQuotes(value: string): string {
@@ -195,6 +204,12 @@ export function loadConfig() {
   const maxReviewPublishCalls = readPositiveNumber(
     ENV.MAX_REVIEW_PUBLISH_CALLS,
     DEFAULT_MAX_REVIEW_PUBLISH_CALLS,
+  );
+  const reviewMinConfidence = readIntegerInRange(
+    ENV.REVIEW_MIN_CONFIDENCE,
+    DEFAULT_REVIEW_MIN_CONFIDENCE,
+    1,
+    5,
   );
   const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
   const askConcurrency = readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY);
@@ -391,6 +406,7 @@ export function loadConfig() {
     providerPromptTimeoutMs,
     maxReviewPublishAttempts,
     maxReviewPublishCalls,
+    reviewMinConfidence,
     reviewConcurrency,
     askConcurrency,
     ackConcurrency,

@@ -42,6 +42,7 @@ describe("reviewPublicOutput", () => {
           title: "Leaked token",
           detail: "Uses OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz in example.",
           fixPrompt: "Remove the assignment from docs.",
+          suggestedCode: 'const token = "OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz";',
         },
       ],
       estimatedEffort: 2,
@@ -53,5 +54,7 @@ describe("reviewPublicOutput", () => {
     const redacted = redactReviewPayloadSecrets(payload);
     expect(redacted.findings[0]?.detail).toContain("[redacted]");
     expect(redacted.findings[0]?.detail).not.toContain("sk-");
+    expect(redacted.findings[0]?.suggestedCode).toContain("[redacted]");
+    expect(redacted.findings[0]?.suggestedCode).not.toContain("sk-");
   });
 });

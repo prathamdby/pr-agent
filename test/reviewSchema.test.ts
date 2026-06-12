@@ -8,7 +8,20 @@ import {
   reviewRetrySlashCommandForMode,
   selectInlineFindings,
 } from "../src/review/reviewSchema.js";
+import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings/index.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
+
+function makeFinding(severity: ReviewFinding["severity"], title: string): ReviewFinding {
+  return {
+    severity,
+    file: "x.ts",
+    startLine: 1,
+    endLine: 1,
+    title,
+    detail: "d",
+    fixPrompt: severity === "P3" ? undefined : "fix",
+  };
+}
 
 describe("reviewEventForFindings", () => {
   it("REQUEST_CHANGES when P0 present", () => {
@@ -61,28 +74,22 @@ describe("reviewEventForFindings", () => {
 });
 
 describe("selectInlineFindings", () => {
-  const f = (severity: ReviewFinding["severity"], title: string): ReviewFinding => ({
-    severity,
-    file: "x.ts",
-    startLine: 1,
-    endLine: 1,
-    title,
-    detail: "d",
-    fixPrompt: severity === "P3" ? undefined : "fix",
-  });
-
   it("returns all P0-P2 inline findings sorted by severity", () => {
-    const selected = selectInlineFindings([f("P2", "p2"), f("P0", "p0"), f("P1", "p1")]);
+    const selected = selectInlineFindings([
+      makeFinding("P2", "p2"),
+      makeFinding("P0", "p0"),
+      makeFinding("P1", "p1"),
+    ]);
     expect(selected.map((x) => x.title)).toEqual(["p0", "p1", "p2"]);
   });
 
   it("excludes P3", () => {
-    const selected = selectInlineFindings([f("P3", "p3"), f("P1", "p1")]);
+    const selected = selectInlineFindings([makeFinding("P3", "p3"), makeFinding("P1", "p1")]);
     expect(selected.map((x) => x.title)).toEqual(["p1"]);
   });
 
   it("accepts more than eight findings", () => {
-    const findings = Array.from({ length: 12 }, (_, i) => f("P2", `bug-${i}`));
+    const findings = Array.from({ length: 12 }, (_, i) => makeFinding("P2", `bug-${i}`));
     const parsed = reviewPayloadSchema.safeParse({
       prCharacter: "Large review",
       findings,
@@ -99,7 +106,7 @@ describe("selectInlineFindings", () => {
   });
 
   it("rejects payloads above the soft findings ceiling", () => {
-    const findings = Array.from({ length: 129 }, (_, i) => f("P2", `bug-${i}`));
+    const findings = Array.from({ length: 129 }, (_, i) => makeFinding("P2", `bug-${i}`));
     const parsed = reviewPayloadSchema.safeParse({
       prCharacter: "Huge review",
       findings,
@@ -109,6 +116,66 @@ describe("selectInlineFindings", () => {
       followUps: [],
     });
     expect(parsed.success).toBe(false);
+  });
+});
+
+describe("reviewPayloadSchema", () => {
+  it("accepts optional suggestedCode and confidence fields", () => {
+    const parsed = reviewPayloadSchema.safeParse({
+      prCharacter: "Review with suggestion metadata",
+      findings: [
+        {
+          severity: "P1",
+          file: "a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Replace guard",
+          detail: "The guard allows an invalid state.",
+          fixPrompt: "Replace the condition with the positive guard.",
+          suggestedCode: "if (!ok) return;",
+          confidence: 4,
+        },
+      ],
+      estimatedEffort: 2,
+      relevantTests: "partial",
+      securityConcerns: null,
+      followUps: [],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.findings[0]?.suggestedCode).toBe("if (!ok) return;");
+      expect(parsed.data.findings[0]?.confidence).toBe(4);
+    }
+  });
+
+  it("rejects invalid confidence and oversized suggestedCode", () => {
+    for (const confidence of [0, 6]) {
+      const parsed = reviewPayloadSchema.safeParse({
+        prCharacter: "Review with bad confidence",
+        findings: [{ ...makeFinding("P1", "bad confidence"), confidence }],
+        estimatedEffort: 2,
+        relevantTests: "partial",
+        securityConcerns: null,
+        followUps: [],
+      });
+      expect(parsed.success).toBe(false);
+    }
+
+    const oversized = reviewPayloadSchema.safeParse({
+      prCharacter: "Review with large suggestion",
+      findings: [
+        {
+          ...makeFinding("P1", "large suggestion"),
+          suggestedCode: "x".repeat(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS + 1),
+        },
+      ],
+      estimatedEffort: 2,
+      relevantTests: "partial",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(oversized.success).toBe(false);
   });
 });
 

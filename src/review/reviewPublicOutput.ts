@@ -18,6 +18,10 @@ export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayloa
       detail: redactReviewText(finding.detail),
       fixPrompt:
         finding.fixPrompt == null ? finding.fixPrompt : redactReviewText(finding.fixPrompt),
+      suggestedCode:
+        finding.suggestedCode == null
+          ? finding.suggestedCode
+          : redactReviewText(finding.suggestedCode),
     })),
   };
 }

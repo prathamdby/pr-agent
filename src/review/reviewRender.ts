@@ -279,6 +279,21 @@ function renderFindingTableCellHtml(
   return parts.join("<br>");
 }
 
+function renderSeverityLabel(finding: ReviewFinding): string {
+  if (finding.confidence == null) return finding.severity;
+  return `${finding.severity} · c${finding.confidence}`;
+}
+
+function renderSuggestedCodeBlock(finding: ReviewFinding): string[] {
+  if (finding.suggestedCode == null) return [];
+  if (finding.startLine !== finding.endLine) return [];
+
+  const escapedCode = escapeCodeFenceBreakers(finding.suggestedCode);
+  if (escapedCode !== finding.suggestedCode) return [];
+
+  return ["", "```suggestion", escapedCode, "```"];
+}
+
 export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
   const lines = [
     `**${finding.severity}** · **${finding.title}**`,
@@ -286,6 +301,7 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
     `\`${finding.file}\` · ${formatLineRange(finding.startLine, finding.endLine)}`,
     "",
     finding.detail,
+    ...renderSuggestedCodeBlock(finding),
     "",
     "<details>",
     "<summary>Prompt to fix</summary>",
@@ -450,7 +466,7 @@ function buildReviewSummaryBody(
     for (const placement of visiblePlacements) {
       const f = placement.finding;
       tableRows.push([
-        renderTableStrong(f.severity),
+        renderTableStrong(renderSeverityLabel(f)),
         renderFindingTableCellHtml(
           placement,
           ctx,

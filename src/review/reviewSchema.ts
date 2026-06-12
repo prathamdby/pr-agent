@@ -6,6 +6,7 @@ import {
   REVIEW_EFFORT_MIN,
   REVIEW_FINDING_DETAIL_MAX_CHARS,
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
+  REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
@@ -66,6 +67,8 @@ const reviewFindingSchema = z
     title: z.string().min(1).max(REVIEW_FINDING_TITLE_MAX_CHARS),
     detail: z.string().min(1).max(REVIEW_FINDING_DETAIL_MAX_CHARS),
     fixPrompt: z.string().max(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS).optional(),
+    suggestedCode: z.string().max(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS).optional(),
+    confidence: z.number().int().min(1).max(5).optional(),
   })
   .superRefine((f, ctx) => {
     if (f.startLine > f.endLine) {
@@ -276,6 +279,14 @@ function coerceFinding(raw: unknown, coercions: string[]): unknown {
       touch();
       f.endLine = n;
       coercions.push("finding_endLine_number");
+    }
+  }
+  if ("confidence" in r) {
+    const n = coercePositiveInt(r.confidence);
+    if (n != null && n >= 1 && n <= 5 && n !== r.confidence) {
+      touch();
+      f.confidence = n;
+      coercions.push("finding_confidence_number");
     }
   }
   for (const field of ["file", "title"] as const) {

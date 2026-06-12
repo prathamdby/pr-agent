@@ -157,6 +157,7 @@ export function buildSubmitReviewTool(params: {
     const prepared = prepareReviewPayloadForPublish({
       payload: parsed.data,
       mode,
+      reviewMinConfidence: params.cfg.reviewMinConfidence,
       cachedDiffIndex: params.cachedDiffIndex,
       enforceInlineAnchorValidation: enforceDiffAndAnchors,
     });

@@ -15,6 +15,7 @@ export type PreparedReviewPayload = {
 export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
   mode: ReviewMode;
+  reviewMinConfidence?: number;
   cachedDiffIndex?: CachedPrDiffIndex;
   enforceInlineAnchorValidation?: boolean;
 }):
@@ -22,7 +23,11 @@ export function prepareReviewPayloadForPublish(params: {
   | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
   const normalized = normalizeReviewPayload(params.payload);
   const deduped = dedupeReviewFindings(normalized.findings);
-  const candidate = { ...normalized, findings: deduped };
+  const minConfidence = params.reviewMinConfidence ?? 1;
+  const confidenceFiltered = deduped.filter(
+    (finding) => finding.confidence == null || finding.confidence >= minConfidence,
+  );
+  const candidate = { ...normalized, findings: confidenceFiltered };
   const dedupedCount = normalized.findings.length - deduped.length;
 
   const validation = validateReviewPayload({

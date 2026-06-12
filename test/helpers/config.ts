@@ -23,6 +23,7 @@ const baseTestConfig: Config = {
   providerPromptTimeoutMs: 300_000,
   maxReviewPublishAttempts: 3,
   maxReviewPublishCalls: 2,
+  reviewMinConfidence: 1,
   reviewConcurrency: 2,
   askConcurrency: 1,
   ackConcurrency: 2,
