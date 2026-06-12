@@ -13,6 +13,7 @@ export const pullRequestReviewCommentWebhookSchema = z.object({
     user: z.object({
       id: z.number(),
     }),
+    author_association: z.string().nullish(),
     body: z.string().nullish(),
     path: z.string().optional(),
     line: z.number().optional(),

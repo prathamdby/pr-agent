@@ -51,6 +51,7 @@ import {
   DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
+  DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
   DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
   DEFAULT_AGENT_WORK_RETENTION_SECONDS,
   DEFAULT_RETENTION_CRON,
@@ -98,6 +99,37 @@ function readEnum<T extends string>(name: string, allowed: readonly T[], default
     throw new Error(`${name} must be one of ${allowed.join(", ")}`);
   }
   return value as T;
+}
+
+const GITHUB_AUTHOR_ASSOCIATIONS = [
+  "OWNER",
+  "MEMBER",
+  "COLLABORATOR",
+  "CONTRIBUTOR",
+  "FIRST_TIME_CONTRIBUTOR",
+  "FIRST_TIMER",
+  "NONE",
+  "MANNEQUIN",
+] as const;
+
+const allowedGithubAuthorAssociations = new Set<string>(GITHUB_AUTHOR_ASSOCIATIONS);
+
+function readSlashAllowedAssociations(name: string, defaultValue: string): ReadonlySet<string> {
+  const values = optionalEnv(name, defaultValue)
+    .split(",")
+    .map((value) => value.trim().toUpperCase());
+
+  if (values.length === 1 && values[0] === "*") return new Set(["*"]);
+
+  for (const value of values) {
+    if (!allowedGithubAuthorAssociations.has(value)) {
+      throw new Error(
+        `${name} must be "*" or one or more of ${GITHUB_AUTHOR_ASSOCIATIONS.join(", ")}`,
+      );
+    }
+  }
+
+  return new Set(values);
 }
 
 function readIntegerInRange(name: string, defaultValue: number, min: number, max: number): number {
@@ -225,6 +257,10 @@ export function loadConfig() {
   const descriptionGenerateTitle = readBooleanEnv(
     ENV.DESCRIPTION_GENERATE_TITLE,
     DEFAULT_DESCRIPTION_GENERATE_TITLE,
+  );
+  const slashAllowedAssociations = readSlashAllowedAssociations(
+    ENV.SLASH_ALLOWED_ASSOCIATIONS,
+    DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
   );
 
   const queueRetryLimit = readNonNegativeNumber(ENV.QUEUE_RETRY_LIMIT, DEFAULT_QUEUE_RETRY_LIMIT);
@@ -413,6 +449,7 @@ export function loadConfig() {
     descriptionConcurrency,
     maxToolRoundsDescribe,
     descriptionGenerateTitle,
+    slashAllowedAssociations,
     queueRetryLimit,
     queueRetryDelaySeconds,
     queueRetryDelayMaxSeconds,

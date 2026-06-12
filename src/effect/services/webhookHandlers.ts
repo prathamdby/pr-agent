@@ -64,6 +64,21 @@ export const WebhookHandlersCore = Layer.effect(
         return true;
       });
 
+    const ignoreUnauthorizedSlash = (
+      cfg: Config,
+      headers: WebhookHeaders,
+      association: string | null | undefined,
+    ) =>
+      Effect.gen(function* () {
+        const intakeLog = yield* IntakeLogger;
+        if (cfg.slashAllowedAssociations.has("*")) return false;
+        if (association && cfg.slashAllowedAssociations.has(association.toUpperCase())) {
+          return false;
+        }
+        yield* scheduler.recordIgnored(headers, "ignored_unauthorized_slash", intakeLog);
+        return true;
+      });
+
     return WebhookHandlers.of({
       pullRequest: (_cfg, headers, data) =>
         Effect.gen(function* () {
@@ -101,6 +116,7 @@ export const WebhookHandlersCore = Layer.effect(
             return;
           }
           if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
+          if (yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association)) return;
 
           yield* scheduler.submitSlashCommand(
             {
@@ -141,6 +157,7 @@ export const WebhookHandlersCore = Layer.effect(
             return;
           }
           if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
+          if (yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association)) return;
 
           yield* scheduler.submitSlashCommand(
             {

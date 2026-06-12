@@ -3,8 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import * as evlog from "../src/evlog.js";
 import { IntakeLogger } from "../src/effect/intakeLogger.js";
+import { dispatchGithubEventEffect } from "../src/effect/programs/dispatchEffect.js";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { BotIdentity } from "../src/effect/services/botIdentity.js";
 import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
+import { WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import { WebhookHandlerError } from "../src/effect/errors.js";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -29,6 +33,55 @@ function withIntake<R, E, A>(
   return effect.pipe(
     Effect.provide(dispatcherLayer),
     Effect.provideService(IntakeLogger, intakeLog),
+  );
+}
+
+function slashGateDispatcherLayer(decisions: string[], slashCalls: string[]) {
+  const schedulerLayer = Layer.succeed(
+    AgentWorkScheduler,
+    AgentWorkScheduler.of({
+      recordIgnored: (_headers, decision) =>
+        Effect.sync(() => {
+          decisions.push(decision);
+        }),
+      submitAutomatedReview: () => Effect.void,
+      submitSlashCommand: (input) =>
+        Effect.sync(() => {
+          slashCalls.push(input.command);
+        }),
+      ping: () => Effect.succeed(true),
+    }),
+  );
+  const botLayer = Layer.succeed(
+    BotIdentity,
+    BotIdentity.of({
+      resolve: () => Effect.succeed({ userId: 42, login: "pr-agent[bot]" }),
+      getUserId: () => Effect.succeed(42),
+      getAppUserId: () => Effect.succeed(42),
+    }),
+  );
+  const handlersLayer = WebhookHandlersCore.pipe(
+    Layer.provide(schedulerLayer),
+    Layer.provide(botLayer),
+  );
+
+  return Layer.succeed(
+    WebhookDispatcher,
+    WebhookDispatcher.of({
+      dispatch: (input) =>
+        dispatchGithubEventEffect(input).pipe(
+          Effect.provide(schedulerLayer),
+          Effect.provide(handlersLayer),
+          Effect.mapError(
+            (e) =>
+              new WebhookHandlerError({
+                cause: e,
+                message: e instanceof Error ? e.message : String(e),
+              }),
+          ),
+        ),
+      ping: () => Effect.succeed(true),
+    }),
   );
 }
 
@@ -72,6 +125,42 @@ describe("processWebhookPostRequestEffect", () => {
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
+  });
+
+  it("silently ignores unauthorized slash commands", async () => {
+    const payload = {
+      action: "created",
+      installation: { id: 1 },
+      repository: { owner: { login: "o" }, name: "r", size: 10 },
+      issue: { number: 3, pull_request: {} },
+      comment: {
+        id: 99,
+        user: { id: 7 },
+        author_association: "FIRST_TIME_CONTRIBUTOR",
+        body: "/review",
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const decisions: string[] = [];
+    const slashCalls: string[] = [];
+
+    const out = await Effect.runPromise(
+      withIntake(
+        processWebhookPostRequestEffect(cfg, {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "issue_comment",
+            "x-github-delivery": "d-unauthorized-slash",
+          },
+          rawBody: body,
+        }),
+        slashGateDispatcherLayer(decisions, slashCalls),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual(["ignored_unauthorized_slash"]);
+    expect(slashCalls).toEqual([]);
   });
 
   it("returns 503 when handling exceeds the timeout budget", async () => {

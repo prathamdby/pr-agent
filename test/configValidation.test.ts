@@ -46,6 +46,7 @@ describe("loadConfig validation", () => {
     expect(cfg.role).toBe("web");
     expect(cfg.logLevel).toBe("info");
     expect(cfg.reviewMinConfidence).toBe(1);
+    expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
   });
 
   it("rejects a non-numeric positive knob", async () => {
@@ -100,6 +101,24 @@ describe("loadConfig validation", () => {
 
   it("rejects an invalid enum", async () => {
     await expect(load({ ROLE: "bad" })).rejects.toThrow(/ROLE must be one of web, worker/);
+  });
+
+  it("normalizes slash command author associations", async () => {
+    const cfg = await load({ SLASH_ALLOWED_ASSOCIATIONS: " owner, collaborator " });
+
+    expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "COLLABORATOR"]);
+  });
+
+  it("allows slash command association opt-out with star", async () => {
+    const cfg = await load({ SLASH_ALLOWED_ASSOCIATIONS: "*" });
+
+    expect([...cfg.slashAllowedAssociations]).toEqual(["*"]);
+  });
+
+  it("rejects unknown slash command author associations", async () => {
+    await expect(load({ SLASH_ALLOWED_ASSOCIATIONS: "OWNER,STRANGER" })).rejects.toThrow(
+      /SLASH_ALLOWED_ASSOCIATIONS must be/,
+    );
   });
 
   it("clamps max PR files listed to the GitHub API cap with a warning", async () => {
