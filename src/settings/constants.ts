@@ -16,6 +16,7 @@ export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"
 export const AUTOMATED_DESCRIPTION_PR_ACTIONS = new Set(["opened"]);
 export const AUTOMATED_REVIEW_LENS = "review" as const;
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
+export const ASK_PUBLISH_LENS = "ask" as const;
 export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 
 /** pi-ai metadata when mapping Cursor.models.list() items. */

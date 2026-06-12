@@ -5,9 +5,11 @@ import { runAskRun } from "../../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/formatAskReply.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
+import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
+import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
 import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
 
 async function publishAskAnswer(
@@ -51,6 +53,7 @@ export async function executeAskJob(
   boss: PgBoss,
   job: JobWithMetadata<AskJobData>,
 ): Promise<void> {
+  let answerDelivered = false;
   await runDurableWorkItem({
     cfg,
     pool,
@@ -63,6 +66,13 @@ export async function executeAskJob(
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
       const payload = item.payload as AskWorkPayload;
+      const askReplyPublished = () =>
+        hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
+      if (await askReplyPublished()) {
+        answerDelivered = true;
+        return {};
+      }
+
       return withPrRepositoryView(
         {
           cfg,
@@ -96,19 +106,41 @@ export async function executeAskJob(
               tokenState,
             ),
           });
-          await publishAskAnswer(
-            tokenState.installation.token,
-            tokenState.installation.expiresAtTs,
-            item,
-            result.answer,
-            true,
-          );
+          if (!(await askReplyPublished())) {
+            await publishAskAnswer(
+              tokenState.installation.token,
+              tokenState.installation.expiresAtTs,
+              item,
+              result.answer,
+              true,
+            );
+            answerDelivered = true;
+            try {
+              await recordAskPublishStep(pool, {
+                workItemId: item.id,
+                resourceKey: item.resourceKey,
+                step: "ask_reply",
+                detail: { replyTargetKind: payload.replyTarget.kind },
+              });
+            } catch (e) {
+              logWarn("ask_publish_record_failed", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                workItemId: item.id,
+                message: e instanceof Error ? e.message : String(e),
+              });
+              return { degraded: true };
+            }
+          } else {
+            answerDelivered = true;
+          }
           return {};
         },
       );
     },
     onTerminalFailure: async (item, installation) => {
-      if (!installation) return;
+      if (!installation || answerDelivered) return;
       const payload = item.payload as AskWorkPayload;
       await publishAskAnswer(
         installation.token,

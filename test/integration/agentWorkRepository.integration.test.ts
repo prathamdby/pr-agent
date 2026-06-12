@@ -5,9 +5,11 @@ import { runMigrations } from "../../src/db/migrations.js";
 import {
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
+  hasCompletedPublishStep,
   markWorkCancelled,
   markWorkCompleted,
   markWorkRetrying,
+  recordAskPublishStep,
 } from "../../src/agentWork/repository.js";
 import type { WorkStatus } from "../../src/agentWork/types.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -62,6 +64,29 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         input.attemptCount ?? 0,
         input.cancelRequestedAt ?? null,
         JSON.stringify(input.payload ?? {}),
+      ],
+    );
+    return id;
+  }
+
+  async function insertAskWorkItem(resourceKey: string): Promise<string> {
+    const id = randomUUID();
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, resource_key, payload
+       )
+       VALUES ($1, 'ask', 'slash', 'queued', $2, 'r', 1, 1, 'h', $3, $4::jsonb)`,
+      [
+        id,
+        OWNER,
+        resourceKey,
+        JSON.stringify({
+          question: "what changed?",
+          replyTarget: { kind: "prConversation", prNumber: 1 },
+          commentId: 99,
+          commenterId: 123,
+        }),
       ],
     );
     return id;
@@ -173,5 +198,42 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       status: "running",
       attempt_count: 1,
     });
+  });
+
+  it("keeps ask publish records separate per work item", async () => {
+    const resourceKey = "repo-it-shared-ask";
+    const first = await insertAskWorkItem(resourceKey);
+    const second = await insertAskWorkItem(resourceKey);
+
+    await recordAskPublishStep(pool, {
+      workItemId: first,
+      resourceKey,
+      step: "ask_reply",
+      detail: { replyTargetKind: "prConversation" },
+    });
+    await recordAskPublishStep(pool, {
+      workItemId: second,
+      resourceKey,
+      step: "ask_reply",
+      detail: { replyTargetKind: "prConversation" },
+    });
+
+    await expect(
+      hasCompletedPublishStep(pool, first, resourceKey, "ask", "ask_reply"),
+    ).resolves.toBe(true);
+    await expect(
+      hasCompletedPublishStep(pool, second, resourceKey, "ask", "ask_reply"),
+    ).resolves.toBe(true);
+
+    const { rows } = await pool.query<{ work_item_id: string }>(
+      `SELECT work_item_id
+         FROM publish_records
+        WHERE resource_key = $1
+          AND review_lens = 'ask'
+          AND step = 'ask_reply'
+          AND status = 'completed'`,
+      [resourceKey],
+    );
+    expect(rows.map((row) => row.work_item_id).toSorted()).toEqual([first, second].toSorted());
   });
 });

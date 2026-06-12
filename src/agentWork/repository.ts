@@ -3,16 +3,23 @@ import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
-import { DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
+import { ASK_PUBLISH_LENS, DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
 import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
 
-export type PublishLens = ReviewWorkPayload["mode"] | typeof DESCRIPTION_PUBLISH_LENS;
+export type PublishLens =
+  | ReviewWorkPayload["mode"]
+  | typeof DESCRIPTION_PUBLISH_LENS
+  | typeof ASK_PUBLISH_LENS;
+type SharedPublishLens = Exclude<PublishLens, typeof ASK_PUBLISH_LENS>;
 export type PublishStep =
   | "progress_comment"
   | "inline_review"
   | "summary_comment"
   | "labels"
-  | "pr_body";
+  | "pr_body"
+  | "ask_reply";
+type SharedPublishStep = Exclude<PublishStep, "ask_reply">;
+type AskPublishStep = Extract<PublishStep, "ask_reply">;
 
 type AgentWorkRow = {
   id: string;
@@ -260,6 +267,28 @@ export async function hasPriorCompletedSummaryPublish(
   return row != null;
 }
 
+export async function hasCompletedPublishStep(
+  pool: Pool,
+  workItemId: string,
+  resourceKey: string,
+  reviewLens: PublishLens,
+  step: PublishStep,
+): Promise<boolean> {
+  const row = await queryOne<{ exists: number }>(
+    pool,
+    `SELECT 1 AS exists
+		   FROM publish_records
+		  WHERE work_item_id = $1
+		    AND resource_key = $2
+		    AND review_lens = $3
+		    AND step = $4
+		    AND status = 'completed'
+		  LIMIT 1`,
+    [workItemId, resourceKey, reviewLens, step],
+  );
+  return row != null;
+}
+
 export async function getSummaryCommentGithubId(
   pool: Pool,
   resourceKey: string,
@@ -455,26 +484,57 @@ export async function recordPublishStep(
   params: {
     workItemId: string;
     resourceKey: string;
-    reviewLens: PublishLens;
-    step: PublishStep;
+    reviewLens: SharedPublishLens;
+    step: SharedPublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
   },
 ): Promise<void> {
   await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
-		 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
-		 ON CONFLICT (resource_key, review_lens, step)
-		 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
-		               github_id = EXCLUDED.github_id,
-		               status = 'completed',
-		               detail = EXCLUDED.detail,
-		               updated_at = now()`,
+			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
+			 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask'
+			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
+			               github_id = EXCLUDED.github_id,
+			               status = 'completed',
+			               detail = EXCLUDED.detail,
+			               updated_at = now()`,
     [
       crypto.randomUUID(),
       params.workItemId,
       params.resourceKey,
       params.reviewLens,
+      params.step,
+      params.githubId == null ? null : String(params.githubId),
+      JSON.stringify(params.detail ?? {}),
+    ],
+  );
+}
+
+export async function recordAskPublishStep(
+  pool: Pool,
+  params: {
+    workItemId: string;
+    resourceKey: string;
+    step: AskPublishStep;
+    githubId?: string | number;
+    detail?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
+			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
+			 ON CONFLICT (work_item_id, review_lens, step) WHERE review_lens = 'ask'
+			 DO UPDATE SET resource_key = EXCLUDED.resource_key,
+			               github_id = EXCLUDED.github_id,
+			               status = 'completed',
+			               detail = EXCLUDED.detail,
+			               updated_at = now()`,
+    [
+      crypto.randomUUID(),
+      params.workItemId,
+      params.resourceKey,
+      ASK_PUBLISH_LENS,
       params.step,
       params.githubId == null ? null : String(params.githubId),
       JSON.stringify(params.detail ?? {}),
