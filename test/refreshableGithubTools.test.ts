@@ -5,14 +5,15 @@ import { createRefreshableToolExecutors } from "../src/agent/providers/cursor/re
 
 describe("createRefreshableToolExecutors", () => {
   it("refreshes token and rebuilds executors when near expiry", async () => {
+    const freshExpiresAtTs = Date.now() + 3_600_000;
     const refresh = vi.fn(async () => ({
       token: "fresh-token",
-      expiresAtTs: Date.now() + 3_600_000,
+      expiresAtTs: freshExpiresAtTs,
     }));
-    const build = vi.fn((token: string) => ({
+    const build = vi.fn((token: string, expiresAtTs: number) => ({
       piTools: [],
       executors: {
-        getPullRequest: vi.fn(async () => ({ tokenUsed: token })),
+        getPullRequest: vi.fn(async () => ({ tokenUsed: token, expiresAtTs })),
       },
     }));
 
@@ -28,8 +29,9 @@ describe("createRefreshableToolExecutors", () => {
 
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(refreshable.getToken()).toBe("fresh-token");
+    expect(refreshable.getTokenExpiresAtTs()).toBe(freshExpiresAtTs);
     expect(build).toHaveBeenCalledTimes(2);
-    expect(build).toHaveBeenLastCalledWith("fresh-token");
+    expect(build).toHaveBeenLastCalledWith("fresh-token", freshExpiresAtTs);
   });
 
   it("keeps static GitHub tool parameter schemas identical across token rebuilds", () => {

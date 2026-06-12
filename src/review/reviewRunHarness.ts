@@ -211,6 +211,8 @@ export async function runReviewHarness(params: {
         prNumber,
         renderReviewFailureNotice({ mode: reviewMode, retryCommand }),
         reviewSummarySentinelForMode(reviewMode),
+        undefined,
+        setup.getTokenExpiresAtTs(),
       );
     } catch (e) {
       logWarn("review_publish_fallback_comment_failed", {

@@ -54,7 +54,9 @@ export function createSubmitReviewState(
 export function buildSubmitReviewTool(params: {
   cfg: Config;
   token: string;
+  tokenExpiresAtTs?: number;
   getToken?: () => string;
+  getTokenExpiresAtTs?: () => number;
   ctx: ReviewPublishContext;
   mode?: ReviewMode;
   state: SubmitReviewState;
@@ -212,6 +214,7 @@ export function buildSubmitReviewTool(params: {
     try {
       await publishReview({
         token: params.getToken?.() ?? params.token,
+        tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
         mode,
         cfg: params.cfg,
         ...params.ctx,

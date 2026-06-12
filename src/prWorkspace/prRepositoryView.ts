@@ -30,6 +30,7 @@ export type PreparePrRepositoryViewParams = {
   readonly prNumber: number;
   readonly headSha: string;
   readonly installationToken: string;
+  readonly installationExpiresAtTs?: number;
   readonly prFiles?: ListPullRequestFilesResult;
   readonly pullRequest?: PullRequestForFileList;
   readonly repositorySizeKb?: number;
@@ -85,6 +86,7 @@ async function prepareUncached(
         maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
       },
       params.pullRequest,
+      params.installationExpiresAtTs,
     ));
   assertPullRequestFilesHeadSha(prFiles, params.headSha);
   const workspace = await prepareLocalPrWorkspace({

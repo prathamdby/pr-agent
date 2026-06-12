@@ -50,8 +50,9 @@ export async function listPullRequestReviewCommentsForReview(
   repo: string,
   pullNumber: number,
   reviewId: number,
+  expiresAtTs?: number,
 ): Promise<PublishedReviewComment[]> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   const comments = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
     maxPages: COMMENT_PAGINATION_MAX_PAGES,
@@ -92,8 +93,9 @@ async function getIssueCommentIfSentinel(
   repo: string,
   commentId: number,
   sentinel: string,
+  expiresAtTs?: number,
 ): Promise<IssueCommentRef | null> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   try {
     const { data } = await octokit.rest.issues.getComment({
       owner,
@@ -115,8 +117,9 @@ export async function findIssueCommentBySentinel(
   repo: string,
   issueNumber: number,
   sentinel: string,
+  expiresAtTs?: number,
 ): Promise<IssueCommentRef | null> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   let lastMatch: IssueCommentRef | null = null;
 
   const pages = await paginateOctokitPages({
@@ -150,12 +153,27 @@ export async function resolveVerifiedSummaryCommentRef(
   prNumber: number,
   sentinel: string,
   hintCommentId?: number | null,
+  expiresAtTs?: number,
 ): Promise<ResolvedSummaryCommentRef | null> {
   if (hintCommentId != null) {
-    const verified = await getIssueCommentIfSentinel(token, owner, repo, hintCommentId, sentinel);
+    const verified = await getIssueCommentIfSentinel(
+      token,
+      owner,
+      repo,
+      hintCommentId,
+      sentinel,
+      expiresAtTs,
+    );
     if (verified) return { ...verified, source: "hint" };
   }
-  const found = await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel);
+  const found = await findIssueCommentBySentinel(
+    token,
+    owner,
+    repo,
+    prNumber,
+    sentinel,
+    expiresAtTs,
+  );
   return found ? { ...found, source: "scan" } : null;
 }
 
@@ -179,8 +197,9 @@ async function createIssueComment(
   repo: string,
   issueNumber: number,
   body: string,
+  expiresAtTs?: number,
 ): Promise<{ id: number; url: string }> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.issues.createComment({
     owner,
     repo,
@@ -196,8 +215,9 @@ async function updateIssueComment(
   repo: string,
   commentId: number,
   body: string,
+  expiresAtTs?: number,
 ): Promise<void> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   await octokit.rest.issues.updateComment({
     owner,
     repo,
@@ -214,14 +234,16 @@ export async function upsertReviewSummaryComment(
   body: string,
   sentinel: string = REVIEW_SUMMARY_SENTINEL,
   knownExisting?: IssueCommentRef | null,
+  expiresAtTs?: number,
 ): Promise<{ id: number; updated: boolean }> {
   const existing =
-    knownExisting ?? (await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel));
+    knownExisting ??
+    (await findIssueCommentBySentinel(token, owner, repo, prNumber, sentinel, expiresAtTs));
   if (existing) {
-    await updateIssueComment(token, owner, repo, existing.id, body);
+    await updateIssueComment(token, owner, repo, existing.id, body, expiresAtTs);
     return { id: existing.id, updated: true };
   }
-  const created = await createIssueComment(token, owner, repo, prNumber, body);
+  const created = await createIssueComment(token, owner, repo, prNumber, body, expiresAtTs);
   return { id: created.id, updated: false };
 }
 
@@ -230,8 +252,9 @@ export async function listPullRequestLabels(
   owner: string,
   repo: string,
   pullNumber: number,
+  expiresAtTs?: number,
 ): Promise<string[]> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.issues.listLabelsOnIssue({
     owner,
     repo,
@@ -246,8 +269,9 @@ export async function setPullRequestLabels(
   repo: string,
   pullNumber: number,
   labels: string[],
+  expiresAtTs?: number,
 ): Promise<void> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   await octokit.rest.issues.setLabels({
     owner,
     repo,

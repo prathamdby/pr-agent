@@ -72,7 +72,12 @@ export async function executeReviewJob(
         !payload.staleHeadRescheduled &&
         payload.staleHeadReplacementWorkItemId
       ) {
-        return buildStaleSlashReviewRescheduleResult(pool, item, env.installation.token);
+        return buildStaleSlashReviewRescheduleResult(
+          pool,
+          item,
+          env.installation.token,
+          env.installation.expiresAtTs,
+        );
       }
       const {
         publishState,
@@ -99,6 +104,8 @@ export async function executeReviewJob(
               maxPrFilesListed: cfg.maxPrFilesListed,
               maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
             },
+            undefined,
+            tokenState.installation.expiresAtTs,
           ),
         );
         assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
@@ -107,6 +114,7 @@ export async function executeReviewJob(
           item,
           reviewLens,
           token: tokenState.installation.token,
+          tokenExpiresAtTs: tokenState.installation.expiresAtTs,
           preflight,
         });
         if (lightweightResult.handled) {
@@ -164,6 +172,7 @@ export async function executeReviewJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          installationExpiresAtTs: tokenState.installation.expiresAtTs,
           prFiles: prefetchedPrFiles,
           pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
@@ -217,6 +226,7 @@ export async function executeReviewJob(
                 item.owner,
                 item.repo,
                 item.prNumber,
+                tokenState.installation.expiresAtTs,
               );
               if (latestHeadSha !== headSha) {
                 staleHeadAtPublish = true;
@@ -232,7 +242,12 @@ export async function executeReviewJob(
             ),
           });
           if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
-            return buildStaleSlashReviewRescheduleResult(pool, item, tokenState.installation.token);
+            return buildStaleSlashReviewRescheduleResult(
+              pool,
+              item,
+              tokenState.installation.token,
+              tokenState.installation.expiresAtTs,
+            );
           }
           if (!result.published) {
             if (result.publishSuperseded) {
@@ -269,6 +284,8 @@ export async function executeReviewJob(
           retryCommand: reviewRetrySlashCommandForMode(reviewLens),
         }),
         reviewSummarySentinelForMode(reviewLens),
+        undefined,
+        installation.expiresAtTs,
       );
     },
   });

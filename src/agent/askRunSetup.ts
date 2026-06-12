@@ -25,13 +25,14 @@ export function buildAskRunSetup(params: AskRunParams) {
         initialToken: token,
         tokenExpiresAtTs,
         refreshInstallationToken: params.refreshInstallationToken,
-        build: (activeToken) => {
+        build: (activeToken, activeExpiresAtTs) => {
           const gh = buildAskGithubTools(
             activeToken,
             { owner, repo, prNumber, headSha: params.headSha },
             {
               maxPrFilesListed: cfg.maxPrFilesListed,
               maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+              tokenExpiresAtTs: activeExpiresAtTs,
             },
             pathGate,
           );

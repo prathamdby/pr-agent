@@ -38,6 +38,7 @@ export async function executeDescriptionJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          installationExpiresAtTs: tokenState.installation.expiresAtTs,
           pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
         },
@@ -85,7 +86,7 @@ export async function executeDescriptionJob(
       if (!installation) return;
       const payload = item.payload as DescriptionWorkPayload;
       if (payload.source !== "slash") return;
-      const octokit = installationOctokit(installation.token);
+      const octokit = installationOctokit(installation.token, installation.expiresAtTs);
       await octokit.rest.issues.createComment({
         owner: item.owner,
         repo: item.repo,

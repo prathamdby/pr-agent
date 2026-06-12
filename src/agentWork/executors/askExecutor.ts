@@ -12,6 +12,7 @@ import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
 
 async function publishAskAnswer(
   token: string,
+  tokenExpiresAtTs: number,
   item: AgentWorkItem,
   answer: string,
   alreadySanitized = false,
@@ -20,7 +21,7 @@ async function publishAskAnswer(
   const replyTarget = (item.payload as AskWorkPayload).replyTarget;
   if (replyTarget.kind === "inlineReviewThread") {
     try {
-      await postSlashReply(token, item.owner, item.repo, replyTarget, body);
+      await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
       return;
     } catch (e) {
       logWarn("ask_inline_reply_failed", {
@@ -30,7 +31,7 @@ async function publishAskAnswer(
         inReplyToCommentId: replyTarget.inReplyToCommentId,
         message: e instanceof Error ? e.message : String(e),
       });
-      const octokit = installationOctokit(token);
+      const octokit = installationOctokit(token, tokenExpiresAtTs);
       await octokit.rest.issues.createComment({
         owner: item.owner,
         repo: item.repo,
@@ -42,7 +43,7 @@ async function publishAskAnswer(
       return;
     }
   }
-  await postSlashReply(token, item.owner, item.repo, replyTarget, body);
+  await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
 }
 export async function executeAskJob(
   cfg: Config,
@@ -56,8 +57,8 @@ export async function executeAskJob(
     boss,
     job,
     type: "ask",
-    resolveHeadSha: (token, item) =>
-      getPullRequestHead(token, item.owner, item.repo, item.prNumber),
+    resolveHeadSha: (token, expiresAtTs, item) =>
+      getPullRequestHead(token, item.owner, item.repo, item.prNumber, expiresAtTs),
     execute: async (item, env) => {
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
@@ -70,6 +71,7 @@ export async function executeAskJob(
           prNumber: item.prNumber,
           headSha,
           installationToken: tokenState.installation.token,
+          installationExpiresAtTs: tokenState.installation.expiresAtTs,
           pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
         },
@@ -94,7 +96,13 @@ export async function executeAskJob(
               tokenState,
             ),
           });
-          await publishAskAnswer(tokenState.installation.token, item, result.answer, true);
+          await publishAskAnswer(
+            tokenState.installation.token,
+            tokenState.installation.expiresAtTs,
+            item,
+            result.answer,
+            true,
+          );
           return {};
         },
       );
@@ -104,6 +112,7 @@ export async function executeAskJob(
       const payload = item.payload as AskWorkPayload;
       await publishAskAnswer(
         installation.token,
+        installation.expiresAtTs,
         item,
         formatAskFailureReply({
           question: payload.question,

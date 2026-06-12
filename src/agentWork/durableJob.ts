@@ -78,7 +78,11 @@ export type DurableJobSpec = {
   readonly job: JobWithMetadata<{ workItemId: string }>;
   readonly type: "review" | "ask" | "description";
   readonly acceptItem?: (item: AgentWorkItemCore) => boolean;
-  readonly resolveHeadSha: (token: string, item: AgentWorkItem) => Promise<DurableHeadResolution>;
+  readonly resolveHeadSha: (
+    token: string,
+    expiresAtTs: number,
+    item: AgentWorkItem,
+  ) => Promise<DurableHeadResolution>;
   readonly execute: (
     item: AgentWorkItem,
     env: DurableExecutionContext,
@@ -136,10 +140,11 @@ export function makeInstallationTokenRefresher(
 
 export async function resolveWorkItemHead(
   token: string,
+  expiresAtTs: number,
   item: AgentWorkItemCore,
 ): Promise<DurableHeadResolution> {
   return item.headSha === DEFERRED_HEAD_SHA
-    ? getPullRequestHead(token, item.owner, item.repo, item.prNumber)
+    ? getPullRequestHead(token, item.owner, item.repo, item.prNumber, expiresAtTs)
     : { headSha: item.headSha };
 }
 
@@ -242,7 +247,11 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       return undefined;
     }
 
-    const resolvedHead = await spec.resolveHeadSha(installationToken.token, item);
+    const resolvedHead = await spec.resolveHeadSha(
+      installationToken.token,
+      installationToken.expiresAtTs,
+      item,
+    );
     const headSha = resolvedHead.headSha;
     if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha)) {
       return {

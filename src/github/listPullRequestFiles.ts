@@ -223,7 +223,8 @@ export async function fetchPullRequestFiles(
   pullNumber: number,
   limits: ListPullRequestFilesLimits,
   pullRequest?: PullRequestForFileList,
+  expiresAtTs?: number,
 ): Promise<ListPullRequestFilesResult> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   return listPullRequestFilesPaginated(octokit, owner, repo, pullNumber, limits, pullRequest);
 }
