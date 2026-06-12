@@ -18,6 +18,7 @@ export const issueCommentWebhookSchema = z.object({
     user: z.object({
       id: z.number(),
     }),
+    author_association: z.string().nullish(),
     body: z.string().nullish(),
   }),
 });

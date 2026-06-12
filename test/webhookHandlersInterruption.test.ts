@@ -6,6 +6,7 @@ import { createOperationLogger } from "../src/evlog.js";
 import { IntakeLogger } from "../src/effect/intakeLogger.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import type { IssueCommentWebhookPayload } from "../src/webhook/payloads/issueCommentEvent.js";
+import type { PullRequestReviewCommentWebhookPayload } from "../src/webhook/payloads/pullRequestReviewCommentEvent.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const cfg = makeTestConfig({
@@ -19,7 +20,23 @@ const issueCommentData: IssueCommentWebhookPayload = {
   installation: { id: 1 },
   repository: { owner: { login: "o" }, name: "r" },
   issue: { number: 1, pull_request: {} },
-  comment: { id: 99, user: { id: 7 }, body: "/help" },
+  comment: { id: 99, user: { id: 7 }, author_association: "MEMBER", body: "/help" },
+};
+
+const reviewCommentData: PullRequestReviewCommentWebhookPayload = {
+  action: "created",
+  installation: { id: 1 },
+  repository: { owner: { login: "o" }, name: "r" },
+  pull_request: { number: 1 },
+  comment: {
+    id: 100,
+    user: { id: 7 },
+    author_association: "MEMBER",
+    body: "/help",
+    path: "src/file.ts",
+    line: 4,
+    side: "RIGHT",
+  },
 };
 
 function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
@@ -32,6 +49,80 @@ function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
     }),
   );
   return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(bot));
+}
+
+function slashTraceLayers() {
+  const trace: {
+    decision?: string;
+    ignored: boolean;
+    slash: boolean;
+  } = { ignored: false, slash: false };
+  const scheduler = Layer.succeed(
+    AgentWorkScheduler,
+    AgentWorkScheduler.of({
+      recordIgnored: (_headers, decision) =>
+        Effect.sync(() => {
+          trace.decision = decision;
+          trace.ignored = true;
+        }),
+      submitAutomatedReview: () => Effect.void,
+      submitSlashCommand: () =>
+        Effect.sync(() => {
+          trace.slash = true;
+        }),
+      ping: () => Effect.succeed(true),
+    }),
+  );
+
+  return { trace, handlers: handlerTestLayers(scheduler) };
+}
+
+async function runIssueComment(data: IssueCommentWebhookPayload, runCfg = cfg) {
+  const { trace, handlers } = slashTraceLayers();
+  const intakeLog = createOperationLogger({
+    method: "POST",
+    path: "/webhooks",
+  });
+  const exit = await Effect.runPromiseExit(
+    Effect.gen(function* () {
+      const resolvedHandlers = yield* WebhookHandlers;
+      yield* resolvedHandlers.issueComment(
+        runCfg,
+        {
+          event: "issue_comment",
+          delivery: "d-author-issue",
+          rawBody: Buffer.from("{}"),
+        },
+        data,
+      );
+    }).pipe(Effect.provide(handlers), Effect.provideService(IntakeLogger, intakeLog)),
+  );
+
+  return { exit, trace };
+}
+
+async function runReviewComment(data: PullRequestReviewCommentWebhookPayload) {
+  const { trace, handlers } = slashTraceLayers();
+  const intakeLog = createOperationLogger({
+    method: "POST",
+    path: "/webhooks",
+  });
+  const exit = await Effect.runPromiseExit(
+    Effect.gen(function* () {
+      const resolvedHandlers = yield* WebhookHandlers;
+      yield* resolvedHandlers.pullRequestReviewComment(
+        cfg,
+        {
+          event: "pull_request_review_comment",
+          delivery: "d-author-review",
+          rawBody: Buffer.from("{}"),
+        },
+        data,
+      );
+    }).pipe(Effect.provide(handlers), Effect.provideService(IntakeLogger, intakeLog)),
+  );
+
+  return { exit, trace };
 }
 
 describe("WebhookHandlers Effect resolution", () => {
@@ -176,5 +267,76 @@ describe("WebhookHandlers Effect resolution", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(ignored).toBe(true);
     expect(slash).toBe(false);
+  });
+
+  it("ignores issue slash commands from disallowed author associations", async () => {
+    const { exit, trace } = await runIssueComment({
+      ...issueCommentData,
+      comment: {
+        ...issueCommentData.comment,
+        author_association: "FIRST_TIME_CONTRIBUTOR",
+      },
+    });
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(trace.decision).toBe("ignored_unauthorized_slash");
+    expect(trace.slash).toBe(false);
+  });
+
+  it("schedules issue slash commands from allowed author associations", async () => {
+    const { exit, trace } = await runIssueComment(issueCommentData);
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(trace.ignored).toBe(false);
+    expect(trace.slash).toBe(true);
+  });
+
+  it("ignores issue slash commands with missing author association", async () => {
+    const { exit, trace } = await runIssueComment({
+      ...issueCommentData,
+      comment: {
+        id: issueCommentData.comment.id,
+        user: issueCommentData.comment.user,
+        body: issueCommentData.comment.body,
+      },
+    });
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(trace.decision).toBe("ignored_unauthorized_slash");
+    expect(trace.slash).toBe(false);
+  });
+
+  it("allows all issue slash commands when the association allowlist is star", async () => {
+    const allowAll = makeTestConfig({
+      slashAllowedAssociations: new Set(["*"]),
+    });
+    const { exit, trace } = await runIssueComment(
+      {
+        ...issueCommentData,
+        comment: {
+          ...issueCommentData.comment,
+          author_association: "NONE",
+        },
+      },
+      allowAll,
+    );
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(trace.ignored).toBe(false);
+    expect(trace.slash).toBe(true);
+  });
+
+  it("ignores review slash commands from disallowed author associations", async () => {
+    const { exit, trace } = await runReviewComment({
+      ...reviewCommentData,
+      comment: {
+        ...reviewCommentData.comment,
+        author_association: "FIRST_TIME_CONTRIBUTOR",
+      },
+    });
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(trace.decision).toBe("ignored_unauthorized_slash");
+    expect(trace.slash).toBe(false);
   });
 });

@@ -110,6 +110,7 @@ describe("parseGithubPayload", () => {
           type: "User",
           site_admin: false,
         },
+        author_association: "MEMBER",
         body: "/review",
         created_at: "2026-05-16T06:33:46Z",
       },
@@ -121,6 +122,7 @@ describe("parseGithubPayload", () => {
     if (p.name !== "issue_comment") throw new Error("expected issue_comment payload");
     expect(p.data.issue.number).toBe(3);
     expect(p.data.comment.body).toBe("/review");
+    expect(p.data.comment.author_association).toBe("MEMBER");
   });
 
   it("parses real-shaped pull_request_review_comment payloads with extra GitHub fields", () => {
@@ -146,6 +148,7 @@ describe("parseGithubPayload", () => {
         id: 100,
         node_id: "PRRC_kwDO",
         user: { id: 15, login: "commenter", node_id: "U_kwDO_commenter" },
+        author_association: "COLLABORATOR",
         body: "/ask what is this?",
         path: "src/hook.ts",
         line: 12,
@@ -165,6 +168,7 @@ describe("parseGithubPayload", () => {
     }
     expect(p.data.pull_request.number).toBe(3);
     expect(p.data.comment.id).toBe(100);
+    expect(p.data.comment.author_association).toBe("COLLABORATOR");
     expect(p.data.comment.path).toBe("src/hook.ts");
     expect(p.data.comment.line).toBe(12);
     expect(p.data.comment.diff_hunk).toContain("@@");
