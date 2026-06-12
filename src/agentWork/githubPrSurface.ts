@@ -15,8 +15,9 @@ export async function getPullRequestHead(
   owner: string,
   repo: string,
   prNumber: number,
+  expiresAtTs?: number,
 ): Promise<PullRequestHeadResolution> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.pulls.get({
     owner,
     repo,
@@ -30,8 +31,9 @@ export async function getPullRequestHeadSha(
   owner: string,
   repo: string,
   prNumber: number,
+  expiresAtTs?: number,
 ): Promise<string> {
-  return (await getPullRequestHead(token, owner, repo, prNumber)).headSha;
+  return (await getPullRequestHead(token, owner, repo, prNumber, expiresAtTs)).headSha;
 }
 
 export async function safeReaction(
@@ -39,8 +41,9 @@ export async function safeReaction(
   owner: string,
   repo: string,
   target: AckTarget,
+  expiresAtTs?: number,
 ): Promise<void> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   try {
     if (target.kind === "pr") {
       await octokit.rest.reactions.createForIssue({
@@ -77,8 +80,9 @@ export async function postSlashReply(
   repo: string,
   target: ReplyTarget,
   body: string,
+  expiresAtTs?: number,
 ): Promise<void> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   if (target.kind === "inlineReviewThread") {
     await octokit.rest.pulls.createReplyForReviewComment({
       owner,
@@ -97,10 +101,15 @@ export async function postSlashReply(
   });
 }
 
-export async function postAckReply(token: string, data: AckJobData, body: string): Promise<void> {
+export async function postAckReply(
+  token: string,
+  data: AckJobData,
+  body: string,
+  expiresAtTs?: number,
+): Promise<void> {
   const target = data.reply?.target;
   if (!target) return;
-  await postSlashReply(token, data.owner, data.repo, target, body);
+  await postSlashReply(token, data.owner, data.repo, target, body, expiresAtTs);
 }
 
 export { getAppBotIdentity };

@@ -32,7 +32,13 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   await Promise.all(
     data.targets.map(async (target) => {
       try {
-        await safeReaction(installation.token, data.owner, data.repo, target);
+        await safeReaction(
+          installation.token,
+          data.owner,
+          data.repo,
+          target,
+          installation.expiresAtTs,
+        );
       } catch (e) {
         logDebug("ack_reaction_failed", {
           owner: data.owner,
@@ -47,7 +53,13 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   if (data.progress) {
     const headSha =
       data.progress.headSha === DEFERRED_HEAD_SHA
-        ? await getPullRequestHeadSha(installation.token, data.owner, data.repo, data.prNumber)
+        ? await getPullRequestHeadSha(
+            installation.token,
+            data.owner,
+            data.repo,
+            data.prNumber,
+            installation.expiresAtTs,
+          )
         : data.progress.headSha;
     const body = renderReviewProgressComment({
       mode: data.progress.lens,
@@ -61,6 +73,8 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
       data.prNumber,
       body,
       reviewSummarySentinelForMode(data.progress.lens),
+      undefined,
+      installation.expiresAtTs,
     );
     if (data.workItemId) {
       await recordPublishStep(pool, {
@@ -75,6 +89,6 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   }
 
   if (data.reply) {
-    await postAckReply(installation.token, data, data.reply.body);
+    await postAckReply(installation.token, data, data.reply.body, installation.expiresAtTs);
   }
 }

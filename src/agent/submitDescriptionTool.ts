@@ -43,6 +43,8 @@ const SUBMIT_DESCRIPTION_PARAMETERS = z.toJSONSchema(descriptionPayloadSchema, {
 export function buildSubmitDescriptionTool(params: {
   cfg: Config;
   token: string;
+  tokenExpiresAtTs?: number;
+  getTokenExpiresAtTs?: () => number;
   owner: string;
   repo: string;
   prNumber: number;
@@ -99,6 +101,7 @@ export function buildSubmitDescriptionTool(params: {
     const result = await publishDescriptionToPullRequest({
       cfg: params.cfg,
       token: params.token,
+      tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
       owner: params.owner,
       repo: params.repo,
       prNumber: params.prNumber,

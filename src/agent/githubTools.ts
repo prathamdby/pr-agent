@@ -118,7 +118,11 @@ type BlameResponse = {
 
 export function buildGithubTools(
   token: string,
-  limits: { maxPrFilesListed: number; maxPrFilesPatchBytes: number } = {
+  limits: {
+    maxPrFilesListed: number;
+    maxPrFilesPatchBytes: number;
+    tokenExpiresAtTs?: number;
+  } = {
     maxPrFilesListed: DEFAULT_MAX_PR_FILES_LISTED,
     maxPrFilesPatchBytes: DEFAULT_MAX_PR_FILES_PATCH_BYTES,
   },
@@ -126,7 +130,7 @@ export function buildGithubTools(
   piTools: PiTool[];
   executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, limits.tokenExpiresAtTs);
   const fileLimits = limits;
   type PullRequestData = Awaited<ReturnType<typeof octokit.rest.pulls.get>>["data"];
   const pullRequestByKey = new Map<string, Promise<PullRequestData>>();

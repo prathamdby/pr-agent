@@ -193,7 +193,11 @@ export function buildScopedAskExecutors(
 export function buildAskGithubTools(
   token: string,
   scope: AskToolScope,
-  limits: { maxPrFilesListed: number; maxPrFilesPatchBytes: number },
+  limits: {
+    maxPrFilesListed: number;
+    maxPrFilesPatchBytes: number;
+    tokenExpiresAtTs?: number;
+  },
   gate: AskPathGate,
 ): {
   piTools: PiTool[];

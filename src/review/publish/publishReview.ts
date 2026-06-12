@@ -40,6 +40,7 @@ export async function publishReview(
     mode?: ReviewMode;
     cfg: Pick<Config, "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
     payload: ReviewPayload;
+    tokenExpiresAtTs?: number;
     /** Set when payload was already normalized, deduped, and validated by submitReview. */
     dedupedFindingCount?: number;
     publishState: SubmitReviewState;
@@ -57,6 +58,7 @@ export async function publishReview(
   },
 ): Promise<void> {
   const { token, owner, repo, prNumber, headSha, cfg, payload, publishState } = params;
+  const tokenExpiresAtTs = params.tokenExpiresAtTs;
   const mode = params.mode ?? "review";
   const summarySentinel = reviewSummarySentinelForMode(mode);
   const storedInlineFingerprints = params.storedInlineFingerprints ?? [];
@@ -98,14 +100,27 @@ export async function publishReview(
   let summaryCommentUrl: string | undefined;
   let knownSummaryCommentRef: { id: number; url: string } | null = null;
   if (params.shouldLinkToSummary) {
-    const resolvedSummary = await resolveVerifiedSummaryCommentRef(
-      token,
-      owner,
-      repo,
-      prNumber,
-      summarySentinel,
-      params.summaryCommentIdHint,
-    );
+    let resolvedSummary;
+    if (tokenExpiresAtTs == null) {
+      resolvedSummary = await resolveVerifiedSummaryCommentRef(
+        token,
+        owner,
+        repo,
+        prNumber,
+        summarySentinel,
+        params.summaryCommentIdHint,
+      );
+    } else {
+      resolvedSummary = await resolveVerifiedSummaryCommentRef(
+        token,
+        owner,
+        repo,
+        prNumber,
+        summarySentinel,
+        params.summaryCommentIdHint,
+        tokenExpiresAtTs,
+      );
+    }
     summaryCommentUrl = resolvedSummary?.url;
     knownSummaryCommentRef = resolvedSummary
       ? { id: resolvedSummary.id, url: resolvedSummary.url }
@@ -147,13 +162,25 @@ export async function publishReview(
 
   if (inlineReviewId != null) {
     try {
-      const reviewComments = await listPullRequestReviewCommentsForReview(
-        token,
-        owner,
-        repo,
-        prNumber,
-        inlineReviewId,
-      );
+      let reviewComments;
+      if (tokenExpiresAtTs == null) {
+        reviewComments = await listPullRequestReviewCommentsForReview(
+          token,
+          owner,
+          repo,
+          prNumber,
+          inlineReviewId,
+        );
+      } else {
+        reviewComments = await listPullRequestReviewCommentsForReview(
+          token,
+          owner,
+          repo,
+          prNumber,
+          inlineReviewId,
+          tokenExpiresAtTs,
+        );
+      }
       summaryPlacements = enrichPlacementsWithInlineCommentUrls(summaryPlacements, reviewComments);
     } catch (e) {
       logWarn("review_inline_comment_urls_failed", {
@@ -176,21 +203,59 @@ export async function publishReview(
   });
 
   const shouldSyncLabels = cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity;
-  const labelsPromise = shouldSyncLabels
-    ? listPullRequestLabels(token, owner, repo, prNumber).catch((e: unknown) => e)
-    : Promise.resolve<string[] | null>(null);
-  const summaryUpsert =
-    knownSummaryCommentRef != null
-      ? upsertReviewSummaryComment(
-          token,
-          owner,
-          repo,
-          prNumber,
-          summaryBody,
-          summarySentinel,
-          knownSummaryCommentRef,
-        )
-      : upsertReviewSummaryComment(token, owner, repo, prNumber, summaryBody, summarySentinel);
+  let labelsPromise: Promise<unknown> = Promise.resolve(null);
+  if (shouldSyncLabels) {
+    const pending =
+      tokenExpiresAtTs == null
+        ? listPullRequestLabels(token, owner, repo, prNumber)
+        : listPullRequestLabels(token, owner, repo, prNumber, tokenExpiresAtTs);
+    labelsPromise = pending.catch((e: unknown) => e);
+  }
+
+  let summaryUpsert: Promise<{ id: number; updated: boolean }>;
+  if (knownSummaryCommentRef != null) {
+    summaryUpsert =
+      tokenExpiresAtTs == null
+        ? upsertReviewSummaryComment(
+            token,
+            owner,
+            repo,
+            prNumber,
+            summaryBody,
+            summarySentinel,
+            knownSummaryCommentRef,
+          )
+        : upsertReviewSummaryComment(
+            token,
+            owner,
+            repo,
+            prNumber,
+            summaryBody,
+            summarySentinel,
+            knownSummaryCommentRef,
+            tokenExpiresAtTs,
+          );
+  } else if (tokenExpiresAtTs == null) {
+    summaryUpsert = upsertReviewSummaryComment(
+      token,
+      owner,
+      repo,
+      prNumber,
+      summaryBody,
+      summarySentinel,
+    );
+  } else {
+    summaryUpsert = upsertReviewSummaryComment(
+      token,
+      owner,
+      repo,
+      prNumber,
+      summaryBody,
+      summarySentinel,
+      undefined,
+      tokenExpiresAtTs,
+    );
+  }
   const [summary, currentLabels] = await Promise.all([summaryUpsert, labelsPromise]);
   await params.recordPublishStep?.("summary_comment", {
     githubId: summary.id,
@@ -227,7 +292,11 @@ export async function publishReview(
         security: cfg.enableReviewLabelsSecurity,
       });
       const next = syncReviewLabels(currentLabels, managed);
-      await setPullRequestLabels(token, owner, repo, prNumber, next);
+      if (tokenExpiresAtTs == null) {
+        await setPullRequestLabels(token, owner, repo, prNumber, next);
+      } else {
+        await setPullRequestLabels(token, owner, repo, prNumber, next, tokenExpiresAtTs);
+      }
       await params.recordPublishStep?.("labels", { meta: { labels: next } });
       logDebug("review_labels_synced", {
         owner,

@@ -68,7 +68,7 @@ export function buildDescriptionRunSetup(params: {
     tokenExpiresAtTs,
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
-    build: (activeToken) => {
+    build: (activeToken, activeExpiresAtTs) => {
       if (workspace) {
         return buildLocalWorkspaceTools(workspace, workspaceToolLimitsFromConfig(cfg), {
           pathGate,
@@ -77,6 +77,7 @@ export function buildDescriptionRunSetup(params: {
       return buildGithubTools(activeToken, {
         maxPrFilesListed: cfg.maxPrFilesListed,
         maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+        tokenExpiresAtTs: activeExpiresAtTs,
       });
     },
   });
@@ -85,6 +86,8 @@ export function buildDescriptionRunSetup(params: {
     buildSubmitDescriptionTool({
       cfg,
       token: refreshableGh.getToken(),
+      tokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs(),
+      getTokenExpiresAtTs: () => refreshableGh.getTokenExpiresAtTs(),
       owner,
       repo,
       prNumber,

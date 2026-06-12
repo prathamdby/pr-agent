@@ -13,13 +13,14 @@ export type PublishDescriptionResult = {
 export async function publishDescriptionToPullRequest(params: {
   cfg: Config;
   token: string;
+  tokenExpiresAtTs?: number;
   owner: string;
   repo: string;
   prNumber: number;
   payload: DescriptionPayload;
 }): Promise<PublishDescriptionResult> {
-  const { cfg, token, owner, repo, prNumber, payload } = params;
-  const octokit = installationOctokit(token);
+  const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, payload } = params;
+  const octokit = installationOctokit(token, tokenExpiresAtTs);
   const { data: pr } = await octokit.rest.pulls.get({
     owner,
     repo,

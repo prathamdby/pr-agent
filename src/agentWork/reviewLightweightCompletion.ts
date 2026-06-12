@@ -27,6 +27,7 @@ export async function tryLightweightAutoReviewCompletion(
     item: AgentWorkItem;
     reviewLens: ReviewMode;
     token: string;
+    tokenExpiresAtTs?: number;
     preflight: ReviewPreflightMetadata;
   },
 ): Promise<LightweightAutoReviewResult> {
@@ -43,14 +44,28 @@ export async function tryLightweightAutoReviewCompletion(
   }
 
   const body = renderLightweightReviewCompletion(params.reviewLens);
-  const summary = await upsertReviewSummaryComment(
-    params.token,
-    params.item.owner,
-    params.item.repo,
-    params.item.prNumber,
-    body,
-    reviewSummarySentinelForMode(params.reviewLens),
-  );
+  let summary;
+  if (params.tokenExpiresAtTs == null) {
+    summary = await upsertReviewSummaryComment(
+      params.token,
+      params.item.owner,
+      params.item.repo,
+      params.item.prNumber,
+      body,
+      reviewSummarySentinelForMode(params.reviewLens),
+    );
+  } else {
+    summary = await upsertReviewSummaryComment(
+      params.token,
+      params.item.owner,
+      params.item.repo,
+      params.item.prNumber,
+      body,
+      reviewSummarySentinelForMode(params.reviewLens),
+      undefined,
+      params.tokenExpiresAtTs,
+    );
+  }
   await recordPublishStep(pool, {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,

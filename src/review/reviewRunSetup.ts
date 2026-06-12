@@ -46,6 +46,7 @@ export type ReviewRunSetup = {
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly submitState: SubmitReviewState;
   readonly getToken: () => string;
+  readonly getTokenExpiresAtTs: () => number;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
 };
 
@@ -114,7 +115,7 @@ export function buildReviewRunSetup(params: {
     tokenExpiresAtTs,
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
-    build: (activeToken) => {
+    build: (activeToken, activeExpiresAtTs) => {
       if (params.workspace) {
         return buildLocalWorkspaceTools(params.workspace, workspaceToolLimitsFromConfig(cfg), {
           pathGate,
@@ -123,6 +124,7 @@ export function buildReviewRunSetup(params: {
       const gh = buildGithubTools(activeToken, {
         maxPrFilesListed: cfg.maxPrFilesListed,
         maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+        tokenExpiresAtTs: activeExpiresAtTs,
       });
       const executors = { ...gh.executors };
       wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
@@ -136,6 +138,8 @@ export function buildReviewRunSetup(params: {
       cfg,
       token: refreshableGh.getToken(),
       getToken: () => refreshableGh.getToken(),
+      tokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs(),
+      getTokenExpiresAtTs: () => refreshableGh.getTokenExpiresAtTs(),
       ctx: { owner, repo, prNumber, headSha },
       mode: reviewMode,
       state: submitState,
@@ -186,6 +190,7 @@ export function buildReviewRunSetup(params: {
     cachedDiffIndex,
     submitState,
     getToken: refreshableGh.getToken,
+    getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
     refreshBeforeTool,
   };
 }

@@ -12,12 +12,13 @@ export type RefreshableToolExecutors = {
   readonly githubExecutorNames: ReadonlySet<string>;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
   readonly getToken: () => string;
+  readonly getTokenExpiresAtTs: () => number;
 };
 
 export function createRefreshableToolExecutors(params: {
   initialToken: string;
   tokenExpiresAtTs: number;
-  build: (token: string) => ToolExecutorBundle;
+  build: (token: string, expiresAtTs: number) => ToolExecutorBundle;
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;
@@ -26,7 +27,7 @@ export function createRefreshableToolExecutors(params: {
 }): RefreshableToolExecutors {
   let activeToken = params.initialToken;
   let activeExpiresAtTs = params.tokenExpiresAtTs;
-  let built = params.build(activeToken);
+  let built = params.build(activeToken, activeExpiresAtTs);
   const executorStore: Record<string, CursorExecutor> = { ...built.executors };
   let bundle: ToolExecutorBundle = {
     piTools: built.piTools,
@@ -41,7 +42,7 @@ export function createRefreshableToolExecutors(params: {
     const fresh = await params.refreshInstallationToken();
     activeToken = fresh.token;
     activeExpiresAtTs = fresh.expiresAtTs;
-    built = params.build(activeToken);
+    built = params.build(activeToken, activeExpiresAtTs);
     Object.assign(executorStore, built.executors);
     bundle = { piTools: built.piTools, executors: executorStore };
   };
@@ -53,5 +54,6 @@ export function createRefreshableToolExecutors(params: {
     githubExecutorNames,
     refreshBeforeTool,
     getToken: () => activeToken,
+    getTokenExpiresAtTs: () => activeExpiresAtTs,
   };
 }
