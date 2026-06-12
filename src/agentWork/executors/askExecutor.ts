@@ -115,12 +115,23 @@ export async function executeAskJob(
               true,
             );
             answerDelivered = true;
-            await recordAskPublishStep(pool, {
-              workItemId: item.id,
-              resourceKey: item.resourceKey,
-              step: "ask_reply",
-              detail: { replyTargetKind: payload.replyTarget.kind },
-            });
+            try {
+              await recordAskPublishStep(pool, {
+                workItemId: item.id,
+                resourceKey: item.resourceKey,
+                step: "ask_reply",
+                detail: { replyTargetKind: payload.replyTarget.kind },
+              });
+            } catch (e) {
+              logWarn("ask_publish_record_failed", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                workItemId: item.id,
+                message: e instanceof Error ? e.message : String(e),
+              });
+              return { degraded: true };
+            }
           } else {
             answerDelivered = true;
           }

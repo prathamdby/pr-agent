@@ -179,17 +179,26 @@ describe("executeAskJob", () => {
     expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
   });
 
-  it("attempts answer publish again when the publish record is missing after a crash", async () => {
-    mocks.recordAskPublishStep
-      .mockRejectedValueOnce(new Error("record failed"))
-      .mockResolvedValueOnce(undefined);
+  it("returns degraded when the publish record fails after answer delivery", async () => {
+    let result: unknown;
+    mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+      result = await spec.execute(askItem(), {
+        installation: {
+          token: "tok",
+          expiresAtTs: 1_000_000,
+          ttlMs: 60_000,
+        },
+        headSha: "head",
+      });
+    });
 
-    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toThrow("record failed");
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.runAskRun).toHaveBeenCalledTimes(2);
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(2);
-    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(2);
+    expect(result).toEqual({ degraded: true });
+    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
+    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
   });
 
   it("skips terminal failure reply after the answer was delivered", async () => {
@@ -201,18 +210,14 @@ describe("executeAskJob", () => {
         expiresAtTs: 1_000_000,
         ttlMs: 60_000,
       };
-      try {
-        await spec.execute(item, {
-          installation,
-          headSha: "head",
-        });
-      } catch (error) {
-        await spec.onTerminalFailure?.(item, installation, error);
-        throw error;
-      }
+      await spec.execute(item, {
+        installation,
+        headSha: "head",
+      });
+      await spec.onTerminalFailure?.(item, installation, new Error("complete failed"));
     });
 
-    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toThrow("record failed");
+    await executeAskJob(cfg, pool, boss, askJob());
 
     expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
     expect(mocks.postSlashReply.mock.calls[0]?.[4]).toBe("answer");
