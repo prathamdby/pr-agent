@@ -165,13 +165,18 @@ export function buildLocalWorkspaceTools(
       maxResults: z.number().int().positive().optional().default(20),
     }),
     run: async ({ query, maxResults }) => {
-      const allowedMatches = (await workspace.grepLiteral({ query, maxResults })).filter((match) =>
+      const result = await workspace.grepLiteral({
+        query,
+        maxResults,
+        maxOutputBytes: limits.searchMaxTotalBytes,
+      });
+      const allowedMatches = result.matches.filter((match) =>
         pathAllowedForAsk(match.path, pathGate),
       );
       const matchedFiles = new Set(allowedMatches.map((match) => match.path));
       return {
         matches: allowedMatches.slice(0, maxResults),
-        truncated: allowedMatches.length > maxResults,
+        truncated: result.truncated || allowedMatches.length > maxResults,
         filesScanned: matchedFiles.size,
       };
     },

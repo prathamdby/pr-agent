@@ -48,9 +48,7 @@ export type LocalPrWorkspace = {
     readonly fileCount: number;
     readonly warning?: string;
   };
-  readonly grepLiteral: (
-    params: GitGrepWorkspaceParams,
-  ) => Promise<readonly GitGrepWorkspaceMatch[]>;
+  readonly grepLiteral: (params: GitGrepWorkspaceParams) => Promise<GitGrepWorkspaceResult>;
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
   readonly isPathInCheckout: (path: string) => boolean;
@@ -60,6 +58,12 @@ export type LocalPrWorkspace = {
 export type GitGrepWorkspaceParams = {
   readonly query: string;
   readonly maxResults: number;
+  readonly maxOutputBytes?: number;
+};
+
+export type GitGrepWorkspaceResult = {
+  readonly matches: readonly GitGrepWorkspaceMatch[];
+  readonly truncated: boolean;
 };
 
 export type GitGrepWorkspaceMatch = {
@@ -145,6 +149,7 @@ async function execGit(
     askpass?: string;
     workTree?: string;
     processCwd?: string;
+    maxBufferBytes?: number;
   },
 ): Promise<{ stdout: string; stderr: string }> {
   const env = {
@@ -160,13 +165,26 @@ async function execGit(
     cwd: opts.processCwd ?? opts.cwd,
     env,
     timeout: opts.timeoutMs,
-    maxBuffer: 20 * 1024 * 1024,
+    maxBuffer: opts.maxBufferBytes ?? 20 * 1024 * 1024,
   });
 }
 
+function errorCode(error: unknown): unknown {
+  if (typeof error !== "object" || error === null || !("code" in error)) return null;
+  return error.code;
+}
+
+function errorStdout(error: unknown): string {
+  if (typeof error !== "object" || error === null || !("stdout" in error)) return "";
+  return typeof error.stdout === "string" ? error.stdout : "";
+}
+
 function failedWithExitCode(error: unknown, code: number): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false;
-  return error.code === code;
+  return errorCode(error) === code;
+}
+
+function failedWithMaxBuffer(error: unknown): boolean {
+  return errorCode(error) === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
 }
 
 function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
@@ -195,7 +213,7 @@ function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
 export async function gitGrepWorkspace(
   workspace: Pick<LocalPrWorkspace, "privateGitDir" | "agentCwd">,
   params: GitGrepWorkspaceParams & { readonly timeoutMs: number },
-): Promise<readonly GitGrepWorkspaceMatch[]> {
+): Promise<GitGrepWorkspaceResult> {
   try {
     const { stdout } = await execGit(
       [
@@ -214,11 +232,15 @@ export async function gitGrepWorkspace(
         timeoutMs: params.timeoutMs,
         workTree: workspace.agentCwd,
         processCwd: workspace.agentCwd,
+        maxBufferBytes: params.maxOutputBytes,
       },
     );
-    return parseGitGrepOutput(stdout);
+    return { matches: parseGitGrepOutput(stdout), truncated: false };
   } catch (error) {
-    if (failedWithExitCode(error, 1)) return [];
+    if (failedWithExitCode(error, 1)) return { matches: [], truncated: false };
+    if (failedWithMaxBuffer(error)) {
+      return { matches: parseGitGrepOutput(errorStdout(error)), truncated: true };
+    }
     throw error;
   }
 }

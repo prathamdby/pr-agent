@@ -19,11 +19,12 @@ import {
 
 const exec = promisify(execFile);
 
-function testLimits(): LocalWorkspaceToolLimits {
+function testLimits(overrides: Partial<LocalWorkspaceToolLimits> = {}): LocalWorkspaceToolLimits {
   return {
     searchMaxFiles: 100,
     searchMaxTotalBytes: 1_000_000,
     maxFileBytes: 100_000,
+    ...overrides,
   };
 }
 
@@ -183,6 +184,38 @@ describe("local workspace tools", () => {
         truncated: false,
         filesScanned: 0,
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("searchWorkspace returns partial truncated output when git grep exceeds the output cap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const files: Record<string, string> = {
+        "src/changed.ts": "export const changed = true;\n",
+      };
+      for (let i = 0; i < 30; i++) {
+        files[`src/file-${i}.ts`] = `const value = "needle ${"x".repeat(80)}";\n`;
+      }
+      await writeWorkspaceFiles(root, files);
+
+      const workspace = mockWorkspace(root, Object.keys(files));
+      const { executors } = buildLocalWorkspaceTools(
+        workspace,
+        testLimits({ searchMaxTotalBytes: 200 }),
+      );
+      const out = (await executors.searchWorkspace?.({
+        query: "needle",
+        maxResults: 20,
+      })) as {
+        matches: Array<{ path: string }>;
+        truncated: boolean;
+      };
+
+      expect(out.truncated).toBe(true);
+      expect(out.matches.length).toBeGreaterThan(0);
+      expect(out.matches.length).toBeLessThanOrEqual(20);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
