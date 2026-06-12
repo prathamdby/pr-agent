@@ -49,8 +49,13 @@ async function connectClient(config: HttpMcpServerConfig): Promise<Client> {
 describe("checkMcpBearerAuth", () => {
   it("accepts matching bearer token", () => {
     expect(checkMcpBearerAuth("Bearer abc123", "abc123")).toBe(true);
+  });
+
+  it("rejects invalid bearer tokens", () => {
+    expect(checkMcpBearerAuth("Bearer abc124", "abc123")).toBe(false);
     expect(checkMcpBearerAuth("Bearer wrong", "abc123")).toBe(false);
     expect(checkMcpBearerAuth(undefined, "abc123")).toBe(false);
+    expect(checkMcpBearerAuth("Token abc123", "abc123")).toBe(false);
   });
 });
 
