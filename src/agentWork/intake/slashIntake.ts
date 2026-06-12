@@ -198,11 +198,8 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
 }
 
 async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
-  await enqueueSlashAck(ctx, {
-    reply: {
-      target: ctx.input.replyTarget,
-      body: `Unknown command \`/${command}\`. Try \`/help\`.`,
-    },
+  recordEvent(ctx.intakeLog, "ignored_unknown_slash_command", {
+    command,
   });
 }
 

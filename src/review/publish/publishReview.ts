@@ -277,21 +277,30 @@ export async function publishReview(
         throw new Error(`listPullRequestLabels returned non-array: ${String(currentLabels)}`);
       }
       if (
-        labelsAlreadySynced(currentLabels, payload, {
-          effort: cfg.enableReviewLabelsEffort,
-          security: cfg.enableReviewLabelsSecurity,
-        })
+        labelsAlreadySynced(
+          currentLabels,
+          payload,
+          {
+            effort: cfg.enableReviewLabelsEffort,
+            security: cfg.enableReviewLabelsSecurity,
+          },
+          mode,
+        )
       ) {
         await params.recordPublishStep?.("labels", {
           meta: { labels: currentLabels, alreadySynced: true },
         });
         return;
       }
-      const managed = reviewLabelsFromPayload(payload, {
-        effort: cfg.enableReviewLabelsEffort,
-        security: cfg.enableReviewLabelsSecurity,
-      });
-      const next = syncReviewLabels(currentLabels, managed);
+      const managed = reviewLabelsFromPayload(
+        payload,
+        {
+          effort: cfg.enableReviewLabelsEffort,
+          security: cfg.enableReviewLabelsSecurity,
+        },
+        mode,
+      );
+      const next = syncReviewLabels(currentLabels, managed, mode);
       if (tokenExpiresAtTs == null) {
         await setPullRequestLabels(token, owner, repo, prNumber, next);
       } else {

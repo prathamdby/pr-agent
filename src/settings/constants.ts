@@ -43,7 +43,10 @@ export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
 export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
 export const QUALITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Quality Review";
 export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
+export const LABEL_SECURITY_EFFORT_PREFIX = "Security effort ";
+export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
+export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
 export const SECURITY_REVIEW_POINTER_BODY =
