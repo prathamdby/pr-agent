@@ -213,6 +213,7 @@ const SLASH_INTAKE_HANDLERS: Record<
   review: (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
   "review-security": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
   "review-quality": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
+  "review-tests": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
 };
 
 export async function applySlashCommandIntake(

@@ -16,6 +16,7 @@ import {
 } from "./reviewDiffIndex.js";
 import { automatedSecuritySystemPrompt } from "../agent/securityPrompt.js";
 import { automatedQualitySystemPrompt } from "../agent/qualityPrompt.js";
+import { automatedReviewTestsSystemPrompt } from "../agent/reviewTestsPrompt.js";
 import { buildAutomatedSystemPrompt } from "./reviewSystemPrompt.js";
 import {
   buildSubmitReviewTool,
@@ -31,6 +32,8 @@ function systemPromptForReviewMode(reviewMode: ReviewMode): string {
       return automatedSecuritySystemPrompt;
     case "review-quality":
       return automatedQualitySystemPrompt;
+    case "review-tests":
+      return automatedReviewTestsSystemPrompt;
     case "review":
       return buildAutomatedSystemPrompt();
   }

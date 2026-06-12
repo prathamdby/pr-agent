@@ -4,7 +4,7 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { createOperationLogger, initEvlog } from "../src/evlog.js";
-import { ACK_QUEUE, SLASH_HELP_BODY } from "../src/settings/index.js";
+import { ACK_QUEUE, REVIEW_QUEUE, SLASH_HELP_BODY } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 
 function makeSlashInput(body: string) {
@@ -99,6 +99,57 @@ describe("applySlashCommandIntake", () => {
     });
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "ignored_unknown_slash_command" }),
+    );
+  });
+
+  it("enqueues a review work item with the review-tests lens", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const workItemInserts: unknown[][] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_events")) {
+          return { rows: [{ id: "event-1" }] };
+        }
+        if (sql.includes("SELECT id")) {
+          return { rows: [] };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [] };
+        }
+        if (sql.includes("INSERT INTO publish_records")) {
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(makeSlashInput("/review-tests"), intakeLog),
+    );
+
+    expect(workItemInserts).toHaveLength(1);
+    expect(workItemInserts[0]).toContain("review-tests");
+    expect(sentJobs.map((j) => j.queue)).toContain(REVIEW_QUEUE);
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_enqueued",
+        type: "review",
+        lens: "review-tests",
+      }),
     );
   });
 });

@@ -7,6 +7,7 @@ import {
 import {
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   QUALITY_REVIEW_SUMMARY_SENTINEL,
+  TESTS_REVIEW_SUMMARY_SENTINEL,
 } from "../src/review/reviewSchema.js";
 import {
   createCachedPrDiffIndex,
@@ -170,6 +171,17 @@ describe("submitReview tool", () => {
       state: createSubmitReviewState(),
     });
     expect(piTool.description).toContain(QUALITY_REVIEW_SUMMARY_SENTINEL);
+  });
+
+  it("mentions the tests summary sentinel in the tool description", () => {
+    const { piTool } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha" },
+      mode: "review-tests",
+      state: createSubmitReviewState(),
+    });
+    expect(piTool.description).toContain(TESTS_REVIEW_SUMMARY_SENTINEL);
   });
 
   it("blocks submit when listPullRequestFiles was not ingested", async () => {

@@ -33,6 +33,7 @@ import {
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
+  TESTS_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "./reviewDiffPlacement.js";
@@ -53,6 +54,7 @@ export {
   REVIEW_POINTER_NOTE_LEAD,
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
+  TESTS_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 
 export type RenderContext = ReviewPublishContext;
@@ -82,6 +84,8 @@ function reviewPointerBodyForMode(mode: ReviewMode): string {
       return SECURITY_REVIEW_POINTER_BODY;
     case "review-quality":
       return QUALITY_REVIEW_POINTER_BODY;
+    case "review-tests":
+      return TESTS_REVIEW_POINTER_BODY;
     case "review":
       return REVIEW_POINTER_BODY;
   }
@@ -96,6 +100,8 @@ function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): 
       return `[View the updated security review.](${summaryCommentUrl})`;
     case "review-quality":
       return `[View the updated code-quality review.](${summaryCommentUrl})`;
+    case "review-tests":
+      return `[View the updated test-case proposals.](${summaryCommentUrl})`;
     case "review":
       return `[View the updated review.](${summaryCommentUrl})`;
   }
@@ -110,6 +116,8 @@ export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl
         return `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`;
       case "review-quality":
         return `${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${summaryCommentUrl}).`;
+      case "review-tests":
+        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated test-case proposals](${summaryCommentUrl}).`;
       case "review":
         return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
     }

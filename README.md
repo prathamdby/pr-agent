@@ -151,7 +151,7 @@ Run on your infrastructure with your GitHub App credentials and chosen LLM provi
 
 ### Specialized review lenses
 
-General bug-and-correctness reviews run on PR open and sync. **`/review-security`** and **`/review-quality`** add separate **review summary comments** on demand, each with its own **review lens** and progress comment.
+General bug-and-correctness reviews run on PR open and sync. **`/review-security`**, **`/review-quality`**, and **`/review-tests`** add separate **review summary comments** on demand, each with its own **review lens** and progress comment.
 
 ## Features
 
@@ -161,6 +161,7 @@ General bug-and-correctness reviews run on PR open and sync. **`/review-security
 | PR description          | opened                 | `/describe`        | Merges under `## PR Agent Description`                                                    |
 | Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
 | Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
+| Tests lens              | No                     | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |
 | Ask                     | No                     | `/ask <question>`  | PR conversation or inline diff **code anchor**                                            |
 | Help                    | No                     | `/help`            | Worker-published guidance                                                                 |
 | Lightweight auto-review | docs-only trivial PRs  | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |

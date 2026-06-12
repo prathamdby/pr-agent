@@ -16,6 +16,7 @@ describe("agent work keys", () => {
       "owner/repo#42:review-security",
     );
     expect(reviewSingletonKey(resourceKey, "review-quality")).toBe("owner/repo#42:review-quality");
+    expect(reviewSingletonKey(resourceKey, "review-tests")).toBe("owner/repo#42:review-tests");
     expect(descriptionSingletonKey(resourceKey)).toBe("owner/repo#42:description");
     expect(installationGroupId(123)).toBe("123");
   });

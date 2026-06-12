@@ -92,6 +92,16 @@ describe("reviewLabelsFromPayload", () => {
         "review-quality",
       ),
     ).toEqual(["Quality effort 2/5"]);
+    expect(
+      reviewLabelsFromPayload(
+        basePayload,
+        {
+          effort: true,
+          security: false,
+        },
+        "review-tests",
+      ),
+    ).toEqual(["Tests effort 2/5"]);
   });
 });
 

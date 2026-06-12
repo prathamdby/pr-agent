@@ -6,6 +6,7 @@ import {
   REVIEW_POINTER_BODY,
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
+  TESTS_REVIEW_POINTER_BODY,
 } from "../settings/index.js";
 import { installationOctokit } from "../github/appAuth.js";
 import { paginateOctokitPages } from "../github/paginateOctokit.js";
@@ -49,6 +50,7 @@ function extractBotTitleSnippet(body: string): string {
 export function classifyReviewLensFromPointerBody(body: string): ReviewMode | null {
   if (body.includes(SECURITY_REVIEW_POINTER_BODY)) return "review-security";
   if (body.includes(QUALITY_REVIEW_POINTER_BODY)) return "review-quality";
+  if (body.includes(TESTS_REVIEW_POINTER_BODY)) return "review-tests";
   if (body.includes(REVIEW_POINTER_BODY)) return "review";
   return null;
 }

@@ -44,9 +44,11 @@ export const MAX_DESCRIPTION_PAYLOAD_PR_FILES = 20;
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
 export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
 export const QUALITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Quality Review";
+export const TESTS_REVIEW_SUMMARY_SENTINEL = "## PR Agent Tests Review";
 export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
 export const LABEL_SECURITY_EFFORT_PREFIX = "Security effort ";
 export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
+export const LABEL_TESTS_EFFORT_PREFIX = "Tests effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
@@ -55,6 +57,8 @@ export const SECURITY_REVIEW_POINTER_BODY =
   "See the security review summary in the PR conversation.";
 export const QUALITY_REVIEW_POINTER_BODY =
   "See the code-quality review summary in the PR conversation.";
+export const TESTS_REVIEW_POINTER_BODY =
+  "See the proposed test cases summary in the PR conversation.";
 export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.";
@@ -329,11 +333,12 @@ export const SLASH_HELP_BODY = [
   "- `/review` — general bug-and-correctness review (also runs automatically on PR open/sync)",
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
   "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
+  "- `/review-tests` — draft missing test cases for the PR's changes (trigger-only, not auto-run)",
   "",
   "Notes:",
   "- Automated `/describe` runs on PR `opened` only; `/review` runs on `opened` / `synchronize` / `reopened`.",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
-  "- `/review`, `/review-security`, and `/review-quality` can each leave summary comments on the same PR (different sentinels).",
+  "- `/review`, `/review-security`, `/review-quality`, and `/review-tests` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
   "- Some security issues may appear in both passes; pick the command that matches your question.",
   "- Edited comments are ignored for slash parsing in v1.",

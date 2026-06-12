@@ -15,6 +15,7 @@ import {
   fitReviewSummaryBody,
   SECURITY_REVIEW_POINTER_BODY,
   QUALITY_REVIEW_POINTER_BODY,
+  TESTS_REVIEW_POINTER_BODY,
 } from "../src/review/reviewRender.js";
 import {
   REVIEW_FINDING_FOOTNOTE_INLINE,
@@ -884,6 +885,16 @@ describe("renderRepeatNoBugsReviewBody", () => {
   it("falls back to plain pointer when URL is missing (quality)", () => {
     const body = renderRepeatNoBugsReviewBody("review-quality");
     expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${QUALITY_REVIEW_POINTER_BODY}`);
+  });
+
+  it("links to summary when URL is verified (tests)", () => {
+    const body = renderRepeatNoBugsReviewBody("review-tests", url);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated test-case proposals](${url}).`);
+  });
+
+  it("falls back to plain pointer when URL is missing (tests)", () => {
+    const body = renderRepeatNoBugsReviewBody("review-tests");
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${TESTS_REVIEW_POINTER_BODY}`);
   });
 });
 
