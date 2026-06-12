@@ -120,6 +120,7 @@ These are related but not wired together on INSERT today.
 | `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened       |
 | `AUTOMATED_DESCRIPTION_PR_ACTIONS`         | opened only (use `/describe` after) |
 | `AUTOMATED_REVIEW_LENS`                    | `review`                            |
+| `ASK_PUBLISH_LENS`                         | `ask`                               |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                               |
 
 ### Review output

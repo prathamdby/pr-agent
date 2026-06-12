@@ -10,6 +10,7 @@ const EXPECTED_MIGRATIONS = [
   "004_indexes.sql",
   "005_retention_indexes.sql",
   "006_retention_fk_indexes.sql",
+  "007_ask_publish_records.sql",
 ];
 
 describe.skipIf(!hasDatabase)("migrations (integration)", () => {

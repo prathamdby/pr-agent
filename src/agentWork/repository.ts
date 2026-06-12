@@ -3,16 +3,20 @@ import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
-import { DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
+import { ASK_PUBLISH_LENS, DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
 import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
 
-export type PublishLens = ReviewWorkPayload["mode"] | typeof DESCRIPTION_PUBLISH_LENS;
+export type PublishLens =
+  | ReviewWorkPayload["mode"]
+  | typeof DESCRIPTION_PUBLISH_LENS
+  | typeof ASK_PUBLISH_LENS;
 export type PublishStep =
   | "progress_comment"
   | "inline_review"
   | "summary_comment"
   | "labels"
-  | "pr_body";
+  | "pr_body"
+  | "ask_reply";
 
 type AgentWorkRow = {
   id: string;
@@ -256,6 +260,28 @@ export async function hasPriorCompletedSummaryPublish(
 		    AND work_item_id <> $3
 		  LIMIT 1`,
     [resourceKey, reviewLens, excludeWorkItemId],
+  );
+  return row != null;
+}
+
+export async function hasCompletedPublishStep(
+  pool: Pool,
+  workItemId: string,
+  resourceKey: string,
+  reviewLens: PublishLens,
+  step: PublishStep,
+): Promise<boolean> {
+  const row = await queryOne<{ exists: number }>(
+    pool,
+    `SELECT 1 AS exists
+		   FROM publish_records
+		  WHERE work_item_id = $1
+		    AND resource_key = $2
+		    AND review_lens = $3
+		    AND step = $4
+		    AND status = 'completed'
+		  LIMIT 1`,
+    [workItemId, resourceKey, reviewLens, step],
   );
   return row != null;
 }

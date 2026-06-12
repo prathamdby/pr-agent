@@ -5,9 +5,11 @@ import { runAskRun } from "../../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/formatAskReply.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
+import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
+import { hasCompletedPublishStep, recordPublishStep } from "../repository.js";
 import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
 
 async function publishAskAnswer(
@@ -63,6 +65,10 @@ export async function executeAskJob(
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
       const payload = item.payload as AskWorkPayload;
+      const askReplyPublished = () =>
+        hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
+      if (await askReplyPublished()) return {};
+
       return withPrRepositoryView(
         {
           cfg,
@@ -96,13 +102,22 @@ export async function executeAskJob(
               tokenState,
             ),
           });
-          await publishAskAnswer(
-            tokenState.installation.token,
-            tokenState.installation.expiresAtTs,
-            item,
-            result.answer,
-            true,
-          );
+          if (!(await askReplyPublished())) {
+            await publishAskAnswer(
+              tokenState.installation.token,
+              tokenState.installation.expiresAtTs,
+              item,
+              result.answer,
+              true,
+            );
+            await recordPublishStep(pool, {
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+              reviewLens: ASK_PUBLISH_LENS,
+              step: "ask_reply",
+              detail: { replyTargetKind: payload.replyTarget.kind },
+            });
+          }
           return {};
         },
       );
