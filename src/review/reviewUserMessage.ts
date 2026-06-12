@@ -28,6 +28,8 @@ function closingInstructionForReviewMode(reviewMode: ReviewMode): string {
       return "Perform an exhaustive security review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 security findings.";
     case "review-quality":
       return "Perform an exhaustive code-quality review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 maintainability findings.";
+    case "review-tests":
+      return "Perform an exhaustive test-gap review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 proposed test cases.";
     case "review":
       return "Perform an exhaustive review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 findings.";
   }

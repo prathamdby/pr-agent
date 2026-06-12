@@ -6,6 +6,7 @@ describe("parseSlashCommand", () => {
     expect(parseSlashCommand("/review please")).toBe("review");
     expect(parseSlashCommand("/review-security")).toBe("review-security");
     expect(parseSlashCommand("/review-quality")).toBe("review-quality");
+    expect(parseSlashCommand("/review-tests")).toBe("review-tests");
     expect(parseSlashCommand(" \n/help")).toBe("help");
     expect(parseSlashCommand(" \r\n/ask question\n/review")).toBe("ask");
   });

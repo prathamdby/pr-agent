@@ -14,6 +14,7 @@ import {
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   QUALITY_REVIEW_SUMMARY_SENTINEL,
+  TESTS_REVIEW_SUMMARY_SENTINEL,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
@@ -23,9 +24,10 @@ export {
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   QUALITY_REVIEW_SUMMARY_SENTINEL,
+  TESTS_REVIEW_SUMMARY_SENTINEL,
 } from "../settings/index.js";
 
-export type ReviewMode = "review" | "review-security" | "review-quality";
+export type ReviewMode = "review" | "review-security" | "review-quality" | "review-tests";
 
 /** How a review run was triggered (automated webhook vs slash command). */
 export type WorkSource = "auto" | "slash";
@@ -36,6 +38,8 @@ export function reviewSummarySentinelForMode(mode: ReviewMode): string {
       return SECURITY_REVIEW_SUMMARY_SENTINEL;
     case "review-quality":
       return QUALITY_REVIEW_SUMMARY_SENTINEL;
+    case "review-tests":
+      return TESTS_REVIEW_SUMMARY_SENTINEL;
     case "review":
       return REVIEW_SUMMARY_SENTINEL;
   }
@@ -49,6 +53,8 @@ export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
       return "/review-security";
     case "review-quality":
       return "/review-quality";
+    case "review-tests":
+      return "/review-tests";
     case "review":
       return "/review";
   }

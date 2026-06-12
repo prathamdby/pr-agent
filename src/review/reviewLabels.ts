@@ -3,6 +3,7 @@ import {
   LABEL_REVIEW_EFFORT_PREFIX,
   LABEL_SECURITY_CONCERN,
   LABEL_SECURITY_EFFORT_PREFIX,
+  LABEL_TESTS_EFFORT_PREFIX,
 } from "../settings/index.js";
 import type { ReviewMode, ReviewPayload } from "./reviewSchema.js";
 
@@ -12,6 +13,8 @@ function reviewEffortLabelPrefix(mode: ReviewMode): string {
       return LABEL_SECURITY_EFFORT_PREFIX;
     case "review-quality":
       return LABEL_QUALITY_EFFORT_PREFIX;
+    case "review-tests":
+      return LABEL_TESTS_EFFORT_PREFIX;
     case "review":
       return LABEL_REVIEW_EFFORT_PREFIX;
   }

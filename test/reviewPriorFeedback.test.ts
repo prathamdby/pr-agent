@@ -9,6 +9,7 @@ import {
   REVIEW_POINTER_BODY,
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
+  TESTS_REVIEW_POINTER_BODY,
 } from "../src/settings/index.js";
 
 vi.mock("../src/github/appAuth.js", () => ({
@@ -25,6 +26,7 @@ describe("reviewPriorFeedback", () => {
     expect(classifyReviewLensFromPointerBody(REVIEW_POINTER_BODY)).toBe("review");
     expect(classifyReviewLensFromPointerBody(SECURITY_REVIEW_POINTER_BODY)).toBe("review-security");
     expect(classifyReviewLensFromPointerBody(QUALITY_REVIEW_POINTER_BODY)).toBe("review-quality");
+    expect(classifyReviewLensFromPointerBody(TESTS_REVIEW_POINTER_BODY)).toBe("review-tests");
     expect(classifyReviewLensFromPointerBody("unrelated")).toBeNull();
   });
 
