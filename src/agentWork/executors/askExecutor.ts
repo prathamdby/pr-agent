@@ -9,7 +9,7 @@ import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
-import { hasCompletedPublishStep, recordPublishStep } from "../repository.js";
+import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
 import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
 
 async function publishAskAnswer(
@@ -115,10 +115,9 @@ export async function executeAskJob(
               true,
             );
             answerDelivered = true;
-            await recordPublishStep(pool, {
+            await recordAskPublishStep(pool, {
               workItemId: item.id,
               resourceKey: item.resourceKey,
-              reviewLens: ASK_PUBLISH_LENS,
               step: "ask_reply",
               detail: { replyTargetKind: payload.replyTarget.kind },
             });

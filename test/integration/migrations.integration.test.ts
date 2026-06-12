@@ -50,9 +50,10 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     const publishIndexes = await pool.query<{ indexname: string }>(
       "SELECT indexname FROM pg_indexes WHERE tablename = 'publish_records'",
     );
-    expect(publishIndexes.rows.map((r) => r.indexname)).toContain(
-      "publish_records_work_item_id_idx",
-    );
+    const publishIndexNames = publishIndexes.rows.map((r) => r.indexname);
+    expect(publishIndexNames).toContain("publish_records_work_item_id_idx");
+    expect(publishIndexNames).toContain("publish_records_unique_shared_step_idx");
+    expect(publishIndexNames).toContain("publish_records_unique_ask_work_item_step_idx");
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {

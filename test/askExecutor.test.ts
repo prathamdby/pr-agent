@@ -7,7 +7,7 @@ import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
   hasCompletedPublishStep: vi.fn(),
-  recordPublishStep: vi.fn(),
+  recordAskPublishStep: vi.fn(),
   runAskRun: vi.fn(),
   runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
@@ -16,7 +16,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/agentWork/repository.js", () => ({
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
-  recordPublishStep: mocks.recordPublishStep,
+  recordAskPublishStep: mocks.recordAskPublishStep,
 }));
 
 vi.mock("../src/agent/askRun.js", () => ({
@@ -139,7 +139,7 @@ describe("executeAskJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
-    mocks.recordPublishStep.mockResolvedValue(undefined);
+    mocks.recordAskPublishStep.mockResolvedValue(undefined);
     mocks.runAskRun.mockResolvedValue({ answer: "answer" });
     mocks.postSlashReply.mockResolvedValue(undefined);
     mockDurableExecution();
@@ -159,11 +159,10 @@ describe("executeAskJob", () => {
       "answer",
       1_000_000,
     );
-    expect(mocks.recordPublishStep).toHaveBeenCalledTimes(1);
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(pool, {
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
-      reviewLens: "ask",
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation" },
     });
@@ -177,11 +176,11 @@ describe("executeAskJob", () => {
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runAskRun).not.toHaveBeenCalled();
     expect(mocks.postSlashReply).not.toHaveBeenCalled();
-    expect(mocks.recordPublishStep).not.toHaveBeenCalled();
+    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
   });
 
   it("attempts answer publish again when the publish record is missing after a crash", async () => {
-    mocks.recordPublishStep
+    mocks.recordAskPublishStep
       .mockRejectedValueOnce(new Error("record failed"))
       .mockResolvedValueOnce(undefined);
 
@@ -190,11 +189,11 @@ describe("executeAskJob", () => {
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(2);
     expect(mocks.postSlashReply).toHaveBeenCalledTimes(2);
-    expect(mocks.recordPublishStep).toHaveBeenCalledTimes(2);
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(2);
   });
 
   it("skips terminal failure reply after the answer was delivered", async () => {
-    mocks.recordPublishStep.mockRejectedValue(new Error("record failed"));
+    mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
       const item = askItem();
       const installation = {
