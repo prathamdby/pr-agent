@@ -53,6 +53,7 @@ export async function executeAskJob(
   boss: PgBoss,
   job: JobWithMetadata<AskJobData>,
 ): Promise<void> {
+  let answerDelivered = false;
   await runDurableWorkItem({
     cfg,
     pool,
@@ -67,7 +68,10 @@ export async function executeAskJob(
       const payload = item.payload as AskWorkPayload;
       const askReplyPublished = () =>
         hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
-      if (await askReplyPublished()) return {};
+      if (await askReplyPublished()) {
+        answerDelivered = true;
+        return {};
+      }
 
       return withPrRepositoryView(
         {
@@ -110,6 +114,7 @@ export async function executeAskJob(
               result.answer,
               true,
             );
+            answerDelivered = true;
             await recordPublishStep(pool, {
               workItemId: item.id,
               resourceKey: item.resourceKey,
@@ -117,13 +122,15 @@ export async function executeAskJob(
               step: "ask_reply",
               detail: { replyTargetKind: payload.replyTarget.kind },
             });
+          } else {
+            answerDelivered = true;
           }
           return {};
         },
       );
     },
     onTerminalFailure: async (item, installation) => {
-      if (!installation) return;
+      if (!installation || answerDelivered) return;
       const payload = item.payload as AskWorkPayload;
       await publishAskAnswer(
         installation.token,

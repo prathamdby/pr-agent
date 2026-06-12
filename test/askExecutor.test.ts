@@ -192,4 +192,30 @@ describe("executeAskJob", () => {
     expect(mocks.postSlashReply).toHaveBeenCalledTimes(2);
     expect(mocks.recordPublishStep).toHaveBeenCalledTimes(2);
   });
+
+  it("skips terminal failure reply after the answer was delivered", async () => {
+    mocks.recordPublishStep.mockRejectedValue(new Error("record failed"));
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+      const item = askItem();
+      const installation = {
+        token: "tok",
+        expiresAtTs: 1_000_000,
+        ttlMs: 60_000,
+      };
+      try {
+        await spec.execute(item, {
+          installation,
+          headSha: "head",
+        });
+      } catch (error) {
+        await spec.onTerminalFailure?.(item, installation, error);
+        throw error;
+      }
+    });
+
+    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toThrow("record failed");
+
+    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    expect(mocks.postSlashReply.mock.calls[0]?.[4]).toBe("answer");
+  });
 });
