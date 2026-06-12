@@ -208,7 +208,9 @@ export async function publishReview(
   if (shouldSyncLabels) {
     try {
       if (currentLabels instanceof Error) throw currentLabels;
-      if (!Array.isArray(currentLabels)) return;
+      if (!Array.isArray(currentLabels)) {
+        throw new Error(`listPullRequestLabels returned non-array: ${String(currentLabels)}`);
+      }
       if (
         labelsAlreadySynced(currentLabels, payload, {
           effort: cfg.enableReviewLabelsEffort,

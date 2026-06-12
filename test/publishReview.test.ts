@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import * as evlog from "../src/evlog.js";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import * as reviewSchema from "../src/review/reviewSchema.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
@@ -543,6 +544,46 @@ describe("publishReview", () => {
 
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
   });
+
+  it.each([
+    {
+      name: "string",
+      rejection: "labels exploded",
+      message: "listPullRequestLabels returned non-array: labels exploded",
+    },
+    {
+      name: "Error",
+      rejection: new Error("labels forbidden"),
+      message: "labels forbidden",
+    },
+  ])(
+    "does not fail publish when label listing rejects with $name",
+    async ({ rejection, message }) => {
+      const warnSpy = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+      vi.mocked(listPullRequestLabels).mockRejectedValueOnce(rejection);
+
+      await expect(
+        publishReviewForTest({
+          ...baseParams,
+          publishState: testPublishState(),
+          cfg: {
+            enableReviewLabelsEffort: true,
+            enableReviewLabelsSecurity: false,
+          },
+        }),
+      ).resolves.toBeUndefined();
+
+      expect(upsertReviewSummaryComment).toHaveBeenCalled();
+      expect(setPullRequestLabels).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith("review_labels_sync_failed", {
+        owner: "o",
+        repo: "r",
+        pr: 1,
+        message,
+      });
+      warnSpy.mockRestore();
+    },
+  );
 
   it("publishes summary when inline anchors are invalid", async () => {
     const publishState = testPublishState();
