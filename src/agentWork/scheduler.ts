@@ -5,6 +5,7 @@ import type { Config } from "../config.js";
 import { inTransaction } from "../db/postgres.js";
 import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
+import { logWarn } from "../evlog.js";
 import {
   applyAutomatedPullRequestIntake,
   applySlashCommandIntake,
@@ -94,7 +95,19 @@ export function makeAgentWorkScheduler(
           return hasStoredInlineReviewId(pool, resourceKey, reviewId);
         },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
+      }).pipe(
+        Effect.catchAll((e) =>
+          Effect.sync(() => {
+            logWarn("thread_reply_bot_thread_lookup_failed", {
+              owner,
+              repo,
+              pr: prNumber,
+              message: e.message,
+            });
+            return false;
+          }),
+        ),
+      ),
 
     ping: () =>
       Effect.tryPromise({
