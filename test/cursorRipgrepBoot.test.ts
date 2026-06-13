@@ -56,10 +56,25 @@ describe("configureCursorRipgrepPath", () => {
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
-  it("throws and reports to posthog when ripgrep is required but missing", () => {
+  it("configures ripgrep on demand when assert runs without prior boot", () => {
     delete process.env.CURSOR_RIPGREP_PATH;
 
-    expect(() => assertCursorRipgrepConfigured()).toThrow(/Ripgrep path not configured/);
+    const rgPath = assertCursorRipgrepConfigured();
+
+    expect(rgPath).toBeTruthy();
+    expect(process.env.CURSOR_RIPGREP_PATH).toBe(rgPath);
+  });
+
+  it("throws and reports to posthog when ripgrep is required but missing", () => {
+    delete process.env.CURSOR_RIPGREP_PATH;
+    const arch = process.arch;
+    Object.defineProperty(process, "arch", { value: "fakearch", configurable: true });
+
+    try {
+      expect(() => assertCursorRipgrepConfigured()).toThrow(/Ripgrep path not configured/);
+    } finally {
+      Object.defineProperty(process, "arch", { value: arch, configurable: true });
+    }
     expect(mocks.captureException).toHaveBeenCalledWith(
       expect.any(Error),
       "worker",

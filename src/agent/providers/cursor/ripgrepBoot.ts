@@ -15,7 +15,7 @@ export function configureCursorRipgrepPath(): string | undefined {
   try {
     const baseRequire = createRequire(fileURLToPath(import.meta.url));
     const sdkEntry = baseRequire.resolve("@cursor/sdk");
-    const sdkRequire = createRequire(path.join(path.dirname(sdkEntry), "index.js"));
+    const sdkRequire = createRequire(sdkEntry);
     const platformPkgJson = sdkRequire.resolve(
       `@cursor/sdk-${process.platform}-${process.arch}/package.json`,
     );
@@ -35,7 +35,7 @@ export function configureCursorRipgrepPath(): string | undefined {
 }
 
 export function assertCursorRipgrepConfigured(): string {
-  const configured = process.env.CURSOR_RIPGREP_PATH?.trim();
+  const configured = process.env.CURSOR_RIPGREP_PATH?.trim() || configureCursorRipgrepPath();
   if (configured) {
     process.env.CURSOR_RIPGREP_PATH = configured;
     return configured;
