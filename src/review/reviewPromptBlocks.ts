@@ -19,6 +19,11 @@ export const suggestedCodeAndConfidenceFieldContract = [
   "confidence: integer 1-5 for each finding. 5 means certain and evidenced. 1 means speculative or weakly evidenced.",
 ].join("\n- ");
 
+export const categoryFieldContract = [
+  "category (optional): one of bug | security | performance | style — the primary issue type for filtering.",
+  "Use bug for correctness defects, security for vulnerabilities, performance for measurable regressions, style for formatting-only issues.",
+].join("\n- ");
+
 /** Round-0 pre-submit nudge: exhaustive checklist + submit instruction (harness only). */
 export const PRE_SUBMIT_ROUND0_PROMPT = [
   "Before submitReview, confirm every changed file was inspected and all evidenced P0–P2 are in this payload.",

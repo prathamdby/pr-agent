@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { makeTestConfig } from "./helpers/config.js";
+const intakeCfg = makeTestConfig();
 import { Effect } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -44,7 +46,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
     const { pool, query } = makePool();
     const boss = { send: vi.fn() } as unknown as PgBoss;
     const txSpy = vi.spyOn(postgres, "inTransaction");
-    const scheduler = makeAgentWorkScheduler(pool, boss);
+    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {
@@ -71,7 +73,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
     const { pool, query } = makePool();
     const boss = { send: vi.fn() } as unknown as PgBoss;
     const txSpy = vi.spyOn(postgres, "inTransaction");
-    const scheduler = makeAgentWorkScheduler(pool, boss);
+    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
 
     try {

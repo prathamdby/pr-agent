@@ -6,6 +6,7 @@ import {
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_DESCRIPTION_GENERATE_TITLE,
+  DEFAULT_DESCRIPTION_AUTO_ACTIONS,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
@@ -62,6 +63,7 @@ import {
   ENV,
   EXTERNAL_ENV,
   GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
+  AUTOMATED_PR_ACTIONS,
 } from "./settings/index.js";
 
 function requireEnv(name: string): string {
@@ -130,6 +132,24 @@ function readSlashAllowedAssociations(name: string, defaultValue: string): Reado
     }
   }
 
+  return new Set(values);
+}
+
+function readDescriptionAutoActions(name: string, defaultValue: string): ReadonlySet<string> {
+  const values = optionalEnv(name, defaultValue)
+    .split(",")
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (values.length === 0) {
+    throw new Error(`${name} must list at least one pull_request action`);
+  }
+  for (const value of values) {
+    if (!AUTOMATED_PR_ACTIONS.has(value)) {
+      throw new Error(
+        `${name} contains unknown action "${value}"; allowed: ${[...AUTOMATED_PR_ACTIONS].join(", ")}`,
+      );
+    }
+  }
   return new Set(values);
 }
 
@@ -343,6 +363,10 @@ export function loadConfig() {
     ENV.ENABLE_REVIEW_LABELS_SECURITY,
     DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   );
+  const descriptionAutoActions = readDescriptionAutoActions(
+    ENV.DESCRIPTION_AUTO_ACTIONS,
+    DEFAULT_DESCRIPTION_AUTO_ACTIONS,
+  );
 
   const configuredMaxPrFilesListed = readPositiveNumber(
     ENV.MAX_PR_FILES_LISTED,
@@ -477,6 +501,7 @@ export function loadConfig() {
     cursorApiKey,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
+    descriptionAutoActions,
     maxPrFilesListed,
     maxPrFilesPatchBytes,
     logLevel,

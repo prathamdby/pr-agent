@@ -57,7 +57,7 @@ const AgentWorkSchedulerRuntimeLive = (cfg: Config) =>
     Effect.gen(function* () {
       const pool = yield* AgentWorkPool;
       const boss = yield* AgentWorkBoss;
-      return makeAgentWorkScheduler(pool, boss);
+      return makeAgentWorkScheduler(pool, boss, cfg);
     }),
   ).pipe(Layer.provide(AgentWorkPoolLive(cfg)), Layer.provide(AgentWorkBossLive(cfg)));
 

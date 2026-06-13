@@ -18,6 +18,8 @@ const nonEmptyDiffIndex = () => ({
       {
         patchOmitted: false,
         commentableRightLineRanges: [[1, 5]],
+        additions: 5,
+        deletions: 0,
       },
     ],
   ]),

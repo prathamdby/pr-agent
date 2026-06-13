@@ -64,6 +64,9 @@ export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 
+export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "style"] as const;
+export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
+
 const reviewFindingSchema = z
   .object({
     severity: severitySchema,
@@ -75,6 +78,7 @@ const reviewFindingSchema = z
     fixPrompt: z.string().max(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS).optional(),
     suggestedCode: z.string().max(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS).optional(),
     confidence: z.number().int().min(1).max(5).optional(),
+    category: z.enum(REVIEW_FINDING_CATEGORIES).optional(),
   })
   .superRefine((f, ctx) => {
     if (f.startLine > f.endLine) {

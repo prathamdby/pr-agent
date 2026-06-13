@@ -8,6 +8,9 @@ import type { PrRef, QueueConfig, WebhookHeaders } from "../../src/agentWork/typ
 import { prResourceKey, reviewSingletonKey } from "../../src/agentWork/types.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
+import { makeTestConfig } from "../helpers/config.js";
+
+const intakeCfg = makeTestConfig();
 import {
   ACK_QUEUE,
   AUTOMATED_REVIEW_LENS,
@@ -195,6 +198,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "synchronize",
       intakeLog(),
+      intakeCfg,
     );
 
     await expect(countWebhookRows(delivery)).resolves.toBe(1);
@@ -220,6 +224,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
           ref,
           "synchronize",
           intakeLog(),
+          intakeCfg,
         ),
       ).rejects.toThrow("injected send failure");
     } finally {
@@ -242,6 +247,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "synchronize",
       intakeLog(),
+      intakeCfg,
     );
     const firstJobs = await reviewJobsFor(ref);
     const firstJobId = firstJobs[0]?.id;
@@ -254,6 +260,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "synchronize",
       intakeLog(),
+      intakeCfg,
     );
 
     const { rows: workRows } = await pool.query<{ status: string }>(
@@ -279,6 +286,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "synchronize",
       intakeLog(),
+      intakeCfg,
     );
 
     const reviewJobsAfterA = await reviewJobsFor(ref);
@@ -303,6 +311,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "synchronize",
       intakeLog(),
+      intakeCfg,
     );
 
     await Promise.race([
@@ -343,6 +352,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "synchronize",
       intakeLog(),
+      intakeCfg,
     );
     await applyAutomatedPullRequestIntake(
       boss,
@@ -351,6 +361,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "labeled",
       intakeLog(),
+      intakeCfg,
     );
 
     await expect(countWebhookRows(delivery)).resolves.toBe(1);
@@ -369,6 +380,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "labeled",
       intakeLog(),
+      intakeCfg,
     );
     await applyAutomatedPullRequestIntake(
       boss,
@@ -377,6 +389,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       ref,
       "synchronize",
       intakeLog(),
+      intakeCfg,
     );
 
     await expect(countWebhookRows(delivery)).resolves.toBe(1);

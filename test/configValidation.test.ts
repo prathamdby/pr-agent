@@ -140,4 +140,20 @@ describe("loadConfig validation", () => {
     expect(cfg.maxPrFilesListed).toBe(2500);
     expect(warn).not.toHaveBeenCalled();
   });
+
+  it("defaults description auto actions to opened only", async () => {
+    const cfg = await load({});
+    expect([...cfg.descriptionAutoActions]).toEqual(["opened"]);
+  });
+
+  it("parses description auto actions from env", async () => {
+    const cfg = await load({ DESCRIPTION_AUTO_ACTIONS: "opened,synchronize" });
+    expect([...cfg.descriptionAutoActions]).toEqual(["opened", "synchronize"]);
+  });
+
+  it("rejects unknown description auto actions", async () => {
+    await expect(load({ DESCRIPTION_AUTO_ACTIONS: "opened,labeled" })).rejects.toThrow(
+      /DESCRIPTION_AUTO_ACTIONS contains unknown action/,
+    );
+  });
 });
