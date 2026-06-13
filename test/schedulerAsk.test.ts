@@ -8,7 +8,7 @@ import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { MAX_ASK_QUESTION_CHARS } from "../src/agent/askSafety.js";
 import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
-import { ACK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
+import { ACK_QUEUE, ASK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 
 function makeSlashInput(body: string) {
@@ -107,5 +107,68 @@ describe("makeAgentWorkScheduler /ask slash", () => {
       target: { kind: "prConversation", prNumber: 7 },
       body: ASK_USAGE_HINT,
     });
+  });
+
+  it("enqueues ask work for raw thread-reply body on inline review threads", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+
+    const workItemInserts: unknown[][] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_events")) {
+          return { rows: [{ id: "event-1" }] };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+
+    const pool = {} as Pool;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitSlashCommand(
+        {
+          headers: {
+            event: "pull_request_review_comment",
+            delivery: "d-thread-reply",
+            rawBody: Buffer.from("{}"),
+          },
+          installationId: 42,
+          owner: "acme",
+          repo: "app",
+          prNumber: 7,
+          commentId: 101,
+          commenterId: 1,
+          body: "why is this P1?",
+          command: "ask",
+          replyTarget: {
+            kind: "inlineReviewThread",
+            prNumber: 7,
+            inReplyToCommentId: 100,
+          },
+        },
+        intakeLog,
+      ),
+    );
+
+    expect(workItemInserts).toHaveLength(1);
+    expect(sentJobs.map((j) => j.queue)).toContain(ASK_QUEUE);
+    expect(sentJobs.find((j) => j.queue === ACK_QUEUE)?.data.reply).toBeUndefined();
   });
 });

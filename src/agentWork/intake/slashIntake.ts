@@ -8,6 +8,7 @@ import {
   ASK_USAGE_HINT,
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
+  MAX_ASK_QUESTION_CHARS,
   MAX_STORED_COMMENT_TEXT_LEN,
   SLASH_HELP_BODY,
 } from "../../settings/index.js";
@@ -89,7 +90,17 @@ async function handleSlashHelp(ctx: SlashIntakeContext): Promise<void> {
 }
 
 async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
-  const askParse = parseAskQuestionResult(ctx.input.body);
+  let askParse = parseAskQuestionResult(ctx.input.body);
+  if (askParse.kind === "not_ask" && ctx.input.replyTarget.kind === "inlineReviewThread") {
+    const question = ctx.input.body.trim();
+    if (question.length === 0) {
+      askParse = { kind: "missing" };
+    } else if (question.length > MAX_ASK_QUESTION_CHARS) {
+      askParse = { kind: "too_long" };
+    } else {
+      askParse = { kind: "ok", question };
+    }
+  }
   if (askParse.kind === "too_long") {
     await enqueueSlashAck(ctx, {
       reply: {
