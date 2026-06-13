@@ -16,6 +16,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItemPayload: vi.fn(),
   shouldSkipWork: vi.fn(),
   markWorkCancelled: vi.fn(),
+  claimQueuedWorkItem: vi.fn(),
   claimWorkForExecution: vi.fn(),
   markWorkCompleted: vi.fn(),
   forceMarkRescheduledParentCompleted: vi.fn(),
@@ -107,6 +108,7 @@ function defaultMocks() {
   vi.mocked(repo.getWorkItem).mockReset();
   vi.mocked(repo.getWorkItemCore).mockReset();
   vi.mocked(repo.getWorkItemPayload).mockReset();
+  vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(null);
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
   vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
   vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
@@ -150,6 +152,36 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
     expect(repo.shouldSkipWork).toHaveBeenCalledTimes(2);
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
+  });
+
+  it("fast path: one claimQueuedWorkItem call when acceptItem is omitted", async () => {
+    const item = makeItem();
+    vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(item);
+    const execute = vi.fn().mockResolvedValue({});
+
+    await runReviewWorkItem({ resolveHeadSha: async () => ({ headSha: "abc123" }), execute });
+
+    expect(repo.claimQueuedWorkItem).toHaveBeenCalledTimes(1);
+    expect(repo.claimQueuedWorkItem).toHaveBeenCalledWith(pool, "wi-1", "review");
+    expect(repo.getWorkItemCore).not.toHaveBeenCalled();
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    expect(repo.getWorkItemPayload).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses legacy claim path when acceptItem is provided", async () => {
+    const item = makeItem();
+    mockFetchedItem(item);
+    const execute = vi.fn().mockResolvedValue({});
+
+    await runReviewWorkItem({
+      acceptItem: (it) => it.reviewLens != null,
+      execute,
+    });
+
+    expect(repo.claimQueuedWorkItem).not.toHaveBeenCalled();
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("passes resolved pull payload into execution context", async () => {
