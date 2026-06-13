@@ -70,6 +70,7 @@ function slashTraceLayers() {
         Effect.sync(() => {
           trace.slash = true;
         }),
+      matchesStoredInlineReview: () => Effect.succeed(false),
       ping: () => Effect.succeed(true),
     }),
   );
@@ -133,6 +134,7 @@ describe("WebhookHandlers Effect resolution", () => {
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.fail(new Error("scheduler failed")),
+        matchesStoredInlineReview: () => Effect.succeed(false),
         ping: () => Effect.succeed(true),
       }),
     );
@@ -186,6 +188,7 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
+        matchesStoredInlineReview: () => Effect.succeed(false),
         ping: () => Effect.succeed(true),
       }),
     );
@@ -235,6 +238,7 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
+        matchesStoredInlineReview: () => Effect.succeed(false),
         ping: () => Effect.succeed(true),
       }),
     );

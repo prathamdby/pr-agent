@@ -279,3 +279,27 @@ export async function setPullRequestLabels(
     labels,
   });
 }
+
+export async function setReviewCommitStatus(
+  token: string,
+  owner: string,
+  repo: string,
+  sha: string,
+  params: {
+    state: "success" | "failure";
+    description: string;
+    targetUrl?: string;
+  },
+  expiresAtTs?: number,
+): Promise<void> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  await octokit.rest.repos.createCommitStatus({
+    owner,
+    repo,
+    sha,
+    state: params.state,
+    context: "pr-agent/review",
+    description: params.description,
+    target_url: params.targetUrl,
+  });
+}

@@ -11,7 +11,9 @@ import {
   recordIgnoredWebhook,
   type SlashCommandInput,
 } from "./intake/applier.js";
+import { hasStoredInlineReviewId } from "./repository.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
+import { prResourceKey } from "./types.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   AgentWorkScheduler,
@@ -31,6 +33,12 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       input: SlashCommandInput,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
+    readonly matchesStoredInlineReview: (
+      owner: string,
+      repo: string,
+      prNumber: number,
+      pullRequestReviewId: number,
+    ) => Effect.Effect<boolean, Error>;
     readonly ping: () => Effect.Effect<boolean>;
   }
 >() {}
@@ -58,6 +66,13 @@ export function makeAgentWorkScheduler(
       Effect.tryPromise({
         try: () =>
           inTransaction(pool, (client) => applySlashCommandIntake(boss, client, input, intakeLog)),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }),
+
+    matchesStoredInlineReview: (owner, repo, prNumber, pullRequestReviewId) =>
+      Effect.tryPromise({
+        try: () =>
+          hasStoredInlineReviewId(pool, prResourceKey(owner, repo, prNumber), pullRequestReviewId),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

@@ -49,6 +49,8 @@ export const DEFAULT_CURSOR_API_KEY = "";
 
 export const DEFAULT_ENABLE_REVIEW_LABELS_EFFORT = true;
 export const DEFAULT_ENABLE_REVIEW_LABELS_SECURITY = false;
+export const DEFAULT_ENABLE_THREAD_REPLIES = false;
+export const DEFAULT_ENABLE_REVIEW_COMMIT_STATUS = false;
 export const DEFAULT_DESCRIPTION_AUTO_ACTIONS = "opened";
 
 export const DEFAULT_MAX_PR_FILES_LISTED = 300;

@@ -153,7 +153,54 @@ export const WebhookHandlersCore = Layer.effect(
           const body = data.comment.body ?? "";
           const command = parseSlashCommand(body);
           if (!command) {
-            yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+            if (!cfg.enableThreadReplies) {
+              yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+              return;
+            }
+            if (data.comment.in_reply_to_id == null) {
+              yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+              return;
+            }
+            if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
+            if (yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association)) {
+              return;
+            }
+            const reviewId = data.comment.pull_request_review_id;
+            if (reviewId == null) {
+              yield* scheduler.recordIgnored(headers, "ignored_non_bot_thread_reply", intakeLog);
+              return;
+            }
+            const isBotThread = yield* scheduler.matchesStoredInlineReview(
+              data.repository.owner.login,
+              data.repository.name,
+              data.pull_request.number,
+              reviewId,
+            );
+            if (!isBotThread) {
+              yield* scheduler.recordIgnored(headers, "ignored_non_bot_thread_reply", intakeLog);
+              return;
+            }
+            yield* scheduler.submitSlashCommand(
+              {
+                headers,
+                installationId: data.installation.id,
+                owner: data.repository.owner.login,
+                repo: data.repository.name,
+                repositorySizeKb: data.repository.size,
+                prNumber: data.pull_request.number,
+                commenterId: data.comment.user.id,
+                commentId: data.comment.id,
+                body,
+                command: "ask",
+                replyTarget: {
+                  kind: "inlineReviewThread",
+                  prNumber: data.pull_request.number,
+                  inReplyToCommentId: data.comment.id,
+                },
+                codeAnchor: codeAnchorFromReviewComment(data.comment),
+              },
+              intakeLog,
+            );
             return;
           }
           if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;

@@ -7,6 +7,7 @@ import {
   listPullRequestReviewCommentsForReview,
   resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
+  setReviewCommitStatus,
   upsertReviewSummaryComment,
 } from "../../github/reviewPublish.js";
 import {
@@ -238,7 +239,10 @@ export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
     mode?: ReviewMode;
-    cfg: Pick<Config, "enableReviewLabelsEffort" | "enableReviewLabelsSecurity">;
+    cfg: Pick<
+      Config,
+      "enableReviewLabelsEffort" | "enableReviewLabelsSecurity" | "enableReviewCommitStatus"
+    >;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
     /** Set when payload was already normalized, deduped, and validated by submitReview. */
@@ -477,6 +481,48 @@ export async function publishReview(
     commentId: summary.id,
     updated: summary.updated,
   });
+
+  if (cfg.enableReviewCommitStatus) {
+    const blockingCount = payload.findings.filter(
+      (f) => f.severity === "P0" || f.severity === "P1",
+    ).length;
+    const statusState = blockingCount > 0 ? "failure" : "success";
+    const statusDescription =
+      blockingCount > 0
+        ? `${blockingCount} P0/P1 finding${blockingCount === 1 ? "" : "s"}`
+        : "no blocking findings";
+    const targetUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summary.id}`;
+    try {
+      if (tokenExpiresAtTs == null) {
+        await setReviewCommitStatus(token, owner, repo, headSha, {
+          state: statusState,
+          description: statusDescription,
+          targetUrl,
+        });
+      } else {
+        await setReviewCommitStatus(
+          token,
+          owner,
+          repo,
+          headSha,
+          {
+            state: statusState,
+            description: statusDescription,
+            targetUrl,
+          },
+          tokenExpiresAtTs,
+        );
+      }
+    } catch (e) {
+      logWarn("review_commit_status_failed", {
+        mode,
+        owner,
+        repo,
+        pr: prNumber,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
 
   if (currentLabels instanceof Error) {
     logWarn("review_labels_fetch_failed", {

@@ -12,6 +12,8 @@ import {
   DEFAULT_CURSOR_API_KEY,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
+  DEFAULT_ENABLE_THREAD_REPLIES,
+  DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_MAX_WIDE_EVENTS,
@@ -363,6 +365,14 @@ export function loadConfig() {
     ENV.ENABLE_REVIEW_LABELS_SECURITY,
     DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   );
+  const enableThreadReplies = readBooleanEnv(
+    ENV.ENABLE_THREAD_REPLIES,
+    DEFAULT_ENABLE_THREAD_REPLIES,
+  );
+  const enableReviewCommitStatus = readBooleanEnv(
+    ENV.ENABLE_REVIEW_COMMIT_STATUS,
+    DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
+  );
   const descriptionAutoActions = readDescriptionAutoActions(
     ENV.DESCRIPTION_AUTO_ACTIONS,
     DEFAULT_DESCRIPTION_AUTO_ACTIONS,
@@ -501,6 +511,8 @@ export function loadConfig() {
     cursorApiKey,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
+    enableThreadReplies,
+    enableReviewCommitStatus,
     descriptionAutoActions,
     maxPrFilesListed,
     maxPrFilesPatchBytes,

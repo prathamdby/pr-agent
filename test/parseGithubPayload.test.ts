@@ -174,6 +174,37 @@ describe("parseGithubPayload", () => {
     expect(p.data.comment.diff_hunk).toContain("@@");
   });
 
+  it("parses pull_request_review_comment replies with in_reply_to_id", () => {
+    const raw = {
+      action: "created",
+      installation: { id: 42 },
+      repository: {
+        owner: { login: "o" },
+        name: "r",
+      },
+      pull_request: { number: 3 },
+      comment: {
+        id: 101,
+        user: { id: 15 },
+        author_association: "MEMBER",
+        body: "why is this P1?",
+        in_reply_to_id: 100,
+        pull_request_review_id: 55,
+        path: "src/hook.ts",
+        line: 12,
+        side: "RIGHT",
+      },
+    };
+
+    const p = parseGithubPayload("pull_request_review_comment", raw);
+    expect(p.name).toBe("pull_request_review_comment");
+    if (p.name !== "pull_request_review_comment") {
+      throw new Error("expected pull_request_review_comment payload");
+    }
+    expect(p.data.comment.in_reply_to_id).toBe(100);
+    expect(p.data.comment.pull_request_review_id).toBe(55);
+  });
+
   it("throws WebhookParseError on malformed pull_request", () => {
     expect(() => parseGithubPayload("pull_request", { action: "opened" })).toThrow(
       WebhookParseError,

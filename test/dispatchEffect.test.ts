@@ -40,6 +40,7 @@ function buildLayers(trace: Trace) {
         Effect.sync(() => {
           trace.submitSlashCommand(input, intakeLog);
         }),
+      matchesStoredInlineReview: () => Effect.succeed(false),
       ping: () => Effect.succeed(true),
     }),
   );
