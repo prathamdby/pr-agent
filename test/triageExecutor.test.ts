@@ -232,6 +232,38 @@ describe("executeTriageJob", () => {
     );
   });
 
+  it("runs a fresh agent pass when same-work-item push detail is stale", async () => {
+    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+      staleHead: true,
+      attemptedShas: ["abc1234"],
+      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      payload: {
+        verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+      },
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+  });
+
+  it("runs a fresh agent pass when same-work-item push detail has stale head", async () => {
+    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+      pushedShas: ["abc1234"],
+      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      pushedHeadSha: "b".repeat(40),
+      payload: {
+        verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+      },
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+  });
+
   it("resumes latest unreported push from a prior triage work item", async () => {
     const payload = {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],

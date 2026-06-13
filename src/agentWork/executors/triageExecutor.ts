@@ -196,7 +196,6 @@ export async function executeTriageJob(
         return {};
       }
 
-      let requireStoredPushMatch = false;
       let storedPushDetail = await getCompletedPublishStepDetail(
         pool,
         item.id,
@@ -212,12 +211,11 @@ export async function executeTriageJob(
           "triage_push",
           "triage_report",
         );
-        requireStoredPushMatch = storedPushDetail != null;
       }
       if (storedPushDetail != null) {
         const parsed = parseStoredTriagePushDetail(storedPushDetail);
         if (!parsed) throw new Error("Stored triage_push detail is invalid");
-        if (!requireStoredPushMatch || storedPushMatchesInventory(parsed, headSha, inventory)) {
+        if (parsed.pushed && storedPushMatchesInventory(parsed, headSha, inventory)) {
           const publish = await publishTriage({
             pool,
             workItemId: item.id,
