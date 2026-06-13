@@ -1,15 +1,24 @@
 import type { Config } from "../../config.js";
+import type { Pool } from "pg";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
 import {
+  findIssueCommentBySentinel,
   listPullRequestLabels,
   listPullRequestReviewCommentsForReview,
   resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
   upsertReviewSummaryComment,
 } from "../../github/reviewPublish.js";
+import {
+  claimSummaryCommentCreation,
+  getSummaryCommentGithubId,
+} from "../../agentWork/repository.js";
 import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "../reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
-import { MAX_INLINE_REVIEW_COMMENTS } from "../../settings/index.js";
+import {
+  MAX_INLINE_REVIEW_COMMENTS,
+  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
+} from "../../settings/index.js";
 import { renderReviewSummaryComment } from "../reviewRender.js";
 import {
   applyInlineCommentCap,
@@ -34,6 +43,191 @@ import {
 } from "../reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
 
+export type SummaryCommentCoordination = {
+  pool: Pool;
+  workItemId: string;
+  resourceKey: string;
+};
+
+export type RecordPublishStepFn = (
+  step: "inline_review" | "summary_comment" | "labels",
+  detail?: { githubId?: string | number; meta?: Record<string, unknown> },
+) => Promise<void>;
+
+export type RecordPublishStepWithCoordination = RecordPublishStepFn & {
+  summaryCommentCoordination?: SummaryCommentCoordination;
+};
+
+export function attachSummaryCommentCoordination(
+  recordPublishStep: RecordPublishStepFn,
+  coordination: SummaryCommentCoordination,
+): RecordPublishStepWithCoordination {
+  const wrapped = recordPublishStep as RecordPublishStepWithCoordination;
+  wrapped.summaryCommentCoordination = coordination;
+  return wrapped;
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function resolveKnownSummaryCommentRef(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  sentinel: string,
+  hintCommentId: number | null | undefined,
+  expiresAtTs?: number,
+): Promise<{ id: number; url: string } | null> {
+  const resolved =
+    expiresAtTs == null
+      ? await resolveVerifiedSummaryCommentRef(
+          token,
+          owner,
+          repo,
+          prNumber,
+          sentinel,
+          hintCommentId,
+        )
+      : await resolveVerifiedSummaryCommentRef(
+          token,
+          owner,
+          repo,
+          prNumber,
+          sentinel,
+          hintCommentId,
+          expiresAtTs,
+        );
+  return resolved ? { id: resolved.id, url: resolved.url } : null;
+}
+
+export async function upsertSummaryCommentWithCreationClaim(params: {
+  pool: Pool;
+  workItemId: string;
+  resourceKey: string;
+  reviewLens: ReviewMode;
+  token: string;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  body: string;
+  sentinel: string;
+  expiresAtTs?: number;
+  hintCommentId?: number | null;
+}): Promise<{ id: number; updated: boolean }> {
+  const {
+    pool,
+    workItemId,
+    resourceKey,
+    reviewLens,
+    token,
+    owner,
+    repo,
+    prNumber,
+    body,
+    sentinel,
+    expiresAtTs,
+  } = params;
+
+  const storedId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
+  const hintId = params.hintCommentId ?? storedId ?? null;
+  const knownFromStored = await resolveKnownSummaryCommentRef(
+    token,
+    owner,
+    repo,
+    prNumber,
+    sentinel,
+    hintId,
+    expiresAtTs,
+  );
+  if (knownFromStored) {
+    return upsertReviewSummaryComment(
+      token,
+      owner,
+      repo,
+      prNumber,
+      body,
+      sentinel,
+      knownFromStored,
+      expiresAtTs,
+    );
+  }
+
+  const claimWon = await claimSummaryCommentCreation(pool, workItemId, resourceKey, reviewLens);
+  if (claimWon) {
+    const scanned = await findIssueCommentBySentinel(
+      token,
+      owner,
+      repo,
+      prNumber,
+      sentinel,
+      expiresAtTs,
+    );
+    return upsertReviewSummaryComment(
+      token,
+      owner,
+      repo,
+      prNumber,
+      body,
+      sentinel,
+      scanned,
+      expiresAtTs,
+    );
+  }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      const delay =
+        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt - 1] ??
+        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1)!;
+      await sleepMs(delay);
+    }
+    const polledId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
+    if (polledId == null) continue;
+    const knownFromPoll = await resolveKnownSummaryCommentRef(
+      token,
+      owner,
+      repo,
+      prNumber,
+      sentinel,
+      polledId,
+      expiresAtTs,
+    );
+    if (knownFromPoll) {
+      return upsertReviewSummaryComment(
+        token,
+        owner,
+        repo,
+        prNumber,
+        body,
+        sentinel,
+        knownFromPoll,
+        expiresAtTs,
+      );
+    }
+  }
+
+  const scanned = await findIssueCommentBySentinel(
+    token,
+    owner,
+    repo,
+    prNumber,
+    sentinel,
+    expiresAtTs,
+  );
+  return upsertReviewSummaryComment(
+    token,
+    owner,
+    repo,
+    prNumber,
+    body,
+    sentinel,
+    scanned,
+    expiresAtTs,
+  );
+}
+
 export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
@@ -48,10 +242,7 @@ export async function publishReview(
     shouldLinkToSummary?: boolean;
     summaryCommentIdHint?: number | null;
     staleReview?: boolean;
-    recordPublishStep?: (
-      step: "inline_review" | "summary_comment" | "labels",
-      detail?: { githubId?: string | number; meta?: Record<string, unknown> },
-    ) => Promise<void>;
+    recordPublishStep?: RecordPublishStepWithCoordination;
     storedInlineFingerprints?: readonly string[];
     /** Reuse placements already computed during prepare; recomputed when omitted. */
     inlinePlacements?: readonly InlinePlacement[];
@@ -213,7 +404,21 @@ export async function publishReview(
   }
 
   let summaryUpsert: Promise<{ id: number; updated: boolean }>;
-  if (knownSummaryCommentRef != null) {
+  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
+  if (summaryCoordination) {
+    summaryUpsert = upsertSummaryCommentWithCreationClaim({
+      ...summaryCoordination,
+      reviewLens: mode,
+      token,
+      owner,
+      repo,
+      prNumber,
+      body: summaryBody,
+      sentinel: summarySentinel,
+      expiresAtTs: tokenExpiresAtTs,
+      hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
+    });
+  } else if (knownSummaryCommentRef != null) {
     summaryUpsert =
       tokenExpiresAtTs == null
         ? upsertReviewSummaryComment(

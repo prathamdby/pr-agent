@@ -15,6 +15,7 @@ export type PublishStep =
   | "progress_comment"
   | "inline_review"
   | "summary_comment"
+  | "summary_comment_claim"
   | "labels"
   | "pr_body"
   | "ask_reply";
@@ -287,6 +288,23 @@ export async function hasCompletedPublishStep(
     [workItemId, resourceKey, reviewLens, step],
   );
   return row != null;
+}
+
+/** Returns true exactly once per (resourceKey, lens) until the claim row is deleted. */
+export async function claimSummaryCommentCreation(
+  pool: Pool,
+  workItemId: string,
+  resourceKey: string,
+  reviewLens: ReviewWorkPayload["mode"],
+): Promise<boolean> {
+  const result = await pool.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
+     VALUES ($1, $2, $3, $4, 'summary_comment_claim', 'completed', '{}'::jsonb)
+     ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask'
+     DO NOTHING`,
+    [crypto.randomUUID(), workItemId, resourceKey, reviewLens],
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function getSummaryCommentGithubId(
