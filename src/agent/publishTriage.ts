@@ -147,13 +147,12 @@ function replyBody(
   return redactReviewText(`**Triage**: already resolved - ${verdict.evidence}`);
 }
 
-async function replyAndResolve(
+async function replyToThread(
   params: Pick<
     PublishTriageParams,
     "token" | "tokenExpiresAtTs" | "owner" | "repo" | "prNumber"
   > & {
     readonly thread: BotFindingThread;
-    readonly resolution: ReviewThreadResolution;
     readonly verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>;
   },
 ): Promise<void> {
@@ -165,7 +164,6 @@ async function replyAndResolve(
     comment_id: params.thread.rootCommentId,
     body: replyBody(params.verdict),
   });
-  await resolveReviewThread(params.token, params.resolution.threadNodeId, params.tokenExpiresAtTs);
 }
 
 async function upsertTriageReport(
@@ -262,7 +260,6 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   for (const verdict of params.payload.verdicts) {
     if (verdict.verdict !== "fixed" && verdict.verdict !== "already-resolved") continue;
     if (verdict.verdict === "fixed" && !pushed) continue;
-    if (actedThreadIds.has(verdict.threadRootCommentId)) continue;
     const thread = threadById.get(verdict.threadRootCommentId);
     const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
     if (!thread || !resolution) {
@@ -271,13 +268,16 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       continue;
     }
     if (resolution.isResolved) continue;
-    await replyAndResolve({ ...params, thread, resolution, verdict });
-    actedThreadIds.add(verdict.threadRootCommentId);
-    await recordActedThreadIds(params.pool, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      actedThreadIds: [...actedThreadIds],
-    });
+    if (!actedThreadIds.has(verdict.threadRootCommentId)) {
+      await replyToThread({ ...params, thread, verdict });
+      actedThreadIds.add(verdict.threadRootCommentId);
+      await recordActedThreadIds(params.pool, {
+        workItemId: params.workItemId,
+        resourceKey: params.resourceKey,
+        actedThreadIds: [...actedThreadIds],
+      });
+    }
+    await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
   }
 
   await upsertTriageReport({
