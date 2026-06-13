@@ -89,11 +89,11 @@ posthog.flush();
 ### Returns
 
 - `Promise<{
-        distinctId: string;
-        event: string;
-        properties: PostHogEventProperties;
-        options: PostHogCaptureOptions;
-    }>`
+    distinctId: string;
+    event: string;
+    properties: PostHogEventProperties;
+    options: PostHogCaptureOptions;
+}>`
 
 ### Examples
 
@@ -130,7 +130,7 @@ posthog.fetch();
 
 **Release Tag:** public
 
-* ** SURVEYS *
+- \*_ SURVEYS _
 
 ### Returns
 
@@ -266,23 +266,17 @@ Initialize a new PostHog client instance.
 
 ```node
 // Basic initialization
-const client = new PostHogBackendClient(
-  'your-api-key',
-  { host: 'https://app.posthog.com' }
-)
+const client = new PostHogBackendClient("your-api-key", { host: "https://app.posthog.com" });
 ```
 
 #### With personal API key
 
 ```node
 // With personal API key
-const client = new PostHogBackendClient(
-  'your-api-key',
-  {
-    host: 'https://app.posthog.com',
-    personalApiKey: 'your-personal-api-key'
-  }
-)
+const client = new PostHogBackendClient("your-api-key", {
+  host: "https://app.posthog.com",
+  personalApiKey: "your-personal-api-key",
+});
 ```
 
 ---
@@ -307,14 +301,14 @@ Enable or disable debug logging.
 
 ```node
 // Enable debug logging
-client.debug(true)
+client.debug(true);
 ```
 
 #### Disable debug logging
 
 ```node
 // Disable debug logging
-client.debug(false)
+client.debug(false);
 ```
 
 ---
@@ -333,8 +327,8 @@ Get the library version from package.json.
 
 ```node
 // Get version
-const version = client.getLibraryVersion()
-console.log(`Using PostHog SDK version: ${version}`)
+const version = client.getLibraryVersion();
+console.log(`Using PostHog SDK version: ${version}`);
 ```
 
 ---
@@ -352,6 +346,7 @@ Get a persisted property value from memory storage.
 ### Returns
 
 **Union of:**
+
 - `any`
 - `undefined`
 
@@ -361,14 +356,14 @@ Get a persisted property value from memory storage.
 
 ```node
 // Get user ID
-const userId = client.getPersistedProperty('userId')
+const userId = client.getPersistedProperty("userId");
 ```
 
 #### Get session ID
 
 ```node
 // Get session ID
-const sessionId = client.getPersistedProperty('sessionId')
+const sessionId = client.getPersistedProperty("sessionId");
 ```
 
 ---
@@ -394,14 +389,14 @@ Set a persisted property value in memory storage.
 
 ```node
 // Set user ID
-client.setPersistedProperty('userId', 'user_123')
+client.setPersistedProperty("userId", "user_123");
 ```
 
 #### Set session ID
 
 ```node
 // Set session ID
-client.setPersistedProperty('sessionId', 'session_456')
+client.setPersistedProperty("sessionId", "session_456");
 ```
 
 ---
@@ -425,10 +420,10 @@ Call shutdown() once before the process exits to ensure that all events have bee
 
 ```node
 // shutdown before process exit
-process.on('SIGINT', async () => {
-  await posthog.shutdown()
-  process.exit(0)
-})
+process.on("SIGINT", async () => {
+  await posthog.shutdown();
+  process.exit(0);
+});
 ```
 
 ---
@@ -444,10 +439,10 @@ Create an alias to link two distinct IDs together.
 ### Parameters
 
 - **`data`** (`{
-        distinctId: string;
-        alias: string;
-        disableGeoip?: boolean;
-    }`) - The alias data containing distinctId and alias
+    distinctId: string;
+    alias: string;
+    disableGeoip?: boolean;
+}`) - The alias data containing distinctId and alias
 
 ### Returns
 
@@ -458,9 +453,9 @@ Create an alias to link two distinct IDs together.
 ```node
 // Link an anonymous user to an identified user
 client.alias({
-  distinctId: 'anonymous_123',
-  alias: 'user_456'
-})
+  distinctId: "anonymous_123",
+  alias: "user_456",
+});
 ```
 
 ---
@@ -474,10 +469,10 @@ Create an alias to link two distinct IDs together immediately (synchronously).
 ### Parameters
 
 - **`data`** (`{
-        distinctId: string;
-        alias: string;
-        disableGeoip?: boolean;
-    }`) - The alias data containing distinctId and alias
+    distinctId: string;
+    alias: string;
+    disableGeoip?: boolean;
+}`) - The alias data containing distinctId and alias
 
 ### Returns
 
@@ -488,9 +483,9 @@ Create an alias to link two distinct IDs together immediately (synchronously).
 ```node
 // Link an anonymous user to an identified user immediately
 await client.aliasImmediate({
-  distinctId: 'anonymous_123',
-  alias: 'user_456'
-})
+  distinctId: "anonymous_123",
+  alias: "user_456",
+});
 ```
 
 ---
@@ -509,7 +504,7 @@ Get the custom user agent string for this client.
 
 ```node
 // Get user agent
-const userAgent = client.getCustomUserAgent()
+const userAgent = client.getCustomUserAgent();
 // Returns: "posthog-node/5.7.0"
 ```
 
@@ -536,15 +531,15 @@ Create or update a group and its properties.
 ```node
 // Create a company group
 client.groupIdentify({
-  groupType: 'company',
-  groupKey: 'acme-corp',
+  groupType: "company",
+  groupKey: "acme-corp",
   properties: {
-    name: 'Acme Corporation',
-    industry: 'Technology',
-    employee_count: 500
+    name: "Acme Corporation",
+    industry: "Technology",
+    employee_count: 500,
   },
-  distinctId: 'user_123'
-})
+  distinctId: "user_123",
+});
 ```
 
 #### Update organization properties
@@ -552,13 +547,13 @@ client.groupIdentify({
 ```node
 // Update organization properties
 client.groupIdentify({
-  groupType: 'organization',
-  groupKey: 'org-456',
+  groupType: "organization",
+  groupKey: "org-456",
   properties: {
-    plan: 'enterprise',
-    region: 'US-West'
-  }
-})
+    plan: "enterprise",
+    region: "US-West",
+  },
+});
 ```
 
 ---
@@ -584,13 +579,13 @@ Identify a user and set their properties.
 ```node
 // Basic identify with properties
 client.identify({
-  distinctId: 'user_123',
+  distinctId: "user_123",
   properties: {
-    name: 'John Doe',
-    email: 'john@example.com',
-    plan: 'premium'
-  }
-})
+    name: "John Doe",
+    email: "john@example.com",
+    plan: "premium",
+  },
+});
 ```
 
 #### Using $set and $set_once
@@ -628,12 +623,12 @@ Identify a user and set their properties immediately (synchronously).
 ```node
 // Basic immediate identify
 await client.identifyImmediate({
-  distinctId: 'user_123',
+  distinctId: "user_123",
   properties: {
-    name: 'John Doe',
-    email: 'john@example.com'
-  }
-})
+    name: "John Doe",
+    email: "john@example.com",
+  },
+});
 ```
 
 ---
@@ -659,10 +654,10 @@ Capture an event manually.
 ```node
 // Basic capture
 client.capture({
-  distinctId: 'user_123',
-  event: 'button_clicked',
-  properties: { button_color: 'red' }
-})
+  distinctId: "user_123",
+  event: "button_clicked",
+  properties: { button_color: "red" },
+});
 ```
 
 ---
@@ -688,10 +683,10 @@ Capture an event immediately (synchronously).
 ```node
 // Basic immediate capture
 await client.captureImmediate({
-  distinctId: 'user_123',
-  event: 'button_clicked',
-  properties: { button_color: 'red' }
-})
+  distinctId: "user_123",
+  event: "button_clicked",
+  properties: { button_color: "red" },
+});
 ```
 
 #### With feature flags
@@ -699,10 +694,10 @@ await client.captureImmediate({
 ```node
 // With feature flags
 await client.captureImmediate({
-  distinctId: 'user_123',
-  event: 'user_action',
-  sendFeatureFlags: true
-})
+  distinctId: "user_123",
+  event: "user_action",
+  sendFeatureFlags: true,
+});
 ```
 
 #### With custom feature flags options
@@ -751,9 +746,9 @@ Capture an error exception as an event.
 // Capture an error with user ID
 try {
   // Some risky operation
-  riskyOperation()
+  riskyOperation();
 } catch (error) {
-  client.captureException(error, 'user_123')
+  client.captureException(error, "user_123");
 }
 ```
 
@@ -762,13 +757,13 @@ try {
 ```node
 // Capture with additional properties
 try {
-  apiCall()
+  apiCall();
 } catch (error) {
-  client.captureException(error, 'user_123', {
-    endpoint: '/api/users',
-    method: 'POST',
-    status_code: 500
-  })
+  client.captureException(error, "user_123", {
+    endpoint: "/api/users",
+    method: "POST",
+    status_code: 500,
+  });
 }
 ```
 
@@ -799,9 +794,9 @@ Capture an error exception as an event immediately (synchronously).
 // Capture an error immediately with user ID
 try {
   // Some risky operation
-  riskyOperation()
+  riskyOperation();
 } catch (error) {
-  await client.captureExceptionImmediate(error, 'user_123')
+  await client.captureExceptionImmediate(error, "user_123");
 }
 ```
 
@@ -810,13 +805,13 @@ try {
 ```node
 // Capture with additional properties
 try {
-  apiCall()
+  apiCall();
 } catch (error) {
-  await client.captureExceptionImmediate(error, 'user_123', {
-    endpoint: '/api/users',
-    method: 'POST',
-    status_code: 500
-  })
+  await client.captureExceptionImmediate(error, "user_123", {
+    endpoint: "/api/users",
+    method: "POST",
+    status_code: 500,
+  });
 }
 ```
 
@@ -838,7 +833,7 @@ Disable the PostHog client (opt-out).
 
 ```node
 // Disable client
-await client.disable()
+await client.disable();
 // Client is now disabled and will not capture events
 ```
 
@@ -858,7 +853,7 @@ Enable the PostHog client (opt-in).
 
 ```node
 // Enable client
-await client.enable()
+await client.enable();
 // Client is now enabled and will capture events
 ```
 
@@ -870,7 +865,7 @@ await client.enable()
 
 **Release Tag:** public
 
-Evaluate all feature flags for a user in a single call and return a  snapshot. Branch on `.isEnabled()` / `.getFlag()`, then pass the same snapshot to `capture()` via the `flags` option so the captured event carries the exact flag values the code branched on.
+Evaluate all feature flags for a user in a single call and return a snapshot. Branch on `.isEnabled()` / `.getFlag()`, then pass the same snapshot to `capture()` via the `flags` option so the captured event carries the exact flag values the code branched on.
 Prefer this over repeated `isFeatureEnabled()` / `getFeatureFlag()` calls and over `capture({ sendFeatureFlags: true })` — it consolidates flag evaluation into a single `/flags` request per incoming request.
 **Local evaluation is transparent.** When the poller can resolve a flag from cached definitions, no network call is made and the snapshot's `$feature_flag_called` events are tagged `locally_evaluated: true`.
 **Trim the request.** Pass `flagKeys` to scope the underlying `/flags` request to a subset of flags — useful when you only need a few flags and want to reduce the response payload.
@@ -886,7 +881,7 @@ Prefer this over repeated `isFeatureEnabled()` / `getFeatureFlag()` calls and ov
 
 ### Examples
 
-#### 
+####
 
 ```node
 Basic usage:
@@ -900,7 +895,7 @@ if (flags.isEnabled('new-dashboard')) {
 client.capture({ distinctId: 'user_123', event: 'page_viewed', flags })
 ```
 
-#### 
+####
 
 ```node
 Scope the  request to specific keys:
@@ -911,7 +906,7 @@ const flags = await client.evaluateFlags('user_123', {
 })
 ```
 
-#### 
+####
 
 ```node
 Attach only the flags the developer actually checked:
@@ -921,7 +916,7 @@ if (flags.isEnabled('new-dashboard')) { ... }
 client.capture({ distinctId: 'user_123', event: 'page_viewed', flags: flags.onlyAccessed() })
 ```
 
-#### 
+####
 
 ```node
 Use  to avoid repeating the distinctId:
@@ -955,8 +950,8 @@ Get all feature flag values for a specific user.
 
 ```node
 // Get all flags for a user
-const allFlags = await client.getAllFlags('user_123')
-console.log('User flags:', allFlags)
+const allFlags = await client.getAllFlags("user_123");
+console.log("User flags:", allFlags);
 // Output: { 'flag-1': 'variant-a', 'flag-2': false, 'flag-3': 'variant-b' }
 ```
 
@@ -964,19 +959,19 @@ console.log('User flags:', allFlags)
 
 ```node
 // With specific flag keys
-const specificFlags = await client.getAllFlags('user_123', {
-  flagKeys: ['flag-1', 'flag-2']
-})
+const specificFlags = await client.getAllFlags("user_123", {
+  flagKeys: ["flag-1", "flag-2"],
+});
 ```
 
 #### With groups and properties
 
 ```node
 // With groups and properties
-const orgFlags = await client.getAllFlags('user_123', {
-  groups: { organization: 'acme-corp' },
-  personProperties: { plan: 'enterprise' }
-})
+const orgFlags = await client.getAllFlags("user_123", {
+  groups: { organization: "acme-corp" },
+  personProperties: { plan: "enterprise" },
+});
 ```
 
 ---
@@ -1001,27 +996,27 @@ Get all feature flag values and payloads for a specific user.
 
 ```node
 // Get all flags and payloads for a user
-const result = await client.getAllFlagsAndPayloads('user_123')
-console.log('Flags:', result.featureFlags)
-console.log('Payloads:', result.featureFlagPayloads)
+const result = await client.getAllFlagsAndPayloads("user_123");
+console.log("Flags:", result.featureFlags);
+console.log("Payloads:", result.featureFlagPayloads);
 ```
 
 #### With specific flag keys
 
 ```node
 // With specific flag keys
-const result = await client.getAllFlagsAndPayloads('user_123', {
-  flagKeys: ['flag-1', 'flag-2']
-})
+const result = await client.getAllFlagsAndPayloads("user_123", {
+  flagKeys: ["flag-1", "flag-2"],
+});
 ```
 
 #### Only evaluate locally
 
 ```node
 // Only evaluate locally
-const result = await client.getAllFlagsAndPayloads('user_123', {
-  onlyEvaluateLocally: true
-})
+const result = await client.getAllFlagsAndPayloads("user_123", {
+  onlyEvaluateLocally: true,
+});
 ```
 
 ---
@@ -1037,17 +1032,18 @@ Get the value of a feature flag for a specific user.
 - **`key`** (`string`) - The feature flag key
 - **`distinctId`** (`string`) - The user's distinct ID
 - **`options?`** (`{
-        groups?: Record<string, string>;
-        personProperties?: Record<string, string>;
-        groupProperties?: Record<string, Record<string, string>>;
-        onlyEvaluateLocally?: boolean;
-        sendFeatureFlagEvents?: boolean;
-        disableGeoip?: boolean;
-    }`) - Optional configuration for flag evaluation
+    groups?: Record<string, string>;
+    personProperties?: Record<string, string>;
+    groupProperties?: Record<string, Record<string, string>>;
+    onlyEvaluateLocally?: boolean;
+    sendFeatureFlagEvents?: boolean;
+    disableGeoip?: boolean;
+}`) - Optional configuration for flag evaluation
 
 ### Returns
 
 **Union of:**
+
 - `Promise<FeatureFlagValue`
 - `undefined>`
 
@@ -1057,10 +1053,10 @@ Get the value of a feature flag for a specific user.
 
 ```node
 // Basic feature flag check
-const flagValue = await client.getFeatureFlag('new-feature', 'user_123')
-if (flagValue === 'variant-a') {
+const flagValue = await client.getFeatureFlag("new-feature", "user_123");
+if (flagValue === "variant-a") {
   // Show variant A
-} else if (flagValue === 'variant-b') {
+} else if (flagValue === "variant-b") {
   // Show variant B
 } else {
   // Flag is disabled or not found
@@ -1071,20 +1067,20 @@ if (flagValue === 'variant-a') {
 
 ```node
 // With groups and properties
-const flagValue = await client.getFeatureFlag('org-feature', 'user_123', {
-  groups: { organization: 'acme-corp' },
-  personProperties: { plan: 'enterprise' },
-  groupProperties: { organization: { tier: 'premium' } }
-})
+const flagValue = await client.getFeatureFlag("org-feature", "user_123", {
+  groups: { organization: "acme-corp" },
+  personProperties: { plan: "enterprise" },
+  groupProperties: { organization: { tier: "premium" } },
+});
 ```
 
 #### Only evaluate locally
 
 ```node
 // Only evaluate locally
-const flagValue = await client.getFeatureFlag('local-flag', 'user_123', {
-  onlyEvaluateLocally: true
-})
+const flagValue = await client.getFeatureFlag("local-flag", "user_123", {
+  onlyEvaluateLocally: true,
+});
 ```
 
 ---
@@ -1101,17 +1097,18 @@ Get the payload for a feature flag.
 - **`distinctId`** (`string`) - The user's distinct ID
 - **`matchValue?`** (`FeatureFlagValue`) - Optional match value to get payload for
 - **`options?`** (`{
-        groups?: Record<string, string>;
-        personProperties?: Record<string, string>;
-        groupProperties?: Record<string, Record<string, string>>;
-        onlyEvaluateLocally?: boolean;
-        sendFeatureFlagEvents?: boolean;
-        disableGeoip?: boolean;
-    }`) - Optional configuration for flag evaluation
+    groups?: Record<string, string>;
+    personProperties?: Record<string, string>;
+    groupProperties?: Record<string, Record<string, string>>;
+    onlyEvaluateLocally?: boolean;
+    sendFeatureFlagEvents?: boolean;
+    disableGeoip?: boolean;
+}`) - Optional configuration for flag evaluation
 
 ### Returns
 
 **Union of:**
+
 - `Promise<JsonType`
 - `undefined>`
 
@@ -1121,9 +1118,9 @@ Get the payload for a feature flag.
 
 ```node
 // Get payload for a feature flag
-const payload = await client.getFeatureFlagPayload('flag-key', 'user_123')
+const payload = await client.getFeatureFlagPayload("flag-key", "user_123");
 if (payload) {
-  console.log('Flag payload:', payload)
+  console.log("Flag payload:", payload);
 }
 ```
 
@@ -1131,17 +1128,17 @@ if (payload) {
 
 ```node
 // Get payload with specific match value
-const payload = await client.getFeatureFlagPayload('flag-key', 'user_123', 'variant-a')
+const payload = await client.getFeatureFlagPayload("flag-key", "user_123", "variant-a");
 ```
 
 #### With groups and properties
 
 ```node
 // With groups and properties
-const payload = await client.getFeatureFlagPayload('org-flag', 'user_123', undefined, {
-  groups: { organization: 'acme-corp' },
-  personProperties: { plan: 'enterprise' }
-})
+const payload = await client.getFeatureFlagPayload("org-flag", "user_123", undefined, {
+  groups: { organization: "acme-corp" },
+  personProperties: { plan: "enterprise" },
+});
 ```
 
 ---
@@ -1160,6 +1157,7 @@ Get the result of evaluating a feature flag, including its value and payload. Th
 ### Returns
 
 **Union of:**
+
 - `Promise<FeatureFlagResult`
 - `undefined>`
 
@@ -1169,11 +1167,11 @@ Get the result of evaluating a feature flag, including its value and payload. Th
 
 ```node
 // Get flag result
-const result = await client.getFeatureFlagResult('my-flag', 'user_123')
+const result = await client.getFeatureFlagResult("my-flag", "user_123");
 if (result) {
-  console.log('Flag enabled:', result.enabled)
-  console.log('Variant:', result.variant)
-  console.log('Payload:', result.payload)
+  console.log("Flag enabled:", result.enabled);
+  console.log("Variant:", result.variant);
+  console.log("Payload:", result.payload);
 }
 ```
 
@@ -1181,10 +1179,10 @@ if (result) {
 
 ```node
 // With groups and properties
-const result = await client.getFeatureFlagResult('org-feature', 'user_123', {
-  groups: { organization: 'acme-corp' },
-  personProperties: { plan: 'enterprise' }
-})
+const result = await client.getFeatureFlagResult("org-feature", "user_123", {
+  groups: { organization: "acme-corp" },
+  personProperties: { plan: "enterprise" },
+});
 ```
 
 ---
@@ -1202,6 +1200,7 @@ Get the remote config payload for a feature flag.
 ### Returns
 
 **Union of:**
+
 - `Promise<JsonType`
 - `undefined>`
 
@@ -1209,9 +1208,9 @@ Get the remote config payload for a feature flag.
 
 ```node
 // Get remote config payload
-const payload = await client.getRemoteConfigPayload('flag-key')
+const payload = await client.getRemoteConfigPayload("flag-key");
 if (payload) {
-  console.log('Remote config payload:', payload)
+  console.log("Remote config payload:", payload);
 }
 ```
 
@@ -1228,17 +1227,18 @@ Check if a feature flag is enabled for a specific user.
 - **`key`** (`string`) - The feature flag key
 - **`distinctId`** (`string`) - The user's distinct ID
 - **`options?`** (`{
-        groups?: Record<string, string>;
-        personProperties?: Record<string, string>;
-        groupProperties?: Record<string, Record<string, string>>;
-        onlyEvaluateLocally?: boolean;
-        sendFeatureFlagEvents?: boolean;
-        disableGeoip?: boolean;
-    }`) - Optional configuration for flag evaluation
+    groups?: Record<string, string>;
+    personProperties?: Record<string, string>;
+    groupProperties?: Record<string, Record<string, string>>;
+    onlyEvaluateLocally?: boolean;
+    sendFeatureFlagEvents?: boolean;
+    disableGeoip?: boolean;
+}`) - Optional configuration for flag evaluation
 
 ### Returns
 
 **Union of:**
+
 - `Promise<boolean`
 - `undefined>`
 
@@ -1248,13 +1248,13 @@ Check if a feature flag is enabled for a specific user.
 
 ```node
 // Basic feature flag check
-const isEnabled = await client.isFeatureEnabled('new-feature', 'user_123')
+const isEnabled = await client.isFeatureEnabled("new-feature", "user_123");
 if (isEnabled) {
   // Feature is enabled
-  console.log('New feature is active')
+  console.log("New feature is active");
 } else {
   // Feature is disabled
-  console.log('New feature is not active')
+  console.log("New feature is not active");
 }
 ```
 
@@ -1262,10 +1262,10 @@ if (isEnabled) {
 
 ```node
 // With groups and properties
-const isEnabled = await client.isFeatureEnabled('org-feature', 'user_123', {
-  groups: { organization: 'acme-corp' },
-  personProperties: { plan: 'enterprise' }
-})
+const isEnabled = await client.isFeatureEnabled("org-feature", "user_123", {
+  groups: { organization: "acme-corp" },
+  personProperties: { plan: "enterprise" },
+});
 ```
 
 ---
@@ -1286,10 +1286,10 @@ Check if local evaluation of feature flags is ready.
 // Check if ready
 if (client.isLocalEvaluationReady()) {
   // Local evaluation is ready, can evaluate flags locally
-  const flag = await client.getFeatureFlag('flag-key', 'user_123')
+  const flag = await client.getFeatureFlag("flag-key", "user_123");
 } else {
   // Local evaluation not ready, will use remote evaluation
-  const flag = await client.getFeatureFlag('flag-key', 'user_123')
+  const flag = await client.getFeatureFlag("flag-key", "user_123");
 }
 ```
 
@@ -1313,19 +1313,19 @@ Override feature flags locally. Useful for testing and local development. Overri
 
 ```node
 // Clear all overrides
-client.overrideFeatureFlags(false)
+client.overrideFeatureFlags(false);
 
 // Enable a list of flags (sets them to true)
-client.overrideFeatureFlags(['flag-a', 'flag-b'])
+client.overrideFeatureFlags(["flag-a", "flag-b"]);
 
 // Set specific flag values/variants
-client.overrideFeatureFlags({ 'my-flag': 'variant-a', 'other-flag': true })
+client.overrideFeatureFlags({ "my-flag": "variant-a", "other-flag": true });
 
 // Set both flags and payloads
 client.overrideFeatureFlags({
-  flags: { 'my-flag': 'variant-a' },
-  payloads: { 'my-flag': { discount: 20 } }
-})
+  flags: { "my-flag": "variant-a" },
+  payloads: { "my-flag": { discount: 20 } },
+});
 ```
 
 ---
@@ -1346,16 +1346,16 @@ Reload feature flag definitions from the server for local evaluation.
 
 ```node
 // Force reload of feature flags
-await client.reloadFeatureFlags()
-console.log('Feature flags reloaded')
+await client.reloadFeatureFlags();
+console.log("Feature flags reloaded");
 ```
 
 #### Reload before checking a specific flag
 
 ```node
 // Reload before checking a specific flag
-await client.reloadFeatureFlags()
-const flag = await client.getFeatureFlag('flag-key', 'user_123')
+await client.reloadFeatureFlags();
+const flag = await client.getFeatureFlag("flag-key", "user_123");
 ```
 
 ---
@@ -1380,11 +1380,11 @@ Wait for local evaluation of feature flags to be ready.
 
 ```node
 // Wait for local evaluation
-const isReady = await client.waitForLocalEvaluationReady()
+const isReady = await client.waitForLocalEvaluationReady();
 if (isReady) {
-  console.log('Local evaluation is ready')
+  console.log("Local evaluation is ready");
 } else {
-  console.log('Local evaluation timed out')
+  console.log("Local evaluation timed out");
 }
 ```
 
@@ -1392,7 +1392,7 @@ if (isReady) {
 
 ```node
 // Wait with custom timeout
-const isReady = await client.waitForLocalEvaluationReady(10000) // 10 seconds
+const isReady = await client.waitForLocalEvaluationReady(10000); // 10 seconds
 ```
 
 ---
@@ -1408,6 +1408,7 @@ Get the current context data.
 ### Returns
 
 **Union of:**
+
 - `ContextData`
 - `undefined`
 
@@ -1415,10 +1416,10 @@ Get the current context data.
 
 ```node
 // Get current context within a withContext block
-posthog.withContext({ distinctId: 'user_123' }, () => {
-  const context = posthog.getContext()
-  console.log(context?.distinctId) // 'user_123'
-})
+posthog.withContext({ distinctId: "user_123" }, () => {
+  const context = posthog.getContext();
+  console.log(context?.distinctId); // 'user_123'
+});
 ```
 
 ---
@@ -1442,9 +1443,9 @@ Run a function with specific context that will be applied to all events captured
 ### Examples
 
 ```node
-posthog.withContext({ distinctId: 'user_123' }, () => {
-  posthog.capture({ event: 'button clicked' })
-})
+posthog.withContext({ distinctId: "user_123" }, () => {
+  posthog.capture({ event: "button clicked" });
+});
 ```
 
 ---
