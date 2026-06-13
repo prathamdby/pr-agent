@@ -480,6 +480,23 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("&lt;img");
   });
 
+  it("escapes pipe characters in walkthrough filenames", () => {
+    const diffIndex = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(diffIndex, {
+      files: [
+        {
+          filename: "src/a|b.ts",
+          patch: "@@ -1 +1 @@\n+x",
+          additions: 2,
+          deletions: 1,
+        },
+      ],
+    });
+    const body = renderReviewWalkthroughBlock(diffIndex);
+    expect(body).toContain("src/a\\|b.ts");
+    expect(body?.split("| File |").length).toBe(2);
+  });
+
   it("drops walkthrough first when summary body exceeds budget", () => {
     const diffIndex = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(diffIndex, {

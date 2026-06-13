@@ -500,7 +500,8 @@ export async function publishReview(
   }
 
   const wantsCategoryLabel = dominantReviewCategory(payload.findings) != null;
-  const syncCategoryLabels = wantsCategoryLabel || hasManagedCategoryLabel(currentLabels);
+  const syncCategoryLabels =
+    mode === "review" && (wantsCategoryLabel || hasManagedCategoryLabel(currentLabels));
   const shouldSyncLabels =
     cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity || syncCategoryLabels;
 

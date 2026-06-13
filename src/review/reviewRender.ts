@@ -1,6 +1,7 @@
 import {
   escapeTablePlainCell,
   escapeTableHtml,
+  escapeTableCell,
   renderGitHubAlert,
   renderKeyValueTable,
   renderTableCode,
@@ -281,7 +282,9 @@ export function renderReviewWalkthroughBlock(
     "|------|-----|",
   ];
   for (const [filename, file] of shown) {
-    rows.push(`| ${renderTableCode(filename)} | +${file.additions}/−${file.deletions} |`);
+    rows.push(
+      `| ${renderTableCode(escapeTableCell(filename))} | +${file.additions}/−${file.deletions} |`,
+    );
   }
   if (entries.length > maxFiles) {
     rows.push(`| …${entries.length - maxFiles} more files | |`);
