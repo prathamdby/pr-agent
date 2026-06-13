@@ -101,16 +101,21 @@ function actedThreadIdsFromDetail(detail: unknown): number[] {
   return value.filter((item): item is number => Number.isInteger(item));
 }
 
-async function loadActedThreadIds(pool: Pool, resourceKey: string): Promise<number[]> {
+async function loadActedThreadIds(
+  pool: Pool,
+  workItemId: string,
+  resourceKey: string,
+): Promise<number[]> {
   const row = await pool.query<{ detail: unknown }>(
     `SELECT detail
        FROM publish_records
-      WHERE resource_key = $1
-        AND review_lens = $2
+      WHERE work_item_id = $1
+        AND resource_key = $2
+        AND review_lens = $3
         AND step = 'triage_thread_actions'
         AND status = 'completed'
       LIMIT 1`,
-    [resourceKey, TRIAGE_PUBLISH_LENS],
+    [workItemId, resourceKey, TRIAGE_PUBLISH_LENS],
   );
   return actedThreadIdsFromDetail(row.rows[0]?.detail);
 }
@@ -246,7 +251,9 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     });
   }
 
-  const actedThreadIds = new Set(await loadActedThreadIds(params.pool, params.resourceKey));
+  const actedThreadIds = new Set(
+    await loadActedThreadIds(params.pool, params.workItemId, params.resourceKey),
+  );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   for (const verdict of params.payload.verdicts) {
     if (verdict.verdict !== "fixed" && verdict.verdict !== "already-resolved") continue;

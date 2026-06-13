@@ -66,6 +66,14 @@ function pool(detail?: unknown): Pool {
   } as unknown as Pool;
 }
 
+function poolWithPriorRunActedIds(): Pool {
+  return {
+    query: vi.fn(async (_sql, args: readonly unknown[]) => ({
+      rows: args[0] === "wi" ? [] : [{ detail: { actedThreadIds: [1] } }],
+    })),
+  } as unknown as Pool;
+}
+
 describe("publishTriage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -181,5 +189,34 @@ describe("publishTriage", () => {
 
     expect(mocks.createReply).not.toHaveBeenCalled();
     expect(mocks.resolve).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse acted thread ids from prior triage work items", async () => {
+    await publishTriage({
+      pool: poolWithPriorRunActedIds(),
+      workItemId: "wi",
+      resourceKey: "o/r#1",
+      token: "tok",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "already-resolved",
+            threadRootCommentId: 1,
+            evidence: "current code already handles this",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 1 }));
+    expect(mocks.resolve).toHaveBeenCalledWith("tok", "node", undefined);
   });
 });
