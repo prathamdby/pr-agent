@@ -42,10 +42,11 @@ export async function runFullPrReview(params: {
   trustedContext?: string;
   storedInlineFingerprints?: readonly string[];
   cwd?: string;
-  workspace?: LocalPrWorkspace;
+  workspace: LocalPrWorkspace;
   reviewSource?: WorkSource;
   staleHeadRescheduled?: boolean;
   publishAbortState?: { staleHead?: boolean };
+  severityFloor?: number;
 }): Promise<ReviewRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");

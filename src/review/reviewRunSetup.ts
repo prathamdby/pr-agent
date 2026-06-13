@@ -3,7 +3,6 @@ import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import { createAskPathGate } from "../agent/askSafety.js";
 import { buildContext7Tools } from "../agent/context7Tools.js";
-import { buildGithubTools } from "../agent/githubTools.js";
 import {
   buildLocalWorkspaceTools,
   workspaceToolLimitsFromConfig,
@@ -71,7 +70,7 @@ export function buildReviewRunSetup(params: {
   reviewMode: ReviewMode;
   userSupplement?: string;
   trustedContext?: string;
-  workspace?: LocalPrWorkspace;
+  workspace: LocalPrWorkspace;
   initialPublishState?: {
     published?: boolean;
     inlinePublished?: boolean;
@@ -90,6 +89,7 @@ export function buildReviewRunSetup(params: {
     expiresAtTs: number;
   }>;
   publishAbortState?: { staleHead?: boolean };
+  severityFloor?: number;
 }): ReviewRunSetup {
   const {
     cfg,
@@ -105,7 +105,7 @@ export function buildReviewRunSetup(params: {
   } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
-    params.workspace?.diffIndex ?? createCachedPrDiffIndex();
+    params.workspace.diffIndex ?? createCachedPrDiffIndex();
   const submitState: SubmitReviewState = createSubmitReviewState({
     published: params.initialPublishState?.published,
     inlinePublished: params.initialPublishState?.inlinePublished,
@@ -118,20 +118,17 @@ export function buildReviewRunSetup(params: {
     tokenExpiresAtTs,
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
-    build: (activeToken, activeExpiresAtTs) => {
-      if (params.workspace) {
-        return buildLocalWorkspaceTools(params.workspace, workspaceToolLimitsFromConfig(cfg), {
+    build: (_activeToken, _activeExpiresAtTs) => {
+      const bundle = buildLocalWorkspaceTools(
+        params.workspace,
+        workspaceToolLimitsFromConfig(cfg),
+        {
           pathGate,
-        });
-      }
-      const gh = buildGithubTools(activeToken, {
-        maxPrFilesListed: cfg.maxPrFilesListed,
-        maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
-        tokenExpiresAtTs: activeExpiresAtTs,
-      });
-      const executors = { ...gh.executors };
+        },
+      );
+      const executors = { ...bundle.executors };
       wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
-      return { piTools: gh.piTools, executors };
+      return { piTools: bundle.piTools, executors };
     },
   });
 
@@ -153,6 +150,7 @@ export function buildReviewRunSetup(params: {
       shouldAbortPublish: params.shouldAbortPublish,
       storedInlineFingerprints: params.storedInlineFingerprints,
       publishAbortState: params.publishAbortState,
+      severityFloor: params.severityFloor,
     });
 
   let submitBundle = buildSubmit();

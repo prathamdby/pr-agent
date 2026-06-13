@@ -8,6 +8,11 @@ import {
 } from "../../github/listPullRequestFiles.js";
 import { runFullPrReview } from "../../review/reviewRun.js";
 import {
+  loadRepoPolicy,
+  logInvalidRepoPolicy,
+  renderRepoPolicyBlock,
+} from "../../review/repoPolicy.js";
+import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/reviewTrustedContext.js";
@@ -26,6 +31,7 @@ import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
+import { MAX_REPO_POLICY_BYTES } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
   loadReviewExecutorPublishContext,
@@ -181,9 +187,26 @@ export async function executeReviewJob(
         async (repositoryView) => {
           const priorInlineFeedbackResult = await priorInlineFeedback;
           if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
+
+          const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
+          let repoPolicyBlock: string | undefined;
+          let severityFloor: number | undefined;
+          if (policyResult.kind === "invalid") {
+            logInvalidRepoPolicy(repositoryView.agentCwd, policyResult.reason);
+          } else if (policyResult.kind === "ok") {
+            severityFloor = policyResult.policy.severityFloor;
+            const rendered = renderRepoPolicyBlock({
+              policy: policyResult.policy,
+              mode: reviewLens,
+              changedFiles: repositoryView.preflight.files.map((file) => file.filename),
+            });
+            repoPolicyBlock = rendered || undefined;
+          }
+
           const trustedContext = buildTrustedReviewContextForReview({
             preflight: repositoryView.preflight,
             priorInlineFeedback: priorInlineFeedbackResult.value,
+            repoPolicyBlock,
           });
 
           const result = await runFullPrReview({
@@ -198,6 +221,7 @@ export async function executeReviewJob(
             mode: reviewLens,
             userSupplement: payload.userSupplement,
             trustedContext,
+            severityFloor,
             storedInlineFingerprints,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,

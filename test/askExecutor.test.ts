@@ -4,6 +4,7 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem, AskJobData } from "../src/agentWork/types.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 const mocks = vi.hoisted(() => ({
   hasCompletedPublishStep: vi.fn(),
@@ -131,7 +132,7 @@ function mockRepositoryView(): void {
   mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
     run({
       agentCwd: "/tmp/pr-agent",
-      workspace: undefined,
+      workspace: mockLocalPrWorkspace(),
     }),
   );
 }

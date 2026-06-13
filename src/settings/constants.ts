@@ -99,6 +99,14 @@ export const REVIEW_SIZE_TIER_SMALL_MAX_FILES = 10;
 export const REVIEW_SIZE_TIER_MEDIUM_MAX_FILES = 50;
 export const REVIEW_SIZE_TIER_LARGE_MIN_CHANGES = 2000;
 
+/** Per-repo review policy file at checkout root. */
+export const REPO_POLICY_FILENAME = ".pr-agent.yml";
+export const MAX_REPO_POLICY_BYTES = 32 * 1024;
+export const MAX_REPO_POLICY_TONE_CHARS = 500;
+export const MAX_REPO_POLICY_PATH_PATTERN_CHARS = 200;
+export const MAX_REPO_POLICY_INSTRUCTION_CHARS = 1000;
+export const MAX_REPO_POLICY_PATH_INSTRUCTIONS = 20;
+
 /** Risk path hints for trusted review context (prompt guidance). */
 export const REVIEW_RISK_PATH_PATTERNS: Readonly<
   Record<"auth" | "migration" | "config" | "security" | "test", readonly RegExp[]>

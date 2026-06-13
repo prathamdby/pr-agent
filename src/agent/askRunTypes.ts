@@ -27,7 +27,7 @@ export type AskRunParams = {
     expiresAtTs: number;
   }>;
   cwd?: string;
-  workspace?: LocalPrWorkspace;
+  workspace: LocalPrWorkspace;
 };
 
 export type AskRunResult = {

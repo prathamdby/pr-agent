@@ -1,7 +1,7 @@
 import { Clock, Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
 import { mintInstallationAuth, type InstallationToken } from "../../github/appAuth.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../../github/githubRequestError.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../../github/installationTokenExpiry.js";
 import { logDebug } from "../../evlog.js";
 import { makeSingleFlight } from "./singleFlight.js";
 
