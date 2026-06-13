@@ -314,6 +314,21 @@ async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
   }
 }
 
+function gitObjectStoreBytes(countObjectsOutput: string): number {
+  let sizeKiB = 0;
+  let sizePackKiB = 0;
+  for (const line of countObjectsOutput.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon <= 0) continue;
+    const key = line.slice(0, colon).trim();
+    const value = Number(line.slice(colon + 1).trim());
+    if (Number.isNaN(value)) continue;
+    if (key === "size") sizeKiB = value;
+    if (key === "size-pack") sizePackKiB = value;
+  }
+  return (sizeKiB + sizePackKiB) * 1024;
+}
+
 async function createAskpass(rootDir: string): Promise<string> {
   const askpass = join(rootDir, ASKPASS_NAME);
   await writeFile(
@@ -530,6 +545,13 @@ export async function prepareLocalPrWorkspace(
       prRef,
     ];
     await git(fetchArgs, cfg.localWorkspaceFetchTimeoutMs);
+    const { stdout: countObjectsOut } = await git(["count-objects", "-v"]);
+    const fetchedObjectBytes = gitObjectStoreBytes(countObjectsOut);
+    if (fetchedObjectBytes > cfg.localWorkspaceMaxFetchBytes) {
+      throw new Error(
+        `PR fetch object store (${fetchedObjectBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${cfg.localWorkspaceMaxFetchBytes})`,
+      );
+    }
     if (checkoutMode === "sparse") {
       await git(["config", "core.sparseCheckout", "true"], cfg.localWorkspaceCloneTimeoutMs);
       await git(["config", "core.sparseCheckoutCone", "false"], cfg.localWorkspaceCloneTimeoutMs);

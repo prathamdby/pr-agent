@@ -70,6 +70,7 @@ const baseTestConfig: Config = {
   localWorkspaceSearchMaxTotalBytes: 1_000_000,
   localWorkspaceMaxDiffBytes: 1_000_000,
   localWorkspaceMinFreeSpaceBytes: 1,
+  localWorkspaceMaxFetchBytes: Number.MAX_SAFE_INTEGER,
   localWorkspaceFullCloneMaxRepoKb: 1_000,
   localWorkspaceStaleCleanupAgeSeconds: 1,
 };
