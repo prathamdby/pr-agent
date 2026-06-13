@@ -4,6 +4,7 @@ import { startEffectWebhookServer } from "./effect/server.js";
 import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
 import { captureCursorWorkerFailure } from "./agent/providers/cursor/cursorAnalytics.js";
+import { shutdownPostHog } from "./posthog.js";
 async function main() {
   let cfg: Config;
   try {
@@ -43,6 +44,7 @@ async function main() {
       } catch (e) {
         captureCursorWorkerFailure("worker_boot", e);
         console.error(e instanceof Error ? e.message : e);
+        await shutdownPostHog();
         process.exit(1);
         return;
       }
