@@ -329,6 +329,20 @@ function gitObjectStoreBytes(countObjectsOutput: string): number {
   return (sizeKiB + sizePackKiB) * 1024;
 }
 
+async function enforceMaxFetchBytes(
+  git: (args: readonly string[], timeoutMs?: number) => Promise<{ stdout: string }>,
+  maxFetchBytes: number,
+  timeoutMs: number,
+): Promise<void> {
+  const { stdout: countObjectsOut } = await git(["count-objects", "-v"], timeoutMs);
+  const objectStoreBytes = gitObjectStoreBytes(countObjectsOut);
+  if (objectStoreBytes > maxFetchBytes) {
+    throw new Error(
+      `PR fetch object store (${objectStoreBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${maxFetchBytes})`,
+    );
+  }
+}
+
 async function createAskpass(rootDir: string): Promise<string> {
   const askpass = join(rootDir, ASKPASS_NAME);
   await writeFile(
@@ -545,13 +559,6 @@ export async function prepareLocalPrWorkspace(
       prRef,
     ];
     await git(fetchArgs, cfg.localWorkspaceFetchTimeoutMs);
-    const { stdout: countObjectsOut } = await git(["count-objects", "-v"]);
-    const fetchedObjectBytes = gitObjectStoreBytes(countObjectsOut);
-    if (fetchedObjectBytes > cfg.localWorkspaceMaxFetchBytes) {
-      throw new Error(
-        `PR fetch object store (${fetchedObjectBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${cfg.localWorkspaceMaxFetchBytes})`,
-      );
-    }
     if (checkoutMode === "sparse") {
       await git(["config", "core.sparseCheckout", "true"], cfg.localWorkspaceCloneTimeoutMs);
       await git(["config", "core.sparseCheckoutCone", "false"], cfg.localWorkspaceCloneTimeoutMs);
@@ -561,6 +568,11 @@ export async function prepareLocalPrWorkspace(
       );
     }
     await git(["checkout", "-f", PR_HEAD_REF], cfg.localWorkspaceCloneTimeoutMs);
+    await enforceMaxFetchBytes(
+      git,
+      cfg.localWorkspaceMaxFetchBytes,
+      cfg.localWorkspaceFetchTimeoutMs,
+    );
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
       throw new Error(

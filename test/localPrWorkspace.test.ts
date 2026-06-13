@@ -290,4 +290,61 @@ describe("local PR workspace", () => {
     },
     GIT_WORKSPACE_TEST_TIMEOUT_MS,
   );
+
+  it(
+    "rejects oversized sparse checkouts after blob hydration",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "workspace-sparse-fetch-cap-"));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await writeFile(join(repo, "src.txt"), "one\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "base"]);
+        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "head"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await git(root, ["init", "--bare", remote]);
+        await git(repo, ["remote", "add", "origin", remote]);
+        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+        const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+        const cfg = makeTestConfig({
+          localWorkspaceMaxFetchBytes: 1,
+        });
+        const workspaceDirsBefore = new Set(
+          (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
+        );
+
+        await expect(
+          prepareLocalPrWorkspace({
+            cfg,
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha,
+            installationToken: "unused",
+            prFiles,
+            repositorySizeKb: cfg.localWorkspaceFullCloneMaxRepoKb + 1,
+            remoteUrlOverride: remote,
+          }),
+        ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);
+
+        const workspaceDirsAfter = (await readdir(tmpdir())).filter((name) =>
+          name.startsWith("pr-agent-workspace-"),
+        );
+        expect(workspaceDirsAfter.length).toBe(workspaceDirsBefore.size);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    GIT_WORKSPACE_TEST_TIMEOUT_MS,
+  );
 });
