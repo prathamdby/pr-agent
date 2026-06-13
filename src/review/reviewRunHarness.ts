@@ -46,7 +46,7 @@ export async function runReviewHarness(params: {
   userSupplement?: string;
   trustedContext?: string;
   cwd?: string;
-  workspace?: LocalPrWorkspace;
+  workspace: LocalPrWorkspace;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
   initialPublishState?: {

@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { AgentWorkItem, ReviewJobData } from "../src/agentWork/types.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 const mocks = vi.hoisted(() => ({
   loadPublishContext: vi.fn(),
@@ -87,7 +88,7 @@ function mockRepositoryView() {
     run({
       preflight: { preflight: true },
       agentCwd: "/tmp",
-      workspace: undefined,
+      workspace: mockLocalPrWorkspace(),
     }),
   );
 }
@@ -258,7 +259,7 @@ describe("executeReviewJob", () => {
       return run({
         preflight: { preflight: true },
         agentCwd: "/tmp",
-        workspace: undefined,
+        workspace: mockLocalPrWorkspace(),
       });
     });
     mocks.fetchPriorFeedback.mockResolvedValue("prior block");

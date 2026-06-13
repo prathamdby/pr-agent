@@ -1,25 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { ASK_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
-
-vi.mock("../src/agent/askSafety.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/askSafety.js")>();
-  return {
-    ...actual,
-    buildAskGithubTools: vi.fn(() => ({
-      piTools: [
-        {
-          name: "listPullRequestFiles",
-          description: "d",
-          parameters: { type: "object", properties: {} },
-        },
-      ],
-      executors: {
-        listPullRequestFiles: vi.fn(async () => ({ files: [] })),
-      },
-    })),
-  };
-});
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 vi.mock("../src/agent/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
@@ -61,6 +43,7 @@ const askParams = {
   headSha: "sha",
   question: "Explain changes and provide a testing checklist.",
   replyTarget: { kind: "prConversation" as const, prNumber: 459 },
+  workspace: mockLocalPrWorkspace(),
 };
 
 describe("runAskHarness finalize", () => {

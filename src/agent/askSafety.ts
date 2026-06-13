@@ -1,12 +1,5 @@
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import {
-  ASK_TOOLS_WITH_OWNER_REPO,
-  ASK_TOOLS_WITH_PULL_NUMBER,
-  BOT_META_PATTERNS,
-  SENSITIVE_PATH_PATTERNS,
-} from "../settings/index.js";
 import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
-import { buildGithubTools } from "./githubTools.js";
+import { BOT_META_PATTERNS, SENSITIVE_PATH_PATTERNS } from "../settings/index.js";
 
 export { redactOutboundSecrets };
 
@@ -20,13 +13,6 @@ export function classifyAskQuestionIntent(question: string): AskQuestionIntent {
   }
   return "code";
 }
-
-export type AskToolScope = {
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
-  readonly headSha: string;
-};
 
 export function isSensitivePath(path: string): boolean {
   const normalized = path.replace(/\\/g, "/");
@@ -86,126 +72,4 @@ export function sanitizeToolResultForAsk(toolName: string, result: unknown): unk
 
 export function redactPorcelainBlame(text: string): string {
   return text.replace(/^author-mail .+$/gm, "author-mail [redacted]");
-}
-
-function injectRepoIntoSearchQuery(query: string, owner: string, repo: string): string {
-  const repoQualifier = `repo:${owner}/${repo}`;
-  const scoped = `${owner}/${repo}`.toLowerCase();
-  const qualifiers = query.match(/\brepo:\S+/gi);
-  if (qualifiers) {
-    for (const qualifier of qualifiers) {
-      if (qualifier.slice("repo:".length).toLowerCase() !== scoped) {
-        throw new Error(
-          `searchCode is scoped to ${owner}/${repo}; remove repo: qualifiers for other repositories.`,
-        );
-      }
-    }
-    return query;
-  }
-  return `${query} ${repoQualifier}`.trim();
-}
-
-function stableToolArgsKey(args: Record<string, unknown>): string {
-  return JSON.stringify(
-    Object.keys(args)
-      .toSorted()
-      .map((key) => [key, args[key]]),
-  );
-}
-
-export function buildScopedAskExecutors(
-  base: Record<string, (args: Record<string, unknown>) => Promise<unknown>>,
-  scope: AskToolScope,
-  gate: AskPathGate,
-): Record<string, (args: Record<string, unknown>) => Promise<unknown>> {
-  const scoped: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {};
-  const listPullRequestFilesPromises = new Map<string, Promise<unknown>>();
-
-  for (const [name, fn] of Object.entries(base)) {
-    scoped[name] = async (args) => {
-      const merged = { ...args };
-
-      if (ASK_TOOLS_WITH_OWNER_REPO.has(name)) {
-        if (merged.owner != null && merged.owner !== scope.owner) {
-          throw new Error(`Tool ${name} is scoped to owner "${scope.owner}".`);
-        }
-        if (merged.repo != null && merged.repo !== scope.repo) {
-          throw new Error(`Tool ${name} is scoped to repo "${scope.repo}".`);
-        }
-        merged.owner = scope.owner;
-        merged.repo = scope.repo;
-      }
-
-      if (ASK_TOOLS_WITH_PULL_NUMBER.has(name)) {
-        if (merged.pullNumber != null && merged.pullNumber !== scope.prNumber) {
-          throw new Error(`Tool ${name} is scoped to pull request #${scope.prNumber}.`);
-        }
-        merged.pullNumber = scope.prNumber;
-      }
-
-      if (name === "getFileContent") {
-        const path = typeof merged.path === "string" ? merged.path : "";
-        assertPathAllowedForAsk(path, gate);
-        if (merged.ref == null || merged.ref === "") {
-          merged.ref = scope.headSha;
-        }
-      }
-
-      if (name === "searchCode") {
-        merged.query = injectRepoIntoSearchQuery(
-          typeof merged.query === "string" ? merged.query : "",
-          scope.owner,
-          scope.repo,
-        );
-      }
-
-      if (name === "listPullRequestFiles") {
-        const cacheKey = stableToolArgsKey(merged);
-        let listPullRequestFilesPromise = listPullRequestFilesPromises.get(cacheKey);
-        if (!listPullRequestFilesPromise) {
-          listPullRequestFilesPromise = fn(merged).catch((error: unknown) => {
-            listPullRequestFilesPromises.delete(cacheKey);
-            throw error;
-          });
-          listPullRequestFilesPromises.set(cacheKey, listPullRequestFilesPromise);
-        }
-        const out = await listPullRequestFilesPromise;
-        if (
-          out &&
-          typeof out === "object" &&
-          "files" in out &&
-          Array.isArray((out as { files: unknown }).files)
-        ) {
-          const files = (out as { files: Array<{ filename?: string }> }).files;
-          gate.addPaths(files.map((f) => f.filename ?? "").filter(Boolean));
-        }
-        return sanitizeToolResultForAsk(name, out);
-      }
-
-      const out = await fn(merged);
-      return sanitizeToolResultForAsk(name, out);
-    };
-  }
-
-  return scoped;
-}
-
-export function buildAskGithubTools(
-  token: string,
-  scope: AskToolScope,
-  limits: {
-    maxPrFilesListed: number;
-    maxPrFilesPatchBytes: number;
-    tokenExpiresAtTs?: number;
-  },
-  gate: AskPathGate,
-): {
-  piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const gh = buildGithubTools(token, limits);
-  return {
-    piTools: gh.piTools,
-    executors: buildScopedAskExecutors(gh.executors, scope, gate),
-  };
 }
