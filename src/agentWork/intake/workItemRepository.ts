@@ -11,7 +11,7 @@ async function insertQueuedAgentWorkItem(
   params: {
     id: string;
     webhookEventId: string;
-    type: "review" | "description" | "ask";
+    type: "review" | "description" | "ask" | "triage";
     source: WorkSource;
     ref: PrRef;
     reviewLens: ReviewMode | null;
@@ -141,6 +141,36 @@ export async function createDescriptionWorkItem(
   return id;
 }
 
+export async function createTriageWorkItem(
+  client: PoolClient,
+  params: {
+    webhookEventId: string;
+    ref: PrRef;
+    commentId: number;
+    commenterId?: number;
+  },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
+  await insertQueuedAgentWorkItem(client, {
+    id,
+    webhookEventId: params.webhookEventId,
+    type: "triage",
+    source: "slash",
+    ref: params.ref,
+    reviewLens: null,
+    resourceKey,
+    priority: 50,
+    payload: {
+      source: "slash",
+      repositorySizeKb: params.ref.repositorySizeKb,
+      commentId: params.commentId,
+      commenterId: params.commenterId,
+    },
+  });
+  return id;
+}
+
 export async function createAskWorkItem(
   client: PoolClient,
   params: {
@@ -185,6 +215,18 @@ export async function fetchActiveWorkItem(
 			   FROM agent_work_items
 			  WHERE resource_key = $1
 			    AND type = 'description'
+			    AND status IN ('queued', 'running')
+			  LIMIT 1`,
+      [target.resourceKey],
+    );
+    return result.rows[0]?.id ?? null;
+  }
+  if (target.kind === "triage") {
+    const result = await client.query<{ id: string }>(
+      `SELECT id
+			   FROM agent_work_items
+			  WHERE resource_key = $1
+			    AND type = 'triage'
 			    AND status IN ('queued', 'running')
 			  LIMIT 1`,
       [target.resourceKey],

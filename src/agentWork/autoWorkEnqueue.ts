@@ -9,7 +9,8 @@ export type AutoWorkSupersedeTarget =
       readonly resourceKey: string;
       readonly lens: ReviewMode;
     }
-  | { readonly kind: "description"; readonly resourceKey: string };
+  | { readonly kind: "description"; readonly resourceKey: string }
+  | { readonly kind: "triage"; readonly resourceKey: string };
 
 function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
   sql: string;
@@ -31,11 +32,11 @@ function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
     sql: `UPDATE agent_work_items
 			     SET status = 'superseded', updated_at = now()
 			   WHERE resource_key = $1
-			     AND type = 'description'
+			     AND type = $2
 			     AND source = 'auto'
 			     AND status = 'queued'
 			   RETURNING id`,
-    params: [target.resourceKey],
+    params: [target.resourceKey, target.kind],
   };
 }
 
@@ -59,11 +60,11 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
     sql: `UPDATE agent_work_items
 			     SET cancel_requested_at = COALESCE(cancel_requested_at, now()), updated_at = now()
 			   WHERE resource_key = $1
-			     AND type = 'description'
+			     AND type = $2
 			     AND source = 'auto'
 			     AND status = 'running'
 			   RETURNING id`,
-    params: [target.resourceKey],
+    params: [target.resourceKey, target.kind],
   };
 }
 

@@ -11,6 +11,7 @@ import {
   MAX_ASK_QUESTION_CHARS,
   MAX_STORED_COMMENT_TEXT_LEN,
   SLASH_HELP_BODY,
+  TRIAGE_ALREADY_IN_PROGRESS,
 } from "../../settings/index.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { RequestLogger } from "../../evlog.js";
@@ -46,12 +47,14 @@ import {
   enqueueAsk,
   enqueueDescription,
   enqueueReview,
+  enqueueTriage,
   jobCorrelation,
 } from "./queueing.js";
 import {
   createAskWorkItem,
   createDescriptionWorkItem,
   createReviewWorkItem,
+  createTriageWorkItem,
   fetchActiveWorkItem,
 } from "./workItemRepository.js";
 
@@ -169,6 +172,38 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
+async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
+  const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  const existing = await fetchActiveWorkItem(ctx.client, {
+    kind: "triage",
+    resourceKey,
+  });
+  if (existing) {
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body: TRIAGE_ALREADY_IN_PROGRESS,
+      },
+    });
+    return;
+  }
+  const workItemId = await createTriageWorkItem(ctx.client, {
+    webhookEventId: ctx.eventId,
+    ref: ctx.ref,
+    commentId: ctx.input.commentId,
+    commenterId: ctx.input.commenterId,
+  });
+  await enqueueSlashAck(ctx, { workItemId });
+  await enqueueTriage(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
+  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
+    type: "triage",
+    source: "slash",
+    workItemId,
+    resourceKey,
+    ...ctx.correlation,
+  });
+}
+
 async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const existing = await fetchActiveWorkItem(ctx.client, {
@@ -221,6 +256,7 @@ const SLASH_INTAKE_HANDLERS: Record<
   help: (ctx) => handleSlashHelp(ctx),
   ask: (ctx) => handleSlashAsk(ctx),
   describe: (ctx) => handleSlashDescribe(ctx),
+  triage: (ctx) => handleSlashTriage(ctx),
   review: (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
   "review-security": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
   "review-quality": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),

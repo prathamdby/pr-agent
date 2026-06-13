@@ -8,6 +8,8 @@ import {
   DEFAULT_DESCRIPTION_GENERATE_TITLE,
   DEFAULT_DESCRIPTION_AUTO_ACTIONS,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
+  DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
+  DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
@@ -56,6 +58,7 @@ import {
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
+  DEFAULT_TRIAGE_CONCURRENCY,
   DEFAULT_WEBHOOK_EVENTS_RETENTION_SECONDS,
   DEFAULT_AGENT_WORK_RETENTION_SECONDS,
   DEFAULT_RETENTION_CRON,
@@ -273,9 +276,18 @@ export function loadConfig() {
     ENV.DESCRIPTION_CONCURRENCY,
     DEFAULT_DESCRIPTION_CONCURRENCY,
   );
+  const triageConcurrency = readPositiveNumber(ENV.TRIAGE_CONCURRENCY, DEFAULT_TRIAGE_CONCURRENCY);
   const maxToolRoundsDescribe = readPositiveNumber(
     ENV.MAX_TOOL_ROUNDS_DESCRIBE,
     DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
+  );
+  const maxToolRoundsTriage = readPositiveNumber(
+    ENV.MAX_TOOL_ROUNDS_TRIAGE,
+    DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
+  );
+  const maxTriageFixesPerRun = readPositiveNumber(
+    ENV.MAX_TRIAGE_FIXES_PER_RUN,
+    DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
   );
   const descriptionGenerateTitle = readBooleanEnv(
     ENV.DESCRIPTION_GENERATE_TITLE,
@@ -486,7 +498,10 @@ export function loadConfig() {
     askConcurrency,
     ackConcurrency,
     descriptionConcurrency,
+    triageConcurrency,
     maxToolRoundsDescribe,
+    maxToolRoundsTriage,
+    maxTriageFixesPerRun,
     descriptionGenerateTitle,
     slashAllowedAssociations,
     queueRetryLimit,

@@ -2,18 +2,26 @@ import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import { pgBossDb } from "../../db/postgres.js";
-import { ACK_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
+import {
+  ACK_QUEUE,
+  ASK_QUEUE,
+  DESCRIPTION_QUEUE,
+  REVIEW_QUEUE,
+  TRIAGE_QUEUE,
+} from "../../settings/index.js";
 import {
   descriptionSingletonKey,
   installationGroupId,
   prResourceKey,
   reviewSingletonKey,
+  triageSingletonKey,
   type AckJobData,
   type AskJobData,
   type DescriptionJobData,
   type JobCorrelation,
   type PrRef,
   type ReviewJobData,
+  type TriageJobData,
   type WebhookHeaders,
 } from "../types.js";
 
@@ -97,6 +105,26 @@ export async function enqueueDescription(
   await requireBossJobSend(boss, DESCRIPTION_QUEUE, data, {
     db: pgBossDb(client),
     singletonKey: descriptionSingletonKey(resourceKey),
+    group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
+export async function enqueueTriage(
+  boss: PgBoss,
+  client: PoolClient,
+  ref: PrRef,
+  workItemId: string,
+  correlation: JobCorrelation,
+): Promise<void> {
+  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  const data: TriageJobData = {
+    kind: "triage",
+    workItemId,
+    ...correlation,
+  };
+  await requireBossJobSend(boss, TRIAGE_QUEUE, data, {
+    db: pgBossDb(client),
+    singletonKey: triageSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }

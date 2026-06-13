@@ -11,18 +11,21 @@ import {
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
+  TRIAGE_QUEUE,
 } from "../settings/index.js";
 import {
   executeAckJob,
   executeAskJob,
   executeDescriptionJob,
   executeReviewJob,
+  executeTriageJob,
 } from "./executors/index.js";
 import {
   type AckJobData,
   type AskJobData,
   type DescriptionJobData,
   type ReviewJobData,
+  type TriageJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
 
@@ -126,6 +129,15 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               },
               (job) => executeDescriptionJob(cfg, pool, boss, job),
             ),
+            registerMetadataQueue<TriageJobData>(
+              boss,
+              TRIAGE_QUEUE,
+              {
+                localConcurrency: cfg.triageConcurrency,
+                ...durableQueueOptions,
+              },
+              (job) => executeTriageJob(cfg, pool, boss, job),
+            ),
             registerPlainQueue(boss, RETENTION_QUEUE, retentionQueueWorkOptions(), async () => {
               try {
                 const result = await runRetention(pool, cfg);
@@ -139,13 +151,27 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             }),
           ]);
           logInfo("agent_worker_started", {
-            queues: [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, RETENTION_QUEUE],
+            queues: [
+              ACK_QUEUE,
+              REVIEW_QUEUE,
+              ASK_QUEUE,
+              DESCRIPTION_QUEUE,
+              TRIAGE_QUEUE,
+              RETENTION_QUEUE,
+            ],
             reviewConcurrency: cfg.reviewConcurrency,
             askConcurrency: cfg.askConcurrency,
             ackConcurrency: cfg.ackConcurrency,
             descriptionConcurrency: cfg.descriptionConcurrency,
+            triageConcurrency: cfg.triageConcurrency,
           });
-          for (const queue of [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE]) {
+          for (const queue of [
+            ACK_QUEUE,
+            REVIEW_QUEUE,
+            ASK_QUEUE,
+            DESCRIPTION_QUEUE,
+            TRIAGE_QUEUE,
+          ]) {
             const stats = await boss.getQueueStats(queue);
             logDebug("agent_queue_stats", {
               queue,
@@ -167,9 +193,14 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
         Effect.tryPromise({
           try: async () => {
             await Promise.all(
-              [ACK_QUEUE, REVIEW_QUEUE, ASK_QUEUE, DESCRIPTION_QUEUE, RETENTION_QUEUE].map((q) =>
-                boss.offWork(q),
-              ),
+              [
+                ACK_QUEUE,
+                REVIEW_QUEUE,
+                ASK_QUEUE,
+                DESCRIPTION_QUEUE,
+                TRIAGE_QUEUE,
+                RETENTION_QUEUE,
+              ].map((q) => boss.offWork(q)),
             );
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),

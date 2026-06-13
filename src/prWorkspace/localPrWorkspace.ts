@@ -17,13 +17,12 @@ import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
 } from "../settings/index.js";
+import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
 const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";
-const ASKPASS_NAME = "git-askpass.sh";
-const TOKEN_FILE_NAME = "git-token";
 const PR_HEAD_REF = "pr-head";
 
 type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
@@ -343,43 +342,6 @@ async function enforceMaxFetchBytes(
   }
 }
 
-async function createAskpass(rootDir: string): Promise<string> {
-  const askpass = join(rootDir, ASKPASS_NAME);
-  await writeFile(
-    askpass,
-    [
-      "#!/bin/sh",
-      'token=""',
-      'if [ -n "$GIT_TOKEN_FILE" ] && [ -f "$GIT_TOKEN_FILE" ]; then',
-      '  token=$(cat "$GIT_TOKEN_FILE")',
-      "fi",
-      'case "$1" in',
-      "  *Username*) printf '%s\\n' x-access-token ;;",
-      "  *) printf '%s\\n' \"$token\" ;;",
-      "esac",
-      "",
-    ].join("\n"),
-    { mode: 0o700 },
-  );
-  return askpass;
-}
-
-async function writeTokenFile(rootDir: string, token: string): Promise<string> {
-  const tokenFile = join(rootDir, TOKEN_FILE_NAME);
-  await writeFile(tokenFile, token, { mode: 0o600 });
-  return tokenFile;
-}
-
-async function makeDirectoriesWritable(dir: string): Promise<void> {
-  await chmod(dir, 0o755).catch(() => undefined);
-  for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await makeDirectoriesWritable(full);
-    }
-  }
-}
-
 async function removeWorkspace(rootDir: string): Promise<void> {
   await makeDirectoriesWritable(rootDir);
   await rm(rootDir, { recursive: true, force: true });
@@ -465,8 +427,7 @@ export async function prepareLocalPrWorkspace(
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
   const agentCwd = join(rootDir, AGENT_TREE_DIR);
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
-  const askpass = await createAskpass(rootDir);
-  const tokenFile = await writeTokenFile(rootDir, installationToken);
+  const credentials = await createGitCredentialFiles(rootDir, installationToken);
   const changedFiles = prFiles.files.map(mapGithubStatus);
   const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
   const checkoutMode = selectLocalPrWorkspaceCheckoutMode(cfg, params.repositorySizeKb);
@@ -498,8 +459,8 @@ export async function prepareLocalPrWorkspace(
     execGit(args, {
       cwd: privateGitDir,
       timeoutMs,
-      tokenFile,
-      askpass,
+      tokenFile: credentials.tokenFile,
+      askpass: credentials.askpass,
       workTree: agentCwd,
     });
 
@@ -582,8 +543,7 @@ export async function prepareLocalPrWorkspace(
       );
     }
 
-    await rm(askpass, { force: true });
-    await rm(tokenFile, { force: true });
+    await credentials.cleanup();
     checkoutPaths = await prepareCheckedOutTree(agentCwd);
     sortedCheckoutPaths = [...checkoutPaths].toSorted();
 

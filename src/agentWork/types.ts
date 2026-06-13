@@ -4,7 +4,7 @@ import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 
-type WorkType = "review" | "ask" | "description";
+type WorkType = "review" | "ask" | "description" | "triage";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
 
 export type WebhookHeaders = {
@@ -69,6 +69,11 @@ export type DescriptionJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
+export type TriageJobData = JobCorrelation & {
+  readonly kind: "triage";
+  readonly workItemId: string;
+};
+
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;
@@ -101,6 +106,14 @@ export type DescriptionWorkPayload = {
   readonly commenterId?: number;
 };
 
+type TriageWorkPayload = {
+  readonly source: "slash";
+  readonly repositorySizeKb?: number;
+  readonly commenterId?: number;
+  readonly commentId: number;
+  readonly publishDegraded?: boolean;
+};
+
 export type AgentWorkItem = PrRef & {
   readonly id: string;
   readonly webhookEventId: string | null;
@@ -110,7 +123,7 @@ export type AgentWorkItem = PrRef & {
   readonly reviewLens: ReviewMode | null;
   readonly resourceKey: string;
   readonly attemptCount: number;
-  readonly payload: ReviewWorkPayload | AskWorkPayload | DescriptionWorkPayload;
+  readonly payload: ReviewWorkPayload | AskWorkPayload | DescriptionWorkPayload | TriageWorkPayload;
   readonly cancelRequestedAt: Date | null;
 };
 
@@ -139,6 +152,10 @@ export function reviewSingletonKey(resourceKey: string, lens: ReviewMode): strin
 
 export function descriptionSingletonKey(resourceKey: string): string {
   return `${resourceKey}:description`;
+}
+
+export function triageSingletonKey(resourceKey: string): string {
+  return `${resourceKey}:triage`;
 }
 
 export function installationGroupId(installationId: number): string {

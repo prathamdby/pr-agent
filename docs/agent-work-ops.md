@@ -5,7 +5,7 @@ Queue inspection, retry, and recovery for pg-boss workers. For behaviour and dep
 ## Services
 
 - `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly.
-- `pr-agent-worker` processes acknowledgement, review, ask, and description queues.
+- `pr-agent-worker` processes acknowledgement, review, ask, description, and triage queues.
 - `postgres` stores pg-boss jobs plus app-owned workflow tables.
 
 ## Inspect Queue Health
@@ -26,10 +26,11 @@ Worker startup logs `agent_queue_stats` for each queue and `agent_review_queue_b
 - If a review fails permanently, the worker edits the review progress comment with a failure notice and records `agent_work_items.status = 'failed'`.
 - If pg-boss reports blocked review keys, inspect failed jobs for `agent-work-review`, then retry or delete the failed pg-boss job after confirming the app-owned `agent_work_items` status is terminal.
 - If a worker crashes mid-job, pg-boss heartbeat/expiration retries the job; publish steps are guarded by `publish_records`.
+- `/triage` uses `agent-work-triage` plus `triage_push`, `triage_thread_actions`, and `triage_report` publish records. A stale push posts the triage report without thread replies; re-run `/triage` after the PR branch settles.
 
 ## Local Development
 
-For end-to-end behavior (reviews, descriptions, and asks), run the full stack: `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`). Web-only accepts webhooks but does not execute agent work.
+For end-to-end behavior (reviews, descriptions, asks, and triage), run the full stack: `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`). Web-only accepts webhooks but does not execute agent work.
 
 Host processes against Compose Postgres: see [README.md](../README.md#getting-started) and [operations.md](operations.md#local-development-edge-cases).
 

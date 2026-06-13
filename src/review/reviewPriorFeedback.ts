@@ -22,6 +22,17 @@ export type PriorInlineFeedbackThread = {
   threadUrl: string;
 };
 
+export type BotFindingThread = {
+  rootCommentId: number;
+  lens: Exclude<ReviewMode, "review-tests">;
+  path: string;
+  line: number;
+  severity: "P0" | "P1" | "P2" | "P3" | null;
+  titleSnippet: string;
+  humanReplies: string[];
+  threadUrl: string;
+};
+
 type ReviewCommentRow = {
   id: number;
   inReplyToId: number | null;
@@ -45,6 +56,11 @@ function extractBotTitleSnippet(body: string): string {
   if (boldMatch) return `${boldMatch[1]} · ${boldMatch[2].trim()}`;
   const firstLine = body.split("\n").find((line) => line.trim().length > 0);
   return truncateText(firstLine ?? "Inline finding", 120);
+}
+
+function extractBotSeverity(body: string): BotFindingThread["severity"] {
+  const match = /\bP([0-3])\b/.exec(body);
+  return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
 }
 
 export function classifyReviewLensFromPointerBody(body: string): ReviewMode | null {
@@ -119,6 +135,40 @@ async function listBotReviewIdsForLens(
     if (review.user?.id !== botUserId || review.id == null) continue;
     const lens = classifyReviewLensFromPointerBody(review.body ?? "");
     if (lens === mode) reviewIds.add(review.id);
+  }
+  return reviewIds;
+}
+
+async function listBotReviewIdsForTriage(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  botUserId: number,
+): Promise<Map<number, BotFindingThread["lens"]>> {
+  const octokit = installationOctokit(token);
+  const reviews = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviews({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+
+  const reviewIds = new Map<number, BotFindingThread["lens"]>();
+  for (const review of reviews) {
+    if (review.user?.id !== botUserId || review.id == null) continue;
+    const lens = classifyReviewLensFromPointerBody(review.body ?? "");
+    if (lens === "review" || lens === "review-security" || lens === "review-quality") {
+      reviewIds.set(review.id, lens);
+    }
   }
   return reviewIds;
 }
@@ -210,6 +260,59 @@ export async function fetchPriorInlineReviewFeedback(
   return results
     .toSorted((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
     .slice(0, MAX_PRIOR_INLINE_FEEDBACK_THREADS);
+}
+
+export async function fetchBotFindingThreads(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  botUserId: number,
+): Promise<BotFindingThread[]> {
+  const [reviewIds, comments] = await Promise.all([
+    listBotReviewIdsForTriage(token, owner, repo, pullNumber, botUserId),
+    listPullRequestReviewComments(token, owner, repo, pullNumber),
+  ]);
+  if (reviewIds.size === 0) return [];
+
+  const byId = new Map(comments.map((comment) => [comment.id, comment]));
+  const rootById = new Map<number, number>();
+  const threads = new Map<number, ReviewCommentRow[]>();
+
+  for (const comment of comments) {
+    const rootId = rootCommentId(comment, byId, rootById);
+    const bucket = threads.get(rootId) ?? [];
+    bucket.push(comment);
+    threads.set(rootId, bucket);
+  }
+
+  const results: BotFindingThread[] = [];
+  for (const threadComments of threads.values()) {
+    const root =
+      threadComments.find((comment) => comment.inReplyToId == null) ??
+      threadComments.toSorted((a, b) => a.id - b.id)[0];
+    if (!root || root.userId !== botUserId || root.path == null) continue;
+    if (root.pullRequestReviewId == null) continue;
+    const lens = reviewIds.get(root.pullRequestReviewId);
+    if (!lens) continue;
+
+    const humanReplies = threadComments
+      .filter((comment) => comment.userId != null && comment.userId !== botUserId)
+      .map((comment) => truncateText(comment.body, MAX_PRIOR_INLINE_REPLY_CHARS));
+    const line = root.line ?? root.originalLine ?? 1;
+    results.push({
+      rootCommentId: root.id,
+      lens,
+      path: root.path,
+      line,
+      severity: extractBotSeverity(root.body),
+      titleSnippet: extractBotTitleSnippet(root.body),
+      humanReplies,
+      threadUrl: root.htmlUrl,
+    });
+  }
+
+  return results.toSorted((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
 }
 
 export function formatPriorInlineFeedbackBlock(
