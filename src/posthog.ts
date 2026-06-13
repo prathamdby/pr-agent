@@ -5,7 +5,7 @@ const host = process.env.POSTHOG_HOST;
 
 export const posthog = new PostHog(apiKey, {
   ...(host ? { host } : {}),
-  enableExceptionAutocapture: false,
+  enableExceptionAutocapture: true,
 });
 
 export function shutdownPostHog(): Promise<void> {

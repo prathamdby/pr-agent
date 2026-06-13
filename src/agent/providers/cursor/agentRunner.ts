@@ -9,6 +9,7 @@ import type {
 import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel, toCursorSdkModelSelection } from "./models.js";
 import { createMcpBridge } from "./mcpBridge.js";
+import { assertCursorRipgrepConfigured } from "./ripgrepBoot.js";
 
 function assistantText(content: Context["messages"][number]): string {
   if (content.role !== "assistant" || !Array.isArray(content.content)) return "";
@@ -44,6 +45,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       maxToolRounds: () => activeMaxToolRounds,
       toolRoundCounter,
     });
+    assertCursorRipgrepConfigured();
     const agent = await Agent.create({
       apiKey,
       model: sdkModelSelection,

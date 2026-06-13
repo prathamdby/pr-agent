@@ -9,17 +9,20 @@ import {
   assertCursorModelId,
   listTopCursorModelIds,
 } from "./models.js";
+import { configureCursorRipgrepPath } from "./ripgrepBoot.js";
 import { registerCursorProvider } from "./register.js";
 
 export type CursorWorkerBootInfo = {
   readonly modelCount: number;
   readonly topModels: readonly string[];
   readonly fastModels: readonly string[];
+  readonly ripgrepPath?: string;
 };
 
 export async function initCursorWorker(
   cfg: Pick<Config, "cursorApiKey" | "piModel">,
 ): Promise<CursorWorkerBootInfo> {
+  const ripgrepPath = configureCursorRipgrepPath();
   await initCursorModelCapabilities(cfg.cursorApiKey);
   assertCursorModelId(cfg.piModel);
   assertCursorModelFastSelection(cfg.piModel);
@@ -28,5 +31,6 @@ export async function initCursorWorker(
     modelCount: getCursorCatalogItems().length,
     topModels: listTopCursorModelIds(10),
     fastModels: [...getFastParamModelIds()],
+    ripgrepPath,
   };
 }

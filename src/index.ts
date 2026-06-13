@@ -3,6 +3,7 @@ import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { startEffectWebhookServer } from "./effect/server.js";
 import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
+import { captureCursorWorkerFailure } from "./agent/providers/cursor/cursorAnalytics.js";
 async function main() {
   let cfg: Config;
   try {
@@ -37,8 +38,10 @@ async function main() {
           model_count: boot.modelCount,
           top_models: boot.topModels,
           fast_models: boot.fastModels,
+          ripgrep_configured: boot.ripgrepPath != null,
         });
       } catch (e) {
+        captureCursorWorkerFailure("worker_boot", e);
         console.error(e instanceof Error ? e.message : e);
         process.exit(1);
         return;
