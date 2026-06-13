@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { posthog } from "../../posthog.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { fetchBotFindingThreads, type BotFindingThread } from "../../review/reviewPriorFeedback.js";
@@ -278,6 +279,19 @@ export async function executeTriageJob(
             payload: result.payload,
             previouslyResolvedCount,
           });
+          if (!publish.degraded) {
+            posthog.capture({
+              distinctId: `installation:${item.installationId}`,
+              event: "triage completed",
+              properties: {
+                owner: item.owner,
+                repo: item.repo,
+                pr_number: item.prNumber,
+                inventory_count: inventory.length,
+                previously_resolved_count: previouslyResolvedCount,
+              },
+            });
+          }
           return publish.degraded ? { degraded: true } : {};
         },
       );

@@ -2,6 +2,7 @@ import type { JobWithMetadata } from "pg-boss";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
+import { posthog } from "../posthog.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import {
   getAppBotIdentity,
@@ -362,6 +363,24 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       pgBossRetryCount: spec.job.retryCount,
       pgBossRetryLimit: spec.job.retryLimit,
       dbAttemptCount: item.attemptCount,
+    });
+    posthog.capture({
+      distinctId: `installation:${item.installationId}`,
+      event: "work item failed",
+      properties: {
+        type: spec.type,
+        owner: item.owner,
+        repo: item.repo,
+        pr_number: item.prNumber,
+        attempt_count: item.attemptCount,
+        provider_error_kind: classifyProviderError(error),
+      },
+    });
+    posthog.captureException(error, `installation:${item.installationId}`, {
+      type: spec.type,
+      owner: item.owner,
+      repo: item.repo,
+      pr_number: item.prNumber,
     });
   }
 

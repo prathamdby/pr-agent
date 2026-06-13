@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { posthog } from "../../posthog.js";
 import { runAskRun } from "../../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/formatAskReply.js";
 import { installationOctokit } from "../../github/appAuth.js";
@@ -115,6 +116,16 @@ export async function executeAskJob(
               true,
             );
             answerDelivered = true;
+            posthog.capture({
+              distinctId: `installation:${item.installationId}`,
+              event: "ask answered",
+              properties: {
+                owner: item.owner,
+                repo: item.repo,
+                pr_number: item.prNumber,
+                reply_target_kind: payload.replyTarget.kind,
+              },
+            });
             try {
               await recordAskPublishStep(pool, {
                 workItemId: item.id,
