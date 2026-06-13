@@ -1,3 +1,4 @@
+import type { TriageScope } from "../agentWork/types.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
 import { wrapUntrustedBlock } from "./promptBlocks.js";
 
@@ -18,6 +19,7 @@ export function buildTriageUserContent(params: {
   readonly headSha: string;
   readonly maxFixesPerRun: number;
   readonly threads: readonly BotFindingThread[];
+  readonly scope?: TriageScope;
 }): string {
   const lines = [
     `Target repository: ${params.owner}/${params.repo}`,
@@ -25,7 +27,9 @@ export function buildTriageUserContent(params: {
     `Head commit SHA: ${params.headSha}`,
     `Fix budget: ${params.maxFixesPerRun}`,
     "",
-    "Prior PR Agent findings to triage:",
+    params.scope === "thread"
+      ? "Triage only the single finding below."
+      : "Prior PR Agent findings to triage:",
   ];
 
   params.threads.forEach((thread, index) => {

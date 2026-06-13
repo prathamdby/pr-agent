@@ -24,7 +24,7 @@ export type PriorInlineFeedbackThread = {
 
 export type BotFindingThread = {
   rootCommentId: number;
-  lens: Exclude<ReviewMode, "review-tests">;
+  lens: ReviewMode;
   path: string;
   line: number;
   severity: "P0" | "P1" | "P2" | "P3" | null;
@@ -64,12 +64,62 @@ function extractBotSeverity(body: string): BotFindingThread["severity"] {
   return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
 }
 
+function isTriageEligibleLens(lens: ReviewMode): boolean {
+  return (
+    lens === "review" ||
+    lens === "review-security" ||
+    lens === "review-quality" ||
+    lens === "review-tests"
+  );
+}
+
+const REVIEW_POINTER_LENS_MARKER_RE = /<!--\s*pr-agent:review-pointer\s+lens=([^\s>]+)\s*-->/;
+
+export function parseReviewPointerLensMarker(body: string): ReviewMode | null {
+  const match = REVIEW_POINTER_LENS_MARKER_RE.exec(body);
+  if (!match) return null;
+  const lens = match[1];
+  if (
+    lens === "review" ||
+    lens === "review-security" ||
+    lens === "review-quality" ||
+    lens === "review-tests"
+  ) {
+    return lens;
+  }
+  return null;
+}
+
 export function classifyReviewLensFromPointerBody(body: string): ReviewMode | null {
+  const markerLens = parseReviewPointerLensMarker(body);
+  if (markerLens) return markerLens;
   if (body.includes(SECURITY_REVIEW_POINTER_BODY)) return "review-security";
   if (body.includes(QUALITY_REVIEW_POINTER_BODY)) return "review-quality";
   if (body.includes(TESTS_REVIEW_POINTER_BODY)) return "review-tests";
   if (body.includes(REVIEW_POINTER_BODY)) return "review";
   return null;
+}
+
+function resolveReviewLensForTriage(
+  body: string,
+  reviewId: number,
+  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
+): ReviewMode | null {
+  const fromBody = classifyReviewLensFromPointerBody(body);
+  if (fromBody) return fromBody;
+  const fromRecords = publishRecordLenses?.get(reviewId);
+  return fromRecords ?? null;
+}
+
+export function resolveReviewThreadRootId(
+  comments: readonly Pick<ReviewCommentRow, "id" | "inReplyToId">[],
+  commentId: number,
+): number | null {
+  const byId = new Map(comments.map((comment) => [comment.id, comment]));
+  const rootById = new Map<number, number>();
+  const start = byId.get(commentId);
+  if (!start) return null;
+  return rootCommentId(start, byId, rootById);
 }
 
 async function listPullRequestReviewComments(
@@ -105,6 +155,16 @@ async function listPullRequestReviewComments(
     originalLine: comment.original_line ?? null,
     htmlUrl: comment.html_url,
   }));
+}
+
+export async function fetchReviewCommentParentGraph(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+): Promise<readonly Pick<ReviewCommentRow, "id" | "inReplyToId">[]> {
+  const comments = await listPullRequestReviewComments(token, owner, repo, pullNumber);
+  return comments.map((comment) => ({ id: comment.id, inReplyToId: comment.inReplyToId }));
 }
 
 async function listBotReviewIdsForLens(
@@ -146,7 +206,8 @@ async function listBotReviewIdsForTriage(
   repo: string,
   pullNumber: number,
   botUserId: number,
-): Promise<Map<number, BotFindingThread["lens"]>> {
+  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
+): Promise<Map<number, ReviewMode>> {
   const octokit = installationOctokit(token);
   const reviews = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
@@ -163,11 +224,11 @@ async function listBotReviewIdsForTriage(
     },
   });
 
-  const reviewIds = new Map<number, BotFindingThread["lens"]>();
+  const reviewIds = new Map<number, ReviewMode>();
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
-    const lens = classifyReviewLensFromPointerBody(review.body ?? "");
-    if (lens === "review" || lens === "review-security" || lens === "review-quality") {
+    const lens = resolveReviewLensForTriage(review.body ?? "", review.id, publishRecordLenses);
+    if (lens && isTriageEligibleLens(lens)) {
       reviewIds.set(review.id, lens);
     }
   }
@@ -175,8 +236,8 @@ async function listBotReviewIdsForTriage(
 }
 
 function rootCommentId(
-  comment: ReviewCommentRow,
-  byId: Map<number, ReviewCommentRow>,
+  comment: Pick<ReviewCommentRow, "id" | "inReplyToId">,
+  byId: Map<number, Pick<ReviewCommentRow, "id" | "inReplyToId">>,
   rootById: Map<number, number>,
 ): number {
   const cachedRoot = rootById.get(comment.id);
@@ -269,11 +330,17 @@ export async function fetchBotFindingThreads(
   repo: string,
   pullNumber: number,
   botUserId: number,
+  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
 ): Promise<BotFindingThread[]> {
-  const [reviewIds, comments] = await Promise.all([
-    listBotReviewIdsForTriage(token, owner, repo, pullNumber, botUserId),
-    listPullRequestReviewComments(token, owner, repo, pullNumber),
-  ]);
+  const comments = await listPullRequestReviewComments(token, owner, repo, pullNumber);
+  const reviewIds = await listBotReviewIdsForTriage(
+    token,
+    owner,
+    repo,
+    pullNumber,
+    botUserId,
+    publishRecordLenses,
+  );
   if (reviewIds.size === 0) return [];
 
   const byId = new Map(comments.map((comment) => [comment.id, comment]));

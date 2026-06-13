@@ -106,11 +106,16 @@ export type DescriptionWorkPayload = {
   readonly commenterId?: number;
 };
 
-type TriageWorkPayload = {
+export type TriageScope = "all" | "thread";
+
+export type TriageWorkPayload = {
   readonly source: "slash";
   readonly repositorySizeKb?: number;
   readonly commenterId?: number;
   readonly commentId: number;
+  readonly scope: TriageScope;
+  readonly threadAnchorCommentId?: number;
+  readonly replyTarget: ReplyTarget;
   readonly publishDegraded?: boolean;
 };
 

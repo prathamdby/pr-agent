@@ -19,6 +19,8 @@ export const triageSystemPrompt = [
   "- skipped: finding remains valid but fix is too risky, too large, needs product input, or fix budget is reached",
   "- dismissed: a maintainer reply clearly says false positive, intentional, or will not fix",
   "",
+  "review-tests lens findings may propose missing test cases. You may add test files, wire Vitest, and mock dependencies when still valid. Use the test commit type. Respect the fix budget and commitFix file/diff limits. Skip with reason when test setup is too large for one commit.",
+  "",
   "Commit contract:",
   "- subject format: conventional, no scope, lowercase description, max 50 chars",
   "- allowed types: feat, fix, refactor, docs, test, chore, style, perf",

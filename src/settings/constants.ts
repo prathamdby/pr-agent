@@ -49,6 +49,14 @@ export const TRIAGE_FAILURE_MESSAGE =
   "PR Agent could not complete the triage run after retries. Try `/triage` again later.";
 export const TRIAGE_NO_PRIOR_FINDINGS =
   "No prior PR Agent inline findings to triage on this pull request. Run `/review` first.";
+export const TRIAGE_NO_ELIGIBLE_FINDINGS =
+  "No triage-eligible unresolved PR Agent inline findings on this pull request.";
+export const TRIAGE_THREAD_NOT_ELIGIBLE =
+  "This thread is not a triage-eligible PR Agent finding (wrong thread, already resolved, or not from a bot review).";
+export const TRIAGE_FULL_RUN_IN_PROGRESS =
+  "A full-PR `/triage` run is already queued or in progress for this pull request.";
+export const TRIAGE_INLINE_USAGE_HINT =
+  "Reply with `/triage` inside a PR Agent inline finding thread, or post `/triage` on the PR conversation to triage all findings.";
 export const TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED =
   "All prior PR Agent inline findings on this pull request are already resolved.";
 export const TRIAGE_FORK_PR_NOTICE =
@@ -382,7 +390,7 @@ export const SLASH_HELP_BODY = [
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
   "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
   "- `/review-tests` — draft missing test cases for the PR's changes (trigger-only, not auto-run)",
-  "- `/triage` — fix earlier PR Agent findings on this PR: commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs)",
+  "- `/triage` — fix earlier PR Agent findings on this PR: commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs). Post on the PR conversation to triage all findings, or reply `/triage` inside a bot inline finding thread to triage that finding only.",
   "",
   "Notes:",
   "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on `opened` / `synchronize` / `reopened`.",

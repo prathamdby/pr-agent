@@ -134,6 +134,7 @@ export const WebhookHandlersCore = Layer.effect(
                 kind: "prConversation",
                 prNumber: data.issue.number,
               },
+              ...(command === "triage" ? { triageScope: "all" as const } : {}),
             },
             intakeLog,
           );
@@ -219,9 +220,16 @@ export const WebhookHandlersCore = Layer.effect(
               replyTarget: {
                 kind: "inlineReviewThread",
                 prNumber: data.pull_request.number,
-                inReplyToCommentId: data.comment.id,
+                inReplyToCommentId: data.comment.in_reply_to_id ?? data.comment.id,
               },
               codeAnchor: codeAnchorFromReviewComment(data.comment),
+              ...(command === "triage"
+                ? {
+                    triageScope:
+                      data.comment.in_reply_to_id != null ? ("thread" as const) : undefined,
+                    threadAnchorCommentId: data.comment.in_reply_to_id ?? undefined,
+                  }
+                : {}),
             },
             intakeLog,
           );

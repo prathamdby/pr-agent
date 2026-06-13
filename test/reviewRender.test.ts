@@ -10,6 +10,7 @@ import {
   renderLightweightReviewCompletion,
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
+  renderReviewPointerLensMarker,
   renderReviewSummaryComment,
   renderReviewWalkthroughBlock,
   renderStaleReviewMetadataComment,
@@ -953,8 +954,31 @@ describe("renderReviewPointerBody", () => {
     });
 
     expect(truncated).toBe(true);
-    expect(body.length).toBeLessThanOrEqual(REVIEW_POINTER_BODY_MAX_CHARS);
+    expect(body).toContain(renderReviewPointerLensMarker("review"));
     expect(body).toContain("...[truncated; see inline threads and PR summary]");
+  });
+
+  it("appends the lens marker after truncation", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/big.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Large fix prompt",
+          detail: "d",
+          fixPrompt: "x".repeat(REVIEW_POINTER_BODY_MAX_CHARS),
+        },
+      ],
+    });
+    const { body } = renderReviewPointerBody(payload, {
+      ...renderCtx,
+      mode: "review-security",
+      placements: planInlineFromPayload(payload),
+    });
+
+    expect(body.endsWith(renderReviewPointerLensMarker("review-security"))).toBe(true);
   });
 });
 

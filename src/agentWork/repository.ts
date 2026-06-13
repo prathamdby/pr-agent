@@ -396,6 +396,29 @@ export async function getSummaryCommentGithubId(
   return Number.isFinite(id) ? id : null;
 }
 
+export async function listTriageEligibleInlineReviews(
+  pool: Pool,
+  resourceKey: string,
+): Promise<Map<number, ReviewWorkPayload["mode"]>> {
+  const result = await pool.query<{ github_id: string; review_lens: ReviewWorkPayload["mode"] }>(
+    `SELECT github_id, review_lens
+       FROM publish_records
+      WHERE resource_key = $1
+        AND step = 'inline_review'
+        AND status = 'completed'
+        AND review_lens IN ('review', 'review-security', 'review-quality', 'review-tests')`,
+    [resourceKey],
+  );
+  const reviewLenses = new Map<number, ReviewWorkPayload["mode"]>();
+  for (const row of result.rows) {
+    const reviewId = Number(row.github_id);
+    if (Number.isFinite(reviewId)) {
+      reviewLenses.set(reviewId, row.review_lens);
+    }
+  }
+  return reviewLenses;
+}
+
 export async function hasStoredInlineReviewId(
   pool: Pool,
   resourceKey: string,

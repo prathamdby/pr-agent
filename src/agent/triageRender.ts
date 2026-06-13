@@ -1,4 +1,5 @@
 import { escapeTableCellContent, renderTableCode } from "../github/markdownFormat.js";
+import type { TriageScope } from "../agentWork/types.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
 import type { TriagePayload, TriageVerdict } from "../review/triageSchema.js";
 import { TRIAGE_SUMMARY_SENTINEL } from "../settings/index.js";
@@ -72,6 +73,8 @@ export function renderTriageReport(params: {
   readonly commits: readonly CommitDetail[];
   readonly previouslyResolvedCount: number;
   readonly notice?: string;
+  readonly scope?: TriageScope;
+  readonly threadRootCommentId?: number;
 }): string {
   const verdictById = new Map(
     params.payload.verdicts.map((verdict) => [verdict.threadRootCommentId, verdict]),
@@ -79,9 +82,12 @@ export function renderTriageReport(params: {
   const lines = [
     TRIAGE_SUMMARY_SENTINEL,
     "",
-    `Evaluated head: ${renderTableCode(params.headSha)}`,
-    "",
+    params.scope === "thread" ? "Scoped to 1 finding." : "Full PR triage.",
   ];
+  if (params.threadRootCommentId != null) {
+    lines.push(`Thread root: \`${params.threadRootCommentId}\``);
+  }
+  lines.push(`Evaluated head: ${renderTableCode(params.headSha)}`, "");
   if (params.notice) lines.push(params.notice, "");
   lines.push(countVerdicts(params.payload, params.previouslyResolvedCount), "");
   if (params.commits.length > 0) {

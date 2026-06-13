@@ -12,6 +12,8 @@ import {
   MAX_STORED_COMMENT_TEXT_LEN,
   SLASH_HELP_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
+  TRIAGE_FULL_RUN_IN_PROGRESS,
+  TRIAGE_INLINE_USAGE_HINT,
 } from "../../settings/index.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { RequestLogger } from "../../evlog.js";
@@ -27,6 +29,23 @@ import {
 import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
+import { captureTriageEvent } from "../triageAnalytics.js";
+import {
+  enqueueAck,
+  enqueueAsk,
+  enqueueDescription,
+  enqueueReview,
+  enqueueTriage,
+  jobCorrelation,
+} from "./queueing.js";
+import {
+  createAskWorkItem,
+  createDescriptionWorkItem,
+  createReviewWorkItem,
+  createTriageWorkItem,
+  fetchActiveTriageWorkItem,
+  fetchActiveWorkItem,
+} from "./workItemRepository.js";
 
 export type SlashCommandInput = {
   readonly headers: WebhookHeaders;
@@ -41,22 +60,9 @@ export type SlashCommandInput = {
   readonly command: string;
   readonly replyTarget: ReplyTarget;
   readonly codeAnchor?: CodeAnchor;
+  readonly triageScope?: "all" | "thread";
+  readonly threadAnchorCommentId?: number;
 };
-import {
-  enqueueAck,
-  enqueueAsk,
-  enqueueDescription,
-  enqueueReview,
-  enqueueTriage,
-  jobCorrelation,
-} from "./queueing.js";
-import {
-  createAskWorkItem,
-  createDescriptionWorkItem,
-  createReviewWorkItem,
-  createTriageWorkItem,
-  fetchActiveWorkItem,
-} from "./workItemRepository.js";
 
 function clampStoredCommentText(text: string): string {
   return text.split("\u0000").join("").slice(0, MAX_STORED_COMMENT_TEXT_LEN);
@@ -174,15 +180,55 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  const existing = await fetchActiveWorkItem(ctx.client, {
-    kind: "triage",
-    resourceKey,
-  });
-  if (existing) {
+  const isInlineReply = ctx.input.replyTarget.kind === "inlineReviewThread";
+  const scope = ctx.input.triageScope ?? (isInlineReply ? undefined : ("all" as const));
+  if (isInlineReply && scope == null) {
+    captureTriageEvent(
+      {
+        installationId: ctx.input.installationId,
+        owner: ctx.input.owner,
+        repo: ctx.input.repo,
+        prNumber: ctx.input.prNumber,
+      },
+      "triage rejected",
+      { reason: "inline_usage_hint" },
+    );
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
-        body: TRIAGE_ALREADY_IN_PROGRESS,
+        body: TRIAGE_INLINE_USAGE_HINT,
+      },
+    });
+    return;
+  }
+  const triageScope = scope ?? "all";
+  const existing = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
+  if (existing) {
+    const activeScope = existing.payload.scope ?? "all";
+    const body =
+      triageScope === "thread" && activeScope === "all"
+        ? TRIAGE_FULL_RUN_IN_PROGRESS
+        : TRIAGE_ALREADY_IN_PROGRESS;
+    captureTriageEvent(
+      {
+        installationId: ctx.input.installationId,
+        owner: ctx.input.owner,
+        repo: ctx.input.repo,
+        prNumber: ctx.input.prNumber,
+        scope: triageScope,
+      },
+      "triage rejected",
+      {
+        reason:
+          triageScope === "thread" && activeScope === "all"
+            ? "full_run_in_progress"
+            : "already_in_progress",
+      },
+    );
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body,
       },
     });
     return;
@@ -192,9 +238,27 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     ref: ctx.ref,
     commentId: ctx.input.commentId,
     commenterId: ctx.input.commenterId,
+    scope: triageScope,
+    threadAnchorCommentId: ctx.input.threadAnchorCommentId,
+    replyTarget: ctx.input.replyTarget,
   });
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueTriage(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
+  captureTriageEvent(
+    {
+      installationId: ctx.input.installationId,
+      owner: ctx.input.owner,
+      repo: ctx.input.repo,
+      prNumber: ctx.input.prNumber,
+      workItemId,
+      scope: triageScope,
+    },
+    "triage enqueued",
+    {
+      thread_anchor_comment_id: ctx.input.threadAnchorCommentId,
+      reply_target_kind: ctx.input.replyTarget.kind,
+    },
+  );
   recordEvent(ctx.intakeLog, "agent_work_enqueued", {
     type: "triage",
     source: "slash",

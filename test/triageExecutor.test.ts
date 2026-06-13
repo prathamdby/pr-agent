@@ -6,6 +6,7 @@ import type { AgentWorkItem, TriageJobData } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_FAILURE_MESSAGE,
+  TRIAGE_THREAD_NOT_ELIGIBLE,
 } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -15,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   createComment: vi.fn(),
   getAppBotIdentity: vi.fn(),
   fetchBotFindingThreads: vi.fn(),
+  fetchReviewCommentParentGraph: vi.fn(),
   listReviewThreadResolution: vi.fn(),
   withWritablePrCheckout: vi.fn(),
   runFullPrTriage: vi.fn(),
@@ -24,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   getCompletedPublishStepDetail: vi.fn(),
   getCompletedPublishStepDetailWithoutNewerStep: vi.fn(),
   hasCompletedPublishStep: vi.fn(),
+  listTriageEligibleInlineReviews: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
@@ -41,9 +44,14 @@ vi.mock("../src/github/appAuth.js", () => ({
   })),
 }));
 
-vi.mock("../src/review/reviewPriorFeedback.js", () => ({
-  fetchBotFindingThreads: mocks.fetchBotFindingThreads,
-}));
+vi.mock("../src/review/reviewPriorFeedback.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review/reviewPriorFeedback.js")>();
+  return {
+    ...actual,
+    fetchBotFindingThreads: mocks.fetchBotFindingThreads,
+    fetchReviewCommentParentGraph: mocks.fetchReviewCommentParentGraph,
+  };
+});
 
 vi.mock("../src/github/reviewThreadResolution.js", () => ({
   listReviewThreadResolution: mocks.listReviewThreadResolution,
@@ -68,6 +76,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getCompletedPublishStepDetailWithoutNewerStep:
     mocks.getCompletedPublishStepDetailWithoutNewerStep,
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
+  listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
 }));
 
 import { executeTriageJob } from "../src/agentWork/executors/triageExecutor.js";
@@ -76,7 +85,7 @@ const cfg = makeTestConfig();
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function item(): AgentWorkItem {
+function item(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
   return {
     id: "wi-1",
     webhookEventId: "ev-1",
@@ -91,8 +100,14 @@ function item(): AgentWorkItem {
     reviewLens: null,
     resourceKey: "o/r#1",
     attemptCount: 0,
-    payload: { source: "slash", commentId: 5 },
+    payload: {
+      source: "slash",
+      commentId: 5,
+      scope: "all",
+      replyTarget: { kind: "prConversation", prNumber: 1 },
+    },
     cancelRequestedAt: null,
+    ...overrides,
   };
 }
 
@@ -164,6 +179,8 @@ describe("executeTriageJob", () => {
     mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
+    mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
+    mocks.fetchReviewCommentParentGraph.mockResolvedValue([]);
   });
 
   it("runs triage and publishes", async () => {
@@ -348,6 +365,105 @@ describe("executeTriageJob", () => {
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
+  });
+
+  it("filters inventory to one thread when scope is thread", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([
+      {
+        rootCommentId: 1,
+        lens: "review",
+        path: "src/a.ts",
+        line: 1,
+        severity: "P1",
+        titleSnippet: "P1 · A",
+        humanReplies: [],
+        threadUrl: "https://github.test/1",
+      },
+      {
+        rootCommentId: 2,
+        lens: "review-quality",
+        path: "src/b.ts",
+        line: 2,
+        severity: "P2",
+        titleSnippet: "P2 · B",
+        humanReplies: [],
+        threadUrl: "https://github.test/2",
+      },
+    ]);
+    mocks.listReviewThreadResolution.mockResolvedValue(
+      new Map([
+        [1, { threadNodeId: "node-1", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+    );
+    mocks.fetchReviewCommentParentGraph.mockResolvedValue([
+      { id: 1, inReplyToId: null },
+      { id: 9, inReplyToId: 1 },
+    ]);
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 9,
+          scope: "thread",
+          threadAnchorCommentId: 9,
+          replyTarget: {
+            kind: "inlineReviewThread",
+            prNumber: 1,
+            inReplyToCommentId: 1,
+          },
+        },
+      }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inventory: [expect.objectContaining({ rootCommentId: 1 })],
+        scope: "thread",
+      }),
+    );
+  });
+
+  it("reports ineligible thread scope without running the agent", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([
+      {
+        rootCommentId: 1,
+        lens: "review",
+        path: "src/a.ts",
+        line: 1,
+        severity: "P1",
+        titleSnippet: "P1 · A",
+        humanReplies: [],
+        threadUrl: "https://github.test/1",
+      },
+    ]);
+    mocks.fetchReviewCommentParentGraph.mockResolvedValue([{ id: 99, inReplyToId: null }]);
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 99,
+          scope: "thread",
+          threadAnchorCommentId: 99,
+          replyTarget: {
+            kind: "inlineReviewThread",
+            prNumber: 1,
+            inReplyToCommentId: 99,
+          },
+        },
+      }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(TRIAGE_THREAD_NOT_ELIGIBLE),
+      }),
+    );
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
   it("posts terminal failure comment when no report exists", async () => {

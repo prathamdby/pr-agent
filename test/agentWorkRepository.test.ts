@@ -6,7 +6,10 @@ vi.mock("../src/db/postgres.js", () => ({
 }));
 
 import { queryOne } from "../src/db/postgres.js";
-import { loadReviewExecutorPublishContext } from "../src/agentWork/repository.js";
+import {
+  listTriageEligibleInlineReviews,
+  loadReviewExecutorPublishContext,
+} from "../src/agentWork/repository.js";
 
 const pool = {} as Pool;
 
@@ -58,5 +61,26 @@ describe("loadReviewExecutorPublishContext", () => {
       shouldLinkToSummary: false,
       summaryCommentGithubId: null,
     });
+  });
+});
+
+describe("listTriageEligibleInlineReviews", () => {
+  it("maps completed inline_review publish rows to review id and lens", async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [
+        { github_id: "10", review_lens: "review" },
+        { github_id: "11", review_lens: "review-tests" },
+      ],
+    });
+    const scopedPool = { query } as unknown as Pool;
+
+    await expect(listTriageEligibleInlineReviews(scopedPool, "o/r#1")).resolves.toEqual(
+      new Map([
+        [10, "review"],
+        [11, "review-tests"],
+      ]),
+    );
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("inline_review"), ["o/r#1"]);
   });
 });
