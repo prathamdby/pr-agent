@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
   postSlashReply: vi.fn(),
+  createComment: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -44,7 +45,7 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(() => ({
     rest: {
-      issues: { createComment: vi.fn() },
+      issues: { createComment: mocks.createComment },
     },
   })),
 }));
@@ -221,5 +222,92 @@ describe("executeAskJob", () => {
 
     expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
     expect(mocks.postSlashReply.mock.calls[0]?.[4]).toBe("answer");
+  });
+
+  it("falls back to a PR comment when inline thread reply fails", async () => {
+    const item: AgentWorkItem = {
+      ...askItem(),
+      payload: {
+        question: "why this line?",
+        replyTarget: {
+          kind: "inlineReviewThread",
+          prNumber: 1,
+          inReplyToCommentId: 55,
+        },
+        commentId: 99,
+      },
+    };
+    mocks.postSlashReply.mockRejectedValueOnce(new Error("thread unavailable"));
+    mocks.createComment.mockResolvedValue(undefined);
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+      await spec.execute(item, {
+        installation: {
+          token: "tok",
+          expiresAtTs: 1_000_000,
+          ttlMs: 60_000,
+        },
+        headSha: "head",
+      });
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    expect(mocks.createComment).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      issue_number: 1,
+      body: expect.stringContaining("Could not reply in the review thread"),
+    });
+    expect(mocks.createComment.mock.calls[0]?.[0].body).toContain("answer");
+  });
+
+  it("posts terminal failure reply when the ask never delivered an answer", async () => {
+    mocks.runAskRun.mockRejectedValue(new Error("agent failed"));
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+      const item = askItem();
+      const installation = {
+        token: "tok",
+        expiresAtTs: 1_000_000,
+        ttlMs: 60_000,
+      };
+      await expect(
+        spec.execute(item, {
+          installation,
+          headSha: "head",
+        }),
+      ).rejects.toThrow("agent failed");
+      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    expect(mocks.postSlashReply.mock.calls[0]?.[4]).toContain(
+      "could not complete this ask after retries",
+    );
+    expect(mocks.postSlashReply.mock.calls[0]?.[4]).toContain("**Question:** what changed?");
+  });
+
+  it("does not post terminal failure reply on non-terminal retry", async () => {
+    mocks.runAskRun.mockRejectedValue(new Error("transient"));
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+      const item = askItem();
+      const installation = {
+        token: "tok",
+        expiresAtTs: 1_000_000,
+        ttlMs: 60_000,
+      };
+      await expect(
+        spec.execute(item, {
+          installation,
+          headSha: "head",
+        }),
+      ).rejects.toThrow("transient");
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.postSlashReply).not.toHaveBeenCalled();
   });
 });

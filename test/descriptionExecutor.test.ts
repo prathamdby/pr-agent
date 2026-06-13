@@ -1,0 +1,250 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Pool } from "pg";
+import type { JobWithMetadata, PgBoss } from "pg-boss";
+import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
+import type { AgentWorkItem, DescriptionJobData } from "../src/agentWork/types.js";
+import { DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
+import { makeTestConfig } from "./helpers/config.js";
+import * as repo from "../src/agentWork/repository.js";
+import {
+  makeDurableJobMetadata,
+  mockFetchedWorkItem,
+  setupDefaultDurableAuthMocks,
+  setupDefaultDurableRepositoryMocks,
+} from "./helpers/executorDurableHarness.js";
+
+const mocks = vi.hoisted(() => ({
+  runDescriptionRun: vi.fn(),
+  runDurableWorkItem: vi.fn(),
+  withPrRepositoryView: vi.fn(),
+  createComment: vi.fn(),
+}));
+
+vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/repository.js")>();
+  return {
+    ...actual,
+    shouldSkipWork: vi.fn().mockResolvedValue(false),
+    getWorkItemCore: vi.fn(),
+    getWorkItemPayload: vi.fn(),
+    claimWorkForExecution: vi.fn().mockResolvedValue(true),
+    markWorkCompleted: vi.fn().mockResolvedValue(true),
+    markWorkFailed: vi.fn().mockResolvedValue(true),
+    markWorkRetrying: vi.fn().mockResolvedValue(true),
+    markWorkCancelled: vi.fn().mockResolvedValue(undefined),
+    markWorkPublishDegraded: vi.fn().mockResolvedValue(undefined),
+    updateRunningWorkHeadSha: vi.fn().mockResolvedValue(true),
+    recordPublishStep: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+vi.mock("../src/agent/descriptionRun.js", () => ({
+  runFullPrDescription: mocks.runDescriptionRun,
+}));
+
+vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
+  return {
+    ...actual,
+    runDurableWorkItem: mocks.runDurableWorkItem,
+  };
+});
+
+vi.mock("../src/prWorkspace/index.js", () => ({
+  withPrRepositoryView: mocks.withPrRepositoryView,
+}));
+
+vi.mock("../src/github/appAuth.js", () => ({
+  mintInstallationAuth: vi.fn(),
+  getAppBotIdentity: vi.fn(),
+  installationOctokit: vi.fn(() => ({
+    rest: {
+      issues: { createComment: mocks.createComment },
+    },
+  })),
+}));
+
+import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
+import { executeDescriptionJob } from "../src/agentWork/executors/descriptionExecutor.js";
+
+const cfg = makeTestConfig({ piModel: "test" });
+const pool = {} as Pool;
+const boss = {} as PgBoss;
+
+function descriptionItem(source: "slash" | "auto" = "slash"): AgentWorkItem {
+  return {
+    id: "wi-1",
+    webhookEventId: "ev-1",
+    type: "description",
+    source,
+    status: "running",
+    owner: "o",
+    repo: "r",
+    prNumber: 1,
+    installationId: 42,
+    headSha: "head",
+    reviewLens: null,
+    resourceKey: "o/r#1",
+    attemptCount: 0,
+    payload: { source },
+    cancelRequestedAt: null,
+  };
+}
+
+function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<DescriptionJobData> {
+  const now = new Date();
+  return {
+    id: "job-1",
+    name: "agent-work-description",
+    data: { kind: "description", workItemId: "wi-1" },
+    expireInSeconds: 3600,
+    heartbeatSeconds: null,
+    signal: new AbortController().signal,
+    priority: 0,
+    state: "active",
+    retryLimit,
+    retryCount,
+    retryDelay: 0,
+    retryBackoff: false,
+    startAfter: now,
+    startedOn: now,
+    singletonKey: null,
+    singletonOn: null,
+    deleteAfterSeconds: 0,
+    createdOn: now,
+    completedOn: null,
+    keepUntil: now,
+    policy: "standard",
+    heartbeatOn: null,
+    deadLetter: "",
+    output: {},
+  };
+}
+
+function mockDurableExecution(item = descriptionItem()): void {
+  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    const installation = {
+      token: "tok",
+      expiresAtTs: Date.now() + 60_000,
+      ttlMs: 60_000,
+    };
+    const result = await spec.execute(item, {
+      installation,
+      headSha: "head",
+    });
+    if (result?.degraded) {
+      await repo.markWorkPublishDegraded(pool, item.id);
+    }
+  });
+}
+
+describe("executeDescriptionJob", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupDefaultDurableRepositoryMocks();
+    mocks.runDescriptionRun.mockResolvedValue({
+      published: true,
+      publishSuperseded: false,
+    });
+    mocks.createComment.mockResolvedValue(undefined);
+    mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
+      run({
+        agentCwd: "/tmp/pr-agent",
+        workspace: undefined,
+      }),
+    );
+    mockDurableExecution();
+  });
+
+  it("posts slash failure comment on terminal pg-boss attempt", async () => {
+    const item = descriptionItem("slash");
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+      const installation = {
+        token: "tok",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      };
+      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+    });
+
+    await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
+
+    expect(mocks.createComment).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      issue_number: 1,
+      body: DESCRIPTION_FAILURE_MESSAGE,
+    });
+  });
+
+  it("stays silent on terminal failure for auto source", async () => {
+    const item = descriptionItem("auto");
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+      const installation = {
+        token: "tok",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      };
+      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+    });
+
+    await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
+
+    expect(mocks.createComment).not.toHaveBeenCalled();
+  });
+
+  it("marks publish degraded when description run reports unpublished output", async () => {
+    mocks.runDescriptionRun.mockResolvedValue({
+      published: false,
+      publishSuperseded: false,
+    });
+
+    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
+
+    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
+  });
+
+  it("does not mark publish degraded when description publishes successfully", async () => {
+    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
+
+    expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
+  });
+
+  it("does not mark publish degraded when publish was superseded", async () => {
+    mocks.runDescriptionRun.mockResolvedValue({
+      published: false,
+      publishSuperseded: true,
+    });
+
+    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
+
+    expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
+  });
+
+  it("marks publish degraded through real durable scaffolding", async () => {
+    setupDefaultDurableAuthMocks();
+    mockFetchedWorkItem(descriptionItem());
+    mocks.runDescriptionRun.mockResolvedValue({
+      published: false,
+      publishSuperseded: false,
+    });
+
+    await runDurableWorkItem({
+      cfg,
+      pool,
+      boss,
+      job: makeDurableJobMetadata(),
+      type: "description",
+      resolveHeadSha: async () => ({ headSha: "head" }),
+      execute: async (_item, _env) => {
+        const result = await mocks.runDescriptionRun({});
+        if (!result.published && !result.publishSuperseded) {
+          return { degraded: true };
+        }
+        return {};
+      },
+    });
+
+    expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
+  });
+});
