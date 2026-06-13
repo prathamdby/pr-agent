@@ -3,13 +3,18 @@ import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
-import { ASK_PUBLISH_LENS, DESCRIPTION_PUBLISH_LENS } from "../settings/index.js";
+import {
+  ASK_PUBLISH_LENS,
+  DESCRIPTION_PUBLISH_LENS,
+  TRIAGE_PUBLISH_LENS,
+} from "../settings/index.js";
 import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
 
 export type PublishLens =
   | ReviewWorkPayload["mode"]
   | typeof DESCRIPTION_PUBLISH_LENS
-  | typeof ASK_PUBLISH_LENS;
+  | typeof ASK_PUBLISH_LENS
+  | typeof TRIAGE_PUBLISH_LENS;
 type SharedPublishLens = Exclude<PublishLens, typeof ASK_PUBLISH_LENS>;
 export type PublishStep =
   | "progress_comment"
@@ -18,14 +23,17 @@ export type PublishStep =
   | "summary_comment_claim"
   | "labels"
   | "pr_body"
-  | "ask_reply";
+  | "ask_reply"
+  | "triage_push"
+  | "triage_thread_actions"
+  | "triage_report";
 type SharedPublishStep = Exclude<PublishStep, "ask_reply">;
 type AskPublishStep = Extract<PublishStep, "ask_reply">;
 
 type AgentWorkRow = {
   id: string;
   webhook_event_id: string | null;
-  type: "review" | "ask" | "description";
+  type: "review" | "ask" | "description" | "triage";
   source: "auto" | "slash";
   status: WorkStatus;
   owner: string;
@@ -293,6 +301,59 @@ export async function hasCompletedPublishStep(
     [workItemId, resourceKey, reviewLens, step],
   );
   return row != null;
+}
+
+export async function getCompletedPublishStepDetail(
+  pool: Pool,
+  workItemId: string,
+  resourceKey: string,
+  reviewLens: PublishLens,
+  step: PublishStep,
+): Promise<Record<string, unknown> | null> {
+  const row = await queryOne<{ detail: Record<string, unknown> | null }>(
+    pool,
+    `SELECT detail
+		   FROM publish_records
+		  WHERE work_item_id = $1
+		    AND resource_key = $2
+		    AND review_lens = $3
+		    AND step = $4
+		    AND status = 'completed'
+		  LIMIT 1`,
+    [workItemId, resourceKey, reviewLens, step],
+  );
+  return row?.detail ?? null;
+}
+
+export async function getCompletedPublishStepDetailWithoutNewerStep(
+  pool: Pool,
+  resourceKey: string,
+  reviewLens: PublishLens,
+  step: PublishStep,
+  newerStep: PublishStep,
+): Promise<Record<string, unknown> | null> {
+  const row = await queryOne<{ detail: Record<string, unknown> | null }>(
+    pool,
+    `SELECT current_step.detail
+       FROM publish_records current_step
+      WHERE current_step.resource_key = $1
+        AND current_step.review_lens = $2
+        AND current_step.step = $3
+        AND current_step.status = 'completed'
+        AND NOT EXISTS (
+          SELECT 1
+            FROM publish_records newer_step
+           WHERE newer_step.resource_key = current_step.resource_key
+             AND newer_step.review_lens = current_step.review_lens
+             AND newer_step.step = $4
+             AND newer_step.status = 'completed'
+             AND newer_step.updated_at >= current_step.updated_at
+        )
+      ORDER BY current_step.updated_at DESC
+      LIMIT 1`,
+    [resourceKey, reviewLens, step, newerStep],
+  );
+  return row?.detail ?? null;
 }
 
 /** Returns true exactly once per (resourceKey, lens) until the claim row is deleted. */

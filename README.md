@@ -10,7 +10,7 @@
 
 > **Async by design.** Webhooks return **`200`** after durable intake (Postgres + pg-boss enqueue). Reactions, progress comments, reviews, descriptions, and ask answers publish on **`ROLE=worker`** and may appear seconds later.
 
-PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces (full shallow checkout of the PR head for context) and GitHub APIs for publish.
+PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks, triage) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces or isolated writable checkouts and GitHub APIs for publish.
 
 Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](docs/configuration.md). Behaviour and deployment: [docs/operations.md](docs/operations.md). Queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
 
@@ -35,7 +35,7 @@ Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](d
 1. Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
 2. Set **Webhook URL** to `https://<host>/webhooks` and **Webhook secret** to match `WEBHOOK_SECRET`.
 3. Subscribe to events: **`pull_request`**, **`issue_comment`**, **`pull_request_review_comment`** (do not require `pull_request_review`).
-4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read, **Metadata** read. **Commit statuses** read/write when `ENABLE_REVIEW_COMMIT_STATUS=true`.
+4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read. Contents write is only needed for `/triage`. **Commit statuses** read/write when `ENABLE_REVIEW_COMMIT_STATUS=true`.
 5. Install the app on target orgs or repos. Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in `.env` (see [`.env.example`](.env.example)).
 
 ### 2. Docker Compose (recommended)
@@ -162,6 +162,7 @@ General bug-and-correctness reviews run on PR open and sync. **`/review-security
 | Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
 | Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
 | Tests lens              | No                     | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |
+| Triage                  | No                     | `/triage`          | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`         |
 | Ask                     | No                     | `/ask <question>`  | PR conversation or inline diff **code anchor**                                            |
 | Help                    | No                     | `/help`            | Worker-published guidance                                                                 |
 | Lightweight auto-review | docs-only trivial PRs  | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
@@ -213,24 +214,27 @@ flowchart LR
   Boss --> RevQ[review queue]
   Boss --> AskQ[ask queue]
   Boss --> DescQ[description queue]
+  Boss --> TriageQ[triage queue]
   Boss --> RetQ[retention queue]
   AckQ --> Worker["ROLE=worker executors"]
   RevQ --> Worker
   AskQ --> Worker
   DescQ --> Worker
+  TriageQ --> Worker
   RetQ --> Worker
   Worker --> Retention[retention cleanup]
   Retention --> Dedupe
   Retention --> Items
   Worker --> LLM[LLM plus tools]
   LLM --> Publish[GitHub PR-surface publish]
+  Worker --> Push[git push PR branch]
 ```
 
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items**.
-2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description).
+2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, triage).
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
-5. **Review / ask / description workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** (depth-1 full head checkout + GitHub PR-file diff metadata), agent harness, **PR-surface I/O**.
+5. **Review / ask / description / triage workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
 6. **Reviews** ([`runFullPrReview`](src/review/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).

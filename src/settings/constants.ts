@@ -3,18 +3,21 @@ export const ACK_QUEUE = "agent-work-ack";
 export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
+export const TRIAGE_QUEUE = "agent-work-triage";
 export const RETENTION_QUEUE = "agent-work-retention";
 export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
 export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
+export const TRIAGE_DEAD_LETTER_QUEUE = "agent-work-triage-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
 export const AUTOMATED_REVIEW_LENS = "review" as const;
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const ASK_PUBLISH_LENS = "ask" as const;
+export const TRIAGE_PUBLISH_LENS = "triage" as const;
 export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 
 /** pi-ai metadata when mapping Cursor.models.list() items. */
@@ -37,6 +40,43 @@ export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
 export const DESCRIPTION_VALIDATION_REPAIR_ROUNDS = 3;
 export const DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 export const MAX_DESCRIPTION_PAYLOAD_PR_FILES = 20;
+
+/** PR triage agent block (upserted by sentinel). */
+export const TRIAGE_SUMMARY_SENTINEL = "## PR Agent Triage";
+export const TRIAGE_ALREADY_IN_PROGRESS =
+  "A `/triage` run is already queued or in progress for this pull request.";
+export const TRIAGE_FAILURE_MESSAGE =
+  "PR Agent could not complete the triage run after retries. Try `/triage` again later.";
+export const TRIAGE_NO_PRIOR_FINDINGS =
+  "No prior PR Agent inline findings to triage on this pull request. Run `/review` first.";
+export const TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED =
+  "All prior PR Agent inline findings on this pull request are already resolved.";
+export const TRIAGE_FORK_PR_NOTICE =
+  "PR Agent cannot push fixes to fork branches. Triage ran in report-only mode.";
+export const TRIAGE_STALE_HEAD_NOTICE =
+  "The pull request head changed while triage was running; no fixes were pushed. Re-run `/triage`.";
+export const TRIAGE_THREAD_RESOLUTION_NOTICE =
+  "Some fixed or already-resolved findings could not be matched to GitHub review threads, so their thread replies were skipped.";
+export const TRIAGE_VALIDATION_REPAIR_ROUNDS = 3;
+export const TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS = 2;
+export const MAX_TRIAGE_FINDINGS = 128;
+export const TRIAGE_VERDICT_EVIDENCE_MAX_CHARS = 500;
+export const TRIAGE_SKIP_REASON_MAX_CHARS = 300;
+export const TRIAGE_COMMIT_SUBJECT_MAX_CHARS = 50;
+export const TRIAGE_COMMIT_TYPES = [
+  "feat",
+  "fix",
+  "refactor",
+  "docs",
+  "test",
+  "chore",
+  "style",
+  "perf",
+] as const;
+export const TRIAGE_COMMIT_MAX_FILES = 20;
+/** Staged-diff size cap per commitFix call (added + removed lines). */
+export const TRIAGE_MAX_COMMIT_DIFF_LINES = 200;
+export const TRIAGE_NEW_FILE_MAX_BYTES = 32_768;
 
 /** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
@@ -342,6 +382,7 @@ export const SLASH_HELP_BODY = [
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
   "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
   "- `/review-tests` — draft missing test cases for the PR's changes (trigger-only, not auto-run)",
+  "- `/triage` — fix earlier PR Agent findings on this PR: commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs)",
   "",
   "Notes:",
   "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on `opened` / `synchronize` / `reopened`.",

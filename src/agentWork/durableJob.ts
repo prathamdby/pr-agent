@@ -77,7 +77,7 @@ export type DurableJobSpec = {
   readonly pool: Pool;
   readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
-  readonly type: "review" | "ask" | "description";
+  readonly type: "review" | "ask" | "description" | "triage";
   readonly acceptItem?: (item: AgentWorkItemCore) => boolean;
   readonly resolveHeadSha: (
     token: string,

@@ -38,7 +38,10 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | Review worker concurrency | `REVIEW_CONCURRENCY`                        | `2`                         | pg-boss review queue workers                                                                                                                                                                                                                                                                                                                               |
 | Ask worker concurrency    | `ASK_CONCURRENCY`                           | `1`                         | pg-boss ask queue workers                                                                                                                                                                                                                                                                                                                                  |
 | Description concurrency   | `DESCRIPTION_CONCURRENCY`                   | `1`                         | pg-boss description queue workers                                                                                                                                                                                                                                                                                                                          |
+| Triage concurrency        | `TRIAGE_CONCURRENCY`                        | `1`                         | pg-boss triage queue workers                                                                                                                                                                                                                                                                                                                               |
 | Description tool rounds   | `MAX_TOOL_ROUNDS_DESCRIBE`                  | `16`                        | agent investigation cap for `/describe`                                                                                                                                                                                                                                                                                                                    |
+| Triage tool rounds        | `MAX_TOOL_ROUNDS_TRIAGE`                    | `32`                        | agent investigation cap for `/triage`                                                                                                                                                                                                                                                                                                                      |
+| Triage fix budget         | `MAX_TRIAGE_FIXES_PER_RUN`                  | `10`                        | max commitFix calls per `/triage` run; remaining findings should be skipped with a concrete reason                                                                                                                                                                                                                                                         |
 | Description AI title      | `DESCRIPTION_GENERATE_TITLE`                | `false`                     | when false, keep existing PR title on publish                                                                                                                                                                                                                                                                                                              |
 | Slash command allowlist   | `SLASH_ALLOWED_ASSOCIATIONS`                | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub comment author associations allowed to run slash commands; valid values: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `NONE`, `MANNEQUIN`; set `*` to allow all                                                                                                                       |
 | Ack worker concurrency    | `ACK_CONCURRENCY`                           | `2`                         | reactions + progress stub                                                                                                                                                                                                                                                                                                                                  |
@@ -112,6 +115,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `ACK_QUEUE`                                | `agent-work-ack`                                                                                                                            |
 | `REVIEW_QUEUE`                             | `agent-work-review`                                                                                                                         |
 | `ASK_QUEUE`                                | `agent-work-ask`                                                                                                                            |
+| `TRIAGE_QUEUE`                             | `agent-work-triage`                                                                                                                         |
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                          |
 | `*_DEAD_LETTER_QUEUE`                      | DLQ names                                                                                                                                   |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                    |
@@ -119,6 +123,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `DESCRIPTION_AUTO_ACTIONS` (env)           | `opened` — comma-separated `pull_request` actions that auto-run `/describe`; adding `synchronize` re-runs the description LLM on every push |
 | `AUTOMATED_REVIEW_LENS`                    | `review`                                                                                                                                    |
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                       |
+| `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                    |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                       |
 
 ### Review output
@@ -209,6 +214,29 @@ lensOverrides:
 | `REVIEW_ANCHOR_MENU_BLOCK_LABEL`     | untrusted anchor menu block label      |
 | `ReviewValidationFailureKind`        | validation failure metric categories   |
 | `ReviewPhase`                        | review harness phase metric categories |
+
+### Triage
+
+| Symbol                               | Default / role                                      |
+| ------------------------------------ | --------------------------------------------------- |
+| `TRIAGE_SUMMARY_SENTINEL`            | `## PR Agent Triage`                                |
+| `TRIAGE_ALREADY_IN_PROGRESS`         | duplicate `/triage` ack text                        |
+| `TRIAGE_FAILURE_MESSAGE`             | terminal failure PR comment                         |
+| `TRIAGE_NO_PRIOR_FINDINGS`           | empty inventory report text                         |
+| `TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED` | resolved-only inventory report text                 |
+| `TRIAGE_FORK_PR_NOTICE`              | fork PR report-only text                            |
+| `TRIAGE_STALE_HEAD_NOTICE`           | stale push report text                              |
+| `TRIAGE_THREAD_RESOLUTION_NOTICE`    | missing thread mapping report text                  |
+| `TRIAGE_VALIDATION_REPAIR_ROUNDS`    | 3                                                   |
+| `TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS`     | 2                                                   |
+| `MAX_TRIAGE_FINDINGS`                | 128                                                 |
+| `TRIAGE_VERDICT_EVIDENCE_MAX_CHARS`  | 500                                                 |
+| `TRIAGE_SKIP_REASON_MAX_CHARS`       | 300                                                 |
+| `TRIAGE_COMMIT_SUBJECT_MAX_CHARS`    | 50                                                  |
+| `TRIAGE_COMMIT_TYPES`                | feat, fix, refactor, docs, test, chore, style, perf |
+| `TRIAGE_COMMIT_MAX_FILES`            | 20                                                  |
+| `TRIAGE_MAX_COMMIT_DIFF_LINES`       | 200                                                 |
+| `TRIAGE_NEW_FILE_MAX_BYTES`          | 32768                                               |
 
 ### Ask safety
 

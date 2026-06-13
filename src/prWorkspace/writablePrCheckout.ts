@@ -1,0 +1,300 @@
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, rm, statfs } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, sep } from "node:path";
+import { promisify } from "node:util";
+import type { Config } from "../config.js";
+import type { BotIdentity } from "../github/appAuth.js";
+import {
+  SENSITIVE_PATH_PATTERNS,
+  TRIAGE_COMMIT_MAX_FILES,
+  TRIAGE_COMMIT_SUBJECT_MAX_CHARS,
+  TRIAGE_COMMIT_TYPES,
+  TRIAGE_MAX_COMMIT_DIFF_LINES,
+} from "../settings/index.js";
+import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
+import { assertWorkspacePath } from "./localPrWorkspace.js";
+
+const exec = promisify(execFile);
+const WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
+
+export type CommitArgs = {
+  readonly files: readonly string[];
+  readonly subject: string;
+  readonly body?: readonly string[];
+};
+
+export type WritablePrCheckout = {
+  readonly dir: string;
+  readonly headRef: string;
+  readonly baseSha: string;
+  readonly commit: (args: CommitArgs) => Promise<{ sha: string; diff: string }>;
+  readonly push: () => Promise<void>;
+  readonly listCommittedShas: () => readonly string[];
+  readonly listCommittedDetails: () => readonly {
+    readonly sha: string;
+    readonly subject: string;
+    readonly diff: string;
+  }[];
+};
+
+export class StaleHeadPushError extends Error {
+  constructor(message = "Pull request head moved before triage push") {
+    super(message);
+    this.name = "StaleHeadPushError";
+  }
+}
+
+type WritablePrCheckoutParams = {
+  readonly cfg: Pick<
+    Config,
+    | "localWorkspaceCloneTimeoutMs"
+    | "localWorkspaceFetchTimeoutMs"
+    | "localWorkspaceMinFreeSpaceBytes"
+    | "localWorkspaceMaxFetchBytes"
+  >;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headRef: string;
+  readonly headSha: string;
+  readonly installationToken: string;
+  readonly botIdentity: BotIdentity;
+  readonly remoteUrlOverride?: string;
+};
+
+function assertSha(value: string, field: string): void {
+  if (!/^[0-9a-f]{40}$/i.test(value)) throw new Error(`${field} must be a 40-character SHA`);
+}
+
+function assertRepoPart(value: string, field: string): void {
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) throw new Error(`${field} is not git-safe`);
+}
+
+function assertHeadRef(value: string): void {
+  if (
+    value.startsWith("/") ||
+    value.endsWith("/") ||
+    value.startsWith("-") ||
+    !/^[A-Za-z0-9._/-]+$/.test(value) ||
+    value.includes("..") ||
+    value.includes("//") ||
+    value.includes("\\") ||
+    value.includes("@{") ||
+    value.endsWith(".") ||
+    value.split("/").some((part) => part.length === 0 || part.endsWith(".lock"))
+  ) {
+    throw new Error("headRef is not git-safe");
+  }
+}
+
+function isSensitivePath(path: string): boolean {
+  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
+}
+
+function validateSubject(subject: string): void {
+  if (subject.length > TRIAGE_COMMIT_SUBJECT_MAX_CHARS) {
+    throw new Error(`Commit subject exceeds ${TRIAGE_COMMIT_SUBJECT_MAX_CHARS} characters`);
+  }
+  if (subject.endsWith(".")) throw new Error("Commit subject must not end with a period");
+  const types = TRIAGE_COMMIT_TYPES.join("|");
+  const match = new RegExp(`^(${types}): ([^A-Z].*)$`).exec(subject);
+  if (!match) throw new Error("Commit subject does not match the triage commit contract");
+}
+
+function validateBody(body: readonly string[] | undefined): string | undefined {
+  if (!body || body.length === 0) return undefined;
+  for (const line of body) {
+    if (!line.startsWith("- ")) throw new Error("Commit body lines must start with '- '");
+    if (line.endsWith(".")) throw new Error("Commit body bullets must not end with a period");
+    const firstWord = line.slice(2).trim().split(/\s+/, 1)[0] ?? "";
+    if (!/^[A-Z]/.test(firstWord)) {
+      throw new Error("Commit body bullet first word must be capitalized");
+    }
+  }
+  return body.join("\n");
+}
+
+export function buildCommitCommandArgs(args: CommitArgs): readonly string[] {
+  validateSubject(args.subject);
+  const body = validateBody(args.body);
+  return body == null
+    ? ["commit", "-n", "-m", args.subject]
+    : ["commit", "-n", "-m", args.subject, "-m", body];
+}
+
+function validateFiles(root: string, files: readonly string[]): readonly string[] {
+  const normalized = [...new Set(files.map((file) => file.replace(/\\/g, "/")))];
+  if (normalized.length === 0) throw new Error("commitFix requires at least one file");
+  if (normalized.length > TRIAGE_COMMIT_MAX_FILES) {
+    throw new Error(`commitFix accepts at most ${TRIAGE_COMMIT_MAX_FILES} files`);
+  }
+  for (const file of normalized) {
+    const resolved = assertWorkspacePath(root, file);
+    if (!resolved.startsWith(root + sep) && resolved !== root) {
+      throw new Error(`Path traversal attempt detected: ${file}`);
+    }
+    if (isSensitivePath(file)) throw new Error(`commitFix blocked sensitive path "${file}"`);
+  }
+  return normalized;
+}
+
+function changedLineCount(diff: string): number {
+  return diff
+    .split("\n")
+    .filter((line) => /^[+-]/.test(line) && !line.startsWith("+++") && !line.startsWith("---"))
+    .length;
+}
+
+async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
+  const fs = await statfs(dir);
+  const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
+  if (freeBytes < BigInt(minBytes))
+    throw new Error("Insufficient free space for writable checkout");
+}
+
+function gitObjectStoreBytes(countObjectsOutput: string): number {
+  let sizeKiB = 0;
+  let sizePackKiB = 0;
+  for (const line of countObjectsOutput.split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon <= 0) continue;
+    const key = line.slice(0, colon).trim();
+    const value = Number(line.slice(colon + 1).trim());
+    if (Number.isNaN(value)) continue;
+    if (key === "size") sizeKiB = value;
+    if (key === "size-pack") sizePackKiB = value;
+  }
+  return (sizeKiB + sizePackKiB) * 1024;
+}
+
+function classifyPushError(error: unknown): never {
+  const text =
+    error instanceof Error
+      ? `${error.message}\n${"stderr" in error && typeof error.stderr === "string" ? error.stderr : ""}`
+      : String(error);
+  if (/non-fast-forward|fetch first|stale info|rejected/i.test(text)) {
+    throw new StaleHeadPushError();
+  }
+  throw error;
+}
+
+async function removeWorkspace(rootDir: string): Promise<void> {
+  await makeDirectoriesWritable(rootDir);
+  await rm(rootDir, { recursive: true, force: true });
+}
+
+export async function withWritablePrCheckout<T>(
+  params: WritablePrCheckoutParams,
+  fn: (checkout: WritablePrCheckout) => Promise<T>,
+): Promise<T> {
+  const { cfg, owner, repo, headRef, headSha, installationToken, botIdentity } = params;
+  assertRepoPart(owner, "owner");
+  assertRepoPart(repo, "repo");
+  assertHeadRef(headRef);
+  assertSha(headSha, "headSha");
+  await ensureFreeSpace(tmpdir(), cfg.localWorkspaceMinFreeSpaceBytes);
+
+  const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
+  const dir = join(rootDir, "checkout");
+  const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
+  const credentials = await createGitCredentialFiles(rootDir, installationToken);
+  const committed: { sha: string; subject: string; diff: string }[] = [];
+
+  const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
+    exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+      cwd: dir,
+      env: {
+        ...process.env,
+        GIT_CONFIG_NOSYSTEM: "1",
+        GIT_TERMINAL_PROMPT: "0",
+        GIT_LFS_SKIP_SMUDGE: "1",
+        GIT_ASKPASS: credentials.askpass,
+        GIT_TOKEN_FILE: credentials.tokenFile,
+      },
+      timeout: timeoutMs,
+      maxBuffer: 20 * 1024 * 1024,
+    });
+
+  try {
+    await mkdir(dir, { recursive: true });
+    await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
+    await git(["remote", "add", "origin", remoteUrl], cfg.localWorkspaceCloneTimeoutMs);
+    await git(
+      [
+        "fetch",
+        "--no-tags",
+        "--depth=1",
+        "--no-recurse-submodules",
+        "origin",
+        `refs/heads/${headRef}`,
+      ],
+      cfg.localWorkspaceFetchTimeoutMs,
+    );
+    const { stdout: objectStats } = await git(
+      ["count-objects", "-v"],
+      cfg.localWorkspaceFetchTimeoutMs,
+    );
+    if (gitObjectStoreBytes(objectStats) > cfg.localWorkspaceMaxFetchBytes) {
+      throw new Error(
+        `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${cfg.localWorkspaceMaxFetchBytes})`,
+      );
+    }
+    await git(["checkout", "-f", "FETCH_HEAD"], cfg.localWorkspaceCloneTimeoutMs);
+    const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
+    if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
+      throw new Error(
+        `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
+      );
+    }
+    await git(["config", "user.name", botIdentity.login], cfg.localWorkspaceCloneTimeoutMs);
+    await git(
+      [
+        "config",
+        "user.email",
+        `${botIdentity.userId}+${botIdentity.login}@users.noreply.github.com`,
+      ],
+      cfg.localWorkspaceCloneTimeoutMs,
+    );
+    const checkout: WritablePrCheckout = {
+      dir,
+      headRef,
+      baseSha: headSha,
+      commit: async (args) => {
+        const files = validateFiles(dir, args.files);
+        const commitArgs = buildCommitCommandArgs(args);
+        await git(["reset"], cfg.localWorkspaceFetchTimeoutMs);
+        await git(["add", "--", ...files], cfg.localWorkspaceFetchTimeoutMs);
+        const { stdout: diff } = await git(
+          ["diff", "--cached", "--", ...files],
+          cfg.localWorkspaceFetchTimeoutMs,
+        );
+        if (changedLineCount(diff) > TRIAGE_MAX_COMMIT_DIFF_LINES) {
+          await git(["reset"], cfg.localWorkspaceFetchTimeoutMs);
+          throw new Error("commitFix rejected: staged diff is not minimal");
+        }
+        await git(commitArgs, cfg.localWorkspaceFetchTimeoutMs);
+        const { stdout: sha } = await git(["rev-parse", "HEAD"], cfg.localWorkspaceFetchTimeoutMs);
+        const committedSha = sha.trim();
+        committed.push({ sha: committedSha, subject: args.subject, diff });
+        return { sha: committedSha, diff };
+      },
+      push: async () => {
+        try {
+          await git(
+            ["push", "origin", `HEAD:refs/heads/${headRef}`],
+            cfg.localWorkspaceFetchTimeoutMs,
+          );
+        } catch (error) {
+          classifyPushError(error);
+        }
+      },
+      listCommittedShas: () => committed.map((item) => item.sha),
+      listCommittedDetails: () => [...committed],
+    };
+
+    return await fn(checkout);
+  } finally {
+    await credentials.cleanup().catch(() => undefined);
+    await removeWorkspace(rootDir).catch(() => undefined);
+  }
+}
