@@ -38,6 +38,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     if (!apiKey) {
       throw new Error("CURSOR_API_KEY is required for Cursor provider runs");
     }
+    assertCursorRipgrepConfigured();
     const bridge = await createMcpBridge({
       tools: () => context.tools ?? [],
       executors: () => activeExecutors,
@@ -45,7 +46,6 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       maxToolRounds: () => activeMaxToolRounds,
       toolRoundCounter,
     });
-    assertCursorRipgrepConfigured();
     const agent = await Agent.create({
       apiKey,
       model: sdkModelSelection,
