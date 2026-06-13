@@ -3,7 +3,10 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem, TriageJobData } from "../src/agentWork/types.js";
-import { TRIAGE_FAILURE_MESSAGE } from "../src/settings/index.js";
+import {
+  TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
+  TRIAGE_FAILURE_MESSAGE,
+} from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
@@ -166,6 +169,27 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.publishTriageReportOnly).toHaveBeenCalled();
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+  });
+
+  it("reports already-resolved threads without implying no review ran", async () => {
+    mocks.listReviewThreadResolution.mockResolvedValue(
+      new Map([[1, { threadNodeId: "node", isResolved: true }]]),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inventory: [],
+        previouslyResolvedCount: 1,
+        body: expect.stringContaining(TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED),
+      }),
+    );
+    expect(mocks.publishTriageReportOnly.mock.calls[0]?.[0].body).toContain("Inventory items: 1");
+    expect(mocks.publishTriageReportOnly.mock.calls[0]?.[0].body).toContain(
+      "Previously resolved: 1",
+    );
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 

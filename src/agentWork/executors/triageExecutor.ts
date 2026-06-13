@@ -7,6 +7,7 @@ import { fetchBotFindingThreads } from "../../review/reviewPriorFeedback.js";
 import { runFullPrTriage } from "../../agent/triageRun.js";
 import { publishTriage, publishTriageReportOnly } from "../../agent/publishTriage.js";
 import {
+  TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_FAILURE_MESSAGE,
   TRIAGE_FORK_PR_NOTICE,
   TRIAGE_NO_PRIOR_FINDINGS,
@@ -41,14 +42,20 @@ async function loadPullRequestBranchInfo(params: {
   };
 }
 
-function reportOnlyBody(message: string, headSha: string, inventoryCount: number): string {
+function reportOnlyBody(params: {
+  readonly message: string;
+  readonly headSha: string;
+  readonly inventoryCount: number;
+  readonly previouslyResolvedCount: number;
+}): string {
   return [
     TRIAGE_SUMMARY_SENTINEL,
     "",
-    message,
+    params.message,
     "",
-    `Evaluated head: \`${headSha}\``,
-    `Inventory items: ${inventoryCount}`,
+    `Evaluated head: \`${params.headSha}\``,
+    `Inventory items: ${params.inventoryCount}`,
+    `Previously resolved: ${params.previouslyResolvedCount}`,
   ].join("\n");
 }
 
@@ -88,7 +95,12 @@ export async function executeTriageJob(
           headSha,
           inventory: [],
           previouslyResolvedCount: 0,
-          body: reportOnlyBody(TRIAGE_FORK_PR_NOTICE, headSha, 0),
+          body: reportOnlyBody({
+            message: TRIAGE_FORK_PR_NOTICE,
+            headSha,
+            inventoryCount: 0,
+            previouslyResolvedCount: 0,
+          }),
         });
         return {};
       }
@@ -130,7 +142,13 @@ export async function executeTriageJob(
           headSha,
           inventory,
           previouslyResolvedCount,
-          body: reportOnlyBody(TRIAGE_NO_PRIOR_FINDINGS, headSha, threads.length),
+          body: reportOnlyBody({
+            message:
+              threads.length === 0 ? TRIAGE_NO_PRIOR_FINDINGS : TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
+            headSha,
+            inventoryCount: threads.length,
+            previouslyResolvedCount,
+          }),
         });
         return {};
       }

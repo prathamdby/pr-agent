@@ -1,5 +1,5 @@
 import { execFile as execFileCb } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +9,7 @@ import {
   StaleHeadPushError,
   withWritablePrCheckout,
 } from "../src/prWorkspace/writablePrCheckout.js";
+import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const execFile = promisify(execFileCb);
@@ -169,4 +170,19 @@ describe("writable PR checkout", () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  it("removes stale triage checkout dirs with local workspace cleanup", async () => {
+    const staleDir = await mkdtemp(join(tmpdir(), "pr-agent-triage-test-"));
+    try {
+      await mkdir(join(staleDir, "checkout"), { recursive: true });
+      const old = new Date(Date.now() - 10_000);
+      await utimes(staleDir, old, old);
+
+      await cleanupStaleLocalPrWorkspaces(makeTestConfig());
+
+      await expect(stat(staleDir)).rejects.toThrow();
+    } finally {
+      await rm(staleDir, { recursive: true, force: true });
+    }
+  });
 });

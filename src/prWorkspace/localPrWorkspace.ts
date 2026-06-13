@@ -21,6 +21,7 @@ import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredenti
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
+const TRIAGE_WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 const PRIVATE_CHECKOUT_DIR = "private";
 const AGENT_TREE_DIR = "agent";
 const PR_HEAD_REF = "pr-head";
@@ -405,7 +406,13 @@ export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> 
   await cleanupStalePiAgentDirs(cfg);
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.startsWith(WORKSPACE_ROOT_PREFIX)) continue;
+    if (
+      !entry.isDirectory() ||
+      (!entry.name.startsWith(WORKSPACE_ROOT_PREFIX) &&
+        !entry.name.startsWith(TRIAGE_WORKSPACE_ROOT_PREFIX))
+    ) {
+      continue;
+    }
     const full = join(tmpdir(), entry.name);
     const ageMs = now - (await stat(full)).mtimeMs;
     if (ageMs > cfg.localWorkspaceStaleCleanupAgeSeconds * 1000) {

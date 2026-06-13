@@ -49,6 +49,8 @@ export const TRIAGE_FAILURE_MESSAGE =
   "PR Agent could not complete the triage run after retries. Try `/triage` again later.";
 export const TRIAGE_NO_PRIOR_FINDINGS =
   "No prior PR Agent inline findings to triage on this pull request. Run `/review` first.";
+export const TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED =
+  "All prior PR Agent inline findings on this pull request are already resolved.";
 export const TRIAGE_FORK_PR_NOTICE =
   "PR Agent cannot push fixes to fork branches. Triage ran in report-only mode.";
 export const TRIAGE_STALE_HEAD_NOTICE =

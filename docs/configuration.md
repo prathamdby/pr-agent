@@ -217,24 +217,25 @@ lensOverrides:
 
 ### Triage
 
-| Symbol                              | Default / role                                      |
-| ----------------------------------- | --------------------------------------------------- |
-| `TRIAGE_SUMMARY_SENTINEL`           | `## PR Agent Triage`                                |
-| `TRIAGE_ALREADY_IN_PROGRESS`        | duplicate `/triage` ack text                        |
-| `TRIAGE_FAILURE_MESSAGE`            | terminal failure PR comment                         |
-| `TRIAGE_NO_PRIOR_FINDINGS`          | empty inventory report text                         |
-| `TRIAGE_FORK_PR_NOTICE`             | fork PR report-only text                            |
-| `TRIAGE_STALE_HEAD_NOTICE`          | stale push report text                              |
-| `TRIAGE_VALIDATION_REPAIR_ROUNDS`   | 3                                                   |
-| `TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS`    | 2                                                   |
-| `MAX_TRIAGE_FINDINGS`               | 128                                                 |
-| `TRIAGE_VERDICT_EVIDENCE_MAX_CHARS` | 500                                                 |
-| `TRIAGE_SKIP_REASON_MAX_CHARS`      | 300                                                 |
-| `TRIAGE_COMMIT_SUBJECT_MAX_CHARS`   | 50                                                  |
-| `TRIAGE_COMMIT_TYPES`               | feat, fix, refactor, docs, test, chore, style, perf |
-| `TRIAGE_COMMIT_MAX_FILES`           | 20                                                  |
-| `TRIAGE_MAX_COMMIT_DIFF_LINES`      | 200                                                 |
-| `TRIAGE_NEW_FILE_MAX_BYTES`         | 32768                                               |
+| Symbol                               | Default / role                                      |
+| ------------------------------------ | --------------------------------------------------- |
+| `TRIAGE_SUMMARY_SENTINEL`            | `## PR Agent Triage`                                |
+| `TRIAGE_ALREADY_IN_PROGRESS`         | duplicate `/triage` ack text                        |
+| `TRIAGE_FAILURE_MESSAGE`             | terminal failure PR comment                         |
+| `TRIAGE_NO_PRIOR_FINDINGS`           | empty inventory report text                         |
+| `TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED` | resolved-only inventory report text                 |
+| `TRIAGE_FORK_PR_NOTICE`              | fork PR report-only text                            |
+| `TRIAGE_STALE_HEAD_NOTICE`           | stale push report text                              |
+| `TRIAGE_VALIDATION_REPAIR_ROUNDS`    | 3                                                   |
+| `TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS`     | 2                                                   |
+| `MAX_TRIAGE_FINDINGS`                | 128                                                 |
+| `TRIAGE_VERDICT_EVIDENCE_MAX_CHARS`  | 500                                                 |
+| `TRIAGE_SKIP_REASON_MAX_CHARS`       | 300                                                 |
+| `TRIAGE_COMMIT_SUBJECT_MAX_CHARS`    | 50                                                  |
+| `TRIAGE_COMMIT_TYPES`                | feat, fix, refactor, docs, test, chore, style, perf |
+| `TRIAGE_COMMIT_MAX_FILES`            | 20                                                  |
+| `TRIAGE_MAX_COMMIT_DIFF_LINES`       | 200                                                 |
+| `TRIAGE_NEW_FILE_MAX_BYTES`          | 32768                                               |
 
 ### Ask safety
 
