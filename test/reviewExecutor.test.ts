@@ -10,7 +10,6 @@ const mocks = vi.hoisted(() => ({
   lightweight: vi.fn(),
   runFullPrReview: vi.fn(),
   withPrRepositoryView: vi.fn(),
-  runDurableWorkItem: vi.fn(),
   buildStaleReschedule: vi.fn(),
   buildTrustedContext: vi.fn(),
   fetchPriorFeedback: vi.fn(),
@@ -19,48 +18,14 @@ const mocks = vi.hoisted(() => ({
   logWarn: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/durableJob.js", () => ({
-  makeInstallationTokenRefresher: vi.fn(() => async () => ({
-    token: "t",
-    expiresAtTs: Date.now() + 60_000,
-  })),
-  resolveWorkItemHead: vi.fn(async () => ({ headSha: "head" })),
-  runDurableWorkItem: mocks.runDurableWorkItem,
-}));
-
 vi.mock("../src/agentWork/repository.js", () => ({
   loadReviewExecutorPublishContext: mocks.loadPublishContext,
   recordPublishStep: vi.fn(),
   shouldSkipWork: vi.fn(),
 }));
 
-vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/listPullRequestFiles.js")>();
-  return {
-    assertPullRequestFilesHeadSha: actual.assertPullRequestFilesHeadSha,
-    fetchPullRequestFiles: mocks.fetchPrFiles,
-  };
-});
-
-vi.mock("../src/agentWork/reviewLightweightCompletion.js", () => ({
-  tryLightweightAutoReviewCompletion: mocks.lightweight,
-}));
-
 vi.mock("../src/review/reviewRun.js", () => ({
   runFullPrReview: mocks.runFullPrReview,
-}));
-
-vi.mock("../src/agentWork/reviewReschedule.js", () => ({
-  buildStaleSlashReviewRescheduleResult: mocks.buildStaleReschedule,
-}));
-
-vi.mock("../src/prWorkspace/index.js", () => ({
-  withPrRepositoryView: mocks.withPrRepositoryView,
-}));
-
-vi.mock("../src/review/reviewTrustedContext.js", () => ({
-  buildTrustedReviewContextForReview: mocks.buildTrustedContext,
-  fetchPriorInlineFeedbackBlockForReview: mocks.fetchPriorFeedback,
 }));
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
@@ -69,22 +34,15 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getPullRequestHeadSha: vi.fn(async () => "head"),
 }));
 
-vi.mock("../src/evlog.js", () => ({
-  logInfo: mocks.logInfo,
-  logWarn: mocks.logWarn,
-}));
-
-vi.mock("../src/github/reviewPublish.js", () => ({
-  upsertReviewSummaryComment: vi.fn(),
-}));
-
-vi.mock("../src/review/reviewRunMetrics.js", () => ({
-  initReviewRunMetrics: vi.fn(),
-  logReviewRunCompleted: vi.fn(),
-  recordReviewPhaseSpan: vi.fn(async (_phase: string, run: () => Promise<unknown>) => run()),
-  setReviewRunMetricFields: vi.fn(),
-}));
-
+import * as durableJob from "../src/agentWork/durableJob.js";
+import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
+import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
+import * as prWorkspace from "../src/prWorkspace/index.js";
+import * as reviewTrustedContext from "../src/review/reviewTrustedContext.js";
+import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
+import * as evlog from "../src/evlog.js";
+import * as reviewPublish from "../src/github/reviewPublish.js";
+import * as reviewRunMetrics from "../src/review/reviewRunMetrics.js";
 import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
@@ -164,9 +122,50 @@ function reviewJob(): JobWithMetadata<ReviewJobData> {
   };
 }
 
+function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
+  vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+    const item = makeItem(source);
+    await spec.execute(item, {
+      installation: {
+        token: "tok",
+        expiresAtTs: Date.now() + 60_000,
+        ttlMs: 60_000,
+      },
+      headSha: "head",
+      pullRequest: source === "slash" ? pullRequest : undefined,
+    });
+  });
+}
+
 describe("executeReviewJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
+    vi.spyOn(reviewLightweightCompletion, "tryLightweightAutoReviewCompletion").mockImplementation(
+      mocks.lightweight,
+    );
+    vi.spyOn(prWorkspace, "withPrRepositoryView").mockImplementation(mocks.withPrRepositoryView);
+    vi.spyOn(reviewReschedule, "buildStaleSlashReviewRescheduleResult").mockImplementation(
+      mocks.buildStaleReschedule,
+    );
+    vi.spyOn(reviewTrustedContext, "buildTrustedReviewContextForReview").mockImplementation(
+      mocks.buildTrustedContext,
+    );
+    vi.spyOn(reviewTrustedContext, "fetchPriorInlineFeedbackBlockForReview").mockImplementation(
+      mocks.fetchPriorFeedback,
+    );
+    vi.spyOn(evlog, "logInfo").mockImplementation(mocks.logInfo);
+    vi.spyOn(evlog, "logWarn").mockImplementation(mocks.logWarn);
+    vi.spyOn(reviewPublish, "upsertReviewSummaryComment").mockResolvedValue({
+      id: 1,
+      updated: false,
+    });
+    vi.spyOn(reviewRunMetrics, "initReviewRunMetrics").mockImplementation(() => undefined);
+    vi.spyOn(reviewRunMetrics, "logReviewRunCompleted").mockImplementation(() => undefined);
+    vi.spyOn(reviewRunMetrics, "setReviewRunMetricFields").mockImplementation(() => undefined);
+    vi.spyOn(reviewRunMetrics, "recordReviewPhaseSpan").mockImplementation(async (_phase, run) =>
+      run(),
+    );
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1 });
     mocks.loadPublishContext.mockResolvedValue({
       publishState: {
@@ -188,18 +187,7 @@ describe("executeReviewJob", () => {
     mocks.buildTrustedContext.mockResolvedValue("trusted");
     mocks.fetchPriorFeedback.mockResolvedValue(undefined);
     mockRepositoryView();
-    mocks.runDurableWorkItem.mockImplementation(async (spec) => {
-      const item = makeItem("slash");
-      await spec.execute(item, {
-        installation: {
-          token: "tok",
-          expiresAtTs: Date.now() + 60_000,
-          ttlMs: 60_000,
-        },
-        headSha: "head",
-        pullRequest,
-      });
-    });
+    mockDurableExecution("slash");
   });
 
   it("loads publish context in one batched db-read span", async () => {
@@ -218,17 +206,7 @@ describe("executeReviewJob", () => {
   });
 
   it("runs auto preflight and lightweight completion before full review", async () => {
-    mocks.runDurableWorkItem.mockImplementation(async (spec) => {
-      const item = makeItem("auto");
-      await spec.execute(item, {
-        installation: {
-          token: "tok",
-          expiresAtTs: Date.now() + 60_000,
-          ttlMs: 60_000,
-        },
-        headSha: "head",
-      });
-    });
+    mockDurableExecution("auto");
     mocks.lightweight.mockResolvedValue({ handled: true, published: true });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
@@ -250,17 +228,7 @@ describe("executeReviewJob", () => {
   });
 
   it("passes auto preflight files into repository preparation", async () => {
-    mocks.runDurableWorkItem.mockImplementation(async (spec) => {
-      const item = makeItem("auto");
-      await spec.execute(item, {
-        installation: {
-          token: "tok",
-          expiresAtTs: Date.now() + 60_000,
-          ttlMs: 60_000,
-        },
-        headSha: "head",
-      });
-    });
+    mockDurableExecution("auto");
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
