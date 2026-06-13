@@ -255,14 +255,17 @@ export async function getPullRequestReviewComment(
   repo: string,
   commentId: number,
   expiresAtTs?: number,
-): Promise<{ pullRequestReviewId: number | null }> {
+): Promise<{ pullRequestReviewId: number | null; userId: number }> {
   const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.pulls.getReviewComment({
     owner,
     repo,
     comment_id: commentId,
   });
-  return { pullRequestReviewId: data.pull_request_review_id ?? null };
+  return {
+    pullRequestReviewId: data.pull_request_review_id ?? null,
+    userId: data.user.id,
+  };
 }
 
 export async function setPullRequestLabels(

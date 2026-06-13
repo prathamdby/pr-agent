@@ -16,7 +16,7 @@ import { hasStoredInlineReviewId } from "./repository.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 import { prResourceKey } from "./types.js";
 import { getPullRequestReviewComment } from "../github/reviewPublish.js";
-import { mintInstallationAuth } from "../github/appAuth.js";
+import { mintInstallationAuth, getAppBotIdentity } from "../github/appAuth.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   AgentWorkScheduler,
@@ -91,6 +91,8 @@ export function makeAgentWorkScheduler(
           }
           const auth = await mintInstallationAuth(cfg, installationId);
           const parent = await getPullRequestReviewComment(auth.token, owner, repo, inReplyToId);
+          const bot = await getAppBotIdentity(cfg);
+          if (parent.userId === bot.userId) return true;
           reviewId = parent.pullRequestReviewId;
           if (reviewId == null) return false;
           return hasStoredInlineReviewId(pool, resourceKey, reviewId);
