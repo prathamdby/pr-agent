@@ -32,6 +32,11 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: mocks.recordPublishStep,
 }));
 
+vi.mock("../src/agentWork/triageAnalytics.js", () => ({
+  captureTriageEvent: vi.fn(),
+  captureTriageFailure: vi.fn(),
+}));
+
 import { publishTriage } from "../src/agent/publishTriage.js";
 
 const thread = {
@@ -88,6 +93,7 @@ describe("publishTriage", () => {
       pool: pool(),
       workItemId: "wi",
       resourceKey: "o/r#1",
+      installationId: 42,
       token: "tok",
       owner: "o",
       repo: "r",
@@ -122,6 +128,7 @@ describe("publishTriage", () => {
       pool: pool(),
       workItemId: "wi",
       resourceKey: "o/r#1",
+      installationId: 42,
       token: "tok",
       owner: "o",
       repo: "r",
@@ -167,6 +174,7 @@ describe("publishTriage", () => {
       pool: pool({ actedThreadIds: [1] }),
       workItemId: "wi",
       resourceKey: "o/r#1",
+      installationId: 42,
       token: "tok",
       owner: "o",
       repo: "r",
@@ -196,6 +204,7 @@ describe("publishTriage", () => {
       pool: pool({ actedThreadIds: [1] }),
       workItemId: "wi",
       resourceKey: "o/r#1",
+      installationId: 42,
       token: "tok",
       owner: "o",
       repo: "r",
@@ -225,6 +234,7 @@ describe("publishTriage", () => {
       pool: pool(),
       workItemId: "wi",
       resourceKey: "o/r#1",
+      installationId: 42,
       token: "tok",
       owner: "o",
       repo: "r",
@@ -254,6 +264,7 @@ describe("publishTriage", () => {
       pool: poolWithPriorRunActedIds(),
       workItemId: "wi",
       resourceKey: "o/r#1",
+      installationId: 42,
       token: "tok",
       owner: "o",
       repo: "r",
@@ -283,6 +294,7 @@ describe("publishTriage", () => {
       pool: pool(),
       workItemId: "wi",
       resourceKey: "o/r#1",
+      installationId: 42,
       token: "tok",
       owner: "o",
       repo: "r",

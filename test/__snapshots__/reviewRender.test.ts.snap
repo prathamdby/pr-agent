@@ -111,7 +111,8 @@ Findings:
 Fix src/x.ts line 4.
 \`\`\`
 
-</details>"
+</details>
+<!-- pr-agent:review-pointer lens=review -->"
 `;
 
 exports[`renderReviewSummaryComment > drops finding rows from the tail when compact mode still exceeds the body budget 1`] = `

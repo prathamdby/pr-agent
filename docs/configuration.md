@@ -222,7 +222,11 @@ lensOverrides:
 | `TRIAGE_SUMMARY_SENTINEL`            | `## PR Agent Triage`                                |
 | `TRIAGE_ALREADY_IN_PROGRESS`         | duplicate `/triage` ack text                        |
 | `TRIAGE_FAILURE_MESSAGE`             | terminal failure PR comment                         |
-| `TRIAGE_NO_PRIOR_FINDINGS`           | empty inventory report text                         |
+| `TRIAGE_NO_PRIOR_FINDINGS`           | legacy empty inventory text (deprecated alias)      |
+| `TRIAGE_NO_ELIGIBLE_FINDINGS`        | no triage-eligible unresolved findings report text  |
+| `TRIAGE_THREAD_NOT_ELIGIBLE`         | scoped thread not in inventory ack/report text      |
+| `TRIAGE_FULL_RUN_IN_PROGRESS`        | thread `/triage` while full-PR triage active ack    |
+| `TRIAGE_INLINE_USAGE_HINT`           | top-level inline `/triage` usage hint               |
 | `TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED` | resolved-only inventory report text                 |
 | `TRIAGE_FORK_PR_NOTICE`              | fork PR report-only text                            |
 | `TRIAGE_STALE_HEAD_NOTICE`           | stale push report text                              |

@@ -1,3 +1,4 @@
+import type { TriageScope } from "../agentWork/types.js";
 import type { Pool } from "pg";
 import { installationOctokit } from "../github/appAuth.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
@@ -19,6 +20,11 @@ import {
   TRIAGE_THREAD_RESOLUTION_NOTICE,
 } from "../settings/index.js";
 import { recordPublishStep } from "../agentWork/repository.js";
+import {
+  captureTriageEvent,
+  captureTriageFailure,
+  type TriageAnalyticsRef,
+} from "../agentWork/triageAnalytics.js";
 import { StaleHeadPushError, type WritablePrCheckout } from "../prWorkspace/writablePrCheckout.js";
 import { renderTriageReport } from "./triageRender.js";
 
@@ -26,6 +32,7 @@ type PublishTriageParams = {
   readonly pool: Pool;
   readonly workItemId: string;
   readonly resourceKey: string;
+  readonly installationId: number;
   readonly token: string;
   readonly tokenExpiresAtTs?: number;
   readonly owner: string;
@@ -38,6 +45,8 @@ type PublishTriageParams = {
   readonly payload: TriagePayload;
   readonly previouslyResolvedCount: number;
   readonly priorPush?: TriagePriorPush;
+  readonly scope?: TriageScope;
+  readonly threadRootCommentId?: number;
 };
 
 type ReportOnlyParams = Omit<
@@ -204,10 +213,31 @@ async function upsertTriageReport(
 }
 
 export async function publishTriageReportOnly(params: ReportOnlyParams): Promise<void> {
-  await upsertTriageReport(params);
+  const analytics: TriageAnalyticsRef = {
+    installationId: params.installationId,
+    owner: params.owner,
+    repo: params.repo,
+    prNumber: params.prNumber,
+    workItemId: params.workItemId,
+    scope: params.scope,
+  };
+  try {
+    await upsertTriageReport(params);
+  } catch (error) {
+    captureTriageFailure(analytics, "publish_report_only", error);
+    throw error;
+  }
 }
 
 export async function publishTriage(params: PublishTriageParams): Promise<{ degraded: boolean }> {
+  const analytics: TriageAnalyticsRef = {
+    installationId: params.installationId,
+    owner: params.owner,
+    repo: params.repo,
+    prNumber: params.prNumber,
+    workItemId: params.workItemId,
+    scope: params.scope,
+  };
   let pushed = params.priorPush?.pushed ?? false;
   let degraded = params.priorPush?.degraded ?? false;
   let stalePush = params.priorPush?.degraded ?? false;
@@ -231,9 +261,16 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         },
       });
     } catch (error) {
-      if (!(error instanceof StaleHeadPushError)) throw error;
+      if (!(error instanceof StaleHeadPushError)) {
+        captureTriageFailure(analytics, "publish_push", error);
+        throw error;
+      }
       degraded = true;
       stalePush = true;
+      captureTriageEvent(analytics, "triage degraded", {
+        step: "publish_push",
+        reason: "stale_head",
+      });
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
@@ -276,11 +313,23 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     if (!thread || !resolution) {
       degraded = true;
       missingThreadAction = true;
+      captureTriageEvent(analytics, "triage degraded", {
+        step: "thread_actions",
+        reason: "missing_thread_mapping",
+        thread_root_comment_id: verdict.threadRootCommentId,
+      });
       continue;
     }
     if (resolution.isResolved) continue;
     if (!actedThreadIds.has(verdict.threadRootCommentId) && thread.hasTriageReply !== true) {
-      await replyToThread({ ...params, thread, verdict });
+      try {
+        await replyToThread({ ...params, thread, verdict });
+      } catch (error) {
+        captureTriageFailure(analytics, "thread_reply", error, {
+          thread_root_comment_id: verdict.threadRootCommentId,
+        });
+        throw error;
+      }
       actedThreadIds.add(verdict.threadRootCommentId);
       await recordActedThreadIds(params.pool, {
         workItemId: params.workItemId,
@@ -288,24 +337,38 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         actedThreadIds: [...actedThreadIds],
       });
     }
-    await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
+    try {
+      await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
+    } catch (error) {
+      captureTriageFailure(analytics, "thread_resolve", error, {
+        thread_root_comment_id: verdict.threadRootCommentId,
+      });
+      throw error;
+    }
   }
 
-  await upsertTriageReport({
-    ...params,
-    body: renderTriageReport({
-      headSha: params.headSha,
-      inventory: params.inventory,
-      payload: params.payload,
-      commits: pushed ? params.checkout.listCommittedDetails() : [],
-      previouslyResolvedCount: params.previouslyResolvedCount,
-      notice: [
-        stalePush ? TRIAGE_STALE_HEAD_NOTICE : undefined,
-        missingThreadAction ? TRIAGE_THREAD_RESOLUTION_NOTICE : undefined,
-      ]
-        .filter((notice) => notice != null)
-        .join("\n\n"),
-    }),
-  });
+  try {
+    await upsertTriageReport({
+      ...params,
+      body: renderTriageReport({
+        headSha: params.headSha,
+        inventory: params.inventory,
+        payload: params.payload,
+        commits: pushed ? params.checkout.listCommittedDetails() : [],
+        previouslyResolvedCount: params.previouslyResolvedCount,
+        notice: [
+          stalePush ? TRIAGE_STALE_HEAD_NOTICE : undefined,
+          missingThreadAction ? TRIAGE_THREAD_RESOLUTION_NOTICE : undefined,
+        ]
+          .filter((notice) => notice != null)
+          .join("\n\n"),
+        scope: params.scope,
+        threadRootCommentId: params.threadRootCommentId,
+      }),
+    });
+  } catch (error) {
+    captureTriageFailure(analytics, "publish_report", error);
+    throw error;
+  }
   return { degraded };
 }

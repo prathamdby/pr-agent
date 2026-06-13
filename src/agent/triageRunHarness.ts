@@ -1,3 +1,4 @@
+import type { TriageScope } from "../agentWork/types.js";
 import type { Config } from "../config.js";
 import { assistantFromText, runSubmitOnlyRound } from "../agentRun/sessionHelpers.js";
 import { logInfo } from "../evlog.js";
@@ -27,6 +28,7 @@ export async function runTriageHarness(params: {
   readonly checkout: WritablePrCheckout;
   readonly inventory: readonly BotFindingThread[];
   readonly cwd?: string;
+  readonly scope?: TriageScope;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.agentProvider;

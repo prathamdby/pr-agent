@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { TriageScope, TriageWorkPayload } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
 import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import { prResourceKey, type PrRef } from "../types.js";
@@ -148,6 +149,9 @@ export async function createTriageWorkItem(
     ref: PrRef;
     commentId: number;
     commenterId?: number;
+    scope: TriageScope;
+    threadAnchorCommentId?: number;
+    replyTarget: ReplyTarget;
   },
 ): Promise<string> {
   const id = crypto.randomUUID();
@@ -166,9 +170,30 @@ export async function createTriageWorkItem(
       repositorySizeKb: params.ref.repositorySizeKb,
       commentId: params.commentId,
       commenterId: params.commenterId,
-    },
+      scope: params.scope,
+      threadAnchorCommentId: params.threadAnchorCommentId,
+      replyTarget: params.replyTarget,
+    } satisfies TriageWorkPayload,
   });
   return id;
+}
+
+export async function fetchActiveTriageWorkItem(
+  client: PoolClient,
+  resourceKey: string,
+): Promise<{ id: string; payload: TriageWorkPayload } | null> {
+  const result = await client.query<{ id: string; payload: TriageWorkPayload }>(
+    `SELECT id, payload
+			   FROM agent_work_items
+			  WHERE resource_key = $1
+			    AND type = 'triage'
+			    AND status IN ('queued', 'running')
+			  LIMIT 1`,
+    [resourceKey],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  return { id: row.id, payload: row.payload };
 }
 
 export async function createAskWorkItem(

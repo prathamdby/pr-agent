@@ -1,4 +1,5 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { TriageScope } from "../agentWork/types.js";
 import type { Config } from "../config.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
 import type { TriagePayload } from "../review/triageSchema.js";
@@ -21,6 +22,7 @@ export async function runFullPrTriage(params: {
   readonly checkout: WritablePrCheckout;
   readonly inventory: readonly BotFindingThread[];
   readonly cwd?: string;
+  readonly scope?: TriageScope;
 }): Promise<TriageRunResult> {
   return runTriageHarness(params);
 }

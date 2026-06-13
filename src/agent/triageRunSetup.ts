@@ -1,4 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { TriageScope } from "../agentWork/types.js";
 import type { Config } from "../config.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
 import type { WritablePrCheckout } from "../prWorkspace/writablePrCheckout.js";
@@ -36,6 +37,7 @@ export function buildTriageRunSetup(params: {
   readonly headSha: string;
   readonly checkout: WritablePrCheckout;
   readonly inventory: readonly BotFindingThread[];
+  readonly scope?: TriageScope;
 }): TriageRunSetup {
   const workspaceState = createTriageWorkspaceToolState();
   const submitState = createSubmitTriageState();
@@ -64,6 +66,7 @@ export function buildTriageRunSetup(params: {
       headSha: params.headSha,
       maxFixesPerRun: params.cfg.maxTriageFixesPerRun,
       threads: params.inventory,
+      scope: params.scope,
     }),
     piTools: [...workspaceTools.piTools, submitTool.piTool],
     executors: { ...workspaceTools.executors, submitTriage: submitTool.executor },

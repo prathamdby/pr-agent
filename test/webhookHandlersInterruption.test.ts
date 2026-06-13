@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { BotIdentity } from "../src/effect/services/botIdentity.js";
@@ -8,6 +8,27 @@ import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/web
 import type { IssueCommentWebhookPayload } from "../src/webhook/payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "../src/webhook/payloads/pullRequestReviewCommentEvent.js";
 import { makeTestConfig } from "./helpers/config.js";
+
+const mocks = vi.hoisted(() => ({
+  fetchReviewCommentParentGraph: vi.fn(),
+  mintInstallationAuth: vi.fn(),
+}));
+
+vi.mock("../src/review/reviewPriorFeedback.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review/reviewPriorFeedback.js")>();
+  return {
+    ...actual,
+    fetchReviewCommentParentGraph: mocks.fetchReviewCommentParentGraph,
+  };
+});
+
+vi.mock("../src/github/appAuth.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/appAuth.js")>();
+  return {
+    ...actual,
+    mintInstallationAuth: mocks.mintInstallationAuth,
+  };
+});
 
 const cfg = makeTestConfig({
   maxAskFinalizeRounds: 6,
@@ -51,11 +72,14 @@ function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
   return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(bot));
 }
 
-function slashTraceLayers() {
+function slashTraceLayers(
+  captureSlash?: (input: { replyTarget?: unknown; triageScope?: string }) => void,
+) {
   const trace: {
     decision?: string;
     ignored: boolean;
     slash: boolean;
+    slashInput?: { replyTarget?: unknown; triageScope?: string };
   } = { ignored: false, slash: false };
   const scheduler = Layer.succeed(
     AgentWorkScheduler,
@@ -66,9 +90,17 @@ function slashTraceLayers() {
           trace.ignored = true;
         }),
       submitAutomatedReview: () => Effect.void,
-      submitSlashCommand: () =>
+      submitSlashCommand: (input) =>
         Effect.sync(() => {
           trace.slash = true;
+          trace.slashInput = {
+            replyTarget: input.replyTarget,
+            triageScope: input.triageScope,
+          };
+          captureSlash?.({
+            replyTarget: input.replyTarget,
+            triageScope: input.triageScope,
+          });
         }),
       matchesStoredInlineReview: () => Effect.succeed(false),
       ping: () => Effect.succeed(true),
@@ -102,8 +134,11 @@ async function runIssueComment(data: IssueCommentWebhookPayload, runCfg = cfg) {
   return { exit, trace };
 }
 
-async function runReviewComment(data: PullRequestReviewCommentWebhookPayload) {
-  const { trace, handlers } = slashTraceLayers();
+async function runReviewComment(
+  data: PullRequestReviewCommentWebhookPayload,
+  captureSlash?: (input: { replyTarget?: unknown; triageScope?: string }) => void,
+) {
+  const { trace, handlers } = slashTraceLayers(captureSlash);
   const intakeLog = createOperationLogger({
     method: "POST",
     path: "/webhooks",
@@ -127,6 +162,19 @@ async function runReviewComment(data: PullRequestReviewCommentWebhookPayload) {
 }
 
 describe("WebhookHandlers Effect resolution", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.mintInstallationAuth.mockResolvedValue({
+      token: "tok",
+      expiresAtTs: Date.now() + 60_000,
+      ttlMs: 60_000,
+    });
+    mocks.fetchReviewCommentParentGraph.mockResolvedValue([
+      { id: 1, inReplyToId: null },
+      { id: 2, inReplyToId: 1 },
+    ]);
+  });
+
   it("propagates scheduler failure through Effect's error channel (no Promise escape)", async () => {
     const failingScheduler = Layer.succeed(
       AgentWorkScheduler,
@@ -342,5 +390,27 @@ describe("WebhookHandlers Effect resolution", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(trace.decision).toBe("ignored_unauthorized_slash");
     expect(trace.slash).toBe(false);
+  });
+
+  it("resolves thread root for scoped inline /triage replies", async () => {
+    const { exit, trace } = await runReviewComment({
+      ...reviewCommentData,
+      comment: {
+        ...reviewCommentData.comment,
+        id: 3,
+        body: "/triage",
+        in_reply_to_id: 2,
+      },
+    });
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(trace.slash).toBe(true);
+    expect(trace.slashInput?.triageScope).toBe("thread");
+    expect(trace.slashInput?.replyTarget).toEqual({
+      kind: "inlineReviewThread",
+      prNumber: 1,
+      inReplyToCommentId: 1,
+    });
+    expect(mocks.fetchReviewCommentParentGraph).toHaveBeenCalled();
   });
 });

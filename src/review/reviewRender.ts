@@ -440,6 +440,10 @@ function truncateAgentFixPromptForPointerBody(
   };
 }
 
+export function renderReviewPointerLensMarker(mode: ReviewMode): string {
+  return `<!-- pr-agent:review-pointer lens=${escapeHtmlCommentAttr(mode)} -->`;
+}
+
 export function renderReviewPointerBody(
   payload: ReviewPayload,
   ctx: RenderContext & {
@@ -467,6 +471,7 @@ export function renderReviewPointerBody(
     body = assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote);
   }
 
+  body = `${body}\n${renderReviewPointerLensMarker(ctx.mode)}`;
   return { body, truncated };
 }
 
