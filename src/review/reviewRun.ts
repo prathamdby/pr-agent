@@ -46,6 +46,7 @@ export async function runFullPrReview(params: {
   reviewSource?: WorkSource;
   staleHeadRescheduled?: boolean;
   publishAbortState?: { staleHead?: boolean };
+  severityFloor?: number;
 }): Promise<ReviewRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");

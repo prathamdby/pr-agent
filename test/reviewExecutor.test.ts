@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
@@ -294,5 +297,66 @@ describe("executeReviewJob", () => {
     });
     expect(mocks.fetchPriorFeedback).not.toHaveBeenCalled();
     expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+  });
+
+  it("appends rendered repo policy to trusted context when policy file is present", async () => {
+    const policyDir = await mkdtemp(join(tmpdir(), "repo-policy-exec-"));
+    await writeFile(
+      join(policyDir, ".pr-agent.yml"),
+      "version: 1\ntone: Be terse\nseverityFloor: 2\n",
+      "utf8",
+    );
+    const preflight = {
+      files: [{ filename: "src/a.ts" }],
+      truncated: false,
+      fileCount: 1,
+      totalChanges: 2,
+    };
+    mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
+      run({
+        preflight,
+        agentCwd: policyDir,
+        workspace: undefined,
+      }),
+    );
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
+      preflight,
+      priorInlineFeedback: undefined,
+      repoPolicyBlock: expect.stringContaining("Tone: Be terse"),
+    });
+    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ severityFloor: 2 }),
+    );
+  });
+
+  it("leaves trusted context unchanged when repo policy file is absent", async () => {
+    const policyDir = await mkdtemp(join(tmpdir(), "repo-policy-absent-"));
+    const preflight = {
+      files: [{ filename: "src/a.ts" }],
+      truncated: false,
+      fileCount: 1,
+      totalChanges: 2,
+    };
+    mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
+      run({
+        preflight,
+        agentCwd: policyDir,
+        workspace: undefined,
+      }),
+    );
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
+      preflight,
+      priorInlineFeedback: undefined,
+      repoPolicyBlock: undefined,
+    });
+    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ severityFloor: undefined }),
+    );
   });
 });

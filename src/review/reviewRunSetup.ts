@@ -89,6 +89,7 @@ export function buildReviewRunSetup(params: {
     expiresAtTs: number;
   }>;
   publishAbortState?: { staleHead?: boolean };
+  severityFloor?: number;
 }): ReviewRunSetup {
   const {
     cfg,
@@ -149,6 +150,7 @@ export function buildReviewRunSetup(params: {
       shouldAbortPublish: params.shouldAbortPublish,
       storedInlineFingerprints: params.storedInlineFingerprints,
       publishAbortState: params.publishAbortState,
+      severityFloor: params.severityFloor,
     });
 
   let submitBundle = buildSubmit();

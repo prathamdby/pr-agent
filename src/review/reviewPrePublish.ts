@@ -1,8 +1,14 @@
+import { REVIEW_SEVERITY_RANK } from "../settings/index.js";
 import { dedupeReviewFindings } from "./reviewFindingDedup.js";
 import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
 import { redactReviewPayloadSecrets } from "./reviewPublicOutput.js";
-import { normalizeReviewPayload, type ReviewMode, type ReviewPayload } from "./reviewSchema.js";
+import {
+  normalizeReviewPayload,
+  type ReviewFinding,
+  type ReviewMode,
+  type ReviewPayload,
+} from "./reviewSchema.js";
 import type { CachedPrDiffIndex } from "./reviewDiffIndex.js";
 import type { InlinePlacement } from "./reviewDiffPlacement.js";
 
@@ -12,10 +18,16 @@ export type PreparedReviewPayload = {
   readonly placements: readonly InlinePlacement[];
 };
 
+function passesSeverityFloor(severity: ReviewFinding["severity"], severityFloor?: number): boolean {
+  if (severityFloor == null) return true;
+  return REVIEW_SEVERITY_RANK[severity] <= severityFloor;
+}
+
 export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
   mode: ReviewMode;
   reviewMinConfidence?: number;
+  severityFloor?: number;
   cachedDiffIndex?: CachedPrDiffIndex;
   enforceInlineAnchorValidation?: boolean;
 }):
@@ -27,7 +39,10 @@ export function prepareReviewPayloadForPublish(params: {
   const confidenceFiltered = deduped.filter(
     (finding) => finding.confidence == null || finding.confidence >= minConfidence,
   );
-  const candidate = { ...normalized, findings: confidenceFiltered };
+  const severityFiltered = confidenceFiltered.filter((finding) =>
+    passesSeverityFloor(finding.severity, params.severityFloor),
+  );
+  const candidate = { ...normalized, findings: severityFiltered };
   const dedupedCount = normalized.findings.length - deduped.length;
 
   const validation = validateReviewPayload({

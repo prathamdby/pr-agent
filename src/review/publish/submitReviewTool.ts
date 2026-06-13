@@ -71,6 +71,7 @@ export function buildSubmitReviewTool(params: {
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   publishAbortState?: { staleHead?: boolean };
+  severityFloor?: number;
 }): {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
@@ -158,6 +159,7 @@ export function buildSubmitReviewTool(params: {
       payload: parsed.data,
       mode,
       reviewMinConfidence: params.cfg.reviewMinConfidence,
+      severityFloor: params.severityFloor,
       cachedDiffIndex: params.cachedDiffIndex,
       enforceInlineAnchorValidation: enforceDiffAndAnchors,
     });
