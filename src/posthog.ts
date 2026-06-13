@@ -5,13 +5,9 @@ const host = process.env.POSTHOG_HOST;
 
 export const posthog = new PostHog(apiKey, {
   ...(host ? { host } : {}),
-  enableExceptionAutocapture: true,
+  enableExceptionAutocapture: false,
 });
 
-process.on("SIGINT", async () => {
-  await posthog.shutdown();
-});
-
-process.on("SIGTERM", async () => {
-  await posthog.shutdown();
-});
+export function shutdownPostHog(): Promise<void> {
+  return Promise.resolve(posthog.shutdown());
+}
