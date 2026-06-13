@@ -58,6 +58,10 @@ function currentCategoryLabel(currentLabels: readonly string[]): string | undefi
   return currentLabels.find((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
 }
 
+export function hasManagedCategoryLabel(currentLabels: readonly string[]): boolean {
+  return currentLabels.some((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
+}
+
 export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,

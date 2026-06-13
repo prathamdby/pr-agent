@@ -18,6 +18,7 @@ import {
   reviewLabelsFromPayload,
   syncReviewLabels,
   dominantReviewCategory,
+  hasManagedCategoryLabel,
 } from "../reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
 import {
@@ -399,18 +400,11 @@ export async function publishReview(
     cachedDiffIndex: params.cachedDiffIndex,
   });
 
-  const shouldSyncLabels =
-    cfg.enableReviewLabelsEffort ||
-    cfg.enableReviewLabelsSecurity ||
-    dominantReviewCategory(payload.findings) != null;
-  let labelsPromise: Promise<unknown> = Promise.resolve(null);
-  if (shouldSyncLabels) {
-    const pending =
-      tokenExpiresAtTs == null
-        ? listPullRequestLabels(token, owner, repo, prNumber)
-        : listPullRequestLabels(token, owner, repo, prNumber, tokenExpiresAtTs);
-    labelsPromise = pending.catch((e: unknown) => e);
-  }
+  const labelsPromise = (
+    tokenExpiresAtTs == null
+      ? listPullRequestLabels(token, owner, repo, prNumber)
+      : listPullRequestLabels(token, owner, repo, prNumber, tokenExpiresAtTs)
+  ).catch((e: unknown) => e);
 
   let summaryUpsert: Promise<{ id: number; updated: boolean }>;
   const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
@@ -484,12 +478,34 @@ export async function publishReview(
     updated: summary.updated,
   });
 
+  if (currentLabels instanceof Error) {
+    logWarn("review_labels_fetch_failed", {
+      mode,
+      owner,
+      repo,
+      pr: prNumber,
+      message: currentLabels.message,
+    });
+    return;
+  }
+  if (!Array.isArray(currentLabels)) {
+    logWarn("review_labels_fetch_failed", {
+      mode,
+      owner,
+      repo,
+      pr: prNumber,
+      message: `listPullRequestLabels returned non-array: ${String(currentLabels)}`,
+    });
+    return;
+  }
+
+  const wantsCategoryLabel = dominantReviewCategory(payload.findings) != null;
+  const syncCategoryLabels = wantsCategoryLabel || hasManagedCategoryLabel(currentLabels);
+  const shouldSyncLabels =
+    cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity || syncCategoryLabels;
+
   if (shouldSyncLabels) {
     try {
-      if (currentLabels instanceof Error) throw currentLabels;
-      if (!Array.isArray(currentLabels)) {
-        throw new Error(`listPullRequestLabels returned non-array: ${String(currentLabels)}`);
-      }
       if (
         labelsAlreadySynced(
           currentLabels,
@@ -497,7 +513,7 @@ export async function publishReview(
           {
             effort: cfg.enableReviewLabelsEffort,
             security: cfg.enableReviewLabelsSecurity,
-            category: shouldSyncLabels,
+            category: syncCategoryLabels,
           },
           mode,
         )
@@ -512,7 +528,7 @@ export async function publishReview(
         {
           effort: cfg.enableReviewLabelsEffort,
           security: cfg.enableReviewLabelsSecurity,
-          category: shouldSyncLabels,
+          category: syncCategoryLabels,
         },
         mode,
       );

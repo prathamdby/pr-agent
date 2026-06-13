@@ -615,7 +615,8 @@ describe("publishReview", () => {
 
       expect(upsertReviewSummaryComment).toHaveBeenCalled();
       expect(setPullRequestLabels).not.toHaveBeenCalled();
-      expect(warnSpy).toHaveBeenCalledWith("review_labels_sync_failed", {
+      expect(warnSpy).toHaveBeenCalledWith("review_labels_fetch_failed", {
+        mode: "review",
         owner: "o",
         repo: "r",
         pr: 1,

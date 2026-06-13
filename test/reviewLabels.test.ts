@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import {
   dominantReviewCategory,
+  hasManagedCategoryLabel,
   labelsAlreadySynced,
   reviewLabelsFromPayload,
   syncReviewLabels,
@@ -141,6 +142,13 @@ describe("dominantReviewCategory", () => {
   });
 });
 
+describe("hasManagedCategoryLabel", () => {
+  it("detects existing Category labels", () => {
+    expect(hasManagedCategoryLabel(["bug", "Category: security"])).toBe(true);
+    expect(hasManagedCategoryLabel(["bug"])).toBe(false);
+  });
+});
+
 describe("reviewLabelsFromPayload", () => {
   it("uses lens-specific effort prefixes", () => {
     expect(
@@ -229,5 +237,11 @@ describe("syncReviewLabels", () => {
     const current = ["Review effort 2/5", "Category: bug", "enhancement"];
     const next = syncReviewLabels(current, ["Review effort 2/5", "Category: security"], "review");
     expect(next).toEqual(["enhancement", "Review effort 2/5", "Category: security"]);
+  });
+
+  it("removes stale category labels when payload has no dominant category", () => {
+    const current = ["Category: bug", "enhancement"];
+    const next = syncReviewLabels(current, [], "review");
+    expect(next).toEqual(["enhancement"]);
   });
 });
