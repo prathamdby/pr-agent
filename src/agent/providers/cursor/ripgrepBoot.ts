@@ -6,7 +6,10 @@ import { captureCursorWorkerEvent, captureCursorWorkerFailure } from "./cursorAn
 
 export function configureCursorRipgrepPath(): string | undefined {
   const configured = process.env.CURSOR_RIPGREP_PATH?.trim();
-  if (configured) return configured;
+  if (configured) {
+    process.env.CURSOR_RIPGREP_PATH = configured;
+    return configured;
+  }
 
   const rgName = process.platform === "win32" ? "rg.exe" : "rg";
   try {
@@ -33,7 +36,10 @@ export function configureCursorRipgrepPath(): string | undefined {
 
 export function assertCursorRipgrepConfigured(): string {
   const configured = process.env.CURSOR_RIPGREP_PATH?.trim();
-  if (configured) return configured;
+  if (configured) {
+    process.env.CURSOR_RIPGREP_PATH = configured;
+    return configured;
+  }
 
   const error = new Error(
     "Ripgrep path not configured for Cursor local agent. Call configureCursorRipgrepPath() at worker boot.",
