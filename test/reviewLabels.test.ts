@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import {
+  dominantReviewCategory,
   labelsAlreadySynced,
   reviewLabelsFromPayload,
   syncReviewLabels,
@@ -21,6 +22,7 @@ describe("labelsAlreadySynced", () => {
       labelsAlreadySynced(["Review effort 2/5", "Possible security concern"], basePayload, {
         effort: true,
         security: true,
+        category: false,
       }),
     ).toBe(false);
   });
@@ -36,6 +38,7 @@ describe("labelsAlreadySynced", () => {
         {
           effort: true,
           security: true,
+          category: false,
         },
       ),
     ).toBe(true);
@@ -49,6 +52,7 @@ describe("labelsAlreadySynced", () => {
         {
           effort: true,
           security: false,
+          category: false,
         },
         "review-quality",
       ),
@@ -63,10 +67,77 @@ describe("labelsAlreadySynced", () => {
         {
           effort: true,
           security: false,
+          category: false,
         },
         "review-quality",
       ),
     ).toBe(false);
+  });
+
+  it("returns false when category label is stale", () => {
+    expect(
+      labelsAlreadySynced(
+        ["Category: bug"],
+        {
+          ...basePayload,
+          findings: [
+            {
+              severity: "P2",
+              file: "a.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "t",
+              detail: "d",
+              fixPrompt: "fix",
+              category: "security",
+            },
+          ],
+        },
+        {
+          effort: false,
+          security: false,
+          category: true,
+        },
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("dominantReviewCategory", () => {
+  it("picks plurality and breaks ties by first enum value", () => {
+    const findings = [
+      {
+        severity: "P2" as const,
+        file: "a.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "a",
+        detail: "d",
+        fixPrompt: "fix",
+        category: "security" as const,
+      },
+      {
+        severity: "P1" as const,
+        file: "b.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "b",
+        detail: "d",
+        fixPrompt: "fix",
+        category: "bug" as const,
+      },
+      {
+        severity: "P0" as const,
+        file: "c.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "c",
+        detail: "d",
+        fixPrompt: "fix",
+        category: "bug" as const,
+      },
+    ];
+    expect(dominantReviewCategory(findings)).toBe("bug");
   });
 });
 
@@ -78,6 +149,7 @@ describe("reviewLabelsFromPayload", () => {
         {
           effort: true,
           security: false,
+          category: false,
         },
         "review-security",
       ),
@@ -88,6 +160,7 @@ describe("reviewLabelsFromPayload", () => {
         {
           effort: true,
           security: false,
+          category: false,
         },
         "review-quality",
       ),
@@ -98,10 +171,38 @@ describe("reviewLabelsFromPayload", () => {
         {
           effort: true,
           security: false,
+          category: false,
         },
         "review-tests",
       ),
     ).toEqual(["Tests effort 2/5"]);
+  });
+
+  it("adds dominant category label when enabled", () => {
+    expect(
+      reviewLabelsFromPayload(
+        {
+          ...basePayload,
+          findings: [
+            {
+              severity: "P2",
+              file: "a.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "t",
+              detail: "d",
+              fixPrompt: "fix",
+              category: "performance",
+            },
+          ],
+        },
+        {
+          effort: false,
+          security: false,
+          category: true,
+        },
+      ),
+    ).toEqual(["Category: performance"]);
   });
 });
 
@@ -122,5 +223,11 @@ describe("syncReviewLabels", () => {
     const current = ["Review effort 3/5", "Quality effort 1/5", "bug"];
     const next = syncReviewLabels(current, ["Quality effort 2/5"], "review-quality");
     expect(next).toEqual(["Review effort 3/5", "bug", "Quality effort 2/5"]);
+  });
+
+  it("replaces category labels without touching effort labels", () => {
+    const current = ["Review effort 2/5", "Category: bug", "enhancement"];
+    const next = syncReviewLabels(current, ["Review effort 2/5", "Category: security"], "review");
+    expect(next).toEqual(["enhancement", "Review effort 2/5", "Category: security"]);
   });
 });

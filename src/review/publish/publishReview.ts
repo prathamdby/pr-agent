@@ -13,7 +13,12 @@ import {
   claimSummaryCommentCreation,
   getSummaryCommentGithubId,
 } from "../../agentWork/repository.js";
-import { labelsAlreadySynced, reviewLabelsFromPayload, syncReviewLabels } from "../reviewLabels.js";
+import {
+  labelsAlreadySynced,
+  reviewLabelsFromPayload,
+  syncReviewLabels,
+  dominantReviewCategory,
+} from "../reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
 import {
   MAX_INLINE_REVIEW_COMMENTS,
@@ -391,9 +396,13 @@ export async function publishReview(
     placements: summaryPlacements,
     mode,
     staleReview: params.staleReview ?? false,
+    cachedDiffIndex: params.cachedDiffIndex,
   });
 
-  const shouldSyncLabels = cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity;
+  const shouldSyncLabels =
+    cfg.enableReviewLabelsEffort ||
+    cfg.enableReviewLabelsSecurity ||
+    dominantReviewCategory(payload.findings) != null;
   let labelsPromise: Promise<unknown> = Promise.resolve(null);
   if (shouldSyncLabels) {
     const pending =
@@ -488,6 +497,7 @@ export async function publishReview(
           {
             effort: cfg.enableReviewLabelsEffort,
             security: cfg.enableReviewLabelsSecurity,
+            category: shouldSyncLabels,
           },
           mode,
         )
@@ -502,6 +512,7 @@ export async function publishReview(
         {
           effort: cfg.enableReviewLabelsEffort,
           security: cfg.enableReviewLabelsSecurity,
+          category: shouldSyncLabels,
         },
         mode,
       );

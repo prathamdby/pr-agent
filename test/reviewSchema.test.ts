@@ -255,6 +255,75 @@ describe("coerceReviewPayloadInput", () => {
   });
 });
 
+describe("reviewFinding category", () => {
+  it("accepts optional category enum and legacy payloads without category", () => {
+    expect(
+      reviewPayloadSchema.safeParse({
+        prCharacter: "Adds retry logic.",
+        findings: [
+          {
+            severity: "P2",
+            file: "src/a.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Missing await",
+            detail: "Promise not awaited.",
+            fixPrompt: "Await the promise.",
+            category: "bug",
+          },
+        ],
+        estimatedEffort: 2,
+        relevantTests: "no",
+        securityConcerns: null,
+        followUps: [],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      reviewPayloadSchema.safeParse({
+        prCharacter: "Adds retry logic.",
+        findings: [
+          {
+            severity: "P2",
+            file: "src/a.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Missing await",
+            detail: "Promise not awaited.",
+            fixPrompt: "Await the promise.",
+          },
+        ],
+        estimatedEffort: 2,
+        relevantTests: "no",
+        securityConcerns: null,
+        followUps: [],
+      }).success,
+    ).toBe(true);
+
+    expect(
+      reviewPayloadSchema.safeParse({
+        prCharacter: "Adds retry logic.",
+        findings: [
+          {
+            severity: "P2",
+            file: "src/a.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Missing await",
+            detail: "Promise not awaited.",
+            fixPrompt: "Await the promise.",
+            category: "maintainability",
+          },
+        ],
+        estimatedEffort: 2,
+        relevantTests: "no",
+        securityConcerns: null,
+        followUps: [],
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("formatReviewValidationError", () => {
   it("lists field paths in bullet form with failureKind", () => {
     const parsed = reviewPayloadSchema.safeParse({ prCharacter: "x" });

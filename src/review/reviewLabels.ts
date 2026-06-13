@@ -1,11 +1,18 @@
 import {
+  LABEL_CATEGORY_PREFIX,
   LABEL_QUALITY_EFFORT_PREFIX,
   LABEL_REVIEW_EFFORT_PREFIX,
   LABEL_SECURITY_CONCERN,
   LABEL_SECURITY_EFFORT_PREFIX,
   LABEL_TESTS_EFFORT_PREFIX,
 } from "../settings/index.js";
-import type { ReviewMode, ReviewPayload } from "./reviewSchema.js";
+import {
+  REVIEW_FINDING_CATEGORIES,
+  type ReviewFinding,
+  type ReviewFindingCategory,
+  type ReviewMode,
+  type ReviewPayload,
+} from "./reviewSchema.js";
 
 function reviewEffortLabelPrefix(mode: ReviewMode): string {
   switch (mode) {
@@ -22,10 +29,39 @@ function reviewEffortLabelPrefix(mode: ReviewMode): string {
   return exhaustive;
 }
 
+export function dominantReviewCategory(
+  findings: readonly ReviewFinding[],
+): ReviewFindingCategory | undefined {
+  const counts = new Map<ReviewFindingCategory, number>();
+  for (const finding of findings) {
+    if (finding.category == null) continue;
+    counts.set(finding.category, (counts.get(finding.category) ?? 0) + 1);
+  }
+  let best: ReviewFindingCategory | undefined;
+  let bestCount = 0;
+  for (const category of REVIEW_FINDING_CATEGORIES) {
+    const count = counts.get(category) ?? 0;
+    if (count > bestCount) {
+      bestCount = count;
+      best = category;
+    }
+  }
+  return bestCount > 0 ? best : undefined;
+}
+
+function categoryLabelForPayload(payload: ReviewPayload): string | undefined {
+  const category = dominantReviewCategory(payload.findings);
+  return category == null ? undefined : `${LABEL_CATEGORY_PREFIX}${category}`;
+}
+
+function currentCategoryLabel(currentLabels: readonly string[]): string | undefined {
+  return currentLabels.find((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
+}
+
 export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,
-  opts: { effort: boolean; security: boolean },
+  opts: { effort: boolean; security: boolean; category: boolean },
   mode: ReviewMode = "review",
 ): boolean {
   if (opts.effort) {
@@ -38,12 +74,16 @@ export function labelsAlreadySynced(
     const wantsSecurity = payload.securityConcerns != null;
     if (currentLabels.includes(LABEL_SECURITY_CONCERN) !== wantsSecurity) return false;
   }
+  if (opts.category) {
+    const wantsCategory = categoryLabelForPayload(payload);
+    if (currentCategoryLabel(currentLabels) !== wantsCategory) return false;
+  }
   return true;
 }
 
 export function reviewLabelsFromPayload(
   payload: ReviewPayload,
-  opts: { effort: boolean; security: boolean },
+  opts: { effort: boolean; security: boolean; category: boolean },
   mode: ReviewMode = "review",
 ): string[] {
   const labels: string[] = [];
@@ -52,6 +92,10 @@ export function reviewLabelsFromPayload(
   }
   if (opts.security && payload.securityConcerns != null) {
     labels.push(LABEL_SECURITY_CONCERN);
+  }
+  if (opts.category) {
+    const categoryLabel = categoryLabelForPayload(payload);
+    if (categoryLabel != null) labels.push(categoryLabel);
   }
   return labels;
 }
@@ -63,7 +107,10 @@ export function syncReviewLabels(
 ): string[] {
   const effortPrefix = reviewEffortLabelPrefix(mode);
   const preserved = currentLabels.filter(
-    (name) => !name.startsWith(effortPrefix) && name !== LABEL_SECURITY_CONCERN,
+    (name) =>
+      !name.startsWith(effortPrefix) &&
+      name !== LABEL_SECURITY_CONCERN &&
+      !name.startsWith(LABEL_CATEGORY_PREFIX),
   );
   return [...preserved, ...nextManaged];
 }
