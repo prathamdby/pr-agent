@@ -220,6 +220,35 @@ describe("publishTriage", () => {
     expect(mocks.resolve).toHaveBeenCalledWith("tok", "node", undefined);
   });
 
+  it("skips replies when the thread already has a bot triage reply", async () => {
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      resourceKey: "o/r#1",
+      token: "tok",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [{ ...thread, hasTriageReply: true }],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "already-resolved",
+            threadRootCommentId: 1,
+            evidence: "current code already handles this",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.resolve).toHaveBeenCalledWith("tok", "node", undefined);
+  });
+
   it("does not reuse acted thread ids from prior triage work items", async () => {
     await publishTriage({
       pool: poolWithPriorRunActedIds(),

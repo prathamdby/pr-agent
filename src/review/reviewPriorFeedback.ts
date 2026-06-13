@@ -30,6 +30,7 @@ export type BotFindingThread = {
   severity: "P0" | "P1" | "P2" | "P3" | null;
   titleSnippet: string;
   humanReplies: string[];
+  hasTriageReply?: boolean;
   threadUrl: string;
 };
 
@@ -299,6 +300,12 @@ export async function fetchBotFindingThreads(
     const humanReplies = threadComments
       .filter((comment) => comment.userId != null && comment.userId !== botUserId)
       .map((comment) => truncateText(comment.body, MAX_PRIOR_INLINE_REPLY_CHARS));
+    const hasTriageReply = threadComments.some(
+      (comment) =>
+        comment.id !== root.id &&
+        comment.userId === botUserId &&
+        comment.body.trimStart().startsWith("**Triage**:"),
+    );
     const line = root.line ?? root.originalLine ?? 1;
     results.push({
       rootCommentId: root.id,
@@ -308,6 +315,7 @@ export async function fetchBotFindingThreads(
       severity: extractBotSeverity(root.body),
       titleSnippet: extractBotTitleSnippet(root.body),
       humanReplies,
+      hasTriageReply,
       threadUrl: root.htmlUrl,
     });
   }

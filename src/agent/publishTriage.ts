@@ -61,6 +61,7 @@ type TriagePriorPush = {
 export type StoredTriagePushDetail = {
   readonly pushed: boolean;
   readonly degraded: boolean;
+  readonly pushedHeadSha?: string;
   readonly payload: TriagePayload;
   readonly commits: readonly TriageCommittedDetail[];
 };
@@ -88,6 +89,7 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
     commits: commits as TriageCommittedDetail[],
     pushed: !staleHead,
     degraded: staleHead,
+    pushedHeadSha: typeof entry.pushedHeadSha === "string" ? entry.pushedHeadSha : undefined,
   };
 }
 
@@ -222,6 +224,8 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         step: "triage_push",
         detail: {
           pushedShas: committedShas,
+          baseHeadSha: params.headSha,
+          pushedHeadSha: committedShas.at(-1) ?? params.headSha,
           commits: params.checkout.listCommittedDetails(),
           payload: params.payload,
         },
@@ -238,6 +242,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         detail: {
           staleHead: true,
           attemptedShas: committedShas,
+          baseHeadSha: params.headSha,
           commits: params.checkout.listCommittedDetails(),
           payload: params.payload,
         },
@@ -249,7 +254,13 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       step: "triage_push",
-      detail: { pushedShas: [], commits: [], payload: params.payload },
+      detail: {
+        pushedShas: [],
+        baseHeadSha: params.headSha,
+        pushedHeadSha: params.headSha,
+        commits: [],
+        payload: params.payload,
+      },
     });
   }
 
@@ -268,7 +279,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       continue;
     }
     if (resolution.isResolved) continue;
-    if (!actedThreadIds.has(verdict.threadRootCommentId)) {
+    if (!actedThreadIds.has(verdict.threadRootCommentId) && thread.hasTriageReply !== true) {
       await replyToThread({ ...params, thread, verdict });
       actedThreadIds.add(verdict.threadRootCommentId);
       await recordActedThreadIds(params.pool, {

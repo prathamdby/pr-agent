@@ -3,7 +3,7 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
-import { fetchBotFindingThreads } from "../../review/reviewPriorFeedback.js";
+import { fetchBotFindingThreads, type BotFindingThread } from "../../review/reviewPriorFeedback.js";
 import { runFullPrTriage } from "../../agent/triageRun.js";
 import {
   parseStoredTriagePushDetail,
@@ -84,6 +84,16 @@ function checkoutFromStoredPush(
     listCommittedShas: () => detail.commits.map((commit) => commit.sha),
     listCommittedDetails: () => [...detail.commits],
   };
+}
+
+function storedPushMatchesInventory(
+  detail: StoredTriagePushDetail,
+  headSha: string,
+  inventory: readonly BotFindingThread[],
+): boolean {
+  if (detail.pushed && detail.pushedHeadSha?.toLowerCase() !== headSha.toLowerCase()) return false;
+  const verdictIds = new Set(detail.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
+  return inventory.every((thread) => verdictIds.has(thread.rootCommentId));
 }
 
 export async function executeTriageJob(
@@ -186,6 +196,7 @@ export async function executeTriageJob(
         return {};
       }
 
+      let requireStoredPushMatch = false;
       let storedPushDetail = await getCompletedPublishStepDetail(
         pool,
         item.id,
@@ -193,34 +204,39 @@ export async function executeTriageJob(
         "triage",
         "triage_push",
       );
-      storedPushDetail ??= await getCompletedPublishStepDetailWithoutNewerStep(
-        pool,
-        item.resourceKey,
-        "triage",
-        "triage_push",
-        "triage_report",
-      );
+      if (storedPushDetail == null) {
+        storedPushDetail = await getCompletedPublishStepDetailWithoutNewerStep(
+          pool,
+          item.resourceKey,
+          "triage",
+          "triage_push",
+          "triage_report",
+        );
+        requireStoredPushMatch = storedPushDetail != null;
+      }
       if (storedPushDetail != null) {
         const parsed = parseStoredTriagePushDetail(storedPushDetail);
         if (!parsed) throw new Error("Stored triage_push detail is invalid");
-        const publish = await publishTriage({
-          pool,
-          workItemId: item.id,
-          resourceKey: item.resourceKey,
-          token: tokenState.installation.token,
-          tokenExpiresAtTs: tokenState.installation.expiresAtTs,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha,
-          checkout: checkoutFromStoredPush(branch.headRef, headSha, parsed),
-          inventory,
-          resolutionByRootCommentId,
-          payload: parsed.payload,
-          previouslyResolvedCount,
-          priorPush: parsed,
-        });
-        return publish.degraded ? { degraded: true } : {};
+        if (!requireStoredPushMatch || storedPushMatchesInventory(parsed, headSha, inventory)) {
+          const publish = await publishTriage({
+            pool,
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            token: tokenState.installation.token,
+            tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            headSha,
+            checkout: checkoutFromStoredPush(branch.headRef, headSha, parsed),
+            inventory,
+            resolutionByRootCommentId,
+            payload: parsed.payload,
+            previouslyResolvedCount,
+            priorPush: parsed,
+          });
+          return publish.degraded ? { degraded: true } : {};
+        }
       }
 
       return withWritablePrCheckout(

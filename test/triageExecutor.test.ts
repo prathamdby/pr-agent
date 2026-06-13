@@ -157,6 +157,7 @@ describe("executeTriageJob", () => {
       commits: detail.commits,
       pushed: detail.staleHead !== true,
       degraded: detail.staleHead === true,
+      pushedHeadSha: detail.pushedHeadSha,
     }));
     mocks.publishTriage.mockResolvedValue({ degraded: false });
     mocks.publishTriageReportOnly.mockResolvedValue(undefined);
@@ -215,6 +216,7 @@ describe("executeTriageJob", () => {
     mocks.getCompletedPublishStepDetail.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      pushedHeadSha: "a".repeat(40),
       payload,
     });
 
@@ -237,6 +239,7 @@ describe("executeTriageJob", () => {
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      pushedHeadSha: "a".repeat(40),
       payload,
     });
 
@@ -250,6 +253,50 @@ describe("executeTriageJob", () => {
         priorPush: expect.objectContaining({ pushed: true, degraded: false }),
       }),
     );
+  });
+
+  it("runs a fresh agent pass when cross-work-item push detail misses current inventory", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([
+      {
+        rootCommentId: 1,
+        lens: "review",
+        path: "src/app.ts",
+        line: 1,
+        severity: "P1",
+        titleSnippet: "P1 · Bug",
+        humanReplies: [],
+        threadUrl: "https://github.test/thread-1",
+      },
+      {
+        rootCommentId: 2,
+        lens: "review",
+        path: "src/other.ts",
+        line: 2,
+        severity: "P2",
+        titleSnippet: "P2 · Other",
+        humanReplies: [],
+        threadUrl: "https://github.test/thread-2",
+      },
+    ]);
+    mocks.listReviewThreadResolution.mockResolvedValue(
+      new Map([
+        [1, { threadNodeId: "node-1", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+    );
+    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+      pushedShas: ["abc1234"],
+      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      pushedHeadSha: "a".repeat(40),
+      payload: {
+        verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+      },
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).toHaveBeenCalled();
   });
 
   it("posts terminal failure comment when no report exists", async () => {
