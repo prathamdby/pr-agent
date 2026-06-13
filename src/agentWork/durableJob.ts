@@ -15,6 +15,7 @@ import { classifyProviderError } from "../agent/providerErrors.js";
 import { DEFERRED_HEAD_SHA, TOKEN_FRESHNESS_BUFFER_MS } from "../settings/index.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
 import {
+  claimQueuedWorkItem,
   claimWorkForExecution,
   forceMarkRescheduledParentCompleted,
   getWorkItem,
@@ -212,15 +213,40 @@ function workItemAccepted(
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
  */
 export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
-  const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
-  if (!workItemAccepted(core, spec)) return;
-
+  let workItem: AgentWorkItem | undefined;
   let midScaffoldSkipChecksDisabled = false;
+
+  if (spec.acceptItem == null) {
+    workItem =
+      (await claimQueuedWorkItem(spec.pool, spec.job.data.workItemId, spec.type)) ?? undefined;
+    if (workItem) midScaffoldSkipChecksDisabled = true;
+  }
+
+  if (workItem === undefined) {
+    const core = await getWorkItemCore(spec.pool, spec.job.data.workItemId);
+    if (!workItemAccepted(core, spec)) return;
+
+    const cancelBeforeClaim = async () => {
+      if (midScaffoldSkipChecksDisabled) return false;
+      if (!(await shouldSkipWork(spec.pool, core))) return false;
+      await markWorkCancelled(spec.pool, core.id);
+      return true;
+    };
+
+    if (await cancelBeforeClaim()) return;
+    if (!(await claimWorkForExecution(spec.pool, core.id))) return;
+    midScaffoldSkipChecksDisabled = true;
+    const payload = await getWorkItemPayload(spec.pool, core.id);
+    if (!payload) return;
+    workItem = { ...core, payload };
+  }
+
+  const item = workItem;
 
   const cancelIfSkippable = async () => {
     if (midScaffoldSkipChecksDisabled) return false;
-    if (!(await shouldSkipWork(spec.pool, core))) return false;
-    await markWorkCancelled(spec.pool, core.id);
+    if (!(await shouldSkipWork(spec.pool, item))) return false;
+    await markWorkCancelled(spec.pool, item.id);
     return true;
   };
 
@@ -228,13 +254,6 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     midScaffoldSkipChecksDisabled = false;
     return cancelIfSkippable();
   };
-
-  if (await cancelIfSkippable()) return;
-  if (!(await claimWorkForExecution(spec.pool, core.id))) return;
-  midScaffoldSkipChecksDisabled = true;
-  const payload = await getWorkItemPayload(spec.pool, core.id);
-  if (!payload) return;
-  const item: AgentWorkItem = { ...core, payload };
 
   let installation: InstallationToken | undefined;
 

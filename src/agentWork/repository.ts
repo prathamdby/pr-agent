@@ -103,6 +103,9 @@ function sanitizeWorkError(error: unknown): string {
   return sanitizeLogMessage(error instanceof Error ? error.message : String(error));
 }
 
+const CLAIM_QUEUED_WORK_ITEM_RETURNING = `id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
+		        review_lens, resource_key, attempt_count, payload, cancel_requested_at`;
+
 async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
   const result = await pool.query(
     `UPDATE agent_work_items
@@ -116,6 +119,29 @@ async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
     [id],
   );
   return (result.rowCount ?? 0) > 0;
+}
+
+/** One-query claim: UPDATE queued→running and return the full item; null = not claimable this way. */
+export async function claimQueuedWorkItem(
+  pool: Pool,
+  id: string,
+  type: AgentWorkItem["type"],
+): Promise<AgentWorkItem | null> {
+  const row = await queryOne<AgentWorkRow>(
+    pool,
+    `UPDATE agent_work_items
+		    SET status = 'running',
+		        started_at = COALESCE(started_at, now()),
+		        attempt_count = attempt_count + 1,
+		        updated_at = now()
+		  WHERE id = $1
+		    AND type = $2
+		    AND status = 'queued'
+		    AND cancel_requested_at IS NULL
+		  RETURNING ${CLAIM_QUEUED_WORK_ITEM_RETURNING}`,
+    [id, type],
+  );
+  return row ? mapWorkItem(row) : null;
 }
 
 /** Claim queued work or resume a pg-boss retry while the row is still running. */

@@ -23,6 +23,7 @@ import {
   DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_MAX_FETCH_BYTES,
   DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
   DEFAULT_MAX_ASK_TOOL_ROUNDS,
@@ -419,6 +420,10 @@ export function loadConfig() {
     ENV.LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
     DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
   );
+  const localWorkspaceMaxFetchBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+  );
   const localWorkspaceFullCloneMaxRepoKb = readPositiveNumber(
     ENV.LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
     DEFAULT_LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
@@ -489,6 +494,7 @@ export function loadConfig() {
     localWorkspaceSearchMaxTotalBytes,
     localWorkspaceMaxDiffBytes,
     localWorkspaceMinFreeSpaceBytes,
+    localWorkspaceMaxFetchBytes,
     localWorkspaceFullCloneMaxRepoKb,
     localWorkspaceStaleCleanupAgeSeconds,
   };
