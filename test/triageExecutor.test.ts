@@ -331,6 +331,25 @@ describe("executeTriageJob", () => {
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
   });
 
+  it("runs a fresh agent pass when cross-work-item push detail has extra verdicts", async () => {
+    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
+      pushedShas: ["abc1234"],
+      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      pushedHeadSha: "a".repeat(40),
+      payload: {
+        verdicts: [
+          { verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" },
+          { verdict: "skipped" as const, threadRootCommentId: 2, reason: "already handled" },
+        ],
+      },
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+  });
+
   it("posts terminal failure comment when no report exists", async () => {
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
       await spec.onTerminalFailure?.(

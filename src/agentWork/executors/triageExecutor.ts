@@ -93,6 +93,7 @@ function storedPushMatchesInventory(
 ): boolean {
   if (detail.pushed && detail.pushedHeadSha?.toLowerCase() !== headSha.toLowerCase()) return false;
   const verdictIds = new Set(detail.payload.verdicts.map((verdict) => verdict.threadRootCommentId));
+  if (verdictIds.size !== inventory.length) return false;
   return inventory.every((thread) => verdictIds.has(thread.rootCommentId));
 }
 
