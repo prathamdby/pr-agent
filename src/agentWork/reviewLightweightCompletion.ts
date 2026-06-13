@@ -3,8 +3,11 @@ import { evaluateTrivialChangeExemption } from "../review/reviewChangeGate.js";
 import type { ReviewPreflightMetadata } from "../review/reviewPreflightFiles.js";
 import { renderLightweightReviewCompletion } from "../review/reviewRender.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../review/reviewSchema.js";
-import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
-import { recordPublishStep, shouldSkipWork } from "./repository.js";
+import {
+  resolveVerifiedSummaryCommentRef,
+  upsertReviewSummaryComment,
+} from "../github/reviewPublish.js";
+import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 
 export type LightweightAutoReviewResult =
@@ -44,28 +47,35 @@ export async function tryLightweightAutoReviewCompletion(
   }
 
   const body = renderLightweightReviewCompletion(params.reviewLens);
-  let summary;
-  if (params.tokenExpiresAtTs == null) {
-    summary = await upsertReviewSummaryComment(
-      params.token,
-      params.item.owner,
-      params.item.repo,
-      params.item.prNumber,
-      body,
-      reviewSummarySentinelForMode(params.reviewLens),
-    );
-  } else {
-    summary = await upsertReviewSummaryComment(
-      params.token,
-      params.item.owner,
-      params.item.repo,
-      params.item.prNumber,
-      body,
-      reviewSummarySentinelForMode(params.reviewLens),
-      undefined,
-      params.tokenExpiresAtTs,
-    );
-  }
+  const sentinel = reviewSummarySentinelForMode(params.reviewLens);
+  const storedId = await getSummaryCommentGithubId(
+    pool,
+    params.item.resourceKey,
+    params.reviewLens,
+  );
+  const verified =
+    storedId != null
+      ? await resolveVerifiedSummaryCommentRef(
+          params.token,
+          params.item.owner,
+          params.item.repo,
+          params.item.prNumber,
+          sentinel,
+          storedId,
+          params.tokenExpiresAtTs,
+        )
+      : null;
+  const knownExisting = verified ? { id: verified.id, url: verified.url } : undefined;
+  const summary = await upsertReviewSummaryComment(
+    params.token,
+    params.item.owner,
+    params.item.repo,
+    params.item.prNumber,
+    body,
+    sentinel,
+    knownExisting,
+    params.tokenExpiresAtTs,
+  );
   await recordPublishStep(pool, {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,

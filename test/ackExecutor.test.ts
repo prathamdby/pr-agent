@@ -20,10 +20,12 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 }));
 
 vi.mock("../src/github/reviewPublish.js", () => ({
-  upsertReviewSummaryComment: vi.fn(),
+  resolveVerifiedSummaryCommentRef: vi.fn(),
+  upsertReviewSummaryComment: vi.fn(async () => ({ id: 77, updated: true })),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
+  getSummaryCommentGithubId: vi.fn(async () => null),
   recordPublishStep: vi.fn(),
   claimSummaryCommentCreation: vi.fn(async () => true),
 }));
@@ -37,8 +39,12 @@ vi.mock("../src/review/publish/publishReview.js", async (importOriginal) => {
 });
 
 import { safeReaction } from "../src/agentWork/githubPrSurface.js";
+import {
+  resolveVerifiedSummaryCommentRef,
+  upsertReviewSummaryComment,
+} from "../src/github/reviewPublish.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
-import { recordPublishStep } from "../src/agentWork/repository.js";
+import { getSummaryCommentGithubId, recordPublishStep } from "../src/agentWork/repository.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
@@ -97,6 +103,41 @@ describe("executeAckJob", () => {
         step: "progress_comment",
         githubId: 42,
       }),
+    );
+  });
+
+  it("uses stored summary id without resolve scan when progress has no work item id", async () => {
+    vi.mocked(getSummaryCommentGithubId).mockResolvedValue(55);
+    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue({
+      id: 55,
+      url: "https://example.com/55",
+      source: "hint",
+    });
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      progress: { lens: "review", headSha: "sha", source: "auto" },
+    });
+
+    expect(getSummaryCommentGithubId).toHaveBeenCalledWith(pool, "o/r#1", "review");
+    expect(resolveVerifiedSummaryCommentRef).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      1,
+      expect.any(String),
+      55,
+      expect.any(Number),
+    );
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      1,
+      expect.any(String),
+      expect.any(String),
+      { id: 55, url: "https://example.com/55" },
+      expect.any(Number),
     );
   });
 });
