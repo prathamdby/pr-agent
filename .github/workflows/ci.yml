@@ -95,6 +95,20 @@ jobs:
       - run: pnpm install --frozen-lockfile --filter pr-agent...
       - run: pnpm run test:integration
 
+  docker:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
   site:
     needs: changes
     if: needs.changes.outputs.site == 'true'
