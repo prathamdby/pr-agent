@@ -9,7 +9,7 @@ import type { ReviewMode } from "./reviewSchema.js";
 
 function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
-  extras?: { priorInlineFeedback?: string },
+  extras?: { priorInlineFeedback?: string; repoPolicyBlock?: string },
 ): string {
   const filenames = metadata.files.map((file) => file.filename);
   const pathProfile = buildReviewPathProfile(filenames);
@@ -27,15 +27,20 @@ function buildTrustedReviewContextBlock(
   if (extras?.priorInlineFeedback) {
     blocks.push("", extras.priorInlineFeedback);
   }
+  if (extras?.repoPolicyBlock) {
+    blocks.push("", extras.repoPolicyBlock);
+  }
   return blocks.join("\n");
 }
 
 export function buildTrustedReviewContextForReview(params: {
   preflight: ReviewPreflightMetadata;
   priorInlineFeedback?: string;
+  repoPolicyBlock?: string;
 }): string {
   return buildTrustedReviewContextBlock(params.preflight, {
     priorInlineFeedback: params.priorInlineFeedback,
+    repoPolicyBlock: params.repoPolicyBlock,
   });
 }
 

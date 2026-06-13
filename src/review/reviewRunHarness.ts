@@ -67,6 +67,7 @@ export async function runReviewHarness(params: {
   reviewSource?: WorkSource;
   staleHeadRescheduled?: boolean;
   publishAbortState?: { staleHead?: boolean };
+  severityFloor?: number;
 }): Promise<ReviewRunResult> {
   const { cfg, owner, repo, prNumber, reviewMode } = params;
   const providerName = cfg.agentProvider;
