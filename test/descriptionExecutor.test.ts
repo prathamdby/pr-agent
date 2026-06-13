@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem, DescriptionJobData } from "../src/agentWork/types.js";
-import { DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
+import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import * as repo from "../src/agentWork/repository.js";
 import {
@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   runDescriptionRun: vi.fn(),
   runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
+  pullsGet: vi.fn(),
   createComment: vi.fn(),
 }));
 
@@ -59,6 +60,7 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(),
   installationOctokit: vi.fn(() => ({
     rest: {
+      pulls: { get: mocks.pullsGet },
       issues: { createComment: mocks.createComment },
     },
   })),
@@ -138,6 +140,23 @@ function mockDurableExecution(item = descriptionItem()): void {
   });
 }
 
+async function runTerminalFailure(
+  source: "slash" | "auto",
+  prBody = "manual pr body",
+): Promise<void> {
+  mocks.pullsGet.mockResolvedValue({ data: { body: prBody } });
+  const item = descriptionItem(source);
+  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    const installation = {
+      token: "tok",
+      expiresAtTs: Date.now() + 60_000,
+      ttlMs: 60_000,
+    };
+    await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+  });
+  await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
+}
+
 describe("executeDescriptionJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -147,6 +166,7 @@ describe("executeDescriptionJob", () => {
       publishSuperseded: false,
     });
     mocks.createComment.mockResolvedValue(undefined);
+    mocks.pullsGet.mockResolvedValue({ data: { body: "manual pr body" } });
     mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
       run({
         agentCwd: "/tmp/pr-agent",
@@ -157,18 +177,9 @@ describe("executeDescriptionJob", () => {
   });
 
   it("posts slash failure comment on terminal pg-boss attempt", async () => {
-    const item = descriptionItem("slash");
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
-      const installation = {
-        token: "tok",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      };
-      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
-    });
+    await runTerminalFailure("slash");
 
-    await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
-
+    expect(mocks.pullsGet).not.toHaveBeenCalled();
     expect(mocks.createComment).toHaveBeenCalledWith({
       owner: "o",
       repo: "r",
@@ -177,19 +188,17 @@ describe("executeDescriptionJob", () => {
     });
   });
 
-  it("stays silent on terminal failure for auto source", async () => {
-    const item = descriptionItem("auto");
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
-      const installation = {
-        token: "tok",
-        expiresAtTs: Date.now() + 60_000,
-        ttlMs: 60_000,
-      };
-      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
-    });
+  it("posts auto failure comment when description header is absent", async () => {
+    await runTerminalFailure("auto", "manual pr body");
 
-    await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
+    expect(mocks.pullsGet).toHaveBeenCalled();
+    expect(mocks.createComment).toHaveBeenCalled();
+  });
 
+  it("stays silent for auto terminal failure when description header is present", async () => {
+    await runTerminalFailure("auto", `intro\n${DESCRIPTION_AGENT_HEADER}\ncontent`);
+
+    expect(mocks.pullsGet).toHaveBeenCalled();
     expect(mocks.createComment).not.toHaveBeenCalled();
   });
 

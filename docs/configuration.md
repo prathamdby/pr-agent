@@ -95,14 +95,7 @@ Loaded by `loadConfig()` into a redaction-safe map and never logged. Set the sec
 
 ---
 
-## Retry model split (document only)
-
-| Mechanism                       | Default | Where                              |
-| ------------------------------- | ------- | ---------------------------------- |
-| `agent_work_items.max_attempts` | `3`     | SQL migration `001_agent_work.sql` |
-| pg-boss `QUEUE_RETRY_LIMIT`     | `3`     | `src/agentWork/boss.ts`            |
-
-These are related but not wired together on INSERT today.
+Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY`, `QUEUE_RETRY_BACKOFF`).
 
 ---
 

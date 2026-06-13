@@ -4,7 +4,11 @@ import type { Config } from "../../config.js";
 import { runFullPrDescription } from "../../agent/descriptionRun.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
-import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
+import {
+  DESCRIPTION_AGENT_HEADER,
+  DESCRIPTION_FAILURE_MESSAGE,
+  DESCRIPTION_PUBLISH_LENS,
+} from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { recordPublishStep, shouldSkipWork } from "../repository.js";
 import {
@@ -85,8 +89,15 @@ export async function executeDescriptionJob(
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
       const payload = item.payload as DescriptionWorkPayload;
-      if (payload.source !== "slash") return;
       const octokit = installationOctokit(installation.token, installation.expiresAtTs);
+      if (payload.source !== "slash") {
+        const { data: pr } = await octokit.rest.pulls.get({
+          owner: item.owner,
+          repo: item.repo,
+          pull_number: item.prNumber,
+        });
+        if ((pr.body ?? "").includes(DESCRIPTION_AGENT_HEADER)) return;
+      }
       await octokit.rest.issues.createComment({
         owner: item.owner,
         repo: item.repo,
