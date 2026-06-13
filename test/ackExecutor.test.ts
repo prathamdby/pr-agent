@@ -25,9 +25,20 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 
 vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: vi.fn(),
+  claimSummaryCommentCreation: vi.fn(async () => true),
 }));
 
+vi.mock("../src/review/publish/publishReview.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review/publish/publishReview.js")>();
+  return {
+    ...actual,
+    upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({ id: 42, updated: false })),
+  };
+});
+
 import { safeReaction } from "../src/agentWork/githubPrSurface.js";
+import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
+import { recordPublishStep } from "../src/agentWork/repository.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
@@ -62,5 +73,30 @@ describe("executeAckJob", () => {
 
     expect(safeReaction).toHaveBeenCalledTimes(3);
     expect(vi.mocked(safeReaction).mock.calls.map((call) => call[3])).toEqual(ackData().targets);
+  });
+
+  it("uses coordinated summary upsert for progress with work item id", async () => {
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-1",
+      progress: { lens: "review", headSha: "sha", source: "auto" },
+    });
+
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pool,
+        workItemId: "wi-1",
+        resourceKey: "o/r#1",
+        reviewLens: "review",
+      }),
+    );
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemId: "wi-1",
+        step: "progress_comment",
+        githubId: 42,
+      }),
+    );
   });
 });

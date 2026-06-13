@@ -24,6 +24,7 @@ import {
 } from "../../review/reviewRunMetrics.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
+import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
@@ -207,15 +208,18 @@ export async function executeReviewJob(
               published: publishState.summaryPublished,
               inlineReviewId: publishState.inlineReviewId,
             },
-            recordPublishStep: (step, detail) =>
-              recordPublishStep(pool, {
-                workItemId: item.id,
-                resourceKey: item.resourceKey,
-                reviewLens,
-                step,
-                githubId: detail?.githubId,
-                detail: detail?.meta,
-              }),
+            recordPublishStep: attachSummaryCommentCoordination(
+              (step, detail) =>
+                recordPublishStep(pool, {
+                  workItemId: item.id,
+                  resourceKey: item.resourceKey,
+                  reviewLens,
+                  step,
+                  githubId: detail?.githubId,
+                  detail: detail?.meta,
+                }),
+              { pool, workItemId: item.id, resourceKey: item.resourceKey },
+            ),
             reviewSource: payload.source,
             staleHeadRescheduled: payload.staleHeadRescheduled,
             publishAbortState,
