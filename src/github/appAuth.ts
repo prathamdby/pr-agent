@@ -6,7 +6,7 @@ import type { Config } from "../config.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { httpStatus } from "./httpStatus.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "./githubRequestError.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "./installationTokenExpiry.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
 export type InstallationOctokit = InstanceType<typeof ThrottledOctokit>;

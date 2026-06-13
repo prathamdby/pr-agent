@@ -6,30 +6,10 @@ import {
 import * as evlog from "../src/evlog.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
-}));
-
-vi.mock("../src/agent/githubTools.js", () => ({
-  buildGithubTools: vi.fn(() => ({
-    piTools: [
-      {
-        name: "getPullRequest",
-        description: "d",
-        parameters: { type: "object", properties: {} },
-      },
-      {
-        name: "listPullRequestFiles",
-        description: "d",
-        parameters: { type: "object", properties: {} },
-      },
-    ],
-    executors: {
-      getPullRequest: vi.fn(async () => ({})),
-      listPullRequestFiles: vi.fn(async () => ({ files: [] })),
-    },
-  })),
 }));
 
 vi.mock("../src/agent/context7Tools.js", () => ({
@@ -90,6 +70,7 @@ const cursorCfg = makeTestConfig({
 });
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;
+const testWorkspace = mockLocalPrWorkspace();
 
 const cursorCatalog = [
   {
@@ -120,6 +101,7 @@ describe("runFullPrReview cursor provider", () => {
         repo: "r",
         prNumber: 1,
         headSha: "sha",
+        workspace: testWorkspace,
       }),
     ).rejects.toThrow(/tokenExpiresAtTs/);
   });
@@ -135,6 +117,7 @@ describe("runFullPrReview cursor provider", () => {
       prNumber: 1,
       headSha: "sha",
       mode: "review-security",
+      workspace: testWorkspace,
     });
 
     expect(vi.mocked(complete).mock.calls.length).toBeGreaterThan(0);
@@ -162,6 +145,7 @@ describe("runFullPrReview cursor provider", () => {
         repo: "r",
         prNumber: 1,
         headSha: "sha",
+        workspace: testWorkspace,
       });
     });
     expect(infoSpy).toHaveBeenCalledWith(

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   createIssueComment: vi.fn(async () => ({
@@ -69,6 +70,7 @@ function reviewParams(
     repo: "r",
     prNumber: 1,
     headSha: "sha",
+    workspace: mockLocalPrWorkspace(),
     ...overrides,
   };
 }

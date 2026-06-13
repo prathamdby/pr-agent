@@ -2,7 +2,6 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "./askSafety.js";
-import { buildGithubTools } from "./githubTools.js";
 import { buildLocalWorkspaceTools, workspaceToolLimitsFromConfig } from "./localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "./providers/cursor/refreshableGithubTools.js";
 import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
@@ -40,7 +39,7 @@ export function buildDescriptionRunSetup(params: {
   prNumber: number;
   headSha: string;
   userSupplement?: string;
-  workspace?: LocalPrWorkspace;
+  workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   refreshInstallationToken?: () => Promise<{
@@ -68,18 +67,10 @@ export function buildDescriptionRunSetup(params: {
     tokenExpiresAtTs,
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
-    build: (activeToken, activeExpiresAtTs) => {
-      if (workspace) {
-        return buildLocalWorkspaceTools(workspace, workspaceToolLimitsFromConfig(cfg), {
-          pathGate,
-        });
-      }
-      return buildGithubTools(activeToken, {
-        maxPrFilesListed: cfg.maxPrFilesListed,
-        maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
-        tokenExpiresAtTs: activeExpiresAtTs,
-      });
-    },
+    build: (_activeToken, _activeExpiresAtTs) =>
+      buildLocalWorkspaceTools(workspace, workspaceToolLimitsFromConfig(cfg), {
+        pathGate,
+      }),
   });
 
   const buildSubmit = () =>

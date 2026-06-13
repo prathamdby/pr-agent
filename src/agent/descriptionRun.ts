@@ -20,7 +20,7 @@ export async function runFullPrDescription(params: {
   headSha: string;
   userSupplement?: string;
   cwd?: string;
-  workspace?: LocalPrWorkspace;
+  workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   refreshInstallationToken?: () => Promise<{

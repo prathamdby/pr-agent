@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
 import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/constants.js";
-import { buildGithubTools } from "../src/agent/githubTools.js";
 import { createRefreshableToolExecutors } from "../src/agent/providers/cursor/refreshableGithubTools.js";
 
 describe("createRefreshableToolExecutors", () => {
@@ -34,13 +33,23 @@ describe("createRefreshableToolExecutors", () => {
     expect(build).toHaveBeenLastCalledWith("fresh-token", freshExpiresAtTs);
   });
 
-  it("keeps static GitHub tool parameter schemas identical across token rebuilds", () => {
-    const first = buildGithubTools("old-token");
-    const second = buildGithubTools("new-token");
+  it("keeps static tool parameter schemas identical across token rebuilds", () => {
+    const sharedSchema = { type: "object", properties: {} };
+    const build = () => ({
+      piTools: [{ name: "getPullRequest", description: "d", parameters: sharedSchema }],
+      executors: { getPullRequest: vi.fn() },
+    });
+    const refreshable = createRefreshableToolExecutors({
+      initialToken: "old-token",
+      tokenExpiresAtTs: Date.now() + 3_600_000,
+      build,
+      githubToolNames: new Set(["getPullRequest"]),
+    });
 
-    for (let i = 0; i < first.piTools.length; i++) {
-      expect(second.piTools[i]?.parameters).toBe(first.piTools[i]?.parameters);
-    }
-    expect(second.executors.getPullRequest).not.toBe(first.executors.getPullRequest);
+    const first = refreshable.bundle.piTools[0]?.parameters;
+    refreshable.refreshBeforeTool("getPullRequest");
+    const second = refreshable.bundle.piTools[0]?.parameters;
+
+    expect(second).toBe(first);
   });
 });

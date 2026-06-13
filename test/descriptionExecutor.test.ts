@@ -5,6 +5,7 @@ import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem, DescriptionJobData } from "../src/agentWork/types.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import * as repo from "../src/agentWork/repository.js";
 import {
   makeDurableJobMetadata,
@@ -170,7 +171,7 @@ describe("executeDescriptionJob", () => {
     mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
       run({
         agentCwd: "/tmp/pr-agent",
-        workspace: undefined,
+        workspace: mockLocalPrWorkspace("/tmp/pr-agent"),
       }),
     );
     mockDurableExecution();

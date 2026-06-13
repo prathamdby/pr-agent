@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "../src/review/reviewPromptBlocks.js";
 import { PROSE_ONLY_NUDGE } from "../src/settings/index.js";
 
@@ -102,6 +103,7 @@ describe("runReviewHarness", () => {
       prNumber: 1,
       headSha: "head",
       reviewMode: "review",
+      workspace: mockLocalPrWorkspace(),
     });
   };
 

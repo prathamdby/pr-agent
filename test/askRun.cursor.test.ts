@@ -5,25 +5,7 @@ import {
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
-
-vi.mock("../src/agent/askSafety.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agent/askSafety.js")>();
-  return {
-    ...actual,
-    buildAskGithubTools: vi.fn(() => ({
-      piTools: [
-        {
-          name: "listPullRequestFiles",
-          description: "d",
-          parameters: { type: "object", properties: {} },
-        },
-      ],
-      executors: {
-        listPullRequestFiles: vi.fn(async () => ({ files: [] })),
-      },
-    })),
-  };
-});
+import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 vi.mock("../src/agent/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
@@ -99,6 +81,7 @@ describe("runAskRun cursor provider", () => {
       headSha: "sha",
       question: "What does this function do?",
       replyTarget: { kind: "prConversation", prNumber: 1 },
+      workspace: mockLocalPrWorkspace(),
     });
 
     expect(vi.mocked(complete)).toHaveBeenCalledTimes(1);
