@@ -44,6 +44,7 @@ const thread = {
   humanReplies: [],
   threadUrl: "https://github.test/thread",
 };
+const secondThread = { ...thread, rootCommentId: 2, titleSnippet: "P2 · Already fixed" };
 
 function checkout(push: () => Promise<void>): WritablePrCheckout {
   return {
@@ -105,6 +106,51 @@ describe("publishTriage", () => {
     expect(result.degraded).toBe(true);
     expect(mocks.createReply).not.toHaveBeenCalled();
     expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(mocks.upsert.mock.calls[0]?.[4]).toContain("head changed");
+  });
+
+  it("still replies to already-resolved verdicts when push is stale", async () => {
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      resourceKey: "o/r#1",
+      token: "tok",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => {
+        throw new StaleHeadPushError();
+      }),
+      inventory: [thread, secondThread],
+      resolutionByRootCommentId: new Map([
+        [1, { threadNodeId: "node-1", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "abcdef123456",
+            evidence: "fixed",
+          },
+          {
+            verdict: "already-resolved",
+            threadRootCommentId: 2,
+            evidence: "current code already handles this",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(mocks.createReply).toHaveBeenCalledTimes(1);
+    expect(mocks.createReply).toHaveBeenCalledWith(
+      expect.objectContaining({ comment_id: 2, body: expect.stringContaining("already resolved") }),
+    );
+    expect(mocks.resolve).toHaveBeenCalledWith("tok", "node-2", undefined);
     expect(mocks.upsert.mock.calls[0]?.[4]).toContain("head changed");
   });
 

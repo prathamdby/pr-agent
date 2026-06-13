@@ -18,8 +18,10 @@ const mocks = vi.hoisted(() => ({
   listReviewThreadResolution: vi.fn(),
   withWritablePrCheckout: vi.fn(),
   runFullPrTriage: vi.fn(),
+  parseStoredTriagePushDetail: vi.fn(),
   publishTriage: vi.fn(),
   publishTriageReportOnly: vi.fn(),
+  getCompletedPublishStepDetail: vi.fn(),
   hasCompletedPublishStep: vi.fn(),
 }));
 
@@ -55,11 +57,13 @@ vi.mock("../src/agent/triageRun.js", () => ({
 }));
 
 vi.mock("../src/agent/publishTriage.js", () => ({
+  parseStoredTriagePushDetail: mocks.parseStoredTriagePushDetail,
   publishTriage: mocks.publishTriage,
   publishTriageReportOnly: mocks.publishTriageReportOnly,
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
+  getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
 }));
 
@@ -145,8 +149,15 @@ describe("executeTriageJob", () => {
       submitted: true,
       payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "later" }] },
     });
+    mocks.parseStoredTriagePushDetail.mockImplementation((detail) => ({
+      payload: detail.payload,
+      commits: detail.commits,
+      pushed: detail.staleHead !== true,
+      degraded: detail.staleHead === true,
+    }));
     mocks.publishTriage.mockResolvedValue({ degraded: false });
     mocks.publishTriageReportOnly.mockResolvedValue(undefined);
+    mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
   });
 
@@ -191,6 +202,28 @@ describe("executeTriageJob", () => {
       "Previously resolved: 1",
     );
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+  });
+
+  it("resumes publish from stored push detail without rerunning agent", async () => {
+    const payload = {
+      verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+    };
+    mocks.getCompletedPublishStepDetail.mockResolvedValue({
+      pushedShas: ["abc1234"],
+      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      payload,
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+    expect(mocks.publishTriage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload,
+        priorPush: expect.objectContaining({ pushed: true, degraded: false }),
+      }),
+    );
   });
 
   it("posts terminal failure comment when no report exists", async () => {

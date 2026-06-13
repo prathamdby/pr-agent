@@ -7,7 +7,11 @@ import {
 } from "../github/reviewThreadResolution.js";
 import { redactReviewText } from "../review/reviewPublicOutput.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
-import type { TriagePayload, TriageVerdict } from "../review/triageSchema.js";
+import {
+  TriagePayloadSchema,
+  type TriagePayload,
+  type TriageVerdict,
+} from "../review/triageSchema.js";
 import {
   TRIAGE_PUBLISH_LENS,
   TRIAGE_STALE_HEAD_NOTICE,
@@ -32,14 +36,59 @@ type PublishTriageParams = {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly payload: TriagePayload;
   readonly previouslyResolvedCount: number;
+  readonly priorPush?: TriagePriorPush;
 };
 
 type ReportOnlyParams = Omit<
   PublishTriageParams,
-  "checkout" | "resolutionByRootCommentId" | "payload"
+  "checkout" | "resolutionByRootCommentId" | "payload" | "priorPush"
 > & {
   readonly body: string;
 };
+
+type TriageCommittedDetail = {
+  readonly sha: string;
+  readonly subject: string;
+  readonly diff: string;
+};
+
+type TriagePriorPush = {
+  readonly pushed: boolean;
+  readonly degraded: boolean;
+};
+
+export type StoredTriagePushDetail = {
+  readonly pushed: boolean;
+  readonly degraded: boolean;
+  readonly payload: TriagePayload;
+  readonly commits: readonly TriageCommittedDetail[];
+};
+
+function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
+  if (typeof value !== "object" || value == null) return null;
+  const entry = value as Record<string, unknown>;
+  return typeof entry.sha === "string" &&
+    typeof entry.subject === "string" &&
+    typeof entry.diff === "string"
+    ? { sha: entry.sha, subject: entry.subject, diff: entry.diff }
+    : null;
+}
+
+export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDetail | null {
+  if (typeof detail !== "object" || detail == null) return null;
+  const entry = detail as Record<string, unknown>;
+  const payload = TriagePayloadSchema.safeParse(entry.payload);
+  if (!payload.success || !Array.isArray(entry.commits)) return null;
+  const commits = entry.commits.map(parseStoredCommit);
+  if (commits.some((commit) => commit == null)) return null;
+  const staleHead = entry.staleHead === true;
+  return {
+    payload: payload.data,
+    commits: commits as TriageCommittedDetail[],
+    pushed: !staleHead,
+    degraded: staleHead,
+  };
+}
 
 function shortSha(sha: string): string {
   return sha.slice(0, 7);
@@ -153,9 +202,10 @@ export async function publishTriageReportOnly(params: ReportOnlyParams): Promise
 }
 
 export async function publishTriage(params: PublishTriageParams): Promise<{ degraded: boolean }> {
-  let pushed = false;
+  let pushed = params.priorPush?.pushed ?? false;
+  let degraded = params.priorPush?.degraded ?? false;
   const committedShas = params.checkout.listCommittedShas();
-  if (committedShas.length > 0) {
+  if (!params.priorPush && committedShas.length > 0) {
     try {
       await params.checkout.push();
       pushed = true;
@@ -164,37 +214,35 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
-        detail: { pushedShas: committedShas },
+        detail: {
+          pushedShas: committedShas,
+          commits: params.checkout.listCommittedDetails(),
+          payload: params.payload,
+        },
       });
     } catch (error) {
       if (!(error instanceof StaleHeadPushError)) throw error;
+      degraded = true;
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
-        detail: { staleHead: true, attemptedShas: committedShas },
-      });
-      await upsertTriageReport({
-        ...params,
-        body: renderTriageReport({
-          headSha: params.headSha,
-          inventory: params.inventory,
-          payload: params.payload,
+        detail: {
+          staleHead: true,
+          attemptedShas: committedShas,
           commits: params.checkout.listCommittedDetails(),
-          previouslyResolvedCount: params.previouslyResolvedCount,
-          notice: TRIAGE_STALE_HEAD_NOTICE,
-        }),
+          payload: params.payload,
+        },
       });
-      return { degraded: true };
     }
-  } else {
+  } else if (!params.priorPush) {
     await recordPublishStep(params.pool, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       step: "triage_push",
-      detail: { pushedShas: [] },
+      detail: { pushedShas: [], commits: [], payload: params.payload },
     });
   }
 
@@ -202,6 +250,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   for (const verdict of params.payload.verdicts) {
     if (verdict.verdict !== "fixed" && verdict.verdict !== "already-resolved") continue;
+    if (verdict.verdict === "fixed" && !pushed) continue;
     if (actedThreadIds.has(verdict.threadRootCommentId)) continue;
     const thread = threadById.get(verdict.threadRootCommentId);
     const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
@@ -223,7 +272,8 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       payload: params.payload,
       commits: pushed ? params.checkout.listCommittedDetails() : [],
       previouslyResolvedCount: params.previouslyResolvedCount,
+      notice: degraded ? TRIAGE_STALE_HEAD_NOTICE : undefined,
     }),
   });
-  return { degraded: false };
+  return { degraded };
 }

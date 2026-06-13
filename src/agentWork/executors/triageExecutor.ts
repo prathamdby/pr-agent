@@ -5,7 +5,12 @@ import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js"
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { fetchBotFindingThreads } from "../../review/reviewPriorFeedback.js";
 import { runFullPrTriage } from "../../agent/triageRun.js";
-import { publishTriage, publishTriageReportOnly } from "../../agent/publishTriage.js";
+import {
+  parseStoredTriagePushDetail,
+  publishTriage,
+  publishTriageReportOnly,
+  type StoredTriagePushDetail,
+} from "../../agent/publishTriage.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_FAILURE_MESSAGE,
@@ -13,8 +18,8 @@ import {
   TRIAGE_NO_PRIOR_FINDINGS,
   TRIAGE_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
-import { withWritablePrCheckout } from "../../prWorkspace/index.js";
-import { hasCompletedPublishStep } from "../repository.js";
+import { type WritablePrCheckout, withWritablePrCheckout } from "../../prWorkspace/index.js";
+import { getCompletedPublishStepDetail, hasCompletedPublishStep } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type TriageJobData } from "../types.js";
 
@@ -57,6 +62,24 @@ function reportOnlyBody(params: {
     `Inventory items: ${params.inventoryCount}`,
     `Previously resolved: ${params.previouslyResolvedCount}`,
   ].join("\n");
+}
+
+function checkoutFromStoredPush(
+  headRef: string,
+  headSha: string,
+  detail: StoredTriagePushDetail,
+): WritablePrCheckout {
+  return {
+    dir: "",
+    headRef,
+    baseSha: headSha,
+    commit: async () => {
+      throw new Error("Stored triage push cannot create new commits");
+    },
+    push: async () => undefined,
+    listCommittedShas: () => detail.commits.map((commit) => commit.sha),
+    listCommittedDetails: () => [...detail.commits],
+  };
 }
 
 export async function executeTriageJob(
@@ -151,6 +174,42 @@ export async function executeTriageJob(
           }),
         });
         return {};
+      }
+
+      if (
+        await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", "triage_report")
+      ) {
+        return {};
+      }
+
+      const storedPushDetail = await getCompletedPublishStepDetail(
+        pool,
+        item.id,
+        item.resourceKey,
+        "triage",
+        "triage_push",
+      );
+      if (storedPushDetail != null) {
+        const parsed = parseStoredTriagePushDetail(storedPushDetail);
+        if (!parsed) throw new Error("Stored triage_push detail is invalid");
+        const publish = await publishTriage({
+          pool,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          token: tokenState.installation.token,
+          tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          headSha,
+          checkout: checkoutFromStoredPush(branch.headRef, headSha, parsed),
+          inventory,
+          resolutionByRootCommentId,
+          payload: parsed.payload,
+          previouslyResolvedCount,
+          priorPush: parsed,
+        });
+        return publish.degraded ? { degraded: true } : {};
       }
 
       return withWritablePrCheckout(

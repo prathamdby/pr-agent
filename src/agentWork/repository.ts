@@ -303,6 +303,28 @@ export async function hasCompletedPublishStep(
   return row != null;
 }
 
+export async function getCompletedPublishStepDetail(
+  pool: Pool,
+  workItemId: string,
+  resourceKey: string,
+  reviewLens: PublishLens,
+  step: PublishStep,
+): Promise<Record<string, unknown> | null> {
+  const row = await queryOne<{ detail: Record<string, unknown> | null }>(
+    pool,
+    `SELECT detail
+		   FROM publish_records
+		  WHERE work_item_id = $1
+		    AND resource_key = $2
+		    AND review_lens = $3
+		    AND step = $4
+		    AND status = 'completed'
+		  LIMIT 1`,
+    [workItemId, resourceKey, reviewLens, step],
+  );
+  return row?.detail ?? null;
+}
+
 /** Returns true exactly once per (resourceKey, lens) until the claim row is deleted. */
 export async function claimSummaryCommentCreation(
   pool: Pool,
