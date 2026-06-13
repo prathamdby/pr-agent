@@ -65,10 +65,7 @@ function intakeLog() {
   return createOperationLogger({ method: "POST", path: "/webhooks" });
 }
 
-function withSendFailOnNth(
-  realBoss: PgBoss,
-  failOnSend: number,
-): { restore: () => void } {
+function withSendFailOnNth(realBoss: PgBoss, failOnSend: number): { restore: () => void } {
   let sendCount = 0;
   const originalSend = realBoss.send.bind(realBoss);
   realBoss.send = (async (name: string, data?: object | null, options?: SendOptions) => {
@@ -176,7 +173,10 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
   }
 
   async function reviewJobsFor(ref: PrRef) {
-    const key = reviewSingletonKey(prResourceKey(ref.owner, ref.repo, ref.prNumber), AUTOMATED_REVIEW_LENS);
+    const key = reviewSingletonKey(
+      prResourceKey(ref.owner, ref.repo, ref.prNumber),
+      AUTOMATED_REVIEW_LENS,
+    );
     return boss.findJobs(REVIEW_QUEUE, { key });
   }
 
@@ -202,7 +202,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
 
     const ackJobs = await boss.findJobs(ACK_QUEUE, {});
     const reviewJobs = await reviewJobsFor(ref);
-    expect(ackJobs.length).toBeGreaterThanOrEqual(1);
+    expect(ackJobs).toHaveLength(1);
     expect(reviewJobs).toHaveLength(1);
     expect(reviewJobs[0]?.state).toBe("created");
   });
@@ -305,7 +305,12 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
       intakeLog(),
     );
 
-    await gateEntered;
+    await Promise.race([
+      gateEntered,
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error("supersede findJobs gate timed out")), 10_000);
+      }),
+    ]);
 
     try {
       expect(createdJobA?.id).toBeDefined();
