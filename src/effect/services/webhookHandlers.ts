@@ -4,6 +4,11 @@ import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
+import { mintInstallationAuth } from "../../github/appAuth.js";
+import {
+  fetchReviewCommentParentGraph,
+  resolveReviewThreadRootId,
+} from "../../review/reviewPriorFeedback.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { IntakeLogger } from "../intakeLogger.js";
 import { BotIdentity, BotIdentityLive } from "./botIdentity.js";
@@ -205,6 +210,29 @@ export const WebhookHandlersCore = Layer.effect(
           if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id)) return;
           if (yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association)) return;
 
+          const inlineReplyParentId = data.comment.in_reply_to_id ?? data.comment.id;
+          let inReplyToCommentId = inlineReplyParentId;
+          if (command === "triage" && data.comment.in_reply_to_id != null) {
+            const auth = yield* Effect.tryPromise({
+              try: () => mintInstallationAuth(cfg, data.installation.id),
+              catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+            });
+            const commentGraph = yield* Effect.tryPromise({
+              try: () =>
+                fetchReviewCommentParentGraph(
+                  auth.token,
+                  data.repository.owner.login,
+                  data.repository.name,
+                  data.pull_request.number,
+                ),
+              catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+            });
+            const rootId = resolveReviewThreadRootId(commentGraph, data.comment.in_reply_to_id);
+            if (rootId != null) {
+              inReplyToCommentId = rootId;
+            }
+          }
+
           yield* scheduler.submitSlashCommand(
             {
               headers,
@@ -220,7 +248,7 @@ export const WebhookHandlersCore = Layer.effect(
               replyTarget: {
                 kind: "inlineReviewThread",
                 prNumber: data.pull_request.number,
-                inReplyToCommentId: data.comment.in_reply_to_id ?? data.comment.id,
+                inReplyToCommentId,
               },
               codeAnchor: codeAnchorFromReviewComment(data.comment),
               ...(command === "triage"

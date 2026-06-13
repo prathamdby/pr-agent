@@ -243,15 +243,23 @@ export async function executeTriageJob(
       const reportContext = triageReportContext(payload, scopedThreadRootId);
 
       if (inventory.length === 0) {
+        const threadMatchesKnownFinding =
+          scope === "thread" &&
+          scopedThreadRootId != null &&
+          threads.some((thread) => thread.rootCommentId === scopedThreadRootId);
         const outcome =
           scope === "thread"
-            ? "thread_not_eligible"
+            ? threadMatchesKnownFinding
+              ? "all_resolved"
+              : "thread_not_eligible"
             : threads.length === 0
               ? "no_eligible_findings"
               : "all_resolved";
         const message =
           scope === "thread"
-            ? TRIAGE_THREAD_NOT_ELIGIBLE
+            ? threadMatchesKnownFinding
+              ? TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED
+              : TRIAGE_THREAD_NOT_ELIGIBLE
             : threads.length === 0
               ? TRIAGE_NO_ELIGIBLE_FINDINGS
               : TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED;

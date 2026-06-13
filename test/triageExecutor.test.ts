@@ -466,6 +466,55 @@ describe("executeTriageJob", () => {
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
+  it("reports already-resolved scoped thread without calling it ineligible", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([
+      {
+        rootCommentId: 1,
+        lens: "review",
+        path: "src/a.ts",
+        line: 1,
+        severity: "P1",
+        titleSnippet: "P1 · A",
+        humanReplies: [],
+        threadUrl: "https://github.test/1",
+      },
+    ]);
+    mocks.listReviewThreadResolution.mockResolvedValue(
+      new Map([[1, { threadNodeId: "node-1", isResolved: true }]]),
+    );
+    mocks.fetchReviewCommentParentGraph.mockResolvedValue([
+      { id: 1, inReplyToId: null },
+      { id: 9, inReplyToId: 1 },
+    ]);
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 9,
+          scope: "thread",
+          threadAnchorCommentId: 9,
+          replyTarget: {
+            kind: "inlineReviewThread",
+            prNumber: 1,
+            inReplyToCommentId: 1,
+          },
+        },
+      }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED),
+      }),
+    );
+    expect(mocks.publishTriageReportOnly.mock.calls[0]?.[0].body).not.toContain(
+      TRIAGE_THREAD_NOT_ELIGIBLE,
+    );
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+  });
+
   it("does not fall back to full PR triage when thread scope lacks an anchor", async () => {
     mocks.fetchBotFindingThreads.mockResolvedValue([
       {
