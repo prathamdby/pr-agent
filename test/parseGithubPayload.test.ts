@@ -205,6 +205,32 @@ describe("parseGithubPayload", () => {
     expect(p.data.comment.pull_request_review_id).toBe(55);
   });
 
+  it("accepts null in_reply_to_id on top-level review comments", () => {
+    const raw = {
+      action: "created",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r" },
+      pull_request: { number: 3 },
+      comment: {
+        id: 100,
+        user: { id: 15 },
+        author_association: "MEMBER",
+        body: "top-level note",
+        in_reply_to_id: null,
+        path: "src/hook.ts",
+        line: 12,
+        side: "RIGHT",
+      },
+    };
+
+    const p = parseGithubPayload("pull_request_review_comment", raw);
+    expect(p.name).toBe("pull_request_review_comment");
+    if (p.name !== "pull_request_review_comment") {
+      throw new Error("expected pull_request_review_comment payload");
+    }
+    expect(p.data.comment.in_reply_to_id).toBeNull();
+  });
+
   it("throws WebhookParseError on malformed pull_request", () => {
     expect(() => parseGithubPayload("pull_request", { action: "opened" })).toThrow(
       WebhookParseError,

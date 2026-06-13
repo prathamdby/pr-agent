@@ -262,7 +262,7 @@ describe("processWebhookPostRequestEffect", () => {
         replyTarget: {
           kind: "inlineReviewThread",
           prNumber: 3,
-          inReplyToCommentId: 101,
+          inReplyToCommentId: 100,
         },
       },
     ]);
@@ -356,6 +356,55 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(decisions).toEqual(["ignored_non_bot_thread_reply"]);
     expect(slashCalls).toEqual([]);
+  });
+
+  it("submits ask when pull_request_review_id is null but bot thread matches", async () => {
+    const threadCfg = makeTestConfig({ enableThreadReplies: true });
+    const payload = {
+      action: "created",
+      installation: { id: 1 },
+      repository: { owner: { login: "o" }, name: "r", size: 10 },
+      pull_request: { number: 3 },
+      comment: {
+        id: 101,
+        user: { id: 7 },
+        author_association: "MEMBER",
+        body: "why is this P1?",
+        in_reply_to_id: 100,
+        pull_request_review_id: null,
+        path: "src/x.ts",
+        line: 4,
+        side: "RIGHT",
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const decisions: string[] = [];
+    const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
+
+    const out = await Effect.runPromise(
+      withIntake(
+        processWebhookPostRequestEffect(threadCfg, {
+          headers: {
+            "x-hub-signature-256": `sha256=${crypto
+              .createHmac("sha256", threadCfg.webhookSecret)
+              .update(body)
+              .digest("hex")}`,
+            "x-github-event": "pull_request_review_comment",
+            "x-github-delivery": "d-thread-null-review-id",
+          },
+          rawBody: body,
+        }),
+        slashGateDispatcherLayer(decisions, slashCalls, { botThreadMatch: true }),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual([]);
+    expect(slashCalls[0]?.replyTarget).toEqual({
+      kind: "inlineReviewThread",
+      prNumber: 3,
+      inReplyToCommentId: 100,
+    });
   });
 
   it("returns 503 when handling exceeds the timeout budget", async () => {

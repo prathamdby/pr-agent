@@ -15,7 +15,7 @@ export const pullRequestReviewCommentWebhookSchema = z.object({
     }),
     author_association: z.string().nullish(),
     body: z.string().nullish(),
-    in_reply_to_id: z.number().optional(),
+    in_reply_to_id: z.number().nullish(),
     pull_request_review_id: z.number().nullish(),
     path: z.string().optional(),
     line: z.number().optional(),

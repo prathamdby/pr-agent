@@ -14,6 +14,8 @@ import {
 import { hasStoredInlineReviewId } from "./repository.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 import { prResourceKey } from "./types.js";
+import { getPullRequestReviewComment } from "../github/reviewPublish.js";
+import { mintInstallationAuth } from "../github/appAuth.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   AgentWorkScheduler,
@@ -34,10 +36,12 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly matchesStoredInlineReview: (
+      installationId: number,
       owner: string,
       repo: string,
       prNumber: number,
-      pullRequestReviewId: number,
+      pullRequestReviewId: number | null | undefined,
+      inReplyToId: number,
     ) => Effect.Effect<boolean, Error>;
     readonly ping: () => Effect.Effect<boolean>;
   }
@@ -46,7 +50,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
 export function makeAgentWorkScheduler(
   pool: Pool,
   boss: PgBoss,
-  cfg: Pick<Config, "descriptionAutoActions">,
+  cfg: Pick<Config, "descriptionAutoActions" | "githubAppId" | "githubAppPrivateKey">,
 ) {
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
@@ -69,10 +73,26 @@ export function makeAgentWorkScheduler(
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 
-    matchesStoredInlineReview: (owner, repo, prNumber, pullRequestReviewId) =>
+    matchesStoredInlineReview: (
+      installationId,
+      owner,
+      repo,
+      prNumber,
+      pullRequestReviewId,
+      inReplyToId,
+    ) =>
       Effect.tryPromise({
-        try: () =>
-          hasStoredInlineReviewId(pool, prResourceKey(owner, repo, prNumber), pullRequestReviewId),
+        try: async () => {
+          const resourceKey = prResourceKey(owner, repo, prNumber);
+          let reviewId = pullRequestReviewId ?? null;
+          if (reviewId == null) {
+            const auth = await mintInstallationAuth(cfg, installationId);
+            const parent = await getPullRequestReviewComment(auth.token, owner, repo, inReplyToId);
+            reviewId = parent.pullRequestReviewId;
+          }
+          if (reviewId == null) return false;
+          return hasStoredInlineReviewId(pool, resourceKey, reviewId);
+        },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

@@ -263,6 +263,22 @@ export async function listPullRequestLabels(
   return data.map((l) => l.name);
 }
 
+export async function getPullRequestReviewComment(
+  token: string,
+  owner: string,
+  repo: string,
+  commentId: number,
+  expiresAtTs?: number,
+): Promise<{ pullRequestReviewId: number | null }> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const { data } = await octokit.rest.pulls.getReviewComment({
+    owner,
+    repo,
+    comment_id: commentId,
+  });
+  return { pullRequestReviewId: data.pull_request_review_id ?? null };
+}
+
 export async function setPullRequestLabels(
   token: string,
   owner: string,

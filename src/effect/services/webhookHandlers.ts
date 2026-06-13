@@ -165,16 +165,14 @@ export const WebhookHandlersCore = Layer.effect(
             if (yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association)) {
               return;
             }
-            const reviewId = data.comment.pull_request_review_id;
-            if (reviewId == null) {
-              yield* scheduler.recordIgnored(headers, "ignored_non_bot_thread_reply", intakeLog);
-              return;
-            }
+            const threadRootCommentId = data.comment.in_reply_to_id;
             const isBotThread = yield* scheduler.matchesStoredInlineReview(
+              data.installation.id,
               data.repository.owner.login,
               data.repository.name,
               data.pull_request.number,
-              reviewId,
+              data.comment.pull_request_review_id,
+              threadRootCommentId,
             );
             if (!isBotThread) {
               yield* scheduler.recordIgnored(headers, "ignored_non_bot_thread_reply", intakeLog);
@@ -195,7 +193,7 @@ export const WebhookHandlersCore = Layer.effect(
                 replyTarget: {
                   kind: "inlineReviewThread",
                   prNumber: data.pull_request.number,
-                  inReplyToCommentId: data.comment.id,
+                  inReplyToCommentId: threadRootCommentId,
                 },
                 codeAnchor: codeAnchorFromReviewComment(data.comment),
               },
