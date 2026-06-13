@@ -249,6 +249,25 @@ export async function listPullRequestLabels(
   return data.map((l) => l.name);
 }
 
+export async function getPullRequestReviewComment(
+  token: string,
+  owner: string,
+  repo: string,
+  commentId: number,
+  expiresAtTs?: number,
+): Promise<{ pullRequestReviewId: number | null; userId: number }> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const { data } = await octokit.rest.pulls.getReviewComment({
+    owner,
+    repo,
+    comment_id: commentId,
+  });
+  return {
+    pullRequestReviewId: data.pull_request_review_id ?? null,
+    userId: data.user.id,
+  };
+}
+
 export async function setPullRequestLabels(
   token: string,
   owner: string,
@@ -263,5 +282,29 @@ export async function setPullRequestLabels(
     repo,
     issue_number: pullNumber,
     labels,
+  });
+}
+
+export async function setReviewCommitStatus(
+  token: string,
+  owner: string,
+  repo: string,
+  sha: string,
+  params: {
+    state: "success" | "failure";
+    description: string;
+    targetUrl?: string;
+  },
+  expiresAtTs?: number,
+): Promise<void> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  await octokit.rest.repos.createCommitStatus({
+    owner,
+    repo,
+    sha,
+    state: params.state,
+    context: "pr-agent/review",
+    description: params.description,
+    target_url: params.targetUrl,
   });
 }

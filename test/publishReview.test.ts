@@ -43,6 +43,7 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
     upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
     listPullRequestLabels: vi.fn(async () => []),
     setPullRequestLabels: vi.fn(async () => undefined),
+    setReviewCommitStatus: vi.fn(async () => undefined),
   };
 });
 
@@ -58,6 +59,7 @@ import {
   listPullRequestReviewCommentsForReview,
   resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
+  setReviewCommitStatus,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
 import {
@@ -97,6 +99,7 @@ const baseParams = {
   cfg: {
     enableReviewLabelsEffort: false,
     enableReviewLabelsSecurity: false,
+    enableReviewCommitStatus: false,
   },
   payload,
 };
@@ -377,6 +380,7 @@ describe("publishReview", () => {
       cfg: {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
+        enableReviewCommitStatus: false,
       },
     });
 
@@ -395,6 +399,7 @@ describe("publishReview", () => {
       cfg: {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: true,
+        enableReviewCommitStatus: false,
       },
       payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
     });
@@ -411,6 +416,7 @@ describe("publishReview", () => {
       cfg: {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
+        enableReviewCommitStatus: false,
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -435,6 +441,7 @@ describe("publishReview", () => {
       cfg: {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
+        enableReviewCommitStatus: false,
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -578,6 +585,7 @@ describe("publishReview", () => {
         cfg: {
           enableReviewLabelsEffort: true,
           enableReviewLabelsSecurity: false,
+          enableReviewCommitStatus: false,
         },
       }),
     ).resolves.toBeUndefined();
@@ -609,6 +617,7 @@ describe("publishReview", () => {
           cfg: {
             enableReviewLabelsEffort: true,
             enableReviewLabelsSecurity: false,
+            enableReviewCommitStatus: false,
           },
         }),
       ).resolves.toBeUndefined();
@@ -825,5 +834,81 @@ describe("publishReview summary coordination", () => {
       { id: 88, url: "https://example.com/88" },
       undefined,
     );
+  });
+});
+
+describe("publishReview commit status", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 2, updated: false });
+  });
+
+  it("posts failure when published findings include P1", async () => {
+    await publishReviewForTest({
+      ...baseParams,
+      cfg: { ...baseParams.cfg, enableReviewCommitStatus: true },
+      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
+
+    expect(setReviewCommitStatus).toHaveBeenCalledWith("t", "o", "r", "sha", {
+      state: "failure",
+      description: "1 P0/P1 finding",
+      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
+    });
+  });
+
+  it("posts success when findings are P2-only", async () => {
+    const p2Payload: ReviewPayload = {
+      ...payload,
+      findings: [
+        {
+          severity: "P2",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Nit",
+          detail: "Minor.",
+          fixPrompt: "Fix src/x.ts line 4.",
+        },
+      ],
+    };
+
+    await publishReviewForTest({
+      ...baseParams,
+      cfg: { ...baseParams.cfg, enableReviewCommitStatus: true },
+      payload: p2Payload,
+      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
+
+    expect(setReviewCommitStatus).toHaveBeenCalledWith("t", "o", "r", "sha", {
+      state: "success",
+      description: "no blocking findings",
+      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
+    });
+  });
+
+  it("completes publish when commit status API throws", async () => {
+    vi.mocked(setReviewCommitStatus).mockRejectedValueOnce(new Error("status api down"));
+
+    await expect(
+      publishReviewForTest({
+        ...baseParams,
+        cfg: { ...baseParams.cfg, enableReviewCommitStatus: true },
+        publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+        cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("skips commit status when flag is off", async () => {
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
+
+    expect(setReviewCommitStatus).not.toHaveBeenCalled();
   });
 });
