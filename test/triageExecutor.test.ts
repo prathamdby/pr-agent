@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   publishTriage: vi.fn(),
   publishTriageReportOnly: vi.fn(),
   getCompletedPublishStepDetail: vi.fn(),
+  getCompletedPublishStepDetailWithoutNewerStep: vi.fn(),
   hasCompletedPublishStep: vi.fn(),
 }));
 
@@ -64,6 +65,8 @@ vi.mock("../src/agent/publishTriage.js", () => ({
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getCompletedPublishStepDetail: mocks.getCompletedPublishStepDetail,
+  getCompletedPublishStepDetailWithoutNewerStep:
+    mocks.getCompletedPublishStepDetailWithoutNewerStep,
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
 }));
 
@@ -158,6 +161,7 @@ describe("executeTriageJob", () => {
     mocks.publishTriage.mockResolvedValue({ degraded: false });
     mocks.publishTriageReportOnly.mockResolvedValue(undefined);
     mocks.getCompletedPublishStepDetail.mockResolvedValue(null);
+    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
   });
 
@@ -209,6 +213,28 @@ describe("executeTriageJob", () => {
       verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
     };
     mocks.getCompletedPublishStepDetail.mockResolvedValue({
+      pushedShas: ["abc1234"],
+      commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
+      payload,
+    });
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+    expect(mocks.publishTriage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload,
+        priorPush: expect.objectContaining({ pushed: true, degraded: false }),
+      }),
+    );
+  });
+
+  it("resumes latest unreported push from a prior triage work item", async () => {
+    const payload = {
+      verdicts: [{ verdict: "skipped" as const, threadRootCommentId: 1, reason: "later" }],
+    };
+    mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
       payload,

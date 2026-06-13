@@ -226,6 +226,7 @@ lensOverrides:
 | `TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED` | resolved-only inventory report text                 |
 | `TRIAGE_FORK_PR_NOTICE`              | fork PR report-only text                            |
 | `TRIAGE_STALE_HEAD_NOTICE`           | stale push report text                              |
+| `TRIAGE_THREAD_RESOLUTION_NOTICE`    | missing thread mapping report text                  |
 | `TRIAGE_VALIDATION_REPAIR_ROUNDS`    | 3                                                   |
 | `TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS`     | 2                                                   |
 | `MAX_TRIAGE_FINDINGS`                | 128                                                 |

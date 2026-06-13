@@ -16,6 +16,7 @@ import {
   TRIAGE_PUBLISH_LENS,
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
+  TRIAGE_THREAD_RESOLUTION_NOTICE,
 } from "../settings/index.js";
 import { recordPublishStep } from "../agentWork/repository.js";
 import { StaleHeadPushError, type WritablePrCheckout } from "../prWorkspace/writablePrCheckout.js";
@@ -209,6 +210,8 @@ export async function publishTriageReportOnly(params: ReportOnlyParams): Promise
 export async function publishTriage(params: PublishTriageParams): Promise<{ degraded: boolean }> {
   let pushed = params.priorPush?.pushed ?? false;
   let degraded = params.priorPush?.degraded ?? false;
+  let stalePush = params.priorPush?.degraded ?? false;
+  let missingThreadAction = false;
   const committedShas = params.checkout.listCommittedShas();
   if (!params.priorPush && committedShas.length > 0) {
     try {
@@ -228,6 +231,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     } catch (error) {
       if (!(error instanceof StaleHeadPushError)) throw error;
       degraded = true;
+      stalePush = true;
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
@@ -261,7 +265,12 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     if (actedThreadIds.has(verdict.threadRootCommentId)) continue;
     const thread = threadById.get(verdict.threadRootCommentId);
     const resolution = params.resolutionByRootCommentId.get(verdict.threadRootCommentId);
-    if (!thread || !resolution || resolution.isResolved) continue;
+    if (!thread || !resolution) {
+      degraded = true;
+      missingThreadAction = true;
+      continue;
+    }
+    if (resolution.isResolved) continue;
     await replyAndResolve({ ...params, thread, resolution, verdict });
     actedThreadIds.add(verdict.threadRootCommentId);
     await recordActedThreadIds(params.pool, {
@@ -279,7 +288,12 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       payload: params.payload,
       commits: pushed ? params.checkout.listCommittedDetails() : [],
       previouslyResolvedCount: params.previouslyResolvedCount,
-      notice: degraded ? TRIAGE_STALE_HEAD_NOTICE : undefined,
+      notice: [
+        stalePush ? TRIAGE_STALE_HEAD_NOTICE : undefined,
+        missingThreadAction ? TRIAGE_THREAD_RESOLUTION_NOTICE : undefined,
+      ]
+        .filter((notice) => notice != null)
+        .join("\n\n"),
     }),
   });
   return { degraded };

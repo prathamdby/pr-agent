@@ -19,7 +19,11 @@ import {
   TRIAGE_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
 import { type WritablePrCheckout, withWritablePrCheckout } from "../../prWorkspace/index.js";
-import { getCompletedPublishStepDetail, hasCompletedPublishStep } from "../repository.js";
+import {
+  getCompletedPublishStepDetail,
+  getCompletedPublishStepDetailWithoutNewerStep,
+  hasCompletedPublishStep,
+} from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type TriageJobData } from "../types.js";
 
@@ -182,12 +186,19 @@ export async function executeTriageJob(
         return {};
       }
 
-      const storedPushDetail = await getCompletedPublishStepDetail(
+      let storedPushDetail = await getCompletedPublishStepDetail(
         pool,
         item.id,
         item.resourceKey,
         "triage",
         "triage_push",
+      );
+      storedPushDetail ??= await getCompletedPublishStepDetailWithoutNewerStep(
+        pool,
+        item.resourceKey,
+        "triage",
+        "triage_push",
+        "triage_report",
       );
       if (storedPushDetail != null) {
         const parsed = parseStoredTriagePushDetail(storedPushDetail);

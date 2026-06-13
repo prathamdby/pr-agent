@@ -55,6 +55,8 @@ export const TRIAGE_FORK_PR_NOTICE =
   "PR Agent cannot push fixes to fork branches. Triage ran in report-only mode.";
 export const TRIAGE_STALE_HEAD_NOTICE =
   "The pull request head changed while triage was running; no fixes were pushed. Re-run `/triage`.";
+export const TRIAGE_THREAD_RESOLUTION_NOTICE =
+  "Some fixed or already-resolved findings could not be matched to GitHub review threads, so their thread replies were skipped.";
 export const TRIAGE_VALIDATION_REPAIR_ROUNDS = 3;
 export const TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 export const MAX_TRIAGE_FINDINGS = 128;

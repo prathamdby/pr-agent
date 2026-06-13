@@ -219,4 +219,35 @@ describe("publishTriage", () => {
     expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 1 }));
     expect(mocks.resolve).toHaveBeenCalledWith("tok", "node", undefined);
   });
+
+  it("marks publish degraded when an actionable verdict lacks thread mapping", async () => {
+    const result = await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      resourceKey: "o/r#1",
+      token: "tok",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map(),
+      payload: {
+        verdicts: [
+          {
+            verdict: "already-resolved",
+            threadRootCommentId: 1,
+            evidence: "current code already handles this",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    expect(result.degraded).toBe(true);
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(mocks.upsert.mock.calls[0]?.[4]).toContain("could not be matched");
+  });
 });

@@ -325,6 +325,37 @@ export async function getCompletedPublishStepDetail(
   return row?.detail ?? null;
 }
 
+export async function getCompletedPublishStepDetailWithoutNewerStep(
+  pool: Pool,
+  resourceKey: string,
+  reviewLens: PublishLens,
+  step: PublishStep,
+  newerStep: PublishStep,
+): Promise<Record<string, unknown> | null> {
+  const row = await queryOne<{ detail: Record<string, unknown> | null }>(
+    pool,
+    `SELECT current_step.detail
+       FROM publish_records current_step
+      WHERE current_step.resource_key = $1
+        AND current_step.review_lens = $2
+        AND current_step.step = $3
+        AND current_step.status = 'completed'
+        AND NOT EXISTS (
+          SELECT 1
+            FROM publish_records newer_step
+           WHERE newer_step.resource_key = current_step.resource_key
+             AND newer_step.review_lens = current_step.review_lens
+             AND newer_step.step = $4
+             AND newer_step.status = 'completed'
+             AND newer_step.updated_at >= current_step.updated_at
+        )
+      ORDER BY current_step.updated_at DESC
+      LIMIT 1`,
+    [resourceKey, reviewLens, step, newerStep],
+  );
+  return row?.detail ?? null;
+}
+
 /** Returns true exactly once per (resourceKey, lens) until the claim row is deleted. */
 export async function claimSummaryCommentCreation(
   pool: Pool,
