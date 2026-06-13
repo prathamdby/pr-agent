@@ -466,6 +466,45 @@ describe("executeTriageJob", () => {
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
   });
 
+  it("does not fall back to full PR triage when thread scope lacks an anchor", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([
+      {
+        rootCommentId: 1,
+        lens: "review",
+        path: "src/a.ts",
+        line: 1,
+        severity: "P1",
+        titleSnippet: "P1 · A",
+        humanReplies: [],
+        threadUrl: "https://github.test/1",
+      },
+    ]);
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 9,
+          scope: "thread",
+          replyTarget: {
+            kind: "inlineReviewThread",
+            prNumber: 1,
+            inReplyToCommentId: 1,
+          },
+        },
+      }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.fetchReviewCommentParentGraph).not.toHaveBeenCalled();
+    expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.stringContaining(TRIAGE_THREAD_NOT_ELIGIBLE),
+      }),
+    );
+    expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
+  });
+
   it("posts terminal failure comment when no report exists", async () => {
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
       await spec.onTerminalFailure?.(

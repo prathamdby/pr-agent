@@ -70,6 +70,8 @@ describe("listTriageEligibleInlineReviews", () => {
       rows: [
         { github_id: "10", review_lens: "review" },
         { github_id: "11", review_lens: "review-tests" },
+        { github_id: "", review_lens: "review-quality" },
+        { github_id: "0", review_lens: "review-security" },
       ],
     });
     const scopedPool = { query } as unknown as Pool;

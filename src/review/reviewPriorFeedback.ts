@@ -332,15 +332,10 @@ export async function fetchBotFindingThreads(
   botUserId: number,
   publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
 ): Promise<BotFindingThread[]> {
-  const comments = await listPullRequestReviewComments(token, owner, repo, pullNumber);
-  const reviewIds = await listBotReviewIdsForTriage(
-    token,
-    owner,
-    repo,
-    pullNumber,
-    botUserId,
-    publishRecordLenses,
-  );
+  const [comments, reviewIds] = await Promise.all([
+    listPullRequestReviewComments(token, owner, repo, pullNumber),
+    listBotReviewIdsForTriage(token, owner, repo, pullNumber, botUserId, publishRecordLenses),
+  ]);
   if (reviewIds.size === 0) return [];
 
   const byId = new Map(comments.map((comment) => [comment.id, comment]));

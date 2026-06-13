@@ -42,13 +42,13 @@ export function captureTriageFailure(
   error: unknown,
   properties?: Record<string, unknown>,
 ): void {
-  const message = error instanceof Error ? error.message : String(error);
+  const errorObj = error instanceof Error ? error : new Error(String(error));
   captureTriageEvent(ref, "triage failed", {
     step,
-    error_message: message,
+    error_message: errorObj.message,
     ...properties,
   });
-  posthog.captureException(error, distinctId(ref.installationId), {
+  posthog.captureException(errorObj, distinctId(ref.installationId), {
     type: "triage",
     step,
     ...baseProperties(ref),

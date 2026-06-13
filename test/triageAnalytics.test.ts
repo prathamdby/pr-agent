@@ -68,4 +68,14 @@ describe("triageAnalytics", () => {
       }),
     );
   });
+
+  it("wraps non-Error failures before captureException", () => {
+    captureTriageFailure(ref, "inventory", "missing anchor");
+
+    expect(mocks.captureException).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "missing anchor" }),
+      "installation:42",
+      expect.objectContaining({ step: "inventory" }),
+    );
+  });
 });

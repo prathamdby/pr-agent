@@ -411,8 +411,9 @@ export async function listTriageEligibleInlineReviews(
   );
   const reviewLenses = new Map<number, ReviewWorkPayload["mode"]>();
   for (const row of result.rows) {
+    if (!row.github_id) continue;
     const reviewId = Number(row.github_id);
-    if (Number.isFinite(reviewId)) {
+    if (Number.isFinite(reviewId) && reviewId > 0) {
       reviewLenses.set(reviewId, row.review_lens);
     }
   }

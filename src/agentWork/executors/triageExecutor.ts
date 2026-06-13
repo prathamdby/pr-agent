@@ -224,17 +224,21 @@ export async function executeTriageJob(
       );
       let scopedThreadRootId: number | undefined;
       let inventory = allUnresolved;
-      if (scope === "thread" && payload.threadAnchorCommentId != null) {
-        const commentGraph = await fetchReviewCommentParentGraph(
-          tokenState.installation.token,
-          item.owner,
-          item.repo,
-          item.prNumber,
-        );
-        const rootId = resolveReviewThreadRootId(commentGraph, payload.threadAnchorCommentId);
-        scopedThreadRootId = rootId ?? undefined;
-        inventory =
-          rootId != null ? allUnresolved.filter((thread) => thread.rootCommentId === rootId) : [];
+      if (scope === "thread") {
+        if (payload.threadAnchorCommentId != null) {
+          const commentGraph = await fetchReviewCommentParentGraph(
+            tokenState.installation.token,
+            item.owner,
+            item.repo,
+            item.prNumber,
+          );
+          const rootId = resolveReviewThreadRootId(commentGraph, payload.threadAnchorCommentId);
+          scopedThreadRootId = rootId ?? undefined;
+          inventory =
+            rootId != null ? allUnresolved.filter((thread) => thread.rootCommentId === rootId) : [];
+        } else {
+          inventory = [];
+        }
       }
       const reportContext = triageReportContext(payload, scopedThreadRootId);
 
