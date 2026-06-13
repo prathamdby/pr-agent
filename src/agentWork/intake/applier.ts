@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
 import { AUTOMATED_REVIEW_LENS, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
 import {
@@ -164,8 +165,11 @@ export async function applyAutomatedPullRequestIntake(
   ref: PrRef,
   action: string,
   intakeLog: RequestLogger,
+  cfg: Pick<Config, "descriptionAutoActions">,
 ): Promise<void> {
-  const plan = planAutomatedPullRequestIntake(action);
+  const plan = planAutomatedPullRequestIntake(action, {
+    descriptionAutoActions: cfg.descriptionAutoActions,
+  });
   if (plan.kinds.length === 0) {
     // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.
     await recordIgnoredWebhook(pool, headers, `ignored_pull_request_${action}`, intakeLog);

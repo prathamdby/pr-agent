@@ -53,6 +53,7 @@ const baseTestConfig: Config = {
   cursorApiKey: "",
   enableReviewLabelsEffort: true,
   enableReviewLabelsSecurity: false,
+  descriptionAutoActions: new Set(["opened"]),
   maxPrFilesListed: 300,
   maxPrFilesPatchBytes: 500_000,
   logLevel: "error",

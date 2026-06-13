@@ -1,6 +1,7 @@
 import { Context, Duration, Effect } from "effect";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
+import type { Config } from "../config.js";
 import { inTransaction } from "../db/postgres.js";
 import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
@@ -34,7 +35,11 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   }
 >() {}
 
-export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
+export function makeAgentWorkScheduler(
+  pool: Pool,
+  boss: PgBoss,
+  cfg: Pick<Config, "descriptionAutoActions">,
+) {
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
       Effect.tryPromise({
@@ -44,7 +49,8 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss) {
 
     submitAutomatedReview: (headers, ref, action, intakeLog) =>
       Effect.tryPromise({
-        try: () => applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog),
+        try: () =>
+          applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog, cfg),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

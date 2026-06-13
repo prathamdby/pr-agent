@@ -158,7 +158,7 @@ General bug-and-correctness reviews run on PR open and sync. **`/review-security
 | Capability              | Auto on PR             | Slash command      | Notes                                                                                     |
 | ----------------------- | ---------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
 | General review          | opened / sync / reopen | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
-| PR description          | opened                 | `/describe`        | Merges under `## PR Agent Description`                                                    |
+| PR description          | opened (configurable)  | `/describe`        | Merges under `## PR Agent Description`                                                    |
 | Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
 | Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
 | Tests lens              | No                     | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |

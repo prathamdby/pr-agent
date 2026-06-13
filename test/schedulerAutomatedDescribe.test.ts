@@ -6,6 +6,9 @@ import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { ACK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
+import { makeTestConfig } from "./helpers/config.js";
+
+const intakeCfg = makeTestConfig();
 
 function makeAutomatedHeaders() {
   return {
@@ -59,7 +62,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const pool = {} as Pool;
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
-    const scheduler = makeAgentWorkScheduler(pool, boss);
+    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -87,7 +90,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const pool = {} as Pool;
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
-    const scheduler = makeAgentWorkScheduler(pool, boss);
+    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -105,5 +108,39 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).toContain(REVIEW_QUEUE);
     expect(sentQueues).toContain(ACK_QUEUE);
     expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
+  });
+
+  it("enqueues description on synchronize when DESCRIPTION_AUTO_ACTIONS includes it", async () => {
+    const sentQueues: string[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string) => {
+        sentQueues.push(queue);
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+
+    const client = mockAutomatedClient();
+    const pool = {} as Pool;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler(pool, boss, {
+      ...intakeCfg,
+      descriptionAutoActions: new Set(["opened", "synchronize"]),
+    });
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitAutomatedReview(
+        makeAutomatedHeaders(),
+        makePrRef(),
+        "synchronize",
+        intakeLog,
+      ),
+    );
+
+    expect(sentQueues).toContain(DESCRIPTION_QUEUE);
   });
 });

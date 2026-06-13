@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { makeTestConfig } from "./helpers/config.js";
+const intakeCfg = makeTestConfig();
 import { Effect } from "effect";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
@@ -53,7 +55,7 @@ describe("applySlashCommandIntake", () => {
     const client = makeClient();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss);
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -83,7 +85,7 @@ describe("applySlashCommandIntake", () => {
     const client = makeClient();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss);
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -131,7 +133,7 @@ describe("applySlashCommandIntake", () => {
     } as unknown as PoolClient;
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss);
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
