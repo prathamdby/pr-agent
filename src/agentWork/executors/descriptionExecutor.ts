@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { posthog } from "../../posthog.js";
 import { runFullPrDescription } from "../../agent/descriptionRun.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
@@ -81,6 +82,18 @@ export async function executeDescriptionJob(
               pr: item.prNumber,
             });
             return { degraded: true };
+          }
+          if (result.published) {
+            posthog.capture({
+              distinctId: `installation:${item.installationId}`,
+              event: "description published",
+              properties: {
+                owner: item.owner,
+                repo: item.repo,
+                pr_number: item.prNumber,
+                source: payload.source,
+              },
+            });
           }
           return {};
         },

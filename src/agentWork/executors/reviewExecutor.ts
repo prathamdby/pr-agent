@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { posthog } from "../../posthog.js";
 import {
   assertPullRequestFilesHeadSha,
   fetchPullRequestFiles,
@@ -26,6 +27,7 @@ import {
   logReviewRunCompleted,
   recordReviewPhaseSpan,
   setReviewRunMetricFields,
+  snapshotReviewRunMetrics,
 } from "../../review/reviewRunMetrics.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
@@ -293,7 +295,37 @@ export async function executeReviewJob(
                 publishAttempts: result.publishAttempts,
                 publishDegraded: true,
               });
+              posthog.capture({
+                distinctId: `installation:${item.installationId}`,
+                event: "review failed",
+                properties: {
+                  owner: item.owner,
+                  repo: item.repo,
+                  pr_number: item.prNumber,
+                  review_lens: reviewLens,
+                  publish_attempts: result.publishAttempts,
+                },
+              });
             }
+          } else {
+            const snapshot = snapshotReviewRunMetrics();
+            posthog.capture({
+              distinctId: `installation:${item.installationId}`,
+              event: "review published",
+              properties: {
+                owner: item.owner,
+                repo: item.repo,
+                pr_number: item.prNumber,
+                review_lens: reviewLens,
+                findings_count: snapshot?.findingsCount ?? 0,
+                severities: snapshot?.severities ?? [],
+                provider: cfg.agentProvider,
+                model: cfg.piModel,
+                publish_attempts: result.publishAttempts,
+                wall_clock_ms: snapshot?.wallClockMs,
+                source: payload.source,
+              },
+            });
           }
           return { degraded: !result.published && !result.publishSuperseded };
         },

@@ -1,5 +1,6 @@
 import { Duration, Effect } from "effect";
 import type { Config } from "../../config.js";
+import { posthog } from "../../posthog.js";
 import { emitOperationLogger, recordEvent } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
@@ -142,6 +143,15 @@ export function processWebhookPostRequestEffect(
       { event: githubEvent, delivery: logDelivery, ms: elapsedMs },
       "info",
     );
+    posthog.capture({
+      distinctId: "server",
+      event: "webhook received",
+      properties: {
+        github_event: githubEvent,
+        delivery: logDelivery,
+        elapsed_ms: elapsedMs,
+      },
+    });
     intakeLog.set({
       webhook: {
         status: 200,
