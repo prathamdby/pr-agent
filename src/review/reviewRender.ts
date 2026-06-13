@@ -31,6 +31,7 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
+  REVIEW_WALKTHROUGH_MAX_FILES,
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
   TESTS_REVIEW_POINTER_BODY,
@@ -45,6 +46,7 @@ import type {
 } from "./reviewSchema.js";
 import { reviewSummarySentinelForMode } from "./reviewSchema.js";
 import type { InlinePlacement } from "./reviewDiffPlacement.js";
+import type { CachedPrDiffIndex } from "./reviewDiffIndex.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -258,7 +260,35 @@ type SummaryRenderOptions = {
   compactionNote?: boolean;
   findingRowLimit?: number;
   omittedFindingCount?: number;
+  includeWalkthrough?: boolean;
 };
+
+export function renderReviewWalkthroughBlock(
+  cachedDiffIndex: CachedPrDiffIndex | undefined,
+  maxFiles: number = REVIEW_WALKTHROUGH_MAX_FILES,
+): string | null {
+  if (cachedDiffIndex == null || cachedDiffIndex.files.size === 0) return null;
+
+  const entries = [...cachedDiffIndex.files.entries()].toSorted(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) return null;
+
+  const shown = entries.slice(0, maxFiles);
+  const rows: string[] = [
+    `<details>`,
+    `<summary>Walkthrough (${entries.length} files)</summary>`,
+    "",
+    "| File | +/− |",
+    "|------|-----|",
+  ];
+  for (const [filename, file] of shown) {
+    rows.push(`| ${renderTableCode(filename)} | +${file.additions}/−${file.deletions} |`);
+  }
+  if (entries.length > maxFiles) {
+    rows.push(`| …${entries.length - maxFiles} more files | |`);
+  }
+  rows.push("</details>");
+  return rows.join("\n");
+}
 
 function renderFindingTableCellHtml(
   placement: InlinePlacement,
@@ -445,6 +475,7 @@ function buildReviewSummaryBody(
     placements: readonly InlinePlacement[];
     mode?: ReviewMode;
     staleReview?: boolean;
+    cachedDiffIndex?: CachedPrDiffIndex;
   },
   options: SummaryRenderOptions,
 ): string {
@@ -544,6 +575,14 @@ function buildReviewSummaryBody(
     );
   }
 
+  if (options.includeWalkthrough) {
+    const walkthrough = renderReviewWalkthroughBlock(ctx.cachedDiffIndex);
+    if (walkthrough != null) {
+      rows.push("");
+      rows.push(walkthrough);
+    }
+  }
+
   return rows.join("\n").trimEnd();
 }
 
@@ -554,6 +593,7 @@ export function fitReviewSummaryBody(
     placements: readonly InlinePlacement[];
     mode?: ReviewMode;
     staleReview?: boolean;
+    cachedDiffIndex?: CachedPrDiffIndex;
   },
   maxBodyChars: number,
 ): string {
@@ -561,9 +601,19 @@ export function fitReviewSummaryBody(
   const sortedCtx = { ...ctx, placements: sortedPlacements };
   const sortedCount = sortedPlacements.length;
 
+  const fullWithWalkthrough = buildReviewSummaryBody(payload, sortedCtx, {
+    compact: false,
+    includeSummaryAccordions: true,
+    includeWalkthrough: true,
+  });
+  if (fullWithWalkthrough.length <= maxBodyChars) {
+    return fullWithWalkthrough;
+  }
+
   const full = buildReviewSummaryBody(payload, sortedCtx, {
     compact: false,
     includeSummaryAccordions: true,
+    includeWalkthrough: false,
   });
   if (full.length <= maxBodyChars) {
     return full;
@@ -573,6 +623,7 @@ export function fitReviewSummaryBody(
     compact: true,
     includeSummaryAccordions: false,
     compactionNote: true,
+    includeWalkthrough: false,
   });
   if (compact.length <= maxBodyChars) {
     return compact;
@@ -590,6 +641,7 @@ export function fitReviewSummaryBody(
       compactionNote: true,
       findingRowLimit: limit,
       omittedFindingCount: omitted,
+      includeWalkthrough: false,
     });
     if (trimmed.length <= maxBodyChars) {
       best = trimmed;
@@ -606,6 +658,7 @@ export function fitReviewSummaryBody(
     compactionNote: true,
     findingRowLimit: 0,
     omittedFindingCount: sortedCount,
+    includeWalkthrough: false,
   });
 }
 
@@ -616,6 +669,7 @@ export function renderReviewSummaryComment(
     placements: readonly InlinePlacement[];
     mode?: ReviewMode;
     staleReview?: boolean;
+    cachedDiffIndex?: CachedPrDiffIndex;
   },
 ): string {
   return fitReviewSummaryBody(payload, ctx, REVIEW_SUMMARY_BODY_MAX_CHARS);

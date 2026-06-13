@@ -12,8 +12,6 @@ export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
-/** PR description auto-runs only on first open; use `/describe` after that. */
-export const AUTOMATED_DESCRIPTION_PR_ACTIONS = new Set(["opened"]);
 export const AUTOMATED_REVIEW_LENS = "review" as const;
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const ASK_PUBLISH_LENS = "ask" as const;
@@ -50,6 +48,8 @@ export const LABEL_SECURITY_EFFORT_PREFIX = "Security effort ";
 export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
 export const LABEL_TESTS_EFFORT_PREFIX = "Tests effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
+export const LABEL_CATEGORY_PREFIX = "Category: ";
+export const REVIEW_WALKTHROUGH_MAX_FILES = 40;
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
@@ -336,7 +336,7 @@ export const SLASH_HELP_BODY = [
   "- `/review-tests` — draft missing test cases for the PR's changes (trigger-only, not auto-run)",
   "",
   "Notes:",
-  "- Automated `/describe` runs on PR `opened` only; `/review` runs on `opened` / `synchronize` / `reopened`.",
+  "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on `opened` / `synchronize` / `reopened`.",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
   "- `/review`, `/review-security`, `/review-quality`, and `/review-tests` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",

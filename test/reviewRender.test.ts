@@ -11,6 +11,7 @@ import {
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
   renderReviewSummaryComment,
+  renderReviewWalkthroughBlock,
   renderStaleReviewMetadataComment,
   fitReviewSummaryBody,
   SECURITY_REVIEW_POINTER_BODY,
@@ -36,6 +37,10 @@ import {
   cachedDiffForLines,
   testPlacements,
 } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  createCachedPrDiffIndex,
+  ingestListPullRequestFilesResult,
+} from "../src/review/reviewDiffIndex.js";
 
 const ctx = {
   owner: "acme",
@@ -420,6 +425,88 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Bug 0");
     expect(body).not.toContain("Bug 9");
     expect(body).toMatchSnapshot();
+  });
+
+  it("renders collapsed walkthrough table with per-file counts", () => {
+    const diffIndex = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(diffIndex, {
+      files: [
+        { filename: "src/foo.ts", patch: "@@ -1 +1 @@\n+x", additions: 120, deletions: 4 },
+        { filename: "src/bar.ts", patch: "@@ -1 +1 @@\n+y", additions: 3, deletions: 1 },
+      ],
+    });
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacementsFromPayload(basePayload()),
+      cachedDiffIndex: diffIndex,
+    });
+    expect(body).toContain("<summary>Walkthrough (2 files)</summary>");
+    expect(body).toContain("+120/−4");
+    expect(body).toContain("src/foo.ts");
+  });
+
+  it("truncates walkthrough rows at REVIEW_WALKTHROUGH_MAX_FILES", () => {
+    const diffIndex = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(diffIndex, {
+      files: Array.from({ length: 3 }, (_, i) => ({
+        filename: `src/f${i}.ts`,
+        patch: "@@ -1 +1 @@\n+x",
+        additions: i + 1,
+        deletions: 0,
+      })),
+    });
+    const block = renderReviewWalkthroughBlock(diffIndex, 2);
+    expect(block).toContain("…1 more files");
+  });
+
+  it("HTML-escapes attacker-named walkthrough filenames", () => {
+    const diffIndex = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(diffIndex, {
+      files: [
+        {
+          filename: '<img src=x onerror="alert(1)">.ts',
+          patch: "@@ -1 +1 @@\n+x",
+          additions: 1,
+          deletions: 0,
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacementsFromPayload(basePayload()),
+      cachedDiffIndex: diffIndex,
+    });
+    expect(body).not.toContain("<img");
+    expect(body).toContain("&lt;img");
+  });
+
+  it("drops walkthrough first when summary body exceeds budget", () => {
+    const diffIndex = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(diffIndex, {
+      files: [{ filename: "src/huge.ts", patch: "@@ -1 +1 @@\n+x", additions: 999, deletions: 0 }],
+    });
+    const payload = basePayload({
+      prCharacter: "x".repeat(500),
+    });
+    const withWalkthrough = fitReviewSummaryBody(
+      payload,
+      {
+        ...ctx,
+        placements: testPlacementsFromPayload(payload),
+        cachedDiffIndex: diffIndex,
+      },
+      900,
+    );
+    const withoutWalkthrough = fitReviewSummaryBody(
+      payload,
+      {
+        ...ctx,
+        placements: testPlacementsFromPayload(payload),
+      },
+      900,
+    );
+    expect(withWalkthrough).not.toContain("Walkthrough");
+    expect(withoutWalkthrough.length).toBeLessThanOrEqual(900);
   });
 });
 

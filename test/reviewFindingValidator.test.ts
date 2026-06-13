@@ -324,6 +324,8 @@ describe("validateReviewPayload", () => {
         i + 1,
         i + 1,
       ]),
+      additions: 25,
+      deletions: 0,
     });
 
     const result = validateReviewPayload({

@@ -456,6 +456,8 @@ export async function prepareLocalPrWorkspace(
       filename: file.filename,
       patch: file.patchOmitted || !file.patch ? undefined : file.patch,
       patchOmitted: file.patchOmitted === true || file.patch == null || file.patch === "",
+      additions: file.additions,
+      deletions: file.deletions,
     });
   }
   ingestListPullRequestFilesResult(diffIndex, {

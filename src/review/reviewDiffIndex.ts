@@ -7,6 +7,8 @@ export type CommentableRightLineRanges = Array<[number, number]>;
 type CachedPrFileDiff = {
   readonly patchOmitted: boolean;
   readonly commentableRightLineRanges: CommentableRightLineRanges;
+  readonly additions: number;
+  readonly deletions: number;
 };
 
 export type CachedPrDiffIndex = {
@@ -107,6 +109,8 @@ export type ListPullRequestFilesToolResult = {
     filename: string;
     patch?: string;
     patchOmitted?: boolean;
+    additions?: number;
+    deletions?: number;
   }>;
 };
 
@@ -126,6 +130,8 @@ export function ingestListPullRequestFilesResult(
     index.files.set(file.filename, {
       patchOmitted,
       commentableRightLineRanges,
+      additions: file.additions ?? 0,
+      deletions: file.deletions ?? 0,
     });
   }
 }
