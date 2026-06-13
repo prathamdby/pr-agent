@@ -86,11 +86,12 @@ export function makeAgentWorkScheduler(
         try: async () => {
           const resourceKey = prResourceKey(owner, repo, prNumber);
           let reviewId = pullRequestReviewId ?? null;
-          if (reviewId == null) {
-            const auth = await mintInstallationAuth(cfg, installationId);
-            const parent = await getPullRequestReviewComment(auth.token, owner, repo, inReplyToId);
-            reviewId = parent.pullRequestReviewId;
+          if (reviewId != null && (await hasStoredInlineReviewId(pool, resourceKey, reviewId))) {
+            return true;
           }
+          const auth = await mintInstallationAuth(cfg, installationId);
+          const parent = await getPullRequestReviewComment(auth.token, owner, repo, inReplyToId);
+          reviewId = parent.pullRequestReviewId;
           if (reviewId == null) return false;
           return hasStoredInlineReviewId(pool, resourceKey, reviewId);
         },
