@@ -111,8 +111,8 @@ export const ALTERNATIVE_ROWS: AlternativeRow[] = [
   },
 ];
 
-function softwareApplicationJsonLd() {
-  return {
+export const JSON_LD_GRAPHS = [
+  {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
     name: PRODUCT_NAME,
@@ -145,30 +145,21 @@ function softwareApplicationJsonLd() {
       url: "https://github.com/prathamdby",
     },
     screenshot: "/screenshots/review.example.webp",
-  };
-}
-
-function webSiteJsonLd() {
-  return {
+  },
+  {
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: PRODUCT_NAME,
     description: SEO_DESCRIPTION,
     url: REPO_URL,
-  };
-}
-
-function organizationJsonLd() {
-  return {
+  },
+  {
     "@context": "https://schema.org",
     "@type": "Organization",
     name: "prathamdby",
     url: "https://github.com/prathamdby",
-  };
-}
-
-function faqPageJsonLd() {
-  return {
+  },
+  {
     "@context": "https://schema.org",
     "@type": "FAQPage",
     mainEntity: FAQ_ITEMS.map((item) => ({
@@ -179,11 +170,8 @@ function faqPageJsonLd() {
         text: item.answer,
       },
     })),
-  };
-}
-
-function itemListJsonLd() {
-  return {
+  },
+  {
     "@context": "https://schema.org",
     "@type": "ItemList",
     name: "AI code review tools compared to PR Agent",
@@ -195,13 +183,5 @@ function itemListJsonLd() {
       name: row.name,
       description: `${row.deployment}. ${row.differentiator}`,
     })),
-  };
-}
-
-export const JSON_LD_GRAPHS = [
-  softwareApplicationJsonLd(),
-  webSiteJsonLd(),
-  organizationJsonLd(),
-  faqPageJsonLd(),
-  itemListJsonLd(),
+  },
 ];

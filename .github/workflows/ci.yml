@@ -29,6 +29,7 @@ jobs:
               - ".dockerignore"
               - ".env.example"
               - ".npmrc"
+              - "knip.json"
               - "Dockerfile"
               - "migrations/**"
               - "package.json"
@@ -41,6 +42,7 @@ jobs:
               - "vitest*.config.ts"
             site:
               - ".github/workflows/ci.yml"
+              - "knip.json"
               - "pnpm-lock.yaml"
               - "pnpm-workspace.yaml"
               - "site/**"
@@ -64,6 +66,20 @@ jobs:
       - run: pnpm run fmt:check
       - run: pnpm test
       - run: pnpm run build
+
+  knip:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run knip
 
   integration:
     needs: changes

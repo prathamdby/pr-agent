@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip/schema.json",
+  "ignoreBinaries": ["knip"],
   "ignoreIssues": {
     "site/routeTree.gen.ts": ["types"]
   },
