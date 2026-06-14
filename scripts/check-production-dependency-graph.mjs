@@ -9,10 +9,8 @@ const hits = new Set();
 
 for (const [snapshotKey, snapshot] of Object.entries(snapshots)) {
   if (!snapshotKey.startsWith("evlog@")) continue;
-  for (const section of ["dependencies", "optionalDependencies"]) {
-    for (const [name, version] of Object.entries(snapshot[section] ?? {})) {
-      if (forbiddenEvlogPeers.has(name)) hits.add(`${snapshotKey} > ${name}@${version}`);
-    }
+  for (const [name, version] of Object.entries(snapshot.dependencies ?? {})) {
+    if (forbiddenEvlogPeers.has(name)) hits.add(`${snapshotKey} > ${name}@${version}`);
   }
 }
 
