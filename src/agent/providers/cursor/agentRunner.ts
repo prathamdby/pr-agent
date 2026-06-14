@@ -9,6 +9,7 @@ import type {
 import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel, toCursorSdkModelSelection } from "./models.js";
 import { createMcpBridge } from "./mcpBridge.js";
+import { assertCursorRipgrepConfigured } from "./ripgrepBoot.js";
 
 function assistantText(content: Context["messages"][number]): string {
   if (content.role !== "assistant" || !Array.isArray(content.content)) return "";
@@ -37,6 +38,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     if (!apiKey) {
       throw new Error("CURSOR_API_KEY is required for Cursor provider runs");
     }
+    assertCursorRipgrepConfigured();
     const bridge = await createMcpBridge({
       tools: () => context.tools ?? [],
       executors: () => activeExecutors,

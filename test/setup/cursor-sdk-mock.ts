@@ -18,3 +18,5 @@ vi.mock("@cursor/sdk", () => ({
   },
   CursorAgentError: MockCursorAgentError,
 }));
+
+process.env.CURSOR_RIPGREP_PATH ??= "/test/rg";

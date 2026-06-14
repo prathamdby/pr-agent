@@ -10,6 +10,7 @@ import { approximateCursorUsage, buildCursorSendText } from "./promptBuilder.js"
 import { createMcpBridge } from "./mcpBridge.js";
 import { detachCursorRunContext, getCursorRunContext } from "./runContext.js";
 import { formatCursorRunError, formatCursorStartupError } from "./errors.js";
+import { assertCursorRipgrepConfigured } from "./ripgrepBoot.js";
 
 function makeInitialMessage(model: Model<Api>): AssistantMessage {
   return {
@@ -88,6 +89,9 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
       const textDeltas: string[] = [];
       let abortListener: (() => void) | undefined;
 
+      if (!runContext.agent) {
+        assertCursorRipgrepConfigured();
+      }
       agent =
         runContext.agent ??
         (await Agent.create({
