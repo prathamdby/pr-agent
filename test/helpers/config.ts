@@ -71,7 +71,6 @@ const baseTestConfig: Config = {
   reviewAnchorMenuMaxRangesPerFile: 20,
   localWorkspaceCloneTimeoutMs: 30_000,
   localWorkspaceFetchTimeoutMs: 30_000,
-  localWorkspaceSearchMaxFiles: 20,
   localWorkspaceMaxFileBytes: 100_000,
   localWorkspaceSearchMaxTotalBytes: 1_000_000,
   localWorkspaceMaxDiffBytes: 1_000_000,

@@ -1,9 +1,11 @@
+import { NodeRuntime } from "@effect/platform-node";
+import { Layer } from "effect";
 import { loadConfig, type Config } from "./config.js";
 import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { startEffectWebhookServer } from "./effect/server.js";
 import { prewarmAppBotIdentity } from "./github/appAuth.js";
-import { startAgentWorker } from "./worker.js";
 import { captureCursorWorkerFailure } from "./agent/providers/cursor/cursorAnalytics.js";
+import { agentWorkWorkerLive } from "./agentWork/runtime.js";
 import { shutdownPostHog } from "./posthog.js";
 async function main() {
   let cfg: Config;
@@ -49,7 +51,7 @@ async function main() {
         return;
       }
     }
-    startAgentWorker(cfg);
+    NodeRuntime.runMain(Layer.launch(agentWorkWorkerLive(cfg)));
     return;
   }
   prewarmAppBotIdentity(cfg);

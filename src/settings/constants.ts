@@ -47,8 +47,6 @@ export const TRIAGE_ALREADY_IN_PROGRESS =
   "A `/triage` run is already queued or in progress for this pull request.";
 export const TRIAGE_FAILURE_MESSAGE =
   "PR Agent could not complete the triage run after retries. Try `/triage` again later.";
-export const TRIAGE_NO_PRIOR_FINDINGS =
-  "No prior PR Agent inline findings to triage on this pull request. Run `/review` first.";
 export const TRIAGE_NO_ELIGIBLE_FINDINGS =
   "No triage-eligible unresolved PR Agent inline findings on this pull request.";
 export const TRIAGE_THREAD_NOT_ELIGIBLE =
@@ -321,31 +319,8 @@ export const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
   /\.key$/i,
 ];
 
-export const ASK_TOOLS_WITH_OWNER_REPO = new Set([
-  "getPullRequest",
-  "listPullRequests",
-  "listPullRequestFiles",
-  "listPullRequestReviews",
-  "getFileContent",
-  "listCommits",
-  "getCommit",
-  "getBlame",
-  "getRepository",
-  "listBranches",
-]);
-
-export const ASK_TOOLS_WITH_PULL_NUMBER = new Set([
-  "getPullRequest",
-  "listPullRequestFiles",
-  "listPullRequestReviews",
-]);
-
 /** GitHub API / token handling. */
 export const TOKEN_FRESHNESS_BUFFER_MS = 60_000;
-export const DEFAULT_COOLDOWN_SECONDS = 60;
-export const MESSAGE_TRUNCATE = 500;
-export const SECONDARY_RATE_MESSAGE = /\bsecondary rate\b/i;
-export const BAD_CREDENTIALS_MESSAGE = /bad credentials/i;
 export const INSTALLATION_TOKEN_FALLBACK_TTL_MS = 60 * 60 * 1000;
 export const PRIMARY_RATE_LIMIT_MAX_RETRIES = 2;
 export const SECONDARY_RATE_LIMIT_MAX_RETRIES = 3;
@@ -358,9 +333,6 @@ export const POSTGRES_IDLE_TIMEOUT_MS = 30_000;
 export const POSTGRES_CONNECTION_TIMEOUT_MS = 5_000;
 export const POSTGRES_STATEMENT_TIMEOUT_MS = 60_000;
 export const GITHUB_WEBHOOK_RESPONSE_MARGIN_MS = 2_000;
-
-export const TOKEN_EXPIRED_TOOL_MESSAGE =
-  "Installation token is near expiry; cannot call GitHub tools for this review run. Call submitReview with your current analysis if possible.";
 
 export const GITHUB_REACTION_EYES = "eyes" as const;
 

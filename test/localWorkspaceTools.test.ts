@@ -22,7 +22,6 @@ const exec = promisify(execFile);
 
 function testLimits(overrides: Partial<LocalWorkspaceToolLimits> = {}): LocalWorkspaceToolLimits {
   return {
-    searchMaxFiles: 100,
     searchMaxTotalBytes: 1_000_000,
     maxFileBytes: 100_000,
     ...overrides,

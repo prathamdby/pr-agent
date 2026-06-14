@@ -74,7 +74,7 @@ type GitGrepChunkResult = GitGrepWorkspaceResult & {
   readonly stdoutBytes: number;
 };
 
-export type GitGrepWorkspaceMatch = {
+type GitGrepWorkspaceMatch = {
   readonly path: string;
   readonly line: number;
   readonly text: string;

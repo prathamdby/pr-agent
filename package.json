@@ -21,8 +21,7 @@
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
     "site:dev": "pnpm --filter pr-agent-landing dev",
-    "site:build": "pnpm --filter pr-agent-landing build",
-    "site:generate-og": "pnpm --filter pr-agent-landing generate:og"
+    "site:build": "pnpm --filter pr-agent-landing build"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.17",
@@ -40,7 +39,6 @@
     "@octokit/core": "^7.0.6",
     "@octokit/plugin-retry": "^8.1.0",
     "@octokit/plugin-throttling": "^11.0.3",
-    "@octokit/request-error": "^7.1.0",
     "@octokit/rest": "^22.0.1",
     "@octokit/types": "^16.0.0",
     "effect": "3.21.2",

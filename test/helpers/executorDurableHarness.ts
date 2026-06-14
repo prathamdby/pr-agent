@@ -5,7 +5,7 @@ import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js
 import * as appAuth from "../../src/github/appAuth.js";
 import * as repo from "../../src/agentWork/repository.js";
 
-export function coreOf(item: AgentWorkItem): Omit<AgentWorkItem, "payload"> {
+function coreOf(item: AgentWorkItem): Omit<AgentWorkItem, "payload"> {
   const { payload: _payload, ...core } = item;
   return core;
 }

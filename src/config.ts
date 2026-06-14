@@ -25,7 +25,6 @@ import {
   DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
   DEFAULT_LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
-  DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MAX_FETCH_BYTES,
@@ -446,10 +445,6 @@ export function loadConfig() {
     ENV.LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   );
-  const localWorkspaceSearchMaxFiles = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_SEARCH_MAX_FILES,
-    DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
-  );
   const localWorkspaceMaxFileBytes = readPositiveNumber(
     ENV.LOCAL_WORKSPACE_MAX_FILE_BYTES,
     DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
@@ -541,7 +536,6 @@ export function loadConfig() {
     reviewAnchorMenuMaxRangesPerFile,
     localWorkspaceCloneTimeoutMs,
     localWorkspaceFetchTimeoutMs,
-    localWorkspaceSearchMaxFiles,
     localWorkspaceMaxFileBytes,
     localWorkspaceSearchMaxTotalBytes,
     localWorkspaceMaxDiffBytes,

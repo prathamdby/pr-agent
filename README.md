@@ -179,27 +179,27 @@ Slash commands are **case-sensitive** and must start the first non-empty line of
 
 <details>
   <summary><h3>/describe</h3></summary>
-  <img src="docs/readme/assets/describe.example.png" alt="Example /describe output showing PR Agent Description block" width="800" />
+  <img src="site/public/screenshots/describe.example.webp" alt="Example /describe output showing PR Agent Description block" width="800" />
 </details>
 
 <details>
   <summary><h3>/review</h3></summary>
-  <img src="docs/readme/assets/review.example.png" alt="Example /review output showing PR Agent Review summary" width="800" />
+  <img src="site/public/screenshots/review.example.webp" alt="Example /review output showing PR Agent Review summary" width="800" />
 </details>
 
 <details>
   <summary><h3>/ask</h3></summary>
-  <img src="docs/readme/assets/ask.example.png" alt="Example /ask answer on a pull request" width="800" />
+  <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
 </details>
 
 <details>
   <summary><h3>/review-security</h3></summary>
-  <img src="docs/readme/assets/review-security.example.png" alt="Example /review-security output showing PR Agent Security Review summary" width="800" />
+  <img src="site/public/screenshots/review-security.example.webp" alt="Example /review-security output showing PR Agent Security Review summary" width="800" />
 </details>
 
 <details>
   <summary><h3>/review-quality</h3></summary>
-  <img src="docs/readme/assets/review-quality.example.png" alt="Example /review-quality output showing PR Agent Quality Review summary" width="800" />
+  <img src="site/public/screenshots/review-quality.example.webp" alt="Example /review-quality output showing PR Agent Quality Review summary" width="800" />
 </details>
 
 ## How It Works

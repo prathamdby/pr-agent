@@ -13,13 +13,11 @@ import {
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
 } from "../settings/index.js";
-import {
-  executeAckJob,
-  executeAskJob,
-  executeDescriptionJob,
-  executeReviewJob,
-  executeTriageJob,
-} from "./executors/index.js";
+import { executeAckJob } from "./executors/ackExecutor.js";
+import { executeAskJob } from "./executors/askExecutor.js";
+import { executeDescriptionJob } from "./executors/descriptionExecutor.js";
+import { executeReviewJob } from "./executors/reviewExecutor.js";
+import { executeTriageJob } from "./executors/triageExecutor.js";
 import {
   type AckJobData,
   type AskJobData,

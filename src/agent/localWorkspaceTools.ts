@@ -15,14 +15,12 @@ import {
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
-  readonly searchMaxFiles: number;
   readonly searchMaxTotalBytes: number;
 };
 
 export function workspaceToolLimitsFromConfig(cfg: Config): LocalWorkspaceToolLimits {
   return {
     maxFileBytes: cfg.localWorkspaceMaxFileBytes,
-    searchMaxFiles: cfg.localWorkspaceSearchMaxFiles,
     searchMaxTotalBytes: cfg.localWorkspaceSearchMaxTotalBytes,
   };
 }

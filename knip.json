@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/knip/schema.json",
+  "ignoreIssues": {
+    "site/routeTree.gen.ts": ["types"]
+  },
+  "workspaces": {
+    "site": {
+      "entry": ["router.tsx", "app/globals.css"]
+    }
+  }
+}
