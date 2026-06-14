@@ -1,33 +1,16 @@
-import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import YAML from "yaml";
 
 const forbiddenEvlogPeers = new Set(["express", "hono", "next", "react", "vite"]);
 
-const output = execFileSync(
-  "pnpm",
-  ["list", "--prod", "--filter", "pr-agent", "--depth", "Infinity", "--json", "--lockfile-only"],
-  { encoding: "utf8" },
-);
-
-const projects = JSON.parse(output);
+const lockfile = YAML.parse(readFileSync("pnpm-lock.yaml", "utf8"));
+const snapshots = lockfile.snapshots ?? {};
 const hits = new Set();
 
-function visit(name, node, path) {
-  const nextPath = [...path, `${name}@${node.version ?? "unknown"}`];
-  const isEvlogBranch = nextPath.some((part) => part.startsWith("evlog@"));
-  if (isEvlogBranch && forbiddenEvlogPeers.has(name)) {
-    hits.add(nextPath.join(" > "));
-  }
-
-  const dependencies = node.dependencies ?? {};
-  for (const [dependencyName, dependencyNode] of Object.entries(dependencies)) {
-    visit(dependencyName, dependencyNode, nextPath);
-  }
-}
-
-for (const project of projects) {
-  const dependencies = project.dependencies ?? {};
-  for (const [name, node] of Object.entries(dependencies)) {
-    visit(name, node, [project.name ?? "root"]);
+for (const [snapshotKey, snapshot] of Object.entries(snapshots)) {
+  if (!snapshotKey.startsWith("evlog@")) continue;
+  for (const [name, version] of Object.entries(snapshot.dependencies ?? {})) {
+    if (forbiddenEvlogPeers.has(name)) hits.add(`${snapshotKey} > ${name}@${version}`);
   }
 }
 
