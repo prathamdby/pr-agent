@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewRunUserContent } from "../src/review/reviewUserMessage.js";
+import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
 
 function baseReviewParams(
   userSupplement?: string,

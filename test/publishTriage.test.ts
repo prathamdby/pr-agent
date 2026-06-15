@@ -37,7 +37,7 @@ vi.mock("../src/agentWork/triageAnalytics.js", () => ({
   captureTriageFailure: vi.fn(),
 }));
 
-import { publishTriage } from "../src/agent/publishTriage.js";
+import { publishTriage } from "../src/agent/triage/publishTriage.js";
 
 const thread = {
   rootCommentId: 1,

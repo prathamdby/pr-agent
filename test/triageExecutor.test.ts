@@ -44,8 +44,8 @@ vi.mock("../src/github/appAuth.js", () => ({
   })),
 }));
 
-vi.mock("../src/review/reviewPriorFeedback.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/reviewPriorFeedback.js")>();
+vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review/run/reviewPriorFeedback.js")>();
   return {
     ...actual,
     fetchBotFindingThreads: mocks.fetchBotFindingThreads,
@@ -61,11 +61,11 @@ vi.mock("../src/prWorkspace/index.js", () => ({
   withWritablePrCheckout: mocks.withWritablePrCheckout,
 }));
 
-vi.mock("../src/agent/triageRun.js", () => ({
+vi.mock("../src/agent/triage/triageRun.js", () => ({
   runFullPrTriage: mocks.runFullPrTriage,
 }));
 
-vi.mock("../src/agent/publishTriage.js", () => ({
+vi.mock("../src/agent/triage/publishTriage.js", () => ({
   parseStoredTriagePushDetail: mocks.parseStoredTriagePushDetail,
   publishTriage: mocks.publishTriage,
   publishTriageReportOnly: mocks.publishTriageReportOnly,
@@ -407,6 +407,7 @@ describe("executeTriageJob", () => {
           commentId: 9,
           scope: "thread",
           threadAnchorCommentId: 9,
+          needsThreadRootResolution: true,
           replyTarget: {
             kind: "inlineReviewThread",
             prNumber: 1,
@@ -421,6 +422,51 @@ describe("executeTriageJob", () => {
     expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         inventory: [expect.objectContaining({ rootCommentId: 1 })],
+        scope: "thread",
+      }),
+    );
+    expect(mocks.fetchReviewCommentParentGraph).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the original inline parent when thread-root resolution fails", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([
+      {
+        rootCommentId: 9,
+        lens: "review",
+        path: "src/a.ts",
+        line: 1,
+        severity: "P1",
+        titleSnippet: "P1 · A",
+        humanReplies: [],
+        threadUrl: "https://github.test/9",
+      },
+    ]);
+    mocks.listReviewThreadResolution.mockResolvedValue(
+      new Map([[9, { threadNodeId: "node-9", isResolved: false }]]),
+    );
+    mocks.fetchReviewCommentParentGraph.mockRejectedValue(new Error("graphql unavailable"));
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 9,
+          scope: "thread",
+          threadAnchorCommentId: 9,
+          needsThreadRootResolution: true,
+          replyTarget: {
+            kind: "inlineReviewThread",
+            prNumber: 1,
+            inReplyToCommentId: 9,
+          },
+        },
+      }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inventory: [expect.objectContaining({ rootCommentId: 9 })],
         scope: "thread",
       }),
     );
@@ -493,6 +539,7 @@ describe("executeTriageJob", () => {
           commentId: 9,
           scope: "thread",
           threadAnchorCommentId: 9,
+          needsThreadRootResolution: true,
           replyTarget: {
             kind: "inlineReviewThread",
             prNumber: 1,

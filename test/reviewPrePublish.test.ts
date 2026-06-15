@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { prepareReviewPayloadForPublish } from "../src/review/reviewPrePublish.js";
-import { planInlinePlacements } from "../src/review/reviewDiffPlacement.js";
+import { prepareReviewPayloadForPublish } from "../src/review/findings/findingPipeline.js";
+import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 
 type ReviewFinding = ReviewPayload["findings"][number];

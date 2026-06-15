@@ -5,7 +5,7 @@ import {
   mergeInlineFingerprintRecords,
   parseStoredInlineFingerprints,
   suppressInlinePlacementsByFingerprint,
-} from "../src/review/reviewFindingFingerprint.js";
+} from "../src/review/findings/reviewFindingFingerprint.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 
 const finding: ReviewFinding = {

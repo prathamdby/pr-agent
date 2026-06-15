@@ -3,7 +3,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   renderAnchorMenuBlock,
-} from "../src/review/reviewDiffIndex.js";
+} from "../src/review/placement/reviewDiffIndex.js";
 import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../src/settings/index.js";
 
 describe("renderAnchorMenuBlock", () => {

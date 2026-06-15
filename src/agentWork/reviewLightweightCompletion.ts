@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
-import { evaluateTrivialChangeExemption } from "../review/reviewChangeGate.js";
-import type { ReviewPreflightMetadata } from "../review/reviewPreflightFiles.js";
-import { renderLightweightReviewCompletion } from "../review/reviewRender.js";
+import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
+import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
+import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../review/reviewSchema.js";
 import {
   resolveVerifiedSummaryCommentRef,

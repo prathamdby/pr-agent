@@ -7,7 +7,7 @@ import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
-vi.mock("../src/agent/context7Tools.js", () => ({
+vi.mock("../src/agent/tools/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
 }));
 
@@ -38,7 +38,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
 }));
 
 import { complete } from "@earendil-works/pi-ai";
-import { runAskRun } from "../src/agent/askRun.js";
+import { runAskRun } from "../src/agent/ask/askRun.js";
 
 const cursorCfg = makeTestConfig({
   agentProvider: "cursor",

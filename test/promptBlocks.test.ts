@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { wrapTrustedContext, wrapUntrustedBlock } from "../src/agent/promptBlocks.js";
+import { wrapTrustedContext, wrapUntrustedBlock } from "../src/agent/prompts/promptBlocks.js";
 
 function untrustedBlockBody(label: string, block: string): string {
   const open = `<${label} untrusted="true">\n`;

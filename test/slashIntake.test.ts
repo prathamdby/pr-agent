@@ -266,6 +266,7 @@ describe("applySlashCommandIntake", () => {
           },
           triageScope: "thread",
           threadAnchorCommentId: 50,
+          needsThreadRootResolution: true,
         },
         intakeLog,
       ),
@@ -318,6 +319,7 @@ describe("applySlashCommandIntake", () => {
 
     const payload = JSON.parse(String(workItemInserts[0]?.[12]));
     expect(payload.scope).toBe("all");
+    expect(payload.needsThreadRootResolution).toBeUndefined();
     expect(payload.replyTarget).toEqual({ kind: "prConversation", prNumber: 7 });
     expect(sentJobs.map((j) => j.queue)).toEqual([ACK_QUEUE, TRIAGE_QUEUE]);
   });

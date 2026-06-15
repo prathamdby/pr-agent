@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { logWarn } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import {
@@ -8,14 +9,14 @@ import {
   fetchReviewCommentParentGraph,
   resolveReviewThreadRootId,
   type BotFindingThread,
-} from "../../review/reviewPriorFeedback.js";
-import { runFullPrTriage } from "../../agent/triageRun.js";
+} from "../../review/run/reviewPriorFeedback.js";
+import { runFullPrTriage } from "../../agent/triage/triageRun.js";
 import {
   parseStoredTriagePushDetail,
   publishTriage,
   publishTriageReportOnly,
   type StoredTriagePushDetail,
-} from "../../agent/publishTriage.js";
+} from "../../agent/triage/publishTriage.js";
 import {
   captureTriageEvent,
   captureTriageFailure,
@@ -109,6 +110,42 @@ function triageReportContext(payload: TriageWorkPayload, threadRootCommentId?: n
     scope: payload.scope ?? "all",
     threadRootCommentId: payload.scope === "thread" ? threadRootCommentId : undefined,
   };
+}
+
+async function resolveScopedThreadRootId(params: {
+  readonly token: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly anchorCommentId: number;
+  readonly analytics: TriageAnalyticsRef;
+}): Promise<number> {
+  try {
+    const commentGraph = await fetchReviewCommentParentGraph(
+      params.token,
+      params.owner,
+      params.repo,
+      params.prNumber,
+    );
+    return (
+      resolveReviewThreadRootId(commentGraph, params.anchorCommentId) ?? params.anchorCommentId
+    );
+  } catch (error) {
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    logWarn("triage_thread_root_resolution_failed", {
+      owner: params.owner,
+      repo: params.repo,
+      prNumber: params.prNumber,
+      anchorCommentId: params.anchorCommentId,
+      message: errorObj.message,
+    });
+    captureTriageEvent(params.analytics, "triage thread root resolution fallback", {
+      step: "thread_root_resolution",
+      fallback: "original_anchor_comment",
+      thread_anchor_comment_id: params.anchorCommentId,
+    });
+    return params.anchorCommentId;
+  }
 }
 
 function checkoutFromStoredPush(
@@ -226,16 +263,21 @@ export async function executeTriageJob(
       let inventory = allUnresolved;
       if (scope === "thread") {
         if (payload.threadAnchorCommentId != null) {
-          const commentGraph = await fetchReviewCommentParentGraph(
-            tokenState.installation.token,
-            item.owner,
-            item.repo,
-            item.prNumber,
-          );
-          const rootId = resolveReviewThreadRootId(commentGraph, payload.threadAnchorCommentId);
-          scopedThreadRootId = rootId ?? undefined;
+          scopedThreadRootId =
+            payload.needsThreadRootResolution === true
+              ? await resolveScopedThreadRootId({
+                  token: tokenState.installation.token,
+                  owner: item.owner,
+                  repo: item.repo,
+                  prNumber: item.prNumber,
+                  anchorCommentId: payload.threadAnchorCommentId,
+                  analytics,
+                })
+              : payload.threadAnchorCommentId;
           inventory =
-            rootId != null ? allUnresolved.filter((thread) => thread.rootCommentId === rootId) : [];
+            scopedThreadRootId != null
+              ? allUnresolved.filter((thread) => thread.rootCommentId === scopedThreadRootId)
+              : [];
         } else {
           inventory = [];
         }

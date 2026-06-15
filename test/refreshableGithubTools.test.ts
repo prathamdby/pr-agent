@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/constants.js";
-import { createRefreshableToolExecutors } from "../src/agent/providers/cursor/refreshableGithubTools.js";
+import { createRefreshableToolExecutors } from "../src/agent/tools/refreshableGithubTools.js";
 
 describe("createRefreshableToolExecutors", () => {
   it("refreshes token and rebuilds executors when near expiry", async () => {
@@ -19,6 +19,7 @@ describe("createRefreshableToolExecutors", () => {
     const refreshable = createRefreshableToolExecutors({
       initialToken: "stale-token",
       tokenExpiresAtTs: Date.now() + TOKEN_FRESHNESS_BUFFER_MS - 1_000,
+      tokenTtlMs: 3_600_000,
       refreshInstallationToken: refresh,
       build,
       githubToolNames: new Set(["getPullRequest"]),
@@ -42,6 +43,7 @@ describe("createRefreshableToolExecutors", () => {
     const refreshable = createRefreshableToolExecutors({
       initialToken: "old-token",
       tokenExpiresAtTs: Date.now() + 3_600_000,
+      tokenTtlMs: 3_600_000,
       build,
       githubToolNames: new Set(["getPullRequest"]),
     });

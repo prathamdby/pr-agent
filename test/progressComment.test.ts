@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   renderReviewFailureNotice,
   renderReviewProgressComment,
-} from "../src/review/progressComment.js";
+} from "../src/review/run/progressComment.js";
 import { REVIEW_PROGRESS_NOTE } from "../src/settings/index.js";
 
 describe("progressComment fallback wording", () => {

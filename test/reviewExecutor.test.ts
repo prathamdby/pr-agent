@@ -28,7 +28,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   shouldSkipWork: vi.fn(),
 }));
 
-vi.mock("../src/review/reviewRun.js", () => ({
+vi.mock("../src/review/run/reviewRun.js", () => ({
   runFullPrReview: mocks.runFullPrReview,
 }));
 
@@ -42,11 +42,11 @@ import * as durableJob from "../src/agentWork/durableJob.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
 import * as prWorkspace from "../src/prWorkspace/index.js";
-import * as reviewTrustedContext from "../src/review/reviewTrustedContext.js";
+import * as reviewTrustedContext from "../src/review/prompts/reviewTrustedContext.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
-import * as reviewRunMetrics from "../src/review/reviewRunMetrics.js";
+import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
 import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
 
 const cfg = makeTestConfig({ piModel: "test" });

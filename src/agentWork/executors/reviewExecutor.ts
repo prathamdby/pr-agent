@@ -7,7 +7,7 @@ import {
   fetchPullRequestFiles,
   type ListPullRequestFilesResult,
 } from "../../github/listPullRequestFiles.js";
-import { runFullPrReview } from "../../review/reviewRun.js";
+import { runFullPrReview } from "../../review/run/reviewRun.js";
 import {
   loadRepoPolicy,
   logInvalidRepoPolicy,
@@ -16,8 +16,8 @@ import {
 import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
-} from "../../review/reviewTrustedContext.js";
-import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/reviewPreflightFiles.js";
+} from "../../review/prompts/reviewTrustedContext.js";
+import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
 import {
   reviewRetrySlashCommandForMode,
   reviewSummarySentinelForMode,
@@ -28,7 +28,7 @@ import {
   recordReviewPhaseSpan,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
-} from "../../review/reviewRunMetrics.js";
+} from "../../review/run/reviewRunMetrics.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
@@ -41,7 +41,7 @@ import {
   shouldSkipWork,
 } from "../repository.js";
 import { buildStaleSlashReviewRescheduleResult } from "../reviewReschedule.js";
-import { renderReviewFailureNotice } from "../../review/progressComment.js";
+import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
 import {
   makeInstallationTokenRefresher,
   resolveWorkItemHead,

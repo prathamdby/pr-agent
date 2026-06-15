@@ -6,7 +6,7 @@ import {
   labelsAlreadySynced,
   reviewLabelsFromPayload,
   syncReviewLabels,
-} from "../src/review/reviewLabels.js";
+} from "../src/review/run/reviewLabels.js";
 
 const basePayload: ReviewPayload = {
   prCharacter: "Test.",

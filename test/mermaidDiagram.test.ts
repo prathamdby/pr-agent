@@ -5,7 +5,7 @@ import {
   repairMermaidNodeLabels,
   sanitizeMermaidDiagram,
   validateMermaidDiagram,
-} from "../src/agent/mermaidDiagram.js";
+} from "../src/agent/description/mermaidDiagram.js";
 
 describe("mermaidDiagram", () => {
   it("repairs slash-heavy labels that break GitHub", () => {

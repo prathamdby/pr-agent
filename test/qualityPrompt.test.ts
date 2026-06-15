@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { automatedQualitySystemPrompt } from "../src/agent/qualityPrompt.js";
+import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
 
 describe("automatedQualitySystemPrompt", () => {
   it("builds and includes submitReview contract and P0–P3 mapping", () => {

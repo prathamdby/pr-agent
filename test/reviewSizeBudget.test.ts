@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewSizeBudget, classifyReviewBudgetTier } from "../src/review/reviewSizeBudget.js";
+import {
+  buildReviewSizeBudget,
+  classifyReviewBudgetTier,
+} from "../src/review/run/reviewSizeBudget.js";
 
 describe("classifyReviewBudgetTier", () => {
   it("classifies small PRs", () => {

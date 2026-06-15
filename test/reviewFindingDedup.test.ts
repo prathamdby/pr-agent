@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dedupeReviewFindings } from "../src/review/reviewFindingDedup.js";
+import { dedupeReviewFindings } from "../src/review/findings/reviewFindingDedup.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 
 describe("dedupeReviewFindings", () => {

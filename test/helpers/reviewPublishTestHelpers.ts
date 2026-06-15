@@ -1,13 +1,13 @@
 import { publishReview } from "../../src/review/publish/publishReview.js";
-import { prepareReviewPayloadForPublish } from "../../src/review/reviewPrePublish.js";
-import type { InlinePlacement } from "../../src/review/reviewDiffPlacement.js";
-import { planInlinePlacements } from "../../src/review/reviewDiffPlacement.js";
+import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
+import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
+import { planInlinePlacements } from "../../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewMode, ReviewPayload } from "../../src/review/reviewSchema.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
-} from "../../src/review/reviewDiffIndex.js";
+} from "../../src/review/placement/reviewDiffIndex.js";
 import { createSubmitReviewState } from "../../src/review/publish/submitReviewTool.js";
 
 /** Runs pre-publish pipeline then publishReview (matches submitReview path). */
@@ -27,6 +27,7 @@ export async function publishReviewForTest(
     ...params,
     payload: prepared.prepared.payload,
     dedupedFindingCount: prepared.prepared.dedupedCount,
+    inlinePlacements: prepared.prepared.placements,
   });
 }
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
-} from "../src/agent/descriptionSchema.js";
+} from "../src/agent/description/descriptionSchema.js";
 
 describe("descriptionSchema", () => {
   it("accepts minimal valid payload", () => {

@@ -3,7 +3,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import * as evlog from "../src/evlog.js";
 import { checkMcpBearerAuth, createMcpBridge } from "../src/agent/providers/cursor/mcpBridge.js";
-import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/review/reviewRunMetrics.js";
+import {
+  initReviewRunMetrics,
+  snapshotReviewRunMetrics,
+} from "../src/review/run/reviewRunMetrics.js";
 
 type NoopBridge = Awaited<ReturnType<typeof createMcpBridge>>;
 type HttpMcpServerConfig = Extract<NoopBridge["mcpServers"][string], { type?: "http" | "sse" }>;

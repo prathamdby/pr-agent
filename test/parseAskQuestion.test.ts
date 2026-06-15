@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_ASK_QUESTION_CHARS } from "../src/agent/askSafety.js";
+import { MAX_ASK_QUESTION_CHARS } from "../src/agent/ask/askSafety.js";
 import { ASK_USAGE_HINT } from "../src/settings/index.js";
 import {
   ASK_QUESTION_TOO_LONG_HINT,

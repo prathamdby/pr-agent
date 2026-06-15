@@ -26,7 +26,7 @@ import {
   type WebhookHeaders,
   prResourceKey,
 } from "../types.js";
-import type { CodeAnchor } from "../../agent/askRunTypes.js";
+import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import { captureTriageEvent } from "../triageAnalytics.js";
@@ -62,6 +62,7 @@ export type SlashCommandInput = {
   readonly codeAnchor?: CodeAnchor;
   readonly triageScope?: "all" | "thread";
   readonly threadAnchorCommentId?: number;
+  readonly needsThreadRootResolution?: boolean;
 };
 
 function clampStoredCommentText(text: string): string {
@@ -240,6 +241,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     commenterId: ctx.input.commenterId,
     scope: triageScope,
     threadAnchorCommentId: ctx.input.threadAnchorCommentId,
+    needsThreadRootResolution: ctx.input.needsThreadRootResolution,
     replyTarget: ctx.input.replyTarget,
   });
   await enqueueSlashAck(ctx, { workItemId });
@@ -256,6 +258,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     "triage enqueued",
     {
       thread_anchor_comment_id: ctx.input.threadAnchorCommentId,
+      needs_thread_root_resolution: ctx.input.needsThreadRootResolution === true,
       reply_target_kind: ctx.input.replyTarget.kind,
     },
   );

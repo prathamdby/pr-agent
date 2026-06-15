@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { redactReviewPayloadSecrets, redactReviewText } from "../src/review/reviewPublicOutput.js";
+import {
+  redactReviewPayloadSecrets,
+  redactReviewText,
+} from "../src/review/findings/reviewPublicOutput.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 
 describe("reviewPublicOutput", () => {

@@ -4,7 +4,7 @@ import {
   fetchPriorInlineReviewFeedback,
   formatPriorInlineFeedbackBlock,
   type PriorInlineFeedbackThread,
-} from "../src/review/reviewPriorFeedback.js";
+} from "../src/review/run/reviewPriorFeedback.js";
 import {
   REVIEW_POINTER_BODY,
   QUALITY_REVIEW_POINTER_BODY,

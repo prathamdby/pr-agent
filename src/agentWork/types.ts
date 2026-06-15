@@ -1,5 +1,5 @@
 import type { Config } from "../config.js";
-import type { CodeAnchor } from "../agent/askRunTypes.js";
+import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
@@ -115,6 +115,7 @@ export type TriageWorkPayload = {
   readonly commentId: number;
   readonly scope: TriageScope;
   readonly threadAnchorCommentId?: number;
+  readonly needsThreadRootResolution?: boolean;
   readonly replyTarget: ReplyTarget;
   readonly publishDegraded?: boolean;
 };

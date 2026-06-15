@@ -10,7 +10,7 @@ import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publ
 import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../repository.js";
-import { renderReviewProgressComment } from "../../review/progressComment.js";
+import { renderReviewProgressComment } from "../../review/run/progressComment.js";
 import {
   getAppBotIdentity,
   getPullRequestHeadSha,

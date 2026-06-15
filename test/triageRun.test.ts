@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerProvider } from "../src/agent/providers/interface.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
-import { runFullPrTriage } from "../src/agent/triageRun.js";
+import { runFullPrTriage } from "../src/agent/triage/triageRun.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const providerState = vi.hoisted(() => ({

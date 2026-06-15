@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   renderDescriptionAgentBlock,
   sanitizeMermaidDiagram,
-} from "../src/agent/descriptionRender.js";
+} from "../src/agent/description/descriptionRender.js";
 import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
 
 const RENDER_CTX = { owner: "acme", repo: "widgets", prNumber: 42 };

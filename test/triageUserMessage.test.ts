@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTriageUserContent } from "../src/agent/triageUserMessage.js";
+import { buildTriageUserContent } from "../src/agent/triage/triageUserMessage.js";
 
 describe("triage user message", () => {
   it("renders inventory and wraps maintainer replies as untrusted", () => {

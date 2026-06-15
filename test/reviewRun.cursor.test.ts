@@ -4,7 +4,7 @@ import {
   setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import * as evlog from "../src/evlog.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
+import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
@@ -12,7 +12,7 @@ vi.mock("../src/github/reviewPublish.js", () => ({
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
 }));
 
-vi.mock("../src/agent/context7Tools.js", () => ({
+vi.mock("../src/agent/tools/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
 }));
 
@@ -57,7 +57,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
 
 import { complete } from "@earendil-works/pi-ai";
 import { buildSubmitReviewTool } from "../src/review/publish/submitReviewTool.js";
-import { runFullPrReview } from "../src/review/reviewRun.js";
+import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const cursorCfg = makeTestConfig({
   agentProvider: "cursor",

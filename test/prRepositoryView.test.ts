@@ -38,7 +38,7 @@ vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/review/reviewPreflightFiles.js", () => ({
+vi.mock("../src/review/placement/reviewPreflightFiles.js", () => ({
   buildReviewPreflightMetadataFromWorkspace: () => ({ preflight: true }),
 }));
 

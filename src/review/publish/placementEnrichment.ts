@@ -1,5 +1,5 @@
 import type { PublishedReviewComment } from "../../github/reviewPublish.js";
-import type { InlinePlacement } from "../reviewDiffPlacement.js";
+import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
 function reviewCommentAnchorKey(path: string, line: number): string {
   return `${path}:${line}`;

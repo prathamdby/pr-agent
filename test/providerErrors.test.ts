@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyProviderError } from "../src/agent/providerErrors.js";
+import { classifyProviderError } from "../src/agent/providers/providerErrors.js";
 
 describe("classifyProviderError", () => {
   it("classifies auth failures", () => {

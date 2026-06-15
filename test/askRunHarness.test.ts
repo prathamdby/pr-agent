@@ -3,7 +3,7 @@ import { ASK_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
-vi.mock("../src/agent/context7Tools.js", () => ({
+vi.mock("../src/agent/tools/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
 }));
 
@@ -23,7 +23,7 @@ vi.mock("../src/agent/providers/index.js", () => ({
   }),
 }));
 
-import { runAskHarness } from "../src/agent/askRunHarness.js";
+import { runAskRun } from "../src/agent/ask/askRun.js";
 
 const cfg = makeTestConfig({
   maxToolRounds: 2,
@@ -46,7 +46,7 @@ const askParams = {
   workspace: mockLocalPrWorkspace(),
 };
 
-describe("runAskHarness finalize", () => {
+describe("runAskRun finalize", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -56,7 +56,7 @@ describe("runAskHarness finalize", () => {
       .mockResolvedValueOnce({ text: "" })
       .mockResolvedValueOnce({ text: "End-user summary and E2E checklist." });
 
-    const result = await runAskHarness(askParams);
+    const result = await runAskRun(askParams);
 
     expect(sendMock).toHaveBeenCalledTimes(2);
     expect(sendMock.mock.calls[0]?.[1]).toEqual({ maxToolRounds: 12 });
@@ -70,7 +70,7 @@ describe("runAskHarness finalize", () => {
   it("posts failure message when investigation and finalize both return empty", async () => {
     sendMock.mockResolvedValue({ text: "" });
 
-    const result = await runAskHarness(askParams);
+    const result = await runAskRun(askParams);
 
     expect(sendMock).toHaveBeenCalledTimes(3);
     expect(restrictToToolsMock).toHaveBeenCalledWith([], {});
@@ -81,7 +81,7 @@ describe("runAskHarness finalize", () => {
   it("skips finalize when maxAskFinalizeRounds is zero", async () => {
     sendMock.mockResolvedValueOnce({ text: "" });
 
-    const result = await runAskHarness({
+    const result = await runAskRun({
       ...askParams,
       cfg: { ...cfg, maxAskFinalizeRounds: 0 },
     });
