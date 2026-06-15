@@ -80,9 +80,12 @@ export function prepareReviewPayloadForPublish(params: {
   }
 
   const payload = redactReviewPayloadSecrets(candidate);
-  const placements = validation.placements.map((placement, index) => ({
+  const redactedFindingsByOriginal = new Map(
+    candidate.findings.map((finding, index) => [finding, payload.findings[index] ?? finding]),
+  );
+  const placements = validation.placements.map((placement) => ({
     ...placement,
-    finding: payload.findings[index] ?? placement.finding,
+    finding: redactedFindingsByOriginal.get(placement.finding) ?? placement.finding,
   }));
   return {
     ok: true,

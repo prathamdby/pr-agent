@@ -44,6 +44,7 @@ let submitState = {
 };
 
 vi.mock("../src/github/reviewPublish.js", () => ({
+  resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 1, updated: true })),
 }));
 
@@ -65,6 +66,7 @@ vi.mock("../src/review/run/reviewRunSetup.js", async (importOriginal) => {
       cachedDiffIndex,
       submitState,
       getToken: () => params.token,
+      getTokenExpiresAtTs: () => params.tokenExpiresAtTs,
       refreshBeforeTool: vi.fn(),
     })),
   };

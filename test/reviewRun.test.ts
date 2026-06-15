@@ -8,6 +8,7 @@ vi.mock("../src/github/reviewPublish.js", () => ({
     id: 99,
     url: "https://example.com/issues/comments/99",
   })),
+  resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 99, updated: true })),
 }));
 

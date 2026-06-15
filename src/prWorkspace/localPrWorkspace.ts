@@ -395,11 +395,20 @@ async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;
     const full = join(tmpdir(), entry.name);
-    const ageMs = now - (await stat(full)).mtimeMs;
+    const entryStat = await statIfPresent(full);
+    if (!entryStat) continue;
+    const ageMs = now - entryStat.mtimeMs;
     if (ageMs > cfg.localWorkspaceStaleCleanupAgeSeconds * 1000) {
       await rm(full, { recursive: true, force: true }).catch(() => undefined);
     }
   }
+}
+
+async function statIfPresent(path: string) {
+  return stat(path).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  });
 }
 
 export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> {
@@ -414,7 +423,9 @@ export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> 
       continue;
     }
     const full = join(tmpdir(), entry.name);
-    const ageMs = now - (await stat(full)).mtimeMs;
+    const entryStat = await statIfPresent(full);
+    if (!entryStat) continue;
+    const ageMs = now - entryStat.mtimeMs;
     if (ageMs > cfg.localWorkspaceStaleCleanupAgeSeconds * 1000) {
       await removeWorkspace(full).catch(() => undefined);
     }

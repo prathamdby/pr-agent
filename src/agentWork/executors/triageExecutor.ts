@@ -139,8 +139,9 @@ async function resolveScopedThreadRootId(params: {
       anchorCommentId: params.anchorCommentId,
       message: errorObj.message,
     });
-    captureTriageEvent(params.analytics, "triage degraded", {
+    captureTriageEvent(params.analytics, "triage thread root resolution fallback", {
       step: "thread_root_resolution",
+      fallback: "original_anchor_comment",
       thread_anchor_comment_id: params.anchorCommentId,
     });
     return params.anchorCommentId;

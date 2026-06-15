@@ -66,6 +66,23 @@ describe("findingPipeline", () => {
     expect(result.prepared.placements).toEqual([]);
   });
 
+  it("keeps validated placements aligned with redacted findings", () => {
+    const secretFinding = finding({
+      title: "Do not expose secret",
+      detail: "Leaked key OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz",
+    });
+
+    const result = prepareReviewPayloadForPublish({
+      payload: payload({ findings: [secretFinding] }),
+      mode: "review",
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.prepared.placements[0]?.finding).toBe(result.prepared.payload.findings[0]);
+    expect(result.prepared.placements[0]?.finding.detail).not.toContain("sk-");
+  });
+
   it("returns inline and summary-only targets after fingerprint suppression and inline cap", () => {
     const suppressed = finding({ title: "Suppress repeat", startLine: 1, severity: "P1" });
     const capped = finding({ title: "Cap lower priority", startLine: 2, severity: "P2" });

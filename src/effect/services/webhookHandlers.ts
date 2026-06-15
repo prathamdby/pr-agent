@@ -226,7 +226,7 @@ export const WebhookHandlersCore = Layer.effect(
             return;
           }
 
-          const inlineReplyParentId = data.comment.in_reply_to_id ?? data.comment.id;
+          const inlineReplyImmediateParentId = data.comment.in_reply_to_id ?? data.comment.id;
 
           yield* scheduler.submitSlashCommand(
             {
@@ -243,7 +243,7 @@ export const WebhookHandlersCore = Layer.effect(
               replyTarget: {
                 kind: "inlineReviewThread",
                 prNumber: data.pull_request.number,
-                inReplyToCommentId: inlineReplyParentId,
+                inReplyToCommentId: inlineReplyImmediateParentId,
               },
               codeAnchor: codeAnchorFromReviewComment(data.comment),
               ...(command === "triage"

@@ -9,14 +9,9 @@ const initCursorWorkerMock = vi.hoisted(() =>
     ripgrepPath: "/usr/bin/rg",
   })),
 );
-const captureCursorWorkerFailureMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/agent/providers/cursor/workerBoot.js", () => ({
   initCursorWorker: initCursorWorkerMock,
-}));
-
-vi.mock("../src/agent/providers/cursor/cursorAnalytics.js", () => ({
-  captureCursorWorkerFailure: captureCursorWorkerFailureMock,
 }));
 
 import { cursorAgentRunnerProvider } from "../src/agent/providers/cursor/agentRunner.js";
@@ -40,7 +35,7 @@ describe("AgentRunnerProvider boot", () => {
     expect(initCursorWorkerMock).toHaveBeenCalledWith(cfg);
   });
 
-  it("keeps cursor boot failure capture provider-local", async () => {
+  it("propagates cursor boot failures to the entrypoint seam", async () => {
     const error = new Error("catalog unavailable");
     initCursorWorkerMock.mockRejectedValueOnce(error);
 
@@ -53,7 +48,7 @@ describe("AgentRunnerProvider boot", () => {
       ),
     ).rejects.toThrow("catalog unavailable");
 
-    expect(captureCursorWorkerFailureMock).toHaveBeenCalledWith("worker_boot", error);
+    expect(initCursorWorkerMock).toHaveBeenCalled();
   });
 
   it("does not require boot for providers without startup work", () => {

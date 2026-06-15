@@ -1,6 +1,9 @@
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
-import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
+import {
+  resolveVerifiedSummaryCommentRef,
+  upsertReviewSummaryComment,
+} from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
 import {
@@ -25,16 +28,30 @@ export async function publishReviewRunFailureNotice(params: {
     maxPublishCalls: params.cfg.maxReviewPublishCalls,
   });
   const retryCommand = reviewRetrySlashCommandForMode(params.reviewMode);
+  const token = params.setup.getToken();
+  const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
+  const sentinel = reviewSummarySentinelForMode(params.reviewMode);
   try {
+    const existing = await resolveVerifiedSummaryCommentRef(
+      token,
+      params.owner,
+      params.repo,
+      params.prNumber,
+      sentinel,
+      undefined,
+      tokenExpiresAtTs,
+    );
+    if (existing) return;
+
     await upsertReviewSummaryComment(
-      params.setup.getToken(),
+      token,
       params.owner,
       params.repo,
       params.prNumber,
       renderReviewFailureNotice({ mode: params.reviewMode, retryCommand }),
-      reviewSummarySentinelForMode(params.reviewMode),
+      sentinel,
       undefined,
-      params.setup.getTokenExpiresAtTs(),
+      tokenExpiresAtTs,
     );
   } catch (error) {
     logWarn("review_publish_fallback_comment_failed", {
