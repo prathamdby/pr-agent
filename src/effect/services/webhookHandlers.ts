@@ -128,12 +128,7 @@ export const WebhookHandlersCore = Layer.effect(
           }
           if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id, intakeLog)) return;
           if (
-            yield* ignoreUnauthorizedSlash(
-              cfg,
-              headers,
-              data.comment.author_association,
-              intakeLog,
-            )
+            yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association, intakeLog)
           ) {
             return;
           }
@@ -230,12 +225,7 @@ export const WebhookHandlersCore = Layer.effect(
           }
           if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id, intakeLog)) return;
           if (
-            yield* ignoreUnauthorizedSlash(
-              cfg,
-              headers,
-              data.comment.author_association,
-              intakeLog,
-            )
+            yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association, intakeLog)
           ) {
             return;
           }
