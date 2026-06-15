@@ -167,17 +167,20 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
   };
 
   try {
-    const phases: StructuredAgentPhase<ReviewPhase>[] = [
-      { name: "investigation", run: runInvestigationPhase },
-      ...Array.from({ length: Math.max(0, cfg.maxReviewPublishAttempts - 1) }, (_, index) => ({
-        name: "publish_recovery" as const,
-        run: async () => {
-          const attempt = index + 1;
-          publishAttempts = attempt + 1;
-          await runPublishRecoveryPhase(attempt);
-        },
-      })),
-    ];
+    const phases: StructuredAgentPhase<ReviewPhase>[] =
+      cfg.maxReviewPublishAttempts > 0
+        ? [
+            { name: "investigation", run: runInvestigationPhase },
+            ...Array.from({ length: cfg.maxReviewPublishAttempts - 1 }, (_, index) => ({
+              name: "publish_recovery" as const,
+              run: async () => {
+                const attempt = index + 1;
+                publishAttempts = attempt + 1;
+                await runPublishRecoveryPhase(attempt);
+              },
+            })),
+          ]
+        : [];
     publishAttempts = phases.length > 0 ? 1 : 0;
     await runStructuredAgentLoop({
       phases,

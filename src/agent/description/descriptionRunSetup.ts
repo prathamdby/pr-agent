@@ -37,6 +37,7 @@ export function buildDescriptionRunSetup(params: {
   cfg: Config;
   token: string;
   tokenExpiresAtTs: number;
+  tokenTtlMs: number;
   owner: string;
   repo: string;
   prNumber: number;
@@ -68,6 +69,7 @@ export function buildDescriptionRunSetup(params: {
   const refreshableGh = createRefreshableToolExecutors({
     initialToken: token,
     tokenExpiresAtTs,
+    tokenTtlMs: params.tokenTtlMs,
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (_activeToken, _activeExpiresAtTs) =>

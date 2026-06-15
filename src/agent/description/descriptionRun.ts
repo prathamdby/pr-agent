@@ -120,7 +120,11 @@ export async function runFullPrDescription(params: {
         },
         {
           name: "validation_repair",
-          run: runValidationRepair,
+          run: async () => {
+            if (setup.submitState.lastValidationError) {
+              await runValidationRepair();
+            }
+          },
         },
       ],
     });

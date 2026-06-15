@@ -32,8 +32,8 @@ async function main() {
     try {
       const boot = await resolveAgentRunnerProvider(cfg).boot?.(cfg);
       if (boot) {
-        logInfo("cursor_provider_registered", {
-          api: "cursor-sdk",
+        logInfo("agent_provider_registered", {
+          provider: cfg.agentProvider,
           model_count: boot.modelCount,
           top_models: boot.topModels,
           fast_models: boot.fastModels,

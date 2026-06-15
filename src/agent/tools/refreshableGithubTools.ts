@@ -18,6 +18,7 @@ export type RefreshableToolExecutors = {
 export function createRefreshableToolExecutors(params: {
   initialToken: string;
   tokenExpiresAtTs: number;
+  tokenTtlMs: number;
   build: (token: string, expiresAtTs: number) => ToolExecutorBundle;
   refreshInstallationToken?: () => Promise<{
     token: string;
@@ -25,6 +26,9 @@ export function createRefreshableToolExecutors(params: {
   }>;
   githubToolNames?: ReadonlySet<string>;
 }): RefreshableToolExecutors {
+  if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
+    throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
+  }
   let activeToken = params.initialToken;
   let activeExpiresAtTs = params.tokenExpiresAtTs;
   let built = params.build(activeToken, activeExpiresAtTs);
