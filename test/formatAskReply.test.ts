@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatAskReply, sanitizeAskAnswerText } from "../src/agent/formatAskReply.js";
+import { formatAskReply, sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.js";
 
 describe("formatAskReply", () => {
   it("returns plain answer for inline review threads", () => {

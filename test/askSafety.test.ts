@@ -5,8 +5,8 @@ import {
   createAskPathGate,
   isSensitivePath,
   redactOutboundSecrets,
-} from "../src/agent/askSafety.js";
-import { sanitizeAskAnswerText } from "../src/agent/formatAskReply.js";
+} from "../src/agent/ask/askSafety.js";
+import { sanitizeAskAnswerText } from "../src/agent/ask/formatAskReply.js";
 
 const jwtLikeSecret = `eyJ${"a".repeat(10)}.${"b".repeat(10)}.${"c".repeat(5)}`;
 

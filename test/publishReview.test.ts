@@ -10,13 +10,13 @@ import {
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REVIEW_POINTER_NOTE_LEAD,
-} from "../src/review/reviewRender.js";
+} from "../src/review/run/reviewRender.js";
 import {
   cachedDiffForFiles,
   cachedDiffForLines,
   testPublishState,
 } from "./helpers/reviewPublishTestHelpers.js";
-import { fingerprintFinding } from "../src/review/reviewFindingFingerprint.js";
+import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 
 type RecordPublishStep = NonNullable<
   Parameters<typeof publishReviewForTest>[0]["recordPublishStep"]

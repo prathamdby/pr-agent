@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildContext7Tools } from "../src/agent/context7Tools.js";
+import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
   return new Response(JSON.stringify(body), {

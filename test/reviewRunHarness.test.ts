@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
-import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "../src/review/reviewPromptBlocks.js";
+import {
+  PRE_SUBMIT_REMINDER,
+  PRE_SUBMIT_ROUND0_PROMPT,
+} from "../src/review/prompts/reviewPromptBlocks.js";
 import { PROSE_ONLY_NUDGE } from "../src/settings/index.js";
 
 const sendMock = vi.fn(async (_message: string) => ({ text: "done" }));
@@ -50,8 +53,8 @@ vi.mock("../src/agent/providers/index.js", () => ({
   })),
 }));
 
-vi.mock("../src/review/reviewRunSetup.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/reviewRunSetup.js")>();
+vi.mock("../src/review/run/reviewRunSetup.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review/run/reviewRunSetup.js")>();
   return {
     ...actual,
     buildReviewRunSetup: vi.fn((params) => ({
@@ -67,7 +70,7 @@ vi.mock("../src/review/reviewRunSetup.js", async (importOriginal) => {
   };
 });
 
-import { runReviewHarness } from "../src/review/reviewRunHarness.js";
+import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const harnessConfigOverrides = {
   piModel: "test",
@@ -77,7 +80,7 @@ const harnessConfigOverrides = {
   reviewAnchorMenuMaxRangesPerFile: 5,
 };
 
-describe("runReviewHarness", () => {
+describe("runFullPrReview harness behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     cachedDiffIndex = nonEmptyDiffIndex();
@@ -91,18 +94,19 @@ describe("runReviewHarness", () => {
   });
 
   const runHarness = async (overrides: Parameters<typeof makeTestConfig>[0] = {}) => {
-    await runReviewHarness({
+    await runFullPrReview({
       cfg: makeTestConfig({
         ...harnessConfigOverrides,
         ...overrides,
       }),
       token: "tok",
       tokenExpiresAtTs: Date.now() + 60_000,
+      tokenTtlMs: 60_000,
       owner: "o",
       repo: "r",
       prNumber: 1,
       headSha: "head",
-      reviewMode: "review",
+      mode: "review",
       workspace: mockLocalPrWorkspace(),
     });
   };

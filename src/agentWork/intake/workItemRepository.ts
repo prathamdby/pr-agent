@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
-import type { CodeAnchor } from "../../agent/askRunTypes.js";
+import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { TriageScope, TriageWorkPayload } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
@@ -151,6 +151,7 @@ export async function createTriageWorkItem(
     commenterId?: number;
     scope: TriageScope;
     threadAnchorCommentId?: number;
+    needsThreadRootResolution?: boolean;
     replyTarget: ReplyTarget;
   },
 ): Promise<string> {
@@ -172,6 +173,7 @@ export async function createTriageWorkItem(
       commenterId: params.commenterId,
       scope: params.scope,
       threadAnchorCommentId: params.threadAnchorCommentId,
+      needsThreadRootResolution: params.needsThreadRootResolution,
       replyTarget: params.replyTarget,
     } satisfies TriageWorkPayload,
   });

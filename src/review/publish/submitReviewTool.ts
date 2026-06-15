@@ -3,13 +3,13 @@ import { z } from "zod";
 import type { Config } from "../../config.js";
 import { logInfo, logWarn, logDebug } from "../../evlog.js";
 import { publishReview } from "./publishReview.js";
-import type { CachedPrDiffIndex } from "../reviewDiffIndex.js";
-import { prepareReviewPayloadForPublish } from "../reviewPrePublish.js";
+import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
+import { prepareReviewPayloadForPublish } from "../findings/findingPipeline.js";
 import {
   PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
   REVIEW_DIFF_CACHE_REQUIRED_MESSAGE,
 } from "../../settings/index.js";
-import { recordReviewMetric } from "../reviewRunMetrics.js";
+import { recordReviewMetric } from "../run/reviewRunMetrics.js";
 import {
   coerceReviewPayloadInput,
   createReviewPayloadSchema,

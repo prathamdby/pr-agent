@@ -21,7 +21,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordAskPublishStep: mocks.recordAskPublishStep,
 }));
 
-vi.mock("../src/agent/askRun.js", () => ({
+vi.mock("../src/agent/ask/askRun.js", () => ({
   runAskRun: mocks.runAskRun,
 }));
 

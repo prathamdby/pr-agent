@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createSubmitReviewState } from "../src/review/publish/submitReviewTool.js";
-import { shouldContinueReviewRun } from "../src/review/reviewRunSetup.js";
+import { shouldContinueReviewRun } from "../src/review/run/reviewRunSetup.js";
 
 describe("shouldContinueReviewRun", () => {
   it("returns false when publishSuperseded is set", () => {

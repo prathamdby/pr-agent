@@ -5,7 +5,7 @@ import {
   REVIEW_POINTER_NOTE_LEAD,
   TESTS_REVIEW_POINTER_BODY,
 } from "../src/settings/index.js";
-import { renderReviewPointerLensMarker } from "../src/review/reviewRender.js";
+import { renderReviewPointerLensMarker } from "../src/review/run/reviewRender.js";
 
 const mocks = vi.hoisted(() => ({
   listReviews: vi.fn(),
@@ -27,7 +27,7 @@ import {
   classifyReviewLensFromPointerBody,
   fetchBotFindingThreads,
   parseReviewPointerLensMarker,
-} from "../src/review/reviewPriorFeedback.js";
+} from "../src/review/run/reviewPriorFeedback.js";
 
 describe("classifyReviewLensFromPointerBody", () => {
   it("prefers the HTML lens marker over legacy strings", () => {

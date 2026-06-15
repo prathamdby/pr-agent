@@ -12,7 +12,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
-} from "../review/reviewDiffIndex.js";
+} from "../review/placement/reviewDiffIndex.js";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,

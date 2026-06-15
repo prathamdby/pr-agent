@@ -21,7 +21,15 @@ export type AgentRunnerSession = {
   readonly dispose: () => Promise<void>;
 };
 
+type AgentProviderBootResult = {
+  readonly modelCount: number;
+  readonly topModels: readonly string[];
+  readonly fastModels: readonly string[];
+  readonly ripgrepPath?: string;
+};
+
 export type AgentRunnerProvider = {
+  readonly boot?: (cfg: Config) => Promise<AgentProviderBootResult | undefined>;
   readonly createSession: (params: {
     readonly cfg: Config;
     readonly cwd?: string;

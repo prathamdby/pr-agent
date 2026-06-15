@@ -44,10 +44,10 @@ vi.mock("../src/agent/providers/pi/index.js", () => ({
 }));
 
 import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
-import { automatedQualitySystemPrompt } from "../src/agent/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/agent/reviewTestsPrompt.js";
-import { runFullPrReview } from "../src/review/reviewRun.js";
+import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
+import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
+import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
+import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const cfg = makeTestConfig({
   maxToolRounds: 2,

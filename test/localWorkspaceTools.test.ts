@@ -8,9 +8,9 @@ import { describe, expect, it } from "vitest";
 import {
   buildLocalWorkspaceTools,
   type LocalWorkspaceToolLimits,
-} from "../src/agent/localWorkspaceTools.js";
-import { createAskPathGate } from "../src/agent/askSafety.js";
-import { createCachedPrDiffIndex } from "../src/review/reviewDiffIndex.js";
+} from "../src/agent/tools/localWorkspaceTools.js";
+import { createAskPathGate } from "../src/agent/ask/askSafety.js";
+import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
 import {
   gitGrepWorkspace,
   type GitGrepWorkspaceParams,

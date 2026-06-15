@@ -2,7 +2,7 @@ import type { Config } from "../config.js";
 import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
-} from "../review/reviewPreflightFiles.js";
+} from "../review/placement/reviewPreflightFiles.js";
 import {
   assertPullRequestFilesHeadSha,
   fetchPullRequestFiles,

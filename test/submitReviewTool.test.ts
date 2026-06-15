@@ -12,8 +12,11 @@ import {
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/reviewDiffIndex.js";
-import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/review/reviewRunMetrics.js";
+} from "../src/review/placement/reviewDiffIndex.js";
+import {
+  initReviewRunMetrics,
+  snapshotReviewRunMetrics,
+} from "../src/review/run/reviewRunMetrics.js";
 import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 

@@ -1,4 +1,4 @@
-import { createCachedPrDiffIndex } from "../../src/review/reviewDiffIndex.js";
+import { createCachedPrDiffIndex } from "../../src/review/placement/reviewDiffIndex.js";
 import type { LocalPrWorkspace } from "../../src/prWorkspace/localPrWorkspace.js";
 
 export function mockLocalPrWorkspace(agentCwd = "/tmp/pr-agent"): LocalPrWorkspace {

@@ -20,29 +20,20 @@ import {
   syncReviewLabels,
   dominantReviewCategory,
   hasManagedCategoryLabel,
-} from "../reviewLabels.js";
+} from "../run/reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
+import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
+import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import {
-  MAX_INLINE_REVIEW_COMMENTS,
-  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
-} from "../../settings/index.js";
-import { renderReviewSummaryComment } from "../reviewRender.js";
-import {
-  applyInlineCommentCap,
-  planInlinePlacements,
   type FingerprintedInlinePlacement,
   type InlinePlacement,
-} from "../reviewDiffPlacement.js";
-import type { CachedPrDiffIndex } from "../reviewDiffIndex.js";
-import { runInlinePublishPhase } from "../reviewPublishInlinePhase.js";
-import {
-  fingerprintInlinePlacements,
-  mergeInlineFingerprintRecords,
-  suppressInlinePlacementsByFingerprint,
-} from "../reviewFindingFingerprint.js";
+} from "../placement/reviewDiffPlacement.js";
+import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
+import { runInlinePublishPhase } from "../run/reviewPublishInlinePhase.js";
+import { mergeInlineFingerprintRecords } from "../findings/reviewFindingFingerprint.js";
+import { prepareFindingsForPublish } from "../findings/findingPipeline.js";
 import {
   reviewEventForFindings,
-  isInlineSeverity,
   reviewSummarySentinelForMode,
   type ReviewMode,
   type ReviewPayload,
@@ -266,19 +257,17 @@ export async function publishReview(
   const inlineReviewFingerprints = (placements: readonly FingerprintedInlinePlacement[]) =>
     mergeInlineFingerprintRecords(storedInlineFingerprints, placements);
 
-  let placements = fingerprintInlinePlacements(
-    params.inlinePlacements
-      ? [...params.inlinePlacements]
-      : planInlinePlacements(payload.findings, params.cachedDiffIndex),
+  const preparedFindings = prepareFindingsForPublish({
+    payload,
     mode,
-  );
-  const suppression = suppressInlinePlacementsByFingerprint(placements, storedInlineFingerprints);
-  placements = suppression.placements;
-  const inlineCap = applyInlineCommentCap(placements, MAX_INLINE_REVIEW_COMMENTS);
-  placements = inlineCap.placements;
-  const inlineFindings = placements.filter((p) => p.inlinePosted);
+    cachedDiffIndex: params.cachedDiffIndex,
+    inlinePlacements: params.inlinePlacements,
+    storedInlineFingerprints,
+  });
+  const placements = preparedFindings.placements;
+  const inlineFindings = preparedFindings.inline;
   const event = reviewEventForFindings(payload.findings);
-  let summaryPlacements: InlinePlacement[] = placements;
+  let summaryPlacements: InlinePlacement[] = [...placements];
   let inlineReviewId = publishState.inlineReviewId;
   const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
   if (diffCacheEmpty) {
@@ -330,13 +319,11 @@ export async function publishReview(
 
   const publishMetaBase = {
     inlineCount: inlineFindings.length,
-    summaryOnlyCount: placements.filter((p) => !p.inlinePosted).length,
-    inlineCommentCapExcluded: inlineCap.inlineCommentCapExcluded,
-    anchorUnresolved: placements.filter(
-      (p) => isInlineSeverity(p.finding.severity) && p.inlineLine == null,
-    ).length,
+    summaryOnlyCount: preparedFindings.summaryOnly.length,
+    inlineCommentCapExcluded: preparedFindings.dropped.inlineCommentCapExcluded,
+    anchorUnresolved: preparedFindings.dropped.anchorUnresolved,
     dedupedFindingCount: params.dedupedFindingCount ?? 0,
-    suppressedInlineCount: suppression.suppressedInlineCount,
+    suppressedInlineCount: preparedFindings.dropped.suppressedInlineCount,
     diffCacheEmpty,
   };
 

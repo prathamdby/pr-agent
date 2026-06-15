@@ -13,8 +13,8 @@ const mocks = vi.hoisted(() => ({
   mintInstallationAuth: vi.fn(),
 }));
 
-vi.mock("../src/review/reviewPriorFeedback.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/reviewPriorFeedback.js")>();
+vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/review/run/reviewPriorFeedback.js")>();
   return {
     ...actual,
     fetchReviewCommentParentGraph: mocks.fetchReviewCommentParentGraph,
@@ -65,13 +65,21 @@ function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
 }
 
 function slashTraceLayers(
-  captureSlash?: (input: { replyTarget?: unknown; triageScope?: string }) => void,
+  captureSlash?: (input: {
+    replyTarget?: unknown;
+    triageScope?: string;
+    needsThreadRootResolution?: boolean;
+  }) => void,
 ) {
   const trace: {
     decision?: string;
     ignored: boolean;
     slash: boolean;
-    slashInput?: { replyTarget?: unknown; triageScope?: string };
+    slashInput?: {
+      replyTarget?: unknown;
+      triageScope?: string;
+      needsThreadRootResolution?: boolean;
+    };
   } = { ignored: false, slash: false };
   const scheduler = Layer.succeed(
     AgentWorkScheduler,
@@ -88,10 +96,12 @@ function slashTraceLayers(
           trace.slashInput = {
             replyTarget: input.replyTarget,
             triageScope: input.triageScope,
+            needsThreadRootResolution: input.needsThreadRootResolution,
           };
           captureSlash?.({
             replyTarget: input.replyTarget,
             triageScope: input.triageScope,
+            needsThreadRootResolution: input.needsThreadRootResolution,
           });
         }),
       matchesStoredInlineReview: () => Effect.succeed(false),
@@ -387,7 +397,7 @@ describe("WebhookHandlers Effect resolution", () => {
     expect(trace.slash).toBe(false);
   });
 
-  it("resolves thread root for scoped inline /triage replies", async () => {
+  it("defers thread root resolution for scoped inline /triage replies", async () => {
     const { exit, trace } = await runReviewComment({
       ...reviewCommentData,
       comment: {
@@ -401,11 +411,13 @@ describe("WebhookHandlers Effect resolution", () => {
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(trace.slash).toBe(true);
     expect(trace.slashInput?.triageScope).toBe("thread");
+    expect(trace.slashInput?.needsThreadRootResolution).toBe(true);
     expect(trace.slashInput?.replyTarget).toEqual({
       kind: "inlineReviewThread",
       prNumber: 1,
-      inReplyToCommentId: 1,
+      inReplyToCommentId: 2,
     });
-    expect(mocks.fetchReviewCommentParentGraph).toHaveBeenCalled();
+    expect(mocks.mintInstallationAuth).not.toHaveBeenCalled();
+    expect(mocks.fetchReviewCommentParentGraph).not.toHaveBeenCalled();
   });
 });

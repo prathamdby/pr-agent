@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDescriptionUserContent } from "../src/agent/descriptionUserMessage.js";
+import { buildDescriptionUserContent } from "../src/agent/description/descriptionUserMessage.js";
 
 function baseDescriptionParams(
   userSupplement?: string,

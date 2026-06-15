@@ -40,7 +40,7 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agent/descriptionRun.js", () => ({
+vi.mock("../src/agent/description/descriptionRun.js", () => ({
   runFullPrDescription: mocks.runDescriptionRun,
 }));
 

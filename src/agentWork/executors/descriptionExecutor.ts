@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { posthog } from "../../posthog.js";
-import { runFullPrDescription } from "../../agent/descriptionRun.js";
+import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import {

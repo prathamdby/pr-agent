@@ -10,6 +10,8 @@ import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel, toCursorSdkModelSelection } from "./models.js";
 import { createMcpBridge } from "./mcpBridge.js";
 import { assertCursorRipgrepConfigured } from "./ripgrepBoot.js";
+import { initCursorWorker } from "./workerBoot.js";
+import { captureCursorWorkerFailure } from "./cursorAnalytics.js";
 
 function assistantText(content: Context["messages"][number]): string {
   if (content.role !== "assistant" || !Array.isArray(content.content)) return "";
@@ -21,6 +23,14 @@ function assistantText(content: Context["messages"][number]): string {
 }
 
 export const cursorAgentRunnerProvider: AgentRunnerProvider = {
+  async boot(cfg) {
+    try {
+      return await initCursorWorker(cfg);
+    } catch (error) {
+      captureCursorWorkerFailure("worker_boot", error);
+      throw error;
+    }
+  },
   async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool }) {
     const context: Context = {
       systemPrompt,

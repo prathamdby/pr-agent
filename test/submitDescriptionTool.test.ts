@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
-} from "../src/agent/submitDescriptionTool.js";
+} from "../src/agent/description/submitDescriptionTool.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 function buildTool() {

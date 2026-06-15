@@ -18,7 +18,7 @@ import {
   SECURITY_REVIEW_POINTER_BODY,
   QUALITY_REVIEW_POINTER_BODY,
   TESTS_REVIEW_POINTER_BODY,
-} from "../src/review/reviewRender.js";
+} from "../src/review/run/reviewRender.js";
 import {
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDINGS_NONE,
@@ -41,7 +41,7 @@ import {
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
-} from "../src/review/reviewDiffIndex.js";
+} from "../src/review/placement/reviewDiffIndex.js";
 
 const ctx = {
   owner: "acme",
