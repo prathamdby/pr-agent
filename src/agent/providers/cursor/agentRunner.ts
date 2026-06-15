@@ -10,7 +10,33 @@ import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel, toCursorSdkModelSelection } from "./models.js";
 import { createMcpBridge } from "./mcpBridge.js";
 import { assertCursorRipgrepConfigured } from "./ripgrepBoot.js";
-import { initCursorWorker } from "./workerBoot.js";
+import { initCursorWorker, type CursorWorkerBootInfo } from "./workerBoot.js";
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function assertCursorWorkerBootInfo(value: unknown): CursorWorkerBootInfo {
+  if (value == null || typeof value !== "object") {
+    throw new Error("Cursor worker boot returned an invalid result");
+  }
+  const result = value as Record<string, unknown>;
+  const { modelCount, topModels, fastModels, ripgrepPath } = result;
+  if (
+    typeof modelCount !== "number" ||
+    !isStringArray(topModels) ||
+    !isStringArray(fastModels) ||
+    (ripgrepPath !== undefined && typeof ripgrepPath !== "string")
+  ) {
+    throw new Error("Cursor worker boot returned an invalid result");
+  }
+  return {
+    modelCount,
+    topModels,
+    fastModels,
+    ...(ripgrepPath === undefined ? {} : { ripgrepPath }),
+  };
+}
 
 function assistantText(content: Context["messages"][number]): string {
   if (content.role !== "assistant" || !Array.isArray(content.content)) return "";
@@ -23,7 +49,7 @@ function assistantText(content: Context["messages"][number]): string {
 
 export const cursorAgentRunnerProvider: AgentRunnerProvider = {
   async boot(cfg) {
-    return initCursorWorker(cfg);
+    return assertCursorWorkerBootInfo(await initCursorWorker(cfg));
   },
   async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool }) {
     const context: Context = {

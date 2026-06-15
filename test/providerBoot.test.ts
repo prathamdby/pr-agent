@@ -51,6 +51,19 @@ describe("AgentRunnerProvider boot", () => {
     expect(initCursorWorkerMock).toHaveBeenCalled();
   });
 
+  it("rejects malformed cursor boot results", async () => {
+    initCursorWorkerMock.mockResolvedValueOnce(undefined as never);
+
+    await expect(
+      cursorAgentRunnerProvider.boot?.(
+        makeTestConfig({
+          agentProvider: "cursor",
+          cursorApiKey: "cursor-key",
+        }),
+      ),
+    ).rejects.toThrow("Cursor worker boot returned an invalid result");
+  });
+
   it("does not require boot for providers without startup work", () => {
     expect(piAgentRunnerProvider.boot).toBeUndefined();
   });

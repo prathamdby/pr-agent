@@ -80,13 +80,28 @@ export function prepareReviewPayloadForPublish(params: {
   }
 
   const payload = redactReviewPayloadSecrets(candidate);
-  const redactedFindingsByOriginal = new Map(
-    candidate.findings.map((finding, index) => [finding, payload.findings[index] ?? finding]),
-  );
-  const placements = validation.placements.map((placement) => ({
-    ...placement,
-    finding: redactedFindingsByOriginal.get(placement.finding) ?? placement.finding,
-  }));
+  if (payload.findings.length !== candidate.findings.length) {
+    return {
+      ok: false,
+      error: "Review payload redaction changed finding count",
+      anchorFailures: [],
+    };
+  }
+  const redactedFindingsByOriginal = new Map<ReviewFinding, ReviewFinding>();
+  for (const [index, finding] of candidate.findings.entries()) {
+    const redactedFinding = payload.findings[index];
+    if (!redactedFinding) {
+      throw new Error("Review payload redaction lost finding identity");
+    }
+    redactedFindingsByOriginal.set(finding, redactedFinding);
+  }
+  const placements = validation.placements.map((placement) => {
+    const finding = redactedFindingsByOriginal.get(placement.finding);
+    if (!finding) {
+      throw new Error("Review payload redaction lost finding identity");
+    }
+    return { ...placement, finding };
+  });
   return {
     ok: true,
     prepared: { payload, dedupedCount, placements },
