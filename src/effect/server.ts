@@ -3,11 +3,12 @@ import { NodeHttpServer, NodeHttpServerRequest, NodeRuntime } from "@effect/plat
 import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { agentWorkWebLive } from "../agentWork/runtime.js";
+import { AgentWorkScheduler } from "../agentWork/scheduler.js";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
-import { IntakeLogger } from "./intakeLogger.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
-import { WebhookDispatcher, buildWebhookDispatcherLive } from "./services/webhookDispatcher.js";
+import { WebhookHandlersLive } from "./services/webhookHandlers.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
@@ -113,8 +114,8 @@ function buildEffectWebhookApp(cfg: Config) {
         }
 
         if (req.method === "GET" && path === "/ready") {
-          const dispatcher = yield* WebhookDispatcher;
-          const ready = yield* dispatcher.ping();
+          const scheduler = yield* AgentWorkScheduler;
+          const ready = yield* scheduler.ping();
           return HttpServerResponse.text(ready ? "ready" : "not ready", {
             status: ready ? 200 : 503,
             contentType: "text/plain; charset=utf-8",
@@ -137,14 +138,18 @@ function buildEffectWebhookApp(cfg: Config) {
           context: { role: "web" },
         });
 
-        const result = yield* processWebhookPostRequestEffect(cfg, {
-          headers: {
-            "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
-            "x-github-event": singleHeader(req.headers["x-github-event"]),
-            "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
+        const result = yield* processWebhookPostRequestEffect(
+          cfg,
+          {
+            headers: {
+              "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
+              "x-github-event": singleHeader(req.headers["x-github-event"]),
+              "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
+            },
+            rawBody: body.rawBody,
           },
-          rawBody: body.rawBody,
-        }).pipe(Effect.provideService(IntakeLogger, intakeLog));
+          intakeLog,
+        );
 
         return HttpServerResponse.text(result.body, {
           status: result.status,
@@ -158,13 +163,17 @@ function buildEffectWebhookApp(cfg: Config) {
 export function buildEffectWebhookLayer(
   cfg: Config,
   serverFactory: () => Server = createServer,
-  dispatcherLayer: Layer.Layer<WebhookDispatcher, Error> = buildWebhookDispatcherLive(cfg),
+  schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = agentWorkWebLive(cfg),
 ) {
+  const appLayer = Layer.mergeAll(
+    schedulerLayer,
+    WebhookHandlersLive.pipe(Layer.provide(schedulerLayer)),
+  );
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
   return buildEffectWebhookApp(cfg).pipe(
     HttpServer.serve(),
     Layer.provide(serverLayer),
-    Layer.provide(dispatcherLayer),
+    Layer.provide(appLayer),
   );
 }
 

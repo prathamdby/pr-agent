@@ -3,10 +3,10 @@ import net from "node:net";
 import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, Layer } from "effect";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import type { Config } from "../src/config.js";
 import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
-import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const testCfg = makeTestConfig({
@@ -186,18 +186,21 @@ type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
 function startEffectServer({
   pingResult = true,
   cfg = testCfg,
-  dispatch = () => Effect.void,
+  recordIgnored = () => Effect.void,
 }: {
   readonly pingResult?: boolean;
   readonly cfg?: Config;
-  readonly dispatch?: () => Effect.Effect<void>;
+  readonly recordIgnored?: () => Effect.Effect<void>;
 } = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
-    const dispatcherLayer = Layer.succeed(
-      WebhookDispatcher,
-      WebhookDispatcher.of({
-        dispatch,
+    const schedulerLayer = Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored,
+        submitAutomatedReview: () => Effect.void,
+        submitSlashCommand: () => Effect.void,
+        matchesStoredInlineReview: () => Effect.succeed(false),
         ping: () => Effect.succeed(pingResult),
       }),
     );
@@ -211,7 +214,7 @@ function startEffectServer({
         captured.once("error", reject);
         return captured;
       },
-      dispatcherLayer,
+      schedulerLayer,
     );
     const fiber = Effect.runFork(Layer.launch(layer));
   });
@@ -299,12 +302,12 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("rejects bodies over the configured Content-Length before signature checks", async () => {
-    let dispatchCalls = 0;
+    let recordIgnoredCalls = 0;
     handle = await startEffectServer({
       cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
-      dispatch: () =>
+      recordIgnored: () =>
         Effect.sync(() => {
-          dispatchCalls += 1;
+          recordIgnoredCalls += 1;
         }),
     });
     const addr = handle.server.address();
@@ -318,17 +321,17 @@ describe("effect webhook server (end-to-end)", () => {
     });
     expect(res.status).toBe(413);
     expect(res.body).toBe("payload too large");
-    expect(dispatchCalls).toBe(0);
+    expect(recordIgnoredCalls).toBe(0);
   });
 
   it("closes chunked bodies over the configured limit while reading", async () => {
-    let dispatchCalls = 0;
+    let recordIgnoredCalls = 0;
     const destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
     handle = await startEffectServer({
       cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
-      dispatch: () =>
+      recordIgnored: () =>
         Effect.sync(() => {
-          dispatchCalls += 1;
+          recordIgnoredCalls += 1;
         }),
     });
     try {
@@ -342,7 +345,7 @@ describe("effect webhook server (end-to-end)", () => {
           "x-github-delivery": "too-large-chunked",
         }),
       ).rejects.toThrow("chunked response ended before headers");
-      expect(dispatchCalls).toBe(0);
+      expect(recordIgnoredCalls).toBe(0);
       expect(destroySpy).toHaveBeenCalled();
     } finally {
       destroySpy.mockRestore();
