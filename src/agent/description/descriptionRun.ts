@@ -6,13 +6,14 @@ import {
   runStructuredAgentLoop,
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
-import { logInfo } from "../../evlog.js";
+import { logInfo, logWarn } from "../../evlog.js";
 import { resolveAgentRunnerProvider } from "../providers/index.js";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
 import {
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
   DESCRIPTION_VALIDATION_REPAIR_ROUNDS,
+  TOKEN_FRESHNESS_BUFFER_MS,
 } from "../../settings/index.js";
 import {
   buildDescriptionRunSetup,
@@ -26,11 +27,17 @@ export type DescriptionRunResult = {
   publishSuperseded: boolean;
 };
 
+function tokenTtlMsOrDefault(value: number | undefined): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  logWarn("description_token_ttl_defaulted");
+  return TOKEN_FRESHNESS_BUFFER_MS;
+}
+
 export async function runFullPrDescription(params: {
   cfg: Config;
   token: string;
   tokenExpiresAtTs: number;
-  tokenTtlMs: number;
+  tokenTtlMs?: number;
   owner: string;
   repo: string;
   prNumber: number;
@@ -48,13 +55,11 @@ export async function runFullPrDescription(params: {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
   }
-  if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
-    throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
-  }
 
   const { cfg, owner, repo, prNumber } = params;
+  const tokenTtlMs = tokenTtlMsOrDefault(params.tokenTtlMs);
   const providerName = cfg.agentProvider;
-  const setup = buildDescriptionRunSetup(params);
+  const setup = buildDescriptionRunSetup({ ...params, tokenTtlMs });
   const runner = resolveAgentRunnerProvider(cfg);
   const session = await runner.createSession({
     cfg,

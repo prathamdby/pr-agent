@@ -7,7 +7,7 @@ export type ReviewRunParams = {
   readonly cfg: Config;
   readonly token: string;
   readonly tokenExpiresAtTs: number;
-  readonly tokenTtlMs: number;
+  readonly tokenTtlMs?: number;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;

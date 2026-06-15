@@ -12,10 +12,11 @@ import {
   PROSE_ONLY_NUDGE,
   PUBLISH_RECOVERY_PROMPTS,
   PUBLISH_RECOVERY_ROUNDS,
+  TOKEN_FRESHNESS_BUFFER_MS,
   VALIDATION_REPAIR_ROUNDS,
   type ReviewPhase,
 } from "../../settings/index.js";
-import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE } from "../reviewSchema.js";
+import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE, type ReviewMode } from "../reviewSchema.js";
 import type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
 import { publishReviewRunFailureNotice } from "./reviewRunFallback.js";
 import {
@@ -32,16 +33,20 @@ import {
 
 export type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
 
+function tokenTtlMsOrDefault(value: number | undefined, mode: ReviewMode): number {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
+  logWarn("review_token_ttl_defaulted", { mode });
+  return TOKEN_FRESHNESS_BUFFER_MS;
+}
+
 export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
   }
-  if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
-    throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
-  }
 
   const { cfg, owner, repo, prNumber } = params;
   const reviewMode = params.mode ?? "review";
+  const tokenTtlMs = tokenTtlMsOrDefault(params.tokenTtlMs, reviewMode);
   const providerName = cfg.agentProvider;
   initReviewRunMetrics({
     provider: providerName,
@@ -49,7 +54,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
     mode: reviewMode,
   });
 
-  const setup = buildReviewRunSetup({ ...params, reviewMode });
+  const setup = buildReviewRunSetup({ ...params, tokenTtlMs, reviewMode });
   const runner = resolveAgentRunnerProvider(cfg);
   const session = await runner.createSession({
     cfg,
