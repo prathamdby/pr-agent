@@ -46,7 +46,6 @@ async function main() {
       console.error(e instanceof Error ? e.message : e);
       await shutdownPostHog();
       process.exit(1);
-      return;
     }
     startAgentWorker(cfg);
     return;

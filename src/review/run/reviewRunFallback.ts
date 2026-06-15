@@ -1,9 +1,6 @@
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
-import {
-  resolveVerifiedSummaryCommentRef,
-  upsertReviewSummaryComment,
-} from "../../github/reviewPublish.js";
+import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
 import {
@@ -32,17 +29,6 @@ export async function publishReviewRunFailureNotice(params: {
   const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
   const sentinel = reviewSummarySentinelForMode(params.reviewMode);
   try {
-    const existing = await resolveVerifiedSummaryCommentRef(
-      token,
-      params.owner,
-      params.repo,
-      params.prNumber,
-      sentinel,
-      undefined,
-      tokenExpiresAtTs,
-    );
-    if (existing) return;
-
     await upsertReviewSummaryComment(
       token,
       params.owner,

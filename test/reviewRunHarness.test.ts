@@ -44,7 +44,6 @@ let submitState = {
 };
 
 vi.mock("../src/github/reviewPublish.js", () => ({
-  resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 1, updated: true })),
 }));
 
