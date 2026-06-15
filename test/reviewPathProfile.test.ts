@@ -9,7 +9,7 @@ describe("buildReviewPathProfile", () => {
     const profile = buildReviewPathProfile([
       "src/auth/login.ts",
       "migrations/002_users.sql",
-      "docs/readme.md",
+      "docs/operations.md",
     ]);
     expect(profile.riskCategories).toContain("auth");
     expect(profile.riskCategories).toContain("migration");
