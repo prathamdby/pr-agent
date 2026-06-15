@@ -1,13 +1,16 @@
 import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { NodeHttpServer, NodeHttpServerRequest, NodeRuntime } from "@effect/platform-node";
-import { Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
+import { agentWorkWebLive } from "../agentWork/runtime.js";
+import { AgentWorkScheduler } from "../agentWork/scheduler.js";
 import type { Config } from "../config.js";
-import { createOperationLogger } from "../evlog.js";
-import { IntakeLogger } from "./intakeLogger.js";
+import { createOperationLogger, type RequestLogger } from "../evlog.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
-import { WebhookDispatcher, buildWebhookDispatcherLive } from "./services/webhookDispatcher.js";
+import { WebhookHandlersLive } from "./services/webhookHandlers.js";
+
+export class IntakeLogger extends Context.Tag("IntakeLogger")<IntakeLogger, RequestLogger>() {}
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
@@ -113,8 +116,8 @@ function buildEffectWebhookApp(cfg: Config) {
         }
 
         if (req.method === "GET" && path === "/ready") {
-          const dispatcher = yield* WebhookDispatcher;
-          const ready = yield* dispatcher.ping();
+          const scheduler = yield* AgentWorkScheduler;
+          const ready = yield* scheduler.ping();
           return HttpServerResponse.text(ready ? "ready" : "not ready", {
             status: ready ? 200 : 503,
             contentType: "text/plain; charset=utf-8",
@@ -158,13 +161,17 @@ function buildEffectWebhookApp(cfg: Config) {
 export function buildEffectWebhookLayer(
   cfg: Config,
   serverFactory: () => Server = createServer,
-  dispatcherLayer: Layer.Layer<WebhookDispatcher, Error> = buildWebhookDispatcherLive(cfg),
+  schedulerLayer: Layer.Layer<AgentWorkScheduler, Error> = agentWorkWebLive(cfg),
 ) {
+  const appLayer = Layer.mergeAll(
+    schedulerLayer,
+    WebhookHandlersLive.pipe(Layer.provide(schedulerLayer)),
+  );
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
   return buildEffectWebhookApp(cfg).pipe(
     HttpServer.serve(),
     Layer.provide(serverLayer),
-    Layer.provide(dispatcherLayer),
+    Layer.provide(appLayer),
   );
 }
 

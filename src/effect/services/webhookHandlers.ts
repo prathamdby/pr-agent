@@ -4,14 +4,13 @@ import type { CodeAnchor } from "../../agent/askRunTypes.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
-import { mintInstallationAuth } from "../../github/appAuth.js";
+import { getAppBotIdentity, mintInstallationAuth } from "../../github/appAuth.js";
 import {
   fetchReviewCommentParentGraph,
   resolveReviewThreadRootId,
 } from "../../review/reviewPriorFeedback.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
-import { IntakeLogger } from "../intakeLogger.js";
-import { BotIdentity, BotIdentityLive } from "./botIdentity.js";
+import { IntakeLogger } from "../server.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
@@ -58,12 +57,14 @@ export const WebhookHandlersCore = Layer.effect(
   WebhookHandlers,
   Effect.gen(function* () {
     const scheduler = yield* AgentWorkScheduler;
-    const bot = yield* BotIdentity;
 
     const ignoreBotSlash = (cfg: Config, headers: WebhookHeaders, commenterId: number) =>
       Effect.gen(function* () {
         const intakeLog = yield* IntakeLogger;
-        const botUserId = yield* bot.getAppUserId(cfg);
+        const botUserId = yield* Effect.tryPromise({
+          try: async () => (await getAppBotIdentity(cfg)).userId,
+          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        });
         if (commenterId !== botUserId) return false;
         yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
         return true;
@@ -266,4 +267,4 @@ export const WebhookHandlersCore = Layer.effect(
   }),
 );
 
-export const WebhookHandlersLive = WebhookHandlersCore.pipe(Layer.provide(BotIdentityLive));
+export const WebhookHandlersLive = WebhookHandlersCore;

@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import { BotIdentity } from "../src/effect/services/botIdentity.js";
 import { createOperationLogger } from "../src/evlog.js";
-import { IntakeLogger } from "../src/effect/intakeLogger.js";
+import { IntakeLogger } from "../src/effect/server.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import type { IssueCommentWebhookPayload } from "../src/webhook/payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "../src/webhook/payloads/pullRequestReviewCommentEvent.js";
@@ -11,6 +10,7 @@ import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
   fetchReviewCommentParentGraph: vi.fn(),
+  getAppBotIdentity: vi.fn(),
   mintInstallationAuth: vi.fn(),
 }));
 
@@ -26,6 +26,7 @@ vi.mock("../src/github/appAuth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/appAuth.js")>();
   return {
     ...actual,
+    getAppBotIdentity: mocks.getAppBotIdentity,
     mintInstallationAuth: mocks.mintInstallationAuth,
   };
 });
@@ -61,15 +62,7 @@ const reviewCommentData: PullRequestReviewCommentWebhookPayload = {
 };
 
 function handlerTestLayers(scheduler: Layer.Layer<AgentWorkScheduler>) {
-  const bot = Layer.succeed(
-    BotIdentity,
-    BotIdentity.of({
-      resolve: () => Effect.succeed({ userId: 42, login: "pr-agent[bot]" }),
-      getUserId: () => Effect.succeed(42),
-      getAppUserId: () => Effect.succeed(42),
-    }),
-  );
-  return WebhookHandlersCore.pipe(Layer.provide(scheduler), Layer.provide(bot));
+  return WebhookHandlersCore.pipe(Layer.provide(scheduler));
 }
 
 function slashTraceLayers(
@@ -164,6 +157,7 @@ async function runReviewComment(
 describe("WebhookHandlers Effect resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getAppBotIdentity.mockResolvedValue({ userId: 42, login: "pr-agent[bot]" });
     mocks.mintInstallationAuth.mockResolvedValue({
       token: "tok",
       expiresAtTs: Date.now() + 60_000,
