@@ -2,7 +2,6 @@ import crypto from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import * as evlog from "../src/evlog.js";
-import { IntakeLogger } from "../src/effect/server.js";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
@@ -30,18 +29,16 @@ function sign(body: Buffer): string {
   return `sha256=${crypto.createHmac("sha256", cfg.webhookSecret).update(body).digest("hex")}`;
 }
 
-function withIntake<R, E, A>(
-  effect: Effect.Effect<A, E, R | AgentWorkScheduler | WebhookHandlers | IntakeLogger>,
+function runWithIntake(
+  req: Parameters<typeof processWebhookPostRequestEffect>[1],
   layer: Layer.Layer<AgentWorkScheduler | WebhookHandlers>,
+  runCfg = cfg,
 ) {
   const intakeLog = evlog.createOperationLogger({
     method: "POST",
     path: "/webhooks",
   });
-  return effect.pipe(
-    Effect.provide(layer),
-    Effect.provideService(IntakeLogger, intakeLog),
-  );
+  return processWebhookPostRequestEffect(runCfg, req, intakeLog).pipe(Effect.provide(layer));
 }
 
 function slashGateLayer(
@@ -103,11 +100,11 @@ describe("processWebhookPostRequestEffect", () => {
   it("returns invalid signature", async () => {
     const body = Buffer.from("{}");
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(cfg, {
+      runWithIntake(
+        {
           headers: { "x-hub-signature-256": "sha256=bad" },
           rawBody: body,
-        }),
+        },
         stubLayer,
       ),
     );
@@ -118,14 +115,14 @@ describe("processWebhookPostRequestEffect", () => {
   it("returns ok for valid webhook", async () => {
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(cfg, {
+      runWithIntake(
+        {
           headers: {
             "x-hub-signature-256": sign(body),
             "x-github-event": "ping",
           },
           rawBody: body,
-        }),
+        },
         stubLayer,
       ),
     );
@@ -151,15 +148,15 @@ describe("processWebhookPostRequestEffect", () => {
     const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(cfg, {
+      runWithIntake(
+        {
           headers: {
             "x-hub-signature-256": sign(body),
             "x-github-event": "issue_comment",
             "x-github-delivery": "d-unauthorized-slash",
           },
           rawBody: body,
-        }),
+        },
         slashGateLayer(decisions, slashCalls),
       ),
     );
@@ -192,15 +189,15 @@ describe("processWebhookPostRequestEffect", () => {
     const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(cfg, {
+      runWithIntake(
+        {
           headers: {
             "x-hub-signature-256": sign(body),
             "x-github-event": "pull_request_review_comment",
             "x-github-delivery": "d-thread-off",
           },
           rawBody: body,
-        }),
+        },
         slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
       ),
     );
@@ -234,8 +231,8 @@ describe("processWebhookPostRequestEffect", () => {
     const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(threadCfg, {
+      runWithIntake(
+        {
           headers: {
             "x-hub-signature-256": `sha256=${crypto
               .createHmac("sha256", threadCfg.webhookSecret)
@@ -245,8 +242,9 @@ describe("processWebhookPostRequestEffect", () => {
             "x-github-delivery": "d-thread-on",
           },
           rawBody: body,
-        }),
+        },
         slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
+        threadCfg,
       ),
     );
 
@@ -289,8 +287,8 @@ describe("processWebhookPostRequestEffect", () => {
     const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(threadCfg, {
+      runWithIntake(
+        {
           headers: {
             "x-hub-signature-256": `sha256=${crypto
               .createHmac("sha256", threadCfg.webhookSecret)
@@ -300,8 +298,9 @@ describe("processWebhookPostRequestEffect", () => {
             "x-github-delivery": "d-thread-bot",
           },
           rawBody: body,
-        }),
+        },
         slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
+        threadCfg,
       ),
     );
 
@@ -334,8 +333,8 @@ describe("processWebhookPostRequestEffect", () => {
     const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(threadCfg, {
+      runWithIntake(
+        {
           headers: {
             "x-hub-signature-256": `sha256=${crypto
               .createHmac("sha256", threadCfg.webhookSecret)
@@ -345,8 +344,9 @@ describe("processWebhookPostRequestEffect", () => {
             "x-github-delivery": "d-thread-nonbot",
           },
           rawBody: body,
-        }),
+        },
         slashGateLayer(decisions, slashCalls, { botThreadMatch: false }),
+        threadCfg,
       ),
     );
 
@@ -379,8 +379,8 @@ describe("processWebhookPostRequestEffect", () => {
     const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
-      withIntake(
-        processWebhookPostRequestEffect(threadCfg, {
+      runWithIntake(
+        {
           headers: {
             "x-hub-signature-256": `sha256=${crypto
               .createHmac("sha256", threadCfg.webhookSecret)
@@ -390,8 +390,9 @@ describe("processWebhookPostRequestEffect", () => {
             "x-github-delivery": "d-thread-null-review-id",
           },
           rawBody: body,
-        }),
+        },
         slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
+        threadCfg,
       ),
     );
 
@@ -432,15 +433,16 @@ describe("processWebhookPostRequestEffect", () => {
 
     try {
       const out = await Effect.runPromise(
-        withIntake(
-          processWebhookPostRequestEffect(tightCfg, {
+        runWithIntake(
+          {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",
             },
             rawBody: body,
-          }),
+          },
           slowLayer,
+          tightCfg,
         ),
       );
 
@@ -482,14 +484,14 @@ describe("processWebhookPostRequestEffect", () => {
 
     try {
       const out = await Effect.runPromise(
-        withIntake(
-          processWebhookPostRequestEffect(cfg, {
+        runWithIntake(
+          {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",
             },
             rawBody: body,
-          }),
+          },
           failingLayer,
         ),
       );
@@ -516,14 +518,14 @@ describe("processWebhookPostRequestEffect", () => {
     try {
       const order: string[] = [];
       const responsePromise = Effect.runPromise(
-        withIntake(
-          processWebhookPostRequestEffect(cfg, {
+        runWithIntake(
+          {
             headers: {
               "x-hub-signature-256": sign(body),
               "x-github-event": "ping",
             },
             rawBody: body,
-          }),
+          },
           stubLayer,
         ),
       ).then((response) => {

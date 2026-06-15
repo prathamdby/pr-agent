@@ -4,7 +4,6 @@ import { Effect, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { createOperationLogger } from "../src/evlog.js";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
-import { IntakeLogger } from "../src/effect/server.js";
 import { WebhookHandlers } from "../src/effect/services/webhookHandlers.js";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -45,24 +44,22 @@ describe("effect webhook program integration", () => {
     const body = Buffer.from(JSON.stringify(payload));
 
     const res = await Effect.runPromise(
-      processWebhookPostRequestEffect(cfg, {
-        headers: {
-          "x-hub-signature-256": sign(cfg.webhookSecret, body),
-          "x-github-event": "ping",
-          "x-github-delivery": "d1",
+      processWebhookPostRequestEffect(
+        cfg,
+        {
+          headers: {
+            "x-hub-signature-256": sign(cfg.webhookSecret, body),
+            "x-github-event": "ping",
+            "x-github-delivery": "d1",
+          },
+          rawBody: body,
         },
-        rawBody: body,
-      }).pipe(
-        Effect.provide(webhookLayer),
-        Effect.provideService(
-          IntakeLogger,
-          createOperationLogger({
-            method: "POST",
-            path: "/webhooks",
-            requestId: "d1",
-          }),
-        ),
-      ),
+        createOperationLogger({
+          method: "POST",
+          path: "/webhooks",
+          requestId: "d1",
+        }),
+      ).pipe(Effect.provide(webhookLayer)),
     );
 
     expect(res.status).toBe(200);

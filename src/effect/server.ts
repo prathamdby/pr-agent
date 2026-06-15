@@ -1,16 +1,14 @@
 import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "@effect/platform";
 import { NodeHttpServer, NodeHttpServerRequest, NodeRuntime } from "@effect/platform-node";
-import { Context, Effect, Layer } from "effect";
+import { Effect, Layer } from "effect";
 import crypto from "node:crypto";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import { agentWorkWebLive } from "../agentWork/runtime.js";
 import { AgentWorkScheduler } from "../agentWork/scheduler.js";
 import type { Config } from "../config.js";
-import { createOperationLogger, type RequestLogger } from "../evlog.js";
+import { createOperationLogger } from "../evlog.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
 import { WebhookHandlersLive } from "./services/webhookHandlers.js";
-
-export class IntakeLogger extends Context.Tag("IntakeLogger")<IntakeLogger, RequestLogger>() {}
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
@@ -140,14 +138,18 @@ function buildEffectWebhookApp(cfg: Config) {
           context: { role: "web" },
         });
 
-        const result = yield* processWebhookPostRequestEffect(cfg, {
-          headers: {
-            "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
-            "x-github-event": singleHeader(req.headers["x-github-event"]),
-            "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
+        const result = yield* processWebhookPostRequestEffect(
+          cfg,
+          {
+            headers: {
+              "x-hub-signature-256": singleHeader(req.headers["x-hub-signature-256"]),
+              "x-github-event": singleHeader(req.headers["x-github-event"]),
+              "x-github-delivery": singleHeader(req.headers["x-github-delivery"]),
+            },
+            rawBody: body.rawBody,
           },
-          rawBody: body.rawBody,
-        }).pipe(Effect.provideService(IntakeLogger, intakeLog));
+          intakeLog,
+        );
 
         return HttpServerResponse.text(result.body, {
           status: result.status,

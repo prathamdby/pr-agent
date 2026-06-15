@@ -3,11 +3,10 @@ import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import type { Config } from "../../config.js";
 import { posthog } from "../../posthog.js";
-import { emitOperationLogger, recordEvent } from "../../evlog.js";
+import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
-import { IntakeLogger } from "../server.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
 
 type DispatchResult =
@@ -29,16 +28,16 @@ export type WebhookResponseLike = {
 type DispatchInput = {
   readonly cfg: Config;
   readonly headers: WebhookHeaders;
+  readonly intakeLog: RequestLogger;
   readonly payload: Record<string, unknown>;
 };
 
 function dispatchGithubEventEffect(
   input: DispatchInput,
-): Effect.Effect<void, Error, AgentWorkScheduler | WebhookHandlers | IntakeLogger> {
+): Effect.Effect<void, Error, AgentWorkScheduler | WebhookHandlers> {
   return Effect.gen(function* () {
-    const { cfg, headers, payload } = input;
+    const { cfg, headers, intakeLog, payload } = input;
     const event = headers.event ?? "";
-    const intakeLog = yield* IntakeLogger;
 
     if (!headers.delivery) {
       recordEvent(intakeLog, "missing_delivery_id_using_body_hash", undefined, "warn");
@@ -66,16 +65,22 @@ function dispatchGithubEventEffect(
     const handlers = yield* WebhookHandlers;
     switch (parsed.name) {
       case "pull_request":
-        yield* handlers.pullRequest(cfg, headers, parsed.data);
+        yield* handlers.pullRequest(cfg, headers, parsed.data, intakeLog);
         return;
       case "issue_comment":
-        yield* handlers.issueComment(cfg, headers, parsed.data);
+        yield* handlers.issueComment(cfg, headers, parsed.data, intakeLog);
         return;
       case "pull_request_review_comment":
-        yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data);
+        yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data, intakeLog);
         return;
       default:
         parsed satisfies never;
+        recordEvent(intakeLog, "unhandled_parsed_event", { event }, "warn");
+        yield* scheduler.recordIgnored(
+          headers,
+          `ignored_unhandled_${event || "missing"}`,
+          intakeLog,
+        );
     }
   });
 }
@@ -83,13 +88,9 @@ function dispatchGithubEventEffect(
 export function processWebhookPostRequestEffect(
   cfg: Config,
   req: WebhookPostRequest,
-): Effect.Effect<
-  WebhookResponseLike,
-  never,
-  AgentWorkScheduler | WebhookHandlers | IntakeLogger
-> {
+  intakeLog: RequestLogger,
+): Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler | WebhookHandlers> {
   return Effect.gen(function* () {
-    const intakeLog = yield* IntakeLogger;
     const delivery = req.headers["x-github-delivery"];
     const githubEvent = req.headers["x-github-event"] ?? "";
     const logDelivery = delivery ?? "(missing)";
@@ -138,6 +139,7 @@ export function processWebhookPostRequestEffect(
     const dispatch = dispatchGithubEventEffect({
       cfg,
       headers,
+      intakeLog,
       payload,
     });
     const result: DispatchResult = yield* dispatch.pipe(
@@ -161,13 +163,14 @@ export function processWebhookPostRequestEffect(
       ),
       Effect.catchAll((err) =>
         Effect.sync(() => {
+          const message = err instanceof Error ? err.message : String(err);
           recordEvent(
             intakeLog,
             "webhook_handler_error",
             {
               event: githubEvent,
               delivery: logDelivery,
-              message: err.message,
+              message,
             },
             "error",
           );
@@ -242,7 +245,6 @@ export function processWebhookPostRequestEffect(
   }).pipe(
     Effect.ensuring(
       Effect.gen(function* () {
-        const intakeLog = yield* IntakeLogger;
         if (intakeLog.getContext().emitted === true) return;
         const webhook = intakeLog.getContext().webhook as { status?: number } | undefined;
         if (webhook?.status === 200) return;

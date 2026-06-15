@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Cause, Effect, Exit, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { createOperationLogger } from "../src/evlog.js";
-import { IntakeLogger } from "../src/effect/server.js";
 import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import type { IssueCommentWebhookPayload } from "../src/webhook/payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "../src/webhook/payloads/pullRequestReviewCommentEvent.js";
@@ -120,8 +119,9 @@ async function runIssueComment(data: IssueCommentWebhookPayload, runCfg = cfg) {
           rawBody: Buffer.from("{}"),
         },
         data,
+        intakeLog,
       );
-    }).pipe(Effect.provide(handlers), Effect.provideService(IntakeLogger, intakeLog)),
+    }).pipe(Effect.provide(handlers)),
   );
 
   return { exit, trace };
@@ -147,8 +147,9 @@ async function runReviewComment(
           rawBody: Buffer.from("{}"),
         },
         data,
+        intakeLog,
       );
-    }).pipe(Effect.provide(handlers), Effect.provideService(IntakeLogger, intakeLog)),
+    }).pipe(Effect.provide(handlers)),
   );
 
   return { exit, trace };
@@ -198,11 +199,9 @@ describe("WebhookHandlers Effect resolution", () => {
             rawBody: Buffer.from("{}"),
           },
           issueCommentData,
+          intakeLog,
         );
-      }).pipe(
-        Effect.provide(HandlersWithFailingScheduler),
-        Effect.provideService(IntakeLogger, intakeLog),
-      ),
+      }).pipe(Effect.provide(HandlersWithFailingScheduler)),
     );
 
     expect(Exit.isFailure(exit)).toBe(true);
@@ -256,8 +255,9 @@ describe("WebhookHandlers Effect resolution", () => {
             rawBody: Buffer.from("{}"),
           },
           nonSlash,
+          intakeLog,
         );
-      }).pipe(Effect.provide(Handlers), Effect.provideService(IntakeLogger, intakeLog)),
+      }).pipe(Effect.provide(Handlers)),
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
@@ -306,8 +306,9 @@ describe("WebhookHandlers Effect resolution", () => {
             rawBody: Buffer.from("{}"),
           },
           botSlash,
+          intakeLog,
         );
-      }).pipe(Effect.provide(Handlers), Effect.provideService(IntakeLogger, intakeLog)),
+      }).pipe(Effect.provide(Handlers)),
     );
 
     expect(Exit.isSuccess(exit)).toBe(true);
