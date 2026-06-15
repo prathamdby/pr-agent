@@ -2,14 +2,11 @@ import crypto from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Layer } from "effect";
 import * as evlog from "../src/evlog.js";
-import { IntakeLogger } from "../src/effect/intakeLogger.js";
-import { dispatchGithubEventEffect } from "../src/effect/programs/dispatchEffect.js";
+import * as appAuth from "../src/github/appAuth.js";
+import { IntakeLogger } from "../src/effect/server.js";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import { BotIdentity } from "../src/effect/services/botIdentity.js";
-import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
-import { WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
-import { WebhookHandlerError } from "../src/effect/errors.js";
+import { WebhookHandlers, WebhookHandlersCore } from "../src/effect/services/webhookHandlers.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const cfg = makeTestConfig({
@@ -23,23 +20,20 @@ function sign(body: Buffer): string {
 }
 
 function withIntake<R, E, A>(
-  effect: Effect.Effect<A, E, R | WebhookDispatcher | IntakeLogger>,
-  dispatcherLayer: Layer.Layer<WebhookDispatcher>,
+  effect: Effect.Effect<A, E, R | AgentWorkScheduler | WebhookHandlers | IntakeLogger>,
+  intakeLayer: Layer.Layer<AgentWorkScheduler | WebhookHandlers>,
 ) {
   const intakeLog = evlog.createOperationLogger({
     method: "POST",
     path: "/webhooks",
   });
-  return effect.pipe(
-    Effect.provide(dispatcherLayer),
-    Effect.provideService(IntakeLogger, intakeLog),
-  );
+  return effect.pipe(Effect.provide(intakeLayer), Effect.provideService(IntakeLogger, intakeLog));
 }
 
-function slashGateDispatcherLayer(
+function slashGateIntakeLayer(
   decisions: string[],
   slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }>,
-  opts: { botThreadMatch?: boolean } = {},
+  opts: { botThreadMatch?: boolean; botUserId?: number } = {},
 ) {
   const schedulerLayer = Layer.succeed(
     AgentWorkScheduler,
@@ -61,46 +55,35 @@ function slashGateDispatcherLayer(
       ping: () => Effect.succeed(true),
     }),
   );
-  const botLayer = Layer.succeed(
-    BotIdentity,
-    BotIdentity.of({
-      resolve: () => Effect.succeed({ userId: 42, login: "pr-agent[bot]" }),
-      getUserId: () => Effect.succeed(42),
-      getAppUserId: () => Effect.succeed(42),
-    }),
-  );
-  const handlersLayer = WebhookHandlersCore.pipe(
-    Layer.provide(schedulerLayer),
-    Layer.provide(botLayer),
-  );
+  const handlersLayer = WebhookHandlersCore.pipe(Layer.provide(schedulerLayer));
+  vi.spyOn(appAuth, "getAppBotIdentity").mockResolvedValue({
+    userId: opts.botUserId ?? 42,
+    login: "pr-agent[bot]",
+  });
 
-  return Layer.succeed(
-    WebhookDispatcher,
-    WebhookDispatcher.of({
-      dispatch: (input) =>
-        dispatchGithubEventEffect(input).pipe(
-          Effect.provide(schedulerLayer),
-          Effect.provide(handlersLayer),
-          Effect.mapError(
-            (e) =>
-              new WebhookHandlerError({
-                cause: e,
-                message: e instanceof Error ? e.message : String(e),
-              }),
-          ),
-        ),
-      ping: () => Effect.succeed(true),
-    }),
-  );
+  return Layer.merge(schedulerLayer, handlersLayer);
 }
 
 describe("processWebhookPostRequestEffect", () => {
-  const stubDispatcherLayer = Layer.succeed(
-    WebhookDispatcher,
-    WebhookDispatcher.of({
-      dispatch: () => Effect.void,
-      ping: () => Effect.succeed(true),
-    }),
+  const stubIntakeLayer = Layer.mergeAll(
+    Layer.succeed(
+      AgentWorkScheduler,
+      AgentWorkScheduler.of({
+        recordIgnored: () => Effect.void,
+        submitAutomatedReview: () => Effect.void,
+        submitSlashCommand: () => Effect.void,
+        matchesStoredInlineReview: () => Effect.succeed(false),
+        ping: () => Effect.succeed(true),
+      }),
+    ),
+    Layer.succeed(
+      WebhookHandlers,
+      WebhookHandlers.of({
+        pullRequest: () => Effect.void,
+        issueComment: () => Effect.void,
+        pullRequestReviewComment: () => Effect.void,
+      }),
+    ),
   );
 
   it("returns invalid signature", async () => {
@@ -111,7 +94,7 @@ describe("processWebhookPostRequestEffect", () => {
           headers: { "x-hub-signature-256": "sha256=bad" },
           rawBody: body,
         }),
-        stubDispatcherLayer,
+        stubIntakeLayer,
       ),
     );
 
@@ -129,7 +112,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         }),
-        stubDispatcherLayer,
+        stubIntakeLayer,
       ),
     );
 
@@ -163,7 +146,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         }),
-        slashGateDispatcherLayer(decisions, slashCalls),
+        slashGateIntakeLayer(decisions, slashCalls),
       ),
     );
 
@@ -204,7 +187,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         }),
-        slashGateDispatcherLayer(decisions, slashCalls, { botThreadMatch: true }),
+        slashGateIntakeLayer(decisions, slashCalls, { botThreadMatch: true }),
       ),
     );
 
@@ -249,7 +232,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         }),
-        slashGateDispatcherLayer(decisions, slashCalls, { botThreadMatch: true }),
+        slashGateIntakeLayer(decisions, slashCalls, { botThreadMatch: true }),
       ),
     );
 
@@ -304,7 +287,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         }),
-        slashGateDispatcherLayer(decisions, slashCalls, { botThreadMatch: true }),
+        slashGateIntakeLayer(decisions, slashCalls, { botThreadMatch: true }),
       ),
     );
 
@@ -349,7 +332,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         }),
-        slashGateDispatcherLayer(decisions, slashCalls, { botThreadMatch: false }),
+        slashGateIntakeLayer(decisions, slashCalls, { botThreadMatch: false }),
       ),
     );
 
@@ -394,7 +377,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         }),
-        slashGateDispatcherLayer(decisions, slashCalls, { botThreadMatch: true }),
+        slashGateIntakeLayer(decisions, slashCalls, { botThreadMatch: true }),
       ),
     );
 
@@ -408,12 +391,25 @@ describe("processWebhookPostRequestEffect", () => {
   });
 
   it("returns 503 when handling exceeds the timeout budget", async () => {
-    const slowDispatcherLayer = Layer.succeed(
-      WebhookDispatcher,
-      WebhookDispatcher.of({
-        dispatch: () => Effect.sleep("20 millis"),
-        ping: () => Effect.succeed(true),
-      }),
+    const slowIntakeLayer = Layer.mergeAll(
+      Layer.succeed(
+        AgentWorkScheduler,
+        AgentWorkScheduler.of({
+          recordIgnored: () => Effect.sleep("20 millis"),
+          submitAutomatedReview: () => Effect.void,
+          submitSlashCommand: () => Effect.void,
+          matchesStoredInlineReview: () => Effect.succeed(false),
+          ping: () => Effect.succeed(true),
+        }),
+      ),
+      Layer.succeed(
+        WebhookHandlers,
+        WebhookHandlers.of({
+          pullRequest: () => Effect.void,
+          issueComment: () => Effect.void,
+          pullRequestReviewComment: () => Effect.void,
+        }),
+      ),
     );
 
     const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
@@ -430,7 +426,7 @@ describe("processWebhookPostRequestEffect", () => {
             },
             rawBody: body,
           }),
-          slowDispatcherLayer,
+          slowIntakeLayer,
         ),
       );
 
@@ -445,19 +441,26 @@ describe("processWebhookPostRequestEffect", () => {
     }
   });
 
-  it("returns 503 when dispatcher fails with WebhookHandlerError", async () => {
-    const failingDispatcherLayer = Layer.succeed(
-      WebhookDispatcher,
-      WebhookDispatcher.of({
-        dispatch: () =>
-          Effect.fail(
-            new WebhookHandlerError({
-              cause: new Error("boom"),
-              message: "boom",
-            }),
-          ),
-        ping: () => Effect.succeed(true),
-      }),
+  it("returns 503 when handler fails", async () => {
+    const failingIntakeLayer = Layer.mergeAll(
+      Layer.succeed(
+        AgentWorkScheduler,
+        AgentWorkScheduler.of({
+          recordIgnored: () => Effect.fail(new Error("boom")),
+          submitAutomatedReview: () => Effect.void,
+          submitSlashCommand: () => Effect.void,
+          matchesStoredInlineReview: () => Effect.succeed(false),
+          ping: () => Effect.succeed(true),
+        }),
+      ),
+      Layer.succeed(
+        WebhookHandlers,
+        WebhookHandlers.of({
+          pullRequest: () => Effect.void,
+          issueComment: () => Effect.void,
+          pullRequestReviewComment: () => Effect.void,
+        }),
+      ),
     );
 
     const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
@@ -473,7 +476,7 @@ describe("processWebhookPostRequestEffect", () => {
             },
             rawBody: body,
           }),
-          failingDispatcherLayer,
+          failingIntakeLayer,
         ),
       );
 
@@ -507,7 +510,7 @@ describe("processWebhookPostRequestEffect", () => {
             },
             rawBody: body,
           }),
-          stubDispatcherLayer,
+          stubIntakeLayer,
         ),
       ).then((response) => {
         order.push("response");

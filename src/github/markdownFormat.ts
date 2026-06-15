@@ -64,3 +64,7 @@ export function renderKeyValueTable(rows: ReadonlyArray<readonly [string, string
     .join("\n");
   return `<table>\n<tbody>\n${body}\n</tbody>\n</table>`;
 }
+
+export function shortSha(sha: string): string {
+  return sha.slice(0, 7);
+}

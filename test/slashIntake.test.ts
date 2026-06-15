@@ -6,7 +6,7 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { createOperationLogger, initEvlog } from "../src/evlog.js";
-import { ACK_QUEUE, REVIEW_QUEUE, SLASH_HELP_BODY, TRIAGE_QUEUE } from "../src/settings/index.js";
+import { ACK_QUEUE, REVIEW_QUEUE, SLASH_HELP_BODY, TRIAGE_QUEUE } from "../src/settings.js";
 import * as postgres from "../src/db/postgres.js";
 
 function makeSlashInput(body: string) {

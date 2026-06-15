@@ -7,9 +7,8 @@ import {
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
   TESTS_REVIEW_POINTER_BODY,
-} from "../settings/index.js";
+} from "../settings.js";
 import { installationOctokit } from "../github/appAuth.js";
-import { paginateOctokitPages } from "../github/paginateOctokit.js";
 import { escapeTablePlainCell } from "../github/markdownFormat.js";
 import type { ReviewMode } from "./reviewSchema.js";
 
@@ -46,6 +45,13 @@ type ReviewCommentRow = {
   htmlUrl: string;
 };
 
+const TRIAGE_REVIEW_MODES = [
+  "review",
+  "review-security",
+  "review-quality",
+  "review-tests",
+] as const satisfies readonly ReviewMode[];
+
 function truncateText(text: string, maxChars: number): string {
   const trimmed = text.trim();
   if (trimmed.length <= maxChars) return trimmed;
@@ -64,30 +70,13 @@ function extractBotSeverity(body: string): BotFindingThread["severity"] {
   return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
 }
 
-function isTriageEligibleLens(lens: ReviewMode): boolean {
-  return (
-    lens === "review" ||
-    lens === "review-security" ||
-    lens === "review-quality" ||
-    lens === "review-tests"
-  );
-}
-
 const REVIEW_POINTER_LENS_MARKER_RE = /<!--\s*pr-agent:review-pointer\s+lens=([^\s>]+)\s*-->/;
 
 export function parseReviewPointerLensMarker(body: string): ReviewMode | null {
   const match = REVIEW_POINTER_LENS_MARKER_RE.exec(body);
   if (!match) return null;
   const lens = match[1];
-  if (
-    lens === "review" ||
-    lens === "review-security" ||
-    lens === "review-quality" ||
-    lens === "review-tests"
-  ) {
-    return lens;
-  }
-  return null;
+  return (TRIAGE_REVIEW_MODES as readonly string[]).includes(lens) ? (lens as ReviewMode) : null;
 }
 
 export function classifyReviewLensFromPointerBody(body: string): ReviewMode | null {
@@ -122,27 +111,28 @@ export function resolveReviewThreadRootId(
   return rootCommentId(start, byId, rootById);
 }
 
-async function listPullRequestReviewComments(
+async function paginatePullRequestReviewComments(
   token: string,
   owner: string,
   repo: string,
   pullNumber: number,
 ): Promise<ReviewCommentRow[]> {
   const octokit = installationOctokit(token);
-  const comments = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviewComments({
-        owner,
-        repo,
-        pull_number: pullNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
+  let pageCount = 0;
+  const comments = await octokit.paginate(
+    octokit.rest.pulls.listReviewComments,
+    {
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: COMMENTS_PAGE_SIZE,
     },
-  });
+    (response, done) => {
+      pageCount += 1;
+      if (pageCount >= COMMENT_PAGINATION_MAX_PAGES) done();
+      return response.data;
+    },
+  );
 
   return comments.map((comment) => ({
     id: comment.id,
@@ -163,74 +153,49 @@ export async function fetchReviewCommentParentGraph(
   repo: string,
   pullNumber: number,
 ): Promise<readonly Pick<ReviewCommentRow, "id" | "inReplyToId">[]> {
-  const comments = await listPullRequestReviewComments(token, owner, repo, pullNumber);
+  const comments = await paginatePullRequestReviewComments(token, owner, repo, pullNumber);
   return comments.map((comment) => ({ id: comment.id, inReplyToId: comment.inReplyToId }));
 }
 
-async function listBotReviewIdsForLens(
-  token: string,
-  owner: string,
-  repo: string,
-  pullNumber: number,
-  mode: ReviewMode,
-  botUserId: number,
-): Promise<Set<number>> {
-  const octokit = installationOctokit(token);
-  const reviews = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviews({
-        owner,
-        repo,
-        pull_number: pullNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
+type BotReviewLensIndex =
+  | { kind: "lens"; mode: ReviewMode }
+  | { kind: "triage"; publishRecordLenses?: ReadonlyMap<number, ReviewMode> };
 
-  const reviewIds = new Set<number>();
-  for (const review of reviews) {
-    if (review.user?.id !== botUserId || review.id == null) continue;
-    const lens = classifyReviewLensFromPointerBody(review.body ?? "");
-    if (lens === mode) reviewIds.add(review.id);
-  }
-  return reviewIds;
-}
-
-async function listBotReviewIdsForTriage(
+async function listBotReviewIds(
   token: string,
   owner: string,
   repo: string,
   pullNumber: number,
   botUserId: number,
-  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
+  index: BotReviewLensIndex,
 ): Promise<Map<number, ReviewMode>> {
   const octokit = installationOctokit(token);
-  const reviews = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviews({
-        owner,
-        repo,
-        pull_number: pullNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
+  let pageCount = 0;
+  const reviews = await octokit.paginate(
+    octokit.rest.pulls.listReviews,
+    {
+      owner,
+      repo,
+      pull_number: pullNumber,
+      per_page: COMMENTS_PAGE_SIZE,
     },
-  });
+    (response, done) => {
+      pageCount += 1;
+      if (pageCount >= COMMENT_PAGINATION_MAX_PAGES) done();
+      return response.data;
+    },
+  );
 
   const reviewIds = new Map<number, ReviewMode>();
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
-    const lens = resolveReviewLensForTriage(review.body ?? "", review.id, publishRecordLenses);
-    if (lens && isTriageEligibleLens(lens)) {
-      reviewIds.set(review.id, lens);
-    }
+    const lens =
+      index.kind === "lens"
+        ? classifyReviewLensFromPointerBody(review.body ?? "")
+        : resolveReviewLensForTriage(review.body ?? "", review.id, index.publishRecordLenses);
+    if (!lens) continue;
+    if (index.kind === "lens" && lens !== index.mode) continue;
+    reviewIds.set(review.id, lens);
   }
   return reviewIds;
 }
@@ -270,20 +235,9 @@ function rootCommentId(
   return rootId;
 }
 
-export async function fetchPriorInlineReviewFeedback(
-  token: string,
-  owner: string,
-  repo: string,
-  pullNumber: number,
-  mode: ReviewMode,
-  botUserId: number,
-): Promise<PriorInlineFeedbackThread[]> {
-  const [reviewIds, comments] = await Promise.all([
-    listBotReviewIdsForLens(token, owner, repo, pullNumber, mode, botUserId),
-    listPullRequestReviewComments(token, owner, repo, pullNumber),
-  ]);
-  if (reviewIds.size === 0) return [];
-
+function groupThreadsByRoot(
+  comments: readonly ReviewCommentRow[],
+): Map<number, ReviewCommentRow[]> {
   const byId = new Map(comments.map((comment) => [comment.id, comment]));
   const rootById = new Map<number, number>();
   const threads = new Map<number, ReviewCommentRow[]>();
@@ -295,6 +249,24 @@ export async function fetchPriorInlineReviewFeedback(
     threads.set(rootId, bucket);
   }
 
+  return threads;
+}
+
+export async function fetchPriorInlineReviewFeedback(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  mode: ReviewMode,
+  botUserId: number,
+): Promise<PriorInlineFeedbackThread[]> {
+  const [reviewIds, comments] = await Promise.all([
+    listBotReviewIds(token, owner, repo, pullNumber, botUserId, { kind: "lens", mode }),
+    paginatePullRequestReviewComments(token, owner, repo, pullNumber),
+  ]);
+  if (reviewIds.size === 0) return [];
+
+  const threads = groupThreadsByRoot(comments);
   const results: PriorInlineFeedbackThread[] = [];
   for (const threadComments of threads.values()) {
     const root =
@@ -333,22 +305,15 @@ export async function fetchBotFindingThreads(
   publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
 ): Promise<BotFindingThread[]> {
   const [comments, reviewIds] = await Promise.all([
-    listPullRequestReviewComments(token, owner, repo, pullNumber),
-    listBotReviewIdsForTriage(token, owner, repo, pullNumber, botUserId, publishRecordLenses),
+    paginatePullRequestReviewComments(token, owner, repo, pullNumber),
+    listBotReviewIds(token, owner, repo, pullNumber, botUserId, {
+      kind: "triage",
+      publishRecordLenses,
+    }),
   ]);
   if (reviewIds.size === 0) return [];
 
-  const byId = new Map(comments.map((comment) => [comment.id, comment]));
-  const rootById = new Map<number, number>();
-  const threads = new Map<number, ReviewCommentRow[]>();
-
-  for (const comment of comments) {
-    const rootId = rootCommentId(comment, byId, rootById);
-    const bucket = threads.get(rootId) ?? [];
-    bucket.push(comment);
-    threads.set(rootId, bucket);
-  }
-
+  const threads = groupThreadsByRoot(comments);
   const results: BotFindingThread[] = [];
   for (const threadComments of threads.values()) {
     const root =

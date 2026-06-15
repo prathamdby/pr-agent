@@ -87,7 +87,7 @@ export function installationOctokit(token: string, expiresAtTs?: number): Instal
 
   const octokit = new ThrottledOctokit({
     auth: token,
-    throttle: { onRateLimit, onSecondaryRateLimit },
+    throttle: { onRateLimit, onSecondaryRateLimit } as never,
   });
   const entry = {
     octokit,
@@ -168,7 +168,7 @@ async function resolveBotIdentityViaAppSlug(
   const jwtToken = await mintAppJwtToken(cfg);
   const jwtOctokit = new ThrottledOctokit({
     auth: jwtToken,
-    throttle: { onRateLimit, onSecondaryRateLimit },
+    throttle: { onRateLimit, onSecondaryRateLimit } as never,
   });
   const { data } = await jwtOctokit.rest.apps.getAuthenticated();
   if (!data?.slug) {
@@ -176,7 +176,7 @@ async function resolveBotIdentityViaAppSlug(
   }
   const slug = data.slug;
   const anon = new ThrottledOctokit({
-    throttle: { onRateLimit, onSecondaryRateLimit },
+    throttle: { onRateLimit, onSecondaryRateLimit } as never,
   });
   const { data: user } = await anon.rest.users.getByUsername({
     username: `${slug}[bot]`,

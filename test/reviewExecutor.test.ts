@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   loadPublishContext: vi.fn(),
   fetchPrFiles: vi.fn(),
   lightweight: vi.fn(),
-  runFullPrReview: vi.fn(),
+  runReviewHarness: vi.fn(),
   withPrRepositoryView: vi.fn(),
   buildStaleReschedule: vi.fn(),
   buildTrustedContext: vi.fn(),
@@ -28,14 +28,13 @@ vi.mock("../src/agentWork/repository.js", () => ({
   shouldSkipWork: vi.fn(),
 }));
 
-vi.mock("../src/review/reviewRun.js", () => ({
-  runFullPrReview: mocks.runFullPrReview,
+vi.mock("../src/review/reviewRunHarness.js", () => ({
+  runReviewHarness: mocks.runReviewHarness,
 }));
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
   getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
-  getPullRequestHeadSha: vi.fn(async () => "head"),
 }));
 
 import * as durableJob from "../src/agentWork/durableJob.js";
@@ -152,7 +151,7 @@ describe("executeReviewJob", () => {
     vi.spyOn(reviewReschedule, "buildStaleSlashReviewRescheduleResult").mockImplementation(
       mocks.buildStaleReschedule,
     );
-    vi.spyOn(reviewTrustedContext, "buildTrustedReviewContextForReview").mockImplementation(
+    vi.spyOn(reviewTrustedContext, "buildTrustedReviewContext").mockImplementation(
       mocks.buildTrustedContext,
     );
     vi.spyOn(reviewTrustedContext, "fetchPriorInlineFeedbackBlockForReview").mockImplementation(
@@ -183,7 +182,7 @@ describe("executeReviewJob", () => {
     });
     mocks.fetchPrFiles.mockResolvedValue(prFiles);
     mocks.lightweight.mockResolvedValue({ handled: false });
-    mocks.runFullPrReview.mockResolvedValue({
+    mocks.runReviewHarness.mockResolvedValue({
       published: true,
       publishAttempts: 1,
       publishSuperseded: false,
@@ -206,7 +205,7 @@ describe("executeReviewJob", () => {
 
     expect(mocks.fetchPrFiles).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
-    expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
+    expect(mocks.runReviewHarness).toHaveBeenCalledTimes(1);
   });
 
   it("runs auto preflight and lightweight completion before full review", async () => {
@@ -228,7 +227,7 @@ describe("executeReviewJob", () => {
       }),
     );
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runReviewHarness).not.toHaveBeenCalled();
   });
 
   it("passes auto preflight files into repository preparation", async () => {
@@ -270,7 +269,7 @@ describe("executeReviewJob", () => {
     const review = executeReviewJob(cfg, pool, boss, reviewJob());
 
     await vi.waitFor(() => expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1));
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runReviewHarness).not.toHaveBeenCalled();
 
     releaseRepositoryView();
     await review;
@@ -296,7 +295,7 @@ describe("executeReviewJob", () => {
       message: "identity unavailable",
     });
     expect(mocks.fetchPriorFeedback).not.toHaveBeenCalled();
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runReviewHarness).not.toHaveBeenCalled();
   });
 
   it("appends rendered repo policy to trusted context when policy file is present", async () => {
@@ -327,7 +326,7 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: expect.stringContaining("Tone: Be terse"),
     });
-    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+    expect(mocks.runReviewHarness).toHaveBeenCalledWith(
       expect.objectContaining({ severityFloor: 2 }),
     );
   });
@@ -355,7 +354,7 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
     });
-    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+    expect(mocks.runReviewHarness).toHaveBeenCalledWith(
       expect.objectContaining({ severityFloor: undefined }),
     );
   });

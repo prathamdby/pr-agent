@@ -1,11 +1,11 @@
 import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { createOperationLogger } from "../src/evlog.js";
 import { processWebhookPostRequestEffect } from "../src/effect/programs/processWebhookRequestEffect.js";
-import { IntakeLogger } from "../src/effect/intakeLogger.js";
-import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
-import { Layer } from "effect";
+import { IntakeLogger } from "../src/effect/server.js";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { WebhookHandlers } from "../src/effect/services/webhookHandlers.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const cfg = makeTestConfig({
@@ -14,12 +14,25 @@ const cfg = makeTestConfig({
   enableReviewLabelsEffort: false,
 });
 
-const dispatcherLayer = Layer.succeed(
-  WebhookDispatcher,
-  WebhookDispatcher.of({
-    dispatch: () => Effect.void,
-    ping: () => Effect.succeed(true),
-  }),
+const intakeLayer = Layer.mergeAll(
+  Layer.succeed(
+    AgentWorkScheduler,
+    AgentWorkScheduler.of({
+      recordIgnored: () => Effect.void,
+      submitAutomatedReview: () => Effect.void,
+      submitSlashCommand: () => Effect.void,
+      matchesStoredInlineReview: () => Effect.succeed(false),
+      ping: () => Effect.succeed(true),
+    }),
+  ),
+  Layer.succeed(
+    WebhookHandlers,
+    WebhookHandlers.of({
+      pullRequest: () => Effect.void,
+      issueComment: () => Effect.void,
+      pullRequestReviewComment: () => Effect.void,
+    }),
+  ),
 );
 
 function sign(secret: string, body: Buffer): string {
@@ -40,7 +53,7 @@ describe("effect webhook program integration", () => {
         },
         rawBody: body,
       }).pipe(
-        Effect.provide(dispatcherLayer),
+        Effect.provide(intakeLayer),
         Effect.provideService(
           IntakeLogger,
           createOperationLogger({

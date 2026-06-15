@@ -14,7 +14,7 @@ import {
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
-} from "../../settings/index.js";
+} from "../../settings.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";

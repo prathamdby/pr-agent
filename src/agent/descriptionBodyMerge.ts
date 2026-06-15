@@ -1,4 +1,4 @@
-import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_BODY_SEPARATOR } from "../settings/index.js";
+import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_BODY_SEPARATOR } from "../settings.js";
 
 export function mergeDescriptionIntoPrBody(params: {
   currentBody: string | null | undefined;

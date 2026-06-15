@@ -2,7 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
-import { AUTOMATED_REVIEW_LENS, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
+import { AUTOMATED_REVIEW_LENS, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings.js";
 import {
   replaceAutoWorkItem,
   releaseSingletonIfSuperseded,

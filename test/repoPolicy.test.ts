@@ -9,7 +9,7 @@ import {
   type RepoPolicy,
 } from "../src/review/repoPolicy.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import { MAX_REPO_POLICY_BYTES } from "../src/settings/constants.js";
+import { MAX_REPO_POLICY_BYTES } from "../src/settings.js";
 
 type ReviewFinding = ReviewPayload["findings"][number];
 

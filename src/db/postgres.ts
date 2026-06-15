@@ -6,7 +6,7 @@ import {
   POSTGRES_IDLE_TIMEOUT_MS,
   POSTGRES_POOL_MAX,
   POSTGRES_STATEMENT_TIMEOUT_MS,
-} from "../settings/index.js";
+} from "../settings.js";
 
 export function createPgPool(cfg: Pick<Config, "databaseUrl">): Pool {
   return new Pool({

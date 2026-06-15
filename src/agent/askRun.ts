@@ -1,5 +1,5 @@
 import { logInfo } from "../evlog.js";
-import { ASK_META_REFUSAL } from "../settings/index.js";
+import { ASK_META_REFUSAL } from "../settings.js";
 import { formatAskReply } from "./formatAskReply.js";
 import { classifyAskQuestionIntent } from "./askSafety.js";
 import { runAskHarness } from "./askRunHarness.js";

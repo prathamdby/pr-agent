@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/constants.js";
+import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings.js";
 import { createRefreshableToolExecutors } from "../src/agent/providers/cursor/refreshableGithubTools.js";
 
 describe("createRefreshableToolExecutors", () => {

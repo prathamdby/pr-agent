@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRunnerProvider } from "../src/agent/providers/interface.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
-import { runFullPrTriage } from "../src/agent/triageRun.js";
+import { runTriageHarness } from "../src/agent/triageRunHarness.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const providerState = vi.hoisted(() => ({
@@ -62,7 +62,7 @@ describe("triage run", () => {
       dispose: vi.fn(),
     }));
 
-    const result = await runFullPrTriage({
+    const result = await runTriageHarness({
       cfg,
       owner: "o",
       repo: "r",
@@ -84,7 +84,7 @@ describe("triage run", () => {
       dispose: vi.fn(),
     }));
 
-    const result = await runFullPrTriage({
+    const result = await runTriageHarness({
       cfg,
       owner: "o",
       repo: "r",

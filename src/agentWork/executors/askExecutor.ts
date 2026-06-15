@@ -6,7 +6,7 @@ import { runAskRun } from "../../agent/askRun.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/formatAskReply.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
-import { ASK_PUBLISH_LENS } from "../../settings/index.js";
+import { ASK_PUBLISH_LENS } from "../../settings.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";

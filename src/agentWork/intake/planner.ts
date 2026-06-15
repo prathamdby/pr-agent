@@ -1,4 +1,4 @@
-import { AUTOMATED_PR_ACTIONS } from "../../settings/index.js";
+import { AUTOMATED_PR_ACTIONS } from "../../settings.js";
 
 /** Durable work kinds scheduled from automated pull_request webhooks. */
 type AutomatedPrIntakeKind = "review" | "description";

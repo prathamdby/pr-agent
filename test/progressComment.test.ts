@@ -3,7 +3,7 @@ import {
   renderReviewFailureNotice,
   renderReviewProgressComment,
 } from "../src/review/progressComment.js";
-import { REVIEW_PROGRESS_NOTE } from "../src/settings/index.js";
+import { REVIEW_PROGRESS_NOTE } from "../src/settings.js";
 
 describe("progressComment fallback wording", () => {
   it("uses neutral failure notice without attempt counts or server logs", () => {

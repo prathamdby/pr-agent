@@ -47,7 +47,7 @@ import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { automatedQualitySystemPrompt } from "../src/agent/qualityPrompt.js";
 import { automatedReviewTestsSystemPrompt } from "../src/agent/reviewTestsPrompt.js";
-import { runFullPrReview } from "../src/review/reviewRun.js";
+import { runReviewHarness } from "../src/review/reviewRunHarness.js";
 
 const cfg = makeTestConfig({
   maxToolRounds: 2,
@@ -59,8 +59,8 @@ const cfg = makeTestConfig({
 const farFutureTokenExpiry = Date.now() + 3_600_000;
 
 function reviewParams(
-  overrides: Partial<Parameters<typeof runFullPrReview>[0]> = {},
-): Parameters<typeof runFullPrReview>[0] {
+  overrides: Partial<Parameters<typeof runReviewHarness>[0]> = {},
+): Parameters<typeof runReviewHarness>[0] {
   return {
     cfg,
     token: "t",
@@ -70,12 +70,13 @@ function reviewParams(
     repo: "r",
     prNumber: 1,
     headSha: "sha",
+    reviewMode: "review",
     workspace: mockLocalPrWorkspace(),
     ...overrides,
   };
 }
 
-describe("runFullPrReview mode", () => {
+describe("runReviewHarness mode", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     reviewRunMocks.sendMock.mockImplementation(async () => ({
@@ -84,16 +85,16 @@ describe("runFullPrReview mode", () => {
   });
 
   it("requires finite tokenExpiresAtTs", async () => {
-    await expect(runFullPrReview(reviewParams({ tokenExpiresAtTs: NaN }))).rejects.toThrow(
+    await expect(runReviewHarness(reviewParams({ tokenExpiresAtTs: NaN }))).rejects.toThrow(
       /tokenExpiresAtTs/,
     );
   });
 
   it("selects security system prompt when mode is review-security", async () => {
-    await runFullPrReview(
+    await runReviewHarness(
       reviewParams({
         cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-        mode: "review-security",
+        reviewMode: "review-security",
       }),
     );
 
@@ -101,10 +102,10 @@ describe("runFullPrReview mode", () => {
   });
 
   it("selects quality system prompt when mode is review-quality", async () => {
-    await runFullPrReview(
+    await runReviewHarness(
       reviewParams({
         cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-        mode: "review-quality",
+        reviewMode: "review-quality",
       }),
     );
 
@@ -112,10 +113,10 @@ describe("runFullPrReview mode", () => {
   });
 
   it("selects tests system prompt when mode is review-tests", async () => {
-    await runFullPrReview(
+    await runReviewHarness(
       reviewParams({
         cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
-        mode: "review-tests",
+        reviewMode: "review-tests",
       }),
     );
 
@@ -123,7 +124,7 @@ describe("runFullPrReview mode", () => {
   });
 
   it("selects general system prompt by default", async () => {
-    await runFullPrReview(
+    await runReviewHarness(
       reviewParams({
         cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
       }),
@@ -134,7 +135,7 @@ describe("runFullPrReview mode", () => {
   });
 
   it("uses security fallback heading when security publish is exhausted", async () => {
-    await runFullPrReview(reviewParams({ mode: "review-security" }));
+    await runReviewHarness(reviewParams({ reviewMode: "review-security" }));
 
     const body = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4] as string;
     expect(body).toContain("## PR Agent Security Review");
@@ -145,7 +146,7 @@ describe("runFullPrReview mode", () => {
   });
 });
 
-describe("runFullPrReview publish retries", () => {
+describe("runReviewHarness publish retries", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     reviewRunMocks.sendMock.mockImplementation(async () => ({
@@ -156,7 +157,7 @@ describe("runFullPrReview publish retries", () => {
   it("retries submitReview up to maxReviewPublishAttempts before failing", async () => {
     const infoSpy = vi.spyOn(evlog, "logInfo");
 
-    const result = await runFullPrReview(reviewParams());
+    const result = await runReviewHarness(reviewParams());
 
     expect(result.published).toBe(false);
     expect(result.publishAttempts).toBe(3);
@@ -171,7 +172,7 @@ describe("runFullPrReview publish retries", () => {
   });
 
   it("posts a deterministic fallback comment when publish is exhausted", async () => {
-    const result = await runFullPrReview(reviewParams());
+    const result = await runReviewHarness(reviewParams());
 
     expect(result.published).toBe(false);
     const body = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4] as string;
@@ -189,7 +190,7 @@ describe("runFullPrReview publish retries", () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     const infoSpy = vi.spyOn(evlog, "logInfo");
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
-      await runFullPrReview(
+      await runReviewHarness(
         reviewParams({
           cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
         }),
@@ -224,7 +225,7 @@ describe("runFullPrReview publish retries", () => {
       return { text: "aborted review attempt" };
     });
 
-    const result = await runFullPrReview(
+    const result = await runReviewHarness(
       reviewParams({
         cfg: { ...cfg, reviewRequireDiffCacheBeforeSubmit: false },
         shouldAbortPublish: async () => true,

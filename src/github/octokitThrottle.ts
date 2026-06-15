@@ -1,16 +1,16 @@
-import type { Octokit } from "@octokit/core";
-import type { EndpointDefaults } from "@octokit/types";
 import { logDebug } from "../evlog.js";
 
-import {
-  PRIMARY_RATE_LIMIT_MAX_RETRIES,
-  SECONDARY_RATE_LIMIT_MAX_RETRIES,
-} from "../settings/index.js";
+import { PRIMARY_RATE_LIMIT_MAX_RETRIES, SECONDARY_RATE_LIMIT_MAX_RETRIES } from "../settings.js";
+
+type ThrottleRequestOptions = {
+  method: string;
+  url: string;
+};
 
 export function onRateLimit(
   retryAfter: number,
-  options: Required<EndpointDefaults>,
-  _octokit: Octokit,
+  options: ThrottleRequestOptions,
+  _octokit: unknown,
   retryCount: number,
 ): boolean {
   const willRetry = retryCount < PRIMARY_RATE_LIMIT_MAX_RETRIES;
@@ -26,8 +26,8 @@ export function onRateLimit(
 
 export function onSecondaryRateLimit(
   retryAfter: number,
-  options: Required<EndpointDefaults>,
-  _octokit: Octokit,
+  options: ThrottleRequestOptions,
+  _octokit: unknown,
   retryCount: number,
 ): boolean {
   const willRetry = retryAfter > 0 && retryCount < SECONDARY_RATE_LIMIT_MAX_RETRIES;

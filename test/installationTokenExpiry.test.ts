@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { isInstallationTokenNearExpiry } from "../src/github/installationTokenExpiry.js";
-import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
+import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings.js";
 
 describe("installationTokenExpiry", () => {
   it("returns true inside the freshness buffer", () => {

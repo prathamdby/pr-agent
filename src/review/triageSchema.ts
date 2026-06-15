@@ -3,7 +3,7 @@ import {
   MAX_TRIAGE_FINDINGS,
   TRIAGE_SKIP_REASON_MAX_CHARS,
   TRIAGE_VERDICT_EVIDENCE_MAX_CHARS,
-} from "../settings/index.js";
+} from "../settings.js";
 
 const TriageVerdictSchema = z.discriminatedUnion("verdict", [
   z.object({

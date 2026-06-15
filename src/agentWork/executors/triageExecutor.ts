@@ -9,7 +9,7 @@ import {
   resolveReviewThreadRootId,
   type BotFindingThread,
 } from "../../review/reviewPriorFeedback.js";
-import { runFullPrTriage } from "../../agent/triageRun.js";
+import { runTriageHarness } from "../../agent/triageRunHarness.js";
 import {
   parseStoredTriagePushDetail,
   publishTriage,
@@ -28,7 +28,7 @@ import {
   TRIAGE_NO_ELIGIBLE_FINDINGS,
   TRIAGE_THREAD_NOT_ELIGIBLE,
   TRIAGE_SUMMARY_SENTINEL,
-} from "../../settings/index.js";
+} from "../../settings.js";
 import { type WritablePrCheckout, withWritablePrCheckout } from "../../prWorkspace/index.js";
 import {
   getCompletedPublishStepDetail,
@@ -373,7 +373,7 @@ export async function executeTriageJob(
           captureTriageEvent(analytics, "triage agent started", {
             inventory_count: inventory.length,
           });
-          const result = await runFullPrTriage({
+          const result = await runTriageHarness({
             cfg,
             owner: item.owner,
             repo: item.repo,

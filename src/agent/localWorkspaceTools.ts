@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../config.js";
@@ -12,6 +12,14 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "./askSafety.js";
+import { defineLocalTool, defineLocalToolBundle } from "./localToolBundle.js";
+import {
+  defineGetWorkspaceDiffTool,
+  defineReadWorkspaceFileTool,
+  defineSearchWorkspaceTool,
+  looksBinary,
+  statTextFileForRead,
+} from "./workspaceReaderTools.js";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
@@ -25,32 +33,6 @@ export function workspaceToolLimitsFromConfig(cfg: Config): LocalWorkspaceToolLi
     searchMaxFiles: cfg.localWorkspaceSearchMaxFiles,
     searchMaxTotalBytes: cfg.localWorkspaceSearchMaxTotalBytes,
   };
-}
-
-type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
-  readonly description: string;
-  readonly schema: TSchema;
-  readonly run: (parsed: any) => Promise<unknown>;
-};
-
-function toPiTool(name: string, t: LocalTool): PiTool {
-  return {
-    name,
-    description: t.description,
-    parameters: z.toJSONSchema(t.schema, {
-      unrepresentable: "any",
-    }) as PiTool["parameters"],
-  };
-}
-
-function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(t.schema.parse(args));
-}
-
-const BINARY_SAMPLE_BYTES = 8192;
-
-function looksBinary(sample: Buffer): boolean {
-  return sample.includes(0);
 }
 
 function primePathGate(
@@ -80,18 +62,9 @@ async function refuseUnlessReadableFile(
     };
   }
   const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
-  const info = await stat(safePath).catch(() => null);
-  if (!info?.isFile()) {
-    return {
-      refused: true,
-      reason: "Path is missing from the checkout.",
-    };
-  }
-  if (info.size > limits.maxFileBytes) {
-    return {
-      refused: true,
-      reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
-    };
+  const statResult = await statTextFileForRead(safePath, limits.maxFileBytes);
+  if ("refused" in statResult) {
+    return statResult;
   }
   return null;
 }
@@ -110,7 +83,7 @@ export function buildLocalWorkspaceTools(
   const pathGate = opts?.pathGate ?? createAskPathGate();
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 
-  const listChangedFiles: LocalTool = {
+  const listChangedFiles = defineLocalTool({
     description: "List files changed in this pull request from the local PR workspace.",
     schema: z.object({}),
     run: async () => ({
@@ -123,13 +96,11 @@ export function buildLocalWorkspaceTools(
       truncated: workspace.stats.truncated,
       ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
     }),
-  };
+  });
 
-  const readWorkspaceFile: LocalTool = {
-    description:
-      "Read a text file from the local PR workspace checkout. Paths are relative to the repository root.",
-    schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => {
+  const readWorkspaceFile = defineReadWorkspaceFileTool(
+    "Read a text file from the local PR workspace checkout. Paths are relative to the repository root.",
+    async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
@@ -142,7 +113,7 @@ export function buildLocalWorkspaceTools(
       }
       const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
       const buf = await readFile(safePath);
-      if (looksBinary(buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)))) {
+      if (looksBinary(buf.subarray(0, Math.min(buf.length, 8192)))) {
         return {
           path: normalized,
           refused: true,
@@ -155,16 +126,11 @@ export function buildLocalWorkspaceTools(
         content: buf.toString("utf8"),
       };
     },
-  };
+  );
 
-  const searchWorkspace: LocalTool = {
-    description:
-      "Search the full local PR workspace checkout with git grep for a literal string. Skips binary files. filesScanned is the matched file count after path filtering.",
-    schema: z.object({
-      query: z.string().min(1),
-      maxResults: z.number().int().positive().optional().default(20),
-    }),
-    run: async ({ query, maxResults }) => {
+  const searchWorkspace = defineSearchWorkspaceTool(
+    "Search the full local PR workspace checkout with git grep for a literal string. Skips binary files. filesScanned is the matched file count after path filtering.",
+    async ({ query, maxResults }) => {
       const allowedPaths = workspace.sortedCheckoutPaths.filter((path) =>
         pathAllowedForAsk(path, pathGate),
       );
@@ -184,12 +150,11 @@ export function buildLocalWorkspaceTools(
         filesScanned: matchedFiles.size,
       };
     },
-  };
+  );
 
-  const getWorkspaceDiff: LocalTool = {
-    description: "Return the PR unified diff for a changed path (from GitHub PR file metadata).",
-    schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => {
+  const getWorkspaceDiff = defineGetWorkspaceDiffTool(
+    "Return the PR unified diff for a changed path (from GitHub PR file metadata).",
+    async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
       assertPathAllowedForAsk(normalized, pathGate);
       return {
@@ -197,9 +162,9 @@ export function buildLocalWorkspaceTools(
         diff: await workspace.getDiffForPath(normalized),
       };
     },
-  };
+  );
 
-  const getWorkspaceBlame: LocalTool = {
+  const getWorkspaceBlame = defineLocalTool({
     description: "Return best-effort local git blame for a workspace path at PR head.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
@@ -219,19 +184,13 @@ export function buildLocalWorkspaceTools(
         blame,
       });
     },
-  };
+  });
 
-  const tools: Record<string, LocalTool> = {
+  return defineLocalToolBundle({
     listChangedFiles,
     readWorkspaceFile,
     searchWorkspace,
     getWorkspaceDiff,
     getWorkspaceBlame,
-  };
-  return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
-    ),
-  };
+  });
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MAX_LOG_MESSAGE_LEN, MAX_LOG_REDACTION_SCAN_LEN } from "../src/settings/index.js";
-import { sanitizeLogMessage } from "../src/security/sanitizeLogMessage.js";
+import { MAX_LOG_MESSAGE_LEN, MAX_LOG_REDACTION_SCAN_LEN } from "../src/settings.js";
+import { sanitizeLogMessage } from "../src/security.js";
 
 const jwtLikeSecret = `eyJ${"a".repeat(10)}.${"b".repeat(10)}.${"c".repeat(5)}`;
 

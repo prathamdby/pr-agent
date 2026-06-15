@@ -1,8 +1,8 @@
-import { REVIEW_SEVERITY_RANK } from "../settings/index.js";
+import { REVIEW_SEVERITY_RANK } from "../settings.js";
+import { redactOutboundSecrets } from "../security.js";
 import { dedupeReviewFindings } from "./reviewFindingDedup.js";
 import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
-import { redactReviewPayloadSecrets } from "./reviewPublicOutput.js";
 import {
   normalizeReviewPayload,
   type ReviewFinding,
@@ -17,6 +17,27 @@ export type PreparedReviewPayload = {
   readonly dedupedCount: number;
   readonly placements: readonly InlinePlacement[];
 };
+
+function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayload {
+  return {
+    ...payload,
+    prCharacter: redactOutboundSecrets(payload.prCharacter),
+    securityConcerns:
+      payload.securityConcerns == null ? null : redactOutboundSecrets(payload.securityConcerns),
+    followUps: payload.followUps.map((item) => redactOutboundSecrets(item)),
+    findings: payload.findings.map((finding) => ({
+      ...finding,
+      title: redactOutboundSecrets(finding.title),
+      detail: redactOutboundSecrets(finding.detail),
+      fixPrompt:
+        finding.fixPrompt == null ? finding.fixPrompt : redactOutboundSecrets(finding.fixPrompt),
+      suggestedCode:
+        finding.suggestedCode == null
+          ? finding.suggestedCode
+          : redactOutboundSecrets(finding.suggestedCode),
+    })),
+  };
+}
 
 function passesSeverityFloor(severity: ReviewFinding["severity"], severityFloor?: number): boolean {
   if (severityFloor == null) return true;

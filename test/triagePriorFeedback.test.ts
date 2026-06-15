@@ -4,7 +4,7 @@ import {
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
   TESTS_REVIEW_POINTER_BODY,
-} from "../src/settings/index.js";
+} from "../src/settings.js";
 import { renderReviewPointerLensMarker } from "../src/review/reviewRender.js";
 
 const mocks = vi.hoisted(() => ({
@@ -19,6 +19,20 @@ vi.mock("../src/github/appAuth.js", () => ({
         listReviews: mocks.listReviews,
         listReviewComments: mocks.listReviewComments,
       },
+    },
+    paginate: async (
+      method: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>,
+      params: Record<string, unknown>,
+    ) => {
+      const all: unknown[] = [];
+      let page = 1;
+      for (;;) {
+        const response = await method({ ...params, page });
+        all.push(...response.data);
+        if (response.data.length < (params.per_page as number)) break;
+        page += 1;
+      }
+      return all;
     },
   })),
 }));

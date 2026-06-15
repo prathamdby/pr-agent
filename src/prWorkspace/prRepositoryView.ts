@@ -1,6 +1,6 @@
 import type { Config } from "../config.js";
 import {
-  buildReviewPreflightMetadataFromWorkspace,
+  buildReviewPreflightMetadata,
   type ReviewPreflightMetadata,
 } from "../review/reviewPreflightFiles.js";
 import {
@@ -10,7 +10,7 @@ import {
   type PullRequestForFileList,
 } from "../github/listPullRequestFiles.js";
 import { logWarn } from "../evlog.js";
-import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../settings/index.js";
+import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../settings.js";
 import {
   prepareLocalPrWorkspace,
   selectLocalPrWorkspaceCheckoutMode,
@@ -101,7 +101,7 @@ async function prepareUncached(
   });
   return {
     workspace,
-    preflight: buildReviewPreflightMetadataFromWorkspace(workspace),
+    preflight: buildReviewPreflightMetadata({ kind: "workspace", value: workspace }),
     agentCwd: workspace.agentCwd,
     cleanup: () => workspace.cleanup(),
   };

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { fixDoubleEscapedString } from "./fixDoubleEscapedString.js";
-import { MAX_DESCRIPTION_PAYLOAD_PR_FILES } from "../settings/index.js";
+import { MAX_DESCRIPTION_PAYLOAD_PR_FILES } from "../settings.js";
 
 const descriptionPrTypeSchema = z.enum([
   "Bug fix",

@@ -8,7 +8,7 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
-} from "../../settings/index.js";
+} from "../../settings.js";
 import {
   descriptionSingletonKey,
   installationGroupId,

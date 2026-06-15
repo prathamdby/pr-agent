@@ -17,6 +17,7 @@ import { automatedSecuritySystemPrompt } from "../agent/securityPrompt.js";
 import { automatedQualitySystemPrompt } from "../agent/qualityPrompt.js";
 import { automatedReviewTestsSystemPrompt } from "../agent/reviewTestsPrompt.js";
 import { buildAutomatedSystemPrompt } from "./reviewSystemPrompt.js";
+import type { SummaryCommentCoordination } from "./publish/publishReview.js";
 import {
   buildSubmitReviewTool,
   createSubmitReviewState,
@@ -82,6 +83,7 @@ export function buildReviewRunSetup(params: {
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
+  summaryCommentCoordination?: SummaryCommentCoordination;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   refreshInstallationToken?: () => Promise<{
@@ -147,6 +149,7 @@ export function buildReviewRunSetup(params: {
       shouldLinkToSummary: params.shouldLinkToSummary,
       summaryCommentIdHint: params.summaryCommentIdHint,
       recordPublishStep: params.recordPublishStep,
+      summaryCommentCoordination: params.summaryCommentCoordination,
       shouldAbortPublish: params.shouldAbortPublish,
       storedInlineFingerprints: params.storedInlineFingerprints,
       publishAbortState: params.publishAbortState,
@@ -193,20 +196,5 @@ export function buildReviewRunSetup(params: {
     getToken: refreshableGh.getToken,
     getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
     refreshBeforeTool,
-  };
-}
-
-export function buildSubmitOnlyReviewSessionTools(setup: ReviewRunSetup): {
-  piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const submitTool = setup.piTools.find((tool) => tool.name === "submitReview");
-  const submitReview = setup.executors.submitReview;
-  if (!submitTool || !submitReview) {
-    return { piTools: setup.piTools, executors: setup.executors };
-  }
-  return {
-    piTools: [submitTool],
-    executors: { submitReview },
   };
 }

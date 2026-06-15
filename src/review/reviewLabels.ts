@@ -5,7 +5,7 @@ import {
   LABEL_SECURITY_CONCERN,
   LABEL_SECURITY_EFFORT_PREFIX,
   LABEL_TESTS_EFFORT_PREFIX,
-} from "../settings/index.js";
+} from "../settings.js";
 import {
   REVIEW_FINDING_CATEGORIES,
   type ReviewFinding,

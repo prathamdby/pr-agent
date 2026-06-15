@@ -1,8 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  isTransientGitHubReviewError,
-  withTransientReviewRetry,
-} from "../src/github/reviewPublishRetry.js";
+import { isTransientGitHubReviewError } from "../src/github/reviewErrors.js";
+import { withTransientReviewRetry } from "../src/github/reviewPublishRetry.js";
 import { isLineResolutionPublishError } from "../src/github/reviewErrors.js";
 
 describe("reviewPublishRetry", () => {
@@ -55,7 +53,7 @@ describe("reviewPublishRetry", () => {
       .mockRejectedValueOnce({ status: 422, message: "Please retry" })
       .mockResolvedValueOnce("ok");
 
-    const promise = withTransientReviewRetry(fn, [100]);
+    const promise = withTransientReviewRetry(fn);
     await vi.runAllTimersAsync();
     await expect(promise).resolves.toBe("ok");
     expect(fn).toHaveBeenCalledTimes(2);

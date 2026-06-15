@@ -17,7 +17,7 @@ import {
   CURSOR_MCP_SERVER_START_TIMEOUT_MS,
   CURSOR_MCP_TOKEN_BYTES,
   CURSOR_MAX_PORT_RETRIES,
-} from "../../../settings/index.js";
+} from "../../../settings.js";
 import type { CursorExecutor } from "./runContext.js";
 import { logDebug } from "../../../evlog.js";
 import { recordReviewMetric } from "../../../review/reviewRunMetrics.js";

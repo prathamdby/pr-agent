@@ -13,11 +13,3 @@ export function formatCursorStartupError(err: CursorStartupErrorLike): string {
 export function formatCursorRunError(runId: string): string {
   return `${CURSOR_RUN_ERROR_PREFIX} ${runId}`;
 }
-
-export function isCursorStartupError(message: string | undefined): boolean {
-  return message?.startsWith(CURSOR_STARTUP_ERROR_PREFIX) ?? false;
-}
-
-export function isCursorRunError(message: string | undefined): boolean {
-  return message?.startsWith(CURSOR_RUN_ERROR_PREFIX) ?? false;
-}

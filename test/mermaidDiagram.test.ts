@@ -4,8 +4,17 @@ import {
   formatMermaidValidationError,
   repairMermaidNodeLabels,
   sanitizeMermaidDiagram,
-  validateMermaidDiagram,
+  validateSanitizedMermaidFence,
 } from "../src/agent/mermaidDiagram.js";
+
+function validateMermaidDiagram(diagramRaw: string) {
+  const trimmed = diagramRaw.trim();
+  if (!trimmed) return [];
+  if (!trimmed.startsWith("```mermaid")) {
+    return [{ line: 1, message: "changesDiagram must be a ```mermaid fenced block." }];
+  }
+  return validateSanitizedMermaidFence(sanitizeMermaidDiagram(trimmed));
+}
 
 describe("mermaidDiagram", () => {
   it("repairs slash-heavy labels that break GitHub", () => {

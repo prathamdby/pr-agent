@@ -1,13 +1,9 @@
 import crypto from "node:crypto";
 import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { sanitizeLogMessage } from "../security.js";
 import { parseStoredInlineFingerprints } from "../review/reviewFindingFingerprint.js";
-import {
-  ASK_PUBLISH_LENS,
-  DESCRIPTION_PUBLISH_LENS,
-  TRIAGE_PUBLISH_LENS,
-} from "../settings/index.js";
+import { ASK_PUBLISH_LENS, DESCRIPTION_PUBLISH_LENS, TRIAGE_PUBLISH_LENS } from "../settings.js";
 import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
 
 export type PublishLens =

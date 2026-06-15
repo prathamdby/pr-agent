@@ -14,7 +14,7 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getAppBotIdentity: vi.fn(),
-  getPullRequestHeadSha: vi.fn(),
+  getPullRequestHead: vi.fn(async () => ({ headSha: "deferred-head" })),
   postAckReply: vi.fn(),
   safeReaction: vi.fn(),
 }));

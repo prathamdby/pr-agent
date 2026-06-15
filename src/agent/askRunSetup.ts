@@ -1,5 +1,5 @@
 import { isLevelEnabled, logDebug } from "../evlog.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { sanitizeLogMessage } from "../security.js";
 import { createAskPathGate } from "./askSafety.js";
 import { buildLocalWorkspaceTools, workspaceToolLimitsFromConfig } from "./localWorkspaceTools.js";
 import type { AskRunParams } from "./askRunTypes.js";

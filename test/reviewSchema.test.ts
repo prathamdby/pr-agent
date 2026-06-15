@@ -8,7 +8,7 @@ import {
   reviewRetrySlashCommandForMode,
   selectInlineFindings,
 } from "../src/review/reviewSchema.js";
-import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings/index.js";
+import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 
 function makeFinding(severity: ReviewFinding["severity"], title: string): ReviewFinding {

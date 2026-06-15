@@ -16,7 +16,7 @@ import {
   QUALITY_REVIEW_SUMMARY_SENTINEL,
   TESTS_REVIEW_SUMMARY_SENTINEL,
   type ReviewValidationFailureKind,
-} from "../settings/index.js";
+} from "../settings.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import { fixDoubleEscapedString } from "../agent/fixDoubleEscapedString.js";
 
@@ -25,7 +25,7 @@ export {
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   QUALITY_REVIEW_SUMMARY_SENTINEL,
   TESTS_REVIEW_SUMMARY_SENTINEL,
-} from "../settings/index.js";
+} from "../settings.js";
 
 export type ReviewMode = "review" | "review-security" | "review-quality" | "review-tests";
 

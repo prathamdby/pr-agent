@@ -22,7 +22,7 @@ GitHub App webhooks are untyped JSON at the HTTP boundary. The service must vali
 
 ## Current implementation (2025-05)
 
-- [`dispatchGithubEventEffect`](../../src/effect/programs/dispatchEffect.ts): parse → `AgentWorkScheduler` / `WebhookHandlers`.
+- [`dispatchGithubEventEffect`](../../src/effect/programs/processWebhookRequestEffect.ts): parse → `AgentWorkScheduler` / `WebhookHandlers`.
 - [`makeAgentWorkScheduler`](../../src/agentWork/scheduler.ts): `INSERT … ON CONFLICT (dedupe_key) DO NOTHING` in the same transaction as work-item creation and pg-boss enqueue.
 
 ## Reversal

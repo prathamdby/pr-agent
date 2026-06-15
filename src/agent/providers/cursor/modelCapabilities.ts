@@ -1,9 +1,6 @@
 import { Cursor, type ModelListItem } from "@cursor/sdk";
 import type { Model } from "@earendil-works/pi-ai";
-import {
-  CURSOR_DEFAULT_CONTEXT_WINDOW,
-  CURSOR_DEFAULT_MAX_TOKENS,
-} from "../../../settings/constants.js";
+import { CURSOR_DEFAULT_CONTEXT_WINDOW, CURSOR_DEFAULT_MAX_TOKENS } from "../../../settings.js";
 import { CURSOR_API, CURSOR_PROVIDER } from "./constants.js";
 
 const FAST_PARAM_ID = "fast";
@@ -83,17 +80,5 @@ export function getFastParamModelIds(): ReadonlySet<string> {
 }
 
 export function isCursorModelCapabilitiesInitialized(): boolean {
-  return catalogById !== null;
-}
-
-export function setCursorModelsForTests(items: readonly ModelListItem[]): void {
-  catalogItems = items;
-  catalogById = buildCatalogFromItems(items);
-  fastParamModelIds = discoverFastParamModelIds(items);
-}
-
-export function resetCursorModelCapabilitiesForTests(): void {
-  catalogItems = null;
-  catalogById = null;
-  fastParamModelIds = null;
+  return catalogItems != null;
 }

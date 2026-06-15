@@ -39,7 +39,7 @@ vi.mock("../src/github/listPullRequestFiles.js", async (importOriginal) => {
 });
 
 vi.mock("../src/review/reviewPreflightFiles.js", () => ({
-  buildReviewPreflightMetadataFromWorkspace: () => ({ preflight: true }),
+  buildReviewPreflightMetadata: () => ({ preflight: true }),
 }));
 
 vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
@@ -62,7 +62,7 @@ vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
 
 import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
-import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../src/settings/index.js";
+import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../src/settings.js";
 
 const params = {
   cfg: {} as never,

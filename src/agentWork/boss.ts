@@ -12,7 +12,7 @@ import {
   REVIEW_QUEUE,
   TRIAGE_DEAD_LETTER_QUEUE,
   TRIAGE_QUEUE,
-} from "../settings/index.js";
+} from "../settings.js";
 import type { QueueConfig } from "./types.js";
 
 type BossConfig = Pick<Config, "databaseUrl" | "role">;

@@ -1,33 +1,54 @@
 import { describe, expect, it } from "vitest";
-import { redactReviewPayloadSecrets, redactReviewText } from "../src/review/reviewPublicOutput.js";
+import { redactOutboundSecrets } from "../src/security.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
+
+function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayload {
+  return {
+    ...payload,
+    prCharacter: redactOutboundSecrets(payload.prCharacter),
+    securityConcerns:
+      payload.securityConcerns == null ? null : redactOutboundSecrets(payload.securityConcerns),
+    followUps: payload.followUps.map((item) => redactOutboundSecrets(item)),
+    findings: payload.findings.map((finding) => ({
+      ...finding,
+      title: redactOutboundSecrets(finding.title),
+      detail: redactOutboundSecrets(finding.detail),
+      fixPrompt:
+        finding.fixPrompt == null ? finding.fixPrompt : redactOutboundSecrets(finding.fixPrompt),
+      suggestedCode:
+        finding.suggestedCode == null
+          ? finding.suggestedCode
+          : redactOutboundSecrets(finding.suggestedCode),
+    })),
+  };
+}
 
 describe("reviewPublicOutput", () => {
   it("leaves PR #38-shaped finding text mentioning submitReview unchanged", () => {
     const detail =
       "The submitReview gate uses files.size === 0 but an empty PR can have a valid ingested cache.";
-    expect(redactReviewText(detail)).toBe(detail);
+    expect(redactOutboundSecrets(detail)).toBe(detail);
   });
 
   it("leaves prCharacter mentioning submitReview unchanged", () => {
     const prCharacter =
       "This PR extends the review harness and touches submitReview and reviewFindingValidator.";
-    expect(redactReviewText(prCharacter)).toBe(prCharacter);
+    expect(redactOutboundSecrets(prCharacter)).toBe(prCharacter);
   });
 
   it("redacts Bearer tokens embedded in finding detail", () => {
     const detail = "Auth header uses Bearer ghp_1234567890123456789012345678901234";
-    expect(redactReviewText(detail)).toContain("[redacted]");
-    expect(redactReviewText(detail)).not.toContain("ghp_");
+    expect(redactOutboundSecrets(detail)).toContain("[redacted]");
+    expect(redactOutboundSecrets(detail)).not.toContain("ghp_");
   });
 
   it("redacts DATABASE_URL assignments but not bare name mentions", () => {
     const assignment = "Set DATABASE_URL=postgres://user:pass@host/db in compose.";
-    expect(redactReviewText(assignment)).toContain("[redacted]");
-    expect(redactReviewText(assignment)).not.toContain("postgres://");
+    expect(redactOutboundSecrets(assignment)).toContain("[redacted]");
+    expect(redactOutboundSecrets(assignment)).not.toContain("postgres://");
 
     const bare = "Configure DATABASE_URL in compose for local dev.";
-    expect(redactReviewText(bare)).toBe(bare);
+    expect(redactOutboundSecrets(bare)).toBe(bare);
   });
 
   it("scrubs secrets across payload fields in redactReviewPayloadSecrets", () => {

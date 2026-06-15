@@ -7,38 +7,21 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import type { WritablePrCheckout } from "../prWorkspace/writablePrCheckout.js";
 import { assertWorkspacePath } from "../prWorkspace/localPrWorkspace.js";
-import { SENSITIVE_PATH_PATTERNS, TRIAGE_NEW_FILE_MAX_BYTES } from "../settings/index.js";
+import { SENSITIVE_PATH_PATTERNS, TRIAGE_NEW_FILE_MAX_BYTES } from "../settings.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
+import { defineLocalTool, defineLocalToolBundle } from "./localToolBundle.js";
+import {
+  defineGetWorkspaceDiffTool,
+  defineReadWorkspaceFileTool,
+  defineSearchWorkspaceTool,
+  statTextFileForRead,
+} from "./workspaceReaderTools.js";
 
 const exec = promisify(execFile);
-
-type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
-  readonly description: string;
-  readonly schema: TSchema;
-  readonly run: (parsed: z.infer<TSchema>) => Promise<unknown>;
-};
 
 export type TriageWorkspaceToolState = {
   readonly commitByThreadRootCommentId: Map<number, string>;
 };
-
-function toPiTool(name: string, t: LocalTool): PiTool {
-  return {
-    name,
-    description: t.description,
-    parameters: z.toJSONSchema(t.schema, {
-      unrepresentable: "any",
-    }) as PiTool["parameters"],
-  };
-}
-
-function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(t.schema.parse(args));
-}
-
-function defineLocalTool<TSchema extends z.ZodType>(tool: LocalTool<TSchema>): LocalTool<TSchema> {
-  return tool;
-}
 
 function isSensitivePath(path: string): boolean {
   return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
@@ -56,11 +39,17 @@ function relativePath(root: string, fullPath: string): string {
 
 async function readTextFile(root: string, path: string, maxBytes: number) {
   const fullPath = safePath(root, path);
-  const info = await stat(fullPath).catch(() => null);
-  if (!info?.isFile()) return { path, refused: true, reason: "Path is missing from checkout" };
-  if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
+  const statResult = await statTextFileForRead(
+    fullPath,
+    maxBytes,
+    "Path is missing from checkout",
+    "File exceeds read limit",
+  );
+  if ("refused" in statResult) {
+    return { path, ...statResult };
+  }
   const content = await readFile(fullPath, "utf8");
-  return { path, size: info.size, content };
+  return { path, size: statResult.size, content };
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -106,19 +95,14 @@ export function buildTriageWorkspaceTools(params: {
   const inventoryIds = new Set(params.inventory.map((thread) => thread.rootCommentId));
   const root = params.checkout.dir;
 
-  const readWorkspaceFile = defineLocalTool({
-    description: "Read a text file from the writable PR checkout. Path is repo-relative.",
-    schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => readTextFile(root, path, params.cfg.localWorkspaceMaxFileBytes),
-  });
+  const readWorkspaceFile = defineReadWorkspaceFileTool(
+    "Read a text file from the writable PR checkout. Path is repo-relative.",
+    async ({ path }) => readTextFile(root, path, params.cfg.localWorkspaceMaxFileBytes),
+  );
 
-  const searchWorkspace = defineLocalTool({
-    description: "Search the writable checkout with git grep for a literal string.",
-    schema: z.object({
-      query: z.string().min(1),
-      maxResults: z.number().int().positive().optional().default(20),
-    }),
-    run: async ({ query, maxResults }) => {
+  const searchWorkspace = defineSearchWorkspaceTool(
+    "Search the writable checkout with git grep for a literal string.",
+    async ({ query, maxResults }) => {
       const stdout = await git(
         root,
         ["grep", "-nF", "-I", `--max-count=${maxResults + 1}`, "-e", query, "--", "."],
@@ -144,13 +128,11 @@ export function buildTriageWorkspaceTools(params: {
         });
       return { matches, truncated: stdout.split("\n").filter(Boolean).length > maxResults };
     },
-  });
+  );
 
-  const getWorkspaceDiff = defineLocalTool({
-    description:
-      "Return the current unified diff for a repo-relative path in the writable checkout.",
-    schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => {
+  const getWorkspaceDiff = defineGetWorkspaceDiffTool(
+    "Return the current unified diff for a repo-relative path in the writable checkout.",
+    async ({ path }) => {
       const fullPath = safePath(root, path);
       const rel = relativePath(root, fullPath);
       const diff = await git(
@@ -160,7 +142,7 @@ export function buildTriageWorkspaceTools(params: {
       );
       return { path: rel, diff };
     },
-  });
+  );
 
   const editWorkspaceFile = defineLocalTool({
     description:
@@ -218,19 +200,12 @@ export function buildTriageWorkspaceTools(params: {
     },
   });
 
-  const tools = {
+  return defineLocalToolBundle({
     readWorkspaceFile,
     searchWorkspace,
     getWorkspaceDiff,
     editWorkspaceFile,
     createWorkspaceFile,
     commitFix,
-  };
-
-  return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
-    ),
-  };
+  });
 }

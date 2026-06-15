@@ -6,8 +6,7 @@ import {
   DEFAULT_MAX_PR_FILES_LISTED,
   DEFAULT_MAX_PR_FILES_PATCH_BYTES,
   ENV,
-  EXTERNAL_ENV,
-} from "../src/settings/index.js";
+} from "../src/settings.js";
 
 const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
 
@@ -35,10 +34,7 @@ describe("settings inventory", () => {
     const content = fs.readFileSync(ENV_EXAMPLE_PATH, "utf8");
     const documented = parseEnvExampleKeys(content);
     const documentedSet = new Set(documented);
-    const cataloguedKeys: ReadonlySet<string> = new Set([
-      ...Object.values(ENV),
-      ...Object.values(EXTERNAL_ENV),
-    ]);
+    const cataloguedKeys: ReadonlySet<string> = new Set(Object.values(ENV));
 
     for (const key of Object.values(ENV)) {
       expect(documentedSet.has(key), `missing ${key} in .env.example`).toBe(true);
@@ -49,7 +45,7 @@ describe("settings inventory", () => {
     }
   });
 
-  it("high-risk defaults match settings/defaults.ts", () => {
+  it("high-risk defaults match settings.ts", () => {
     const content = fs.readFileSync(ENV_EXAMPLE_PATH, "utf8");
     const documented = parseEnvExampleKeys(content);
     const readExample = (key: string): string | undefined => {

@@ -7,13 +7,13 @@ import {
 import { logDebug, logWarn } from "../../evlog.js";
 import { reviewSummarySentinelForMode } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
-import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
+import { DEFERRED_HEAD_SHA } from "../../settings.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../repository.js";
 import { renderReviewProgressComment } from "../../review/progressComment.js";
 import {
   getAppBotIdentity,
-  getPullRequestHeadSha,
+  getPullRequestHead,
   postAckReply,
   safeReaction,
 } from "../githubPrSurface.js";
@@ -57,13 +57,15 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   if (data.progress) {
     const headSha =
       data.progress.headSha === DEFERRED_HEAD_SHA
-        ? await getPullRequestHeadSha(
-            installation.token,
-            data.owner,
-            data.repo,
-            data.prNumber,
-            installation.expiresAtTs,
-          )
+        ? (
+            await getPullRequestHead(
+              installation.token,
+              data.owner,
+              data.repo,
+              data.prNumber,
+              installation.expiresAtTs,
+            )
+          ).headSha
         : data.progress.headSha;
     const body = renderReviewProgressComment({
       mode: data.progress.lens,

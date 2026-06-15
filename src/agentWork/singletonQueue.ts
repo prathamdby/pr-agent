@@ -2,7 +2,7 @@ import type { PgBoss } from "pg-boss";
 import type { PoolClient } from "pg";
 import { pgBossDb } from "../db/postgres.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
-import { REVIEW_QUEUE } from "../settings/index.js";
+import { REVIEW_QUEUE } from "../settings.js";
 import { reviewSingletonKey } from "./types.js";
 
 export type SingletonSlotDb = ReturnType<typeof pgBossDb>;

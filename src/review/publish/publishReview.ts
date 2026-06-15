@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises";
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
@@ -25,7 +26,7 @@ import { logWarn, logDebug } from "../../evlog.js";
 import {
   MAX_INLINE_REVIEW_COMMENTS,
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
-} from "../../settings/index.js";
+} from "../../settings.js";
 import { renderReviewSummaryComment } from "../reviewRender.js";
 import {
   applyInlineCommentCap,
@@ -60,23 +61,6 @@ export type RecordPublishStepFn = (
   step: "inline_review" | "summary_comment" | "labels",
   detail?: { githubId?: string | number; meta?: Record<string, unknown> },
 ) => Promise<void>;
-
-export type RecordPublishStepWithCoordination = RecordPublishStepFn & {
-  summaryCommentCoordination?: SummaryCommentCoordination;
-};
-
-export function attachSummaryCommentCoordination(
-  recordPublishStep: RecordPublishStepFn,
-  coordination: SummaryCommentCoordination,
-): RecordPublishStepWithCoordination {
-  const wrapped = recordPublishStep as RecordPublishStepWithCoordination;
-  wrapped.summaryCommentCoordination = coordination;
-  return wrapped;
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function resolveKnownSummaryCommentRef(
   token: string,
@@ -188,7 +172,7 @@ export async function upsertSummaryCommentWithCreationClaim(params: {
       const delay =
         REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt - 1] ??
         REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1)!;
-      await sleepMs(delay);
+      await sleep(delay);
     }
     const polledId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
     if (polledId == null) continue;
@@ -252,7 +236,8 @@ export async function publishReview(
     shouldLinkToSummary?: boolean;
     summaryCommentIdHint?: number | null;
     staleReview?: boolean;
-    recordPublishStep?: RecordPublishStepWithCoordination;
+    recordPublishStep?: RecordPublishStepFn;
+    summaryCommentCoordination?: SummaryCommentCoordination;
     storedInlineFingerprints?: readonly string[];
     /** Reuse placements already computed during prepare; recomputed when omitted. */
     inlinePlacements?: readonly InlinePlacement[];
@@ -301,27 +286,15 @@ export async function publishReview(
   let summaryCommentUrl: string | undefined;
   let knownSummaryCommentRef: { id: number; url: string } | null = null;
   if (params.shouldLinkToSummary) {
-    let resolvedSummary;
-    if (tokenExpiresAtTs == null) {
-      resolvedSummary = await resolveVerifiedSummaryCommentRef(
-        token,
-        owner,
-        repo,
-        prNumber,
-        summarySentinel,
-        params.summaryCommentIdHint,
-      );
-    } else {
-      resolvedSummary = await resolveVerifiedSummaryCommentRef(
-        token,
-        owner,
-        repo,
-        prNumber,
-        summarySentinel,
-        params.summaryCommentIdHint,
-        tokenExpiresAtTs,
-      );
-    }
+    const resolvedSummary = await resolveVerifiedSummaryCommentRef(
+      token,
+      owner,
+      repo,
+      prNumber,
+      summarySentinel,
+      params.summaryCommentIdHint,
+      tokenExpiresAtTs,
+    );
     summaryCommentUrl = resolvedSummary?.url;
     knownSummaryCommentRef = resolvedSummary
       ? { id: resolvedSummary.id, url: resolvedSummary.url }
@@ -363,25 +336,14 @@ export async function publishReview(
 
   if (inlineReviewId != null) {
     try {
-      let reviewComments;
-      if (tokenExpiresAtTs == null) {
-        reviewComments = await listPullRequestReviewCommentsForReview(
-          token,
-          owner,
-          repo,
-          prNumber,
-          inlineReviewId,
-        );
-      } else {
-        reviewComments = await listPullRequestReviewCommentsForReview(
-          token,
-          owner,
-          repo,
-          prNumber,
-          inlineReviewId,
-          tokenExpiresAtTs,
-        );
-      }
+      const reviewComments = await listPullRequestReviewCommentsForReview(
+        token,
+        owner,
+        repo,
+        prNumber,
+        inlineReviewId,
+        tokenExpiresAtTs,
+      );
       summaryPlacements = enrichPlacementsWithInlineCommentUrls(summaryPlacements, reviewComments);
     } catch (e) {
       logWarn("review_inline_comment_urls_failed", {
@@ -404,14 +366,12 @@ export async function publishReview(
     cachedDiffIndex: params.cachedDiffIndex,
   });
 
-  const labelsPromise = (
-    tokenExpiresAtTs == null
-      ? listPullRequestLabels(token, owner, repo, prNumber)
-      : listPullRequestLabels(token, owner, repo, prNumber, tokenExpiresAtTs)
-  ).catch((e: unknown) => e);
+  const labelsPromise = listPullRequestLabels(token, owner, repo, prNumber, tokenExpiresAtTs).catch(
+    (e: unknown) => e,
+  );
 
   let summaryUpsert: Promise<{ id: number; updated: boolean }>;
-  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
+  const summaryCoordination = params.summaryCommentCoordination;
   if (summaryCoordination) {
     summaryUpsert = upsertSummaryCommentWithCreationClaim({
       ...summaryCoordination,
@@ -426,28 +386,6 @@ export async function publishReview(
       hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
     });
   } else if (knownSummaryCommentRef != null) {
-    summaryUpsert =
-      tokenExpiresAtTs == null
-        ? upsertReviewSummaryComment(
-            token,
-            owner,
-            repo,
-            prNumber,
-            summaryBody,
-            summarySentinel,
-            knownSummaryCommentRef,
-          )
-        : upsertReviewSummaryComment(
-            token,
-            owner,
-            repo,
-            prNumber,
-            summaryBody,
-            summarySentinel,
-            knownSummaryCommentRef,
-            tokenExpiresAtTs,
-          );
-  } else if (tokenExpiresAtTs == null) {
     summaryUpsert = upsertReviewSummaryComment(
       token,
       owner,
@@ -455,6 +393,8 @@ export async function publishReview(
       prNumber,
       summaryBody,
       summarySentinel,
+      knownSummaryCommentRef,
+      tokenExpiresAtTs,
     );
   } else {
     summaryUpsert = upsertReviewSummaryComment(
@@ -493,26 +433,18 @@ export async function publishReview(
         : "no blocking findings";
     const targetUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summary.id}`;
     try {
-      if (tokenExpiresAtTs == null) {
-        await setReviewCommitStatus(token, owner, repo, headSha, {
+      await setReviewCommitStatus(
+        token,
+        owner,
+        repo,
+        headSha,
+        {
           state: statusState,
           description: statusDescription,
           targetUrl,
-        });
-      } else {
-        await setReviewCommitStatus(
-          token,
-          owner,
-          repo,
-          headSha,
-          {
-            state: statusState,
-            description: statusDescription,
-            targetUrl,
-          },
-          tokenExpiresAtTs,
-        );
-      }
+        },
+        tokenExpiresAtTs,
+      );
     } catch (e) {
       logWarn("review_commit_status_failed", {
         mode,
@@ -580,11 +512,7 @@ export async function publishReview(
         mode,
       );
       const next = syncReviewLabels(currentLabels, managed, mode);
-      if (tokenExpiresAtTs == null) {
-        await setPullRequestLabels(token, owner, repo, prNumber, next);
-      } else {
-        await setPullRequestLabels(token, owner, repo, prNumber, next, tokenExpiresAtTs);
-      }
+      await setPullRequestLabels(token, owner, repo, prNumber, next, tokenExpiresAtTs);
       await params.recordPublishStep?.("labels", { meta: { labels: next } });
       logDebug("review_labels_synced", {
         owner,

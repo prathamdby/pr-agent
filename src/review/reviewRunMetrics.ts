@@ -1,5 +1,5 @@
 import { logInfo, tryUseLogger } from "../evlog.js";
-import type { ReviewPhase, ReviewValidationFailureKind } from "../settings/index.js";
+import type { ReviewPhase, ReviewValidationFailureKind } from "../settings.js";
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }

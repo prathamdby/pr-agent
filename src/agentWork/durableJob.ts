@@ -11,9 +11,9 @@ import {
   type InstallationToken,
 } from "../github/appAuth.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/installationTokenExpiry.js";
-import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import { sanitizeLogMessage } from "../security.js";
 import { classifyProviderError } from "../agent/providerErrors.js";
-import { DEFERRED_HEAD_SHA, TOKEN_FRESHNESS_BUFFER_MS } from "../settings/index.js";
+import { DEFERRED_HEAD_SHA, TOKEN_FRESHNESS_BUFFER_MS } from "../settings.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
 import {
   claimQueuedWorkItem,

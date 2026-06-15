@@ -10,8 +10,8 @@ import {
   resolveReviewThreadRootId,
 } from "../../review/reviewPriorFeedback.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
-import { IntakeLogger } from "../intakeLogger.js";
-import { BotIdentity, BotIdentityLive } from "./botIdentity.js";
+import { getCachedAppBotIdentity } from "../../github/cachedBotIdentity.js";
+import { IntakeLogger } from "../server.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
@@ -58,12 +58,14 @@ export const WebhookHandlersCore = Layer.effect(
   WebhookHandlers,
   Effect.gen(function* () {
     const scheduler = yield* AgentWorkScheduler;
-    const bot = yield* BotIdentity;
 
     const ignoreBotSlash = (cfg: Config, headers: WebhookHeaders, commenterId: number) =>
       Effect.gen(function* () {
         const intakeLog = yield* IntakeLogger;
-        const botUserId = yield* bot.getAppUserId(cfg);
+        const botUserId = yield* Effect.tryPromise({
+          try: () => getCachedAppBotIdentity(cfg),
+          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+        }).pipe(Effect.map((identity) => identity.userId));
         if (commenterId !== botUserId) return false;
         yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
         return true;
@@ -266,4 +268,4 @@ export const WebhookHandlersCore = Layer.effect(
   }),
 );
 
-export const WebhookHandlersLive = WebhookHandlersCore.pipe(Layer.provide(BotIdentityLive));
+export const WebhookHandlersLive = WebhookHandlersCore;

@@ -8,7 +8,7 @@ import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { MAX_ASK_QUESTION_CHARS } from "../src/agent/askSafety.js";
 import { ASK_QUESTION_TOO_LONG_HINT } from "../src/commands/parseAskQuestion.js";
-import { ACK_QUEUE, ASK_QUEUE, ASK_USAGE_HINT } from "../src/settings/index.js";
+import { ACK_QUEUE, ASK_QUEUE, ASK_USAGE_HINT } from "../src/settings.js";
 import * as postgres from "../src/db/postgres.js";
 
 function makeSlashInput(body: string) {

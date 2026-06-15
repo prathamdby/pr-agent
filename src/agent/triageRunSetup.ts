@@ -74,13 +74,3 @@ export function buildTriageRunSetup(params: {
     workspaceState,
   };
 }
-
-export function buildSubmitOnlyTriageSessionTools(setup: TriageRunSetup): {
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const submitTool = setup.piTools.find((tool) => tool.name === "submitTriage");
-  const submitTriage = setup.executors.submitTriage;
-  if (!submitTool || !submitTriage) return { piTools: setup.piTools, executors: setup.executors };
-  return { piTools: [submitTool], executors: { submitTriage } };
-}

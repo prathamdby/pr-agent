@@ -1,6 +1,6 @@
 import type { ModelSelection } from "@cursor/sdk";
 import type { Model } from "@earendil-works/pi-ai";
-import { CURSOR_API, CURSOR_PROVIDER } from "./constants.js";
+import { CURSOR_API } from "./constants.js";
 import {
   getCursorCatalogById,
   getCursorCatalogItems,
@@ -96,8 +96,4 @@ export function getCursorModel(modelId: string): Model<typeof CURSOR_API> {
     throw new Error(`Unknown Cursor model id: ${baseId}`);
   }
   return model;
-}
-
-export function isCursorProvider(provider: string): boolean {
-  return provider === CURSOR_PROVIDER;
 }

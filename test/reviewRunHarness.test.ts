@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "../src/review/reviewPromptBlocks.js";
-import { PROSE_ONLY_NUDGE } from "../src/settings/index.js";
+import { PROSE_ONLY_NUDGE } from "../src/settings.js";
 
 const sendMock = vi.fn(async (_message: string) => ({ text: "done" }));
 const createSessionMock = vi.fn(async (_params: unknown) => ({
@@ -98,6 +98,7 @@ describe("runReviewHarness", () => {
       }),
       token: "tok",
       tokenExpiresAtTs: Date.now() + 60_000,
+      tokenTtlMs: 60_000,
       owner: "o",
       repo: "r",
       prNumber: 1,

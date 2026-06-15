@@ -2,8 +2,8 @@ import crypto from "node:crypto";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { logInfo } from "../evlog.js";
-import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
-import { getPullRequestHeadSha } from "./githubPrSurface.js";
+import { ACK_QUEUE, REVIEW_QUEUE } from "../settings.js";
+import { getPullRequestHead } from "./githubPrSurface.js";
 import { getWorkItem } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
@@ -32,13 +32,9 @@ export async function buildStaleSlashReviewRescheduleResult(
   token: string,
   expiresAtTs?: number,
 ): Promise<StaleSlashReviewRescheduleResult> {
-  const latestHeadSha = await getPullRequestHeadSha(
-    token,
-    item.owner,
-    item.repo,
-    item.prNumber,
-    expiresAtTs,
-  );
+  const latestHeadSha = (
+    await getPullRequestHead(token, item.owner, item.repo, item.prNumber, expiresAtTs)
+  ).headSha;
   const replacement = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
   return {
     rescheduled: true,

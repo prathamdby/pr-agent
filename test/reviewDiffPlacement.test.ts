@@ -9,7 +9,7 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
 } from "../src/review/reviewDiffIndex.js";
-import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings/index.js";
+import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings.js";
 
 describe("reviewDiffPlacement", () => {
   it("marks invalid anchors as summary-only", () => {

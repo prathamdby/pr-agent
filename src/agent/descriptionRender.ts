@@ -4,11 +4,9 @@ import {
   githubPullRequestFileDiffUrl,
   type GitHubPullRequestFileContext,
 } from "../github/prFileUrls.js";
-import { redactOutboundSecrets } from "../security/redactOutboundSecrets.js";
-import { DESCRIPTION_AGENT_HEADER } from "../settings/index.js";
+import { redactOutboundSecrets } from "../security.js";
+import { DESCRIPTION_AGENT_HEADER } from "../settings.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
-
-export { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
 
 export type DescriptionRenderContext = GitHubPullRequestFileContext;
 

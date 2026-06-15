@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem, DescriptionJobData } from "../src/agentWork/types.js";
-import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
+import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import * as repo from "../src/agentWork/repository.js";
@@ -40,8 +40,8 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agent/descriptionRun.js", () => ({
-  runFullPrDescription: mocks.runDescriptionRun,
+vi.mock("../src/agent/descriptionRunHarness.js", () => ({
+  runDescriptionHarness: mocks.runDescriptionRun,
 }));
 
 vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {

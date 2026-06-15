@@ -7,17 +7,17 @@ import {
   fetchPullRequestFiles,
   type ListPullRequestFilesResult,
 } from "../../github/listPullRequestFiles.js";
-import { runFullPrReview } from "../../review/reviewRun.js";
+import { runReviewHarness } from "../../review/reviewRunHarness.js";
 import {
   loadRepoPolicy,
   logInvalidRepoPolicy,
   renderRepoPolicyBlock,
 } from "../../review/repoPolicy.js";
 import {
-  buildTrustedReviewContextForReview,
+  buildTrustedReviewContext,
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/reviewTrustedContext.js";
-import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/reviewPreflightFiles.js";
+import { buildReviewPreflightMetadata } from "../../review/reviewPreflightFiles.js";
 import {
   reviewRetrySlashCommandForMode,
   reviewSummarySentinelForMode,
@@ -31,9 +31,8 @@ import {
 } from "../../review/reviewRunMetrics.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { MAX_REPO_POLICY_BYTES } from "../../settings/index.js";
+import { MAX_REPO_POLICY_BYTES } from "../../settings.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
   loadReviewExecutorPublishContext,
@@ -47,7 +46,7 @@ import {
   resolveWorkItemHead,
   runDurableWorkItem,
 } from "../durableJob.js";
-import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
+import { getAppBotIdentity, getPullRequestHead } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkPayload } from "../types.js";
 
 type SettledPriorInlineFeedback =
@@ -118,7 +117,10 @@ export async function executeReviewJob(
           ),
         );
         assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
-        const preflight = buildReviewPreflightMetadataFromPullRequestFiles(prefetchedPrFiles);
+        const preflight = buildReviewPreflightMetadata({
+          kind: "pullRequestFiles",
+          value: prefetchedPrFiles,
+        });
         const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
           item,
           reviewLens,
@@ -205,13 +207,13 @@ export async function executeReviewJob(
             repoPolicyBlock = rendered || undefined;
           }
 
-          const trustedContext = buildTrustedReviewContextForReview({
+          const trustedContext = buildTrustedReviewContext({
             preflight: repositoryView.preflight,
             priorInlineFeedback: priorInlineFeedbackResult.value,
             repoPolicyBlock,
           });
 
-          const result = await runFullPrReview({
+          const result = await runReviewHarness({
             cfg,
             token: tokenState.installation.token,
             tokenExpiresAtTs: tokenState.installation.expiresAtTs,
@@ -220,7 +222,7 @@ export async function executeReviewJob(
             repo: item.repo,
             prNumber: item.prNumber,
             headSha,
-            mode: reviewLens,
+            reviewMode: reviewLens,
             userSupplement: payload.userSupplement,
             trustedContext,
             severityFloor,
@@ -234,30 +236,34 @@ export async function executeReviewJob(
               published: publishState.summaryPublished,
               inlineReviewId: publishState.inlineReviewId,
             },
-            recordPublishStep: attachSummaryCommentCoordination(
-              (step, detail) =>
-                recordPublishStep(pool, {
-                  workItemId: item.id,
-                  resourceKey: item.resourceKey,
-                  reviewLens,
-                  step,
-                  githubId: detail?.githubId,
-                  detail: detail?.meta,
-                }),
-              { pool, workItemId: item.id, resourceKey: item.resourceKey },
-            ),
+            recordPublishStep: (step, detail) =>
+              recordPublishStep(pool, {
+                workItemId: item.id,
+                resourceKey: item.resourceKey,
+                reviewLens,
+                step,
+                githubId: detail?.githubId,
+                detail: detail?.meta,
+              }),
+            summaryCommentCoordination: {
+              pool,
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+            },
             reviewSource: payload.source,
             staleHeadRescheduled: payload.staleHeadRescheduled,
             publishAbortState,
             shouldAbortPublish: async () => {
               if (await shouldSkipWork(pool, item)) return true;
-              const latestHeadSha = await getPullRequestHeadSha(
-                tokenState.installation.token,
-                item.owner,
-                item.repo,
-                item.prNumber,
-                tokenState.installation.expiresAtTs,
-              );
+              const latestHeadSha = (
+                await getPullRequestHead(
+                  tokenState.installation.token,
+                  item.owner,
+                  item.repo,
+                  item.prNumber,
+                  tokenState.installation.expiresAtTs,
+                )
+              ).headSha;
               if (latestHeadSha !== headSha) {
                 staleHeadAtPublish = true;
                 publishAbortState.staleHead = true;

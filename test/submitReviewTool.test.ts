@@ -14,7 +14,7 @@ import {
   ingestListPullRequestFilesResult,
 } from "../src/review/reviewDiffIndex.js";
 import { initReviewRunMetrics, snapshotReviewRunMetrics } from "../src/review/reviewRunMetrics.js";
-import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
+import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("../src/review/publish/publishReview.js", () => ({

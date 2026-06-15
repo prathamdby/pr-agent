@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  renderDescriptionAgentBlock,
-  sanitizeMermaidDiagram,
-} from "../src/agent/descriptionRender.js";
-import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
+import { renderDescriptionAgentBlock } from "../src/agent/descriptionRender.js";
+import { sanitizeMermaidDiagram } from "../src/agent/mermaidDiagram.js";
+import { DESCRIPTION_AGENT_HEADER } from "../src/settings.js";
 
 const RENDER_CTX = { owner: "acme", repo: "widgets", prNumber: 42 };
 

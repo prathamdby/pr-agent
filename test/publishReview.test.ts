@@ -3,10 +3,7 @@ import * as evlog from "../src/evlog.js";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import * as reviewSchema from "../src/review/reviewSchema.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, SECURITY_REVIEW_SUMMARY_SENTINEL } from "../src/settings.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REVIEW_POINTER_NOTE_LEAD,
@@ -62,10 +59,7 @@ import {
   setReviewCommitStatus,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
-import {
-  attachSummaryCommentCoordination,
-  upsertSummaryCommentWithCreationClaim,
-} from "../src/review/publish/publishReview.js";
+import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
 import {
   claimSummaryCommentCreation,
   getSummaryCommentGithubId,
@@ -135,7 +129,14 @@ describe("publishReview", () => {
         ],
       }),
     );
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith("t", "o", "r", 1, 1);
+    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      1,
+      undefined,
+    );
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("#discussion_r99");
@@ -256,6 +257,8 @@ describe("publishReview", () => {
       1,
       expect.stringContaining(sentinel),
       sentinel,
+      undefined,
+      undefined,
     );
     expect(publishState.inlinePublished).toBe(true);
   });
@@ -329,7 +332,14 @@ describe("publishReview", () => {
     });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith("t", "o", "r", 1, 1);
+    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      1,
+      undefined,
+    );
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("#discussion_r99");
   });
@@ -368,6 +378,8 @@ describe("publishReview", () => {
       1,
       expect.stringContaining(SECURITY_REVIEW_SUMMARY_SENTINEL),
       SECURITY_REVIEW_SUMMARY_SENTINEL,
+      undefined,
+      undefined,
     );
   });
 
@@ -404,7 +416,14 @@ describe("publishReview", () => {
       payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
     });
 
-    expect(setPullRequestLabels).toHaveBeenCalledWith("t", "o", "r", 1, ["Review effort 2/5"]);
+    expect(setPullRequestLabels).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      ["Review effort 2/5"],
+      undefined,
+    );
   });
 
   it("calls setPullRequestLabels when effort label value changes", async () => {
@@ -421,10 +440,14 @@ describe("publishReview", () => {
       payload: { ...payload, estimatedEffort: 4 },
     });
 
-    expect(setPullRequestLabels).toHaveBeenCalledWith("t", "o", "r", 1, [
-      "bug",
-      "Review effort 4/5",
-    ]);
+    expect(setPullRequestLabels).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      ["bug", "Review effort 4/5"],
+      undefined,
+    );
   });
 
   it("syncs quality effort without removing review effort", async () => {
@@ -446,50 +469,58 @@ describe("publishReview", () => {
       payload: { ...payload, estimatedEffort: 4 },
     });
 
-    expect(setPullRequestLabels).toHaveBeenCalledWith("t", "o", "r", 1, [
-      "Review effort 3/5",
-      "bug",
-      "Quality effort 4/5",
-    ]);
-  });
-
-  it("links pointer when shouldLinkToSummary and comment verifies", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
-      id: 99,
-      url: "https://github.com/o/r/pull/1#issuecomment-99",
-      source: "hint",
-    });
-
-    await publishReviewForTest({
-      ...baseParams,
-      shouldLinkToSummary: true,
-      summaryCommentIdHint: 99,
-      publishState: testPublishState(),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
-
-    expect(resolveVerifiedSummaryCommentRef).toHaveBeenCalled();
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+    expect(setPullRequestLabels).toHaveBeenCalledWith(
       "t",
       "o",
       "r",
       1,
-      expect.objectContaining({
-        body: expect.stringContaining(
-          "[View the updated review.](https://github.com/o/r/pull/1#issuecomment-99)",
-        ),
-      }),
-    );
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.any(String),
-      REVIEW_SUMMARY_SENTINEL,
-      { id: 99, url: "https://github.com/o/r/pull/1#issuecomment-99" },
+      ["Review effort 3/5", "bug", "Quality effort 4/5"],
+      undefined,
     );
   });
+
+  it(
+    "links pointer when shouldLinkToSummary and comment verifies",
+    async () => {
+      vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+        id: 99,
+        url: "https://github.com/o/r/pull/1#issuecomment-99",
+        source: "hint",
+      });
+
+      await publishReviewForTest({
+        ...baseParams,
+        shouldLinkToSummary: true,
+        summaryCommentIdHint: 99,
+        publishState: testPublishState(),
+        cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      });
+
+      expect(resolveVerifiedSummaryCommentRef).toHaveBeenCalled();
+      expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+        "t",
+        "o",
+        "r",
+        1,
+        expect.objectContaining({
+          body: expect.stringContaining(
+            "[View the updated review.](https://github.com/o/r/pull/1#issuecomment-99)",
+          ),
+        }),
+      );
+      expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+        "t",
+        "o",
+        "r",
+        1,
+        expect.any(String),
+        REVIEW_SUMMARY_SENTINEL,
+        { id: 99, url: "https://github.com/o/r/pull/1#issuecomment-99" },
+        undefined,
+      );
+    },
+    undefined,
+  );
 
   it("falls back to plain pointer when shouldLinkToSummary but no verified comment", async () => {
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce(null);
@@ -647,6 +678,8 @@ describe("publishReview", () => {
       1,
       expect.stringContaining("Summary only"),
       REVIEW_SUMMARY_SENTINEL,
+      undefined,
+      undefined,
     );
     expect(publishState.inlinePublished).toBe(true);
   });
@@ -670,6 +703,8 @@ describe("publishReview", () => {
       1,
       expect.not.stringContaining("Line could not be resolved"),
       REVIEW_SUMMARY_SENTINEL,
+      undefined,
+      undefined,
     );
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("Summary only");
@@ -809,32 +844,37 @@ describe("publishReview summary coordination", () => {
     vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 88, updated: true });
   });
 
-  it("uses stored progress id without sentinel scan", async () => {
-    const recordPublishStep = attachSummaryCommentCoordination(vi.fn(), {
-      pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
+  it(
+    "uses stored progress id without sentinel scan",
+    async () => {
+      const recordPublishStep = vi.fn();
 
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep,
-    });
+      await publishReviewForTest({
+        ...baseParams,
+        publishState: testPublishState(),
+        cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+        recordPublishStep,
+        summaryCommentCoordination: {
+          pool,
+          workItemId: "wi-1",
+          resourceKey: "o/r#1",
+        },
+      });
 
-    expect(findIssueCommentBySentinel).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.any(String),
-      REVIEW_SUMMARY_SENTINEL,
-      { id: 88, url: "https://example.com/88" },
-      undefined,
-    );
-  });
+      expect(findIssueCommentBySentinel).not.toHaveBeenCalled();
+      expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+        "t",
+        "o",
+        "r",
+        1,
+        expect.any(String),
+        REVIEW_SUMMARY_SENTINEL,
+        { id: 88, url: "https://example.com/88" },
+        undefined,
+      );
+    },
+    undefined,
+  );
 });
 
 describe("publishReview commit status", () => {
@@ -851,11 +891,18 @@ describe("publishReview commit status", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(setReviewCommitStatus).toHaveBeenCalledWith("t", "o", "r", "sha", {
-      state: "failure",
-      description: "1 P0/P1 finding",
-      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
-    });
+    expect(setReviewCommitStatus).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      "sha",
+      {
+        state: "failure",
+        description: "1 P0/P1 finding",
+        targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
+      },
+      undefined,
+    );
   });
 
   it("posts success when findings are P2-only", async () => {
@@ -882,11 +929,18 @@ describe("publishReview commit status", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(setReviewCommitStatus).toHaveBeenCalledWith("t", "o", "r", "sha", {
-      state: "success",
-      description: "no blocking findings",
-      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
-    });
+    expect(setReviewCommitStatus).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      "sha",
+      {
+        state: "success",
+        description: "no blocking findings",
+        targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
+      },
+      undefined,
+    );
   });
 
   it("completes publish when commit status API throws", async () => {

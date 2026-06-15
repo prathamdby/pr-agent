@@ -1,3 +1,4 @@
+import { activeToolNames } from "../../sessionHelpers.js";
 import { getModel } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
@@ -174,7 +175,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       },
       // customTools are fixed at session creation; restrictToTools only toggles active names.
       restrictToTools(nextTools, _executors) {
-        session.setActiveToolsByName(nextTools.map((tool) => tool.name));
+        session.setActiveToolsByName(activeToolNames(nextTools));
       },
       restoreTools() {
         session.setActiveToolsByName(allToolNames);

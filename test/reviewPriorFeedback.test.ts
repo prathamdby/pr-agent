@@ -10,13 +10,14 @@ import {
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
   TESTS_REVIEW_POINTER_BODY,
-} from "../src/settings/index.js";
+} from "../src/settings.js";
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(),
 }));
 
 import { installationOctokit } from "../src/github/appAuth.js";
+import { paginateFromListReviews } from "./helpers/octokitPaginateMock.js";
 
 describe("reviewPriorFeedback", () => {
   beforeEach(() => {
@@ -70,18 +71,20 @@ describe("reviewPriorFeedback", () => {
     const humanUserId = 2;
     const reviewId = 100;
 
+    const listReviews = vi.fn(async () => ({
+      data: [
+        {
+          id: reviewId,
+          user: { id: botUserId },
+          body: REVIEW_POINTER_BODY,
+        },
+      ],
+    }));
     vi.mocked(installationOctokit).mockReturnValue({
+      paginate: paginateFromListReviews(listReviews),
       rest: {
         pulls: {
-          listReviews: vi.fn(async () => ({
-            data: [
-              {
-                id: reviewId,
-                user: { id: botUserId },
-                body: REVIEW_POINTER_BODY,
-              },
-            ],
-          })),
+          listReviews,
           listReviewComments: vi.fn(async () => ({
             data: [
               {
@@ -121,18 +124,20 @@ describe("reviewPriorFeedback", () => {
     const humanUserId = 2;
     const reviewId = 100;
 
+    const listReviews = vi.fn(async () => ({
+      data: [
+        {
+          id: reviewId,
+          user: { id: botUserId },
+          body: REVIEW_POINTER_BODY,
+        },
+      ],
+    }));
     vi.mocked(installationOctokit).mockReturnValue({
+      paginate: paginateFromListReviews(listReviews),
       rest: {
         pulls: {
-          listReviews: vi.fn(async () => ({
-            data: [
-              {
-                id: reviewId,
-                user: { id: botUserId },
-                body: REVIEW_POINTER_BODY,
-              },
-            ],
-          })),
+          listReviews,
           listReviewComments: vi.fn(async () => ({
             data: [
               {

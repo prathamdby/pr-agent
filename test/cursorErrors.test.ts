@@ -4,8 +4,6 @@ import {
   CURSOR_STARTUP_ERROR_PREFIX,
   formatCursorRunError,
   formatCursorStartupError,
-  isCursorRunError,
-  isCursorStartupError,
 } from "../src/agent/providers/cursor/errors.js";
 
 describe("cursor error formatting", () => {
@@ -17,10 +15,10 @@ describe("cursor error formatting", () => {
       }),
     );
     expect(startup).toContain(CURSOR_STARTUP_ERROR_PREFIX);
-    expect(isCursorStartupError(startup)).toBe(true);
+    expect(startup.startsWith(CURSOR_STARTUP_ERROR_PREFIX)).toBe(true);
 
     const run = formatCursorRunError("run-123");
     expect(run).toBe(`${CURSOR_RUN_ERROR_PREFIX} run-123`);
-    expect(isCursorRunError(run)).toBe(true);
+    expect(run.startsWith(CURSOR_RUN_ERROR_PREFIX)).toBe(true);
   });
 });

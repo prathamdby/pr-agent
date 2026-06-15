@@ -11,7 +11,7 @@ import {
   REVIEW_PROGRESS_NOTE,
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
-} from "../settings/index.js";
+} from "../settings.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "./reviewSchema.js";
 import type { WorkSource } from "./reviewSchema.js";
 

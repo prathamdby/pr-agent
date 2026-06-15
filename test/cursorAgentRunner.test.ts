@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  resetCursorModelCapabilitiesForTests,
-  setCursorModelsForTests,
-} from "../src/agent/providers/cursor/modelCapabilities.js";
+  resetCursorModelCatalog,
+  seedCursorModelCatalog,
+} from "./helpers/cursorModelCatalogMock.js";
 import { Agent } from "@cursor/sdk";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -40,7 +40,7 @@ const cfg = makeTestConfig({
 describe("cursorAgentRunnerProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setCursorModelsForTests([
+    seedCursorModelCatalog([
       {
         id: "composer-2.5",
         displayName: "Composer 2.5",
@@ -51,7 +51,7 @@ describe("cursorAgentRunnerProvider", () => {
   });
 
   afterEach(() => {
-    resetCursorModelCapabilitiesForTests();
+    resetCursorModelCatalog();
   });
 
   it("passes explicit fast=false for composer-2.5", async () => {
@@ -79,7 +79,7 @@ describe("cursorAgentRunnerProvider", () => {
   });
 
   it("passes fast=true for gpt-5.5-fast", async () => {
-    setCursorModelsForTests([
+    seedCursorModelCatalog([
       {
         id: "gpt-5.5",
         displayName: "GPT-5.5",

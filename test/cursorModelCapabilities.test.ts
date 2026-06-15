@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it } from "vitest";
 import cursorModelsList from "./fixtures/cursorModelsList.json" with { type: "json" };
 import type { ModelListItem } from "@cursor/sdk";
+import { discoverFastParamModelIds } from "../src/agent/providers/cursor/modelCapabilities.js";
 import {
-  discoverFastParamModelIds,
-  resetCursorModelCapabilitiesForTests,
-  setCursorModelsForTests,
-} from "../src/agent/providers/cursor/modelCapabilities.js";
+  resetCursorModelCatalog,
+  seedCursorModelCatalog,
+} from "./helpers/cursorModelCatalogMock.js";
 import { toCursorSdkModelSelection } from "../src/agent/providers/cursor/models.js";
 
 describe("cursor model capabilities", () => {
   afterEach(() => {
-    resetCursorModelCapabilitiesForTests();
+    resetCursorModelCatalog();
   });
 
   it("discovers fast param from Cursor.models.list items", () => {
@@ -52,7 +52,7 @@ describe("cursor model capabilities", () => {
   });
 
   it("maps aliases to canonical ids in model selection", () => {
-    setCursorModelsForTests([
+    seedCursorModelCatalog([
       {
         id: "composer-2.5",
         displayName: "Composer 2.5",
@@ -67,7 +67,7 @@ describe("cursor model capabilities", () => {
   });
 
   it("exposes initialized fast ids to model selection", () => {
-    setCursorModelsForTests([
+    seedCursorModelCatalog([
       {
         id: "gpt-5.5",
         displayName: "GPT-5.5",

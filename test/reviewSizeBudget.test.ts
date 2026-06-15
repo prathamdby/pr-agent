@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { buildReviewSizeBudget, classifyReviewBudgetTier } from "../src/review/reviewSizeBudget.js";
+import {
+  buildReviewSizeBudget,
+  classifyReviewBudgetTier,
+} from "../src/review/reviewTrustedContext.js";
 
 describe("classifyReviewBudgetTier", () => {
   it("classifies small PRs", () => {
@@ -7,7 +10,6 @@ describe("classifyReviewBudgetTier", () => {
       classifyReviewBudgetTier({
         fileCount: 3,
         totalChanges: 40,
-        truncated: false,
       }),
     ).toBe("small");
   });
@@ -17,14 +19,12 @@ describe("classifyReviewBudgetTier", () => {
       classifyReviewBudgetTier({
         fileCount: 80,
         totalChanges: 100,
-        truncated: false,
       }),
     ).toBe("large");
     expect(
       classifyReviewBudgetTier({
         fileCount: 5,
         totalChanges: 2500,
-        truncated: false,
       }),
     ).toBe("large");
   });
@@ -33,6 +33,7 @@ describe("classifyReviewBudgetTier", () => {
 describe("buildReviewSizeBudget", () => {
   it("notes truncation in trusted context block", () => {
     const budget = buildReviewSizeBudget({
+      files: [],
       fileCount: 10,
       totalChanges: 100,
       truncated: true,

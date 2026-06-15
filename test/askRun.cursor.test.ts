@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  resetCursorModelCapabilitiesForTests,
-  setCursorModelsForTests,
-} from "../src/agent/providers/cursor/modelCapabilities.js";
+  resetCursorModelCatalog,
+  seedCursorModelCatalog,
+} from "./helpers/cursorModelCatalogMock.js";
 import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
@@ -61,11 +61,11 @@ const cursorCatalog = [
 describe("runAskRun cursor provider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setCursorModelsForTests(cursorCatalog);
+    seedCursorModelCatalog(cursorCatalog);
   });
 
   afterEach(() => {
-    resetCursorModelCapabilitiesForTests();
+    resetCursorModelCatalog();
   });
 
   it("returns assistant text from a single complete call", async () => {

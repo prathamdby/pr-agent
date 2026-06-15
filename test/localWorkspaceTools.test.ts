@@ -16,7 +16,7 @@ import {
   type GitGrepWorkspaceParams,
   type LocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
-import { LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE } from "../src/settings/index.js";
+import { LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE } from "../src/settings.js";
 
 const exec = promisify(execFile);
 

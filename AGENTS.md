@@ -6,33 +6,33 @@ All tunables are catalogued in [docs/configuration.md](docs/configuration.md).
 
 Code entry points:
 
-- **Env-backed defaults** — [src/settings/defaults.ts](src/settings/defaults.ts) and [src/settings/envKeys.ts](src/settings/envKeys.ts); loaded in [src/config.ts](src/config.ts)
-- **Code constants** — [src/settings/constants.ts](src/settings/constants.ts), re-exported from [src/settings/index.ts](src/settings/index.ts)
+- **Env-backed defaults** — [src/settings.ts](src/settings.ts) (`ENV`, `DEFAULT_*`); loaded in [src/config.ts](src/config.ts)
+- **Code constants** — [src/settings.ts](src/settings.ts)
 
 ## When you change a knob
 
-| Change                       | Update                                                                            |
-| ---------------------------- | --------------------------------------------------------------------------------- |
-| New or renamed env var       | `envKeys.ts`, `defaults.ts`, `config.ts`, `.env.example`, `docs/configuration.md` |
-| New or changed code constant | `constants.ts`, `docs/configuration.md`                                           |
-| Default value only           | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md`      |
+| Change                       | Update                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| New or renamed env var       | `settings.ts` (`ENV`, `DEFAULT_*`), `config.ts`, `.env.example`, `docs/configuration.md` |
+| New or changed code constant | `settings.ts`, `docs/configuration.md`                                                   |
+| Default value only           | `settings.ts`, `.env.example` (if documented there), `docs/configuration.md`             |
 
-Do not add magic numbers or env default strings in feature modules; import from `src/settings/`.
+Do not add magic numbers or env default strings in feature modules; import from `src/settings.ts`.
 
 `docs/configuration.md` code-constant rows are maintained on the honor system. CI enforces env alignment via `test/settingsInventory.test.ts`.
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/*Prompt*.ts` (ask, description, security/quality lenses). Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
+Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/*Prompt*.ts` (ask, description, security/quality lenses). Only numeric limits and shared user-visible strings belong in `settings.ts`.
 
 ## Module layout (production)
 
 | Area                 | Path                       | Public entry                                           |
 | -------------------- | -------------------------- | ------------------------------------------------------ |
-| Review run + publish | `src/review/`              | `reviewRun.ts`, `publish/publishReview.ts`             |
+| Review run + publish | `src/review/`              | `reviewRunHarness.ts`, `publish/publishReview.ts`      |
 | Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                    |
 | Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss) |
-| Agent work execution | `src/agentWork/executors/` | `index.ts`                                             |
+| Agent work execution | `src/agentWork/executors/` | concrete executor modules (e.g. `reviewExecutor.ts`)   |
 | Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`              |
 | Ask / description    | `src/agent/`               | `askRun.ts`, `descriptionRun.ts`                       |
 

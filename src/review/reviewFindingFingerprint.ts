@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE } from "../settings/index.js";
+import { REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE } from "../settings.js";
 import type { FingerprintedInlinePlacement, InlinePlacement } from "./reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewMode } from "./reviewSchema.js";
 

@@ -25,7 +25,7 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
-} from "../src/settings/index.js";
+} from "../src/settings.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import {
   REVIEW_SUMMARY_SENTINEL,

@@ -49,24 +49,15 @@ importers:
       '@octokit/auth-app':
         specifier: ^8.2.0
         version: 8.2.0
-      '@octokit/core':
-        specifier: ^7.0.6
-        version: 7.0.6
       '@octokit/plugin-retry':
         specifier: ^8.1.0
         version: 8.1.0(@octokit/core@7.0.6)
       '@octokit/plugin-throttling':
         specifier: ^11.0.3
         version: 11.0.3(@octokit/core@7.0.6)
-      '@octokit/request-error':
-        specifier: ^7.1.0
-        version: 7.1.0
       '@octokit/rest':
         specifier: ^22.0.1
         version: 22.0.1
-      '@octokit/types':
-        specifier: ^16.0.0
-        version: 16.0.0
       effect:
         specifier: 3.21.2
         version: 3.21.2

@@ -9,7 +9,7 @@ import {
   MAX_REPO_POLICY_PATH_PATTERN_CHARS,
   MAX_REPO_POLICY_TONE_CHARS,
   REPO_POLICY_FILENAME,
-} from "../settings/index.js";
+} from "../settings.js";
 import type { ReviewMode } from "./reviewSchema.js";
 
 const repoPolicySchema = z

@@ -11,7 +11,7 @@ import {
   TRIAGE_COMMIT_SUBJECT_MAX_CHARS,
   TRIAGE_COMMIT_TYPES,
   TRIAGE_MAX_COMMIT_DIFF_LINES,
-} from "../settings/index.js";
+} from "../settings.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 import { assertWorkspacePath } from "./localPrWorkspace.js";
 

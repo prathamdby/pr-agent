@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Agent, CursorAgentError } from "@cursor/sdk";
 import {
-  resetCursorModelCapabilitiesForTests,
-  setCursorModelsForTests,
-} from "../src/agent/providers/cursor/modelCapabilities.js";
+  resetCursorModelCatalog,
+  seedCursorModelCatalog,
+} from "./helpers/cursorModelCatalogMock.js";
 import { streamCursor } from "../src/agent/providers/cursor/streamCursor.js";
 import { attachCursorRunContext } from "../src/agent/providers/cursor/runContext.js";
 import { getCursorModel, toCursorSdkModelSelection } from "../src/agent/providers/cursor/models.js";
@@ -18,7 +18,7 @@ const composerModel = {
   displayName: "Composer 2.5",
   parameters: [{ id: "fast", values: [{ value: "true" }, { value: "false" }] }],
 };
-setCursorModelsForTests([composerModel]);
+seedCursorModelCatalog([composerModel]);
 const model = getCursorModel("composer-2.5");
 
 function baseContext(): Context {
@@ -46,11 +46,11 @@ function attachExecutors(context: Context): void {
 describe("streamCursor", () => {
   beforeEach(() => {
     vi.mocked(Agent.create).mockReset();
-    setCursorModelsForTests([composerModel]);
+    seedCursorModelCatalog([composerModel]);
   });
 
   afterEach(() => {
-    resetCursorModelCapabilitiesForTests();
+    resetCursorModelCatalog();
   });
 
   it("returns done message with approximate usage", async () => {

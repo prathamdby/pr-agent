@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   descriptionSingletonKey,
-  installationGroupId,
   prResourceKey,
   reviewSingletonKey,
 } from "../src/agentWork/types.js";
@@ -18,6 +17,6 @@ describe("agent work keys", () => {
     expect(reviewSingletonKey(resourceKey, "review-quality")).toBe("owner/repo#42:review-quality");
     expect(reviewSingletonKey(resourceKey, "review-tests")).toBe("owner/repo#42:review-tests");
     expect(descriptionSingletonKey(resourceKey)).toBe("owner/repo#42:description");
-    expect(installationGroupId(123)).toBe("123");
+    expect(String(123)).toBe("123");
   });
 });

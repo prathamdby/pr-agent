@@ -25,7 +25,7 @@ import {
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   REVIEW_QUEUE,
-} from "../../src/settings/index.js";
+} from "../../src/settings.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "intake-tx-it";

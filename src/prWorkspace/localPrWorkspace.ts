@@ -16,7 +16,7 @@ import {
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
-} from "../settings/index.js";
+} from "../settings.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 
 const exec = promisify(execFile);

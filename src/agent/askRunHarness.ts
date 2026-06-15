@@ -2,7 +2,7 @@ import { logInfo } from "../evlog.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "./context7Tools.js";
-import { ASK_FAILURE_MESSAGE, ASK_RETRY_NUDGE } from "../settings/index.js";
+import { ASK_FAILURE_MESSAGE, ASK_RETRY_NUDGE } from "../settings.js";
 import { resolveAgentRunnerProvider } from "./providers/index.js";
 import { buildAskUserContent } from "./askUserContent.js";
 import type { AskRunParams, AskRunResult } from "./askRunTypes.js";

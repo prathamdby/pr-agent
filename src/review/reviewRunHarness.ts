@@ -1,10 +1,12 @@
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { LocalPrWorkspace } from "../prWorkspace/index.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { upsertReviewSummaryComment } from "../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { WorkSource } from "./reviewSchema.js";
-import { assistantFromText, runSubmitOnlyRound } from "../agentRun/sessionHelpers.js";
+import { assistantFromText, runSubmitOnlyRound } from "../agent/sessionHelpers.js";
+import { pickSubmitOnlyBundle, runValidationRepairLoop } from "../agent/runHarnessLoops.js";
 import { resolveAgentRunnerProvider } from "../agent/providers/index.js";
 import { renderAnchorMenuBlock } from "./reviewDiffIndex.js";
 import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "./reviewPromptBlocks.js";
@@ -14,35 +16,39 @@ import {
   PUBLISH_RECOVERY_ROUNDS,
   VALIDATION_REPAIR_ROUNDS,
   type ReviewPhase,
-} from "../settings/index.js";
+} from "../settings.js";
 import {
   REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
   reviewRetrySlashCommandForMode,
   reviewSummarySentinelForMode,
   type ReviewMode,
 } from "./reviewSchema.js";
-import type { ReviewRunResult } from "./reviewRun.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
   recordReviewMetric,
   setReviewRunMetricFields,
 } from "./reviewRunMetrics.js";
-import {
-  buildReviewRunSetup,
-  buildSubmitOnlyReviewSessionTools,
-  shouldContinueReviewRun,
-} from "./reviewRunSetup.js";
+import type { SummaryCommentCoordination } from "./publish/publishReview.js";
+import { buildReviewRunSetup, shouldContinueReviewRun } from "./reviewRunSetup.js";
+
+export type ReviewRunResult = {
+  lastAssistant: AssistantMessage;
+  published: boolean;
+  publishAttempts: number;
+  publishSuperseded: boolean;
+};
 
 export async function runReviewHarness(params: {
   cfg: Config;
   token: string;
   tokenExpiresAtTs: number;
+  tokenTtlMs: number;
   owner: string;
   repo: string;
   prNumber: number;
   headSha: string;
-  reviewMode: ReviewMode;
+  reviewMode?: ReviewMode;
   userSupplement?: string;
   trustedContext?: string;
   cwd?: string;
@@ -58,6 +64,7 @@ export async function runReviewHarness(params: {
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
+  summaryCommentCoordination?: SummaryCommentCoordination;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   refreshInstallationToken?: () => Promise<{
@@ -69,7 +76,15 @@ export async function runReviewHarness(params: {
   publishAbortState?: { staleHead?: boolean };
   severityFloor?: number;
 }): Promise<ReviewRunResult> {
-  const { cfg, owner, repo, prNumber, reviewMode } = params;
+  if (!Number.isFinite(params.tokenExpiresAtTs)) {
+    throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+  }
+  if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
+    throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
+  }
+
+  const { cfg, owner, repo, prNumber } = params;
+  const reviewMode = params.reviewMode ?? "review";
   const providerName = cfg.agentProvider;
   initReviewRunMetrics({
     provider: providerName,
@@ -77,7 +92,7 @@ export async function runReviewHarness(params: {
     mode: reviewMode,
   });
 
-  const setup = buildReviewRunSetup(params);
+  const setup = buildReviewRunSetup({ ...params, reviewMode });
   const runner = resolveAgentRunnerProvider(cfg);
   let session = await runner.createSession({
     cfg,
@@ -92,27 +107,27 @@ export async function runReviewHarness(params: {
   let publishAttempts = 0;
 
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyReviewSessionTools(setup), prompt);
+    runSubmitOnlyRound(session, pickSubmitOnlyBundle(setup, "submitReview"), prompt);
 
   const runValidationRepair = async (phase: ReviewPhase) => {
-    recordReviewMetric({ kind: "phase_enter", phase });
-    for (
-      let repair = 0;
-      repair < VALIDATION_REPAIR_ROUNDS && shouldContinueReviewRun(setup);
-      repair++
-    ) {
-      const validationError = setup.submitState.lastValidationError;
-      if (!validationError) break;
-      setup.submitState.lastValidationError = null;
-      lastText = await sendSubmitOnlyRepair(
+    const repaired = await runValidationRepairLoop({
+      maxRounds: VALIDATION_REPAIR_ROUNDS,
+      shouldContinue: () => shouldContinueReviewRun(setup),
+      getValidationError: () => setup.submitState.lastValidationError,
+      clearValidationError: () => {
+        setup.submitState.lastValidationError = null;
+      },
+      sendRepair: sendSubmitOnlyRepair,
+      buildRepairPrompt: (validationError) =>
         [
           validationError,
           "Fix the payload and call submitReview again with a complete ReviewPayload.",
           `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
         ].join("\n\n"),
-      );
-      if (!shouldContinueReviewRun(setup)) break;
-    }
+      onEnter: () => recordReviewMetric({ kind: "phase_enter", phase }),
+      shouldStopAfterRepair: () => !shouldContinueReviewRun(setup),
+    });
+    if (repaired) lastText = repaired;
   };
 
   const runInvestigationPhase = async () => {
@@ -169,7 +184,7 @@ export async function runReviewHarness(params: {
       pr: prNumber,
     });
     if (isLastAttempt) {
-      const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
+      const submitOnly = pickSubmitOnlyBundle(setup, "submitReview");
       session.restrictToTools(submitOnly.piTools, submitOnly.executors);
     }
     for (

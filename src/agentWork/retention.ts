@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
-import { RETENTION_QUEUE } from "../settings/index.js";
+import { RETENTION_QUEUE } from "../settings.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 

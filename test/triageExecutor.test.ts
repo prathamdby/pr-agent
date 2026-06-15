@@ -7,7 +7,7 @@ import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_FAILURE_MESSAGE,
   TRIAGE_THREAD_NOT_ELIGIBLE,
-} from "../src/settings/index.js";
+} from "../src/settings.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   fetchReviewCommentParentGraph: vi.fn(),
   listReviewThreadResolution: vi.fn(),
   withWritablePrCheckout: vi.fn(),
-  runFullPrTriage: vi.fn(),
+  runTriageHarness: vi.fn(),
   parseStoredTriagePushDetail: vi.fn(),
   publishTriage: vi.fn(),
   publishTriageReportOnly: vi.fn(),
@@ -61,8 +61,8 @@ vi.mock("../src/prWorkspace/index.js", () => ({
   withWritablePrCheckout: mocks.withWritablePrCheckout,
 }));
 
-vi.mock("../src/agent/triageRun.js", () => ({
-  runFullPrTriage: mocks.runFullPrTriage,
+vi.mock("../src/agent/triageRunHarness.js", () => ({
+  runTriageHarness: mocks.runTriageHarness,
 }));
 
 vi.mock("../src/agent/publishTriage.js", () => ({
@@ -163,7 +163,7 @@ describe("executeTriageJob", () => {
         listCommittedDetails: () => [],
       }),
     );
-    mocks.runFullPrTriage.mockResolvedValue({
+    mocks.runTriageHarness.mockResolvedValue({
       submitted: true,
       payload: { verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "later" }] },
     });
@@ -187,7 +187,7 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(mocks.runTriageHarness).toHaveBeenCalled();
     expect(mocks.publishTriage).toHaveBeenCalled();
   });
 
@@ -240,7 +240,7 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+    expect(mocks.runTriageHarness).not.toHaveBeenCalled();
     expect(mocks.publishTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         payload,
@@ -262,7 +262,7 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(mocks.runTriageHarness).toHaveBeenCalled();
   });
 
   it("runs a fresh agent pass when same-work-item push detail has stale head", async () => {
@@ -278,7 +278,7 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(mocks.runTriageHarness).toHaveBeenCalled();
   });
 
   it("resumes latest unreported push from a prior triage work item", async () => {
@@ -295,7 +295,7 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).not.toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).not.toHaveBeenCalled();
+    expect(mocks.runTriageHarness).not.toHaveBeenCalled();
     expect(mocks.publishTriage).toHaveBeenCalledWith(
       expect.objectContaining({
         payload,
@@ -345,7 +345,7 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(mocks.runTriageHarness).toHaveBeenCalled();
   });
 
   it("runs a fresh agent pass when cross-work-item push detail has extra verdicts", async () => {
@@ -364,7 +364,7 @@ describe("executeTriageJob", () => {
     await executeTriageJob(cfg, pool, boss, job());
 
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
-    expect(mocks.runFullPrTriage).toHaveBeenCalled();
+    expect(mocks.runTriageHarness).toHaveBeenCalled();
   });
 
   it("filters inventory to one thread when scope is thread", async () => {
@@ -418,7 +418,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.runFullPrTriage).toHaveBeenCalledWith(
+    expect(mocks.runTriageHarness).toHaveBeenCalledWith(
       expect.objectContaining({
         inventory: [expect.objectContaining({ rootCommentId: 1 })],
         scope: "thread",

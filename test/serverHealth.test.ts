@@ -6,7 +6,8 @@ import { Effect, Fiber, Layer } from "effect";
 import type { Config } from "../src/config.js";
 import { initEvlog } from "../src/evlog.js";
 import { buildEffectWebhookLayer } from "../src/effect/server.js";
-import { WebhookDispatcher } from "../src/effect/services/webhookDispatcher.js";
+import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
+import { WebhookHandlers } from "../src/effect/services/webhookHandlers.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const testCfg = makeTestConfig({
@@ -186,20 +187,33 @@ type Handle = { server: http.Server; fiber: Fiber.RuntimeFiber<void, unknown> };
 function startEffectServer({
   pingResult = true,
   cfg = testCfg,
-  dispatch = () => Effect.void,
+  onDispatch = () => Effect.void,
 }: {
   readonly pingResult?: boolean;
   readonly cfg?: Config;
-  readonly dispatch?: () => Effect.Effect<void>;
+  readonly onDispatch?: () => Effect.Effect<void>;
 } = {}): Promise<Handle> {
   return new Promise((resolve, reject) => {
     let captured: http.Server | undefined;
-    const dispatcherLayer = Layer.succeed(
-      WebhookDispatcher,
-      WebhookDispatcher.of({
-        dispatch,
-        ping: () => Effect.succeed(pingResult),
-      }),
+    const intakeLayer = Layer.mergeAll(
+      Layer.succeed(
+        AgentWorkScheduler,
+        AgentWorkScheduler.of({
+          recordIgnored: () => onDispatch(),
+          submitAutomatedReview: () => onDispatch(),
+          submitSlashCommand: () => onDispatch(),
+          matchesStoredInlineReview: () => Effect.succeed(false),
+          ping: () => Effect.succeed(pingResult),
+        }),
+      ),
+      Layer.succeed(
+        WebhookHandlers,
+        WebhookHandlers.of({
+          pullRequest: () => onDispatch(),
+          issueComment: () => onDispatch(),
+          pullRequestReviewComment: () => onDispatch(),
+        }),
+      ),
     );
     const layer = buildEffectWebhookLayer(
       cfg,
@@ -211,7 +225,7 @@ function startEffectServer({
         captured.once("error", reject);
         return captured;
       },
-      dispatcherLayer,
+      intakeLayer,
     );
     const fiber = Effect.runFork(Layer.launch(layer));
   });
@@ -302,7 +316,7 @@ describe("effect webhook server (end-to-end)", () => {
     let dispatchCalls = 0;
     handle = await startEffectServer({
       cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
-      dispatch: () =>
+      onDispatch: () =>
         Effect.sync(() => {
           dispatchCalls += 1;
         }),
@@ -326,7 +340,7 @@ describe("effect webhook server (end-to-end)", () => {
     const destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
     handle = await startEffectServer({
       cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
-      dispatch: () =>
+      onDispatch: () =>
         Effect.sync(() => {
           dispatchCalls += 1;
         }),

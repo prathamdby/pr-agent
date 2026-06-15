@@ -4,7 +4,7 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import { ACK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
+import { ACK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/settings.js";
 import * as postgres from "../src/db/postgres.js";
 import { makeTestConfig } from "./helpers/config.js";
 

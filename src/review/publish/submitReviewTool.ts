@@ -2,19 +2,20 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
 import { logInfo, logWarn, logDebug } from "../../evlog.js";
+import type { SummaryCommentCoordination } from "./publishReview.js";
 import { publishReview } from "./publishReview.js";
 import type { CachedPrDiffIndex } from "../reviewDiffIndex.js";
 import { prepareReviewPayloadForPublish } from "../reviewPrePublish.js";
 import {
   PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
   REVIEW_DIFF_CACHE_REQUIRED_MESSAGE,
-} from "../../settings/index.js";
+} from "../../settings.js";
 import { recordReviewMetric } from "../reviewRunMetrics.js";
 import {
   coerceReviewPayloadInput,
-  createReviewPayloadSchema,
   formatReviewValidationError,
   REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
+  reviewPayloadSchema,
   reviewSummarySentinelForMode,
   type ReviewMode,
   type ReviewPublishContext,
@@ -31,7 +32,7 @@ export type SubmitReviewState = {
   publishSuperseded: boolean;
 };
 
-const SUBMIT_REVIEW_SCHEMA = createReviewPayloadSchema();
+const SUBMIT_REVIEW_SCHEMA = reviewPayloadSchema;
 const REVIEW_PAYLOAD_MINIMAL_EXAMPLE_JSON = JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE);
 const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
   unrepresentable: "any",
@@ -68,6 +69,7 @@ export function buildSubmitReviewTool(params: {
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
   ) => Promise<void>;
+  summaryCommentCoordination?: SummaryCommentCoordination;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
   publishAbortState?: { staleHead?: boolean };
@@ -229,6 +231,7 @@ export function buildSubmitReviewTool(params: {
         shouldLinkToSummary: params.shouldLinkToSummary,
         summaryCommentIdHint: params.summaryCommentIdHint,
         recordPublishStep: params.recordPublishStep,
+        summaryCommentCoordination: params.summaryCommentCoordination,
         storedInlineFingerprints: params.storedInlineFingerprints,
         staleReview: params.publishAbortState?.staleHead === true,
       });

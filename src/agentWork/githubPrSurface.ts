@@ -1,6 +1,6 @@
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
-import { GITHUB_REACTION_EYES } from "../settings/index.js";
+import { GITHUB_REACTION_EYES } from "../settings.js";
 import type { AckJobData, AckTarget } from "./types.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import { httpStatus } from "../github/httpStatus.js";
@@ -24,16 +24,6 @@ export async function getPullRequestHead(
     pull_number: prNumber,
   });
   return { headSha: data.head.sha, pullRequest: data };
-}
-
-export async function getPullRequestHeadSha(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  expiresAtTs?: number,
-): Promise<string> {
-  return (await getPullRequestHead(token, owner, repo, prNumber, expiresAtTs)).headSha;
 }
 
 export async function safeReaction(

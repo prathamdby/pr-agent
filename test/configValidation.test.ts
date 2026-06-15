@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../src/settings/index.js";
+import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../src/settings.js";
 
 function testPrivateKeyPem(): string {
   const { privateKey } = crypto.generateKeyPairSync("rsa", {

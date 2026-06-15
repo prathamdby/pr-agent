@@ -6,7 +6,8 @@ import {
   resolveReviewThread,
   type ReviewThreadResolution,
 } from "../github/reviewThreadResolution.js";
-import { redactReviewText } from "../review/reviewPublicOutput.js";
+import { shortSha } from "../github/markdownFormat.js";
+import { redactOutboundSecrets } from "../security.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
 import {
   TriagePayloadSchema,
@@ -18,7 +19,7 @@ import {
   TRIAGE_STALE_HEAD_NOTICE,
   TRIAGE_SUMMARY_SENTINEL,
   TRIAGE_THREAD_RESOLUTION_NOTICE,
-} from "../settings/index.js";
+} from "../settings.js";
 import { recordPublishStep } from "../agentWork/repository.js";
 import {
   captureTriageEvent,
@@ -102,10 +103,6 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
   };
 }
 
-function shortSha(sha: string): string {
-  return sha.slice(0, 7);
-}
-
 function actedThreadIdsFromDetail(detail: unknown): number[] {
   if (!detail || typeof detail !== "object" || !("actedThreadIds" in detail)) return [];
   const value = detail.actedThreadIds;
@@ -151,11 +148,11 @@ function replyBody(
   verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>,
 ): string {
   if (verdict.verdict === "fixed") {
-    return redactReviewText(
+    return redactOutboundSecrets(
       `**Triage**: fixed in ${shortSha(verdict.commitSha)} - ${verdict.evidence}`,
     );
   }
-  return redactReviewText(`**Triage**: already resolved - ${verdict.evidence}`);
+  return redactOutboundSecrets(`**Triage**: already resolved - ${verdict.evidence}`);
 }
 
 async function replyToThread(

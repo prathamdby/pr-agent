@@ -1,18 +1,18 @@
 # Configuration catalog
 
-Single place to find tunables for **pr-agent**. Code defaults live in [`src/settings/`](../src/settings/); env vars are loaded in [`src/config.ts`](../src/config.ts).
+Single place to find tunables for **pr-agent**. Code defaults and constants live in [`src/settings.ts`](../src/settings.ts); env vars are loaded in [`src/config.ts`](../src/config.ts).
 
 For behaviour, deployment, and developer scripts see [operations.md](operations.md). Maintenance rules: [AGENTS.md](../AGENTS.md).
 
 ## How to change something
 
-| Kind         | Where to edit                                                                |
-| ------------ | ---------------------------------------------------------------------------- |
-| **env**      | `.env` / deployment env → keys below; defaults in `src/settings/defaults.ts` |
-| **code**     | `src/settings/constants.ts`                                                  |
-| **external** | Provider env; loaded into config but never logged                            |
+| Kind         | Where to edit                                                         |
+| ------------ | --------------------------------------------------------------------- |
+| **env**      | `.env` / deployment env → keys below; defaults in `src/settings.ts`   |
+| **code**     | `src/settings.ts`                                                     |
+| **external** | Model provider API keys in `ENV`; loaded into config but never logged |
 
-Import convention: `import { … } from "../settings/index.js"` for constants; `Config` from `config.ts` at runtime.
+Import convention: `import { … } from "../settings.js"` for constants; `Config` from `config.ts` at runtime.
 
 ---
 
@@ -106,7 +106,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ---
 
-## Code constants (`src/settings/constants.ts`)
+## Code constants (`src/settings.ts`)
 
 ### Agent work (queues)
 
@@ -259,7 +259,6 @@ lensOverrides:
 | ----------------------------------------- | ------- |
 | `TOKEN_FRESHNESS_BUFFER_MS`               | 60000   |
 | `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h      |
-| `DEFAULT_COOLDOWN_SECONDS`                | 60      |
 | `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2       |
 | `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3       |
 | `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000    |

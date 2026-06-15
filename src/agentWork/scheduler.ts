@@ -3,15 +3,11 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { inTransaction } from "../db/postgres.js";
-import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
+import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings.js";
 import type { RequestLogger } from "../evlog.js";
 import { logWarn } from "../evlog.js";
-import {
-  applyAutomatedPullRequestIntake,
-  applySlashCommandIntake,
-  recordIgnoredWebhook,
-  type SlashCommandInput,
-} from "./intake/applier.js";
+import { applyAutomatedPullRequestIntake, recordIgnoredWebhook } from "./intake/applier.js";
+import { applySlashCommandIntake, type SlashCommandInput } from "./intake/slashIntake.js";
 import { hasStoredInlineReviewId } from "./repository.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 import { prResourceKey } from "./types.js";

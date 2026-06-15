@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { ACK_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
+import { ACK_QUEUE, REVIEW_QUEUE } from "../src/settings.js";
 import {
   buildStaleSlashReviewRescheduleResult,
   createSlashReviewRescheduleWorkItem,
@@ -13,11 +13,11 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
 }));
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getPullRequestHeadSha: vi.fn(),
+  getPullRequestHead: vi.fn(),
 }));
 
 import { getWorkItem } from "../src/agentWork/repository.js";
-import { getPullRequestHeadSha } from "../src/agentWork/githubPrSurface.js";
+import { getPullRequestHead } from "../src/agentWork/githubPrSurface.js";
 
 function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
   return {
@@ -138,7 +138,10 @@ describe("createSlashReviewRescheduleWorkItem", () => {
   });
 
   it("uses the persisted replacement head for the ack after an insert conflict", async () => {
-    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
+    vi.mocked(getPullRequestHead).mockResolvedValue({
+      headSha: "latest-head",
+      pullRequest: { head: { sha: "latest-head" } } as never,
+    });
     const query = vi
       .fn()
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })

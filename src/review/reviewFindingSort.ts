@@ -1,4 +1,4 @@
-import { REVIEW_SEVERITY_RANK } from "../settings/index.js";
+import { REVIEW_SEVERITY_RANK } from "../settings.js";
 import type { ReviewFinding } from "./reviewSchema.js";
 
 /** Canonical ordering: severity, file path, start line. */

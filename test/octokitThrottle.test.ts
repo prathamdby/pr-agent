@@ -4,7 +4,7 @@ import { onRateLimit, onSecondaryRateLimit } from "../src/github/octokitThrottle
 import {
   PRIMARY_RATE_LIMIT_MAX_RETRIES,
   SECONDARY_RATE_LIMIT_MAX_RETRIES,
-} from "../src/settings/index.js";
+} from "../src/settings.js";
 
 describe("octokitThrottle hooks", () => {
   const options = {

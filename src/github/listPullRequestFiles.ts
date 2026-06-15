@@ -1,5 +1,5 @@
 import type { RestEndpointMethodTypes } from "@octokit/rest";
-import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../settings/index.js";
+import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../settings.js";
 import { installationOctokit } from "./appAuth.js";
 
 export type PullRequestFileEntry = {

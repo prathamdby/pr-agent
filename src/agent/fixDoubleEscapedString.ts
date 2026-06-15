@@ -1,26 +1,20 @@
 const DOUBLE_ESCAPED_SEQUENCE_RE = /\\([nrt"'\\])/g;
 const HAS_DOUBLE_ESCAPED_SEQUENCE_RE = /\\[nrt"'\\]/;
 
+const DOUBLE_ESCAPED_UNESCAPE: Record<string, string> = {
+  n: "\n",
+  r: "\r",
+  t: "\t",
+  '"': '"',
+  "'": "'",
+  "\\": "\\",
+};
+
 function unescapeDoubleEscapedSequences(value: string): string {
   let current = value;
   for (let pass = 0; pass < value.length; pass++) {
     const next = current.replace(DOUBLE_ESCAPED_SEQUENCE_RE, (_, ch: string) => {
-      switch (ch) {
-        case "n":
-          return "\n";
-        case "r":
-          return "\r";
-        case "t":
-          return "\t";
-        case '"':
-          return '"';
-        case "'":
-          return "'";
-        case "\\":
-          return "\\";
-        default:
-          return `\\${ch}`;
-      }
+      return DOUBLE_ESCAPED_UNESCAPE[ch] ?? `\\${ch}`;
     });
     if (next === current) {
       return current;

@@ -12,6 +12,22 @@ vi.mock("../src/github/appAuth.js", () => ({
         updateComment,
       },
     },
+    paginate: async (
+      method: (params: Record<string, unknown>) => Promise<{ data: unknown[] }>,
+      params: Record<string, unknown>,
+      map: (response: { data: unknown[] }, done: () => void) => unknown,
+    ) => {
+      const all: unknown[] = [];
+      let page = 1;
+      for (;;) {
+        const response = await method({ ...params, page });
+        map(response, () => undefined);
+        all.push(...response.data);
+        if (response.data.length < (params.per_page as number)) break;
+        page += 1;
+      }
+      return all;
+    },
   }),
 }));
 

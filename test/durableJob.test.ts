@@ -117,6 +117,7 @@ function defaultMocks() {
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
   vi.mocked(repo.markWorkCancelled).mockResolvedValue();
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue();
+  clearDurableAuthCachesForTest();
   vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
     type: "token",
     tokenType: "installation",
@@ -124,7 +125,6 @@ function defaultMocks() {
     expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     installationId: 42,
   } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
-  clearDurableAuthCachesForTest();
   vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
     userId: 999,
     login: "pr-agent[bot]",
@@ -294,13 +294,16 @@ describe("runDurableWorkItem", () => {
               tokenType: "installation",
               token: "tok",
               expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-              installationId: 42,
+              installationId: 9001,
             } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>),
           );
         }),
     );
 
-    const pending = Promise.all([mintInstallationToken(cfg, 42), mintInstallationToken(cfg, 42)]);
+    const pending = Promise.all([
+      mintInstallationToken(cfg, 9001),
+      mintInstallationToken(cfg, 9001),
+    ]);
     await Promise.resolve();
     expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
     releaseMint();
@@ -310,22 +313,52 @@ describe("runDurableWorkItem", () => {
   });
 
   it("reuses installation token and app bot identity across jobs", async () => {
+    vi.resetModules();
+    const durableJobMod = await import("../src/agentWork/durableJob.js");
+    const appAuthMod = await import("../src/github/appAuth.js");
+    vi.mocked(appAuthMod.mintInstallationAuth).mockResolvedValue({
+      type: "token",
+      tokenType: "installation",
+      token: "tok",
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      installationId: 9002,
+    } as Awaited<ReturnType<typeof appAuthMod.mintInstallationAuth>>);
+    vi.mocked(appAuthMod.getAppBotIdentity).mockResolvedValue({
+      userId: 999,
+      login: "pr-agent[bot]",
+    } as Awaited<ReturnType<typeof appAuthMod.getAppBotIdentity>>);
+
     const first = makeItem({
+      installationId: 9002,
       payload: { mode: "review", source: "slash", commenterId: 1 },
     });
     const second = makeItem({
       id: "wi-2",
+      installationId: 9002,
       payload: { mode: "review", source: "slash", commenterId: 1 },
     });
     mockFetchedItems(first, second);
     const execute = vi.fn().mockResolvedValue({});
 
-    await runReviewWorkItem({ execute });
-    await runReviewWorkItem({ job: makeJob(), execute });
+    const runLocal = (
+      overrides: Partial<DurableJobSpec> & Pick<DurableJobSpec, "execute">,
+    ): Promise<void> =>
+      durableJobMod.runDurableWorkItem({
+        cfg,
+        pool,
+        boss,
+        job: makeJob(),
+        type: "review",
+        resolveHeadSha: async () => ({ headSha: "x" }),
+        ...overrides,
+      });
+
+    await runLocal({ execute });
+    await runLocal({ job: makeJob(), execute });
 
     expect(execute).toHaveBeenCalledTimes(2);
-    expect(appAuth.mintInstallationAuth).toHaveBeenCalledTimes(1);
-    expect(appAuth.getAppBotIdentity).toHaveBeenCalledTimes(1);
+    expect(appAuthMod.mintInstallationAuth).toHaveBeenCalledTimes(1);
+    expect(appAuthMod.getAppBotIdentity).toHaveBeenCalledTimes(1);
   });
 
   it("refreshes stale installation tokens", async () => {
@@ -336,18 +369,18 @@ describe("runDurableWorkItem", () => {
         tokenType: "installation",
         token: "old-token",
         expiresAt: new Date(Date.now() + 1_000).toISOString(),
-        installationId: 42,
+        installationId: 9003,
       } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>)
       .mockResolvedValueOnce({
         type: "token",
         tokenType: "installation",
         token: "new-token",
         expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
-        installationId: 42,
+        installationId: 9003,
       } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
 
-    const first = await mintInstallationToken(cfg, 42);
-    const second = await mintInstallationToken(cfg, 42);
+    const first = await mintInstallationToken(cfg, 9003);
+    const second = await mintInstallationToken(cfg, 9003);
 
     expect(first.token).toBe("old-token");
     expect(second.token).toBe("new-token");

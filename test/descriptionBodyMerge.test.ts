@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { mergeDescriptionIntoPrBody } from "../src/agent/descriptionBodyMerge.js";
-import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
+import { DESCRIPTION_AGENT_HEADER } from "../src/settings.js";
 
 const agentBlock = `${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement`;
 

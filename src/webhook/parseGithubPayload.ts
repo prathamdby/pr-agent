@@ -6,7 +6,7 @@ import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
 import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
 import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
-import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
+import { AUTOMATED_PR_ACTIONS } from "../settings.js";
 
 export class WebhookParseError extends Error {
   constructor(

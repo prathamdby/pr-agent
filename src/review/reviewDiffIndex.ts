@@ -1,4 +1,4 @@
-import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../settings/index.js";
+import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../settings.js";
 import { wrapUntrustedBlock } from "../agent/promptBlocks.js";
 import { escapeTableHtml } from "../github/markdownFormat.js";
 

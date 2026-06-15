@@ -2,14 +2,14 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { posthog } from "../../posthog.js";
-import { runFullPrDescription } from "../../agent/descriptionRun.js";
+import { runDescriptionHarness } from "../../agent/descriptionRunHarness.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import {
   DESCRIPTION_AGENT_HEADER,
   DESCRIPTION_FAILURE_MESSAGE,
   DESCRIPTION_PUBLISH_LENS,
-} from "../../settings/index.js";
+} from "../../settings.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { recordPublishStep, shouldSkipWork } from "../repository.js";
 import {
@@ -48,7 +48,7 @@ export async function executeDescriptionJob(
           repositorySizeKb: payload.repositorySizeKb,
         },
         async (repositoryView) => {
-          const result = await runFullPrDescription({
+          const result = await runDescriptionHarness({
             cfg,
             token: tokenState.installation.token,
             tokenExpiresAtTs: tokenState.installation.expiresAtTs,

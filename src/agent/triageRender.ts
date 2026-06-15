@@ -2,7 +2,7 @@ import { escapeTableCellContent, renderTableCode } from "../github/markdownForma
 import type { TriageScope } from "../agentWork/types.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
 import type { TriagePayload, TriageVerdict } from "../review/triageSchema.js";
-import { TRIAGE_SUMMARY_SENTINEL } from "../settings/index.js";
+import { TRIAGE_SUMMARY_SENTINEL } from "../settings.js";
 
 type CommitDetail = {
   readonly sha: string;

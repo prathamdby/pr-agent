@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 import { logInfo } from "../evlog.js";
 
-import { MIGRATIONS_DIR_NAME, MIGRATION_ADVISORY_LOCK_KEY } from "../settings/index.js";
+import { MIGRATIONS_DIR_NAME, MIGRATION_ADVISORY_LOCK_KEY } from "../settings.js";
 
 const MIGRATIONS_DIR = path.join(process.cwd(), MIGRATIONS_DIR_NAME);
 

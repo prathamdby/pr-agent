@@ -1,23 +1,29 @@
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { TriageScope } from "../agentWork/types.js";
 import type { Config } from "../config.js";
-import { assistantFromText, runSubmitOnlyRound } from "../agentRun/sessionHelpers.js";
+import { assistantFromText, runSubmitOnlyRound } from "./sessionHelpers.js";
 import { logInfo } from "../evlog.js";
 import { resolveAgentRunnerProvider } from "./providers/index.js";
-import type { TriageRunResult } from "./triageRun.js";
 import {
-  buildSubmitOnlyTriageSessionTools,
-  buildTriageRunSetup,
-  shouldContinueTriageRun,
-} from "./triageRunSetup.js";
+  pickSubmitOnlyBundle,
+  runSubmitOnlyNudgeLoop,
+  runValidationRepairLoop,
+} from "./runHarnessLoops.js";
+import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.js";
 import type { BotFindingThread } from "../review/reviewPriorFeedback.js";
+import type { TriagePayload } from "../review/triageSchema.js";
 import type { WritablePrCheckout } from "../prWorkspace/writablePrCheckout.js";
-import {
-  TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
-  TRIAGE_VALIDATION_REPAIR_ROUNDS,
-} from "../settings/index.js";
+import { TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS, TRIAGE_VALIDATION_REPAIR_ROUNDS } from "../settings.js";
 
 const TRIAGE_SUBMIT_ONLY_NUDGE =
   "You replied with text only. Call submitTriage now with a complete TriagePayload.";
+
+export type TriageRunResult = {
+  readonly lastAssistant: AssistantMessage;
+  readonly submitted: boolean;
+  readonly payload: TriagePayload | null;
+  readonly commitByThreadRootCommentId: ReadonlyMap<number, string>;
+};
 
 export async function runTriageHarness(params: {
   readonly cfg: Config;
@@ -44,22 +50,20 @@ export async function runTriageHarness(params: {
 
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt);
+    runSubmitOnlyRound(session, pickSubmitOnlyBundle(setup, "submitTriage"), prompt);
 
-  const runValidationRepair = async () => {
-    for (
-      let repair = 0;
-      repair < TRIAGE_VALIDATION_REPAIR_ROUNDS && shouldContinueTriageRun(setup);
-      repair++
-    ) {
-      const validationError = setup.submitState.lastValidationError;
-      if (!validationError) break;
-      setup.submitState.lastValidationError = null;
-      lastText = await sendSubmitOnlyRepair(
+  const runValidationRepair = () =>
+    runValidationRepairLoop({
+      maxRounds: TRIAGE_VALIDATION_REPAIR_ROUNDS,
+      shouldContinue: () => shouldContinueTriageRun(setup),
+      getValidationError: () => setup.submitState.lastValidationError,
+      clearValidationError: () => {
+        setup.submitState.lastValidationError = null;
+      },
+      sendRepair: sendSubmitOnlyRepair,
+      buildRepairPrompt: (validationError) =>
         [validationError, "Fix the payload and call submitTriage again."].join("\n\n"),
-      );
-    }
-  };
+    });
 
   try {
     lastText = (
@@ -68,16 +72,17 @@ export async function runTriageHarness(params: {
       })
     ).text;
 
-    for (
-      let nudge = 0;
-      nudge < TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueTriageRun(setup);
-      nudge++
-    ) {
-      lastText = await sendSubmitOnlyRepair(TRIAGE_SUBMIT_ONLY_NUDGE);
-      await runValidationRepair();
-    }
+    const nudged = await runSubmitOnlyNudgeLoop({
+      maxRounds: TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
+      shouldContinue: () => shouldContinueTriageRun(setup),
+      nudgeText: TRIAGE_SUBMIT_ONLY_NUDGE,
+      sendNudge: sendSubmitOnlyRepair,
+      runValidationRepair,
+    });
+    if (nudged) lastText = nudged;
 
-    await runValidationRepair();
+    const repaired = await runValidationRepair();
+    if (repaired) lastText = repaired;
 
     if (setup.submitState.submitted) {
       logInfo("triage_run_completed", { owner, repo, pr: prNumber });

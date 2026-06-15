@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { ASK_FAILURE_MESSAGE } from "../src/settings/index.js";
+import { ASK_FAILURE_MESSAGE } from "../src/settings.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 

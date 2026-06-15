@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  resetCursorModelCapabilitiesForTests,
-  setCursorModelsForTests,
-} from "../src/agent/providers/cursor/modelCapabilities.js";
+  resetCursorModelCatalog,
+  seedCursorModelCatalog,
+} from "./helpers/cursorModelCatalogMock.js";
 import * as evlog from "../src/evlog.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/securityPrompt.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -57,7 +57,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
 
 import { complete } from "@earendil-works/pi-ai";
 import { buildSubmitReviewTool } from "../src/review/publish/submitReviewTool.js";
-import { runFullPrReview } from "../src/review/reviewRun.js";
+import { runReviewHarness } from "../src/review/reviewRunHarness.js";
 
 const cursorCfg = makeTestConfig({
   agentProvider: "cursor",
@@ -80,19 +80,19 @@ const cursorCatalog = [
   },
 ];
 
-describe("runFullPrReview cursor provider", () => {
+describe("runReviewHarness cursor provider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setCursorModelsForTests(cursorCatalog);
+    seedCursorModelCatalog(cursorCatalog);
   });
 
   afterEach(() => {
-    resetCursorModelCapabilitiesForTests();
+    resetCursorModelCatalog();
   });
 
   it("rejects non-finite tokenExpiresAtTs", async () => {
     await expect(
-      runFullPrReview({
+      runReviewHarness({
         cfg: cursorCfg,
         token: "t",
         tokenExpiresAtTs: NaN,
@@ -107,7 +107,7 @@ describe("runFullPrReview cursor provider", () => {
   });
 
   it("uses session sends and security lens prompt for review-security", async () => {
-    const result = await runFullPrReview({
+    const result = await runReviewHarness({
       cfg: cursorCfg,
       token: "t",
       tokenExpiresAtTs: farFutureTokenExpiry,
@@ -116,7 +116,7 @@ describe("runFullPrReview cursor provider", () => {
       repo: "r",
       prNumber: 1,
       headSha: "sha",
-      mode: "review-security",
+      reviewMode: "review-security",
       workspace: testWorkspace,
     });
 
@@ -136,7 +136,7 @@ describe("runFullPrReview cursor provider", () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     const infoSpy = vi.spyOn(evlog, "logInfo");
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
-      await runFullPrReview({
+      await runReviewHarness({
         cfg: cursorCfg,
         token: "t",
         tokenExpiresAtTs: farFutureTokenExpiry,

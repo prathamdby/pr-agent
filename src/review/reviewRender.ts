@@ -36,7 +36,7 @@ import {
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
   TESTS_REVIEW_POINTER_BODY,
-} from "../settings/index.js";
+} from "../settings.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "./reviewDiffPlacement.js";
 import type {
@@ -49,29 +49,47 @@ import { reviewSummarySentinelForMode } from "./reviewSchema.js";
 import type { InlinePlacement } from "./reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "./reviewDiffIndex.js";
 
-export {
-  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-  REPEAT_NO_BUGS_PREFIX,
-  REVIEW_POINTER_BODY,
-  REVIEW_POINTER_BODY_MAX_CHARS,
-  REVIEW_POINTER_NOTE_LEAD,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
-} from "../settings/index.js";
-
-export type RenderContext = ReviewPublishContext;
-
 const CODE_FENCE_RE = /```/g;
 const HTML_COMMENT_DASH_RE = /--/g;
 const HTML_COMMENT_CLOSE_RE = />/g;
+
+const REVIEW_MODE_POINTER: Record<
+  ReviewMode,
+  { body: string; linkLabel: string; repeatLinkLabel: string }
+> = {
+  review: {
+    body: REVIEW_POINTER_BODY,
+    linkLabel: "View the updated review.",
+    repeatLinkLabel: "see the updated review",
+  },
+  "review-security": {
+    body: SECURITY_REVIEW_POINTER_BODY,
+    linkLabel: "View the updated security review.",
+    repeatLinkLabel: "see the updated security review",
+  },
+  "review-quality": {
+    body: QUALITY_REVIEW_POINTER_BODY,
+    linkLabel: "View the updated code-quality review.",
+    repeatLinkLabel: "see the updated code-quality review",
+  },
+  "review-tests": {
+    body: TESTS_REVIEW_POINTER_BODY,
+    linkLabel: "View the updated test-case proposals.",
+    repeatLinkLabel: "see the updated test-case proposals",
+  },
+};
 
 /** Prevent model-authored text from closing a surrounding markdown code fence. */
 function escapeCodeFenceBreakers(text: string): string {
   return text.replace(CODE_FENCE_RE, "\\`\\`\\`");
 }
 
-function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLine: number): string {
+function blobLineUrl(
+  ctx: ReviewPublishContext,
+  file: string,
+  startLine: number,
+  endLine: number,
+): string {
   const lineAnchor = startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`;
   return `https://github.com/${ctx.owner}/${ctx.repo}/blob/${ctx.headSha}/${file}#${lineAnchor}`;
 }
@@ -81,53 +99,12 @@ function formatEffortLabelHtml(effort: number): string {
   return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
 }
 
-function reviewPointerBodyForMode(mode: ReviewMode): string {
-  switch (mode) {
-    case "review-security":
-      return SECURITY_REVIEW_POINTER_BODY;
-    case "review-quality":
-      return QUALITY_REVIEW_POINTER_BODY;
-    case "review-tests":
-      return TESTS_REVIEW_POINTER_BODY;
-    case "review":
-      return REVIEW_POINTER_BODY;
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
-}
-
-function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
-  if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
-  switch (mode) {
-    case "review-security":
-      return `[View the updated security review.](${summaryCommentUrl})`;
-    case "review-quality":
-      return `[View the updated code-quality review.](${summaryCommentUrl})`;
-    case "review-tests":
-      return `[View the updated test-case proposals.](${summaryCommentUrl})`;
-    case "review":
-      return `[View the updated review.](${summaryCommentUrl})`;
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
-}
-
 export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
+  const pointer = REVIEW_MODE_POINTER[mode];
   if (summaryCommentUrl) {
-    switch (mode) {
-      case "review-security":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`;
-      case "review-quality":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${summaryCommentUrl}).`;
-      case "review-tests":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated test-case proposals](${summaryCommentUrl}).`;
-      case "review":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
-    }
-    const exhaustive: never = mode;
-    return exhaustive;
+    return `${REPEAT_NO_BUGS_PREFIX}, [${pointer.repeatLinkLabel}](${summaryCommentUrl}).`;
   }
-  return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
+  return `${REPEAT_NO_BUGS_PREFIX}. ${pointer.body}`;
 }
 
 export function renderLightweightReviewCompletion(mode: ReviewMode): string {
@@ -198,10 +175,6 @@ function sortPlacements(placements: readonly InlinePlacement[]): InlinePlacement
   );
 }
 
-function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
-  return [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
-}
-
 function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boolean }): string {
   const location = `@${finding.file} ${formatLineRange(finding.startLine, finding.endLine)}`;
   const lines: string[] = [];
@@ -220,7 +193,10 @@ function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boo
   return lines.join("\n");
 }
 
-function renderSingleFindingAgentFixPrompt(finding: ReviewFinding, ctx: RenderContext): string {
+function renderSingleFindingAgentFixPrompt(
+  finding: ReviewFinding,
+  ctx: ReviewPublishContext,
+): string {
   return [
     AGENT_FIX_PROMPT_PREAMBLE,
     "",
@@ -295,7 +271,7 @@ export function renderReviewWalkthroughBlock(
 
 function renderFindingTableCellHtml(
   placement: InlinePlacement,
-  ctx: RenderContext,
+  ctx: ReviewPublishContext,
   findingFields: FindingTableFields,
   compact: boolean,
 ): string {
@@ -335,7 +311,7 @@ function renderSuggestedCodeBlock(finding: ReviewFinding): string[] {
   return ["", "```suggestion", escapedCode, "```"];
 }
 
-export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
+export function renderInlineThreadBody(finding: ReviewFinding, ctx: ReviewPublishContext): string {
   const lines = [
     `**${finding.severity}** · **${finding.title}**`,
     "",
@@ -358,13 +334,13 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
 
 export function renderAgentFixPrompt(
   payload: ReviewPayload,
-  ctx: RenderContext,
+  ctx: ReviewPublishContext,
   placements: readonly InlinePlacement[],
 ): string {
   const placementByKey = new Map(
     placements.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
-  const sorted = sortFindingsForAgentFixPrompt(payload.findings);
+  const sorted = [...payload.findings].toSorted(compareReviewFindingsBySeverityFileLine);
 
   const blocks = sorted.map((f) => {
     const placement = placementByKey.get(reviewFindingPlacementKey(f));
@@ -388,7 +364,8 @@ export function renderAgentFixPrompt(
 
 function renderPointerLead(mode: ReviewMode, summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
-    return renderReviewPointerLine(mode, summaryCommentUrl);
+    const pointer = REVIEW_MODE_POINTER[mode];
+    return `[${pointer.linkLabel}](${summaryCommentUrl})`;
   }
   return renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_POINTER_NOTE_LEAD);
 }
@@ -416,6 +393,10 @@ function assembleReviewPointerBody(
   return parts.join("\n");
 }
 
+function reviewPointerBodyWrapperOverhead(pointerLine: string, droppedNote: string | null): number {
+  return assembleReviewPointerBody(pointerLine, "", droppedNote).length;
+}
+
 function truncateAgentFixPromptForPointerBody(
   agentFixPrompt: string,
   pointerLine: string,
@@ -425,7 +406,7 @@ function truncateAgentFixPromptForPointerBody(
   prompt: string;
   truncated: boolean;
 } {
-  const wrapperOverhead = assembleReviewPointerBody(pointerLine, "", droppedNote).length;
+  const wrapperOverhead = reviewPointerBodyWrapperOverhead(pointerLine, droppedNote);
   const maxPromptChars = Math.max(0, maxBodyChars - wrapperOverhead);
 
   if (agentFixPrompt.length <= maxPromptChars) {
@@ -446,7 +427,7 @@ export function renderReviewPointerLensMarker(mode: ReviewMode): string {
 
 export function renderReviewPointerBody(
   payload: ReviewPayload,
-  ctx: RenderContext & {
+  ctx: ReviewPublishContext & {
     mode: ReviewMode;
     summaryCommentUrl?: string;
     placements: readonly InlinePlacement[];
@@ -458,8 +439,10 @@ export function renderReviewPointerBody(
   let agentFixPrompt = renderAgentFixPrompt(payload, ctx, ctx.placements);
   let truncated = false;
 
-  let body = assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote);
-  if (body.length > REVIEW_POINTER_BODY_MAX_CHARS) {
+  if (
+    assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote).length >
+    REVIEW_POINTER_BODY_MAX_CHARS
+  ) {
     const result = truncateAgentFixPromptForPointerBody(
       agentFixPrompt,
       pointerLine,
@@ -468,17 +451,16 @@ export function renderReviewPointerBody(
     );
     agentFixPrompt = result.prompt;
     truncated = result.truncated;
-    body = assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote);
   }
 
-  body = `${body}\n${renderReviewPointerLensMarker(ctx.mode)}`;
+  const body = `${assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote)}\n${renderReviewPointerLensMarker(ctx.mode)}`;
   return { body, truncated };
 }
 
 /** Expects `ctx.placements` pre-sorted by severity, file, and line (`sortPlacements`). */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
-  ctx: RenderContext & {
+  ctx: ReviewPublishContext & {
     summarySentinel: string;
     placements: readonly InlinePlacement[];
     mode?: ReviewMode;
@@ -596,7 +578,7 @@ function buildReviewSummaryBody(
 
 export function fitReviewSummaryBody(
   payload: ReviewPayload,
-  ctx: RenderContext & {
+  ctx: ReviewPublishContext & {
     summarySentinel: string;
     placements: readonly InlinePlacement[];
     mode?: ReviewMode;
@@ -672,7 +654,7 @@ export function fitReviewSummaryBody(
 
 export function renderReviewSummaryComment(
   payload: ReviewPayload,
-  ctx: RenderContext & {
+  ctx: ReviewPublishContext & {
     summarySentinel: string;
     placements: readonly InlinePlacement[];
     mode?: ReviewMode;
@@ -682,3 +664,14 @@ export function renderReviewSummaryComment(
 ): string {
   return fitReviewSummaryBody(payload, ctx, REVIEW_SUMMARY_BODY_MAX_CHARS);
 }
+
+export {
+  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
+  REPEAT_NO_BUGS_PREFIX,
+  REVIEW_POINTER_BODY,
+  REVIEW_POINTER_BODY_MAX_CHARS,
+  REVIEW_POINTER_NOTE_LEAD,
+  SECURITY_REVIEW_POINTER_BODY,
+  QUALITY_REVIEW_POINTER_BODY,
+  TESTS_REVIEW_POINTER_BODY,
+} from "../settings.js";

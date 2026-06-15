@@ -1,4 +1,4 @@
-import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../settings/index.js";
+import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../settings.js";
 import { isTransientGitHubReviewError } from "./reviewErrors.js";
 
 export { isTransientGitHubReviewError } from "./reviewErrors.js";

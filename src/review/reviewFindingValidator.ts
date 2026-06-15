@@ -1,4 +1,4 @@
-import { DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../settings/index.js";
+import { DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../settings.js";
 import type { ReviewPayload } from "./reviewSchema.js";
 import { isInlineSeverity } from "./reviewSchema.js";
 import { planInlinePlacements, type InlinePlacement } from "./reviewDiffPlacement.js";

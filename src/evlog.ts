@@ -13,7 +13,7 @@ const LEVEL_RANK: Record<WideEventLevel, number> = {
   error: 3,
 };
 
-import { DEFAULT_LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
+import { DEFAULT_LOG_MAX_WIDE_EVENTS } from "./settings.js";
 
 const DEFAULT_MAX_WIDE_EVENTS = DEFAULT_LOG_MAX_WIDE_EVENTS;
 

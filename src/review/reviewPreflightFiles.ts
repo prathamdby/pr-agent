@@ -9,26 +9,26 @@ export type ReviewPreflightMetadata = {
   readonly totalChanges: number;
 };
 
-export function buildReviewPreflightMetadataFromPullRequestFiles(
-  prFiles: ListPullRequestFilesResult,
+export function buildReviewPreflightMetadata(
+  source:
+    | { kind: "pullRequestFiles"; value: ListPullRequestFilesResult }
+    | { kind: "workspace"; value: LocalPrWorkspace },
 ): ReviewPreflightMetadata {
-  const files = prFiles.files.map((file) => ({ filename: file.filename }));
-  return {
-    files,
-    truncated: prFiles.truncated,
-    fileCount: files.length,
-    totalChanges: prFiles.totalChanges,
-  };
-}
+  if (source.kind === "pullRequestFiles") {
+    const files = source.value.files.map((file) => ({ filename: file.filename }));
+    return {
+      files,
+      truncated: source.value.truncated,
+      fileCount: files.length,
+      totalChanges: source.value.totalChanges,
+    };
+  }
 
-export function buildReviewPreflightMetadataFromWorkspace(
-  workspace: LocalPrWorkspace,
-): ReviewPreflightMetadata {
-  const files = workspace.changedFiles.map((file) => ({ filename: file.path }));
+  const files = source.value.changedFiles.map((file) => ({ filename: file.path }));
   return {
     files,
-    truncated: workspace.stats.truncated,
-    fileCount: workspace.stats.fileCount,
-    totalChanges: workspace.stats.totalChanges,
+    truncated: source.value.stats.truncated,
+    fileCount: source.value.stats.fileCount,
+    totalChanges: source.value.stats.totalChanges,
   };
 }

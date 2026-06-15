@@ -2,11 +2,13 @@ import { Duration, Effect } from "effect";
 import type { Config } from "../../config.js";
 import { posthog } from "../../posthog.js";
 import { emitOperationLogger, recordEvent } from "../../evlog.js";
-import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
+import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings.js";
+import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
-import { IntakeLogger } from "../intakeLogger.js";
+import { IntakeLogger } from "../server.js";
+import { WebhookHandlers } from "../services/webhookHandlers.js";
+import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import { WebhookHandlerError } from "../errors.js";
-import { WebhookDispatcher } from "../services/webhookDispatcher.js";
 
 type DispatchResult =
   | { readonly kind: "ok" }
@@ -24,13 +26,69 @@ export type WebhookResponseLike = {
   contentType?: string;
 };
 
+type DispatchInput = {
+  cfg: Config;
+  headers: {
+    delivery?: string;
+    event?: string;
+    rawBody: Buffer;
+  };
+  payload: Record<string, unknown>;
+};
+
+function dispatchGithubEventEffect(
+  input: DispatchInput,
+): Effect.Effect<void, Error, AgentWorkScheduler | WebhookHandlers | IntakeLogger> {
+  return Effect.gen(function* () {
+    const { cfg, headers, payload } = input;
+    const event = headers.event ?? "";
+    const intakeLog = yield* IntakeLogger;
+
+    if (!headers.delivery) {
+      recordEvent(intakeLog, "missing_delivery_id_using_body_hash", undefined, "warn");
+    }
+
+    let parsed: ReturnType<typeof parseGithubPayload>;
+    try {
+      parsed = parseGithubPayload(event, payload);
+    } catch (e) {
+      if (e instanceof WebhookParseError) {
+        recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message }, "warn");
+        return;
+      }
+      return yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
+    }
+
+    const scheduler = yield* AgentWorkScheduler;
+    if (parsed.name === "ignored") {
+      recordEvent(intakeLog, "ignored_event", { event }, "debug");
+      yield* scheduler.recordIgnored(headers, `ignored_event_${event || "missing"}`, intakeLog);
+      return;
+    }
+
+    const handlers = yield* WebhookHandlers;
+    switch (parsed.name) {
+      case "pull_request":
+        yield* handlers.pullRequest(cfg, headers, parsed.data);
+        return;
+      case "issue_comment":
+        yield* handlers.issueComment(cfg, headers, parsed.data);
+        return;
+      case "pull_request_review_comment":
+        yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data);
+        return;
+      default:
+        parsed satisfies never;
+    }
+  });
+}
+
 export function processWebhookPostRequestEffect(
   cfg: Config,
   req: WebhookPostRequest,
-): Effect.Effect<WebhookResponseLike, never, WebhookDispatcher | IntakeLogger> {
+): Effect.Effect<WebhookResponseLike, never, AgentWorkScheduler | WebhookHandlers | IntakeLogger> {
   return Effect.gen(function* () {
     const intakeLog = yield* IntakeLogger;
-    const dispatcher = yield* WebhookDispatcher;
     const delivery = req.headers["x-github-delivery"];
     const githubEvent = req.headers["x-github-event"] ?? "";
     const logDelivery = delivery ?? "(missing)";
@@ -71,47 +129,52 @@ export function processWebhookPostRequestEffect(
 
     const t0 = Date.now();
     const responseBudgetMs = Math.max(1, cfg.webhookTimeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
-    const result: DispatchResult = yield* dispatcher
-      .dispatch({
-        cfg,
-        headers: { delivery, event: githubEvent, rawBody: req.rawBody },
-        payload,
-      })
-      .pipe(
-        Effect.timeout(Duration.millis(responseBudgetMs)),
-        Effect.map(() => ({ kind: "ok" as const })),
-        Effect.catchTag("TimeoutException", () =>
-          Effect.sync(() => {
-            recordEvent(
-              intakeLog,
-              "webhook_timeout_budget_exceeded",
-              {
-                event: githubEvent,
-                delivery: logDelivery,
-                budgetMs: cfg.webhookTimeoutMs,
-                responseBudgetMs,
-              },
-              "warn",
-            );
-            return { kind: "timeout" as const };
+    const result: DispatchResult = yield* dispatchGithubEventEffect({
+      cfg,
+      headers: { delivery, event: githubEvent, rawBody: req.rawBody },
+      payload,
+    }).pipe(
+      Effect.mapError(
+        (err) =>
+          new WebhookHandlerError({
+            cause: err,
+            message: err instanceof Error ? err.message : String(err),
           }),
-        ),
-        Effect.catchTag("WebhookHandlerError", (err: WebhookHandlerError) =>
-          Effect.sync(() => {
-            recordEvent(
-              intakeLog,
-              "webhook_handler_error",
-              {
-                event: githubEvent,
-                delivery: logDelivery,
-                message: err.message,
-              },
-              "error",
-            );
-            return { kind: "failed" as const };
-          }),
-        ),
-      );
+      ),
+      Effect.timeout(Duration.millis(responseBudgetMs)),
+      Effect.map(() => ({ kind: "ok" as const })),
+      Effect.catchTag("TimeoutException", () =>
+        Effect.sync(() => {
+          recordEvent(
+            intakeLog,
+            "webhook_timeout_budget_exceeded",
+            {
+              event: githubEvent,
+              delivery: logDelivery,
+              budgetMs: cfg.webhookTimeoutMs,
+              responseBudgetMs,
+            },
+            "warn",
+          );
+          return { kind: "timeout" as const };
+        }),
+      ),
+      Effect.catchTag("WebhookHandlerError", (err) =>
+        Effect.sync(() => {
+          recordEvent(
+            intakeLog,
+            "webhook_handler_error",
+            {
+              event: githubEvent,
+              delivery: logDelivery,
+              message: err.message,
+            },
+            "error",
+          );
+          return { kind: "failed" as const };
+        }),
+      ),
+    );
     const elapsedMs = Date.now() - t0;
 
     if (result.kind !== "ok") {
@@ -193,3 +256,5 @@ export function processWebhookPostRequestEffect(
     ),
   );
 }
+
+export { dispatchGithubEventEffect };

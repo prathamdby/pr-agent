@@ -1,6 +1,10 @@
 import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
+import {
+  COMMENTS_PAGE_SIZE,
+  COMMENT_PAGINATION_MAX_PAGES,
+  REVIEW_SUMMARY_SENTINEL,
+} from "../settings.js";
 
 export type InlineReviewComment = {
   path: string;
@@ -8,9 +12,6 @@ export type InlineReviewComment = {
   side: "RIGHT";
   body: string;
 };
-
-import { COMMENTS_PAGE_SIZE, COMMENT_PAGINATION_MAX_PAGES } from "../settings/index.js";
-import { paginateOctokitPages } from "./paginateOctokit.js";
 
 export async function createPullRequestReviewWithComments(
   token: string,
@@ -53,21 +54,22 @@ export async function listPullRequestReviewCommentsForReview(
   expiresAtTs?: number,
 ): Promise<PublishedReviewComment[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const comments = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listCommentsForReview({
-        owner,
-        repo,
-        pull_number: pullNumber,
-        review_id: reviewId,
-        per_page: perPage,
-        page,
-      });
-      return data;
+  let pageCount = 0;
+  const comments = await octokit.paginate(
+    octokit.rest.pulls.listCommentsForReview,
+    {
+      owner,
+      repo,
+      pull_number: pullNumber,
+      review_id: reviewId,
+      per_page: COMMENTS_PAGE_SIZE,
     },
-  });
+    (response, done) => {
+      pageCount += 1;
+      if (pageCount >= COMMENT_PAGINATION_MAX_PAGES) done();
+      return response.data;
+    },
+  );
   const parsed = comments.flatMap((comment) => {
     if (comment.path == null || comment.line == null) return [];
     return [
@@ -121,21 +123,22 @@ export async function findIssueCommentBySentinel(
 ): Promise<IssueCommentRef | null> {
   const octokit = installationOctokit(token, expiresAtTs);
   let lastMatch: IssueCommentRef | null = null;
+  let pageCount = 0;
 
-  const pages = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.issues.listComments({
-        owner,
-        repo,
-        issue_number: issueNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
+  const pages = await octokit.paginate(
+    octokit.rest.issues.listComments,
+    {
+      owner,
+      repo,
+      issue_number: issueNumber,
+      per_page: COMMENTS_PAGE_SIZE,
     },
-  });
+    (response, done) => {
+      pageCount += 1;
+      if (pageCount >= COMMENT_PAGINATION_MAX_PAGES) done();
+      return response.data;
+    },
+  );
 
   for (const c of pages) {
     if ((c.body ?? "").startsWith(sentinel)) {
