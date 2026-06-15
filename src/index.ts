@@ -3,6 +3,7 @@ import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { startEffectWebhookServer } from "./effect/server.js";
 import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
+import { captureAgentProviderBootFailure } from "./agent/providers/bootAnalytics.js";
 import { resolveAgentRunnerProvider } from "./agent/providers/index.js";
 import { shutdownPostHog } from "./posthog.js";
 async function main() {
@@ -41,6 +42,7 @@ async function main() {
         });
       }
     } catch (e) {
+      captureAgentProviderBootFailure(cfg.agentProvider, e);
       console.error(e instanceof Error ? e.message : e);
       await shutdownPostHog();
       process.exit(1);

@@ -113,7 +113,10 @@ export async function runFullPrDescription(params: {
               nudge++
             ) {
               if (setup.submitState.published) break;
-              lastText = await sendSubmitOnlyRepair(DESCRIPTION_SUBMIT_ONLY_NUDGE);
+              const nudgeText = await sendSubmitOnlyRepair(DESCRIPTION_SUBMIT_ONLY_NUDGE);
+              if (!setup.submitState.lastValidationError) {
+                lastText = nudgeText;
+              }
               await runValidationRepair();
             }
           },
