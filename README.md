@@ -6,6 +6,8 @@
 
 `pr-agent` · Node 22+ · Postgres · pg-boss
 
+[![CodSpeed](https://img.shields.io/endpoint?url=https://codspeed.io/badge.json)](https://app.codspeed.io/prathamdby/pr-agent?utm_source=badge)
+
 </div>
 
 > **Async by design.** Webhooks return **`200`** after durable intake (Postgres + pg-boss enqueue). Reactions, progress comments, reviews, descriptions, and ask answers publish on **`ROLE=worker`** and may appear seconds later.

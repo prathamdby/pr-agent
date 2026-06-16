@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
+    "bench": "vitest bench --run --config vitest.bench.config.ts",
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
     "site:dev": "pnpm --filter pr-agent-landing dev",
     "site:build": "pnpm --filter pr-agent-landing build",
@@ -52,6 +53,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@codspeed/vitest-plugin": "5.5.0",
     "@types/node": "^25.9.1",
     "@types/pg": "^8.20.0",
     "oxfmt": "^0.53.0",
