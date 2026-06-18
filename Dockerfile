@@ -7,6 +7,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g --ignore-scripts=false @nubjs/nub
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY site/package.json site/package.json
 RUN --mount=type=cache,id=nub-store,target=/root/.local/share/nub/store \
   nub ci
 
