@@ -70,9 +70,10 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 ### Local development edge cases
 
-- **`pnpm dev` does not load `.env`**. Use `node --env-file=.env --import tsx src/index.ts` when you need `.env` values (see [AGENTS.md](../AGENTS.md)).
+- **`nub` loads `.env` automatically** for direct TypeScript entry (`nub src/index.ts`). Use [`nub watch src/index.ts`](https://nubjs.com/docs/watch) for auto-restart. If you previously installed with pnpm, delete `node_modules` before the first `nub install`.
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key**. For local-only dev: `openssl genrsa 2048 > key.pem` and set the escaped PEM in `.env`.
 - Tunnel webhooks (e.g. [smee.io](https://smee.io)) to local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
+- **Vercel site deploys** still use pnpm via [site/vercel.json](../site/vercel.json); local and CI site builds use Nub (`nub run site:build`).
 
 Canonical quick start steps live in [README.md](../README.md) **Getting Started**.
 
@@ -80,32 +81,34 @@ Canonical quick start steps live in [README.md](../README.md) **Getting Started*
 
 ### Scripts
 
-| Script                           | Purpose                            |
-| -------------------------------- | ---------------------------------- |
-| `pnpm dev`                       | Run `src/index.ts` (`ROLE` env)    |
-| `pnpm build`                     | Compile to `dist/`                 |
-| `pnpm start`                     | Run compiled `dist/`               |
-| `pnpm typecheck`                 | `tsc --noEmit` (`src/` only)       |
-| `pnpm lint`                      | Type-aware Oxlint                  |
-| `pnpm lint:fix`                  | Oxlint with safe fixes             |
-| `pnpm fmt`                       | Format with Oxfmt                  |
-| `pnpm fmt:check`                 | Check formatting                   |
-| `pnpm check:code`                | `typecheck` + `lint` + `fmt:check` |
-| `pnpm run check:effect-versions` | Verify pinned Effect deps          |
-| `pnpm test`                      | Vitest (`test/**/*.test.ts`)       |
-| `pnpm test:watch`                | Vitest watch mode                  |
+Install [Nub](https://nubjs.com) once (`npm install -g --ignore-scripts=false @nubjs/nub`), then use `nub install` / `nub run` / `nub ci` in place of pnpm. Production and Docker runtime stay plain `node` on compiled output.
+
+| Script                             | Purpose                            |
+| ---------------------------------- | ---------------------------------- |
+| `nub src/index.ts` / `nub run dev` | Run `src/index.ts` (`ROLE` env)    |
+| `nub run build`                    | Compile to `dist/`                 |
+| `nub run start`                    | Run compiled `dist/`               |
+| `nub run typecheck`                | `tsc --noEmit` (`src/` only)       |
+| `nub run lint`                     | Type-aware Oxlint                  |
+| `nub run lint:fix`                 | Oxlint with safe fixes             |
+| `nub run fmt`                      | Format with Oxfmt                  |
+| `nub run fmt:check`                | Check formatting                   |
+| `nub run check:code`               | `typecheck` + `lint` + `fmt:check` |
+| `nub run check:effect-versions`    | Verify pinned Effect deps          |
+| `nub run test`                     | Vitest (`test/**/*.test.ts`)       |
+| `nub run test:watch`               | Vitest watch mode                  |
 
 Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs.
 
 ### Effect version gate
 
-`pnpm run check:effect-versions` enforces pinned versions:
+`nub run check:effect-versions` enforces pinned versions:
 
 - `effect@3.21.2`
 - `@effect/platform@0.96.1`
 - `@effect/platform-node@0.106.0`
 
-`pnpm test` runs this gate before Vitest (`pretest`).
+`nub run test` runs this gate before Vitest (`pretest`).
 
 Maintainer rules: [AGENTS.md](../AGENTS.md).
 

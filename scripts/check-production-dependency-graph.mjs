@@ -3,9 +3,9 @@ import { execFileSync } from "node:child_process";
 const forbiddenEvlogPeers = new Set(["express", "hono", "next", "react", "vite"]);
 
 const output = execFileSync(
-  "pnpm",
-  ["list", "--prod", "--filter", "pr-agent", "--depth", "Infinity", "--json", "--lockfile-only"],
-  { encoding: "utf8" },
+  "nub",
+  ["list", "--prod", "--filter", "pr-agent", "--depth", "Infinity", "--json"],
+  { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
 );
 
 const projects = JSON.parse(output);

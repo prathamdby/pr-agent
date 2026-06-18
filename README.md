@@ -63,17 +63,17 @@ More deployment detail: [docs/operations.md](docs/operations.md).
 ```bash
 docker compose up postgres
 cp .env.example .env
-corepack enable
-pnpm install
+npm install -g --ignore-scripts=false @nubjs/nub
+nub install
 
 # terminal 1: enqueue only
-ROLE=web DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
+ROLE=web DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub src/index.ts
 
 # terminal 2: reviews, descriptions, asks
-ROLE=worker DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent pnpm dev
+ROLE=worker DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub src/index.ts
 ```
 
-`pnpm dev` alone does not load `.env`. Prefer `node --env-file=.env --import tsx src/index.ts` when you need env file values. Tunnel webhooks (e.g. [smee.io](https://smee.io)) to `/webhooks`.
+`nub` loads `.env` automatically for direct TypeScript entry (`nub src/index.ts`). Use [`nub watch src/index.ts`](https://nubjs.com/docs/watch) for auto-restart on source, tsconfig, and env changes. If you previously installed with pnpm, delete `node_modules` before the first `nub install` to avoid mixed virtual-store layouts. Tunnel webhooks (e.g. [smee.io](https://smee.io)) to `/webhooks`.
 
 Minimal env:
 

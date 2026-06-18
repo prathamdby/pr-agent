@@ -6,23 +6,23 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
-    "dev": "node --import tsx src/index.ts",
+    "dev": "src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "oxlint --type-aware",
     "lint:backend": "oxlint --type-aware --ignore-pattern 'site/**'",
     "lint:fix": "oxlint --type-aware --fix",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "check:code": "pnpm run typecheck && pnpm run lint && pnpm run fmt:check",
+    "check:code": "nub run typecheck && nub run lint && nub run fmt:check",
     "check:prod-deps": "node scripts/check-production-dependency-graph.mjs",
     "pretest": "node scripts/check-effect-versions.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
-    "site:dev": "pnpm --filter pr-agent-landing dev",
-    "site:build": "pnpm --filter pr-agent-landing build",
-    "site:generate-og": "pnpm --filter pr-agent-landing generate:og"
+    "site:dev": "nub run --filter pr-agent-landing dev",
+    "site:build": "nub run --filter pr-agent-landing build",
+    "site:generate-og": "nub run --filter pr-agent-landing generate:og"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.17",
@@ -57,7 +57,6 @@
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",
     "oxlint-tsgolint": "^0.23.0",
-    "tsx": "^4.22.4",
     "typescript": "^6.0.3",
     "vitest": "^4.1.8"
   },

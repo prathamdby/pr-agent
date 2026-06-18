@@ -38,7 +38,7 @@ Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/
 
 Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `reviewDiffPlacement.ts`.
 
-Run `pnpm dlx knip` after refactors to catch unused exports and files.
+Run `nub dlx knip` after refactors to catch unused exports and files.
 
 ## Documentation
 
@@ -57,14 +57,15 @@ When a change alters **runtime topology**, update the Mermaid diagram in [README
 | Service               | How to run                                                                                                                                               | Notes                                                        |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
 | Postgres 16           | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                       |
-| Web (webhook intake)  | `ROLE=web node --env-file=.env --import tsx src/index.ts`                                                                                                | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
-| Worker (reviews/asks) | `ROLE=worker node --env-file=.env --import tsx src/index.ts`                                                                                             | Needs a running web role to receive work                     |
+| Web (webhook intake)  | `ROLE=web nub src/index.ts`                                                                                                                              | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
+| Worker (reviews/asks) | `ROLE=worker nub src/index.ts`                                                                                                                           | Needs a running web role to receive work                     |
 
 ### Gotchas
 
-- **`pnpm dev` does not load `.env`** — the app has no dotenv dependency. Use `node --env-file=.env --import tsx src/index.ts` (with `ROLE=web` or `ROLE=worker` set in `.env` or the shell) instead of `pnpm dev` when you need `.env` values.
+- **Install Nub once** — `npm install -g --ignore-scripts=false @nubjs/nub`. Use `nub install` for dependencies; delete `node_modules` before the first Nub install if you previously used pnpm (mixed virtual-store layouts).
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key** — `loadConfig()` calls `crypto.createPrivateKey()` and throws on placeholders. For local-only dev, generate a throwaway key: `openssl genrsa 2048 > key.pem` and set the `.env` value to the escaped content.
 - **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`.
-- **Tests (`pnpm test`)** are pure unit/integration tests and do not need Postgres or any running service.
-- **Lint/fmt commands**: `pnpm lint` (oxlint, type-aware), `pnpm typecheck` (tsc), `pnpm fmt:check` (oxfmt). Combined: `pnpm check:code`.
-- **Ignored build scripts warning** from pnpm is expected for some transitive deps (`esbuild`, `protobufjs`). **`sqlite3` is approved** in `package.json` (`pnpm.onlyBuiltDependencies`) because `@cursor/sdk` needs its native binding when `PI_PROVIDER=cursor`. The Docker image compiles `sqlite3` in the `deps` stage (with `python3`/`make`/`g++`) and copies `node_modules` into runtime — do not run a fresh `pnpm install --prod` in the final stage without build tools.
+- **Tests (`nub run test`)** are pure unit/integration tests and do not need Postgres or any running service.
+- **Lint/fmt commands**: `nub run lint` (oxlint, type-aware), `nub run typecheck` (tsc), `nub run fmt:check` (oxfmt). Combined: `nub run check:code`.
+- **Ignored build scripts warning** from Nub is expected for some transitive deps (`esbuild`, `protobufjs`). **`sqlite3` is approved** in `package.json` (`pnpm.onlyBuiltDependencies`) because `@cursor/sdk` needs its native binding when `AGENT_PROVIDER=cursor`. The Docker image compiles `sqlite3` in the `deps` stage (with `python3`/`make`/`g++`) and copies `node_modules` into runtime — do not run a fresh `nub prune --prod` in the final stage without build tools.
+- **Vercel site deploys** still use pnpm via [site/vercel.json](site/vercel.json) until Vercel has native Nub support.

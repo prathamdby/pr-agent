@@ -28,6 +28,7 @@ jobs:
               - ".github/workflows/ci.yml"
               - ".dockerignore"
               - ".env.example"
+              - ".node-version"
               - ".npmrc"
               - "Dockerfile"
               - "migrations/**"
@@ -41,6 +42,7 @@ jobs:
               - "vitest*.config.ts"
             site:
               - ".github/workflows/ci.yml"
+              - ".node-version"
               - "pnpm-lock.yaml"
               - "pnpm-workspace.yaml"
               - "site/**"
@@ -51,19 +53,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: corepack enable
-      - uses: actions/setup-node@v4
+      - uses: nubjs/setup-nub@v1
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --filter pr-agent...
-      - run: pnpm run check:effect-versions
-      - run: pnpm run check:prod-deps
-      - run: pnpm run typecheck
-      - run: pnpm run lint:backend
-      - run: pnpm run fmt:check
-      - run: pnpm test
-      - run: pnpm run build
+          cache: true
+          node-version-file: .node-version
+      - run: nub ci --filter pr-agent...
+      - run: nub run check:effect-versions
+      - run: nub run check:prod-deps
+      - run: nub run typecheck
+      - run: nub run lint:backend
+      - run: nub run fmt:check
+      - run: nub run test
+      - run: nub run build
 
   integration:
     needs: changes
@@ -87,13 +88,12 @@ jobs:
       DATABASE_URL: postgres://pr_agent:pr_agent@localhost:5432/pr_agent
     steps:
       - uses: actions/checkout@v4
-      - run: corepack enable
-      - uses: actions/setup-node@v4
+      - uses: nubjs/setup-nub@v1
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --filter pr-agent...
-      - run: pnpm run test:integration
+          cache: true
+          node-version-file: .node-version
+      - run: nub ci --filter pr-agent...
+      - run: nub run test:integration
 
   docker:
     needs: changes
@@ -115,10 +115,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: corepack enable
-      - uses: actions/setup-node@v4
+      - uses: nubjs/setup-nub@v1
         with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --filter pr-agent-landing...
-      - run: pnpm run site:build
+          cache: true
+          node-version-file: .node-version
+      - run: nub ci --filter pr-agent-landing...
+      - run: nub run site:build
