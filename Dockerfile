@@ -8,7 +8,8 @@ RUN apt-get update \
 RUN npm install -g --ignore-scripts=false @nubjs/nub
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc .node-version ./
 RUN --mount=type=cache,id=nub-store,target=/root/.local/share/nub/store \
-  nub ci
+  sed -i '/- "site"/d' pnpm-workspace.yaml \
+  && nub install --no-frozen-lockfile
 
 FROM deps AS prod-deps
 RUN nub prune --prod
