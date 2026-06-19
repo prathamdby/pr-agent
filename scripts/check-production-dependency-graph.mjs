@@ -2,10 +2,11 @@ import { execFileSync } from "node:child_process";
 
 const forbiddenEvlogPeers = new Set(["express", "hono", "next", "react", "vite"]);
 
+const nubCmd = process.platform === "win32" ? "nub.cmd" : "nub";
 const output = execFileSync(
-  "pnpm",
-  ["list", "--prod", "--filter", "pr-agent", "--depth", "Infinity", "--json", "--lockfile-only"],
-  { encoding: "utf8" },
+  nubCmd,
+  ["list", "--prod", "--filter", "pr-agent", "--depth", "Infinity", "--json"],
+  { encoding: "utf8", maxBuffer: 50 * 1024 * 1024 },
 );
 
 const projects = JSON.parse(output);

@@ -5,20 +5,19 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-RUN corepack enable && corepack prepare pnpm@10.34.1 --activate
-COPY package.json pnpm-lock.yaml .npmrc ./
-RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-  pnpm config set store-dir /pnpm/store \
-  && pnpm install --frozen-lockfile
+RUN npm install -g --ignore-scripts=false @nubjs/nub
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc .node-version ./
+RUN --mount=type=cache,id=nub-store,target=/root/.local/share/nub/store \
+  nub ci
 
 FROM deps AS prod-deps
-RUN pnpm prune --prod
+RUN nub prune --prod
 
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.build.json ./
 COPY src ./src
 COPY migrations ./migrations
-RUN pnpm run build
+RUN nub run build
 
 FROM node:22.22.0-bookworm-slim AS runtime
 WORKDIR /app
