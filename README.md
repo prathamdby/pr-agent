@@ -239,7 +239,7 @@ flowchart LR
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
 5. **Review / ask / description / triage workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
-6. **Reviews** ([`runFullPrReview`](src/review/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
+6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).
 
