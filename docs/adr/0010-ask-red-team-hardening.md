@@ -6,7 +6,7 @@ Accepted.
 
 ## Context
 
-The `/ask` command ([ADR 0008](0008-ask-command.md)) runs a tool-loop agent over PR code. Comment text, diff hunks, and tool output can carry prompt-injection or exfiltration attempts. Prior defenses were prompt-only ("do not paste secrets") with no outbound redaction ([README](../README.md) noted no deterministic redaction in v1).
+The `/ask` command ([ADR 0008](0008-ask-command.md)) runs a tool-loop agent over PR code. Comment text, diff hunks, and tool output can carry prompt-injection or exfiltration attempts. Prior defenses were prompt-only ("do not paste secrets") with no outbound redaction ([README](../../README.md) noted no deterministic redaction in v1).
 
 Review runs must remain unchanged; `/ask` must still answer normal code questions, including security vocabulary and env-var usage in the repository under review.
 

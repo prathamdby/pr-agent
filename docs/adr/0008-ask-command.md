@@ -36,7 +36,7 @@ This repo already runs reviews through a Pi-AI tool loop with native GitHub REST
 
 ## Current implementation (2025-05)
 
-- Production routing: [`AgentWorkScheduler.submitSlashCommand`](../../src/agentWork/scheduler.ts) → `agent-work-ask` job → [`runAskRun`](../../src/agent/askRun.ts) in the worker.
+- Production routing: [`AgentWorkScheduler.submitSlashCommand`](../../src/agentWork/scheduler.ts) → `agent-work-ask` job → [`runAskRun`](../../src/agent/ask/askRun.ts) in the worker.
 
 ## Reversal
 

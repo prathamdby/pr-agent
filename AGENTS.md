@@ -23,18 +23,18 @@ Do not add magic numbers or env default strings in feature modules; import from 
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in `src/review/*Prompt*.ts` and `src/agent/*Prompt*.ts` (ask, description, security/quality lenses). Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
+Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, and `src/agent/description/`. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
 
 ## Module layout (production)
 
 | Area                 | Path                       | Public entry                                           |
 | -------------------- | -------------------------- | ------------------------------------------------------ |
-| Review run + publish | `src/review/`              | `reviewRun.ts`, `publish/publishReview.ts`             |
+| Review run + publish | `src/review/`              | `run/reviewRun.ts`, `publish/publishReview.ts`         |
 | Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                    |
 | Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss) |
 | Agent work execution | `src/agentWork/executors/` | `index.ts`                                             |
 | Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`              |
-| Ask / description    | `src/agent/`               | `askRun.ts`, `descriptionRun.ts`                       |
+| Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`       |
 
 Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `reviewDiffPlacement.ts`.
 
@@ -54,11 +54,11 @@ When a change alters **runtime topology**, update the Mermaid diagram in [README
 
 ### Services overview
 
-| Service               | How to run                                                                                                                                               | Notes                                                        |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Postgres 16           | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                       |
-| Web (webhook intake)  | `ROLE=web nub src/index.ts`                                                                                                                              | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
-| Worker (reviews/asks) | `ROLE=worker nub src/index.ts`                                                                                                                           | Needs a running web role to receive work                     |
+| Service              | How to run                                                                                                                                               | Notes                                                        |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Postgres 16          | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                       |
+| Web (webhook intake) | `ROLE=web nub src/index.ts`                                                                                                                              | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
+| Worker (agent work)  | `ROLE=worker nub src/index.ts`                                                                                                                           | Processes reviews, descriptions, asks, and triage            |
 
 ### Gotchas
 

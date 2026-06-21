@@ -26,9 +26,9 @@ Operators may still request a full pass with `/review`.
 
 ## Current implementation
 
-- Gate: [`reviewChangeGate.ts`](../../src/review/reviewChangeGate.ts)
+- Gate: [`reviewChangeGate.ts`](../../src/review/run/reviewChangeGate.ts)
 - Worker path: [`reviewLightweightCompletion.ts`](../../src/agentWork/reviewLightweightCompletion.ts) from [`executors/reviewExecutor.ts`](../../src/agentWork/executors/reviewExecutor.ts); pg-boss wiring in [`worker.ts`](../../src/agentWork/worker.ts)
-- Render: [`reviewRender.ts`](../../src/review/reviewRender.ts) `renderLightweightReviewCompletion`
+- Render: [`reviewRender.ts`](../../src/review/run/reviewRender.ts) `renderLightweightReviewCompletion`
 - Glossary: [`CONTEXT.md`](../../CONTEXT.md)
 
 ## Consequences
