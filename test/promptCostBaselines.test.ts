@@ -107,6 +107,12 @@ describe("prompt cost baselines", () => {
     expect(localTools.map((tool) => tool.name).toSorted()).toEqual([...LOCAL_WORKSPACE_TOOL_NAMES]);
     expect(context7Tools.map((tool) => tool.name).toSorted()).toEqual([...CONTEXT7_TOOL_NAMES]);
   });
+
+  it("keeps stable JSON compatible with toJSON values", () => {
+    expect(stableJson({ z: 1, at: new Date("2026-06-21T00:00:00.000Z") })).toBe(
+      '{"at":"2026-06-21T00:00:00.000Z","z":1}',
+    );
+  });
 });
 
 function promptSurfaces(): PromptSurface[] {

@@ -66,6 +66,7 @@ function budgetMessage(
 }
 
 function sortJson(value: unknown): unknown {
+  if (hasToJson(value)) return sortJson(value.toJSON());
   if (Array.isArray(value)) return value.map(sortJson);
   if (!isRecord(value)) return value;
   return Object.fromEntries(
@@ -77,4 +78,13 @@ function sortJson(value: unknown): unknown {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != null && !Array.isArray(value);
+}
+
+function hasToJson(value: unknown): value is { readonly toJSON: () => unknown } {
+  return (
+    typeof value === "object" &&
+    value != null &&
+    "toJSON" in value &&
+    typeof value.toJSON === "function"
+  );
 }
