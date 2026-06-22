@@ -6,6 +6,20 @@ type MockTurnEndEvent = {
   toolResults: unknown[];
   message: {
     role: "assistant";
+    usage?: {
+      input: number;
+      output: number;
+      cacheRead: number;
+      cacheWrite: number;
+      totalTokens: number;
+      cost: {
+        input: number;
+        output: number;
+        cacheRead: number;
+        cacheWrite: number;
+        total: number;
+      };
+    };
     content: Array<
       | { type: "text"; text: string }
       | { type: "thinking"; thinking: string }
@@ -105,6 +119,49 @@ describe("piAgentRunnerProvider.send", () => {
 
     const result = await runnerSession.send("question");
     expect(result.text).toBe("End-user summary and testing checklist.");
+    expect(result.prompt).toEqual({
+      inputCharacters: "question".length,
+      inputBytes: Buffer.byteLength("question", "utf8"),
+    });
+    expect(result.usage).toBeUndefined();
+  });
+
+  it("returns exact usage when mocked turn events include provider token data", async () => {
+    const session = buildMockSession((emit) => {
+      emit({
+        type: "turn_end",
+        toolResults: [],
+        message: {
+          ...makeAssistantMessage("Final answer."),
+          usage: {
+            input: 20,
+            output: 8,
+            cacheRead: 5,
+            cacheWrite: 0,
+            totalTokens: 28,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+        },
+      });
+    });
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const result = await runnerSession.send("question");
+    expect(result.usage).toEqual({
+      estimated: false,
+      inputTokens: 20,
+      outputTokens: 8,
+      cacheReadTokens: 5,
+      cacheWriteTokens: 0,
+      totalTokens: 28,
+    });
   });
 
   it("returns empty text when aborted before a terminal answer turn", async () => {
@@ -252,7 +309,7 @@ describe("piAgentRunnerProvider.send", () => {
         message: makeAssistantMessage("Final answer."),
       });
       resolvePrompt?.();
-      await expect(sendPromise).resolves.toEqual({ text: "Final answer." });
+      await expect(sendPromise).resolves.toMatchObject({ text: "Final answer." });
       expect(abort).not.toHaveBeenCalled();
       expect(setIntervalSpy).toHaveBeenCalledTimes(1);
     } finally {

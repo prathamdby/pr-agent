@@ -37,6 +37,8 @@ describe("reviewRunMetrics", () => {
         kind: "tool_call",
         name: "listPullRequestFiles",
         ok: true,
+        resultBytes: 120,
+        resultCharacters: 118,
       });
       recordReviewMetric({
         kind: "tool_call",
@@ -67,6 +69,28 @@ describe("reviewRunMetrics", () => {
         findingsCount: 1,
         severities: ["P1"],
       });
+      recordReviewMetric({
+        kind: "model_turn",
+        prompt: { inputCharacters: 100, inputBytes: 104 },
+        usage: {
+          estimated: true,
+          inputTokens: 25,
+          outputTokens: 10,
+          totalTokens: 35,
+        },
+      });
+      recordReviewMetric({
+        kind: "model_turn",
+        prompt: { inputCharacters: 40, inputBytes: 40 },
+        usage: {
+          estimated: false,
+          inputTokens: 12,
+          outputTokens: 6,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 3,
+          totalTokens: 18,
+        },
+      });
       setReviewRunMetricFields({ published: true, publishAttempts: 1 });
 
       const snapshot = snapshotReviewRunMetrics();
@@ -89,6 +113,18 @@ describe("reviewRunMetrics", () => {
         diffCacheEmptyAtFirstSubmit: true,
         toolCallCount: 2,
         toolCallErrors: 1,
+        toolResultBytes: 120,
+        toolResultCharacters: 118,
+        modelTurnCount: 2,
+        promptBytes: 144,
+        promptCharacters: 140,
+        estimatedInputTokens: 25,
+        estimatedOutputTokens: 10,
+        providerInputTokens: 12,
+        providerOutputTokens: 6,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 3,
+        estimatedTurnCount: 1,
         findingsCount: 1,
         severities: ["P1"],
       });
@@ -108,17 +144,19 @@ describe("reviewRunMetrics", () => {
       setReviewRunMetricFields({ published: false, publishAttempts: 2 });
       logReviewRunCompleted({ extra: true });
     });
-    expect(infoSpy).toHaveBeenCalledWith(
-      "review_run_completed",
-      expect.objectContaining({
-        provider: "cursor",
-        model: "composer-2.5",
-        mode: "review-security",
-        published: false,
-        publishAttempts: 2,
-        extra: true,
-      }),
-    );
+    const payload = infoSpy.mock.calls.find(([event]) => event === "review_run_completed")?.[1];
+    expect(payload).toMatchObject({
+      provider: "cursor",
+      model: "composer-2.5",
+      mode: "review-security",
+      published: false,
+      publishAttempts: 2,
+      extra: true,
+      modelTurnCount: 0,
+      cacheReadTokens: null,
+      cacheWriteTokens: null,
+    });
+    expect(JSON.stringify(payload)).not.toMatch(/submitReview|password|BEGIN RSA/i);
     infoSpy.mockRestore();
   });
 });

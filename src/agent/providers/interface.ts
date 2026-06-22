@@ -1,11 +1,14 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type {
+  AgentRunnerPromptMetadata,
+  AgentRunnerTurn,
+  AgentRunnerUsageMetadata,
+} from "./usageMetadata.js";
+
+export type { AgentRunnerPromptMetadata, AgentRunnerTurn, AgentRunnerUsageMetadata };
 
 export type AgentRunnerToolExecutor = (args: Record<string, unknown>) => Promise<unknown>;
-
-type AgentRunnerTurn = {
-  readonly text: string;
-};
 
 export type AgentRunnerSendOptions = {
   readonly maxToolRounds?: number;

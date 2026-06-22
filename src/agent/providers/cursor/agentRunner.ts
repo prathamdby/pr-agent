@@ -6,8 +6,10 @@ import type {
   AgentRunnerSendOptions,
   AgentRunnerToolExecutor,
 } from "../interface.js";
+import { estimatedUsageFromTokenCounts } from "../usageMetadata.js";
 import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel, toCursorSdkModelSelection } from "./models.js";
+import { buildCursorSendText } from "./promptBuilder.js";
 import { createMcpBridge } from "./mcpBridge.js";
 import { assertCursorRipgrepConfigured } from "./ripgrepBoot.js";
 import { initCursorWorker, type CursorWorkerBootInfo } from "./workerBoot.js";
@@ -113,11 +115,24 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
           content: prompt,
           timestamp: Date.now(),
         });
+        const hasPriorAssistantMessage = context.messages
+          .slice(0, -1)
+          .some((message) => message.role === "assistant");
+        const { text: sendText, inputChars } = buildCursorSendText(context, {
+          reuseAgentConversation: hasPriorAssistantMessage,
+        });
         const assistant = await complete(model, context, {
           apiKey: cfg.cursorApiKey,
         });
         context.messages.push(assistant);
-        return { text: assistantText(assistant) };
+        return {
+          text: assistantText(assistant),
+          prompt: {
+            inputCharacters: inputChars,
+            inputBytes: Buffer.byteLength(sendText, "utf8"),
+          },
+          usage: estimatedUsageFromTokenCounts(assistant.usage.input, assistant.usage.output),
+        };
       },
       restrictToTools(nextTools, nextExecutors) {
         savedTools = [...(context.tools ?? [])];

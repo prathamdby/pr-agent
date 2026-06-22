@@ -13,6 +13,23 @@ export type ReviewMetricEvent =
       readonly name: string;
       readonly ok: boolean;
       readonly durationMs?: number;
+      readonly resultBytes?: number;
+      readonly resultCharacters?: number;
+    }
+  | {
+      readonly kind: "model_turn";
+      readonly usage?: {
+        readonly estimated: boolean;
+        readonly inputTokens?: number;
+        readonly outputTokens?: number;
+        readonly cacheReadTokens?: number;
+        readonly cacheWriteTokens?: number;
+        readonly totalTokens?: number;
+      };
+      readonly prompt?: {
+        readonly inputCharacters: number;
+        readonly inputBytes: number;
+      };
     }
   | { readonly kind: "submit_validated"; readonly coercions: readonly string[] }
   | {
@@ -57,6 +74,18 @@ export type ReviewRunMetricsSnapshot = {
   readonly diffCacheEmptyAtFirstSubmit: boolean;
   readonly toolCallCount: number;
   readonly toolCallErrors: number;
+  readonly toolResultBytes: number;
+  readonly toolResultCharacters: number;
+  readonly modelTurnCount: number;
+  readonly promptBytes: number;
+  readonly promptCharacters: number;
+  readonly estimatedInputTokens: number;
+  readonly estimatedOutputTokens: number;
+  readonly providerInputTokens: number;
+  readonly providerOutputTokens: number;
+  readonly cacheReadTokens: number | null;
+  readonly cacheWriteTokens: number | null;
+  readonly estimatedTurnCount: number;
   readonly findingsCount: number;
   readonly severities: readonly string[];
   readonly wallClockMs: number;
@@ -84,6 +113,18 @@ type MutableReviewRunMetrics = {
   diffCacheEmptyAtFirstSubmit: boolean;
   toolCallCount: number;
   toolCallErrors: number;
+  toolResultBytes: number;
+  toolResultCharacters: number;
+  modelTurnCount: number;
+  promptBytes: number;
+  promptCharacters: number;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  providerInputTokens: number;
+  providerOutputTokens: number;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
+  estimatedTurnCount: number;
   findingsCount: number;
   severities: string[];
   lightweight?: boolean;
@@ -115,6 +156,18 @@ function createEmptyMetrics(meta: {
     diffCacheEmptyAtFirstSubmit: false,
     toolCallCount: 0,
     toolCallErrors: 0,
+    toolResultBytes: 0,
+    toolResultCharacters: 0,
+    modelTurnCount: 0,
+    promptBytes: 0,
+    promptCharacters: 0,
+    estimatedInputTokens: 0,
+    estimatedOutputTokens: 0,
+    providerInputTokens: 0,
+    providerOutputTokens: 0,
+    cacheReadTokens: null,
+    cacheWriteTokens: null,
+    estimatedTurnCount: 0,
     findingsCount: 0,
     severities: [],
   };
@@ -140,6 +193,28 @@ function bumpRecord(map: Record<string, number>, key: string, delta = 1): void {
   map[key] = (map[key] ?? 0) + delta;
 }
 
+function addKnownCacheTotal(current: number | null, delta: number | undefined): number | null {
+  if (delta === undefined) return null;
+  if (current === null) return delta;
+  return current + delta;
+}
+
+function recordModelTurnUsage(
+  metrics: MutableReviewRunMetrics,
+  usage: NonNullable<Extract<ReviewMetricEvent, { kind: "model_turn" }>["usage"]>,
+): void {
+  if (usage.estimated) {
+    metrics.estimatedTurnCount += 1;
+    metrics.estimatedInputTokens += usage.inputTokens ?? 0;
+    metrics.estimatedOutputTokens += usage.outputTokens ?? 0;
+  } else {
+    metrics.providerInputTokens += usage.inputTokens ?? 0;
+    metrics.providerOutputTokens += usage.outputTokens ?? 0;
+    metrics.cacheReadTokens = addKnownCacheTotal(metrics.cacheReadTokens, usage.cacheReadTokens);
+    metrics.cacheWriteTokens = addKnownCacheTotal(metrics.cacheWriteTokens, usage.cacheWriteTokens);
+  }
+}
+
 export function recordReviewMetric(event: ReviewMetricEvent): void {
   const metrics = getOrInitMetrics();
   if (!metrics) return;
@@ -154,6 +229,10 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
     case "tool_call":
       metrics.toolCallCount += 1;
       if (!event.ok) metrics.toolCallErrors += 1;
+      if (event.resultBytes != null) metrics.toolResultBytes += event.resultBytes;
+      if (event.resultCharacters != null) {
+        metrics.toolResultCharacters += event.resultCharacters;
+      }
       break;
     case "submit_validated":
       for (const rule of event.coercions) {
@@ -193,6 +272,14 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
       metrics.published = true;
       metrics.findingsCount = event.findingsCount;
       metrics.severities = [...event.severities];
+      break;
+    case "model_turn":
+      metrics.modelTurnCount += 1;
+      if (event.prompt) {
+        metrics.promptBytes += event.prompt.inputBytes;
+        metrics.promptCharacters += event.prompt.inputCharacters;
+      }
+      if (event.usage) recordModelTurnUsage(metrics, event.usage);
       break;
     default: {
       const exhaustive: never = event;
@@ -261,6 +348,18 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     diffCacheEmptyAtFirstSubmit: metrics.diffCacheEmptyAtFirstSubmit,
     toolCallCount: metrics.toolCallCount,
     toolCallErrors: metrics.toolCallErrors,
+    toolResultBytes: metrics.toolResultBytes,
+    toolResultCharacters: metrics.toolResultCharacters,
+    modelTurnCount: metrics.modelTurnCount,
+    promptBytes: metrics.promptBytes,
+    promptCharacters: metrics.promptCharacters,
+    estimatedInputTokens: metrics.estimatedInputTokens,
+    estimatedOutputTokens: metrics.estimatedOutputTokens,
+    providerInputTokens: metrics.providerInputTokens,
+    providerOutputTokens: metrics.providerOutputTokens,
+    cacheReadTokens: metrics.cacheReadTokens,
+    cacheWriteTokens: metrics.cacheWriteTokens,
+    estimatedTurnCount: metrics.estimatedTurnCount,
     findingsCount: metrics.findingsCount,
     severities: [...metrics.severities],
     wallClockMs,
