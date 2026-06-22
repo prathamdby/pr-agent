@@ -12,9 +12,12 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "../ask/askSafety.js";
+import { capTextOutput, readTextWithOutputBudget } from "./toolOutputBudget.js";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
+  readonly readResponseBytes: number;
+  readonly diffResponseBytes: number;
   readonly searchMaxFiles: number;
   readonly searchMaxTotalBytes: number;
 };
@@ -22,6 +25,8 @@ export type LocalWorkspaceToolLimits = {
 export function workspaceToolLimitsFromConfig(cfg: Config): LocalWorkspaceToolLimits {
   return {
     maxFileBytes: cfg.localWorkspaceMaxFileBytes,
+    readResponseBytes: cfg.localWorkspaceReadResponseBytes,
+    diffResponseBytes: cfg.localWorkspaceDiffResponseBytes,
     searchMaxFiles: cfg.localWorkspaceSearchMaxFiles,
     searchMaxTotalBytes: cfg.localWorkspaceSearchMaxTotalBytes,
   };
@@ -127,9 +132,13 @@ export function buildLocalWorkspaceTools(
 
   const readWorkspaceFile: LocalTool = {
     description:
-      "Read a text file from the local PR workspace checkout. Paths are relative to the repository root.",
-    schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => {
+      "Read a text file from the local PR workspace checkout. Paths are relative to the repository root. Responses are capped; use startLine and maxLines for focused follow-up reads.",
+    schema: z.object({
+      path: z.string().min(1),
+      startLine: z.number().int().positive().optional(),
+      maxLines: z.number().int().positive().optional(),
+    }),
+    run: async ({ path, startLine, maxLines }) => {
       const normalized = path.replace(/\\/g, "/");
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
@@ -149,10 +158,10 @@ export function buildLocalWorkspaceTools(
           reason: "Binary file cannot be read as text.",
         };
       }
+      const text = buf.toString("utf8");
       return {
         path: normalized,
-        size: buf.length,
-        content: buf.toString("utf8"),
+        ...readTextWithOutputBudget(text, limits.readResponseBytes, { startLine, maxLines }),
       };
     },
   };
@@ -187,20 +196,27 @@ export function buildLocalWorkspaceTools(
   };
 
   const getWorkspaceDiff: LocalTool = {
-    description: "Return the PR unified diff for a changed path (from GitHub PR file metadata).",
+    description:
+      "Return the PR unified diff for a changed path (from GitHub PR file metadata). Responses are capped; narrow the path or follow up with a focused file read when truncated.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
       assertPathAllowedForAsk(normalized, pathGate);
+      const diff = await workspace.getDiffForPath(normalized);
+      const capped = capTextOutput(diff, limits.diffResponseBytes, "response byte budget exceeded");
       return {
         path: normalized,
-        diff: await workspace.getDiffForPath(normalized),
+        diff: capped.content,
+        truncated: capped.truncated,
+        returnedBytes: capped.returnedBytes,
+        ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
       };
     },
   };
 
   const getWorkspaceBlame: LocalTool = {
-    description: "Return best-effort local git blame for a workspace path at PR head.",
+    description:
+      "Return best-effort local git blame for a workspace path at PR head. Responses are capped; use startLine and maxLines on readWorkspaceFile for focused follow-up context.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
@@ -214,9 +230,17 @@ export function buildLocalWorkspaceTools(
         return { path: normalized, ...refused, blame: null };
       }
       const blame = redactPorcelainBlame(await workspace.getBlameForPath(normalized));
+      const capped = capTextOutput(
+        blame,
+        limits.diffResponseBytes,
+        "response byte budget exceeded",
+      );
       return sanitizeToolResultForAsk("getWorkspaceBlame", {
         path: normalized,
-        blame,
+        blame: capped.content,
+        truncated: capped.truncated,
+        returnedBytes: capped.returnedBytes,
+        ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
       });
     },
   };

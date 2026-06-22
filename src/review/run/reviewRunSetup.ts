@@ -134,7 +134,10 @@ export function buildReviewRunSetup(params: {
     },
   });
 
-  const ctx7 = buildContext7Tools({ apiKey: cfg.context7ApiKey });
+  const ctx7 = buildContext7Tools({
+    apiKey: cfg.context7ApiKey,
+    maxResponseBytes: cfg.context7ResponseBytes,
+  });
   const buildSubmit = () =>
     buildSubmitReviewTool({
       cfg,

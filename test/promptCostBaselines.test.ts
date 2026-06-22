@@ -1,4 +1,7 @@
 import type { Context } from "@earendil-works/pi-ai";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
@@ -99,10 +102,15 @@ describe("prompt cost baselines", () => {
   it("keeps investigation tool names stable", () => {
     const { piTools: localTools } = buildLocalWorkspaceTools(mockLocalPrWorkspace(), {
       maxFileBytes: 100_000,
+      readResponseBytes: 128_000,
+      diffResponseBytes: 256_000,
       searchMaxFiles: 100,
       searchMaxTotalBytes: 1_000_000,
     });
-    const { piTools: context7Tools } = buildContext7Tools({ apiKey: "" });
+    const { piTools: context7Tools } = buildContext7Tools({
+      apiKey: "",
+      maxResponseBytes: 64_000,
+    });
 
     expect(localTools.map((tool) => tool.name).toSorted()).toEqual([...LOCAL_WORKSPACE_TOOL_NAMES]);
     expect(context7Tools.map((tool) => tool.name).toSorted()).toEqual([...CONTEXT7_TOOL_NAMES]);
@@ -113,15 +121,59 @@ describe("prompt cost baselines", () => {
       '{"at":"2026-06-21T00:00:00.000Z","z":1}',
     );
   });
+
+  it("keeps representative capped tool result shape stable", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "prompt-cost-tools-"));
+    try {
+      await mkdir(join(dir, "src"), { recursive: true });
+      await writeFile(join(dir, "src/changed.ts"), `${"x".repeat(200)}\n`);
+      const workspace = {
+        ...mockLocalPrWorkspace(dir),
+        changedFiles: [{ path: "src/changed.ts", status: "modified" as const }],
+        changedFileByPath: new Map([
+          ["src/changed.ts", { path: "src/changed.ts", status: "modified" as const }],
+        ]),
+        checkoutPaths: new Set(["src/changed.ts"]),
+        isPathInCheckout: (path: string) => path === "src/changed.ts",
+      };
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        maxFileBytes: 100_000,
+        readResponseBytes: 32,
+        diffResponseBytes: 32,
+        searchMaxFiles: 100,
+        searchMaxTotalBytes: 1_000_000,
+      });
+      const out = (await executors.readWorkspaceFile?.({
+        path: "src/changed.ts",
+      })) as Record<string, unknown>;
+      expect(out).toMatchObject({
+        content: expect.any(String),
+        path: "src/changed.ts",
+        size: expect.any(Number),
+        startLine: expect.any(Number),
+        endLine: expect.any(Number),
+        truncated: true,
+        returnedBytes: expect.any(Number),
+        truncationReason: "response byte budget exceeded",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 function promptSurfaces(): PromptSurface[] {
   const localWorkspaceTools = buildLocalWorkspaceTools(mockLocalPrWorkspace(), {
     maxFileBytes: 100_000,
+    readResponseBytes: 128_000,
+    diffResponseBytes: 256_000,
     searchMaxFiles: 100,
     searchMaxTotalBytes: 1_000_000,
   }).piTools;
-  const context7Tools = buildContext7Tools({ apiKey: "" }).piTools;
+  const context7Tools = buildContext7Tools({
+    apiKey: "",
+    maxResponseBytes: 64_000,
+  }).piTools;
   const submitReviewTool = buildSubmitReviewTool({
     cfg,
     token: "token",
@@ -159,12 +211,12 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "local workspace tool definitions",
       content: stableJson(localWorkspaceTools),
-      budget: { bytes: 1_800, characters: 1_800, estimatedTokens: 450 },
+      budget: { bytes: 2_200, characters: 2_200, estimatedTokens: 550 },
     },
     {
       name: "Context7 tool definitions",
       content: stableJson(context7Tools),
-      budget: { bytes: 1_450, characters: 1_450, estimatedTokens: 365 },
+      budget: { bytes: 1_500, characters: 1_500, estimatedTokens: 375 },
     },
     {
       name: "structured review submission tool",
