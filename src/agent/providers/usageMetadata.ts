@@ -52,6 +52,11 @@ export function exactUsageFromProviderUsage(usage: Usage): AgentRunnerUsageMetad
   };
 }
 
+function mergeOptionalCount(left?: number, right?: number): number | undefined {
+  if (left === undefined && right === undefined) return undefined;
+  return (left ?? 0) + (right ?? 0);
+}
+
 export function mergeExactUsage(
   left: AgentRunnerUsageMetadata | undefined,
   right: AgentRunnerUsageMetadata | undefined,
@@ -60,10 +65,10 @@ export function mergeExactUsage(
   if (!right) return left;
   return {
     estimated: false,
-    inputTokens: (left.inputTokens ?? 0) + (right.inputTokens ?? 0),
-    outputTokens: (left.outputTokens ?? 0) + (right.outputTokens ?? 0),
-    cacheReadTokens: (left.cacheReadTokens ?? 0) + (right.cacheReadTokens ?? 0),
-    cacheWriteTokens: (left.cacheWriteTokens ?? 0) + (right.cacheWriteTokens ?? 0),
-    totalTokens: (left.totalTokens ?? 0) + (right.totalTokens ?? 0),
+    inputTokens: mergeOptionalCount(left.inputTokens, right.inputTokens),
+    outputTokens: mergeOptionalCount(left.outputTokens, right.outputTokens),
+    cacheReadTokens: mergeOptionalCount(left.cacheReadTokens, right.cacheReadTokens),
+    cacheWriteTokens: mergeOptionalCount(left.cacheWriteTokens, right.cacheWriteTokens),
+    totalTokens: mergeOptionalCount(left.totalTokens, right.totalTokens),
   };
 }

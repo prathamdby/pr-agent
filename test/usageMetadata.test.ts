@@ -78,4 +78,35 @@ describe("usageMetadata", () => {
       totalTokens: 20,
     });
   });
+
+  it("preserves unknown cache metrics when merging turns without cache data", () => {
+    const withTokens = exactUsageFromProviderUsage({
+      input: 10,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 15,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    });
+    const withoutCache = {
+      estimated: false as const,
+      inputTokens: 3,
+      outputTokens: 2,
+      totalTokens: 5,
+    };
+    expect(mergeExactUsage(withTokens, withoutCache)).toEqual({
+      estimated: false,
+      inputTokens: 13,
+      outputTokens: 7,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 20,
+    });
+    expect(mergeExactUsage(withoutCache, withoutCache)).toEqual({
+      estimated: false,
+      inputTokens: 6,
+      outputTokens: 4,
+      totalTokens: 10,
+    });
+  });
 });
