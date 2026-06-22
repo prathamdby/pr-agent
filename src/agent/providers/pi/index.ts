@@ -70,24 +70,30 @@ function toCodingAgentTool(
     parameters: tool.parameters as never,
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
       if (!executor) {
+        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
         throw new Error(`No executor registered for tool ${tool.name}`);
       }
-      if (refreshBeforeTool) {
-        await refreshBeforeTool(tool.name);
+      try {
+        if (refreshBeforeTool) {
+          await refreshBeforeTool(tool.name);
+        }
+        const result = await executor(params);
+        const size = toolResultSize(result);
+        safeRecordToolCallMetric({
+          kind: "tool_call",
+          name: tool.name,
+          ok: true,
+          resultBytes: size.resultBytes,
+          resultCharacters: size.resultCharacters,
+        });
+        return {
+          content: [{ type: "text" as const, text: toolResultToText(result) }],
+          details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
+        };
+      } catch (error) {
+        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
+        throw error;
       }
-      const result = await executor(params);
-      const size = toolResultSize(result);
-      safeRecordToolCallMetric({
-        kind: "tool_call",
-        name: tool.name,
-        ok: true,
-        resultBytes: size.resultBytes,
-        resultCharacters: size.resultCharacters,
-      });
-      return {
-        content: [{ type: "text" as const, text: toolResultToText(result) }],
-        details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
-      };
     },
   });
 }

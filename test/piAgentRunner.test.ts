@@ -309,7 +309,10 @@ describe("piAgentRunnerProvider.send", () => {
         message: makeAssistantMessage("Final answer."),
       });
       resolvePrompt?.();
-      await expect(sendPromise).resolves.toMatchObject({ text: "Final answer." });
+      await expect(sendPromise).resolves.toEqual({
+        text: "Final answer.",
+        prompt: { inputCharacters: 8, inputBytes: 8 },
+      });
       expect(abort).not.toHaveBeenCalled();
       expect(setIntervalSpy).toHaveBeenCalledTimes(1);
     } finally {

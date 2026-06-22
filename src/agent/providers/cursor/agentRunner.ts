@@ -115,11 +115,8 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
           content: prompt,
           timestamp: Date.now(),
         });
-        const hasPriorAssistantMessage = context.messages
-          .slice(0, -1)
-          .some((message) => message.role === "assistant");
         const { text: sendText, inputChars } = buildCursorSendText(context, {
-          reuseAgentConversation: hasPriorAssistantMessage,
+          reuseAgentConversation: true,
         });
         const assistant = await complete(model, context, {
           apiKey: cfg.cursorApiKey,
