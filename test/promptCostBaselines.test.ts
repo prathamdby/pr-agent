@@ -19,6 +19,7 @@ import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessa
 import { createReviewPayloadSchema, type ReviewMode } from "../src/review/reviewSchema.js";
 import {
   assertPromptCostWithinBudget,
+  measurePromptCost,
   stableJson,
   type PromptCostBudget,
 } from "./helpers/promptCost.js";
@@ -94,9 +95,23 @@ describe("prompt cost baselines", () => {
     });
     expect(piTool.name).toBe("submitReview");
     expect(piTool.description).toContain("ReviewPayload");
+    expect(piTool.description).toContain("tool schema");
+    expect(piTool.description).not.toContain("Minimal valid example");
     expect(requiredFields(piTool.parameters).toSorted()).toEqual(
       [...REVIEW_PAYLOAD_FIELDS].toSorted(),
     );
+  });
+
+  it("reduces static submitReview tool surface versus the prior field-list description", () => {
+    const { piTool } = buildSubmitReviewTool({
+      cfg,
+      token: "token",
+      ctx: { owner: "octo", repo: "hello", prNumber: 42, headSha: "abc123" },
+      state: createSubmitReviewState(),
+    });
+    const bytes = measurePromptCost(stableJson(piTool)).bytes;
+    expect(bytes).toBeLessThan(2_500);
+    expect(bytes).toBeLessThan(2_050);
   });
 
   it("keeps investigation tool names stable", () => {
@@ -221,7 +236,7 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "structured review submission tool",
       content: stableJson(submitReviewTool),
-      budget: { bytes: 2_500, characters: 2_500, estimatedTokens: 625 },
+      budget: { bytes: 2_050, characters: 2_050, estimatedTokens: 513 },
     },
     {
       name: "representative Cursor prompt",

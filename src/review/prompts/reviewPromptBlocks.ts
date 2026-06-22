@@ -69,3 +69,44 @@ export const priorInlineFeedbackGuidance = [
   "Treat explicit false-positive / intentional / already-fixed replies as closed unless new commits materially change the code at that location.",
   "Do not re-add unchanged dismissed items to ReviewPayload.",
 ].join("\n");
+
+export const structuredDeliveryHeader = [
+  "## Structured delivery (submitReview)",
+  "",
+  "After investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
+  "Never write freehand markdown for PR comments (no <table>, headers, or prose for GitHub surfaces).",
+].join("\n");
+
+export const reviewPayloadFieldsHeader = "ReviewPayload fields:";
+
+export const reviewPayloadPerFindingContracts = [
+  fixPromptFieldContract,
+  suggestedCodeAndConfidenceFieldContract,
+  categoryFieldContract,
+]
+  .map((line) => `- ${line}`)
+  .join("\n");
+
+export const reviewPayloadCommonTail = [
+  "- estimatedEffort: integer 1–5",
+  "- relevantTests: yes | no | partial",
+].join("\n");
+
+export function inlineSeverityPlacement(summaryKind: string): string {
+  return `P0/P1/P2 appear as inline review threads on changed lines; P3 appears only as title + deep-link in the ${summaryKind} summary overview.`;
+}
+
+export const reviewSecretsAndToolingNote =
+  "Do not leak secrets/tokens; say exactly what tooling blocked if access is insufficient.";
+
+/** Round-0 validation repair: include the full minimal example. */
+export const VALIDATION_REPAIR_ROUND0_SUFFIX =
+  "Fix the payload and call submitReview again with a complete ReviewPayload.";
+
+/** Later validation repair rounds: schema reminder only. */
+export const VALIDATION_REPAIR_REMINDER =
+  "Fix the ReviewPayload validation errors above and call submitReview again. Match the tool schema.";
+
+/** Later publish recovery rounds: compact schema reminder only. */
+export const PUBLISH_RECOVERY_COMPACT_REMINDER =
+  "Call submitReview now with a valid ReviewPayload matching the tool schema. No prose-only replies.";

@@ -7,7 +7,13 @@ import {
 } from "../../agentRun/structuredAgentLoop.js";
 import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import { renderAnchorMenuBlock } from "../placement/reviewDiffIndex.js";
-import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "../prompts/reviewPromptBlocks.js";
+import {
+  PRE_SUBMIT_REMINDER,
+  PRE_SUBMIT_ROUND0_PROMPT,
+  PUBLISH_RECOVERY_COMPACT_REMINDER,
+  VALIDATION_REPAIR_REMINDER,
+  VALIDATION_REPAIR_ROUND0_SUFFIX,
+} from "../prompts/reviewPromptBlocks.js";
 import {
   PROSE_ONLY_NUDGE,
   PUBLISH_RECOVERY_PROMPTS,
@@ -78,6 +84,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
     );
 
   const runValidationRepair = async () => {
+    let repairRound = 0;
     await runValidationRepairLoop({
       rounds: VALIDATION_REPAIR_ROUNDS,
       shouldContinue: () => shouldContinueReviewRun(setup),
@@ -86,12 +93,16 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
         setup.submitState.lastValidationError = null;
       },
       repair: async (validationError) => {
+        const includeExample = repairRound === 0;
+        repairRound += 1;
+        const repairSuffix = includeExample
+          ? VALIDATION_REPAIR_ROUND0_SUFFIX
+          : VALIDATION_REPAIR_REMINDER;
+        const exampleBlock = includeExample
+          ? `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`
+          : null;
         lastText = await sendSubmitOnlyRepair(
-          [
-            validationError,
-            "Fix the payload and call submitReview again with a complete ReviewPayload.",
-            `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
-          ].join("\n\n"),
+          [validationError, repairSuffix, exampleBlock].filter(Boolean).join("\n\n"),
         );
       },
     });
@@ -158,15 +169,11 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       round < PUBLISH_RECOVERY_ROUNDS && shouldContinueReviewRun(setup);
       round++
     ) {
-      lastText = (
-        await sendReviewAgentTurn(
-          session,
-          [
-            prompt,
-            `Minimal valid ReviewPayload example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
-          ].join("\n\n"),
-        )
-      ).text;
+      const includeExample = round === 0;
+      const recoverySuffix = includeExample
+        ? `Minimal valid ReviewPayload example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`
+        : PUBLISH_RECOVERY_COMPACT_REMINDER;
+      lastText = (await sendReviewAgentTurn(session, [prompt, recoverySuffix].join("\n\n"))).text;
       if (!shouldContinueReviewRun(setup)) break;
     }
     if (shouldContinueReviewRun(setup)) {

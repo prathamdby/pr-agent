@@ -14,7 +14,6 @@ import {
   coerceReviewPayloadInput,
   createReviewPayloadSchema,
   formatReviewValidationError,
-  REVIEW_PAYLOAD_MINIMAL_EXAMPLE,
   reviewSummarySentinelForMode,
   type ReviewMode,
   type ReviewPublishContext,
@@ -32,7 +31,6 @@ export type SubmitReviewState = {
 };
 
 const SUBMIT_REVIEW_SCHEMA = createReviewPayloadSchema();
-const REVIEW_PAYLOAD_MINIMAL_EXAMPLE_JSON = JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE);
 const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
   unrepresentable: "any",
 }) as PiTool["parameters"];
@@ -83,11 +81,9 @@ export function buildSubmitReviewTool(params: {
     name: "submitReview",
     description: [
       "Submit the completed structured review exactly once.",
-      "Pass a ReviewPayload object matching the schema.",
-      `This publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
-      "Fields: prCharacter (string), findings (array), estimatedEffort (integer 1-5), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (string array, max 5).",
+      "Pass a ReviewPayload object matching the tool schema; required top-level fields are enforced by validation.",
+      `Publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
       "Each finding: severity P0|P1|P2|P3, file, startLine, endLine, title, detail; fixPrompt required for P0/P1/P2.",
-      `Minimal valid example: ${REVIEW_PAYLOAD_MINIMAL_EXAMPLE_JSON}`,
     ].join(" "),
     parameters: SUBMIT_REVIEW_PARAMETERS,
   };
