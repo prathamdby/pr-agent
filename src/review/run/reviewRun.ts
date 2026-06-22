@@ -74,6 +74,16 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
 
   let lastText = "";
   let publishAttempts = 0;
+  let hasSentMinimalExample = false;
+
+  const minimalExampleBlock = () =>
+    `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`;
+
+  const takeMinimalExampleBlock = (): string | null => {
+    if (hasSentMinimalExample) return null;
+    hasSentMinimalExample = true;
+    return minimalExampleBlock();
+  };
 
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
     runSubmitOnlyRound(
@@ -84,7 +94,6 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
     );
 
   const runValidationRepair = async () => {
-    let repairRound = 0;
     await runValidationRepairLoop({
       rounds: VALIDATION_REPAIR_ROUNDS,
       shouldContinue: () => shouldContinueReviewRun(setup),
@@ -93,14 +102,10 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
         setup.submitState.lastValidationError = null;
       },
       repair: async (validationError) => {
-        const includeExample = repairRound === 0;
-        repairRound += 1;
-        const repairSuffix = includeExample
+        const exampleBlock = takeMinimalExampleBlock();
+        const repairSuffix = exampleBlock
           ? VALIDATION_REPAIR_ROUND0_SUFFIX
           : VALIDATION_REPAIR_REMINDER;
-        const exampleBlock = includeExample
-          ? `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`
-          : null;
         lastText = await sendSubmitOnlyRepair(
           [validationError, repairSuffix, exampleBlock].filter(Boolean).join("\n\n"),
         );
@@ -169,10 +174,8 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       round < PUBLISH_RECOVERY_ROUNDS && shouldContinueReviewRun(setup);
       round++
     ) {
-      const includeExample = round === 0;
-      const recoverySuffix = includeExample
-        ? `Minimal valid ReviewPayload example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`
-        : PUBLISH_RECOVERY_COMPACT_REMINDER;
+      const exampleBlock = takeMinimalExampleBlock();
+      const recoverySuffix = exampleBlock ?? PUBLISH_RECOVERY_COMPACT_REMINDER;
       lastText = (await sendReviewAgentTurn(session, [prompt, recoverySuffix].join("\n\n"))).text;
       if (!shouldContinueReviewRun(setup)) break;
     }
