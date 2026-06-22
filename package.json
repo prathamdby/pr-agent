@@ -20,9 +20,9 @@
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
-    "site:dev": "nub run --filter pr-agent-landing dev",
-    "site:build": "nub run --filter pr-agent-landing build",
-    "site:generate-og": "nub run --filter pr-agent-landing generate:og"
+    "site:dev": "nub --node run --filter pr-agent-landing dev",
+    "site:build": "nub --node run --filter pr-agent-landing build",
+    "site:generate-og": "nub --node run --filter pr-agent-landing generate:og"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.17",
@@ -57,7 +57,7 @@
     "oxfmt": "^0.53.0",
     "oxlint": "^1.68.0",
     "oxlint-tsgolint": "^0.23.0",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.1-rc",
     "vitest": "^4.1.8"
   },
   "engines": {

@@ -120,4 +120,4 @@ jobs:
           cache: true
           node-version-file: .node-version
       - run: nub ci --filter pr-agent-landing...
-      - run: nub run site:build
+      - run: nub run --node site:build
