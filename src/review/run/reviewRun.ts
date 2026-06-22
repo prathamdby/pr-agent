@@ -30,6 +30,7 @@ import {
   buildSubmitOnlyReviewSessionTools,
   shouldContinueReviewRun,
 } from "./reviewRunSetup.js";
+import { sendReviewAgentTurn } from "./reviewRunAgentSend.js";
 
 export type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
 
@@ -69,7 +70,12 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
   let publishAttempts = 0;
 
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyReviewSessionTools(setup), prompt);
+    runSubmitOnlyRound(
+      session,
+      buildSubmitOnlyReviewSessionTools(setup),
+      prompt,
+      sendReviewAgentTurn,
+    );
 
   const runValidationRepair = async () => {
     await runValidationRepairLoop({
@@ -93,7 +99,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
 
   const runInvestigationPhase = async () => {
     const investigationOpts = { maxToolRounds: cfg.maxToolRounds };
-    lastText = (await session.send(setup.userContent, investigationOpts)).text;
+    lastText = (await sendReviewAgentTurn(session, setup.userContent, investigationOpts)).text;
     if (!shouldContinueReviewRun(setup)) return;
 
     let anchorMenuBlock: string | undefined;
@@ -153,7 +159,8 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       round++
     ) {
       lastText = (
-        await session.send(
+        await sendReviewAgentTurn(
+          session,
           [
             prompt,
             `Minimal valid ReviewPayload example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,

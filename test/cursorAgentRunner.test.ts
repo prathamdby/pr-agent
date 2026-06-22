@@ -7,11 +7,34 @@ import { Agent } from "@cursor/sdk";
 import { makeTestConfig } from "./helpers/config.js";
 
 const completeMock = vi.hoisted(() =>
-  vi.fn(async (_model: unknown, context: { messages: unknown[] }) => ({
-    role: "assistant",
-    content: [{ type: "text", text: `answer ${context.messages.length}` }],
-    timestamp: Date.now(),
-  })),
+  vi.fn(async (_model: unknown, context: { messages: unknown[]; systemPrompt?: string }) => {
+    const lastUser = [...context.messages].toReversed().find((message) => {
+      return (
+        typeof message === "object" &&
+        message != null &&
+        "role" in message &&
+        (message as { role: string }).role === "user"
+      );
+    }) as { content: string } | undefined;
+    const promptText = lastUser?.content ?? "";
+    const inputChars =
+      context.messages.length === 1
+        ? (context.systemPrompt?.length ?? 0) + promptText.length + 10
+        : promptText.length;
+    return {
+      role: "assistant",
+      content: [{ type: "text", text: `answer ${context.messages.length}` }],
+      usage: {
+        input: Math.ceil(inputChars / 4),
+        output: 4,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: Math.ceil(inputChars / 4) + 4,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      timestamp: Date.now(),
+    };
+  }),
 );
 const bridgeDisposeMock = vi.hoisted(() => vi.fn(async () => undefined));
 const createMcpBridgeMock = vi.hoisted(() =>
@@ -147,8 +170,31 @@ describe("cursorAgentRunnerProvider", () => {
       executors: {},
     });
 
-    await expect(session.send("one")).resolves.toEqual({ text: "answer 1" });
-    await expect(session.send("two")).resolves.toEqual({ text: "answer 3" });
+    await expect(session.send("one")).resolves.toMatchObject({
+      text: "answer 1",
+      prompt: {
+        inputCharacters: expect.any(Number),
+        inputBytes: expect.any(Number),
+      },
+      usage: {
+        estimated: true,
+        inputTokens: expect.any(Number),
+        outputTokens: 4,
+        totalTokens: expect.any(Number),
+      },
+    });
+    await expect(session.send("two")).resolves.toMatchObject({
+      text: "answer 3",
+      prompt: {
+        inputCharacters: 3,
+        inputBytes: 3,
+      },
+      usage: {
+        estimated: true,
+        inputTokens: 1,
+        outputTokens: 4,
+      },
+    });
     await session.dispose();
 
     expect(createMcpBridgeMock).toHaveBeenCalledTimes(1);

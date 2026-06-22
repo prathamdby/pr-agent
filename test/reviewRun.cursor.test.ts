@@ -153,6 +153,10 @@ describe("runFullPrReview cursor provider", () => {
       expect.objectContaining({
         provider: "cursor",
         model: cursorCfg.piModel,
+        modelTurnCount: expect.any(Number),
+        promptBytes: expect.any(Number),
+        estimatedInputTokens: expect.any(Number),
+        cacheReadTokens: null,
       }),
     );
     infoSpy.mockRestore();

@@ -14,14 +14,39 @@ import type { TextContent, Tool as PiTool } from "@earendil-works/pi-ai";
 import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { recordReviewMetric } from "../../../review/run/reviewRunMetrics.js";
 import type {
   AgentRunnerProvider,
   AgentRunnerSendOptions,
   AgentRunnerToolExecutor,
 } from "../interface.js";
+import {
+  exactUsageFromProviderUsage,
+  mergeExactUsage,
+  promptMetadataFromText,
+} from "../usageMetadata.js";
 
 function toolResultToText(result: unknown): string {
+  if (result === undefined) return "";
   return typeof result === "string" ? result : JSON.stringify(result);
+}
+
+function toolResultSize(result: unknown): { resultBytes: number; resultCharacters: number } {
+  const text = toolResultToText(result);
+  return {
+    resultCharacters: text.length,
+    resultBytes: Buffer.byteLength(text, "utf8"),
+  };
+}
+
+function safeRecordToolCallMetric(
+  event: Extract<Parameters<typeof recordReviewMetric>[0], { kind: "tool_call" }>,
+): void {
+  try {
+    recordReviewMetric(event);
+  } catch {
+    // metrics are best-effort outside review runs
+  }
 }
 
 function assistantMessageText(message: TurnEndEvent["message"]): string {
@@ -45,16 +70,30 @@ function toCodingAgentTool(
     parameters: tool.parameters as never,
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
       if (!executor) {
+        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
         throw new Error(`No executor registered for tool ${tool.name}`);
       }
-      if (refreshBeforeTool) {
-        await refreshBeforeTool(tool.name);
+      try {
+        if (refreshBeforeTool) {
+          await refreshBeforeTool(tool.name);
+        }
+        const result = await executor(params);
+        const size = toolResultSize(result);
+        safeRecordToolCallMetric({
+          kind: "tool_call",
+          name: tool.name,
+          ok: true,
+          resultBytes: size.resultBytes,
+          resultCharacters: size.resultCharacters,
+        });
+        return {
+          content: [{ type: "text" as const, text: toolResultToText(result) }],
+          details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
+        };
+      } catch (error) {
+        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
+        throw error;
       }
-      const result = await executor(params);
-      return {
-        content: [{ type: "text" as const, text: toolResultToText(result) }],
-        details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
-      };
     },
   });
 }
@@ -115,6 +154,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
         let sessionToolTurnCount = 0;
         let finalText = "";
+        let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
         // Inactivity (idle) budget, not a total wall-clock cap: a single prompt() drives the whole
         // multi-round agentic loop, whose duration scales with PR/repo size. We abort only when the
         // provider goes silent (no streamed message/tool/turn events) for the configured window, so
@@ -147,6 +187,12 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
           markActivity();
           if (event.type !== "turn_end") return;
           sessionToolTurnCount += 1;
+          if (event.message.role === "assistant" && event.message.usage) {
+            aggregatedUsage = mergeExactUsage(
+              aggregatedUsage,
+              exactUsageFromProviderUsage(event.message.usage),
+            );
+          }
           // A tool-free turn is the terminal turn of prompt(); capture only that answer text.
           if (event.toolResults.length === 0) {
             finalText = assistantMessageText(event.message);
@@ -166,7 +212,10 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
           } else {
             await run;
           }
-          return { text: finalText };
+          const promptMeta = promptMetadataFromText(prompt);
+          return aggregatedUsage
+            ? { text: finalText, prompt: promptMeta, usage: aggregatedUsage }
+            : { text: finalText, prompt: promptMeta };
         } finally {
           if (idleCheckHandle) clearInterval(idleCheckHandle);
           unsubscribe();

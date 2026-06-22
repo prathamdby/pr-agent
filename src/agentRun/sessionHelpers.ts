@@ -1,7 +1,7 @@
 import type { Api, AssistantMessage, KnownProvider, Provider } from "@earendil-works/pi-ai";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { AgentRunnerSession } from "../agent/providers/interface.js";
+import type { AgentRunnerSession, AgentRunnerTurn } from "../agent/providers/interface.js";
 import { CURSOR_API, CURSOR_PROVIDER } from "../agent/providers/cursor/models.js";
 
 function sessionAssistantApi(runProvider: string, piProvider: KnownProvider): Api {
@@ -39,10 +39,14 @@ export async function runSubmitOnlyRound(
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   },
   prompt: string,
+  send: (session: AgentRunnerSession, prompt: string) => Promise<AgentRunnerTurn> = (
+    activeSession,
+    activePrompt,
+  ) => activeSession.send(activePrompt),
 ): Promise<string> {
   session.restrictToTools(submitOnly.piTools, submitOnly.executors);
   try {
-    return (await session.send(prompt)).text;
+    return (await send(session, prompt)).text;
   } finally {
     session.restoreTools();
   }

@@ -75,6 +75,17 @@ function executorResultToMcp(result: unknown, isError = false): CallToolResult {
   };
 }
 
+function mcpResultSize(result: CallToolResult): {
+  resultBytes: number;
+  resultCharacters: number;
+} {
+  const text = result.content.map((block) => (block.type === "text" ? block.text : "")).join("");
+  return {
+    resultCharacters: text.length,
+    resultBytes: Buffer.byteLength(text, "utf8"),
+  };
+}
+
 function checkBearerAuth(req: IncomingMessage, token: string): boolean {
   const header = req.headers.authorization;
   return checkMcpBearerAuth(Array.isArray(header) ? header[0] : header, token);
@@ -217,17 +228,29 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
           ? request.params.arguments
           : {};
       const out = await runWithAbortSignal(() => exec(args), abortController.signal);
+      const mcpResult = executorResultToMcp(out);
+      const resultSize = mcpResultSize(mcpResult);
       safeRecordReviewMetric({
         kind: "tool_call",
         name: toolName,
         ok: true,
         durationMs: Date.now() - toolStarted,
+        resultBytes: resultSize.resultBytes,
+        resultCharacters: resultSize.resultCharacters,
       });
-      return executorResultToMcp(out);
+      return mcpResult;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
-      return executorResultToMcp(message, true);
+      const mcpResult = executorResultToMcp(message, true);
+      const resultSize = mcpResultSize(mcpResult);
+      safeRecordReviewMetric({
+        kind: "tool_call",
+        name: toolName,
+        ok: false,
+        resultBytes: resultSize.resultBytes,
+        resultCharacters: resultSize.resultCharacters,
+      });
+      return mcpResult;
     } finally {
       extra.signal?.removeEventListener("abort", linkAbort);
       options.signal?.removeEventListener("abort", linkAbort);

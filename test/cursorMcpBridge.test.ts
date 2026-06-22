@@ -98,6 +98,7 @@ describe("createMcpBridge", () => {
         const result = await client.callTool({ name: "noop", arguments: {} });
         expect(result.isError).not.toBe(true);
         expect(snapshotReviewRunMetrics()?.toolCallCount).toBe(1);
+        expect(snapshotReviewRunMetrics()?.toolResultBytes).toBeGreaterThan(0);
         await client.close();
       });
     });
@@ -121,6 +122,8 @@ describe("createMcpBridge", () => {
         expect(snapshotReviewRunMetrics()).toMatchObject({
           toolCallCount: 1,
           toolCallErrors: 1,
+          toolResultBytes: expect.any(Number),
+          toolResultCharacters: expect.any(Number),
         });
         await client.close();
       });
