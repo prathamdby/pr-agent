@@ -7,7 +7,13 @@ import {
 } from "../../agentRun/structuredAgentLoop.js";
 import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import { renderAnchorMenuBlock } from "../placement/reviewDiffIndex.js";
-import { PRE_SUBMIT_REMINDER, PRE_SUBMIT_ROUND0_PROMPT } from "../prompts/reviewPromptBlocks.js";
+import {
+  PRE_SUBMIT_REMINDER,
+  PRE_SUBMIT_ROUND0_PROMPT,
+  PUBLISH_RECOVERY_COMPACT_REMINDER,
+  VALIDATION_REPAIR_REMINDER,
+  VALIDATION_REPAIR_ROUND0_SUFFIX,
+} from "../prompts/reviewPromptBlocks.js";
 import {
   PROSE_ONLY_NUDGE,
   PUBLISH_RECOVERY_PROMPTS,
@@ -68,6 +74,16 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
 
   let lastText = "";
   let publishAttempts = 0;
+  let hasSentMinimalExample = false;
+
+  const minimalExampleBlock = () =>
+    `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`;
+
+  const takeMinimalExampleBlock = (): string | null => {
+    if (hasSentMinimalExample) return null;
+    hasSentMinimalExample = true;
+    return minimalExampleBlock();
+  };
 
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
     runSubmitOnlyRound(
@@ -86,12 +102,12 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
         setup.submitState.lastValidationError = null;
       },
       repair: async (validationError) => {
+        const exampleBlock = takeMinimalExampleBlock();
+        const repairSuffix = exampleBlock
+          ? VALIDATION_REPAIR_ROUND0_SUFFIX
+          : VALIDATION_REPAIR_REMINDER;
         lastText = await sendSubmitOnlyRepair(
-          [
-            validationError,
-            "Fix the payload and call submitReview again with a complete ReviewPayload.",
-            `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
-          ].join("\n\n"),
+          [validationError, repairSuffix, exampleBlock].filter(Boolean).join("\n\n"),
         );
       },
     });
@@ -158,15 +174,9 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       round < PUBLISH_RECOVERY_ROUNDS && shouldContinueReviewRun(setup);
       round++
     ) {
-      lastText = (
-        await sendReviewAgentTurn(
-          session,
-          [
-            prompt,
-            `Minimal valid ReviewPayload example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`,
-          ].join("\n\n"),
-        )
-      ).text;
+      const exampleBlock = takeMinimalExampleBlock();
+      const recoverySuffix = exampleBlock ?? PUBLISH_RECOVERY_COMPACT_REMINDER;
+      lastText = (await sendReviewAgentTurn(session, [prompt, recoverySuffix].join("\n\n"))).text;
       if (!shouldContinueReviewRun(setup)) break;
     }
     if (shouldContinueReviewRun(setup)) {

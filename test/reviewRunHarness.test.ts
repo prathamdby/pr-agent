@@ -4,8 +4,11 @@ import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import {
   PRE_SUBMIT_REMINDER,
   PRE_SUBMIT_ROUND0_PROMPT,
+  VALIDATION_REPAIR_REMINDER,
+  VALIDATION_REPAIR_ROUND0_SUFFIX,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { PROSE_ONLY_NUDGE } from "../src/settings/index.js";
+import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE } from "../src/review/reviewSchema.js";
 
 const sendMock = vi.fn(async (_message: string) => ({ text: "done" }));
 const createSessionMock = vi.fn(async (_params: unknown) => ({
@@ -36,7 +39,12 @@ const emptyDiffIndex = () => ({
 });
 
 let cachedDiffIndex = nonEmptyDiffIndex();
-let submitState = {
+let submitState: {
+  published: boolean;
+  publishSuperseded: boolean;
+  lastValidationError: string | null;
+  publishCallCount: number;
+} = {
   published: false,
   publishSuperseded: false,
   lastValidationError: null,
@@ -157,5 +165,33 @@ describe("runFullPrReview harness behavior", () => {
 
     expect(sendMock).toHaveBeenCalledTimes(1);
     expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
+  });
+
+  it("includes the minimal example only on the first validation repair round", async () => {
+    submitState.lastValidationError = "ReviewPayload validation failed: missing findings";
+    sendMock.mockImplementation(async (message: string) => {
+      if (message.includes(VALIDATION_REPAIR_ROUND0_SUFFIX)) {
+        submitState.lastValidationError = "ReviewPayload validation failed: still missing findings";
+        return { text: "retry" };
+      }
+      if (message.includes(VALIDATION_REPAIR_REMINDER)) {
+        submitState.lastValidationError = null;
+        submitState.published = true;
+        return { text: "done" };
+      }
+      return { text: "done" };
+    });
+
+    await runHarness({ maxToolRounds: 1, maxReviewPublishAttempts: 1 });
+
+    const repairMessages = sendMock.mock.calls
+      .map((call) => call[0])
+      .filter((message): message is string => typeof message === "string")
+      .filter((message) => message.includes("ReviewPayload validation failed"));
+    expect(repairMessages).toHaveLength(2);
+    expect(repairMessages[0]).toContain("Minimal valid example");
+    expect(repairMessages[0]).toContain(JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE.prCharacter));
+    expect(repairMessages[1]).toContain(VALIDATION_REPAIR_REMINDER);
+    expect(repairMessages[1]).not.toContain("Minimal valid example");
   });
 });
