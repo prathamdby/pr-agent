@@ -23,6 +23,9 @@ import {
   DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
   DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  DEFAULT_LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
+  DEFAULT_CONTEXT7_RESPONSE_BYTES,
   DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
   DEFAULT_LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
   DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
@@ -368,6 +371,10 @@ export function loadConfig() {
   const webhookTimeoutMs = readPositiveNumber(ENV.WEBHOOK_TIMEOUT_MS, DEFAULT_WEBHOOK_TIMEOUT_MS);
 
   const context7ApiKey = optionalEnv(ENV.CONTEXT7_API_KEY, DEFAULT_CONTEXT7_API_KEY);
+  const context7ResponseBytes = readPositiveNumber(
+    ENV.CONTEXT7_RESPONSE_BYTES,
+    DEFAULT_CONTEXT7_RESPONSE_BYTES,
+  );
 
   const enableReviewLabelsEffort = readBooleanEnv(
     ENV.ENABLE_REVIEW_LABELS_EFFORT,
@@ -462,6 +469,14 @@ export function loadConfig() {
     ENV.LOCAL_WORKSPACE_MAX_DIFF_BYTES,
     DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   );
+  const localWorkspaceReadResponseBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  );
+  const localWorkspaceDiffResponseBytes = readPositiveNumber(
+    ENV.LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
+    DEFAULT_LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
+  );
   const localWorkspaceMinFreeSpaceBytes = readPositiveNumber(
     ENV.LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
     DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
@@ -523,6 +538,7 @@ export function loadConfig() {
     webhookMaxBodyBytes,
     webhookTimeoutMs,
     context7ApiKey,
+    context7ResponseBytes,
     cursorApiKey,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
@@ -545,6 +561,8 @@ export function loadConfig() {
     localWorkspaceMaxFileBytes,
     localWorkspaceSearchMaxTotalBytes,
     localWorkspaceMaxDiffBytes,
+    localWorkspaceReadResponseBytes,
+    localWorkspaceDiffResponseBytes,
     localWorkspaceMinFreeSpaceBytes,
     localWorkspaceMaxFetchBytes,
     localWorkspaceFullCloneMaxRepoKb,

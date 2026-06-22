@@ -2,6 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
 import { CONTEXT7_BASE_URL } from "../../settings/index.js";
+import { capTextOutput } from "./toolOutputBudget.js";
 
 const resolveLibraryIdSchema = z.object({
   libraryName: z
@@ -29,10 +30,21 @@ const getLibraryDocsSchema = z.object({
     ),
 });
 
+export type Context7ToolResponse = {
+  readonly content: string;
+  readonly truncated: boolean;
+  readonly returnedBytes: number;
+  readonly truncationReason?: string;
+};
+
 type ReviewTool = {
   readonly description: string;
   readonly schema: z.ZodType;
-  readonly run: (parsed: any, apiKey: string) => Promise<unknown>;
+  readonly run: (
+    parsed: any,
+    apiKey: string,
+    maxResponseBytes: number,
+  ) => Promise<Context7ToolResponse>;
 };
 
 function toPiTool(name: string, t: ReviewTool): PiTool {
@@ -48,8 +60,9 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
 function toExecutor(
   t: ReviewTool,
   apiKey: string,
-): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(t.schema.parse(args), apiKey);
+  maxResponseBytes: number,
+): (args: Record<string, unknown>) => Promise<Context7ToolResponse> {
+  return async (args) => t.run(t.schema.parse(args), apiKey, maxResponseBytes);
 }
 
 function authHeader(apiKey: string): Record<string, string> {
@@ -88,31 +101,49 @@ async function context7Get(url: string, apiKey: string): Promise<string> {
   return await res.text();
 }
 
+function capContext7Response(text: string, maxResponseBytes: number): Context7ToolResponse {
+  const capped = capTextOutput(text, maxResponseBytes, "response byte budget exceeded");
+  return {
+    content: capped.content,
+    truncated: capped.truncated,
+    returnedBytes: capped.returnedBytes,
+    ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
+  };
+}
+
 const CONTEXT7_TOOLS: Record<string, ReviewTool> = {
   resolveLibraryId: {
     description:
-      "Resolve an external library name (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known.",
+      "Resolve an external library name (e.g. 'react') to its canonical Context7 library ID (e.g. '/facebook/react'). Always call before getLibraryDocs unless an exact slash-prefixed ID is already known. Responses are capped; narrow the query when truncated.",
     schema: resolveLibraryIdSchema,
-    run: async ({ libraryName, query }, apiKey) => {
+    run: async ({ libraryName, query }, apiKey, maxResponseBytes) => {
       const params = new URLSearchParams({
         libraryName,
         query: query?.trim() || libraryName,
       });
-      return context7Get(`${CONTEXT7_BASE_URL}/v2/libs/search?${params.toString()}`, apiKey);
+      const text = await context7Get(
+        `${CONTEXT7_BASE_URL}/v2/libs/search?${params.toString()}`,
+        apiKey,
+      );
+      return capContext7Response(text, maxResponseBytes);
     },
   },
   getLibraryDocs: {
     description:
-      "Fetch current documentation for a third-party library by its Context7 library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding.",
+      "Fetch current documentation for a third-party library by its Context7 library ID. Returns formatted prose. Use to verify a claim about upstream API shape or version-specific behaviour before flagging a finding. Responses are capped; narrow the topic when truncated.",
     schema: getLibraryDocsSchema,
-    run: async ({ libraryId, topic }, apiKey) => {
+    run: async ({ libraryId, topic }, apiKey, maxResponseBytes) => {
       const params = new URLSearchParams({
         libraryId,
         type: "txt",
       });
       const topicTrimmed = topic?.trim();
       if (topicTrimmed) params.set("query", topicTrimmed);
-      return context7Get(`${CONTEXT7_BASE_URL}/v2/context?${params.toString()}`, apiKey);
+      const text = await context7Get(
+        `${CONTEXT7_BASE_URL}/v2/context?${params.toString()}`,
+        apiKey,
+      );
+      return capContext7Response(text, maxResponseBytes);
     },
   },
 };
@@ -126,14 +157,23 @@ const CONTEXT7_PI_TOOLS = CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => toPiTool(n
  * rejects missing API keys, which would break anonymous fallback.
  * See docs/adr/0003-context7-docs-tool.md.
  */
-export function buildContext7Tools({ apiKey }: { apiKey: string }): {
+export function buildContext7Tools({
+  apiKey,
+  maxResponseBytes,
+}: {
+  apiKey: string;
+  maxResponseBytes: number;
+}): {
   piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  executors: Record<string, (args: Record<string, unknown>) => Promise<Context7ToolResponse>>;
 } {
   return {
     piTools: [...CONTEXT7_PI_TOOLS],
     executors: Object.fromEntries(
-      CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => [name, toExecutor(tool, apiKey)]),
+      CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => [
+        name,
+        toExecutor(tool, apiKey, maxResponseBytes),
+      ]),
     ),
   };
 }

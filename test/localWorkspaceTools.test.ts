@@ -25,11 +25,20 @@ function testLimits(overrides: Partial<LocalWorkspaceToolLimits> = {}): LocalWor
     searchMaxFiles: 100,
     searchMaxTotalBytes: 1_000_000,
     maxFileBytes: 100_000,
+    readResponseBytes: 8_000,
+    diffResponseBytes: 4_000,
     ...overrides,
   };
 }
 
-function mockWorkspace(agentCwd: string, checkoutPaths: Iterable<string>): LocalPrWorkspace {
+function mockWorkspace(
+  agentCwd: string,
+  checkoutPaths: Iterable<string>,
+  overrides?: {
+    getDiffForPath?: (path: string) => Promise<string>;
+    getBlameForPath?: (path: string) => Promise<string>;
+  },
+): LocalPrWorkspace {
   const paths = new Set(checkoutPaths);
   const privateGitDir = join(agentCwd, ".git");
   const changedFiles = [{ path: "src/changed.ts", status: "modified" }] as const;
@@ -46,8 +55,8 @@ function mockWorkspace(agentCwd: string, checkoutPaths: Iterable<string>): Local
     stats: { truncated: false, totalChanges: 1, fileCount: 1 },
     grepLiteral: (params: GitGrepWorkspaceParams) =>
       gitGrepWorkspace({ privateGitDir, agentCwd }, { ...params, timeoutMs: 5_000 }),
-    getDiffForPath: async () => "",
-    getBlameForPath: async () => "",
+    getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
+    getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
     isPathInCheckout: (path) => paths.has(path),
     cleanup: async () => {},
   };
@@ -63,6 +72,209 @@ async function writeWorkspaceFiles(root: string, files: Readonly<Record<string, 
 }
 
 describe("local workspace tools", () => {
+  it("readWorkspaceFile returns full content under the response cap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "line one\nline two\n",
+        "src/small.ts": "hello\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const out = (await executors.readWorkspaceFile?.({ path: "src/small.ts" })) as {
+        content: string;
+        size: number;
+        startLine: number;
+        endLine: number;
+        truncated: boolean;
+        returnedBytes: number;
+      };
+
+      expect(out).toMatchObject({
+        content: "hello\n",
+        size: 6,
+        startLine: 1,
+        endLine: 1,
+        truncated: false,
+        returnedBytes: 6,
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile caps oversized responses with truncation metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const body = `${"x".repeat(200)}\n`.repeat(100);
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/large.ts": body,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
+      const { executors } = buildLocalWorkspaceTools(
+        workspace,
+        testLimits({ readResponseBytes: 500 }),
+      );
+      const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
+        truncated: boolean;
+        returnedBytes: number;
+        truncationReason?: string;
+        startLine: number;
+        endLine: number;
+      };
+
+      expect(out.truncated).toBe(true);
+      expect(out.returnedBytes).toBeLessThanOrEqual(500);
+      expect(out.truncationReason).toBe("response byte budget exceeded");
+      expect(out.startLine).toBe(1);
+      expect(out.endLine).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile supports line-window reads with line metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/window.ts": "a\nb\nc\nd\ne\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const out = (await executors.readWorkspaceFile?.({
+        path: "src/window.ts",
+        startLine: 2,
+        maxLines: 2,
+      })) as {
+        content: string;
+        startLine: number;
+        endLine: number;
+        truncated: boolean;
+        truncationReason?: string;
+      };
+
+      expect(out).toMatchObject({
+        content: "b\nc",
+        startLine: 2,
+        endLine: 3,
+        truncated: true,
+        truncationReason: "line window limit exceeded",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile refuses oversized files before response capping", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/huge.ts": "x".repeat(200),
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/huge.ts"]);
+      const { executors } = buildLocalWorkspaceTools(
+        workspace,
+        testLimits({ maxFileBytes: 100, readResponseBytes: 50 }),
+      );
+      const out = (await executors.readWorkspaceFile?.({ path: "src/huge.ts" })) as {
+        refused?: boolean;
+        reason?: string;
+      };
+
+      expect(out).toMatchObject({
+        refused: true,
+        reason: "File exceeds 100 byte read limit.",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile refuses binary files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+      });
+      await writeFile(join(root, "src/binary.bin"), Buffer.from([0, 1, 2, 3]));
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/binary.bin"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const out = (await executors.readWorkspaceFile?.({ path: "src/binary.bin" })) as {
+        refused?: boolean;
+        reason?: string;
+      };
+
+      expect(out).toMatchObject({
+        refused: true,
+        reason: "Binary file cannot be read as text.",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("getWorkspaceDiff caps diff output with truncation metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
+      const workspace = mockWorkspace(root, ["src/changed.ts"], {
+        getDiffForPath: async () => "x".repeat(10_000),
+      });
+      const { executors } = buildLocalWorkspaceTools(
+        workspace,
+        testLimits({ diffResponseBytes: 100 }),
+      );
+      const out = (await executors.getWorkspaceDiff?.({ path: "src/changed.ts" })) as {
+        diff: string;
+        truncated: boolean;
+        returnedBytes: number;
+        truncationReason?: string;
+      };
+
+      expect(out.truncated).toBe(true);
+      expect(out.returnedBytes).toBeLessThanOrEqual(100);
+      expect(out.truncationReason).toBe("response byte budget exceeded");
+      expect(out.diff.length).toBeGreaterThan(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("getWorkspaceBlame caps blame output with truncation metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
+      const workspace = mockWorkspace(root, ["src/changed.ts"], {
+        getBlameForPath: async () => "author-mail user@example.com\n".repeat(200),
+      });
+      const { executors } = buildLocalWorkspaceTools(
+        workspace,
+        testLimits({ diffResponseBytes: 100 }),
+      );
+      const out = (await executors.getWorkspaceBlame?.({ path: "src/changed.ts" })) as {
+        blame: string;
+        truncated: boolean;
+        returnedBytes: number;
+        truncationReason?: string;
+      };
+
+      expect(out.truncated).toBe(true);
+      expect(out.returnedBytes).toBeLessThanOrEqual(100);
+      expect(out.truncationReason).toBe("response byte budget exceeded");
+      expect(out.blame).toContain("author-mail [redacted]");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("searchWorkspace finds matches in unchanged files", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
