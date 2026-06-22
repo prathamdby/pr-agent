@@ -1,3 +1,5 @@
+/// <reference types="node" />
+
 function resolveSiteOrigin(): string {
   const explicit = process.env.SITE_ORIGIN?.trim();
   if (explicit) {
