@@ -241,8 +241,16 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       return mcpResult;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
-      return executorResultToMcp(message, true);
+      const mcpResult = executorResultToMcp(message, true);
+      const resultSize = mcpResultSize(mcpResult);
+      safeRecordReviewMetric({
+        kind: "tool_call",
+        name: toolName,
+        ok: false,
+        resultBytes: resultSize.resultBytes,
+        resultCharacters: resultSize.resultCharacters,
+      });
+      return mcpResult;
     } finally {
       extra.signal?.removeEventListener("abort", linkAbort);
       options.signal?.removeEventListener("abort", linkAbort);

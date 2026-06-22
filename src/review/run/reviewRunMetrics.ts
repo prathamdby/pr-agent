@@ -194,7 +194,7 @@ function bumpRecord(map: Record<string, number>, key: string, delta = 1): void {
 }
 
 function addKnownCacheTotal(current: number | null, delta: number | undefined): number | null {
-  if (delta === undefined) return null;
+  if (delta === undefined) return current;
   if (current === null) return delta;
   return current + delta;
 }
