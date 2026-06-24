@@ -5,21 +5,30 @@ export function Faq() {
     <section
       id="faq"
       aria-labelledby="faq-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="border-t border-border-line"
+      data-line
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="faq-heading" className="text-xl mb-4">
-          Frequently asked questions
-        </h2>
+      <div className="grid-layout py-16">
+        <div className="col-span-4 md:col-span-12 lg:col-span-24">
+          <h2 id="faq-heading" className="section-title mb-10">
+            Frequently asked questions
+          </h2>
+        </div>
 
-        <dl className="space-y-5">
-          {FAQ_ITEMS.map((item) => (
-            <div key={item.question}>
-              <dt className="text-sm font-medium text-neutral-800">{item.question}</dt>
-              <dd className="mt-1 text-sm text-neutral-600">{item.answer}</dd>
-            </div>
-          ))}
-        </dl>
+        <div className="col-span-4 md:col-span-12 lg:col-span-24 max-w-3xl mx-auto">
+          <dl className="divide-y divide-border-line">
+            {FAQ_ITEMS.map((item) => (
+              <div key={item.question} className="py-5 first:pt-0 last:pb-0">
+                <dt className="font-semibold text-foreground-primary mb-2 text-base">
+                  {item.question}
+                </dt>
+                <dd className="text-sm text-foreground-secondary leading-relaxed">
+                  {item.answer}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
       </div>
     </section>
   );

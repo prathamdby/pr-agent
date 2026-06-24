@@ -4,51 +4,52 @@ import { PRODUCT_NAME } from "@/lib/seo";
 
 export function Header() {
   return (
-    <header className="py-4 px-4">
-      <div className="mx-auto max-w-xl flex items-center justify-between">
-        <Link
-          to="/"
-          className="flex items-center gap-2 text-neutral-800"
-          aria-label={`${PRODUCT_NAME} home`}
-        >
-          <img
-            src="/logo.png"
-            alt={`${PRODUCT_NAME} logo`}
-            width={32}
-            height={32}
-            className="rounded"
-          />
-          <span className="font-medium">{PRODUCT_NAME}</span>
-        </Link>
+    <header className="sticky top-0 z-50 bg-background-primary/80 backdrop-blur-md border-b border-border-line" data-line>
+      <div className="grid-layout h-14 items-center">
+        <div className="col-span-2 md:col-span-6 lg:col-span-12 flex items-center gap-2">
+          <Link
+            to="/"
+            className="flex items-center gap-2 text-foreground-primary hover:text-foreground-secondary transition-colors duration-200"
+            aria-label={`${PRODUCT_NAME} home`}
+          >
+            <div className="size-8 rounded-lg bg-brand-base flex items-center justify-center text-white text-sm font-bold">
+              P
+            </div>
+            <span className="font-semibold text-sm">{PRODUCT_NAME}</span>
+          </Link>
+        </div>
 
-        <nav className="flex items-center gap-3 text-sm" aria-label="Primary navigation">
+        <nav
+          className="col-span-2 md:col-span-6 lg:col-span-12 flex items-center justify-end gap-4 text-sm"
+          aria-label="Primary navigation"
+        >
           <a
             href="#examples"
-            className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"
+            className="hidden sm:inline text-foreground-tertiary hover:text-foreground-primary transition-colors duration-200"
           >
-            examples
+            Examples
           </a>
           <a
             href={DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
+            className="text-foreground-tertiary hover:text-foreground-primary transition-colors duration-200"
           >
-            docs
+            Docs
           </a>
           <a
             href={REPO_URL}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
+            className="text-foreground-tertiary hover:text-foreground-primary transition-colors duration-200"
           >
-            github
+            GitHub
           </a>
           <a
             href="#usage"
-            className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700"
+            className="rounded-lg bg-brand-base px-3.5 py-1.5 text-sm font-medium text-white hover:bg-brand-vivid transition-colors duration-200 shadow-button-sm"
           >
-            get started
+            Get started
           </a>
         </nav>
       </div>

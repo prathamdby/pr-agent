@@ -3,11 +3,13 @@ const providers = [
     name: "Pi (default)",
     detail:
       "OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more. Bring your own API keys.",
+    badge: "Default",
   },
   {
     name: "Cursor SDK",
     detail:
       "Run AI code review with Cursor models. Option for teams comparing Cursor Bugbot vs self-hosted review.",
+    badge: null,
   },
 ];
 
@@ -16,30 +18,46 @@ export function Providers() {
     <section
       id="providers"
       aria-labelledby="providers-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="border-t border-border-line"
+      data-line
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="providers-heading" className="text-xl mb-4">
-          Bring your own AI model
-        </h2>
+      <div className="grid-layout py-16">
+        <div className="col-span-4 md:col-span-12 lg:col-span-24">
+          <h2 id="providers-heading" className="section-title mb-4">
+            Bring your own AI model
+          </h2>
+          <p className="text-center text-foreground-secondary text-lg mb-10 max-w-2xl mx-auto">
+            Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without
+            changing your GitHub review workflow.
+          </p>
+        </div>
 
-        <ul className="space-y-3 text-sm">
-          {providers.map((provider) => (
-            <li key={provider.name}>
-              <h3 className="font-medium text-neutral-800">{provider.name}</h3>
-              <p className="text-neutral-600">{provider.detail}</p>
-            </li>
-          ))}
-        </ul>
+        {providers.map((provider) => (
+          <div
+            key={provider.name}
+            className="col-span-4 md:col-span-6 lg:col-span-12 border border-border-secondary rounded-xl p-6 bg-background-secondary"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <h3 className="font-semibold text-foreground-primary">{provider.name}</h3>
+              {provider.badge && (
+                <span className="text-[10px] font-medium uppercase tracking-wider text-brand-base bg-brand-10 px-2 py-0.5 rounded-full">
+                  {provider.badge}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-foreground-secondary leading-relaxed">{provider.detail}</p>
+          </div>
+        ))}
 
-        <p className="mt-4 text-sm text-neutral-500">
-          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without changing
-          your GitHub review workflow. See{" "}
-          <a href="#usage" className="underline hover:text-neutral-700">
-            usage
-          </a>{" "}
-          or the repo README for setup.
-        </p>
+        <div className="col-span-4 md:col-span-12 lg:col-span-24 mt-6">
+          <p className="text-sm text-foreground-muted text-center">
+            See{" "}
+            <a href="#usage" className="underline hover:text-foreground-secondary transition-colors duration-200">
+              usage
+            </a>{" "}
+            or the repo README for setup.
+          </p>
+        </div>
       </div>
     </section>
   );

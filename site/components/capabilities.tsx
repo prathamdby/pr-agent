@@ -21,7 +21,7 @@ const capabilities = [
   },
   {
     title: "Q&A on PRs",
-    trigger: "/ask <question>",
+    trigger: "/ask &lt;question&gt;",
     detail: "Ask questions about PR code from the conversation or an inline diff thread.",
   },
   {
@@ -36,22 +36,29 @@ export function Capabilities() {
     <section
       id="capabilities"
       aria-labelledby="capabilities-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="border-t border-border-line"
+      data-line
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="capabilities-heading" className="text-xl mb-4">
-          GitHub pull request review features
-        </h2>
+      <div className="grid-layout py-16">
+        <div className="col-span-4 md:col-span-12 lg:col-span-24">
+          <h2 id="capabilities-heading" className="section-title mb-10">
+            GitHub pull request review features
+          </h2>
+        </div>
 
-        <ul className="space-y-4">
-          {capabilities.map((cap) => (
-            <li key={cap.title} className="text-sm">
-              <h3 className="font-medium text-neutral-800">{cap.title}</h3>
-              <p className="text-neutral-500">{cap.trigger}</p>
-              <p className="text-neutral-600 mt-0.5">{cap.detail}</p>
-            </li>
-          ))}
-        </ul>
+        {capabilities.map((cap) => (
+          <div
+            key={cap.title}
+            className="col-span-4 md:col-span-6 lg:col-span-8 border border-border-secondary rounded-xl p-6 bg-background-primary hover:bg-background-secondary transition-colors duration-200"
+          >
+            <div className="size-8 rounded-lg bg-brand-10 flex items-center justify-center mb-3">
+              <span className="size-2 rounded-full bg-brand-base" />
+            </div>
+            <h3 className="font-semibold text-foreground-primary mb-1">{cap.title}</h3>
+            <p className="text-xs text-foreground-muted mb-2 font-mono">{cap.trigger}</p>
+            <p className="text-sm text-foreground-secondary leading-relaxed">{cap.detail}</p>
+          </div>
+        ))}
       </div>
     </section>
   );

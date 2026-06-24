@@ -3,28 +3,32 @@ import { PRODUCT_NAME } from "@/lib/seo";
 
 export function Footer() {
   return (
-    <footer className="px-4 py-8 border-t border-neutral-100">
-      <div className="mx-auto max-w-xl">
-        <p className="text-sm text-neutral-500 mb-4">
-          {PRODUCT_NAME} is an open-source, self-hosted AI pull request review platform for GitHub.
-        </p>
-        <div className="flex items-center justify-between text-sm text-neutral-500">
-          <a
-            href={LICENSE_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-neutral-800"
-          >
-            license
-          </a>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline hover:text-neutral-800"
-          >
-            github
-          </a>
+    <footer className="border-t border-border-line bg-background-secondary">
+      <div className="grid-layout py-10">
+        <div className="col-span-4 md:col-span-12 lg:col-span-24 flex flex-col md:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-foreground-muted text-center md:text-left">
+            {PRODUCT_NAME} — Self-hosted AI pull request review for GitHub. Open source under
+            the MIT license.
+          </p>
+          <div className="flex items-center gap-4 text-sm text-foreground-muted">
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground-primary transition-colors duration-200"
+            >
+              GitHub
+            </a>
+            <span className="text-border-line" aria-hidden="true">/</span>
+            <a
+              href={LICENSE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:text-foreground-primary transition-colors duration-200"
+            >
+              MIT License
+            </a>
+          </div>
         </div>
       </div>
     </footer>

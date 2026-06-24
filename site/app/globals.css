@@ -1,29 +1,243 @@
+/* Mintlify Landing — Design System applied to PR Agent */
+
 @import "tailwindcss";
 
-@theme {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-serif: Georgia, Cambria, "Times New Roman", Times, serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+/* ── Design tokens ─────────────────────────────────────────── */
+
+@theme inline {
+  /* Surfaces & foreground (ACTUAL) */
+  --color-background-primary: #fefdfb;
+  --color-background-secondary: #faf8f5;
+  --color-background-tertiary: #ebe9e6;
+  --color-foreground-primary: #121715;
+  --color-foreground-secondary: #485450;
+  --color-foreground-tertiary: #717d79;
+  --color-foreground-muted: #969e9b;
+
+  /* Border */
+  --color-border-line: #f1f0ee;
+  --color-border-primary: #0000000a;
+  --color-border-secondary: #0000000f;
+
+  /* Brand */
+  --color-brand-base: #0c8c5e;
+  --color-brand-vivid: #1fa77a;
+  --color-brand-8: rgba(12, 140, 94, 0.08);
+  --color-brand-10: rgba(12, 140, 94, 0.1);
+  --color-brand-20: rgba(12, 140, 94, 0.2);
+
+  /* Neutrals */
+  --color-neutral-0: #fefdfb;
+  --color-neutral-50: #faf8f5;
+  --color-neutral-100: #ebe9e6;
+  --color-neutral-200: #d9d7d4;
+  --color-neutral-300: #cfcdca;
+  --color-neutral-400: #969e9b;
+  --color-neutral-500: #717d79;
+  --color-neutral-600: #485450;
+  --color-neutral-700: #1e1f21;
+  --color-neutral-800: #121715;
+
+  /* Accent colors */
+  --color-orange: #eb9411;
+  --color-orange-2: #ffa723;
+  --color-blue-2: #44aeff;
+  --color-blue-dark: #2992e3;
+  --color-pink-2: #ffa3d3;
+  --color-purple: #d87cff;
+  --color-speedy-mint: #18e299;
+  --color-mint-dark: #17cf85;
+  --color-green-new: #16a34a;
+
+  /* Green→lime gradient stops */
+  --color-gradient-green-1: #18e299;
+  --color-gradient-green-2: #4ae05d;
+  --color-gradient-green-3: #7cde2d;
+  --color-gradient-green-4: #a0dc14;
+  --color-gradient-green-5: #a8fb36;
+  --color-gradient-green-6: #a8fb36;
+
+  /* Theme-flipping absolutes */
+  --color-base-default: #121715;
+  --color-base-invert: #fefdfb;
+  --color-base-white: #ffffff;
+  --color-base-black: #000000;
+
+  /* Font families */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, monospace;
+  --font-serif: "ABC Arizona Flare", Georgia, Cambria, "Times New Roman", Times,
+    serif;
+  --font-paper: "Paper Mono", "Geist Mono", ui-monospace, monospace;
+
+  /* Shadows */
+  --shadow-button-sm: 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-drop-sm: 0 1px 2px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.04),
+    0 2px 4px rgba(0, 0, 0, 0.02), 0 4px 6px rgba(0, 0, 0, 0.02),
+    0 6px 8px rgba(0, 0, 0, 0.01);
+  --shadow-drop-md: 0 2px 4px rgba(0, 0, 0, 0.04), 0 4px 8px rgba(0, 0, 0, 0.04),
+    0 6px 12px rgba(0, 0, 0, 0.02), 0 8px 16px rgba(0, 0, 0, 0.02),
+    0 12px 24px rgba(0, 0, 0, 0.01);
+  --shadow-feature-card: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.03),
+    0 16px 40px rgba(0, 0, 0, 0.02);
+  --shadow-navbar-bg: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 8px rgba(0, 0, 0, 0.02);
+  --shadow-editor-tooltip: -8px 4px 12px rgba(0, 0, 0, 0.08);
+
+  /* Grid layout tokens */
+  --grid-columns: 4;
+  --grid-gap: 16px;
+  --grid-margin: 16px;
+  --grid-max-width: 1024px;
+
+  /* Easing tokens */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
 }
+
+/* ── Dark theme ─────────────────────────────────────────────── */
+
+.dark {
+  --color-background-primary: #0a0b0f;
+  --color-background-secondary: #121715;
+  --color-background-tertiary: #485450;
+  --color-foreground-primary: #faf8f5;
+  --color-foreground-secondary: #d9d7d4;
+  --color-foreground-tertiary: #cfcdca;
+  --color-foreground-muted: #969e9b;
+
+  --color-border-line: #1e1f21;
+  --color-border-primary: #ffffff14;
+  --color-border-secondary: #ffffff1a;
+
+  /* Brand shifts hue on dark */
+  --color-brand-base: #18e299;
+  --color-brand-vivid: #1fa77a;
+  --color-brand-8: rgba(24, 226, 153, 0.08);
+  --color-brand-10: rgba(24, 226, 153, 0.1);
+  --color-brand-20: rgba(24, 226, 153, 0.2);
+
+  --color-base-default: #faf8f5;
+  --color-base-invert: #0a0b0f;
+}
+
+/* ── Base typography ────────────────────────────────────────── */
 
 html {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-color: var(--color-background-primary);
+  color: var(--color-foreground-primary);
+  min-height: 100vh;
 }
 
 h1,
 h2,
-h3 {
-  font-family: var(--font-serif);
+h3,
+h4 {
+  text-wrap: balance;
 }
 
-code,
-pre {
-  font-family: var(--font-mono);
+p {
+  text-wrap: pretty;
 }
 
-a {
-  text-underline-offset: 2px;
+::selection {
+  background-color: var(--color-brand-20);
+}
+
+/* ── Fluid display scale ──────────────────────────────────── */
+
+.hero-title {
+  font-size: clamp(2.5rem, 4vw, 4rem);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.section-title {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ── Grid layout utilities ─────────────────────────────────── */
+
+.grid-layout {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), 1fr);
+  gap: var(--grid-gap);
+  max-width: var(--grid-max-width);
+  margin-inline: auto;
+  padding-inline: var(--grid-margin);
+}
+
+@media (width >= 768px) {
+  .grid-layout {
+    --grid-columns: 12;
+  }
+}
+
+@media (width >= 1024px) {
+  .grid-layout {
+    --grid-columns: 24;
+    --grid-margin: 32px;
+  }
+}
+
+.grid-layout-inner {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), 1fr);
+  gap: var(--grid-gap);
+}
+
+.bleed {
+  width: 100vw;
+  margin-inline: calc(-50vw + 50%);
+}
+
+/* ── Section framing ───────────────────────────────────────── */
+
+[data-rail] {
+  border-inline: 1px solid var(--color-border-line);
+}
+
+[data-line] {
+  border-bottom: 1px solid var(--color-border-line);
+}
+
+[data-line-lg] {
+  border-bottom: 2px solid var(--color-border-line);
+}
+
+/* ── Focus ring ───────────────────────────────────────────── */
+
+*:focus-visible {
+  outline: 2px solid var(--color-brand-base);
+  outline-offset: 2px;
+}
+
+/* ── Reduced motion ───────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

@@ -41,33 +41,41 @@ export function Gallery() {
     <section
       id="examples"
       aria-labelledby="examples-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="border-t border-border-line"
+      data-line
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="examples-heading" className="text-xl mb-4">
-          AI pull request review examples on GitHub
-        </h2>
-
-        <div className="space-y-6">
-          {screenshots.map((shot) => (
-            <figure key={shot.caption}>
-              <div className="rounded-md border border-neutral-200 overflow-hidden">
-                <img
-                  src={shot.src}
-                  alt={shot.alt}
-                  width={shot.width}
-                  height={shot.height}
-                  className="w-full h-auto"
-                  loading="lazy"
-                  decoding="async"
-                />
-              </div>
-              <figcaption className="mt-2 text-sm text-neutral-500">
-                <code>{shot.caption}</code>
-              </figcaption>
-            </figure>
-          ))}
+      <div className="grid-layout py-16">
+        <div className="col-span-4 md:col-span-12 lg:col-span-24">
+          <h2 id="examples-heading" className="section-title mb-4">
+            AI pull request review examples on GitHub
+          </h2>
+          <p className="text-center text-foreground-secondary text-lg mb-10 max-w-2xl mx-auto">
+            See how PR Agent looks in action on real pull requests — from code reviews to
+            security analysis and Q&amp;A.
+          </p>
         </div>
+
+        {screenshots.map((shot) => (
+          <figure
+            key={shot.caption}
+            className="col-span-4 md:col-span-6 lg:col-span-8 mb-4"
+          >
+            <div className="rounded-xl border border-border-secondary overflow-hidden bg-background-secondary shadow-drop-sm">
+              <img
+                src={shot.src}
+                alt={shot.alt}
+                width={shot.width}
+                height={shot.height}
+                className="w-full h-auto"
+                loading="lazy"
+                decoding="async"
+              />
+            </div>
+            <figcaption className="mt-2 text-xs text-foreground-muted text-center">
+              <code className="font-mono text-foreground-tertiary">{shot.caption}</code>
+            </figcaption>
+          </figure>
+        ))}
       </div>
     </section>
   );
