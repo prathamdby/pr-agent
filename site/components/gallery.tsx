@@ -38,20 +38,21 @@ const screenshots = [
 
 export function Gallery() {
   return (
-    <section
-      id="examples"
-      aria-labelledby="examples-heading"
-      className="px-4 py-8 border-t border-neutral-100"
-    >
-      <div className="mx-auto max-w-xl">
-        <h2 id="examples-heading" className="text-xl mb-4">
-          AI pull request review examples on GitHub
-        </h2>
+    <section id="examples" aria-labelledby="examples-heading" className="section section-border">
+      <div className="container-geist">
+        <div className="mx-auto max-w-2xl text-center mb-10">
+          <h2 id="examples-heading" className="heading-32 mb-3">
+            Pull Request Review Examples
+          </h2>
+          <p className="copy-16 text-gray-900">
+            See PR Agent in action on real GitHub pull requests.
+          </p>
+        </div>
 
-        <div className="space-y-6">
+        <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 sm:grid-cols-2">
           {screenshots.map((shot) => (
-            <figure key={shot.caption}>
-              <div className="rounded-md border border-neutral-200 overflow-hidden">
+            <figure key={shot.caption} className="card card-compact p-4">
+              <div className="overflow-hidden rounded-sm border border-gray-alpha-400 bg-gray-100">
                 <img
                   src={shot.src}
                   alt={shot.alt}
@@ -62,7 +63,7 @@ export function Gallery() {
                   decoding="async"
                 />
               </div>
-              <figcaption className="mt-2 text-sm text-neutral-500">
+              <figcaption className="mt-3 label-13 text-gray-700">
                 <code>{shot.caption}</code>
               </figcaption>
             </figure>

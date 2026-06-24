@@ -4,54 +4,47 @@ import { PRODUCT_NAME } from "@/lib/seo";
 
 export function Header() {
   return (
-    <header className="py-4 px-4">
-      <div className="mx-auto max-w-xl flex items-center justify-between">
-        <Link
-          to="/"
-          className="flex items-center gap-2 text-neutral-800"
-          aria-label={`${PRODUCT_NAME} home`}
-        >
-          <img
-            src="/logo.png"
-            alt={`${PRODUCT_NAME} logo`}
-            width={32}
-            height={32}
-            className="rounded"
-          />
-          <span className="font-medium">{PRODUCT_NAME}</span>
-        </Link>
+    <header className="container-geist flex items-center justify-between py-4">
+      <Link
+        to="/"
+        className="flex items-center gap-2 text-gray-1000 no-underline hover:no-underline"
+        aria-label={`${PRODUCT_NAME} home`}
+      >
+        <img
+          src="/logo.png"
+          alt={`${PRODUCT_NAME} logo`}
+          width={28}
+          height={28}
+          className="rounded-sm"
+        />
+        <span className="heading-14">{PRODUCT_NAME}</span>
+      </Link>
 
-        <nav className="flex items-center gap-3 text-sm" aria-label="Primary navigation">
-          <a
-            href="#examples"
-            className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"
-          >
-            examples
-          </a>
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
-          >
-            docs
-          </a>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
-          >
-            github
-          </a>
-          <a
-            href="#usage"
-            className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700"
-          >
-            get started
-          </a>
-        </nav>
-      </div>
+      <nav className="flex items-center gap-1" aria-label="Primary navigation">
+        <a href="#examples" className="btn-tertiary btn-small no-underline">
+          Examples
+        </a>
+        <a
+          href={DOCS_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-tertiary btn-small no-underline"
+        >
+          Docs
+        </a>
+        <a
+          href={REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-tertiary btn-small no-underline"
+        >
+          GitHub
+        </a>
+        <div className="w-2" />
+        <a href="#usage" className="btn-primary btn-small no-underline">
+          Get Started
+        </a>
+      </nav>
     </header>
   );
 }

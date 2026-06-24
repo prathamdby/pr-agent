@@ -83,6 +83,20 @@ export const Route = createRootRoute({
     ],
     links: [
       {
+        rel: "preload",
+        href: "https://cdn.vercel.com/geist/sans/GeistVF.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "preload",
+        href: "https://cdn.vercel.com/geist/mono/GeistMonoVF.woff2",
+        as: "font",
+        type: "font/woff2",
+        crossOrigin: "anonymous",
+      },
+      {
         rel: "stylesheet",
         href: appCss,
       },
@@ -112,7 +126,7 @@ function RootLayout() {
         />
         <script defer src="/_vercel/insights/script.js" />
       </head>
-      <body className="bg-white text-neutral-800 min-h-screen">
+      <body>
         <Outlet />
         <Scripts />
       </body>

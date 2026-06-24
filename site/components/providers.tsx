@@ -1,6 +1,6 @@
 const providers = [
   {
-    name: "Pi (default)",
+    name: "Pi (Default)",
     detail:
       "OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more. Bring your own API keys.",
   },
@@ -13,33 +13,36 @@ const providers = [
 
 export function Providers() {
   return (
-    <section
-      id="providers"
-      aria-labelledby="providers-heading"
-      className="px-4 py-8 border-t border-neutral-100"
-    >
-      <div className="mx-auto max-w-xl">
-        <h2 id="providers-heading" className="text-xl mb-4">
-          Bring your own AI model
-        </h2>
+    <section id="providers" aria-labelledby="providers-heading" className="section section-border">
+      <div className="container-geist">
+        <div className="mx-auto max-w-2xl text-center mb-10">
+          <h2 id="providers-heading" className="heading-32 mb-3">
+            Bring Your Own AI Model
+          </h2>
+          <p className="copy-16 text-gray-900">
+            Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without
+            changing your GitHub review workflow.
+          </p>
+        </div>
 
-        <ul className="space-y-3 text-sm">
+        <div className="mx-auto grid max-w-2xl grid-cols-1 gap-4 sm:grid-cols-2">
           {providers.map((provider) => (
-            <li key={provider.name}>
-              <h3 className="font-medium text-neutral-800">{provider.name}</h3>
-              <p className="text-neutral-600">{provider.detail}</p>
-            </li>
+            <div key={provider.name} className="card">
+              <h3 className="heading-16 mb-2">{provider.name}</h3>
+              <p className="copy-14 text-gray-900">{provider.detail}</p>
+            </div>
           ))}
-        </ul>
+        </div>
 
-        <p className="mt-4 text-sm text-neutral-500">
-          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without changing
-          your GitHub review workflow. See{" "}
-          <a href="#usage" className="underline hover:text-neutral-700">
-            usage
-          </a>{" "}
-          or the repo README for setup.
-        </p>
+        <div className="mx-auto mt-8 max-w-2xl text-center">
+          <p className="copy-14 text-gray-700">
+            See the{" "}
+            <a href="#usage" className="text-gray-1000">
+              usage
+            </a>{" "}
+            section or the repo README for setup.
+          </p>
+        </div>
       </div>
     </section>
   );
