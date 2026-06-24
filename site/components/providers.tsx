@@ -13,33 +13,43 @@ const providers = [
 
 export function Providers() {
   return (
-    <section
-      id="providers"
-      aria-labelledby="providers-heading"
-      className="px-4 py-8 border-t border-neutral-100"
-    >
-      <div className="mx-auto max-w-xl">
-        <h2 id="providers-heading" className="text-xl mb-4">
-          Bring your own AI model
-        </h2>
+    <section id="providers" aria-labelledby="providers-heading" data-line>
+      <div className="grid-layout">
+        <div className="grid-layout-inner py-16 md:py-20">
+          <h2 id="providers-heading" className="section-title mb-3 text-foreground-primary">
+            Bring your own AI model
+          </h2>
+          <p className="mb-10 text-center text-foreground-secondary max-w-lg mx-auto">
+            Switch LLM providers without changing your GitHub review workflow.
+          </p>
 
-        <ul className="space-y-3 text-sm">
-          {providers.map((provider) => (
-            <li key={provider.name}>
-              <h3 className="font-medium text-neutral-800">{provider.name}</h3>
-              <p className="text-neutral-600">{provider.detail}</p>
-            </li>
-          ))}
-        </ul>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {providers.map((provider) => (
+              <div
+                key={provider.name}
+                className="rounded-[10px] border border-border-line bg-background-secondary p-6"
+                style={{ boxShadow: "var(--shadow-drop-sm)" }}
+              >
+                <h3 className="text-base font-semibold text-foreground-primary">{provider.name}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-foreground-secondary">
+                  {provider.detail}
+                </p>
+              </div>
+            ))}
+          </div>
 
-        <p className="mt-4 text-sm text-neutral-500">
-          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without changing
-          your GitHub review workflow. See{" "}
-          <a href="#usage" className="underline hover:text-neutral-700">
-            usage
-          </a>{" "}
-          or the repo README for setup.
-        </p>
+          <p className="mt-8 text-center text-sm text-foreground-tertiary max-w-lg mx-auto">
+            Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without
+            changing your GitHub review workflow. See{" "}
+            <a
+              href="#usage"
+              className="text-brand-base hover:opacity-80 underline underline-offset-2"
+            >
+              usage
+            </a>{" "}
+            or the repo README for setup.
+          </p>
+        </div>
       </div>
     </section>
   );

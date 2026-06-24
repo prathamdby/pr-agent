@@ -38,20 +38,26 @@ const screenshots = [
 
 export function Gallery() {
   return (
-    <section
-      id="examples"
-      aria-labelledby="examples-heading"
-      className="px-4 py-8 border-t border-neutral-100"
-    >
-      <div className="mx-auto max-w-xl">
-        <h2 id="examples-heading" className="text-xl mb-4">
-          AI pull request review examples on GitHub
-        </h2>
+    <section id="examples" aria-labelledby="examples-heading" data-line>
+      <div className="grid-layout">
+        <div className="grid-layout-inner py-16 md:py-20">
+          <h2 id="examples-heading" className="section-title mb-3 text-foreground-primary">
+            AI pull request review examples on GitHub
+          </h2>
+          <p className="mb-10 text-center text-foreground-secondary max-w-lg mx-auto">
+            Real output from each slash command, published directly to your pull requests.
+          </p>
 
-        <div className="space-y-6">
-          {screenshots.map((shot) => (
-            <figure key={shot.caption}>
-              <div className="rounded-md border border-neutral-200 overflow-hidden">
+          <div className="columns-1 sm:columns-2 gap-4 [&>*]:mb-4">
+            {screenshots.map((shot) => (
+              <figure
+                key={shot.caption}
+                className="break-inside-avoid rounded-[10px] border border-border-line bg-background-secondary overflow-hidden transition-shadow duration-200"
+                style={{
+                  boxShadow: "var(--shadow-drop-md)",
+                  transitionTimingFunction: "var(--ease-out-soft)",
+                }}
+              >
                 <img
                   src={shot.src}
                   alt={shot.alt}
@@ -61,12 +67,12 @@ export function Gallery() {
                   loading="lazy"
                   decoding="async"
                 />
-              </div>
-              <figcaption className="mt-2 text-sm text-neutral-500">
-                <code>{shot.caption}</code>
-              </figcaption>
-            </figure>
-          ))}
+                <figcaption className="px-4 py-3 border-t border-border-line">
+                  <code className="text-sm font-mono text-brand-base">{shot.caption}</code>
+                </figcaption>
+              </figure>
+            ))}
+          </div>
         </div>
       </div>
     </section>

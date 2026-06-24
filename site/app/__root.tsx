@@ -87,6 +87,19 @@ export const Route = createRootRoute({
         href: appCss,
       },
       {
+        rel: "preconnect",
+        href: "https://fonts.googleapis.com",
+      },
+      {
+        rel: "preconnect",
+        href: "https://fonts.gstatic.com",
+        crossOrigin: "anonymous",
+      },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap",
+      },
+      {
         rel: "icon",
         href: "/favicon.png",
       },
@@ -99,11 +112,14 @@ export const Route = createRootRoute({
   component: RootLayout,
 });
 
+const themeScript = `(function(){try{var t=localStorage.getItem('theme');if(t==='dark'||(!t&&window.matchMedia('(prefers-color-scheme: dark)').matches)){document.documentElement.classList.add('dark');}}catch(e){}})()`;
+
 function RootLayout() {
   return (
     <html lang="en">
       <head>
         <HeadContent />
+        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <script
           dangerouslySetInnerHTML={{
             __html:
@@ -112,7 +128,7 @@ function RootLayout() {
         />
         <script defer src="/_vercel/insights/script.js" />
       </head>
-      <body className="bg-white text-neutral-800 min-h-screen">
+      <body className="bg-background-primary text-foreground-primary min-h-screen antialiased">
         <Outlet />
         <Scripts />
       </body>

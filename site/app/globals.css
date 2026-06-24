@@ -1,29 +1,438 @@
 @import "tailwindcss";
 
-@theme {
-  --font-sans:
-    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-serif: Georgia, Cambria, "Times New Roman", Times, serif;
-  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Dark mode — class based                                                */
+/* ────────────────────────────────────────────────────────────────────── */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Theme variables (light default / dark via .dark)                       */
+/*  Values from Mintlify design system — light → dark                       */
+/* ────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Surfaces & foreground (ACTUAL) */
+  --background-primary: #fefdfb;
+  --background-secondary: #faf8f5;
+  --background-tertiary: #ebe9e6;
+  --foreground-primary: #121715;
+  --foreground-secondary: #485450;
+  --foreground-tertiary: #717d79;
+  --foreground-muted: #969e9b;
+  --border-line: #f1f0ee;
+  --border-primary: #0000000a;
+  --border-secondary: #0000000f;
+
+  /* Base flip absolutes */
+  --base-default: #fefdfb;
+  --base-invert: #0a0b0f;
+  --base-white: #ffffff;
+  --base-black: #000000;
+
+  /* Brand — deep green on light */
+  --brand-base: #0c8c5e;
+  --brand-vivid: #1fa77a;
+
+  /* Neutral ramp */
+  --neutral-0: #fefdfb;
+  --neutral-50: #faf8f5;
+  --neutral-100: #f1f0ee;
+  --neutral-200: #ebe9e6;
+  --neutral-300: #d9d7d4;
+  --neutral-400: #969e9b;
+  --neutral-500: #717d79;
+  --neutral-600: #485450;
+  --neutral-700: #2a332f;
+  --neutral-800: #121715;
+
+  /* Accents */
+  --accent-orange: #eb9411;
+  --accent-orange-2: #ffa723;
+  --accent-blue-2: #44aeff;
+  --accent-blue-dark: #2992e3;
+  --accent-pink-2: #ffa3d3;
+  --accent-purple: #d87cff;
+  --accent-speedy-mint: #18e299;
+  --accent-mint-dark: #17cf85;
+  --accent-green-new: #16a34a;
+
+  /* Alpha ramps */
+  --black-4: #0000000a;
+  --black-6: #0000000f;
+  --black-10: #0000001a;
+  --black-20: #00000033;
+  --black-50: #00000080;
+  --white-4: #ffffff0a;
+  --white-8: #ffffff14;
+  --white-10: #ffffff1a;
+  --white-20: #ffffff33;
+
+  /* Grid */
+  --grid-columns: 4;
+  --grid-gap: 16px;
+  --grid-margin: 16px;
+  --grid-max-width: 1024px;
+
+  /* Easing tokens */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out-strong: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-strong: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
+.dark {
+  --background-primary: #0a0b0f;
+  --background-secondary: #121715;
+  --background-tertiary: #485450;
+  --foreground-primary: #faf8f5;
+  --foreground-secondary: #d9d7d4;
+  --foreground-tertiary: #cfcdca;
+  --foreground-muted: #969e9b;
+  --border-line: #1e1f21;
+  --border-primary: #ffffff14;
+  --border-secondary: #ffffff1a;
+
+  --base-default: #0a0b0f;
+  --base-invert: #fefdfb;
+
+  /* Brand — vivid mint on dark */
+  --brand-base: #18e299;
+  --brand-vivid: #1fa77a;
+
+  --neutral-0: #0a0b0f;
+  --neutral-50: #121715;
+  --neutral-100: #1e1f21;
+  --neutral-200: #485450;
+  --neutral-300: #717d79;
+  --neutral-400: #969e9b;
+  --neutral-500: #cfcdca;
+  --neutral-600: #d9d7d4;
+  --neutral-700: #ebe9e6;
+  --neutral-800: #faf8f5;
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Tailwind theme mapping — @theme inline so utilities resolve var()      */
+/*  at runtime, allowing .dark overrides to propagate.                     */
+/* ────────────────────────────────────────────────────────────────────── */
+@theme inline {
+  /* Fonts */
+  --font-sans:
+    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-serif:
+    "ABC Arizona Flare", "Iowan Old Style", Georgia, Cambria, "Times New Roman", Times, serif;
+  --font-paper: "Paper Mono", "Geist Mono", ui-monospace, monospace;
+
+  /* Surfaces & foreground */
+  --color-background-primary: var(--background-primary);
+  --color-background-secondary: var(--background-secondary);
+  --color-background-tertiary: var(--background-tertiary);
+  --color-foreground-primary: var(--foreground-primary);
+  --color-foreground-secondary: var(--foreground-secondary);
+  --color-foreground-tertiary: var(--foreground-tertiary);
+  --color-foreground-muted: var(--foreground-muted);
+  --color-border-line: var(--border-line);
+  --color-border-primary: var(--border-primary);
+  --color-border-secondary: var(--border-secondary);
+
+  /* Base flip */
+  --color-base-default: var(--base-default);
+  --color-base-invert: var(--base-invert);
+  --color-base-white: var(--base-white);
+  --color-base-black: var(--base-black);
+
+  /* Brand */
+  --color-brand-base: var(--brand-base);
+  --color-brand-vivid: var(--brand-vivid);
+  --color-brand-8: color-mix(in srgb, var(--brand-base) 8%, transparent);
+  --color-brand-10: color-mix(in srgb, var(--brand-base) 10%, transparent);
+  --color-brand-20: color-mix(in srgb, var(--brand-base) 20%, transparent);
+
+  /* Neutral ramp */
+  --color-neutral-0: var(--neutral-0);
+  --color-neutral-50: var(--neutral-50);
+  --color-neutral-100: var(--neutral-100);
+  --color-neutral-200: var(--neutral-200);
+  --color-neutral-300: var(--neutral-300);
+  --color-neutral-400: var(--neutral-400);
+  --color-neutral-500: var(--neutral-500);
+  --color-neutral-600: var(--neutral-600);
+  --color-neutral-700: var(--neutral-700);
+  --color-neutral-800: var(--neutral-800);
+
+  /* Accents */
+  --color-accent-orange: var(--accent-orange);
+  --color-accent-orange-2: var(--accent-orange-2);
+  --color-accent-blue-2: var(--accent-blue-2);
+  --color-accent-blue-dark: var(--accent-blue-dark);
+  --color-accent-pink-2: var(--accent-pink-2);
+  --color-accent-purple: var(--accent-purple);
+  --color-accent-speedy-mint: var(--accent-speedy-mint);
+  --color-accent-mint-dark: var(--accent-mint-dark);
+  --color-accent-green-new: var(--accent-green-new);
+
+  /* Easings as theme tokens */
+  --ease-out-soft: var(--ease-out-soft);
+  --ease-out-expo: var(--ease-out-expo);
+  --ease-in-out-smooth: var(--ease-in-out-smooth);
+  --ease-out-strong: var(--ease-out-strong);
+  --ease-in-out-strong: var(--ease-in-out-strong);
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Base element styles                                                     */
+/* ────────────────────────────────────────────────────────────────────── */
 html {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-synthesis: none;
+  scroll-behavior: smooth;
 }
 
-h1,
-h2,
-h3 {
-  font-family: var(--font-serif);
+body {
+  background-color: var(--background-primary);
+  color: var(--foreground-primary);
 }
 
-code,
-pre {
+:where(h1, h2, h3) {
+  text-wrap: balance;
+}
+
+:where(p) {
+  text-wrap: pretty;
+}
+
+:where(code, pre) {
   font-family: var(--font-mono);
 }
 
 a {
   text-underline-offset: 2px;
+}
+
+::selection {
+  background-color: color-mix(in srgb, var(--brand-base) 25%, transparent);
+}
+
+/* Focus ring — brand tinted, visible on every interactive element */
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--brand-base);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Display scale — fluid utilities                                         */
+/* ────────────────────────────────────────────────────────────────────── */
+.hero-title {
+  font-size: clamp(2.5rem, 4vw, 4rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+}
+
+.section-title {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  text-align: center;
+}
+
+.prose h2 {
+  font-size: 1.5rem;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: -0.24px;
+}
+
+.prose h3 {
+  font-size: 1.25rem;
+  line-height: 1.3;
+  font-weight: 500;
+}
+
+.prose p {
+  font-size: 1rem;
+  line-height: 1.75;
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Layout — responsive grid utilities                                      */
+/* ────────────────────────────────────────────────────────────────────── */
+.grid-layout {
+  display: grid;
+  grid-template-columns: repeat(var(--grid-columns), 1fr);
+  gap: var(--grid-gap);
+  margin-inline: var(--grid-margin);
+  max-width: var(--grid-max-width);
+  margin-left: auto;
+  margin-right: auto;
+  width: 100%;
+}
+
+.grid-layout-inner {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 768px) {
+  :root {
+    --grid-columns: 12;
+    --grid-margin: 16px;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --grid-columns: 24;
+    --grid-margin: 32px;
+  }
+}
+
+.bleed {
+  width: 100vw;
+  margin-left: calc(50% - 50vw);
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Section framing — attribute driven                                      */
+/* ────────────────────────────────────────────────────────────────────── */
+[data-rail] {
+  border-left: 1px solid var(--border-line);
+  border-right: 1px solid var(--border-line);
+}
+
+[data-line] {
+  border-bottom: 1px solid var(--border-line);
+}
+
+[data-line-lg] {
+  border-bottom: 2px solid var(--border-secondary);
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Elevation — layered soft shadows                                        */
+/* ────────────────────────────────────────────────────────────────────── */
+@theme inline {
+  --shadow-button-sm: 0 2px 4px color-mix(in srgb, var(--background-secondary) 80%, transparent);
+  --shadow-drop-sm:
+    0 1px 2px var(--black-4), 0 1px 3px var(--black-6), 0 2px 6px var(--black-4),
+    0 4px 12px var(--black-4), 0 8px 24px var(--black-4);
+  --shadow-drop-md:
+    0 2px 4px var(--black-4), 0 4px 8px var(--black-6), 0 8px 16px var(--black-4),
+    0 12px 32px var(--black-4), 0 20px 48px var(--black-4);
+  --shadow-feature-card:
+    0 4px 8px var(--black-4), 0 8px 24px var(--black-4), 0 16px 48px var(--black-4),
+    0 24px 80px var(--black-4);
+  --shadow-navbar-bg: 0 1px 0 var(--border-line), 0 4px 16px var(--black-4);
+  --shadow-editor-tooltip: 2px 2px 0 var(--black-4), 0 4px 12px var(--black-6);
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Motion — keyframes gated behind prefers-reduced-motion                 */
+/* ────────────────────────────────────────────────────────────────────── */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scaleOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes navContentIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-scaleIn {
+  animation: scaleIn 200ms var(--ease-out-soft) both;
+}
+
+.animate-scaleOut {
+  animation: scaleOut 150ms var(--ease-out-soft) both;
+}
+
+.animate-nav-content-in {
+  animation: navContentIn 220ms var(--ease-out-soft) both;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 400ms var(--ease-out-expo) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .animate-scaleIn,
+  .animate-scaleOut,
+  .animate-nav-content-in,
+  .animate-fade-in-up {
+    animation: none !important;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Smooth scrollbar                                                        */
+/* ────────────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--background-secondary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--neutral-300);
+  border-radius: 9999px;
+  border: 2px solid var(--background-secondary);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neutral-400);
 }
