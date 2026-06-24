@@ -1,5 +1,10 @@
 # Third-party notices
 
+## Geist font
+
+The landing page (`site/`) uses [Geist](https://vercel.com/font) by Vercel, Inc.,
+self-hosted under the SIL Open Font License, Version 1.1.
+
 ## deepsec
 
 Portions of the security review system prompt in `src/agent/prompts/securityPrompt.ts` are adapted from [vercel-labs/deepsec](https://github.com/vercel-labs/deepsec) (`packages/processor/src/prompt/core.ts`), used under the Apache License 2.0.

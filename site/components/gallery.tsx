@@ -41,29 +41,32 @@ export function Gallery() {
     <section
       id="examples"
       aria-labelledby="examples-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="border-t border-gray-alpha-200 bg-background-100 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="examples-heading" className="text-xl mb-4">
-          AI pull request review examples on GitHub
+      <div className="mx-auto max-w-[1200px]">
+        <h2 id="examples-heading" className="text-heading-24 text-primary sm:text-heading-32">
+          AI Pull Request Review Examples on GitHub
         </h2>
+        <p className="mt-3 max-w-2xl text-copy-16 text-secondary">
+          See PR Agent in action on real pull request workflows.
+        </p>
 
-        <div className="space-y-6">
+        <div className="mt-10 columns-1 gap-4 sm:columns-2">
           {screenshots.map((shot) => (
-            <figure key={shot.caption}>
-              <div className="rounded-md border border-neutral-200 overflow-hidden">
+            <figure key={shot.caption} className="mb-4 break-inside-avoid">
+              <div className="overflow-hidden rounded-md border border-gray-alpha-200 bg-background-200 shadow-card">
                 <img
                   src={shot.src}
                   alt={shot.alt}
                   width={shot.width}
                   height={shot.height}
-                  className="w-full h-auto"
+                  className="h-auto w-full"
                   loading="lazy"
                   decoding="async"
                 />
               </div>
-              <figcaption className="mt-2 text-sm text-neutral-500">
-                <code>{shot.caption}</code>
+              <figcaption className="mt-2 text-copy-13-mono text-secondary">
+                {shot.caption}
               </figcaption>
             </figure>
           ))}

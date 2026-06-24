@@ -16,27 +16,33 @@ export function Providers() {
     <section
       id="providers"
       aria-labelledby="providers-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="border-t border-gray-alpha-200 bg-background-200 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="providers-heading" className="text-xl mb-4">
-          Bring your own AI model
+      <div className="mx-auto max-w-[1200px]">
+        <h2 id="providers-heading" className="text-heading-24 text-primary sm:text-heading-32">
+          Bring Your Own AI Model
         </h2>
+        <p className="mt-3 max-w-2xl text-copy-16 text-secondary">
+          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without changing
+          your GitHub review workflow.
+        </p>
 
-        <ul className="space-y-3 text-sm">
+        <ul className="mt-10 grid gap-4 sm:grid-cols-2">
           {providers.map((provider) => (
-            <li key={provider.name}>
-              <h3 className="font-medium text-neutral-800">{provider.name}</h3>
-              <p className="text-neutral-600">{provider.detail}</p>
+            <li
+              key={provider.name}
+              className="rounded-md border border-gray-alpha-200 bg-background-100 p-6 shadow-card"
+            >
+              <h3 className="text-heading-16 text-primary">{provider.name}</h3>
+              <p className="mt-2 text-copy-14 text-secondary">{provider.detail}</p>
             </li>
           ))}
         </ul>
 
-        <p className="mt-4 text-sm text-neutral-500">
-          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without changing
-          your GitHub review workflow. See{" "}
-          <a href="#usage" className="underline hover:text-neutral-700">
-            usage
+        <p className="mt-6 text-copy-14 text-gray-700">
+          See{" "}
+          <a href="#usage" className="text-tertiary underline hover:text-blue-800">
+            Usage
           </a>{" "}
           or the repo README for setup.
         </p>

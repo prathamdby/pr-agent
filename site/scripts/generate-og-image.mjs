@@ -8,19 +8,13 @@ const outPath = join(publicDir, "og-image.png");
 
 const width = 1200;
 const height = 630;
-const logoTargetHeight = 300;
+const logoTargetHeight = 280;
 const logoPaddingLeft = 100;
-const textGap = 80;
+const textGap = 72;
 
 const background = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#59B2FF"/>
-        <stop offset="100%" stop-color="#1A4FD6"/>
-      </linearGradient>
-    </defs>
-    <rect width="${width}" height="${height}" fill="url(#bg)" rx="0"/>
+    <rect width="${width}" height="${height}" fill="#fafafa" rx="0"/>
   </svg>`,
 );
 
@@ -37,9 +31,9 @@ const textLeft = logoLeft + logoWidth + textGap;
 
 const textOverlay = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textLeft}" y="270" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="72" font-weight="700" fill="#ffffff">PR Agent</text>
-    <text x="${textLeft}" y="340" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="32" font-weight="400" fill="rgba(255,255,255,0.92)">Self-hosted AI pull request review platform</text>
-    <text x="${textLeft}" y="390" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="24" font-weight="400" fill="rgba(255,255,255,0.75)">Reviews · Descriptions · Q&amp;A</text>
+    <text x="${textLeft}" y="282" font-family="Geist Sans, ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="72" font-weight="600" fill="#171717">PR Agent</text>
+    <text x="${textLeft}" y="340" font-family="Geist Sans, ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="28" font-weight="400" fill="#4d4d4d">Self-hosted AI pull request review platform</text>
+    <text x="${textLeft}" y="384" font-family="Geist Mono, ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" font-weight="400" fill="#7d7d7d">Reviews · Descriptions · Q&amp;A</text>
   </svg>`,
 );
 

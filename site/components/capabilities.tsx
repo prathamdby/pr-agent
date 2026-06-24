@@ -1,21 +1,21 @@
 const capabilities = [
   {
-    title: "AI code reviews",
+    title: "AI Code Reviews",
     trigger: "Auto on PR open and sync, or /review",
     detail: "Automated pull request review with inline comments on the Files changed tab.",
   },
   {
-    title: "PR descriptions",
+    title: "PR Descriptions",
     trigger: "Auto on PR open, or /describe",
     detail: "AI-generated summary bullets and optional diagram merged into the PR body.",
   },
   {
-    title: "Security reviews",
+    title: "Security Reviews",
     trigger: "/review-security",
     detail: "Security-focused code review as a separate summary on the pull request.",
   },
   {
-    title: "Quality reviews",
+    title: "Quality Reviews",
     trigger: "/review-quality",
     detail: "Code quality and maintainability review on demand.",
   },
@@ -25,7 +25,7 @@ const capabilities = [
     detail: "Ask questions about PR code from the conversation or an inline diff thread.",
   },
   {
-    title: "Docs-only fast path",
+    title: "Docs-Only Fast Path",
     trigger: "Auto on trivial doc-only PRs",
     detail: "Skips full AI review when every changed file is documentation.",
   },
@@ -36,19 +36,25 @@ export function Capabilities() {
     <section
       id="capabilities"
       aria-labelledby="capabilities-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="border-t border-gray-alpha-200 bg-background-200 px-4 py-16 sm:px-6 sm:py-20 lg:px-8"
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="capabilities-heading" className="text-xl mb-4">
-          GitHub pull request review features
+      <div className="mx-auto max-w-[1200px]">
+        <h2 id="capabilities-heading" className="text-heading-24 text-primary sm:text-heading-32">
+          GitHub Pull Request Review Features
         </h2>
+        <p className="mt-3 max-w-2xl text-copy-16 text-secondary">
+          Automated workflows and slash commands for every review task.
+        </p>
 
-        <ul className="space-y-4">
+        <ul className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {capabilities.map((cap) => (
-            <li key={cap.title} className="text-sm">
-              <h3 className="font-medium text-neutral-800">{cap.title}</h3>
-              <p className="text-neutral-500">{cap.trigger}</p>
-              <p className="text-neutral-600 mt-0.5">{cap.detail}</p>
+            <li
+              key={cap.title}
+              className="rounded-md border border-gray-alpha-200 bg-background-100 p-6 shadow-card"
+            >
+              <h3 className="text-heading-16 text-primary">{cap.title}</h3>
+              <p className="mt-1 text-label-13-mono text-tertiary">{cap.trigger}</p>
+              <p className="mt-2 text-copy-14 text-secondary">{cap.detail}</p>
             </li>
           ))}
         </ul>
