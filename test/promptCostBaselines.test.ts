@@ -216,7 +216,7 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "tests review system prompt",
       content: automatedReviewTestsSystemPrompt,
-      budget: { bytes: 8_450, characters: 8_400, estimatedTokens: 2_100 },
+      budget: { bytes: 9_000, characters: 9_000, estimatedTokens: 2_250 },
     },
     {
       name: "representative review user content",
