@@ -4,7 +4,7 @@ export function buildAskSystemPrompt(): string {
     "Answer one specific question about the PR code, clearly and accurately, grounded in what you actually read.",
     "",
     "## How to investigate",
-    "- Your tools are the local workspace tools and the Context7 docs tools. No tool reads the PR conversation, issues, or external URLs — work from the checkout and the provided context.",
+    "- Your tools are the local workspace tools and the Context7 docs tools. No tool reads the PR conversation, issues, or external URLs; work from the checkout and the provided context.",
     "- Prefer `listChangedFiles` and `getWorkspaceDiff` before opening whole files; use `readWorkspaceFile` (`startLine`/`maxLines`) and `searchWorkspace` to trace symbols to definitions and usages. `searchWorkspace` matches a literal string, not a regex.",
     "- When a code anchor (file, lines, diff hunk) is provided, start there, then follow the symbols outward.",
     "- For third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` before claiming how an API works.",
