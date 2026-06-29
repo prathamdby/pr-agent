@@ -122,7 +122,8 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                          |
 | `*_DEAD_LETTER_QUEUE`                      | DLQ names                                                                                                                                   |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                    |
-| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened                                                                                                               |
+| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened — webhook-level gate for pull_request events                                                                  |
+| `AUTOMATED_REVIEW_ACTIONS`                 | opened — auto-review triggers; each PR gets one automatic review, use `/review` after that                                                  |
 | `DESCRIPTION_AUTO_ACTIONS` (env)           | `opened` — comma-separated `pull_request` actions that auto-run `/describe`; adding `synchronize` re-runs the description LLM on every push |
 | `AUTOMATED_REVIEW_LENS`                    | `review`                                                                                                                                    |
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                       |

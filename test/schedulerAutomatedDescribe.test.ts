@@ -77,7 +77,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).toContain(DESCRIPTION_QUEUE);
   });
 
-  it("does not enqueue description on synchronize", async () => {
+  it("does not enqueue description or review on synchronize (review runs once per PR)", async () => {
     const sentQueues: string[] = [];
     const boss = {
       send: vi.fn(async (queue: string) => {
@@ -86,9 +86,9 @@ describe("makeAgentWorkScheduler automated describe", () => {
       }),
     } as unknown as PgBoss;
 
-    const client = mockAutomatedClient();
-    const pool = {} as Pool;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+    const pool = {
+      query: vi.fn(async () => ({ rows: [{ id: "event-ignored" }] })),
+    } as unknown as Pool;
 
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({
@@ -105,8 +105,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
       ),
     );
 
-    expect(sentQueues).toContain(REVIEW_QUEUE);
-    expect(sentQueues).toContain(ACK_QUEUE);
+    expect(sentQueues).not.toContain(REVIEW_QUEUE);
     expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
   });
 

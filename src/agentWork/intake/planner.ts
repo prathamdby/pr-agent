@@ -1,4 +1,4 @@
-import { AUTOMATED_PR_ACTIONS } from "../../settings/index.js";
+import { AUTOMATED_REVIEW_ACTIONS } from "../../settings/index.js";
 
 /** Durable work kinds scheduled from automated pull_request webhooks. */
 type AutomatedPrIntakeKind = "review" | "description";
@@ -18,7 +18,7 @@ export function planAutomatedPullRequestIntake(
   opts: AutomatedPrIntakeOptions,
 ): AutomatedPrIntakePlan {
   const kinds: AutomatedPrIntakeKind[] = [];
-  if (AUTOMATED_PR_ACTIONS.has(action)) kinds.push("review");
+  if (AUTOMATED_REVIEW_ACTIONS.has(action)) kinds.push("review");
   if (opts.descriptionAutoActions.has(action)) kinds.push("description");
   return { action, kinds };
 }

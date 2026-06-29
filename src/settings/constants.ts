@@ -14,6 +14,9 @@ export const TRIAGE_DEAD_LETTER_QUEUE = "agent-work-triage-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
+/** PR actions that trigger an automatic review. Only `opened` so each PR gets one
+ *  automatic review; subsequent reviews require `/review`. */
+export const AUTOMATED_REVIEW_ACTIONS = new Set(["opened"]);
 export const AUTOMATED_REVIEW_LENS = "review" as const;
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const ASK_PUBLISH_LENS = "ask" as const;
@@ -393,7 +396,7 @@ export const SLASH_HELP_BODY = [
   "- `/triage` — fix earlier PR Agent findings on this PR: commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs). Post on the PR conversation to triage all findings, or reply `/triage` inside a bot inline finding thread to triage that finding only.",
   "",
   "Notes:",
-  "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on `opened` / `synchronize` / `reopened`.",
+  "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs automatically on `opened` only (once per PR). Use `/review` to re-run manually.",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
   "- `/review`, `/review-security`, `/review-quality`, and `/review-tests` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",

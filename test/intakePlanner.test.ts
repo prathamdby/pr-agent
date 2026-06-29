@@ -12,12 +12,12 @@ describe("planAutomatedPullRequestIntake", () => {
     ).toEqual(["review", "description"]);
   });
 
-  it("schedules review only on synchronize", () => {
+  it("does not schedule review on synchronize (review runs once per PR)", () => {
     expect(
       planAutomatedPullRequestIntake("synchronize", {
         descriptionAutoActions: defaultDescriptionActions,
       }).kinds,
-    ).toEqual(["review"]);
+    ).toEqual([]);
   });
 
   it("schedules nothing on unsupported action", () => {
@@ -28,7 +28,7 @@ describe("planAutomatedPullRequestIntake", () => {
     ).toEqual([]);
   });
 
-  it("includes review kind when automated review actions apply", () => {
+  it("includes review kind only on opened", () => {
     expect(
       planAutomatedPullRequestIntake("opened", {
         descriptionAutoActions: defaultDescriptionActions,
@@ -38,7 +38,12 @@ describe("planAutomatedPullRequestIntake", () => {
       planAutomatedPullRequestIntake("synchronize", {
         descriptionAutoActions: defaultDescriptionActions,
       }).kinds,
-    ).toContain("review");
+    ).not.toContain("review");
+    expect(
+      planAutomatedPullRequestIntake("reopened", {
+        descriptionAutoActions: defaultDescriptionActions,
+      }).kinds,
+    ).not.toContain("review");
     expect(
       planAutomatedPullRequestIntake("labeled", {
         descriptionAutoActions: defaultDescriptionActions,
@@ -64,6 +69,6 @@ describe("planAutomatedPullRequestIntake", () => {
       planAutomatedPullRequestIntake("synchronize", {
         descriptionAutoActions: new Set(["opened", "synchronize"]),
       }).kinds,
-    ).toEqual(["review", "description"]);
+    ).toEqual(["description"]);
   });
 });
