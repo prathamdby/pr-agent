@@ -48,14 +48,9 @@ export function Gallery() {
           Look at real GitHub output before you deploy
         </h2>
 
-        <p className="text-sm text-neutral-600 mb-4">
-          These screenshots show PR Agent comments for reviews, descriptions, Q&A, security, and
-          quality checks.
-        </p>
-
         <p className="text-sm text-neutral-500 mb-4">
-          Public proof: 11 GitHub stars as of June 29, 2026, MIT-licensed source, and product output
-          available to inspect before you deploy.
+          Screenshots of real reviews, descriptions, Q&A, security, and quality checks posted back
+          to GitHub.
         </p>
 
         <div className="space-y-6">
@@ -72,9 +67,7 @@ export function Gallery() {
                   decoding="async"
                 />
               </div>
-              <figcaption className="mt-2 text-sm text-neutral-500">
-                <code>{shot.caption}</code>
-              </figcaption>
+              <figcaption className="mt-2 text-sm text-neutral-500">{shot.caption}</figcaption>
             </figure>
           ))}
         </div>

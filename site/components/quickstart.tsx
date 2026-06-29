@@ -19,10 +19,7 @@ export function Quickstart() {
               <li>
                 Webhook URL: <code>https://&lt;host&gt;/webhooks</code>
               </li>
-              <li>
-                Events: <code>pull_request</code>, <code>issue_comment</code>,{" "}
-                <code>pull_request_review_comment</code>
-              </li>
+              <li>Events: pull requests and pull request comments</li>
               <li>Permissions: Issues and Pull requests read/write, Contents read</li>
             </ul>
             <p className="mt-2 text-sm text-neutral-500">

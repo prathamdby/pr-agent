@@ -13,8 +13,8 @@ export function Alternatives() {
         </h2>
         <p className="text-sm text-neutral-500 mb-4">
           CodeRabbit, Greptile, Cursor Bugbot, and Macroscope sell a hosted review layer. PR Agent
-          is for teams that want the reviewer, the queue, the model keys, and the data path in their
-          own account.
+          is for teams that want the reviewer, the AI keys, and the review data in their own
+          account.
         </p>
 
         <div className="overflow-x-auto">

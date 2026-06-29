@@ -47,13 +47,13 @@ export function Hero() {
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-700 transition-colors"
           >
-            Deploy it with Docker Compose
+            Deploy right now
             <ChevronRightIcon className="h-4 w-4" />
           </a>
         </div>
 
         <p className="mt-3 text-xs text-neutral-500">
-          MIT-licensed software. You pay only your hosting, Postgres, and LLM token costs.
+          Open source under MIT. You pay only for your own hosting and AI usage.
         </p>
       </div>
     </section>

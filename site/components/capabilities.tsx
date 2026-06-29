@@ -1,33 +1,33 @@
 const capabilities = [
   {
     title: "Catch review basics before a human opens the diff",
-    trigger: "Auto on PR open and sync, or /review",
-    detail: "PR Agent posts inline comments on the Files changed tab.",
+    trigger: "Runs when a PR opens or updates, or when you comment /review",
+    detail: "Inline comments appear on the Files changed tab.",
   },
   {
     title: "Turn a blank PR body into a readable summary",
-    trigger: "Auto on PR open, or /describe",
+    trigger: "Runs when a PR opens, or when you comment /describe",
     detail: "Summary bullets and an optional diagram go into the PR body.",
   },
   {
     title: "Ask for a security pass when the change touches risk",
-    trigger: "/review-security",
-    detail: "Security notes are posted as a separate PR summary.",
+    trigger: "Comment /review-security on the PR",
+    detail: "Security notes are posted as a separate summary.",
   },
   {
     title: "Ask for a quality pass before merge",
-    trigger: "/review-quality",
+    trigger: "Comment /review-quality on the PR",
     detail: "Maintainability notes land in the PR conversation.",
   },
   {
     title: "Ask code questions without leaving GitHub",
-    trigger: "/ask <question>",
-    detail: "Comment /ask why is this function async and get an answer in the thread.",
+    trigger: "Comment /ask followed by your question",
+    detail: "Get an answer in the same thread, right where the code lives.",
   },
   {
     title: "Skip AI review when the PR is only docs",
-    trigger: "Auto on trivial doc-only PRs",
-    detail: "Docs-only changes take the short path instead of a full review run.",
+    trigger: "Runs automatically on small documentation-only changes",
+    detail: "Docs-only pull requests take a lighter path instead of a full review.",
   },
 ];
 

@@ -1,12 +1,12 @@
 const providers = [
   {
-    name: "Pi provider router",
+    name: "Many model providers",
     detail:
-      "Use OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more with your API keys.",
+      "Use OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more with your own API keys.",
   },
   {
-    name: "Cursor SDK",
-    detail: "Use Cursor models while keeping the review pipeline on your infrastructure.",
+    name: "Cursor models",
+    detail: "Use Cursor models while keeping the review pipeline on your own servers.",
   },
 ];
 
@@ -32,8 +32,8 @@ export function Providers() {
         </ul>
 
         <p className="mt-4 text-sm text-neutral-500">
-          Switch from GPT to Claude to DeepSeek by changing env values. Your GitHub commands and PR
-          workflow stay the same. See{" "}
+          Switch from GPT to Claude to DeepSeek by changing a setting. Your GitHub workflow stays
+          the same. See{" "}
           <a href="#usage" className="underline hover:text-neutral-700">
             Docker Compose setup
           </a>{" "}

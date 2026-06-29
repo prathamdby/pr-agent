@@ -1,23 +1,20 @@
 const plans = [
   {
-    name: "Good",
-    title: "Read the cost",
+    title: "Software is free",
     price: "$0 from PR Agent",
-    detail: "No card. No email. No per-seat fee from this MIT-licensed software.",
+    detail: "No credit card. No per-seat fee. Open source under MIT.",
   },
   {
-    name: "Better",
-    title: "Run it for your team",
-    price: "$0 software plus your vendors",
+    title: "You pay your own vendors",
+    price: "Hosting and AI usage only",
     detail:
-      "Pay your hosting, Postgres, and LLM token bills. Add 50 developers and PR Agent stays at $0.",
+      "Cover your server, database, and model bills. Add more developers without raising your PR Agent bill.",
   },
   {
-    name: "Best",
-    title: "Own the review stack",
-    price: "$0 software plus your security process",
+    title: "You own the full stack",
+    price: "Your security rules apply",
     detail:
-      "Fork it, audit it, pin your model provider, and keep review traffic inside your network.",
+      "Run it inside your network, choose your AI provider, and keep review traffic under your policies.",
   },
 ];
 
@@ -32,22 +29,16 @@ export function Pricing() {
         <h2 id="pricing-heading" className="text-xl mb-2">
           No per-seat fee, ever
         </h2>
-        <p className="text-sm text-neutral-600 mb-4">
-          Cost first, config second. Know what you pay before you enter GitHub credentials or model
-          API keys.
+        <p className="text-sm text-neutral-500 mb-4">
+          Know the cost before you connect GitHub or add an AI provider.
         </p>
 
-        <ul className="grid gap-3">
+        <ul className="space-y-4">
           {plans.map((plan) => (
-            <li key={plan.name}>
-              <article className="rounded-md border border-neutral-200 p-4">
-                <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
-                  {plan.name}
-                </p>
-                <h3 className="mt-1 text-sm font-medium text-neutral-900">{plan.title}</h3>
-                <p className="mt-1 text-sm text-neutral-800">{plan.price}</p>
-                <p className="mt-2 text-sm text-neutral-600">{plan.detail}</p>
-              </article>
+            <li key={plan.title} className="text-sm">
+              <h3 className="font-medium text-neutral-800">{plan.title}</h3>
+              <p className="text-neutral-500">{plan.price}</p>
+              <p className="text-neutral-600 mt-0.5">{plan.detail}</p>
             </li>
           ))}
         </ul>
