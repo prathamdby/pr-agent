@@ -12,7 +12,11 @@ RUN --mount=type=cache,id=nub-store,target=/root/.local/share/nub/store \
   && nub install --no-frozen-lockfile
 
 FROM deps AS prod-deps
-RUN nub prune --prod
+# Nub's virtual store uses absolute symlinks into the PM cache; copying node_modules
+# alone breaks between stages. pnpm deploy materializes a self-contained prod tree.
+RUN corepack enable && corepack prepare pnpm@10.34.1 --activate
+RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
+  pnpm deploy --filter=pr-agent --prod --legacy /app/prod
 
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.build.json ./
@@ -30,8 +34,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY package.json ./
-COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/prod/package.json ./package.json
+COPY --from=prod-deps /app/prod/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 
