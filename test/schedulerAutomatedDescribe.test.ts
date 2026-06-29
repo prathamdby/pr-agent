@@ -77,7 +77,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).toContain(DESCRIPTION_QUEUE);
   });
 
-  it("does not enqueue description on synchronize", async () => {
+  it("does not enqueue review or description on synchronize with default actions", async () => {
     const sentQueues: string[] = [];
     const boss = {
       send: vi.fn(async (queue: string) => {
@@ -86,9 +86,19 @@ describe("makeAgentWorkScheduler automated describe", () => {
       }),
     } as unknown as PgBoss;
 
-    const client = mockAutomatedClient();
-    const pool = {} as Pool;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+    // synchronize is no longer a review/description action by default, so intake records
+    // an ignored webhook via a direct pool insert (no transaction) instead of enqueuing work.
+    const pool = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) {
+          return { rows: [{ id: "event-1" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
+      }),
+    } as unknown as Pool;
+    const txSpy = vi.spyOn(postgres, "inTransaction").mockImplementation(async () => {
+      throw new Error("inTransaction should not run for a no-work synchronize intake");
+    });
 
     const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
     const intakeLog = createOperationLogger({
@@ -96,18 +106,24 @@ describe("makeAgentWorkScheduler automated describe", () => {
       path: "/webhooks",
     });
 
-    await Effect.runPromise(
-      scheduler.submitAutomatedReview(
-        makeAutomatedHeaders(),
-        makePrRef(),
-        "synchronize",
-        intakeLog,
-      ),
-    );
+    try {
+      await Effect.runPromise(
+        scheduler.submitAutomatedReview(
+          makeAutomatedHeaders(),
+          makePrRef(),
+          "synchronize",
+          intakeLog,
+        ),
+      );
 
-    expect(sentQueues).toContain(REVIEW_QUEUE);
-    expect(sentQueues).toContain(ACK_QUEUE);
-    expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
+      // Default REVIEW_AUTO_ACTIONS=opened means follow-up pushes schedule no work.
+      expect(sentQueues).not.toContain(REVIEW_QUEUE);
+      expect(sentQueues).not.toContain(ACK_QUEUE);
+      expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
+      expect(boss.send).not.toHaveBeenCalled();
+    } finally {
+      txSpy.mockRestore();
+    }
   });
 
   it("enqueues description on synchronize when DESCRIPTION_AUTO_ACTIONS includes it", async () => {

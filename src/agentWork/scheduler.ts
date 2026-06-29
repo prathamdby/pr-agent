@@ -51,7 +51,10 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
 export function makeAgentWorkScheduler(
   pool: Pool,
   boss: PgBoss,
-  cfg: Pick<Config, "descriptionAutoActions" | "githubAppId" | "githubAppPrivateKey">,
+  cfg: Pick<
+    Config,
+    "reviewAutoActions" | "descriptionAutoActions" | "githubAppId" | "githubAppPrivateKey"
+  >,
 ) {
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>

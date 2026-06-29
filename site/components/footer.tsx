@@ -1,5 +1,4 @@
 import { LICENSE_URL, REPO_URL } from "@/lib/site";
-import { PRODUCT_NAME } from "@/lib/seo";
 
 export function Footer() {
   return (

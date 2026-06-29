@@ -1,5 +1,3 @@
-import { AUTOMATED_PR_ACTIONS } from "../../settings/index.js";
-
 /** Durable work kinds scheduled from automated pull_request webhooks. */
 type AutomatedPrIntakeKind = "review" | "description";
 
@@ -9,6 +7,8 @@ export type AutomatedPrIntakePlan = {
 };
 
 export type AutomatedPrIntakeOptions = {
+  /** `pull_request` actions that auto-run `/review`. Defaults to `opened` only so a PR is reviewed once at the start; follow-up pushes need a manual `/review`. */
+  readonly reviewAutoActions: ReadonlySet<string>;
   readonly descriptionAutoActions: ReadonlySet<string>;
 };
 
@@ -18,7 +18,7 @@ export function planAutomatedPullRequestIntake(
   opts: AutomatedPrIntakeOptions,
 ): AutomatedPrIntakePlan {
   const kinds: AutomatedPrIntakeKind[] = [];
-  if (AUTOMATED_PR_ACTIONS.has(action)) kinds.push("review");
+  if (opts.reviewAutoActions.has(action)) kinds.push("review");
   if (opts.descriptionAutoActions.has(action)) kinds.push("description");
   return { action, kinds };
 }

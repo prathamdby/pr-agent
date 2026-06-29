@@ -10,7 +10,11 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import { makeTestConfig } from "../helpers/config.js";
 
-const intakeCfg = makeTestConfig();
+const intakeCfg = makeTestConfig({
+  // These tests exercise the supersede/cancel mechanism on repeated synchronize
+  // deliveries, which only runs auto-review on push when REVIEW_AUTO_ACTIONS includes synchronize.
+  reviewAutoActions: new Set(["opened", "synchronize"]),
+});
 import {
   ACK_QUEUE,
   AUTOMATED_REVIEW_LENS,

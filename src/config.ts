@@ -7,6 +7,7 @@ import {
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_DESCRIPTION_GENERATE_TITLE,
   DEFAULT_DESCRIPTION_AUTO_ACTIONS,
+  DEFAULT_REVIEW_AUTO_ACTIONS,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
   DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
@@ -143,7 +144,7 @@ function readSlashAllowedAssociations(name: string, defaultValue: string): Reado
   return new Set(values);
 }
 
-function readDescriptionAutoActions(name: string, defaultValue: string): ReadonlySet<string> {
+function readAutoActions(name: string, defaultValue: string): ReadonlySet<string> {
   const values = optionalEnv(name, defaultValue)
     .split(",")
     .map((value) => value.trim())
@@ -392,10 +393,11 @@ export function loadConfig() {
     ENV.ENABLE_REVIEW_COMMIT_STATUS,
     DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   );
-  const descriptionAutoActions = readDescriptionAutoActions(
+  const descriptionAutoActions = readAutoActions(
     ENV.DESCRIPTION_AUTO_ACTIONS,
     DEFAULT_DESCRIPTION_AUTO_ACTIONS,
   );
+  const reviewAutoActions = readAutoActions(ENV.REVIEW_AUTO_ACTIONS, DEFAULT_REVIEW_AUTO_ACTIONS);
 
   const configuredMaxPrFilesListed = readPositiveNumber(
     ENV.MAX_PR_FILES_LISTED,
@@ -545,6 +547,7 @@ export function loadConfig() {
     enableThreadReplies,
     enableReviewCommitStatus,
     descriptionAutoActions,
+    reviewAutoActions,
     maxPrFilesListed,
     maxPrFilesPatchBytes,
     logLevel,
