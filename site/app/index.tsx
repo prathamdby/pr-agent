@@ -5,6 +5,7 @@ import { Features } from "@/components/features";
 import { Capabilities } from "@/components/capabilities";
 import { Gallery } from "@/components/gallery";
 import { Providers } from "@/components/providers";
+import { Pricing } from "@/components/pricing";
 import { Alternatives } from "@/components/alternatives";
 import { Faq } from "@/components/faq";
 import { Quickstart } from "@/components/quickstart";
@@ -25,6 +26,7 @@ function Home() {
         <Features />
         <Capabilities />
         <Gallery />
+        <Pricing />
         <Providers />
         <Alternatives />
         <Faq />

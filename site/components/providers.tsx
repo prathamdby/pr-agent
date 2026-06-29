@@ -1,13 +1,12 @@
 const providers = [
   {
-    name: "Pi (default)",
+    name: "Pi provider router",
     detail:
-      "OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more. Bring your own API keys.",
+      "Use OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more with your API keys.",
   },
   {
     name: "Cursor SDK",
-    detail:
-      "Run AI code review with Cursor models. Option for teams comparing Cursor Bugbot vs self-hosted review.",
+    detail: "Use Cursor models while keeping the review pipeline on your infrastructure.",
   },
 ];
 
@@ -20,7 +19,7 @@ export function Providers() {
     >
       <div className="mx-auto max-w-xl">
         <h2 id="providers-heading" className="text-xl mb-4">
-          Bring your own AI model
+          Change models without retraining your team
         </h2>
 
         <ul className="space-y-3 text-sm">
@@ -33,12 +32,12 @@ export function Providers() {
         </ul>
 
         <p className="mt-4 text-sm text-neutral-500">
-          Unlike fixed-model SaaS reviewers, PR Agent lets you switch LLM providers without changing
-          your GitHub review workflow. See{" "}
+          Switch from GPT to Claude to DeepSeek by changing env values. Your GitHub commands and PR
+          workflow stay the same. See{" "}
           <a href="#usage" className="underline hover:text-neutral-700">
-            usage
+            Docker Compose setup
           </a>{" "}
-          or the repo README for setup.
+          or the repo README.
         </p>
       </div>
     </section>

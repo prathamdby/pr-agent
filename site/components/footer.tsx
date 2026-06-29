@@ -5,9 +5,7 @@ export function Footer() {
   return (
     <footer className="px-4 py-8 border-t border-neutral-100">
       <div className="mx-auto max-w-xl">
-        <p className="text-sm text-neutral-500 mb-4">
-          {PRODUCT_NAME} is an open-source, self-hosted AI pull request review platform for GitHub.
-        </p>
+        <p className="text-sm text-neutral-500 mb-4">Stop renting your code review. Own it.</p>
         <div className="flex items-center justify-between text-sm text-neutral-500">
           <a
             href={LICENSE_URL}

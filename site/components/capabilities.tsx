@@ -1,33 +1,33 @@
 const capabilities = [
   {
-    title: "AI code reviews",
+    title: "Catch review basics before a human opens the diff",
     trigger: "Auto on PR open and sync, or /review",
-    detail: "Automated pull request review with inline comments on the Files changed tab.",
+    detail: "PR Agent posts inline comments on the Files changed tab.",
   },
   {
-    title: "PR descriptions",
+    title: "Turn a blank PR body into a readable summary",
     trigger: "Auto on PR open, or /describe",
-    detail: "AI-generated summary bullets and optional diagram merged into the PR body.",
+    detail: "Summary bullets and an optional diagram go into the PR body.",
   },
   {
-    title: "Security reviews",
+    title: "Ask for a security pass when the change touches risk",
     trigger: "/review-security",
-    detail: "Security-focused code review as a separate summary on the pull request.",
+    detail: "Security notes are posted as a separate PR summary.",
   },
   {
-    title: "Quality reviews",
+    title: "Ask for a quality pass before merge",
     trigger: "/review-quality",
-    detail: "Code quality and maintainability review on demand.",
+    detail: "Maintainability notes land in the PR conversation.",
   },
   {
-    title: "Q&A on PRs",
+    title: "Ask code questions without leaving GitHub",
     trigger: "/ask <question>",
-    detail: "Ask questions about PR code from the conversation or an inline diff thread.",
+    detail: "Comment /ask why is this function async and get an answer in the thread.",
   },
   {
-    title: "Docs-only fast path",
+    title: "Skip AI review when the PR is only docs",
     trigger: "Auto on trivial doc-only PRs",
-    detail: "Skips full AI review when every changed file is documentation.",
+    detail: "Docs-only changes take the short path instead of a full review run.",
   },
 ];
 
@@ -40,7 +40,7 @@ export function Capabilities() {
     >
       <div className="mx-auto max-w-xl">
         <h2 id="capabilities-heading" className="text-xl mb-4">
-          GitHub pull request review features
+          What your team gets back in GitHub
         </h2>
 
         <ul className="space-y-4">

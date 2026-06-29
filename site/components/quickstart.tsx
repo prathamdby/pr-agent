@@ -9,7 +9,7 @@ export function Quickstart() {
     >
       <div className="mx-auto max-w-xl">
         <h2 id="usage-heading" className="text-xl mb-4">
-          Deploy self-hosted AI code review
+          Deploy it with Docker Compose
         </h2>
 
         <div className="space-y-6">
@@ -26,7 +26,7 @@ export function Quickstart() {
               <li>Permissions: Issues and Pull requests read/write, Contents read</li>
             </ul>
             <p className="mt-2 text-sm text-neutral-500">
-              Full steps in the{" "}
+              Full deploy steps in the{" "}
               <a
                 href={DOCS_URL}
                 target="_blank"
@@ -40,7 +40,7 @@ export function Quickstart() {
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-neutral-800 mb-2">2. Docker Compose</h3>
+            <h3 className="text-sm font-medium text-neutral-800 mb-2">2. Start the stack</h3>
             <pre className="bg-neutral-50 border border-neutral-200 rounded p-3 text-sm overflow-x-auto">
               <code className="text-neutral-700">
                 {`cp .env.example .env
@@ -52,7 +52,7 @@ docker compose up`}
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-neutral-800 mb-2">3. Slash commands</h3>
+            <h3 className="text-sm font-medium text-neutral-800 mb-2">3. Ask in the PR thread</h3>
             <pre className="bg-neutral-50 border border-neutral-200 rounded p-3 text-sm overflow-x-auto">
               <code className="text-neutral-700">
                 {`/review

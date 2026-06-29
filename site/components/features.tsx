@@ -7,37 +7,38 @@ export function Features() {
     >
       <div className="mx-auto max-w-xl">
         <h2 id="features-heading" className="text-xl mb-4">
-          How AI code review works on PR Agent
+          Stop burning reviewer time on repeat checks
         </h2>
 
         <div className="space-y-4 text-sm text-neutral-600">
           <p>
-            <strong className="text-neutral-800">Fast intake.</strong> GitHub webhooks are verified,
-            deduplicated, and enqueued in Postgres before the HTTP response returns. A review
-            backlog does not block webhook acceptance.
+            <strong className="text-neutral-800">3 GitHub events go into one queue.</strong> PR
+            Agent accepts <code>pull_request</code>, <code>issue_comment</code>, and{" "}
+            <code>pull_request_review_comment</code> webhooks, verifies them, and stores jobs in
+            Postgres.
           </p>
 
           <p>
-            <strong className="text-neutral-800">Self-hosted.</strong> You run the web intake and
-            worker processes on your infrastructure. Postgres, pg-boss, and GitHub App credentials
-            stay under your control.
+            <strong className="text-neutral-800">2 processes do the work.</strong> A web process
+            takes GitHub traffic. A worker process clones the PR, runs the AI pass, and publishes
+            back to GitHub.
           </p>
 
           <p>
-            <strong className="text-neutral-800">AI on pull requests.</strong> Workers clone the PR
-            head, run an AI investigation pass, and publish structured reviews, descriptions, and
-            answers back to GitHub.
+            <strong className="text-neutral-800">1 place to read results.</strong> Reviews,
+            descriptions, security notes, quality notes, and answers land in the pull request where
+            the discussion already lives.
           </p>
 
           <p>
-            <strong className="text-neutral-800">Slash commands.</strong> Trigger reviews,
-            descriptions, and Q&A from PR comments with <code>/review</code>, <code>/describe</code>
-            , <code>/ask</code>, and more.
+            <strong className="text-neutral-800">5 commands cover the common asks.</strong> Use{" "}
+            <code>/review</code>, <code>/describe</code>, <code>/review-security</code>,{" "}
+            <code>/review-quality</code>, and <code>/ask</code> from PR comments.
           </p>
 
           <p>
-            <strong className="text-neutral-800">Large PRs.</strong> File listing and patch caps
-            keep runs bounded. Truncation is explicit when the change set is clipped.
+            <strong className="text-neutral-800">Big PRs show their limits.</strong> File listing
+            and patch caps bound each run. When a diff is clipped, PR Agent says so.
           </p>
         </div>
       </div>

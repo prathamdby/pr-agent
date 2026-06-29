@@ -9,11 +9,12 @@ export function Alternatives() {
     >
       <div className="mx-auto max-w-xl">
         <h2 id="alternatives-heading" className="text-xl mb-2">
-          Self-hosted alternative to hosted AI reviewers
+          Pick PR Agent when hosted review is the problem
         </h2>
         <p className="text-sm text-neutral-500 mb-4">
-          Teams evaluating CodeRabbit, Greptile, Cursor Bugbot, or Macroscope often need a GitHub
-          pull request reviewer that runs on their own infrastructure. PR Agent is built for that.
+          CodeRabbit, Greptile, Cursor Bugbot, and Macroscope sell a hosted review layer. PR Agent
+          is for teams that want the reviewer, the queue, the model keys, and the data path in their
+          own account.
         </p>
 
         <div className="overflow-x-auto">
