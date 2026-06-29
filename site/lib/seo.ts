@@ -2,10 +2,10 @@ import { REPO_URL } from "@/lib/site";
 
 export const PRODUCT_NAME = "PR Agent";
 
-export const SEO_TITLE = "PR Agent | Self-Hosted AI Code Review for GitHub";
+export const SEO_TITLE = "PR Agent | AI PR Reviews on Your Own Servers";
 
 export const SEO_DESCRIPTION =
-  "Open-source, self-hosted AI pull request review platform for GitHub. Alternative to CodeRabbit, Greptile, Cursor Bugbot, and Macroscope. Bring your own model.";
+  "AI reviews for GitHub pull requests on your servers. MIT-licensed, no per-seat fee, Docker Compose deploy, and bring your own model keys.";
 
 export const SEO_KEYWORDS = [
   "PR Agent",
@@ -38,12 +38,12 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "What is PR Agent?",
     answer:
-      "PR Agent is an open-source, self-hosted AI pull request review platform for GitHub. You deploy webhook intake, a durable job queue, background workers, and AI agents on your own infrastructure. It publishes automated reviews, PR descriptions, security and quality reviews, and Q&A replies on pull requests.",
+      "PR Agent reviews GitHub pull requests on your servers. You deploy webhook intake, a Postgres job queue, background workers, and AI agents. It posts reviews, PR descriptions, security notes, quality notes, and Q&A replies back to GitHub.",
   },
   {
     question: "Is PR Agent a self-hosted alternative to CodeRabbit?",
     answer:
-      "Yes. PR Agent covers the core CodeRabbit workflow on GitHub: automated reviews on PR open and sync, inline comments, PR summaries, descriptions, and slash-command triggers. Unlike CodeRabbit's hosted SaaS, PR Agent runs entirely on your servers, uses your GitHub App credentials, and lets you bring your own LLM provider.",
+      "Yes. PR Agent covers GitHub reviews on PR open and sync, inline comments, PR summaries, descriptions, and slash-command triggers. Unlike CodeRabbit's hosted SaaS, PR Agent runs on your servers, uses your GitHub App credentials, and lets you bring your own LLM provider.",
   },
   {
     question: "How does PR Agent compare to Greptile?",
@@ -51,9 +51,9 @@ export const FAQ_ITEMS: FaqItem[] = [
       "Greptile is a cloud AI code reviewer that indexes full repositories for cross-file context. PR Agent is self-hosted and investigates each pull request from a shallow checkout of the PR head plus GitHub diff metadata. PR Agent fits teams that want data residency, infrastructure control, and open-source deployment instead of a managed Greptile subscription.",
   },
   {
-    question: "Can PR Agent replace Cursor Bugbot?",
+    question: "Does PR Agent replace Cursor Bugbot?",
     answer:
-      "PR Agent can replace Bugbot for teams that want automated bug-and-correctness reviews on GitHub without Cursor's cloud review service. PR Agent supports the Cursor SDK as one LLM backend, so Cursor users can keep familiar models while self-hosting the review pipeline. Bugbot remains tighter to the Cursor IDE workflow; PR Agent is a full review platform you operate.",
+      "PR Agent fits teams that want bug-and-correctness reviews on GitHub without Cursor's cloud review service. PR Agent supports the Cursor SDK as one LLM backend, so Cursor users keep familiar models while self-hosting the review pipeline. Bugbot remains tied to the Cursor IDE workflow; PR Agent is a review platform you operate.",
   },
   {
     question: "How does PR Agent compare to Macroscope?",
@@ -63,12 +63,12 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Is PR Agent free?",
     answer:
-      "PR Agent is open source under the MIT license. Software is free; you pay for your own hosting, Postgres, and LLM API usage. There is no per-developer SaaS fee from PR Agent itself.",
+      "Yes. PR Agent is MIT-licensed software with no per-seat fee from PR Agent. You pay for your hosting, Postgres, and LLM token usage. Add 50 developers and your PR Agent software bill stays at $0.",
   },
   {
     question: "Which AI models does PR Agent support?",
     answer:
-      "PR Agent supports many providers through Pi (OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more) and the Cursor SDK for Cursor models. You configure the provider with environment variables on your worker.",
+      "PR Agent supports Pi providers (OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more) and the Cursor SDK for Cursor models. You configure the provider with environment variables on your worker.",
   },
   {
     question: "Does PR Agent only work with GitHub?",
@@ -86,28 +86,28 @@ export type AlternativeRow = {
 export const ALTERNATIVE_ROWS: AlternativeRow[] = [
   {
     name: "PR Agent",
-    deployment: "Self-hosted (open source)",
-    differentiator: "Full platform on your infra. BYO model. No per-seat fee.",
+    deployment: "Self-hosted, MIT-licensed",
+    differentiator: "Runs the reviewer, queue, model keys, and data path in your account.",
   },
   {
     name: "CodeRabbit",
     deployment: "Cloud SaaS (self-host enterprise)",
-    differentiator: "Polished hosted reviewer. Multi-platform. Subscription pricing.",
+    differentiator: "Hosted reviewer with subscription pricing and a managed data path.",
   },
   {
     name: "Greptile",
     deployment: "Cloud SaaS (self-host option)",
-    differentiator: "Full-repo indexing for cross-file context. Managed service.",
+    differentiator: "Managed full-repo indexing for cross-file context.",
   },
   {
     name: "Cursor Bugbot",
     deployment: "Cloud (Cursor ecosystem)",
-    differentiator: "Low-noise bug focus. Tight Cursor IDE integration.",
+    differentiator: "Bug-focused review tied to the Cursor ecosystem.",
   },
   {
     name: "Macroscope",
     deployment: "Cloud SaaS",
-    differentiator: "Hosted GitHub PR review. Managed pipeline.",
+    differentiator: "Hosted GitHub PR review with a managed pipeline.",
   },
 ];
 
@@ -132,12 +132,13 @@ export function softwareApplicationJsonLd() {
       "Self-hosted GitHub App",
       "Bring your own LLM provider",
       "Durable webhook intake and job queue",
+      "No per-seat software fee",
     ],
     offers: {
       "@type": "Offer",
       price: "0",
       priceCurrency: "USD",
-      description: "Open source MIT license. Self-hosted.",
+      description: "MIT-licensed software. No per-seat fee from PR Agent.",
     },
     author: {
       "@type": "Organization",

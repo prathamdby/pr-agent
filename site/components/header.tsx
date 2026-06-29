@@ -29,6 +29,12 @@ export function Header() {
             examples
           </a>
           <a
+            href="#pricing"
+            className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"
+          >
+            pricing
+          </a>
+          <a
             href={DOCS_URL}
             target="_blank"
             rel="noopener noreferrer"
@@ -46,9 +52,9 @@ export function Header() {
           </a>
           <a
             href="#usage"
-            className="rounded-md bg-neutral-900 px-3 py-1.5 text-sm text-white hover:bg-neutral-700"
+            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
           >
-            get started
+            deploy
           </a>
         </nav>
       </div>

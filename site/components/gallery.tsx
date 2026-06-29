@@ -45,8 +45,13 @@ export function Gallery() {
     >
       <div className="mx-auto max-w-xl">
         <h2 id="examples-heading" className="text-xl mb-4">
-          AI pull request review examples on GitHub
+          Look at real GitHub output before you deploy
         </h2>
+
+        <p className="text-sm text-neutral-500 mb-4">
+          Screenshots of real reviews, descriptions, Q&A, security, and quality checks posted back
+          to GitHub.
+        </p>
 
         <div className="space-y-6">
           {screenshots.map((shot) => (
@@ -62,9 +67,7 @@ export function Gallery() {
                   decoding="async"
                 />
               </div>
-              <figcaption className="mt-2 text-sm text-neutral-500">
-                <code>{shot.caption}</code>
-              </figcaption>
+              <figcaption className="mt-2 text-sm text-neutral-500">{shot.caption}</figcaption>
             </figure>
           ))}
         </div>

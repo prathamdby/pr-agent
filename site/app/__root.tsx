@@ -62,7 +62,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:image:alt",
-        content: `${PRODUCT_NAME} - Self-hosted AI pull request review platform`,
+        content: `${PRODUCT_NAME} - AI reviews your pull requests on your own servers`,
       },
       {
         name: "twitter:card",

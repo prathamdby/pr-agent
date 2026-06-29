@@ -1,33 +1,33 @@
 const capabilities = [
   {
-    title: "AI code reviews",
-    trigger: "Auto on PR open and sync, or /review",
-    detail: "Automated pull request review with inline comments on the Files changed tab.",
+    title: "Catch review basics before a human opens the diff",
+    trigger: "Runs when a PR opens or updates, or when you comment /review",
+    detail: "Inline comments appear on the Files changed tab.",
   },
   {
-    title: "PR descriptions",
-    trigger: "Auto on PR open, or /describe",
-    detail: "AI-generated summary bullets and optional diagram merged into the PR body.",
+    title: "Turn a blank PR body into a readable summary",
+    trigger: "Runs when a PR opens, or when you comment /describe",
+    detail: "Summary bullets and an optional diagram go into the PR body.",
   },
   {
-    title: "Security reviews",
-    trigger: "/review-security",
-    detail: "Security-focused code review as a separate summary on the pull request.",
+    title: "Ask for a security pass when the change touches risk",
+    trigger: "Comment /review-security on the PR",
+    detail: "Security notes are posted as a separate summary.",
   },
   {
-    title: "Quality reviews",
-    trigger: "/review-quality",
-    detail: "Code quality and maintainability review on demand.",
+    title: "Ask for a quality pass before merge",
+    trigger: "Comment /review-quality on the PR",
+    detail: "Maintainability notes land in the PR conversation.",
   },
   {
-    title: "Q&A on PRs",
-    trigger: "/ask <question>",
-    detail: "Ask questions about PR code from the conversation or an inline diff thread.",
+    title: "Ask code questions without leaving GitHub",
+    trigger: "Comment /ask followed by your question",
+    detail: "Get an answer in the same thread, right where the code lives.",
   },
   {
-    title: "Docs-only fast path",
-    trigger: "Auto on trivial doc-only PRs",
-    detail: "Skips full AI review when every changed file is documentation.",
+    title: "Skip AI review when the PR is only docs",
+    trigger: "Runs automatically on small documentation-only changes",
+    detail: "Docs-only pull requests take a lighter path instead of a full review.",
   },
 ];
 
@@ -40,7 +40,7 @@ export function Capabilities() {
     >
       <div className="mx-auto max-w-xl">
         <h2 id="capabilities-heading" className="text-xl mb-4">
-          GitHub pull request review features
+          What your team gets back in GitHub
         </h2>
 
         <ul className="space-y-4">
