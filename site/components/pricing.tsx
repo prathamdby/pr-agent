@@ -37,18 +37,20 @@ export function Pricing() {
           API keys.
         </p>
 
-        <div className="grid gap-3">
+        <ul className="grid gap-3">
           {plans.map((plan) => (
-            <article key={plan.name} className="rounded-md border border-neutral-200 p-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
-                {plan.name}
-              </p>
-              <h3 className="mt-1 text-sm font-medium text-neutral-900">{plan.title}</h3>
-              <p className="mt-1 text-sm text-neutral-800">{plan.price}</p>
-              <p className="mt-2 text-sm text-neutral-600">{plan.detail}</p>
-            </article>
+            <li key={plan.name}>
+              <article className="rounded-md border border-neutral-200 p-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-blue-600">
+                  {plan.name}
+                </p>
+                <h3 className="mt-1 text-sm font-medium text-neutral-900">{plan.title}</h3>
+                <p className="mt-1 text-sm text-neutral-800">{plan.price}</p>
+                <p className="mt-2 text-sm text-neutral-600">{plan.detail}</p>
+              </article>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
     </section>
   );
