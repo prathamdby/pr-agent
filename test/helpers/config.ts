@@ -60,6 +60,7 @@ const baseTestConfig: Config = {
   enableThreadReplies: false,
   enableReviewCommitStatus: false,
   descriptionAutoActions: new Set(["opened"]),
+  reviewAutoActions: new Set(["opened"]),
   maxPrFilesListed: 300,
   maxPrFilesPatchBytes: 500_000,
   logLevel: "error",

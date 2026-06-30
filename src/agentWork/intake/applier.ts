@@ -165,9 +165,10 @@ export async function applyAutomatedPullRequestIntake(
   ref: PrRef,
   action: string,
   intakeLog: RequestLogger,
-  cfg: Pick<Config, "descriptionAutoActions">,
+  cfg: Pick<Config, "reviewAutoActions" | "descriptionAutoActions">,
 ): Promise<void> {
   const plan = planAutomatedPullRequestIntake(action, {
+    reviewAutoActions: cfg.reviewAutoActions,
     descriptionAutoActions: cfg.descriptionAutoActions,
   });
   if (plan.kinds.length === 0) {

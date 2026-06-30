@@ -55,6 +55,8 @@ export const DEFAULT_ENABLE_REVIEW_LABELS_SECURITY = false;
 export const DEFAULT_ENABLE_THREAD_REPLIES = false;
 export const DEFAULT_ENABLE_REVIEW_COMMIT_STATUS = false;
 export const DEFAULT_DESCRIPTION_AUTO_ACTIONS = "opened";
+/** Default `pull_request` actions that auto-run `/review`. "opened" only so a PR is reviewed once at the start; follow-up pushes require a manual `/review`. */
+export const DEFAULT_REVIEW_AUTO_ACTIONS = "opened";
 
 export const DEFAULT_MAX_PR_FILES_LISTED = 300;
 export const DEFAULT_MAX_PR_FILES_PATCH_BYTES = 500_000;

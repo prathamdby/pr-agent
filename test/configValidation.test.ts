@@ -156,4 +156,30 @@ describe("loadConfig validation", () => {
       /DESCRIPTION_AUTO_ACTIONS contains unknown action/,
     );
   });
+
+  it("normalizes description auto actions to lowercase", async () => {
+    const cfg = await load({ DESCRIPTION_AUTO_ACTIONS: "Opened, SYNCHRONIZE " });
+    expect([...cfg.descriptionAutoActions]).toEqual(["opened", "synchronize"]);
+  });
+
+  it("defaults review auto actions to opened only", async () => {
+    const cfg = await load({});
+    expect([...cfg.reviewAutoActions]).toEqual(["opened"]);
+  });
+
+  it("parses review auto actions from env", async () => {
+    const cfg = await load({ REVIEW_AUTO_ACTIONS: "opened,synchronize" });
+    expect([...cfg.reviewAutoActions]).toEqual(["opened", "synchronize"]);
+  });
+
+  it("rejects unknown review auto actions", async () => {
+    await expect(load({ REVIEW_AUTO_ACTIONS: "opened,labeled" })).rejects.toThrow(
+      /REVIEW_AUTO_ACTIONS contains unknown action/,
+    );
+  });
+
+  it("normalizes review auto actions to lowercase", async () => {
+    const cfg = await load({ REVIEW_AUTO_ACTIONS: "Opened, REOPENED " });
+    expect([...cfg.reviewAutoActions]).toEqual(["opened", "reopened"]);
+  });
 });
