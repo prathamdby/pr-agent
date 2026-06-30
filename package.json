@@ -44,7 +44,7 @@
     "@octokit/rest": "^22.0.1",
     "@octokit/types": "^16.0.0",
     "effect": "3.21.2",
-    "evlog": "^2.18.1",
+    "evlog": "2.19.2",
     "pg": "^8.21.0",
     "pg-boss": "^12.18.2",
     "posthog-node": "^5.36.3",

@@ -71,8 +71,8 @@ importers:
         specifier: 3.21.2
         version: 3.21.2
       evlog:
-        specifier: ^2.18.1
-        version: 2.18.1
+        specifier: 2.19.2
+        version: 2.19.2
       pg:
         specifier: ^8.21.0
         version: 8.21.0
@@ -2422,8 +2422,9 @@ packages:
     resolution: {integrity: sha512-CRT1WTyuQoD771GW56XEZFQ/ZoSfWid1alKGDYMmkt2yl8UXrVR4pspqWNEcqKvVIzg6PAltWjxcSSPrboA4iA==}
     engines: {node: '>=18.0.0'}
 
-  evlog@2.18.1:
-    resolution: {integrity: sha512-uP7NNcmgQST0VdJ5c+gm4uBOOQDc/lGDWwH6aRS2H4C6mu4Hm7N8bCi6cSKIz8+If6pD2uA5EgPuhvI7OH+SHA==}
+  evlog@2.19.2:
+    resolution: {integrity: sha512-6a8ynL4tKhYK8p+mQv0in1tv3EUDSPvVPAWAuDRlpXTTIoLsR1Nol9dRIqhowakTP9XGNk6atSpvupTTGQDOTA==}
+    engines: {node: '>=18.0.0'}
     peerDependencies:
       '@nestjs/common': '>=11.1.19'
       '@nuxt/kit': ^4.4.2
@@ -6049,7 +6050,7 @@ snapshots:
     dependencies:
       eventsource-parser: 3.1.0
 
-  evlog@2.18.1: {}
+  evlog@2.19.2: {}
 
   expand-template@2.0.3: {}
 

@@ -1,4 +1,11 @@
-import { createRequestLogger, initLogger, log as globalLog, type RequestLogger } from "evlog";
+import {
+  createRequestLogger,
+  initLogger,
+  log as globalLog,
+  type AuditableLogger,
+  type RequestLogger,
+  withAuditMethods,
+} from "evlog";
 import { createLoggerStorage } from "evlog/toolkit";
 import type { Config } from "./config.js";
 
@@ -151,12 +158,14 @@ export function initEvlog(
   });
 }
 
-export function createOperationLogger(meta: OperationLoggerMeta): RequestLogger {
-  const logger = createRequestLogger({
-    method: meta.method,
-    path: meta.path,
-    requestId: meta.requestId,
-  });
+export function createOperationLogger(meta: OperationLoggerMeta): AuditableLogger {
+  const logger = withAuditMethods(
+    createRequestLogger({
+      method: meta.method,
+      path: meta.path,
+      requestId: meta.requestId,
+    }),
+  );
   if (meta.context) logger.set(meta.context);
   return logger;
 }
