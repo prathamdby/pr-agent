@@ -23,6 +23,17 @@ describe("planAutomatedPullRequestIntake", () => {
     ).toEqual([]);
   });
 
+  it("schedules nothing on reopened with default review actions", () => {
+    // reopened previously triggered an automatic review via AUTOMATED_PR_ACTIONS;
+    // it no longer does under REVIEW_AUTO_ACTIONS=opened and needs a manual /review.
+    expect(
+      planAutomatedPullRequestIntake("reopened", {
+        reviewAutoActions: defaultReviewActions,
+        descriptionAutoActions: defaultDescriptionActions,
+      }).kinds,
+    ).toEqual([]);
+  });
+
   it("schedules nothing on unsupported action", () => {
     expect(
       planAutomatedPullRequestIntake("labeled", {

@@ -147,7 +147,7 @@ function readSlashAllowedAssociations(name: string, defaultValue: string): Reado
 function readAutoActions(name: string, defaultValue: string): ReadonlySet<string> {
   const values = optionalEnv(name, defaultValue)
     .split(",")
-    .map((value) => value.trim())
+    .map((value) => value.trim().toLowerCase())
     .filter((value) => value.length > 0);
   if (values.length === 0) {
     throw new Error(`${name} must list at least one pull_request action`);
