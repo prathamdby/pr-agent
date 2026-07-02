@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
-import type { JobWithMetadata, Job, PgBoss } from "pg-boss";
+import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
 import type { Config } from "../config.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
@@ -62,15 +62,18 @@ function registerPlainQueue<T>(
   });
 }
 
+type MetadataWorkOptions = WorkOptions & { includeMetadata: true };
+
 function registerMetadataQueue<T>(
   boss: PgBoss,
   queue: string,
-  options: Omit<Parameters<PgBoss["work"]>[1], "includeMetadata">,
+  options: Omit<WorkOptions, "includeMetadata">,
   dispatch: (job: JobWithMetadata<T>) => Promise<void>,
 ): Promise<unknown> {
-  return boss.work<T>(queue, { ...options, includeMetadata: true }, async ([job]) => {
+  const workOptions = { ...options, includeMetadata: true } satisfies MetadataWorkOptions;
+  return boss.work<T>(queue, workOptions, async ([job]) => {
     await runWithOperationLogger(workerJobMeta(queue, job.data as never, job.id), () =>
-      dispatch(job),
+      dispatch(job as JobWithMetadata<T>),
     );
   });
 }
