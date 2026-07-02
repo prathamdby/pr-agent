@@ -367,7 +367,7 @@ export async function claimSummaryCommentCreation(
   const result = await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
      VALUES ($1, $2, $3, $4, 'summary_comment_claim', 'completed', '{}'::jsonb)
-     ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask'
+	     ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
      DO NOTHING`,
     [crypto.randomUUID(), workItemId, resourceKey, reviewLens],
   );
@@ -400,7 +400,6 @@ export async function getSummaryCommentGithubId(
 export async function getReviewCheckRunGithubId(
   pool: Pool,
   workItemId: string,
-  resourceKey: string,
   reviewLens: ReviewWorkPayload["mode"],
 ): Promise<number | null> {
   const row = await queryOne<{ github_id: string | null }>(
@@ -408,12 +407,11 @@ export async function getReviewCheckRunGithubId(
     `SELECT github_id
 		   FROM publish_records
 		  WHERE work_item_id = $1
-		    AND resource_key = $2
-		    AND review_lens = $3
+		    AND review_lens = $2
 		    AND step = 'check_run'
 		    AND github_id IS NOT NULL
 		  LIMIT 1`,
-    [workItemId, resourceKey, reviewLens],
+    [workItemId, reviewLens],
   );
   if (!row?.github_id) return null;
   const id = Number(row.github_id);
@@ -481,18 +479,29 @@ export async function releaseUnstartedReviewCheckRunReservation(
     workItemId: string;
     resourceKey: string;
     reviewLens: ReviewWorkPayload["mode"];
+    staleBefore?: Date;
   },
-): Promise<void> {
-  await pool.query(
+): Promise<boolean> {
+  const values: unknown[] = [params.workItemId, params.resourceKey, params.reviewLens];
+  const staleClause =
+    params.staleBefore == null
+      ? ""
+      : (() => {
+          values.push(params.staleBefore);
+          return `AND updated_at < $${values.length}`;
+        })();
+  const result = await pool.query(
     `DELETE FROM publish_records
 		  WHERE work_item_id = $1
 		    AND resource_key = $2
 		    AND review_lens = $3
 		    AND step = 'check_run'
 		    AND status = 'pending'
-		    AND github_id IS NULL`,
-    [params.workItemId, params.resourceKey, params.reviewLens],
+		    AND github_id IS NULL
+		    ${staleClause}`,
+    values,
   );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function listTriageEligibleInlineReviews(
@@ -669,7 +678,7 @@ export async function recordPublishStep(
   await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
 			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
-			 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask'
+				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
 			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
 			               github_id = EXCLUDED.github_id,
 			               status = 'completed',

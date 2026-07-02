@@ -194,6 +194,7 @@ export const REVIEW_SUMMARY_COMPACTION_NOTE =
   "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";
 export const REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX =
   "finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.";
+export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */

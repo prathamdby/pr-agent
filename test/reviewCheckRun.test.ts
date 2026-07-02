@@ -8,8 +8,12 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 vi.mock("../src/agentWork/repository.js", () => ({
   getReviewCheckRunGithubId: vi.fn(async () => null),
   recordReviewCheckRun: vi.fn(async () => undefined),
-  releaseUnstartedReviewCheckRunReservation: vi.fn(async () => undefined),
+  releaseUnstartedReviewCheckRunReservation: vi.fn(async () => true),
   reserveReviewCheckRun: vi.fn(async () => true),
+}));
+
+vi.mock("../src/evlog.js", () => ({
+  logWarn: vi.fn(),
 }));
 
 import { createReviewCheckRun, updateReviewCheckRun } from "../src/github/reviewPublish.js";
@@ -19,6 +23,7 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "../src/agentWork/repository.js";
+import { logWarn } from "../src/evlog.js";
 import {
   completeReviewCheckRun,
   ensureReviewCheckRunStarted,
@@ -112,6 +117,32 @@ describe("review check run lifecycle", () => {
     expect(createReviewCheckRun).not.toHaveBeenCalled();
   });
 
+  it("recovers a stale unstarted reservation before creating", async () => {
+    vi.mocked(reserveReviewCheckRun).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBe(123);
+
+    expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemId: "wi-1",
+        resourceKey: "o/r#1",
+        reviewLens: "review",
+        staleBefore: expect.any(Date),
+      }),
+    );
+    expect(createReviewCheckRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not release a fresh competing reservation", async () => {
+    vi.mocked(reserveReviewCheckRun).mockResolvedValueOnce(false);
+    vi.mocked(releaseUnstartedReviewCheckRunReservation).mockResolvedValueOnce(false);
+
+    await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBeNull();
+
+    expect(createReviewCheckRun).not.toHaveBeenCalled();
+  });
+
   it("releases the reservation when create fails", async () => {
     vi.mocked(createReviewCheckRun).mockRejectedValueOnce(new Error("checks forbidden"));
 
@@ -124,13 +155,38 @@ describe("review check run lifecycle", () => {
     });
   });
 
-  it("keeps the reservation when recording a created check run fails", async () => {
+  it("silently handles missing Checks permission on create", async () => {
+    vi.mocked(createReviewCheckRun).mockRejectedValueOnce(
+      Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+    );
+
+    await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBeNull();
+
+    expect(logWarn).not.toHaveBeenCalled();
+  });
+
+  it("cancels the GitHub check when recording a created check run fails", async () => {
     vi.mocked(recordReviewCheckRun).mockRejectedValueOnce(new Error("db unavailable"));
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams)).rejects.toThrow("db unavailable");
+    await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBeNull();
 
     expect(createReviewCheckRun).toHaveBeenCalled();
-    expect(releaseUnstartedReviewCheckRunReservation).not.toHaveBeenCalled();
+    expect(updateReviewCheckRun).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      123,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "PR Agent could not persist this check run.",
+      }),
+      123,
+    );
+    expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+    });
   });
 
   it("completes an existing check run", async () => {
@@ -158,5 +214,44 @@ describe("review check run lifecycle", () => {
       }),
       123,
     );
+  });
+
+  it("returns true and logs a DB record warning when GitHub completion succeeds", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
+    vi.mocked(recordReviewCheckRun).mockRejectedValueOnce(new Error("db unavailable"));
+
+    await expect(
+      completeReviewCheckRun(pool, {
+        ...startParams,
+        conclusion: "success",
+        summary: "no blocking findings",
+      }),
+    ).resolves.toBe(true);
+
+    expect(updateReviewCheckRun).toHaveBeenCalled();
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_check_run_complete_record_failed",
+      expect.objectContaining({
+        checkRunId: 123,
+        message: "db unavailable",
+      }),
+    );
+  });
+
+  it("silently handles missing Checks permission on update", async () => {
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(123);
+    vi.mocked(updateReviewCheckRun).mockRejectedValueOnce(
+      Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+    );
+
+    await expect(
+      completeReviewCheckRun(pool, {
+        ...startParams,
+        conclusion: "success",
+        summary: "no blocking findings",
+      }),
+    ).resolves.toBe(false);
+
+    expect(logWarn).not.toHaveBeenCalled();
   });
 });

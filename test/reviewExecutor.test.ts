@@ -349,6 +349,32 @@ describe("executeReviewJob", () => {
     );
   });
 
+  it("completes an existing check as cancelled from the durable cancellation hook", async () => {
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onCancelled?.(
+        makeItem("slash"),
+        {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
+        "skipped_before_claim",
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was cancelled before completion.",
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
+      }),
+    );
+    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+  });
+
   it("passes auto preflight files into repository preparation", async () => {
     mockDurableExecution("auto");
 

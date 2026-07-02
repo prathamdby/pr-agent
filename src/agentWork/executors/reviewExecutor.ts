@@ -421,6 +421,25 @@ export async function executeReviewJob(
         },
       );
     },
+    onCancelled: async (item, installation) => {
+      if (!item.reviewLens) return;
+      const reviewLens = item.reviewLens;
+      const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
+      await completeReviewCheckRun(pool, {
+        cfg,
+        token: installation.token,
+        tokenExpiresAtTs: installation.expiresAtTs,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens,
+        conclusion: "cancelled",
+        summary: "Review was cancelled before completion.",
+        detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
+      });
+    },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
       const reviewLens = item.reviewLens!;

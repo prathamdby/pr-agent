@@ -94,6 +94,11 @@ export type DurableJobSpec = {
     installation: InstallationToken | undefined,
     error: unknown,
   ) => Promise<void>;
+  readonly onCancelled?: (
+    item: AgentWorkItemCore,
+    installation: InstallationToken,
+    reason: string,
+  ) => Promise<void>;
 };
 
 export async function mintInstallationToken(
@@ -216,6 +221,36 @@ function workItemAccepted(
 export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   let workItem: AgentWorkItem | undefined;
   let midScaffoldSkipChecksDisabled = false;
+  let installation: InstallationToken | undefined;
+
+  async function invokeCancelledHook(
+    item: AgentWorkItemCore,
+    currentInstallation: InstallationToken | undefined,
+    reason: string,
+  ): Promise<void> {
+    if (!spec.onCancelled) return;
+    try {
+      const token =
+        currentInstallation ?? (await mintInstallationToken(spec.cfg, item.installationId));
+      await spec.onCancelled(item, token, reason);
+    } catch (error) {
+      logWarn("agent_work_cancelled_hook_failed", {
+        type: spec.type,
+        workItemId: item.id,
+        reason,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  async function markCancelledAndInvokeHook(
+    item: AgentWorkItemCore,
+    currentInstallation: InstallationToken | undefined,
+    reason: string,
+  ): Promise<void> {
+    await markWorkCancelled(spec.pool, item.id);
+    await invokeCancelledHook(item, currentInstallation, reason);
+  }
 
   if (spec.acceptItem == null) {
     workItem =
@@ -230,7 +265,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     const cancelBeforeClaim = async () => {
       if (midScaffoldSkipChecksDisabled) return false;
       if (!(await shouldSkipWork(spec.pool, core))) return false;
-      await markWorkCancelled(spec.pool, core.id);
+      await markCancelledAndInvokeHook(core, installation, "skipped_before_claim");
       return true;
     };
 
@@ -244,26 +279,28 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
 
   const item = workItem;
 
-  const cancelIfSkippable = async () => {
+  const cancelIfSkippable = async (reason: string, notifyHook = true) => {
     if (midScaffoldSkipChecksDisabled) return false;
     if (!(await shouldSkipWork(spec.pool, item))) return false;
-    await markWorkCancelled(spec.pool, item.id);
+    if (notifyHook) {
+      await markCancelledAndInvokeHook(item, installation, reason);
+    } else {
+      await markWorkCancelled(spec.pool, item.id);
+    }
     return true;
   };
 
-  const recheckSkippableAndCancel = async () => {
+  const recheckSkippableAndCancel = async (reason: string, notifyHook = true) => {
     midScaffoldSkipChecksDisabled = false;
-    return cancelIfSkippable();
+    return cancelIfSkippable(reason, notifyHook);
   };
-
-  let installation: InstallationToken | undefined;
 
   async function prepareDurableExecution(
     installationToken: InstallationToken,
   ): Promise<DurableExecutionContext | undefined> {
     const commenterId = (item.payload as { commenterId?: number }).commenterId;
     if (await isBotCommenter(spec.cfg, commenterId)) {
-      await markWorkCancelled(spec.pool, item.id);
+      await markCancelledAndInvokeHook(item, installationToken, "bot_commenter");
       return undefined;
     }
 
@@ -281,7 +318,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       };
     }
 
-    await recheckSkippableAndCancel();
+    await recheckSkippableAndCancel("head_update_rejected");
     return undefined;
   }
 
@@ -300,14 +337,14 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    if (await recheckSkippableAndCancel()) return;
+    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
     if (result.rescheduled) {
       await completeRescheduledResult(result);
       return;
     }
     if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
     if (!(await markWorkCompleted(spec.pool, item.id))) {
-      await recheckSkippableAndCancel();
+      await recheckSkippableAndCancel("completion_race", false);
       return;
     }
     logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
@@ -326,7 +363,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       });
       throw error;
     }
-    await recheckSkippableAndCancel();
+    await recheckSkippableAndCancel("retry_claim_rejected");
   }
 
   async function invokeTerminalFailureHook(error: unknown): Promise<void> {
@@ -343,7 +380,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function handleDurableExecutionError(error: unknown): Promise<void> {
-    if (await recheckSkippableAndCancel()) return;
+    if (await recheckSkippableAndCancel("skipped_after_error")) return;
     const message = error instanceof Error ? error.message : String(error);
     if (!isTerminalPgBossAttempt(spec.job)) {
       await markRetryingOrCancel(error, message);
@@ -351,7 +388,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     }
 
     if (!(await markWorkFailed(spec.pool, item.id, error))) {
-      await recheckSkippableAndCancel();
+      await recheckSkippableAndCancel("failure_race");
       return;
     }
     await invokeTerminalFailureHook(error);

@@ -102,7 +102,7 @@ export async function createReviewWorkItem(
   await client.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status)
 			 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending')
-			 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask'
+				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
 			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
 			               status = 'pending',
 			               updated_at = now()`,

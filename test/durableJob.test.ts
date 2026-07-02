@@ -254,6 +254,23 @@ describe("runDurableWorkItem", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("invokes onCancelled when cancelled before execution", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(true);
+    const execute = vi.fn();
+    const onCancelled = vi.fn().mockResolvedValue(undefined);
+
+    await runReviewWorkItem({ execute, onCancelled });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(onCancelled).toHaveBeenCalledTimes(1);
+    expect(onCancelled).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wi-1", installationId: 42 }),
+      expect.objectContaining({ token: "tok" }),
+      "skipped_before_claim",
+    );
+  });
+
   it("returns without executing when claim fails", async () => {
     mockFetchedItem(makeItem());
     vi.mocked(repo.claimWorkForExecution).mockResolvedValue(false);
@@ -365,6 +382,23 @@ describe("runDurableWorkItem", () => {
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
+  });
+
+  it("invokes onCancelled when head update loses to a cancellation", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(false);
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const execute = vi.fn();
+    const onCancelled = vi.fn().mockResolvedValue(undefined);
+
+    await runReviewWorkItem({ execute, onCancelled });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(onCancelled).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wi-1" }),
+      expect.objectContaining({ token: "tok" }),
+      "head_update_rejected",
+    );
   });
 
   it("marks publish degraded when execute reports { degraded: true }", async () => {

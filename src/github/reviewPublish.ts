@@ -30,6 +30,7 @@ export async function createReviewCheckRun(
     name: params.name,
     head_sha: params.headSha,
     status: "in_progress",
+    started_at: new Date().toISOString(),
     external_id: params.externalId,
     output: {
       title: params.name,

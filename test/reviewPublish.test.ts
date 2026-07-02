@@ -115,6 +115,7 @@ describe("review check runs", () => {
       name: "PR Agent Review",
       head_sha: "abc123",
       status: "in_progress",
+      started_at: expect.any(String),
       external_id: "wi-1",
       output: {
         title: "PR Agent Review",
