@@ -14,6 +14,8 @@ const EXPECTED_MIGRATIONS = [
   "008_review_tests_lens.sql",
   "009_summary_comment_claim.sql",
   "010_drop_max_attempts.sql",
+  "011_triage_work.sql",
+  "012_review_check_run_step.sql",
 ];
 
 describe.skipIf(!hasDatabase)("migrations (integration)", () => {
@@ -57,6 +59,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(publishIndexNames).toContain("publish_records_work_item_id_idx");
     expect(publishIndexNames).toContain("publish_records_unique_shared_step_idx");
     expect(publishIndexNames).toContain("publish_records_unique_ask_work_item_step_idx");
+    expect(publishIndexNames).toContain("publish_records_unique_check_run_work_item_step_idx");
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {

@@ -36,7 +36,13 @@ import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { MAX_REPO_POLICY_BYTES } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
+  completeReviewCheckRun,
+  ensureReviewCheckRunStarted,
+  reviewCheckDetailsUrl,
+} from "../reviewCheckRun.js";
+import {
   loadReviewExecutorPublishContext,
+  getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
 } from "../repository.js";
@@ -81,6 +87,19 @@ export async function executeReviewJob(
         !payload.staleHeadRescheduled &&
         payload.staleHeadReplacementWorkItemId
       ) {
+        await completeReviewCheckRun(pool, {
+          cfg,
+          token: env.installation.token,
+          tokenExpiresAtTs: env.installation.expiresAtTs,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reviewLens,
+          conclusion: "cancelled",
+          summary: "Review was rescheduled for a newer pull request head.",
+        });
         return buildStaleSlashReviewRescheduleResult(
           pool,
           item,
@@ -101,6 +120,44 @@ export async function executeReviewJob(
       let staleHeadAtPublish = false;
       const publishAbortState: { staleHead?: boolean } = {};
       let prefetchedPrFiles: ListPullRequestFilesResult | undefined;
+
+      await ensureReviewCheckRunStarted(pool, {
+        cfg,
+        token: tokenState.installation.token,
+        tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        headSha,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens,
+      });
+
+      const completeCheckFromStoredSummary = async (
+        conclusion: "failure" | "cancelled",
+        summary: string,
+      ) => {
+        const summaryCommentId = await getSummaryCommentGithubId(
+          pool,
+          item.resourceKey,
+          reviewLens,
+        );
+        await completeReviewCheckRun(pool, {
+          cfg,
+          token: tokenState.installation.token,
+          tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+          owner: item.owner,
+          repo: item.repo,
+          prNumber: item.prNumber,
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reviewLens,
+          conclusion,
+          summary,
+          detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
+        });
+      };
 
       if (payload.source === "auto") {
         prefetchedPrFiles = await recordReviewPhaseSpan("preflight", () =>
@@ -140,6 +197,27 @@ export async function executeReviewJob(
             lightweight: true,
           });
           logReviewRunCompleted();
+          await completeReviewCheckRun(pool, {
+            cfg,
+            token: tokenState.installation.token,
+            tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+            owner: item.owner,
+            repo: item.repo,
+            prNumber: item.prNumber,
+            workItemId: item.id,
+            resourceKey: item.resourceKey,
+            reviewLens,
+            conclusion: lightweightResult.published ? "success" : "cancelled",
+            summary: lightweightResult.published
+              ? "Documentation-only change set."
+              : "Review was cancelled before lightweight completion.",
+            detailsUrl: reviewCheckDetailsUrl(
+              item.owner,
+              item.repo,
+              item.prNumber,
+              lightweightResult.published ? lightweightResult.summaryId : null,
+            ),
+          });
           return { degraded: false };
         }
       }
@@ -272,6 +350,10 @@ export async function executeReviewJob(
             ),
           });
           if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
+            await completeCheckFromStoredSummary(
+              "cancelled",
+              "Review was rescheduled for a newer pull request head.",
+            );
             return buildStaleSlashReviewRescheduleResult(
               pool,
               item,
@@ -287,6 +369,10 @@ export async function executeReviewJob(
                 pr: item.prNumber,
                 publishAttempts: result.publishAttempts,
               });
+              await completeCheckFromStoredSummary(
+                "cancelled",
+                "Review publish was skipped because the work was superseded or cancelled.",
+              );
             } else {
               logWarn("review_not_published", {
                 owner: item.owner,
@@ -306,6 +392,10 @@ export async function executeReviewJob(
                   publish_attempts: result.publishAttempts,
                 },
               });
+              await completeCheckFromStoredSummary(
+                "failure",
+                "PR Agent could not publish a structured review.",
+              );
             }
           } else {
             const snapshot = snapshotReviewRunMetrics();
@@ -331,10 +421,29 @@ export async function executeReviewJob(
         },
       );
     },
+    onCancelled: async (item, installation) => {
+      if (!item.reviewLens) return;
+      const reviewLens = item.reviewLens;
+      const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
+      await completeReviewCheckRun(pool, {
+        cfg,
+        token: installation.token,
+        tokenExpiresAtTs: installation.expiresAtTs,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens,
+        conclusion: "cancelled",
+        summary: "Review was cancelled before completion.",
+        detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
+      });
+    },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
       const reviewLens = item.reviewLens!;
-      await upsertReviewSummaryComment(
+      const summary = await upsertReviewSummaryComment(
         installation.token,
         item.owner,
         item.repo,
@@ -347,6 +456,20 @@ export async function executeReviewJob(
         undefined,
         installation.expiresAtTs,
       );
+      await completeReviewCheckRun(pool, {
+        cfg,
+        token: installation.token,
+        tokenExpiresAtTs: installation.expiresAtTs,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        reviewLens,
+        conclusion: "failure",
+        summary: "PR Agent could not complete the review after retries.",
+        detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summary.id),
+      });
     },
   });
 }

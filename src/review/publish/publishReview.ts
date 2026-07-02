@@ -14,6 +14,7 @@ import {
   claimSummaryCommentCreation,
   getSummaryCommentGithubId,
 } from "../../agentWork/repository.js";
+import { completeReviewCheckRun, reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import {
   labelsAlreadySynced,
   reviewLabelsFromPayload,
@@ -232,7 +233,10 @@ export async function publishReview(
     mode?: ReviewMode;
     cfg: Pick<
       Config,
-      "enableReviewLabelsEffort" | "enableReviewLabelsSecurity" | "enableReviewCommitStatus"
+      | "enableReviewLabelsEffort"
+      | "enableReviewLabelsSecurity"
+      | "enableReviewCommitStatus"
+      | "enableReviewCheckRun"
     >;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
@@ -469,16 +473,34 @@ export async function publishReview(
     updated: summary.updated,
   });
 
+  const blockingCount = payload.findings.filter(
+    (f) => f.severity === "P0" || f.severity === "P1",
+  ).length;
+  const statusDescription =
+    blockingCount > 0
+      ? `${blockingCount} P0/P1 finding${blockingCount === 1 ? "" : "s"}`
+      : "no blocking findings";
+  const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
+
+  if (cfg.enableReviewCheckRun && summaryCoordination) {
+    await completeReviewCheckRun(summaryCoordination.pool, {
+      cfg,
+      token,
+      tokenExpiresAtTs,
+      owner,
+      repo,
+      prNumber,
+      workItemId: summaryCoordination.workItemId,
+      resourceKey: summaryCoordination.resourceKey,
+      reviewLens: mode,
+      conclusion: blockingCount > 0 ? "failure" : "success",
+      summary: statusDescription,
+      detailsUrl: targetUrl,
+    });
+  }
+
   if (cfg.enableReviewCommitStatus) {
-    const blockingCount = payload.findings.filter(
-      (f) => f.severity === "P0" || f.severity === "P1",
-    ).length;
     const statusState = blockingCount > 0 ? "failure" : "success";
-    const statusDescription =
-      blockingCount > 0
-        ? `${blockingCount} P0/P1 finding${blockingCount === 1 ? "" : "s"}`
-        : "no blocking findings";
-    const targetUrl = `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summary.id}`;
     try {
       if (tokenExpiresAtTs == null) {
         await setReviewCommitStatus(token, owner, repo, headSha, {

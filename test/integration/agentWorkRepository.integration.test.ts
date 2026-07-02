@@ -10,6 +10,7 @@ import {
   markWorkCompleted,
   markWorkRetrying,
   recordAskPublishStep,
+  recordReviewCheckRun,
 } from "../../src/agentWork/repository.js";
 import type { WorkStatus } from "../../src/agentWork/types.js";
 import { hasDatabase, integrationPool } from "./db.js";
@@ -21,6 +22,7 @@ type InsertWorkItemInput = {
   readonly attemptCount?: number;
   readonly cancelRequestedAt?: string | null;
   readonly payload?: Record<string, unknown>;
+  readonly resourceKey?: string;
 };
 
 type WorkRow = {
@@ -60,7 +62,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
         id,
         input.status ?? "queued",
         OWNER,
-        `repo-it-${id}`,
+        input.resourceKey ?? `repo-it-${id}`,
         input.attemptCount ?? 0,
         input.cancelRequestedAt ?? null,
         JSON.stringify(input.payload ?? {}),
@@ -235,5 +237,41 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
       [resourceKey],
     );
     expect(rows.map((row) => row.work_item_id).toSorted()).toEqual([first, second].toSorted());
+  });
+
+  it("keeps review check run records separate per work item", async () => {
+    const resourceKey = "repo-it-shared-review";
+    const first = await insertWorkItem({ resourceKey });
+    const second = await insertWorkItem({ resourceKey });
+
+    await recordReviewCheckRun(pool, {
+      workItemId: first,
+      resourceKey,
+      reviewLens: "review",
+      githubId: 111,
+      detail: { status: "in_progress" },
+    });
+    await recordReviewCheckRun(pool, {
+      workItemId: second,
+      resourceKey,
+      reviewLens: "review",
+      githubId: 222,
+      detail: { status: "in_progress" },
+    });
+
+    const { rows } = await pool.query<{ work_item_id: string; github_id: string }>(
+      `SELECT work_item_id, github_id
+         FROM publish_records
+        WHERE resource_key = $1
+          AND review_lens = 'review'
+          AND step = 'check_run'
+          AND status = 'completed'
+        ORDER BY github_id`,
+      [resourceKey],
+    );
+    expect(rows).toEqual([
+      { work_item_id: first, github_id: "111" },
+      { work_item_id: second, github_id: "222" },
+    ]);
   });
 });

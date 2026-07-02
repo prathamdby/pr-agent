@@ -21,13 +21,14 @@ export type PublishStep =
   | "inline_review"
   | "summary_comment"
   | "summary_comment_claim"
+  | "check_run"
   | "labels"
   | "pr_body"
   | "ask_reply"
   | "triage_push"
   | "triage_thread_actions"
   | "triage_report";
-type SharedPublishStep = Exclude<PublishStep, "ask_reply">;
+type SharedPublishStep = Exclude<PublishStep, "ask_reply" | "check_run">;
 type AskPublishStep = Extract<PublishStep, "ask_reply">;
 
 type AgentWorkRow = {
@@ -366,7 +367,7 @@ export async function claimSummaryCommentCreation(
   const result = await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
      VALUES ($1, $2, $3, $4, 'summary_comment_claim', 'completed', '{}'::jsonb)
-     ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask'
+	     ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
      DO NOTHING`,
     [crypto.randomUUID(), workItemId, resourceKey, reviewLens],
   );
@@ -394,6 +395,113 @@ export async function getSummaryCommentGithubId(
   if (!row?.github_id) return null;
   const id = Number(row.github_id);
   return Number.isFinite(id) ? id : null;
+}
+
+export async function getReviewCheckRunGithubId(
+  pool: Pool,
+  workItemId: string,
+  reviewLens: ReviewWorkPayload["mode"],
+): Promise<number | null> {
+  const row = await queryOne<{ github_id: string | null }>(
+    pool,
+    `SELECT github_id
+		   FROM publish_records
+		  WHERE work_item_id = $1
+		    AND review_lens = $2
+		    AND step = 'check_run'
+		    AND github_id IS NOT NULL
+		  LIMIT 1`,
+    [workItemId, reviewLens],
+  );
+  if (!row?.github_id) return null;
+  const id = Number(row.github_id);
+  return Number.isFinite(id) ? id : null;
+}
+
+export async function reserveReviewCheckRun(
+  pool: Pool,
+  params: {
+    workItemId: string;
+    resourceKey: string;
+    reviewLens: ReviewWorkPayload["mode"];
+    detail?: Record<string, unknown>;
+  },
+): Promise<boolean> {
+  const result = await pool.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
+			 VALUES ($1, $2, $3, $4, 'check_run', 'pending', $5::jsonb)
+			 ON CONFLICT (work_item_id, review_lens, step) WHERE step = 'check_run'
+			 DO NOTHING`,
+    [
+      crypto.randomUUID(),
+      params.workItemId,
+      params.resourceKey,
+      params.reviewLens,
+      JSON.stringify(params.detail ?? {}),
+    ],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function recordReviewCheckRun(
+  pool: Pool,
+  params: {
+    workItemId: string;
+    resourceKey: string;
+    reviewLens: ReviewWorkPayload["mode"];
+    githubId: string | number;
+    detail?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
+			 VALUES ($1, $2, $3, $4, 'check_run', $5, 'completed', $6::jsonb)
+			 ON CONFLICT (work_item_id, review_lens, step) WHERE step = 'check_run'
+			 DO UPDATE SET resource_key = EXCLUDED.resource_key,
+			               github_id = EXCLUDED.github_id,
+			               status = 'completed',
+			               detail = publish_records.detail || EXCLUDED.detail,
+			               updated_at = now()`,
+    [
+      crypto.randomUUID(),
+      params.workItemId,
+      params.resourceKey,
+      params.reviewLens,
+      String(params.githubId),
+      JSON.stringify(params.detail ?? {}),
+    ],
+  );
+}
+
+export async function releaseUnstartedReviewCheckRunReservation(
+  pool: Pool,
+  params: {
+    workItemId: string;
+    resourceKey: string;
+    reviewLens: ReviewWorkPayload["mode"];
+    staleBefore?: Date;
+  },
+): Promise<boolean> {
+  const values: unknown[] = [params.workItemId, params.resourceKey, params.reviewLens];
+  const staleClause =
+    params.staleBefore == null
+      ? ""
+      : (() => {
+          values.push(params.staleBefore);
+          return `AND updated_at < $${values.length}`;
+        })();
+  const result = await pool.query(
+    `DELETE FROM publish_records
+		  WHERE work_item_id = $1
+		    AND resource_key = $2
+		    AND review_lens = $3
+		    AND step = 'check_run'
+		    AND status = 'pending'
+		    AND github_id IS NULL
+		    ${staleClause}`,
+    values,
+  );
+  return (result.rowCount ?? 0) > 0;
 }
 
 export async function listTriageEligibleInlineReviews(
@@ -570,7 +678,7 @@ export async function recordPublishStep(
   await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
 			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)
-			 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask'
+				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
 			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
 			               github_id = EXCLUDED.github_id,
 			               status = 'completed',

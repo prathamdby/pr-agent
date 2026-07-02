@@ -20,12 +20,32 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
+  getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
+  recordPublishStep: vi.fn(),
+  shouldSkipWork: vi.fn(async () => false),
+  ensureCheckRunStarted: vi.fn(async (): Promise<number | null> => null),
+  completeCheckRun: vi.fn(async () => true),
+  reviewCheckDetailsUrl: vi.fn(
+    (
+      _owner: string,
+      _repo: string,
+      _prNumber: number,
+      _summaryCommentId?: string | number | null,
+    ): string | undefined => undefined,
+  ),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
   loadReviewExecutorPublishContext: mocks.loadPublishContext,
-  recordPublishStep: vi.fn(),
-  shouldSkipWork: vi.fn(),
+  recordPublishStep: mocks.recordPublishStep,
+  shouldSkipWork: mocks.shouldSkipWork,
+  getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
+}));
+
+vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
+  ensureReviewCheckRunStarted: mocks.ensureCheckRunStarted,
+  completeReviewCheckRun: mocks.completeCheckRun,
+  reviewCheckDetailsUrl: mocks.reviewCheckDetailsUrl,
 }));
 
 vi.mock("../src/review/run/reviewRun.js", () => ({
@@ -190,6 +210,15 @@ describe("executeReviewJob", () => {
     });
     mocks.buildTrustedContext.mockResolvedValue("trusted");
     mocks.fetchPriorFeedback.mockResolvedValue(undefined);
+    mocks.getSummaryCommentGithubId.mockResolvedValue(1);
+    mocks.ensureCheckRunStarted.mockResolvedValue(123);
+    mocks.completeCheckRun.mockResolvedValue(true);
+    mocks.reviewCheckDetailsUrl.mockImplementation(
+      (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
+        summaryCommentId == null
+          ? undefined
+          : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
+    );
     mockRepositoryView();
     mockDurableExecution("slash");
   });
@@ -206,6 +235,26 @@ describe("executeReviewJob", () => {
 
     expect(mocks.fetchPrFiles).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
+    expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("ensures a review check run before the long review", async () => {
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.ensureCheckRunStarted).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        cfg,
+        token: "tok",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "head",
+        workItemId: "wi-1",
+        resourceKey: "o/r#1",
+        reviewLens: "review",
+      }),
+    );
     expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
   });
 
@@ -228,6 +277,101 @@ describe("executeReviewJob", () => {
       }),
     );
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
+    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "success",
+        summary: "Documentation-only change set.",
+      }),
+    );
+  });
+
+  it("completes an existing check as failure when publish is exhausted", async () => {
+    mocks.runFullPrReview.mockResolvedValue({
+      published: false,
+      publishAttempts: 3,
+      publishSuperseded: false,
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "failure",
+        summary: "PR Agent could not publish a structured review.",
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
+      }),
+    );
+  });
+
+  it("completes an existing check as cancelled when publish is superseded", async () => {
+    mocks.runFullPrReview.mockResolvedValue({
+      published: false,
+      publishAttempts: 1,
+      publishSuperseded: true,
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review publish was skipped because the work was superseded or cancelled.",
+      }),
+    );
+  });
+
+  it("completes an existing check as failure from the terminal failure hook", async () => {
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onTerminalFailure?.(
+        makeItem("slash"),
+        {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
+        new Error("dead"),
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "failure",
+        summary: "PR Agent could not complete the review after retries.",
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
+      }),
+    );
+  });
+
+  it("completes an existing check as cancelled from the durable cancellation hook", async () => {
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onCancelled?.(
+        makeItem("slash"),
+        {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
+        "skipped_before_claim",
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was cancelled before completion.",
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
+      }),
+    );
     expect(mocks.runFullPrReview).not.toHaveBeenCalled();
   });
 
