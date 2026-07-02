@@ -9,6 +9,8 @@ import { queryOne } from "../src/db/postgres.js";
 import {
   listTriageEligibleInlineReviews,
   loadReviewExecutorPublishContext,
+  recordReviewCheckRun,
+  reserveReviewCheckRun,
 } from "../src/agentWork/repository.js";
 
 const pool = {} as Pool;
@@ -84,5 +86,43 @@ describe("listTriageEligibleInlineReviews", () => {
     );
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining("inline_review"), ["o/r#1"]);
+  });
+});
+
+describe("review check run publish records", () => {
+  it("reserves check runs with the work-item scoped conflict target", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const scopedPool = { query } as unknown as Pool;
+
+    await expect(
+      reserveReviewCheckRun(scopedPool, {
+        workItemId: "wi-1",
+        resourceKey: "o/r#1",
+        reviewLens: "review",
+      }),
+    ).resolves.toBe(true);
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("ON CONFLICT (work_item_id, review_lens, step)"),
+      expect.arrayContaining(["wi-1", "o/r#1", "review"]),
+    );
+  });
+
+  it("records check run ids with the work-item scoped conflict target", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const scopedPool = { query } as unknown as Pool;
+
+    await recordReviewCheckRun(scopedPool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+      githubId: 123,
+      detail: { status: "in_progress" },
+    });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("ON CONFLICT (work_item_id, review_lens, step)"),
+      expect.arrayContaining(["wi-1", "o/r#1", "review", "123"]),
+    );
   });
 });

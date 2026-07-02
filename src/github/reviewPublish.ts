@@ -9,6 +9,67 @@ export type InlineReviewComment = {
   body: string;
 };
 
+export type ReviewCheckRunConclusion = "success" | "failure" | "cancelled";
+
+export async function createReviewCheckRun(
+  token: string,
+  owner: string,
+  repo: string,
+  params: {
+    name: string;
+    headSha: string;
+    externalId: string;
+    summary: string;
+  },
+  expiresAtTs?: number,
+): Promise<{ id: number; url: string | null }> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const { data } = await octokit.rest.checks.create({
+    owner,
+    repo,
+    name: params.name,
+    head_sha: params.headSha,
+    status: "in_progress",
+    external_id: params.externalId,
+    output: {
+      title: params.name,
+      summary: params.summary,
+    },
+  });
+  return { id: data.id, url: data.html_url ?? null };
+}
+
+export async function updateReviewCheckRun(
+  token: string,
+  owner: string,
+  repo: string,
+  checkRunId: number,
+  params: {
+    name: string;
+    conclusion: ReviewCheckRunConclusion;
+    completedAt: string;
+    summary: string;
+    detailsUrl?: string;
+  },
+  expiresAtTs?: number,
+): Promise<void> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  await octokit.rest.checks.update({
+    owner,
+    repo,
+    check_run_id: checkRunId,
+    name: params.name,
+    status: "completed",
+    conclusion: params.conclusion,
+    completed_at: params.completedAt,
+    details_url: params.detailsUrl,
+    output: {
+      title: params.name,
+      summary: params.summary,
+    },
+  });
+}
+
 import { COMMENTS_PAGE_SIZE, COMMENT_PAGINATION_MAX_PAGES } from "../settings/index.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 

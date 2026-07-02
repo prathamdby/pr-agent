@@ -10,6 +10,7 @@ import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publ
 import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../repository.js";
+import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { renderReviewProgressComment } from "../../review/run/progressComment.js";
 import {
   getAppBotIdentity,
@@ -120,6 +121,18 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
         step: "progress_comment",
         githubId: summary.id,
         detail: { updated: summary.updated },
+      });
+      await ensureReviewCheckRunStarted(pool, {
+        cfg,
+        token: installation.token,
+        tokenExpiresAtTs: installation.expiresAtTs,
+        owner: data.owner,
+        repo: data.repo,
+        prNumber: data.prNumber,
+        headSha,
+        workItemId: data.workItemId,
+        resourceKey: `${data.owner}/${data.repo}#${data.prNumber}`,
+        reviewLens: data.progress.lens,
       });
     }
   }

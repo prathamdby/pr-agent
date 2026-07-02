@@ -46,6 +46,7 @@ describe("loadConfig validation", () => {
     expect(cfg.role).toBe("web");
     expect(cfg.logLevel).toBe("info");
     expect(cfg.reviewMinConfidence).toBe(1);
+    expect(cfg.enableReviewCheckRun).toBe(false);
     expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
   });
 
@@ -97,6 +98,11 @@ describe("loadConfig validation", () => {
       true,
     );
     expect((await load({ ENABLE_REVIEW_LABELS_EFFORT: "1" })).enableReviewLabelsEffort).toBe(false);
+  });
+
+  it("parses review check run flag", async () => {
+    expect((await load({ ENABLE_REVIEW_CHECK_RUN: "true" })).enableReviewCheckRun).toBe(true);
+    expect((await load({ ENABLE_REVIEW_CHECK_RUN: "false" })).enableReviewCheckRun).toBe(false);
   });
 
   it("rejects an invalid enum", async () => {

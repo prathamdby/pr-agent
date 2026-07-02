@@ -50,6 +50,17 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
 vi.mock("../src/agentWork/repository.js", () => ({
   claimSummaryCommentCreation: vi.fn(async () => true),
   getSummaryCommentGithubId: vi.fn(async () => null),
+  recordPublishStep: vi.fn(),
+}));
+
+vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
+  completeReviewCheckRun: vi.fn(async () => true),
+  reviewCheckDetailsUrl: vi.fn(
+    (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
+      summaryCommentId == null
+        ? undefined
+        : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
+  ),
 }));
 
 import {
@@ -70,6 +81,7 @@ import {
   claimSummaryCommentCreation,
   getSummaryCommentGithubId,
 } from "../src/agentWork/repository.js";
+import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
 
 const payload: ReviewPayload = {
   prCharacter: "Test PR.",
@@ -100,6 +112,7 @@ const baseParams = {
     enableReviewLabelsEffort: false,
     enableReviewLabelsSecurity: false,
     enableReviewCommitStatus: false,
+    enableReviewCheckRun: false,
   },
   payload,
 };
@@ -381,6 +394,7 @@ describe("publishReview", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
+        enableReviewCheckRun: false,
       },
     });
 
@@ -400,6 +414,7 @@ describe("publishReview", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: true,
         enableReviewCommitStatus: false,
+        enableReviewCheckRun: false,
       },
       payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
     });
@@ -417,6 +432,7 @@ describe("publishReview", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
+        enableReviewCheckRun: false,
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -442,6 +458,7 @@ describe("publishReview", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
+        enableReviewCheckRun: false,
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -586,6 +603,7 @@ describe("publishReview", () => {
           enableReviewLabelsEffort: true,
           enableReviewLabelsSecurity: false,
           enableReviewCommitStatus: false,
+          enableReviewCheckRun: false,
         },
       }),
     ).resolves.toBeUndefined();
@@ -618,6 +636,7 @@ describe("publishReview", () => {
             enableReviewLabelsEffort: true,
             enableReviewLabelsSecurity: false,
             enableReviewCommitStatus: false,
+            enableReviewCheckRun: false,
           },
         }),
       ).resolves.toBeUndefined();
@@ -834,6 +853,80 @@ describe("publishReview summary coordination", () => {
       { id: 88, url: "https://example.com/88" },
       undefined,
     );
+  });
+});
+
+describe("publishReview check run completion", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 2, updated: false });
+  });
+
+  function coordinatedRecordPublishStep() {
+    return attachSummaryCommentCoordination(vi.fn(), {
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+  }
+
+  it("completes the review check as failure when published findings include P1", async () => {
+    await publishReviewForTest({
+      ...baseParams,
+      cfg: { ...baseParams.cfg, enableReviewCheckRun: true },
+      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    expect(completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        token: "t",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        workItemId: "wi-1",
+        resourceKey: "o/r#1",
+        reviewLens: "review",
+        conclusion: "failure",
+        summary: "1 P0/P1 finding",
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-2",
+      }),
+    );
+  });
+
+  it("completes the review check as success when findings are P2-only", async () => {
+    await publishReviewForTest({
+      ...baseParams,
+      cfg: { ...baseParams.cfg, enableReviewCheckRun: true },
+      payload: {
+        ...payload,
+        findings: [{ ...payload.findings[0], severity: "P2" }],
+      },
+      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    expect(completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "success",
+        summary: "no blocking findings",
+      }),
+    );
+  });
+
+  it("does not complete a check when the flag is disabled", async () => {
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    expect(completeReviewCheckRun).not.toHaveBeenCalled();
   });
 });
 

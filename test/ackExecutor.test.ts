@@ -38,6 +38,10 @@ vi.mock("../src/review/publish/publishReview.js", async (importOriginal) => {
   };
 });
 
+vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
+  ensureReviewCheckRunStarted: vi.fn(),
+}));
+
 import { safeReaction } from "../src/agentWork/githubPrSurface.js";
 import {
   resolveVerifiedSummaryCommentRef,
@@ -45,6 +49,7 @@ import {
 } from "../src/github/reviewPublish.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../src/agentWork/repository.js";
+import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
@@ -102,6 +107,17 @@ describe("executeAckJob", () => {
         workItemId: "wi-1",
         step: "progress_comment",
         githubId: 42,
+      }),
+    );
+    expect(ensureReviewCheckRunStarted).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemId: "wi-1",
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        reviewLens: "review",
       }),
     );
   });
