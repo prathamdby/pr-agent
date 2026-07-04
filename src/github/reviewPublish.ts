@@ -11,6 +11,27 @@ export type InlineReviewComment = {
 
 export type ReviewCheckRunConclusion = "success" | "failure" | "cancelled";
 
+export async function findReviewCheckRunByName(
+  token: string,
+  owner: string,
+  repo: string,
+  headSha: string,
+  name: string,
+  expiresAtTs?: number,
+): Promise<{ id: number; url: string | null } | null> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const { data } = await octokit.rest.checks.listForRef({
+    owner,
+    repo,
+    ref: headSha,
+    filter: "latest",
+    check_name: name,
+  });
+  const run = data.check_runs.find((check) => check.name === name && check.head_sha === headSha);
+  if (run == null) return null;
+  return { id: run.id, url: run.html_url ?? null };
+}
+
 export async function createReviewCheckRun(
   token: string,
   owner: string,

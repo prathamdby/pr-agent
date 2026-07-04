@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   createReviewCheckRun: vi.fn(async () => ({ id: 123, url: "https://github.com/o/r/runs/123" })),
+  findReviewCheckRunByName: vi.fn(async () => null),
   updateReviewCheckRun: vi.fn(async () => undefined),
 }));
 
@@ -16,7 +17,7 @@ vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
 }));
 
-import { createReviewCheckRun, updateReviewCheckRun } from "../src/github/reviewPublish.js";
+import { createReviewCheckRun, findReviewCheckRunByName, updateReviewCheckRun } from "../src/github/reviewPublish.js";
 import {
   getReviewCheckRunGithubId,
   recordReviewCheckRun,
@@ -28,6 +29,7 @@ import {
   completeReviewCheckRun,
   ensureReviewCheckRunStarted,
   reviewCheckRunName,
+  waitForReviewCheckRunGithubId,
 } from "../src/agentWork/reviewCheckRun.js";
 
 const pool = {} as never;
@@ -135,12 +137,61 @@ describe("review check run lifecycle", () => {
   });
 
   it("does not release a fresh competing reservation", async () => {
+    vi.useFakeTimers();
     vi.mocked(reserveReviewCheckRun).mockResolvedValueOnce(false);
     vi.mocked(releaseUnstartedReviewCheckRunReservation).mockResolvedValueOnce(false);
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValue(null);
 
-    await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBeNull();
+    const pending = ensureReviewCheckRunStarted(pool, startParams);
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toBeNull();
 
     expect(createReviewCheckRun).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("waits for a peer-started check run id when a fresh reservation is held", async () => {
+    vi.useFakeTimers();
+    vi.mocked(reserveReviewCheckRun).mockResolvedValueOnce(false);
+    vi.mocked(releaseUnstartedReviewCheckRunReservation).mockResolvedValueOnce(false);
+    vi.mocked(getReviewCheckRunGithubId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(456);
+
+    const pending = ensureReviewCheckRunStarted(pool, startParams);
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toBe(456);
+
+    expect(createReviewCheckRun).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("reuses an existing GitHub check when create returns a duplicate-name 422", async () => {
+    vi.mocked(createReviewCheckRun).mockRejectedValueOnce(
+      Object.assign(new Error("already exists"), { status: 422 }),
+    );
+    vi.mocked(findReviewCheckRunByName).mockResolvedValueOnce({
+      id: 789,
+      url: "https://github.com/o/r/runs/789",
+    });
+
+    await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBe(789);
+
+    expect(findReviewCheckRunByName).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      "sha",
+      "PR Agent Review",
+      123,
+    );
+    expect(recordReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        githubId: 789,
+      }),
+    );
   });
 
   it("releases the reservation when create fails", async () => {
@@ -214,6 +265,40 @@ describe("review check run lifecycle", () => {
       }),
       123,
     );
+  });
+
+  it("waits for a persisted check run id before completing", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getReviewCheckRunGithubId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(123);
+
+    const pending = completeReviewCheckRun(pool, {
+      ...startParams,
+      conclusion: "success",
+      summary: "no blocking findings",
+    });
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toBe(true);
+
+    expect(updateReviewCheckRun).toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("polls until a check run id appears", async () => {
+    vi.useFakeTimers();
+    vi.mocked(getReviewCheckRunGithubId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(321);
+
+    const pending = waitForReviewCheckRunGithubId(pool, "wi-1", "review", {
+      timeoutMs: 500,
+      pollMs: 100,
+    });
+    await vi.runAllTimersAsync();
+    await expect(pending).resolves.toBe(321);
+    vi.useRealTimers();
   });
 
   it("returns true and logs a DB record warning when GitHub completion succeeds", async () => {
