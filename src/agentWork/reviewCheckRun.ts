@@ -171,17 +171,32 @@ export async function ensureReviewCheckRunStarted(
       params.tokenExpiresAtTs,
     );
   } catch (e) {
-    const duplicate =
-      httpStatus(e) === 422
-        ? await findReviewCheckRunByName(
-            params.token,
-            params.owner,
-            params.repo,
-            params.headSha,
-            name,
-            params.tokenExpiresAtTs,
-          )
-        : null;
+    let duplicate: { id: number; url: string | null } | null = null;
+    if (httpStatus(e) === 422) {
+      try {
+        duplicate = await findReviewCheckRunByName(
+          params.token,
+          params.owner,
+          params.repo,
+          params.headSha,
+          name,
+          params.tokenExpiresAtTs,
+        );
+      } catch (lookupError) {
+        await releaseUnstartedReviewCheckRunReservation(pool, {
+          workItemId: params.workItemId,
+          resourceKey: params.resourceKey,
+          reviewLens: params.reviewLens,
+        });
+        logCheckRunWarning("review_check_run_duplicate_lookup_failed", lookupError, {
+          owner: params.owner,
+          repo: params.repo,
+          pr: params.prNumber,
+          reviewLens: params.reviewLens,
+        });
+        return null;
+      }
+    }
     if (duplicate == null) {
       await releaseUnstartedReviewCheckRunReservation(pool, {
         workItemId: params.workItemId,
@@ -272,10 +287,7 @@ export async function completeReviewCheckRun(
   },
 ): Promise<boolean> {
   if (!params.cfg.enableReviewCheckRun) return false;
-  let checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-  if (checkRunId == null) {
-    checkRunId = await waitForReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-  }
+  const checkRunId = await waitForReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (checkRunId == null) return false;
 
   const completedAt = new Date().toISOString();

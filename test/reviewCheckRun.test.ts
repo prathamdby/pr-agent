@@ -194,6 +194,22 @@ describe("review check run lifecycle", () => {
     );
   });
 
+  it("releases the reservation when duplicate lookup fails after a 422", async () => {
+    vi.mocked(createReviewCheckRun).mockRejectedValueOnce(
+      Object.assign(new Error("already exists"), { status: 422 }),
+    );
+    vi.mocked(findReviewCheckRunByName).mockRejectedValueOnce(new Error("github unavailable"));
+
+    await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBeNull();
+
+    expect(releaseUnstartedReviewCheckRunReservation).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+    });
+    expect(recordReviewCheckRun).not.toHaveBeenCalled();
+  });
+
   it("releases the reservation when create fails", async () => {
     vi.mocked(createReviewCheckRun).mockRejectedValueOnce(new Error("checks forbidden"));
 
