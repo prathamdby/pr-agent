@@ -195,6 +195,9 @@ export const REVIEW_SUMMARY_COMPACTION_NOTE =
 export const REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX =
   "finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.";
 export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
+/** Max wait for a peer (e.g. ack job) to persist a started check run id. */
+export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
+export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */

@@ -5,6 +5,7 @@ const listComments = vi.fn();
 const updateComment = vi.fn();
 const createCheckRun = vi.fn();
 const updateCheckRun = vi.fn();
+const listCheckRunsForRef = vi.fn();
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: () => ({
@@ -16,6 +17,7 @@ vi.mock("../src/github/appAuth.js", () => ({
       checks: {
         create: createCheckRun,
         update: updateCheckRun,
+        listForRef: listCheckRunsForRef,
       },
     },
   }),
@@ -24,6 +26,7 @@ vi.mock("../src/github/appAuth.js", () => ({
 import {
   createReviewCheckRun,
   findIssueCommentBySentinel,
+  findReviewCheckRunByName,
   updateReviewCheckRun,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
@@ -93,6 +96,7 @@ describe("review check runs", () => {
   beforeEach(() => {
     createCheckRun.mockReset();
     updateCheckRun.mockReset();
+    listCheckRunsForRef.mockReset();
   });
 
   it("creates an in-progress check run", async () => {
@@ -148,6 +152,29 @@ describe("review check runs", () => {
         title: "PR Agent Review",
         summary: "1 P0/P1 finding",
       },
+    });
+  });
+
+  it("finds an existing check run by name on the head sha", async () => {
+    listCheckRunsForRef.mockResolvedValueOnce({
+      data: {
+        check_runs: [
+          { id: 77, name: "Other", head_sha: "abc123", html_url: null },
+          { id: 88, name: "PR Agent Review", head_sha: "abc123", html_url: "https://github.com/o/r/runs/88" },
+        ],
+      },
+    });
+
+    await expect(
+      findReviewCheckRunByName("tok", "o", "r", "abc123", "PR Agent Review"),
+    ).resolves.toEqual({ id: 88, url: "https://github.com/o/r/runs/88" });
+
+    expect(listCheckRunsForRef).toHaveBeenCalledWith({
+      owner: "o",
+      repo: "r",
+      ref: "abc123",
+      filter: "latest",
+      check_name: "PR Agent Review",
     });
   });
 });

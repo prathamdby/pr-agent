@@ -4,11 +4,16 @@ import { logWarn } from "../evlog.js";
 import { httpStatus } from "../github/httpStatus.js";
 import {
   createReviewCheckRun,
+  findReviewCheckRunByName,
   updateReviewCheckRun,
   type ReviewCheckRunConclusion,
 } from "../github/reviewPublish.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
-import { REVIEW_CHECK_RUN_RESERVATION_STALE_MS } from "../settings/index.js";
+import {
+  REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
+  REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
+  REVIEW_CHECK_RUN_WAIT_POLL_MS,
+} from "../settings/index.js";
 import {
   getReviewCheckRunGithubId,
   recordReviewCheckRun,
@@ -17,6 +22,27 @@ import {
 } from "./repository.js";
 
 type CheckRunConfig = Pick<Config, "enableReviewCheckRun">;
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function waitForReviewCheckRunGithubId(
+  pool: Pool,
+  workItemId: string,
+  reviewLens: ReviewMode,
+  options?: { timeoutMs?: number; pollMs?: number },
+): Promise<number | null> {
+  const timeoutMs = options?.timeoutMs ?? REVIEW_CHECK_RUN_WAIT_FOR_ID_MS;
+  const pollMs = options?.pollMs ?? REVIEW_CHECK_RUN_WAIT_POLL_MS;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const id = await getReviewCheckRunGithubId(pool, workItemId, reviewLens);
+    if (id != null) return id;
+    await sleepMs(pollMs);
+  }
+  return getReviewCheckRunGithubId(pool, workItemId, reviewLens);
+}
 
 function isMissingChecksPermissionError(error: unknown): boolean {
   const status = httpStatus(error);
@@ -111,7 +137,7 @@ export async function ensureReviewCheckRunStarted(
       staleBefore: new Date(Date.now() - REVIEW_CHECK_RUN_RESERVATION_STALE_MS),
     });
     if (!released) {
-      return getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+      return waitForReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
     }
 
     reserved = await reserveReviewCheckRun(pool, {
@@ -145,18 +171,47 @@ export async function ensureReviewCheckRunStarted(
       params.tokenExpiresAtTs,
     );
   } catch (e) {
-    await releaseUnstartedReviewCheckRunReservation(pool, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-    });
-    logCheckRunWarning("review_check_run_start_failed", e, {
-      owner: params.owner,
-      repo: params.repo,
-      pr: params.prNumber,
-      reviewLens: params.reviewLens,
-    });
-    return null;
+    let duplicate: { id: number; url: string | null } | null = null;
+    if (httpStatus(e) === 422) {
+      try {
+        duplicate = await findReviewCheckRunByName(
+          params.token,
+          params.owner,
+          params.repo,
+          params.headSha,
+          name,
+          params.tokenExpiresAtTs,
+        );
+      } catch (lookupError) {
+        await releaseUnstartedReviewCheckRunReservation(pool, {
+          workItemId: params.workItemId,
+          resourceKey: params.resourceKey,
+          reviewLens: params.reviewLens,
+        });
+        logCheckRunWarning("review_check_run_duplicate_lookup_failed", lookupError, {
+          owner: params.owner,
+          repo: params.repo,
+          pr: params.prNumber,
+          reviewLens: params.reviewLens,
+        });
+        return null;
+      }
+    }
+    if (duplicate == null) {
+      await releaseUnstartedReviewCheckRunReservation(pool, {
+        workItemId: params.workItemId,
+        resourceKey: params.resourceKey,
+        reviewLens: params.reviewLens,
+      });
+      logCheckRunWarning("review_check_run_start_failed", e, {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        reviewLens: params.reviewLens,
+      });
+      return null;
+    }
+    check = duplicate;
   }
 
   try {
@@ -232,7 +287,7 @@ export async function completeReviewCheckRun(
   },
 ): Promise<boolean> {
   if (!params.cfg.enableReviewCheckRun) return false;
-  const checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+  const checkRunId = await waitForReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (checkRunId == null) return false;
 
   const completedAt = new Date().toISOString();
