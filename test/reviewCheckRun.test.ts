@@ -17,7 +17,11 @@ vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
 }));
 
-import { createReviewCheckRun, findReviewCheckRunByName, updateReviewCheckRun } from "../src/github/reviewPublish.js";
+import {
+  createReviewCheckRun,
+  findReviewCheckRunByName,
+  updateReviewCheckRun,
+} from "../src/github/reviewPublish.js";
 import {
   getReviewCheckRunGithubId,
   recordReviewCheckRun,
@@ -304,9 +308,7 @@ describe("review check run lifecycle", () => {
 
   it("polls until a check run id appears", async () => {
     vi.useFakeTimers();
-    vi.mocked(getReviewCheckRunGithubId)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(321);
+    vi.mocked(getReviewCheckRunGithubId).mockResolvedValueOnce(null).mockResolvedValueOnce(321);
 
     const pending = waitForReviewCheckRunGithubId(pool, "wi-1", "review", {
       timeoutMs: 500,

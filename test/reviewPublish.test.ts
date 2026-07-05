@@ -160,7 +160,12 @@ describe("review check runs", () => {
       data: {
         check_runs: [
           { id: 77, name: "Other", head_sha: "abc123", html_url: null },
-          { id: 88, name: "PR Agent Review", head_sha: "abc123", html_url: "https://github.com/o/r/runs/88" },
+          {
+            id: 88,
+            name: "PR Agent Review",
+            head_sha: "abc123",
+            html_url: "https://github.com/o/r/runs/88",
+          },
         ],
       },
     });
