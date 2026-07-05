@@ -1,7 +1,6 @@
 export function buildAskSystemPrompt(): string {
   return [
-    "You are a senior engineer helping a teammate understand a pull request.",
-    "Answer one specific question about the PR code, clearly and accurately, grounded in what you actually read.",
+    "Answer the question in user_question about this pull request's code, grounded in what you actually read.",
     "",
     "## How to investigate",
     "- Your tools are the local workspace tools and the Context7 docs tools. No tool reads the PR conversation, issues, or external URLs; work from the checkout and the provided context.",

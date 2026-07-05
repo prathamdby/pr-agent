@@ -109,7 +109,7 @@ export const TESTS_REVIEW_POINTER_BODY =
   "See the proposed test cases summary in the PR conversation.";
 export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
-  "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.";
+  "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";
 export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Fix all findings (agent prompt)";
 export const REVIEW_POINTER_BODY_MAX_CHARS = 60_000;
 export const AGENT_FIX_PROMPT_TRUNCATION_SUFFIX =
@@ -211,13 +211,13 @@ export const REVIEW_SEVERITY_RANK = {
 } as const;
 
 export const PROSE_ONLY_NUDGE =
-  "You replied with text only. Call submitReview now with a complete ReviewPayload (required).";
+  "You replied with text only. Call submitReview now with a complete ReviewPayload.";
 
 export const PUBLISH_RECOVERY_ROUNDS = 4;
 export const PUBLISH_RECOVERY_PROMPTS = [
   "You ended with a text reply but never called submitReview. Call submitReview exactly once now with a complete ReviewPayload based on your analysis above. Do not continue investigating unless required to fix payload validation.",
   "The structured review was still not published. You must call submitReview now with a valid ReviewPayload. No prose-only replies.",
-  "Final publish attempt: call submitReview immediately with your ReviewPayload. This is required to complete the review.",
+  "Final publish attempt: call submitReview immediately with your ReviewPayload.",
 ] as const;
 
 export const VALIDATION_REPAIR_ROUNDS = 3;

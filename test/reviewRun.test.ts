@@ -47,6 +47,7 @@ import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
 import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
+import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const cfg = makeTestConfig({
@@ -129,7 +130,7 @@ describe("runFullPrReview mode", () => {
       }),
     );
 
-    expect(reviewRunMocks.state.capturedSystemPrompt).toContain("senior staff software engineer");
+    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(buildAutomatedSystemPrompt());
     expect(reviewRunMocks.state.capturedSystemPrompt).not.toBe(automatedSecuritySystemPrompt);
   });
 

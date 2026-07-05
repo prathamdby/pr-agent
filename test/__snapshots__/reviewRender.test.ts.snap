@@ -1,7 +1,7 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
 exports[`renderAgentFixPrompt > includes PR metadata, fixPrompt verbatim, P3 tagging, and severity-first order 1`] = `
-"Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+"Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.
 
 Repository: acme/widgets
 Pull request: #42
@@ -30,7 +30,7 @@ Concurrent writes without lock.
 <summary>Prompt to fix</summary>
 
 \`\`\`
-Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.
 
 Repository: acme/widgets
 Pull request: #42
@@ -54,7 +54,7 @@ Promise not awaited in handler.
 <summary>Prompt to fix</summary>
 
 \`\`\`
-Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.
 
 Repository: acme/widgets
 Pull request: #42
@@ -78,7 +78,7 @@ End index excludes last element incorrectly.
 <summary>Prompt to fix</summary>
 
 \`\`\`
-Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.
 
 Repository: acme/widgets
 Pull request: #42
@@ -99,7 +99,7 @@ exports[`renderReviewPointerBody > wraps agent fix prompt in accordion with poin
 <summary>Fix all findings (agent prompt)</summary>
 
 \`\`\`
-Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, keep changes minimal, and validate.
+Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.
 
 Repository: acme/widgets
 Pull request: #42
