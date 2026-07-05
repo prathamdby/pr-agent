@@ -141,6 +141,9 @@ function reviewJob(): JobWithMetadata<ReviewJobData> {
     keepUntil: now,
     policy: "standard",
     heartbeatOn: null,
+    blocked: false,
+    blocking: false,
+    pendingDependencies: 0,
     deadLetter: "",
     output: {},
   };

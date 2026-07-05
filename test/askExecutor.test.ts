@@ -110,6 +110,9 @@ function askJob(): JobWithMetadata<AskJobData> {
     keepUntil: now,
     policy: "standard",
     heartbeatOn: null,
+    blocked: false,
+    blocking: false,
+    pendingDependencies: 0,
     deadLetter: "",
     output: {},
   };

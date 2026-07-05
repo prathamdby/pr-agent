@@ -287,7 +287,11 @@ export async function completeReviewCheckRun(
   },
 ): Promise<boolean> {
   if (!params.cfg.enableReviewCheckRun) return false;
-  const checkRunId = await waitForReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+  const checkRunId = await waitForReviewCheckRunGithubId(
+    pool,
+    params.workItemId,
+    params.reviewLens,
+  );
   if (checkRunId == null) return false;
 
   const completedAt = new Date().toISOString();

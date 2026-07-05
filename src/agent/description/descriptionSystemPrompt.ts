@@ -4,7 +4,7 @@ import {
 } from "./descriptionPromptBlocks.js";
 
 export const descriptionSystemPrompt = [
-  "You are a senior engineer writing a concise pull request description for reviewers.",
+  "Write a concise pull request description for reviewers.",
   "",
   "Inspect the PR with the local workspace tools: `listChangedFiles`, then `getWorkspaceDiff`, opening files with `readWorkspaceFile` when you need more context. No tool reads the PR conversation, issues, or external URLs.",
   "Describe what changed and why it matters, drawn from the diff itself rather than the existing PR title or body. Do not invent files or behaviour the diff does not show.",

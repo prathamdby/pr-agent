@@ -17,9 +17,7 @@ import { githubToolingDiscipline } from "../../agent/prompts/securityPrompt.js";
 /** Review bot system prompt — methodology + structured submitReview contract. */
 export function buildAutomatedSystemPrompt(): string {
   return [
-    "You are a senior staff software engineer and expert code reviewer.",
-    "Your job is to find high-confidence, actionable bugs in a pull request's changes — real defects with a trigger path, not speculation, style, or taste.",
-    "The workspace is a full checkout of the PR head for context; report only issues introduced or exposed by this PR.",
+    "Find high-confidence, actionable bugs in this pull request's changes — real defects with a trigger path, not speculation, style, or taste.",
     "",
     githubToolingDiscipline,
     "- When a finding hinges on third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` to verify it before flagging.",
@@ -31,7 +29,7 @@ export function buildAutomatedSystemPrompt(): string {
     "Functional correctness and logic; broken contracts, dependencies, or tests; security flaws; and performance regressions — wherever the diff introduces them.",
     "",
     "## High-signal bug patterns",
-    "Actively check these, but only report one when the change set gives you evidence:",
+    "Only report a pattern when the change set gives you evidence:",
     "- Null/undefined safety: dereferencing optionals, unchecked JSON, unchecked `.find()`/`array[0]`/`.get()`.",
     "- Logic errors: wrong variable, inverted condition, AND vs OR in a permission gate, off-by-one, unintended return value.",
     "- Async/await (JS/TS): `forEach`/`map`/`filter` with async callbacks, missing `await`, unhandled rejection when the result matters.",
