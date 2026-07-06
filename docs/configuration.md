@@ -143,6 +143,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                                                       |
 | `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                                                    |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                                       |
+| `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                                             |
 
 ### Review output
 
@@ -309,12 +310,15 @@ lensOverrides:
 
 ### Postgres pool
 
-| Symbol                           | Default |
-| -------------------------------- | ------- |
-| `POSTGRES_POOL_MAX`              | 10      |
-| `POSTGRES_IDLE_TIMEOUT_MS`       | 30000   |
-| `POSTGRES_CONNECTION_TIMEOUT_MS` | 5000    |
-| `POSTGRES_STATEMENT_TIMEOUT_MS`  | 60000   |
+| Symbol                                    | Default | Role                                   |
+| ----------------------------------------- | ------- | -------------------------------------- |
+| `POSTGRES_POOL_MAX`                       | 10      | pool size                              |
+| `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                       |
+| `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                        |
+| `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                  |
+| `POSTGRES_KEEPALIVE_INITIAL_DELAY_MS`     | 10000   | TCP keepalive initial delay            |
+| `POSTGRES_LOCK_TIMEOUT_MS`                | 10000   | per-statement lock acquisition timeout |
+| `POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS` | 60000   | idle-in-transaction session timeout    |
 
 ### Other
 

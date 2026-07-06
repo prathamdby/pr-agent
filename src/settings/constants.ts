@@ -6,6 +6,8 @@ export const DESCRIPTION_QUEUE = "agent-work-description";
 export const TRIAGE_QUEUE = "agent-work-triage";
 export const RETENTION_QUEUE = "agent-work-retention";
 export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
+/** Rows deleted per batch in the retention sweep (each batch is its own transaction). */
+export const RETENTION_DELETE_BATCH_SIZE = 5_000;
 export const ACK_DEAD_LETTER_QUEUE = "agent-work-ack-dead";
 export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
@@ -361,6 +363,9 @@ export const POSTGRES_POOL_MAX = 10;
 export const POSTGRES_IDLE_TIMEOUT_MS = 30_000;
 export const POSTGRES_CONNECTION_TIMEOUT_MS = 5_000;
 export const POSTGRES_STATEMENT_TIMEOUT_MS = 60_000;
+export const POSTGRES_KEEPALIVE_INITIAL_DELAY_MS = 10_000;
+export const POSTGRES_LOCK_TIMEOUT_MS = 10_000;
+export const POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS = 60_000;
 export const GITHUB_WEBHOOK_RESPONSE_MARGIN_MS = 2_000;
 
 export const TOKEN_EXPIRED_TOOL_MESSAGE =
