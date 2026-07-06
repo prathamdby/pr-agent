@@ -145,3 +145,30 @@ export function logInvalidRepoPolicy(agentCwd: string, reason: string): void {
     reason,
   });
 }
+
+/**
+ * Render a short paste-ready `.pr-agent.yml` snippet for a dismissed finding.
+ * Produces a pathInstructions entry with the finding's file pattern and a
+ * one-line instruction distilled from the dismissal evidence.
+ */
+export function renderPolicySuggestionForDismissed(params: {
+  readonly filePath: string;
+  readonly dismissalEvidence: string;
+}): string {
+  const path = sanitizeRenderedPolicyText(params.filePath).slice(
+    0,
+    MAX_REPO_POLICY_PATH_PATTERN_CHARS,
+  );
+  const instruction = sanitizeRenderedPolicyText(params.dismissalEvidence).slice(
+    0,
+    MAX_REPO_POLICY_INSTRUCTION_CHARS,
+  );
+  return [
+    "```yaml",
+    "version: 1",
+    "pathInstructions:",
+    `  - path: "${path}"`,
+    `    instructions: "${instruction}"`,
+    "```",
+  ].join("\n");
+}

@@ -188,4 +188,35 @@ describe("loadConfig validation", () => {
     const cfg = await load({ REVIEW_AUTO_ACTIONS: "Opened, REOPENED " });
     expect([...cfg.reviewAutoActions]).toEqual(["opened", "reopened"]);
   });
+
+  it("defaults verification auto actions to synchronize", async () => {
+    const cfg = await load({});
+    expect([...cfg.verificationAutoActions]).toEqual(["synchronize"]);
+  });
+
+  it("parses verification auto actions from env", async () => {
+    const cfg = await load({ VERIFICATION_AUTO_ACTIONS: "synchronize,reopened" });
+    expect([...cfg.verificationAutoActions]).toEqual(["synchronize", "reopened"]);
+  });
+
+  it("allows empty string to disable verification auto actions", async () => {
+    const cfg = await load({ VERIFICATION_AUTO_ACTIONS: "" });
+    expect([...cfg.verificationAutoActions]).toEqual([]);
+  });
+
+  it("rejects unknown verification auto actions", async () => {
+    await expect(load({ VERIFICATION_AUTO_ACTIONS: "synchronize,labeled" })).rejects.toThrow(
+      /VERIFICATION_AUTO_ACTIONS contains unknown action/,
+    );
+  });
+
+  it("defaults verification concurrency to 1", async () => {
+    const cfg = await load({});
+    expect(cfg.verificationConcurrency).toBe(1);
+  });
+
+  it("defaults max tool rounds verification to 32", async () => {
+    const cfg = await load({});
+    expect(cfg.maxToolRoundsVerification).toBe(32);
+  });
 });

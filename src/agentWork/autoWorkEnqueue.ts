@@ -10,7 +10,8 @@ export type AutoWorkSupersedeTarget =
       readonly lens: ReviewMode;
     }
   | { readonly kind: "description"; readonly resourceKey: string }
-  | { readonly kind: "triage"; readonly resourceKey: string };
+  | { readonly kind: "triage"; readonly resourceKey: string }
+  | { readonly kind: "verification"; readonly resourceKey: string };
 
 function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
   sql: string;

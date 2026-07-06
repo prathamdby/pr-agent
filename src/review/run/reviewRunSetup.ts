@@ -79,6 +79,7 @@ export function buildReviewRunSetup(params: {
   };
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
+  hasDescriptionAgentBlock?: boolean;
   recordPublishStep?: (
     step: "inline_review" | "summary_comment" | "labels",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -145,7 +146,13 @@ export function buildReviewRunSetup(params: {
       getToken: () => refreshableGh.getToken(),
       tokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs(),
       getTokenExpiresAtTs: () => refreshableGh.getTokenExpiresAtTs(),
-      ctx: { owner, repo, prNumber, headSha },
+      ctx: {
+        owner,
+        repo,
+        prNumber,
+        headSha,
+        hasDescriptionAgentBlock: params.hasDescriptionAgentBlock ?? false,
+      },
       mode: reviewMode,
       state: submitState,
       cachedDiffIndex,

@@ -388,4 +388,108 @@ describe("validateReviewPayload", () => {
       }).ok,
     ).toBe(false);
   });
+
+  it("rejects mergeVerdict score > 3 when P1 findings are present", () => {
+    const result = validateReviewPayload({
+      payload: basePayload({
+        findings: [
+          {
+            severity: "P1",
+            file: "src/x.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Bug",
+            detail: "d",
+            fixPrompt: "fix",
+          },
+        ],
+        mergeVerdict: { score: 4, rationale: "One minor issue, mostly clean." },
+      }),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("mergeVerdict.score");
+      expect(result.message).toContain("<= 3");
+    }
+  });
+
+  it("rejects mergeVerdict rationale with safe-to-merge wording when P1 present", () => {
+    const result = validateReviewPayload({
+      payload: basePayload({
+        findings: [
+          {
+            severity: "P1",
+            file: "src/x.ts",
+            startLine: 1,
+            endLine: 1,
+            title: "Bug",
+            detail: "d",
+            fixPrompt: "fix",
+          },
+        ],
+        mergeVerdict: { score: 2, rationale: "Looks safe to merge despite the finding." },
+      }),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("mergeVerdict.rationale");
+      expect(result.message).toContain("safe-to-merge");
+    }
+  });
+
+  it("accepts mergeVerdict score 5 when no P0/P1 findings", () => {
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P2",
+              file: "src/x.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "Minor",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+          mergeVerdict: { score: 5, rationale: "No blocking issues on this pass." },
+        }),
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("accepts absent mergeVerdict", () => {
+    expect(
+      validateReviewPayload({
+        payload: basePayload({
+          findings: [
+            {
+              severity: "P1",
+              file: "src/x.ts",
+              startLine: 1,
+              endLine: 1,
+              title: "Bug",
+              detail: "d",
+              fixPrompt: "fix",
+            },
+          ],
+        }),
+      }).ok,
+    ).toBe(true);
+  });
+
+  it("rejects internal failure phrasing in mergeVerdict.rationale", () => {
+    const result = validateReviewPayload({
+      payload: basePayload({
+        mergeVerdict: {
+          score: 3,
+          rationale: "Structured publish failed after 2/3 attempt(s).",
+        },
+      }),
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.message).toContain("mergeVerdict.rationale");
+    }
+  });
 });

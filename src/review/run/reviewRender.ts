@@ -1,7 +1,6 @@
 import {
   escapeTablePlainCell,
   escapeTableHtml,
-  escapeTableCell,
   renderGitHubAlert,
   renderKeyValueTable,
   renderTableCode,
@@ -32,7 +31,8 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
-  REVIEW_WALKTHROUGH_MAX_FILES,
+  REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK,
+  REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX,
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
   TESTS_REVIEW_POINTER_BODY,
@@ -261,37 +261,7 @@ type SummaryRenderOptions = {
   compactionNote?: boolean;
   findingRowLimit?: number;
   omittedFindingCount?: number;
-  includeWalkthrough?: boolean;
 };
-
-export function renderReviewWalkthroughBlock(
-  cachedDiffIndex: CachedPrDiffIndex | undefined,
-  maxFiles: number = REVIEW_WALKTHROUGH_MAX_FILES,
-): string | null {
-  if (cachedDiffIndex == null || cachedDiffIndex.files.size === 0) return null;
-
-  const entries = [...cachedDiffIndex.files.entries()].toSorted(([a], [b]) => a.localeCompare(b));
-  if (entries.length === 0) return null;
-
-  const shown = entries.slice(0, maxFiles);
-  const rows: string[] = [
-    `<details>`,
-    `<summary>Walkthrough (${entries.length} files)</summary>`,
-    "",
-    "| File | +/− |",
-    "|------|-----|",
-  ];
-  for (const [filename, file] of shown) {
-    rows.push(
-      `| ${renderTableCode(escapeTableCell(filename))} | +${file.additions}/−${file.deletions} |`,
-    );
-  }
-  if (entries.length > maxFiles) {
-    rows.push(`| …${entries.length - maxFiles} more files | |`);
-  }
-  rows.push("</details>");
-  return rows.join("\n");
-}
 
 function renderFindingTableCellHtml(
   placement: InlinePlacement,
@@ -546,6 +516,20 @@ function buildReviewSummaryBody(
       : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
   ]);
 
+  const blockingCount = payload.findings.filter(
+    (f) => f.severity === "P0" || f.severity === "P1",
+  ).length;
+  tableRows.push([
+    renderTableStrong("Merge verdict"),
+    payload.mergeVerdict != null
+      ? `${renderTableCode(`${payload.mergeVerdict.score}/5`)} · ${escapeTablePlainCell(payload.mergeVerdict.rationale)}`
+      : escapeTablePlainCell(
+          blockingCount > 0
+            ? `${blockingCount} ${REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX}`
+            : REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK,
+        ),
+  ]);
+
   for (const item of payload.followUps) {
     tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);
   }
@@ -583,12 +567,11 @@ function buildReviewSummaryBody(
     );
   }
 
-  if (options.includeWalkthrough) {
-    const walkthrough = renderReviewWalkthroughBlock(ctx.cachedDiffIndex);
-    if (walkthrough != null) {
-      rows.push("");
-      rows.push(walkthrough);
-    }
+  if (ctx.hasDescriptionAgentBlock) {
+    rows.push("");
+    rows.push(
+      `See the [file walkthrough](https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}) in the PR description.`,
+    );
   }
 
   return rows.join("\n").trimEnd();
@@ -609,19 +592,9 @@ export function fitReviewSummaryBody(
   const sortedCtx = { ...ctx, placements: sortedPlacements };
   const sortedCount = sortedPlacements.length;
 
-  const fullWithWalkthrough = buildReviewSummaryBody(payload, sortedCtx, {
-    compact: false,
-    includeSummaryAccordions: true,
-    includeWalkthrough: true,
-  });
-  if (fullWithWalkthrough.length <= maxBodyChars) {
-    return fullWithWalkthrough;
-  }
-
   const full = buildReviewSummaryBody(payload, sortedCtx, {
     compact: false,
     includeSummaryAccordions: true,
-    includeWalkthrough: false,
   });
   if (full.length <= maxBodyChars) {
     return full;
@@ -631,7 +604,6 @@ export function fitReviewSummaryBody(
     compact: true,
     includeSummaryAccordions: false,
     compactionNote: true,
-    includeWalkthrough: false,
   });
   if (compact.length <= maxBodyChars) {
     return compact;
@@ -649,7 +621,6 @@ export function fitReviewSummaryBody(
       compactionNote: true,
       findingRowLimit: limit,
       omittedFindingCount: omitted,
-      includeWalkthrough: false,
     });
     if (trimmed.length <= maxBodyChars) {
       best = trimmed;
@@ -666,7 +637,6 @@ export function fitReviewSummaryBody(
     compactionNote: true,
     findingRowLimit: 0,
     omittedFindingCount: sortedCount,
-    includeWalkthrough: false,
   });
 }
 

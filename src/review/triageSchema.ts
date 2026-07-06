@@ -36,6 +36,72 @@ export const TriagePayloadSchema = z.object({
 export type TriageVerdict = z.infer<typeof TriageVerdictSchema>;
 export type TriagePayload = z.infer<typeof TriagePayloadSchema>;
 
+/**
+ * Verification verdict schema — shared verdict vocabulary with triage but read-only.
+ * "fixed" cites the user's pushed commit sha (no committed-by-bot check).
+ * "dismissed" still requires maintainer reply evidence.
+ */
+export const VerificationVerdictSchema = TriageVerdictSchema;
+
+export const VerificationPayloadSchema = z.object({
+  verdicts: z.array(VerificationVerdictSchema).min(1).max(MAX_TRIAGE_FINDINGS),
+});
+
+export type VerificationVerdict = z.infer<typeof VerificationVerdictSchema>;
+export type VerificationPayload = z.infer<typeof VerificationPayloadSchema>;
+
+type VerificationInventoryItem = {
+  readonly threadRootCommentId: number;
+  readonly hasHumanReplies: boolean;
+};
+
+export type VerificationValidationInput = {
+  readonly payload: VerificationPayload;
+  readonly inventory: readonly VerificationInventoryItem[];
+  readonly pushedShas: readonly string[];
+};
+
+export function formatVerificationValidationError(issues: readonly string[]): string {
+  return ["VerificationPayload validation failed:", ...issues.map((issue) => `- ${issue}`)].join(
+    "\n",
+  );
+}
+
+export function validateVerificationVerdicts(params: VerificationValidationInput): string[] {
+  const issues: string[] = [];
+  const inventoryById = new Map(params.inventory.map((item) => [item.threadRootCommentId, item]));
+  const verdictById = new Map<number, VerificationVerdict>();
+  const pushed = new Set(params.pushedShas.map((sha) => sha.toLowerCase()));
+
+  for (const verdict of params.payload.verdicts) {
+    const item = inventoryById.get(verdict.threadRootCommentId);
+    if (!item) {
+      issues.push(
+        `threadRootCommentId ${verdict.threadRootCommentId} is not in the verification inventory`,
+      );
+      continue;
+    }
+    if (verdictById.has(verdict.threadRootCommentId)) {
+      issues.push(`threadRootCommentId ${verdict.threadRootCommentId} has more than one verdict`);
+    }
+    verdictById.set(verdict.threadRootCommentId, verdict);
+    if (verdict.verdict === "fixed" && !pushed.has(verdict.commitSha.toLowerCase())) {
+      issues.push(`fixed verdict for ${verdict.threadRootCommentId} references an unknown commit`);
+    }
+    if (verdict.verdict === "dismissed" && !item.hasHumanReplies) {
+      issues.push(`dismissed verdict for ${verdict.threadRootCommentId} requires human replies`);
+    }
+  }
+
+  for (const item of params.inventory) {
+    if (!verdictById.has(item.threadRootCommentId)) {
+      issues.push(`threadRootCommentId ${item.threadRootCommentId} is missing a verdict`);
+    }
+  }
+
+  return issues;
+}
+
 type TriageInventoryItem = {
   readonly threadRootCommentId: number;
   readonly hasHumanReplies: boolean;

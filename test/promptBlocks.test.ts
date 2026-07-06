@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { wrapTrustedContext, wrapUntrustedBlock } from "../src/agent/prompts/promptBlocks.js";
+import {
+  securityTripwiresGuidance,
+  proseContractGuidance,
+} from "../src/review/prompts/reviewPromptBlocks.js";
 
 function untrustedBlockBody(label: string, block: string): string {
   const open = `<${label} untrusted="true">\n`;
@@ -95,5 +99,19 @@ describe("wrapTrustedContext", () => {
     expect(wrapTrustedContext(["Repository: octo/hello", "Pull request: #1"])).toBe(
       '<context trusted="server">\nRepository: octo/hello\nPull request: #1\n</context>',
     );
+  });
+});
+
+describe("review prompt guidance block exports", () => {
+  it("exports a non-empty security tripwires block under its header", () => {
+    expect(securityTripwiresGuidance).toContain("## Security tripwires");
+    expect(securityTripwiresGuidance.length).toBeGreaterThan("## Security tripwires".length);
+    expect(securityTripwiresGuidance).toContain("authz bypass");
+  });
+
+  it("exports a non-empty prose contracts block under its header", () => {
+    expect(proseContractGuidance).toContain("## Prose contracts");
+    expect(proseContractGuidance.length).toBeGreaterThan("## Prose contracts".length);
+    expect(proseContractGuidance).toContain("Contradictions are ordinary findings");
   });
 });

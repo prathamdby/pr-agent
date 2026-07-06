@@ -2,7 +2,12 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
-import { AUTOMATED_REVIEW_LENS, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../../settings/index.js";
+import {
+  AUTOMATED_REVIEW_LENS,
+  DESCRIPTION_QUEUE,
+  REVIEW_QUEUE,
+  VERIFICATION_QUEUE,
+} from "../../settings/index.js";
 import {
   replaceAutoWorkItem,
   releaseSingletonIfSuperseded,
@@ -19,12 +24,23 @@ import {
   prResourceKey,
   reviewSingletonKey,
   descriptionSingletonKey,
+  verificationSingletonKey,
 } from "../types.js";
 import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
-import { enqueueAck, enqueueDescription, enqueueReview, jobCorrelation } from "./queueing.js";
+import {
+  enqueueAck,
+  enqueueDescription,
+  enqueueReview,
+  enqueueVerification,
+  jobCorrelation,
+} from "./queueing.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
-import { createDescriptionWorkItem, createReviewWorkItem } from "./workItemRepository.js";
+import {
+  createDescriptionWorkItem,
+  createReviewWorkItem,
+  createVerificationWorkItem,
+} from "./workItemRepository.js";
 
 export type { SlashCommandInput };
 export { applySlashCommandIntake };
@@ -156,6 +172,42 @@ async function applyPlannedAutomatedPullRequestIntake(
       ...correlation,
     });
   }
+
+  if (plan.kinds.includes("verification")) {
+    const verificationTarget: AutoWorkSupersedeTarget = {
+      kind: "verification",
+      resourceKey,
+    };
+    const { workItemId: verificationWorkItemId, supersededIds: verificationSuperseded } =
+      await replaceAutoWorkItem({
+        client,
+        target: verificationTarget,
+        createWorkItem: () =>
+          createVerificationWorkItem(client, {
+            webhookEventId: event.id,
+            ref,
+          }),
+      });
+    await releaseSingletonIfSuperseded({
+      boss,
+      db: slotDb,
+      supersededIds: verificationSuperseded,
+      release: () =>
+        releaseSingletonSlot(boss, {
+          queue: VERIFICATION_QUEUE,
+          singletonKey: verificationSingletonKey(resourceKey),
+          db: slotDb,
+        }),
+    });
+    await enqueueVerification(boss, client, ref, verificationWorkItemId, correlation);
+    recordEvent(intakeLog, "agent_work_enqueued", {
+      type: "verification",
+      source: "auto",
+      workItemId: verificationWorkItemId,
+      resourceKey,
+      ...correlation,
+    });
+  }
 }
 
 export async function applyAutomatedPullRequestIntake(
@@ -165,11 +217,12 @@ export async function applyAutomatedPullRequestIntake(
   ref: PrRef,
   action: string,
   intakeLog: RequestLogger,
-  cfg: Pick<Config, "reviewAutoActions" | "descriptionAutoActions">,
+  cfg: Pick<Config, "reviewAutoActions" | "descriptionAutoActions" | "verificationAutoActions">,
 ): Promise<void> {
   const plan = planAutomatedPullRequestIntake(action, {
     reviewAutoActions: cfg.reviewAutoActions,
     descriptionAutoActions: cfg.descriptionAutoActions,
+    verificationAutoActions: cfg.verificationAutoActions,
   });
   if (plan.kinds.length === 0) {
     // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.

@@ -10,6 +10,8 @@ import {
   structuredDeliveryHeader,
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
+  securityTripwiresGuidance,
+  proseContractGuidance,
   priorInlineFeedbackGuidance,
 } from "./reviewPromptBlocks.js";
 import { githubToolingDiscipline } from "../../agent/prompts/securityPrompt.js";
@@ -49,6 +51,10 @@ export function buildAutomatedSystemPrompt(): string {
     antiSlopGuidance,
     "",
     highStakesTrivialTrapGuidance,
+    "",
+    securityTripwiresGuidance,
+    "",
+    proseContractGuidance,
     "",
     priorInlineFeedbackGuidance,
     "",

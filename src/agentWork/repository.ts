@@ -7,6 +7,7 @@ import {
   ASK_PUBLISH_LENS,
   DESCRIPTION_PUBLISH_LENS,
   TRIAGE_PUBLISH_LENS,
+  VERIFICATION_PUBLISH_LENS,
 } from "../settings/index.js";
 import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
 
@@ -14,7 +15,8 @@ export type PublishLens =
   | ReviewWorkPayload["mode"]
   | typeof DESCRIPTION_PUBLISH_LENS
   | typeof ASK_PUBLISH_LENS
-  | typeof TRIAGE_PUBLISH_LENS;
+  | typeof TRIAGE_PUBLISH_LENS
+  | typeof VERIFICATION_PUBLISH_LENS;
 type SharedPublishLens = Exclude<PublishLens, typeof ASK_PUBLISH_LENS>;
 export type PublishStep =
   | "progress_comment"
@@ -27,14 +29,15 @@ export type PublishStep =
   | "ask_reply"
   | "triage_push"
   | "triage_thread_actions"
-  | "triage_report";
+  | "triage_report"
+  | "verification_thread_actions";
 type SharedPublishStep = Exclude<PublishStep, "ask_reply" | "check_run">;
 type AskPublishStep = Extract<PublishStep, "ask_reply">;
 
 type AgentWorkRow = {
   id: string;
   webhook_event_id: string | null;
-  type: "review" | "ask" | "description" | "triage";
+  type: "review" | "ask" | "description" | "triage" | "verification";
   source: "auto" | "slash";
   status: WorkStatus;
   owner: string;

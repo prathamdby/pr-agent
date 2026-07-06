@@ -53,7 +53,11 @@ export function makeAgentWorkScheduler(
   boss: PgBoss,
   cfg: Pick<
     Config,
-    "reviewAutoActions" | "descriptionAutoActions" | "githubAppId" | "githubAppPrivateKey"
+    | "reviewAutoActions"
+    | "descriptionAutoActions"
+    | "verificationAutoActions"
+    | "githubAppId"
+    | "githubAppPrivateKey"
   >,
 ) {
   return AgentWorkScheduler.of({

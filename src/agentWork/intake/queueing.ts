@@ -8,6 +8,7 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import {
   descriptionSingletonKey,
@@ -15,6 +16,7 @@ import {
   prResourceKey,
   reviewSingletonKey,
   triageSingletonKey,
+  verificationSingletonKey,
   type AckJobData,
   type AskJobData,
   type DescriptionJobData,
@@ -22,6 +24,7 @@ import {
   type PrRef,
   type ReviewJobData,
   type TriageJobData,
+  type VerificationJobData,
   type WebhookHeaders,
 } from "../types.js";
 
@@ -125,6 +128,26 @@ export async function enqueueTriage(
   await requireBossJobSend(boss, TRIAGE_QUEUE, data, {
     db: pgBossDb(client),
     singletonKey: triageSingletonKey(resourceKey),
+    group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
+export async function enqueueVerification(
+  boss: PgBoss,
+  client: PoolClient,
+  ref: PrRef,
+  workItemId: string,
+  correlation: JobCorrelation,
+): Promise<void> {
+  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  const data: VerificationJobData = {
+    kind: "verification",
+    workItemId,
+    ...correlation,
+  };
+  await requireBossJobSend(boss, VERIFICATION_QUEUE, data, {
+    db: pgBossDb(client),
+    singletonKey: verificationSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }

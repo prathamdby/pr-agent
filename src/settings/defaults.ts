@@ -18,9 +18,11 @@ export const DEFAULT_ASK_CONCURRENCY = 1;
 export const DEFAULT_ACK_CONCURRENCY = 2;
 export const DEFAULT_DESCRIPTION_CONCURRENCY = 1;
 export const DEFAULT_TRIAGE_CONCURRENCY = 1;
+export const DEFAULT_VERIFICATION_CONCURRENCY = 1;
 
 export const DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE = 16;
 export const DEFAULT_MAX_TOOL_ROUNDS_TRIAGE = 32;
+export const DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION = 32;
 export const DEFAULT_MAX_TRIAGE_FIXES_PER_RUN = 10;
 export const DEFAULT_DESCRIPTION_GENERATE_TITLE = false;
 export const DEFAULT_SLASH_ALLOWED_ASSOCIATIONS = "OWNER,MEMBER,COLLABORATOR";
@@ -58,6 +60,8 @@ export const DEFAULT_ENABLE_REVIEW_CHECK_RUN = false;
 export const DEFAULT_DESCRIPTION_AUTO_ACTIONS = "opened";
 /** Default `pull_request` actions that auto-run `/review`. "opened" only so a PR is reviewed once at the start; follow-up pushes require a manual `/review`. */
 export const DEFAULT_REVIEW_AUTO_ACTIONS = "opened";
+/** Default `pull_request` actions that auto-trigger verification runs. "synchronize" so follow-up pushes re-check open findings; empty string disables. */
+export const DEFAULT_VERIFICATION_AUTO_ACTIONS = "synchronize";
 
 export const DEFAULT_MAX_PR_FILES_LISTED = 300;
 export const DEFAULT_MAX_PR_FILES_PATCH_BYTES = 500_000;

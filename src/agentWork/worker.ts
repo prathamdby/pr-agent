@@ -12,6 +12,7 @@ import {
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import {
   executeAckJob,
@@ -19,6 +20,7 @@ import {
   executeDescriptionJob,
   executeReviewJob,
   executeTriageJob,
+  executeVerificationJob,
 } from "./executors/index.js";
 import {
   type AckJobData,
@@ -26,6 +28,7 @@ import {
   type DescriptionJobData,
   type ReviewJobData,
   type TriageJobData,
+  type VerificationJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
 
@@ -141,6 +144,15 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               },
               (job) => executeTriageJob(cfg, pool, boss, job),
             ),
+            registerMetadataQueue<VerificationJobData>(
+              boss,
+              VERIFICATION_QUEUE,
+              {
+                localConcurrency: cfg.verificationConcurrency,
+                ...durableQueueOptions,
+              },
+              (job) => executeVerificationJob(cfg, pool, boss, job),
+            ),
             registerPlainQueue(boss, RETENTION_QUEUE, retentionQueueWorkOptions(), async () => {
               try {
                 const result = await runRetention(pool, cfg);
@@ -160,6 +172,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               ASK_QUEUE,
               DESCRIPTION_QUEUE,
               TRIAGE_QUEUE,
+              VERIFICATION_QUEUE,
               RETENTION_QUEUE,
             ],
             reviewConcurrency: cfg.reviewConcurrency,
@@ -167,6 +180,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             ackConcurrency: cfg.ackConcurrency,
             descriptionConcurrency: cfg.descriptionConcurrency,
             triageConcurrency: cfg.triageConcurrency,
+            verificationConcurrency: cfg.verificationConcurrency,
           });
           for (const queue of [
             ACK_QUEUE,
@@ -174,6 +188,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             ASK_QUEUE,
             DESCRIPTION_QUEUE,
             TRIAGE_QUEUE,
+            VERIFICATION_QUEUE,
           ]) {
             const stats = await boss.getQueueStats(queue);
             logDebug("agent_queue_stats", {
@@ -202,6 +217,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 ASK_QUEUE,
                 DESCRIPTION_QUEUE,
                 TRIAGE_QUEUE,
+                VERIFICATION_QUEUE,
                 RETENTION_QUEUE,
               ].map((q) => boss.offWork(q)),
             );

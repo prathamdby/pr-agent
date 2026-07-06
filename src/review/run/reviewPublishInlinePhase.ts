@@ -21,6 +21,7 @@ export type InlinePublishPhaseContext = {
   repo: string;
   prNumber: number;
   headSha: string;
+  hasDescriptionAgentBlock: boolean;
 };
 
 export type InlinePublishPhaseResult = {

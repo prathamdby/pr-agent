@@ -10,7 +10,7 @@
 
 > **Async by design.** Webhooks return **`200`** after durable intake (Postgres + pg-boss enqueue). Reactions, progress comments, reviews, descriptions, and ask answers publish on **`ROLE=worker`** and may appear seconds later.
 
-PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks, triage) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces or isolated writable checkouts and GitHub APIs for publish.
+PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks, triage, verification) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces or isolated writable checkouts and GitHub APIs for publish.
 
 Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](docs/configuration.md). Behaviour and deployment: [docs/operations.md](docs/operations.md). Queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
 
@@ -219,12 +219,14 @@ flowchart LR
   Boss --> AskQ[ask queue]
   Boss --> DescQ[description queue]
   Boss --> TriageQ[triage queue]
+  Boss --> VerifQ[verification queue]
   Boss --> RetQ[retention queue]
   AckQ --> Worker["ROLE=worker executors"]
   RevQ --> Worker
   AskQ --> Worker
   DescQ --> Worker
   TriageQ --> Worker
+  VerifQ --> Worker
   RetQ --> Worker
   Worker --> Retention[retention cleanup]
   Retention --> Dedupe
@@ -235,10 +237,10 @@ flowchart LR
 ```
 
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items**.
-2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, triage).
+2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, triage, verification).
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
-5. **Review / ask / description / triage workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
+5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
 6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).

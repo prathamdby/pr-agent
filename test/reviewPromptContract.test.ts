@@ -6,6 +6,8 @@ import {
   structuredDeliveryHeader,
   VALIDATION_REPAIR_REMINDER,
   VALIDATION_REPAIR_ROUND0_SUFFIX,
+  securityTripwiresGuidance,
+  proseContractGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 
@@ -54,6 +56,23 @@ describe("review lens-specific obligations", () => {
   it("keeps tests draft skeleton guidance", () => {
     expect(automatedReviewTestsSystemPrompt).toContain("Draft skeletons are required");
     expect(automatedReviewTestsSystemPrompt).toContain("draft test skeleton");
+  });
+
+  it("includes security tripwires and prose contracts only in the general lens", () => {
+    const [general] = LENS_PROMPTS;
+    expect(general[1]).toContain(securityTripwiresGuidance);
+    expect(general[1]).toContain(proseContractGuidance);
+
+    for (const [name, prompt] of LENS_PROMPTS.slice(1)) {
+      expect(
+        prompt,
+        `${name} lens must not carry the general-lens security tripwires block`,
+      ).not.toContain(securityTripwiresGuidance);
+      expect(
+        prompt,
+        `${name} lens must not carry the general-lens prose contracts block`,
+      ).not.toContain(proseContractGuidance);
+    }
   });
 });
 

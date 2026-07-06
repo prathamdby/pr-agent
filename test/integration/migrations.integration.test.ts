@@ -16,6 +16,7 @@ const EXPECTED_MIGRATIONS = [
   "010_drop_max_attempts.sql",
   "011_triage_work.sql",
   "012_review_check_run_step.sql",
+  "013_verification_work.sql",
 ];
 
 describe.skipIf(!hasDatabase)("migrations (integration)", () => {

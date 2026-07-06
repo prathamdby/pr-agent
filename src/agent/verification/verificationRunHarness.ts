@@ -1,0 +1,91 @@
+import type { Config } from "../../config.js";
+import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
+import { logInfo } from "../../evlog.js";
+import { resolveAgentRunnerProvider } from "../providers/index.js";
+import type { VerificationRunResult } from "./verificationRun.js";
+import {
+  buildSubmitOnlyVerificationSessionTools,
+  buildVerificationRunSetup,
+  shouldContinueVerificationRun,
+} from "./verificationRunSetup.js";
+import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import {
+  VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
+  VERIFICATION_VALIDATION_REPAIR_ROUNDS,
+} from "../../settings/index.js";
+
+const VERIFICATION_SUBMIT_ONLY_NUDGE =
+  "You replied with text only. Call submitVerification now with a complete VerificationPayload.";
+
+export async function runVerificationHarness(params: {
+  readonly cfg: Config;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly headSha: string;
+  readonly rootDir: string;
+  readonly inventory: readonly BotFindingThread[];
+  readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+}): Promise<VerificationRunResult> {
+  const { cfg, owner, repo, prNumber } = params;
+  const providerName = cfg.agentProvider;
+  const setup = buildVerificationRunSetup(params);
+  const runner = resolveAgentRunnerProvider(cfg);
+  const session = await runner.createSession({
+    cfg,
+    cwd: params.rootDir,
+    systemPrompt: setup.systemPrompt,
+    tools: setup.piTools,
+    executors: setup.executors,
+  });
+
+  let lastText = "";
+  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
+    runSubmitOnlyRound(session, buildSubmitOnlyVerificationSessionTools(setup), prompt);
+
+  const runValidationRepair = async () => {
+    for (
+      let repair = 0;
+      repair < VERIFICATION_VALIDATION_REPAIR_ROUNDS && shouldContinueVerificationRun(setup);
+      repair++
+    ) {
+      const validationError = setup.submitState.lastValidationError;
+      if (!validationError) break;
+      setup.submitState.lastValidationError = null;
+      lastText = await sendSubmitOnlyRepair(
+        [validationError, "Fix the payload and call submitVerification again."].join("\n\n"),
+      );
+    }
+  };
+
+  try {
+    lastText = (
+      await session.send(setup.userContent, {
+        maxToolRounds: cfg.maxToolRoundsVerification,
+      })
+    ).text;
+
+    for (
+      let nudge = 0;
+      nudge < VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueVerificationRun(setup);
+      nudge++
+    ) {
+      lastText = await sendSubmitOnlyRepair(VERIFICATION_SUBMIT_ONLY_NUDGE);
+      await runValidationRepair();
+    }
+
+    await runValidationRepair();
+
+    if (setup.submitState.submitted) {
+      logInfo("verification_run_completed", { owner, repo, pr: prNumber });
+    }
+
+    return {
+      lastAssistant: assistantFromText(cfg, lastText, providerName),
+      submitted: setup.submitState.submitted,
+      payload: setup.submitState.payload,
+    };
+  } finally {
+    await session.dispose();
+  }
+}

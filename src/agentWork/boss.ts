@@ -12,6 +12,8 @@ import {
   REVIEW_QUEUE,
   TRIAGE_DEAD_LETTER_QUEUE,
   TRIAGE_QUEUE,
+  VERIFICATION_DEAD_LETTER_QUEUE,
+  VERIFICATION_QUEUE,
 } from "../settings/index.js";
 import type { QueueConfig } from "./types.js";
 
@@ -65,6 +67,7 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   await boss.createQueue(ASK_DEAD_LETTER_QUEUE, dlq);
   await boss.createQueue(DESCRIPTION_DEAD_LETTER_QUEUE, dlq);
   await boss.createQueue(TRIAGE_DEAD_LETTER_QUEUE, dlq);
+  await boss.createQueue(VERIFICATION_DEAD_LETTER_QUEUE, dlq);
   await boss.createQueue(ACK_QUEUE, {
     ...defaults,
     policy: "standard",
@@ -89,6 +92,11 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     ...defaults,
     policy: "key_strict_fifo",
     deadLetter: TRIAGE_DEAD_LETTER_QUEUE,
+  });
+  await boss.createQueue(VERIFICATION_QUEUE, {
+    ...defaults,
+    policy: "key_strict_fifo",
+    deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
   });
 }
 
