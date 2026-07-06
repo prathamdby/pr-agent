@@ -20,9 +20,20 @@ describe("runRetention batched delete loop", () => {
     const pool = {
       query: vi.fn(async (text: string) => {
         if (text.includes("agent_work_items")) {
-          return { rowCount: workBatches[workCalls++] ?? 0 };
+          const batch = workBatches[workCalls++];
+          if (batch === undefined) {
+            throw new Error("unexpected extra agent_work_items query");
+          }
+          return { rowCount: batch };
         }
-        return { rowCount: webhookBatches[webhookCalls++] ?? 0 };
+        if (text.includes("webhook_events")) {
+          const batch = webhookBatches[webhookCalls++];
+          if (batch === undefined) {
+            throw new Error("unexpected extra webhook_events query");
+          }
+          return { rowCount: batch };
+        }
+        throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
 
@@ -44,8 +55,11 @@ describe("runRetention batched delete loop", () => {
           workCalls += 1;
           return { rowCount: 3 };
         }
-        webhookCalls += 1;
-        return { rowCount: 0 };
+        if (text.includes("webhook_events")) {
+          webhookCalls += 1;
+          return { rowCount: 0 };
+        }
+        throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
 
