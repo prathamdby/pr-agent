@@ -71,7 +71,7 @@ export function validateVerificationVerdicts(params: VerificationValidationInput
   const issues: string[] = [];
   const inventoryById = new Map(params.inventory.map((item) => [item.threadRootCommentId, item]));
   const verdictById = new Map<number, VerificationVerdict>();
-  const pushed = new Set(params.pushedShas.map((sha) => sha.toLowerCase()));
+  const pushed = params.pushedShas.map((sha) => sha.toLowerCase());
 
   for (const verdict of params.payload.verdicts) {
     const item = inventoryById.get(verdict.threadRootCommentId);
@@ -85,7 +85,10 @@ export function validateVerificationVerdicts(params: VerificationValidationInput
       issues.push(`threadRootCommentId ${verdict.threadRootCommentId} has more than one verdict`);
     }
     verdictById.set(verdict.threadRootCommentId, verdict);
-    if (verdict.verdict === "fixed" && !pushed.has(verdict.commitSha.toLowerCase())) {
+    if (
+      verdict.verdict === "fixed" &&
+      !pushed.some((full) => full.startsWith(verdict.commitSha.toLowerCase()))
+    ) {
       issues.push(`fixed verdict for ${verdict.threadRootCommentId} references an unknown commit`);
     }
     if (verdict.verdict === "dismissed" && !item.hasHumanReplies) {

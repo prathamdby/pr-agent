@@ -137,4 +137,25 @@ describe("verification schema", () => {
       "threadRootCommentId 2 is missing a verdict",
     ]);
   });
+
+  it("matches short SHA prefix against full SHA from API", () => {
+    const payload = VerificationPayloadSchema.parse({
+      verdicts: [
+        {
+          verdict: "fixed",
+          threadRootCommentId: 1,
+          commitSha: "abcdef1",
+          evidence: "user fixed it",
+        },
+      ],
+    });
+
+    expect(
+      validateVerificationVerdicts({
+        payload,
+        inventory: [{ threadRootCommentId: 1, hasHumanReplies: false }],
+        pushedShas: ["abcdef1234567890abcdef1234567890abcdef12"],
+      }),
+    ).toEqual([]);
+  });
 });

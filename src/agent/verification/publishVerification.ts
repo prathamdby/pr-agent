@@ -146,36 +146,36 @@ export async function publishVerification(
       if (!actedThreadIds.has(verdict.threadRootCommentId)) {
         const body =
           verdict.verdict === "fixed" ? fixedReplyBody(verdict) : alreadyResolvedReplyBody(verdict);
-        await replyToThread({ ...params, thread, body });
         actedThreadIds.add(verdict.threadRootCommentId);
         await recordActedThreadIds(params.pool, {
           workItemId: params.workItemId,
           resourceKey: params.resourceKey,
           actedThreadIds: [...actedThreadIds],
         });
+        await replyToThread({ ...params, thread, body });
       }
       await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
     } else if (verdict.verdict === "skipped") {
       if (!changedFiles.has(thread.path)) continue;
       if (actedThreadIds.has(verdict.threadRootCommentId)) continue;
       const body = skippedReplyBody(verdict);
-      await replyToThread({ ...params, thread, body });
       actedThreadIds.add(verdict.threadRootCommentId);
       await recordActedThreadIds(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
         actedThreadIds: [...actedThreadIds],
       });
+      await replyToThread({ ...params, thread, body });
     } else if (verdict.verdict === "dismissed") {
       if (actedThreadIds.has(verdict.threadRootCommentId)) continue;
       const body = dismissedReplyBody(verdict, thread);
-      await replyToThread({ ...params, thread, body });
       actedThreadIds.add(verdict.threadRootCommentId);
       await recordActedThreadIds(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
         actedThreadIds: [...actedThreadIds],
       });
+      await replyToThread({ ...params, thread, body });
     }
   }
 
