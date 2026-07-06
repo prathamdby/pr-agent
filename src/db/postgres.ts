@@ -3,18 +3,26 @@ import type { Db } from "pg-boss";
 import type { Config } from "../config.js";
 import {
   POSTGRES_CONNECTION_TIMEOUT_MS,
+  POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
   POSTGRES_IDLE_TIMEOUT_MS,
+  POSTGRES_KEEPALIVE_INITIAL_DELAY_MS,
+  POSTGRES_LOCK_TIMEOUT_MS,
   POSTGRES_POOL_MAX,
   POSTGRES_STATEMENT_TIMEOUT_MS,
 } from "../settings/index.js";
 
-export function createPgPool(cfg: Pick<Config, "databaseUrl">): Pool {
+export function createPgPool(cfg: Pick<Config, "databaseUrl" | "role">): Pool {
   return new Pool({
     connectionString: cfg.databaseUrl,
     max: POSTGRES_POOL_MAX,
     idleTimeoutMillis: POSTGRES_IDLE_TIMEOUT_MS,
     connectionTimeoutMillis: POSTGRES_CONNECTION_TIMEOUT_MS,
     statement_timeout: POSTGRES_STATEMENT_TIMEOUT_MS,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: POSTGRES_KEEPALIVE_INITIAL_DELAY_MS,
+    lock_timeout: POSTGRES_LOCK_TIMEOUT_MS,
+    idle_in_transaction_session_timeout: POSTGRES_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+    application_name: `pr-agent-${cfg.role}`,
   });
 }
 
