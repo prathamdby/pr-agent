@@ -1,0 +1,152 @@
+import { execFile } from "node:child_process";
+import { readFile, stat } from "node:fs/promises";
+import { relative } from "node:path";
+import { promisify } from "node:util";
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import { z } from "zod";
+import type { Config } from "../../config.js";
+import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
+import { SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
+
+const exec = promisify(execFile);
+
+type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
+  readonly description: string;
+  readonly schema: TSchema;
+  readonly run: (parsed: z.infer<TSchema>) => Promise<unknown>;
+};
+
+function toPiTool(name: string, t: LocalTool): PiTool {
+  return {
+    name,
+    description: t.description,
+    parameters: z.toJSONSchema(t.schema, {
+      unrepresentable: "any",
+    }) as PiTool["parameters"],
+  };
+}
+
+function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
+  return async (args) => t.run(t.schema.parse(args));
+}
+
+function defineLocalTool<TSchema extends z.ZodType>(tool: LocalTool<TSchema>): LocalTool<TSchema> {
+  return tool;
+}
+
+function isSensitivePath(path: string): boolean {
+  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
+}
+
+function safePath(root: string, path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  if (isSensitivePath(normalized)) throw new Error(`Blocked sensitive path "${normalized}"`);
+  return assertWorkspacePath(root, normalized);
+}
+
+function relativePath(root: string, fullPath: string): string {
+  return relative(root, fullPath).replace(/\\/g, "/");
+}
+
+async function readTextFile(root: string, path: string, maxBytes: number) {
+  const fullPath = safePath(root, path);
+  const info = await stat(fullPath).catch(() => null);
+  if (!info?.isFile()) return { path, refused: true, reason: "Path is missing from checkout" };
+  if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
+  const content = await readFile(fullPath, "utf8");
+  return { path, size: info.size, content };
+}
+
+async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {
+  const { stdout } = await exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+    cwd: root,
+    env: {
+      ...process.env,
+      GIT_CONFIG_NOSYSTEM: "1",
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_LFS_SKIP_SMUDGE: "1",
+    },
+    timeout: timeoutMs,
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  return stdout;
+}
+
+export function buildVerificationWorkspaceTools(params: {
+  readonly cfg: Config;
+  readonly rootDir: string;
+}): {
+  readonly piTools: PiTool[];
+  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+} {
+  const root = params.rootDir;
+
+  const readWorkspaceFile = defineLocalTool({
+    description: "Read a text file from the PR repository view. Path is repo-relative.",
+    schema: z.object({ path: z.string().min(1) }),
+    run: async ({ path }) => readTextFile(root, path, params.cfg.localWorkspaceMaxFileBytes),
+  });
+
+  const searchWorkspace = defineLocalTool({
+    description: "Search the PR repository view with git grep for a literal string.",
+    schema: z.object({
+      query: z.string().min(1),
+      maxResults: z.number().int().positive().optional().default(20),
+    }),
+    run: async ({ query, maxResults }) => {
+      const stdout = await git(
+        root,
+        ["grep", "-nF", "-I", `--max-count=${maxResults + 1}`, "-e", query, "--", "."],
+        params.cfg.localWorkspaceFetchTimeoutMs,
+      ).catch((error: unknown) => {
+        if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
+          return "";
+        }
+        throw error;
+      });
+      const matches = stdout
+        .split("\n")
+        .filter(Boolean)
+        .slice(0, maxResults)
+        .map((line) => {
+          const first = line.indexOf(":");
+          const second = line.indexOf(":", first + 1);
+          return {
+            path: line.slice(0, first),
+            line: Number(line.slice(first + 1, second)),
+            text: line.slice(second + 1),
+          };
+        });
+      return { matches, truncated: stdout.split("\n").filter(Boolean).length > maxResults };
+    },
+  });
+
+  const getWorkspaceDiff = defineLocalTool({
+    description:
+      "Return the current unified diff for a repo-relative path in the PR repository view.",
+    schema: z.object({ path: z.string().min(1) }),
+    run: async ({ path }) => {
+      const fullPath = safePath(root, path);
+      const rel = relativePath(root, fullPath);
+      const diff = await git(
+        root,
+        ["diff", "HEAD", "--", rel],
+        params.cfg.localWorkspaceFetchTimeoutMs,
+      );
+      return { path: rel, diff };
+    },
+  });
+
+  const tools = {
+    readWorkspaceFile,
+    searchWorkspace,
+    getWorkspaceDiff,
+  };
+
+  return {
+    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
+    executors: Object.fromEntries(
+      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
+    ),
+  };
+}

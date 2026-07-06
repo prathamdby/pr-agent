@@ -324,6 +324,55 @@ describe("reviewFinding category", () => {
   });
 });
 
+describe("reviewPayload mergeVerdict", () => {
+  it("accepts optional mergeVerdict with score and rationale", () => {
+    const parsed = reviewPayloadSchema.safeParse({
+      prCharacter: "Adds retry logic.",
+      findings: [],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+      mergeVerdict: { score: 4, rationale: "Minor issues only on this pass." },
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.mergeVerdict?.score).toBe(4);
+      expect(parsed.data.mergeVerdict?.rationale).toBe("Minor issues only on this pass.");
+    }
+  });
+
+  it("accepts payload without mergeVerdict", () => {
+    const parsed = reviewPayloadSchema.safeParse({
+      prCharacter: "Adds retry logic.",
+      findings: [],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.mergeVerdict).toBeUndefined();
+    }
+  });
+
+  it("rejects mergeVerdict with out-of-range score", () => {
+    for (const score of [0, 6]) {
+      const parsed = reviewPayloadSchema.safeParse({
+        prCharacter: "x",
+        findings: [],
+        estimatedEffort: 1,
+        relevantTests: "no",
+        securityConcerns: null,
+        followUps: [],
+        mergeVerdict: { score, rationale: "ok" },
+      });
+      expect(parsed.success).toBe(false);
+    }
+  });
+});
+
 describe("formatReviewValidationError", () => {
   it("lists field paths in bullet form with failureKind", () => {
     const parsed = reviewPayloadSchema.safeParse({ prCharacter: "x" });

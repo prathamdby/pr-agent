@@ -4,6 +4,7 @@ export const REVIEW_QUEUE = "agent-work-review";
 export const ASK_QUEUE = "agent-work-ask";
 export const DESCRIPTION_QUEUE = "agent-work-description";
 export const TRIAGE_QUEUE = "agent-work-triage";
+export const VERIFICATION_QUEUE = "agent-work-verification";
 export const RETENTION_QUEUE = "agent-work-retention";
 export const RETENTION_QUEUE_POLLING_INTERVAL_SECONDS = 60;
 /** Rows deleted per batch in the retention sweep (each batch is its own transaction). */
@@ -13,6 +14,7 @@ export const REVIEW_DEAD_LETTER_QUEUE = "agent-work-review-dead";
 export const ASK_DEAD_LETTER_QUEUE = "agent-work-ask-dead";
 export const DESCRIPTION_DEAD_LETTER_QUEUE = "agent-work-description-dead";
 export const TRIAGE_DEAD_LETTER_QUEUE = "agent-work-triage-dead";
+export const VERIFICATION_DEAD_LETTER_QUEUE = "agent-work-verification-dead";
 export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
@@ -20,6 +22,7 @@ export const AUTOMATED_REVIEW_LENS = "review" as const;
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const ASK_PUBLISH_LENS = "ask" as const;
 export const TRIAGE_PUBLISH_LENS = "triage" as const;
+export const VERIFICATION_PUBLISH_LENS = "verification" as const;
 export const MAX_STORED_COMMENT_TEXT_LEN = 16_384;
 
 /** pi-ai metadata when mapping Cursor.models.list() items. */
@@ -69,6 +72,8 @@ export const TRIAGE_THREAD_RESOLUTION_NOTICE =
   "Some fixed or already-resolved findings could not be matched to GitHub review threads, so their thread replies were skipped.";
 export const TRIAGE_VALIDATION_REPAIR_ROUNDS = 3;
 export const TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS = 2;
+export const VERIFICATION_VALIDATION_REPAIR_ROUNDS = 3;
+export const VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 export const MAX_TRIAGE_FINDINGS = 128;
 export const TRIAGE_VERDICT_EVIDENCE_MAX_CHARS = 500;
 export const TRIAGE_SKIP_REASON_MAX_CHARS = 300;
@@ -99,7 +104,6 @@ export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
 export const LABEL_TESTS_EFFORT_PREFIX = "Tests effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
-export const REVIEW_WALKTHROUGH_MAX_FILES = 40;
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
@@ -134,7 +138,7 @@ export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summ
 export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
 export const REVIEW_POINTER_NOTE_LEAD =
   "Full review is in the PR conversation. Expand below to copy fixes for your coding agent.";
-export const REVIEW_SECURITY_DEFAULT = "No security concerns identified";
+export const REVIEW_SECURITY_DEFAULT = "None found on this pass";
 export const REVIEW_PROGRESS_SOURCE_AUTO = "Pull request update";
 export const REVIEW_PROGRESS_SOURCE_SLASH = "slash command";
 
@@ -191,6 +195,17 @@ export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
 export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
 export const REVIEW_SECURITY_CONCERNS_MAX_CHARS = 4000;
 export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
+
+/** Merge verdict (ADR 0019): model-authored readiness assessment, consistency-clamped. */
+export const REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS = 300;
+export const MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS: readonly RegExp[] = [
+  /safe to merge/i,
+  /ready to merge/i,
+  /good to merge/i,
+];
+export const REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK = "No blocking findings on this pass";
+export const REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX =
+  "blocking finding(s) open on this pass";
 export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
 export const REVIEW_SUMMARY_COMPACTION_NOTE =
   "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";

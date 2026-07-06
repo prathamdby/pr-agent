@@ -12,7 +12,6 @@ import {
   renderReviewPointerBody,
   renderReviewPointerLensMarker,
   renderReviewSummaryComment,
-  renderReviewWalkthroughBlock,
   renderStaleReviewMetadataComment,
   fitReviewSummaryBody,
   SECURITY_REVIEW_POINTER_BODY,
@@ -38,16 +37,13 @@ import {
   cachedDiffForLines,
   testPlacements,
 } from "./helpers/reviewPublishTestHelpers.js";
-import {
-  createCachedPrDiffIndex,
-  ingestListPullRequestFilesResult,
-} from "../src/review/placement/reviewDiffIndex.js";
 
 const ctx = {
   owner: "acme",
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
+  hasDescriptionAgentBlock: false,
   summarySentinel: REVIEW_SUMMARY_SENTINEL,
 };
 
@@ -428,103 +424,70 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toMatchSnapshot();
   });
 
-  it("renders collapsed walkthrough table with per-file counts", () => {
-    const diffIndex = createCachedPrDiffIndex();
-    ingestListPullRequestFilesResult(diffIndex, {
-      files: [
-        { filename: "src/foo.ts", patch: "@@ -1 +1 @@\n+x", additions: 120, deletions: 4 },
-        { filename: "src/bar.ts", patch: "@@ -1 +1 @@\n+y", additions: 3, deletions: 1 },
-      ],
-    });
-    const body = renderReviewSummaryComment(basePayload(), {
-      ...ctx,
-      placements: testPlacementsFromPayload(basePayload()),
-      cachedDiffIndex: diffIndex,
-    });
-    expect(body).toContain("<summary>Walkthrough (2 files)</summary>");
-    expect(body).toContain("+120/−4");
-    expect(body).toContain("src/foo.ts");
-  });
-
-  it("truncates walkthrough rows at REVIEW_WALKTHROUGH_MAX_FILES", () => {
-    const diffIndex = createCachedPrDiffIndex();
-    ingestListPullRequestFilesResult(diffIndex, {
-      files: Array.from({ length: 3 }, (_, i) => ({
-        filename: `src/f${i}.ts`,
-        patch: "@@ -1 +1 @@\n+x",
-        additions: i + 1,
-        deletions: 0,
-      })),
-    });
-    const block = renderReviewWalkthroughBlock(diffIndex, 2);
-    expect(block).toContain("…1 more files");
-  });
-
-  it("HTML-escapes attacker-named walkthrough filenames", () => {
-    const diffIndex = createCachedPrDiffIndex();
-    ingestListPullRequestFilesResult(diffIndex, {
-      files: [
-        {
-          filename: '<img src=x onerror="alert(1)">.ts',
-          patch: "@@ -1 +1 @@\n+x",
-          additions: 1,
-          deletions: 0,
-        },
-      ],
-    });
-    const body = renderReviewSummaryComment(basePayload(), {
-      ...ctx,
-      placements: testPlacementsFromPayload(basePayload()),
-      cachedDiffIndex: diffIndex,
-    });
-    expect(body).not.toContain("<img");
-    expect(body).toContain("&lt;img");
-  });
-
-  it("escapes pipe characters in walkthrough filenames", () => {
-    const diffIndex = createCachedPrDiffIndex();
-    ingestListPullRequestFilesResult(diffIndex, {
-      files: [
-        {
-          filename: "src/a|b.ts",
-          patch: "@@ -1 +1 @@\n+x",
-          additions: 2,
-          deletions: 1,
-        },
-      ],
-    });
-    const body = renderReviewWalkthroughBlock(diffIndex);
-    expect(body).toContain("src/a\\|b.ts");
-    expect(body?.split("| File |").length).toBe(2);
-  });
-
-  it("drops walkthrough first when summary body exceeds budget", () => {
-    const diffIndex = createCachedPrDiffIndex();
-    ingestListPullRequestFilesResult(diffIndex, {
-      files: [{ filename: "src/huge.ts", patch: "@@ -1 +1 @@\n+x", additions: 999, deletions: 0 }],
-    });
+  it("renders merge verdict row when mergeVerdict is present", () => {
     const payload = basePayload({
-      prCharacter: "x".repeat(500),
+      mergeVerdict: { score: 4, rationale: "No blocking issues on this pass." },
     });
-    const withWalkthrough = fitReviewSummaryBody(
-      payload,
-      {
-        ...ctx,
-        placements: testPlacementsFromPayload(payload),
-        cachedDiffIndex: diffIndex,
-      },
-      900,
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacementsFromPayload(payload),
+    });
+    expect(body).toContain("Merge verdict");
+    expect(body).toContain("<code>4/5</code>");
+    expect(body).toContain("No blocking issues on this pass.");
+  });
+
+  it("renders mechanical fallback when mergeVerdict is absent and no P0/P1", () => {
+    const payload = basePayload();
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacementsFromPayload(payload),
+    });
+    expect(body).toContain("Merge verdict");
+    expect(body).toContain("No blocking findings on this pass");
+  });
+
+  it("renders blocking-count fallback when mergeVerdict is absent and P1 present", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings),
+    });
+    expect(body).toContain("Merge verdict");
+    expect(body).toContain("1 blocking finding(s) open on this pass");
+  });
+
+  it("appends description link when hasDescriptionAgentBlock is true", () => {
+    const payload = basePayload();
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      hasDescriptionAgentBlock: true,
+      placements: testPlacementsFromPayload(payload),
+    });
+    expect(body).toContain(
+      "See the [file walkthrough](https://github.com/acme/widgets/pull/42) in the PR description.",
     );
-    const withoutWalkthrough = fitReviewSummaryBody(
-      payload,
-      {
-        ...ctx,
-        placements: testPlacementsFromPayload(payload),
-      },
-      900,
-    );
-    expect(withWalkthrough).not.toContain("Walkthrough");
-    expect(withoutWalkthrough.length).toBeLessThanOrEqual(900);
+  });
+
+  it("omits description link when hasDescriptionAgentBlock is false", () => {
+    const payload = basePayload();
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacementsFromPayload(payload),
+    });
+    expect(body).not.toContain("file walkthrough");
   });
 });
 
@@ -533,6 +496,7 @@ const inlineCtx = {
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
+  hasDescriptionAgentBlock: false,
 };
 
 describe("renderInlineThreadBody", () => {
@@ -668,6 +632,7 @@ describe("renderAgentFixPrompt", () => {
     repo: "widgets",
     prNumber: 42,
     headSha: "abc123def456",
+    hasDescriptionAgentBlock: false,
   };
 
   it("includes PR metadata, fixPrompt verbatim, P3 tagging, and severity-first order", () => {
@@ -809,6 +774,7 @@ describe("renderReviewPointerBody", () => {
     repo: "widgets",
     prNumber: 42,
     headSha: "abc123def456",
+    hasDescriptionAgentBlock: false,
   };
 
   it("renders fix prompt text mentioning submitReview without redaction", () => {

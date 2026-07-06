@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
-import type { TriageScope, TriageWorkPayload } from "../types.js";
+import type { TriageScope, TriageWorkPayload, VerificationWorkPayload } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
 import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import { prResourceKey, type PrRef } from "../types.js";
@@ -12,7 +12,7 @@ async function insertQueuedAgentWorkItem(
   params: {
     id: string;
     webhookEventId: string;
-    type: "review" | "description" | "ask" | "triage";
+    type: "review" | "description" | "ask" | "triage" | "verification";
     source: WorkSource;
     ref: PrRef;
     reviewLens: ReviewMode | null;
@@ -180,6 +180,32 @@ export async function createTriageWorkItem(
   return id;
 }
 
+export async function createVerificationWorkItem(
+  client: PoolClient,
+  params: {
+    webhookEventId: string;
+    ref: PrRef;
+  },
+): Promise<string> {
+  const id = crypto.randomUUID();
+  const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
+  await insertQueuedAgentWorkItem(client, {
+    id,
+    webhookEventId: params.webhookEventId,
+    type: "verification",
+    source: "auto",
+    ref: params.ref,
+    reviewLens: null,
+    resourceKey,
+    priority: 0,
+    payload: {
+      source: "auto",
+      repositorySizeKb: params.ref.repositorySizeKb,
+    } satisfies VerificationWorkPayload,
+  });
+  return id;
+}
+
 export async function fetchActiveTriageWorkItem(
   client: PoolClient,
   resourceKey: string,
@@ -256,6 +282,18 @@ export async function fetchActiveWorkItem(
 			    AND type = 'triage'
 			    AND status IN ('queued', 'running')
 			  LIMIT 1`,
+      [target.resourceKey],
+    );
+    return result.rows[0]?.id ?? null;
+  }
+  if (target.kind === "verification") {
+    const result = await client.query<{ id: string }>(
+      `SELECT id
+		   FROM agent_work_items
+		  WHERE resource_key = $1
+		    AND type = 'verification'
+		    AND status IN ('queued', 'running')
+		  LIMIT 1`,
       [target.resourceKey],
     );
     return result.rows[0]?.id ?? null;

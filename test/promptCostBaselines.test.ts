@@ -90,7 +90,13 @@ describe("prompt cost baselines", () => {
     const { piTool } = buildSubmitReviewTool({
       cfg,
       token: "token",
-      ctx: { owner: "octo", repo: "hello", prNumber: 42, headSha: "abc123" },
+      ctx: {
+        owner: "octo",
+        repo: "hello",
+        prNumber: 42,
+        headSha: "abc123",
+        hasDescriptionAgentBlock: false,
+      },
       state: createSubmitReviewState(),
     });
     expect(piTool.name).toBe("submitReview");
@@ -106,7 +112,13 @@ describe("prompt cost baselines", () => {
     const { piTool } = buildSubmitReviewTool({
       cfg,
       token: "token",
-      ctx: { owner: "octo", repo: "hello", prNumber: 42, headSha: "abc123" },
+      ctx: {
+        owner: "octo",
+        repo: "hello",
+        prNumber: 42,
+        headSha: "abc123",
+        hasDescriptionAgentBlock: false,
+      },
       state: createSubmitReviewState(),
     });
     const bytes = measurePromptCost(stableJson(piTool)).bytes;
@@ -192,7 +204,13 @@ function promptSurfaces(): PromptSurface[] {
   const submitReviewTool = buildSubmitReviewTool({
     cfg,
     token: "token",
-    ctx: { owner: "octo", repo: "hello", prNumber: 42, headSha: "abc123" },
+    ctx: {
+      owner: "octo",
+      repo: "hello",
+      prNumber: 42,
+      headSha: "abc123",
+      hasDescriptionAgentBlock: false,
+    },
     state: createSubmitReviewState(),
   }).piTool;
   const cursorPrompt = buildCursorPrompt(representativeCursorContext()).text;

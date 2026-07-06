@@ -4,7 +4,12 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { createOperationLogger } from "../src/evlog.js";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
-import { ACK_QUEUE, DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
+import {
+  ACK_QUEUE,
+  DESCRIPTION_QUEUE,
+  REVIEW_QUEUE,
+  VERIFICATION_QUEUE,
+} from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -88,6 +93,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
 
     // synchronize is no longer a review/description action by default, so intake records
     // an ignored webhook via a direct pool insert (no transaction) instead of enqueuing work.
+    // Verification is also disabled here to keep the test focused on review/description.
     const pool = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) {
@@ -100,7 +106,10 @@ describe("makeAgentWorkScheduler automated describe", () => {
       throw new Error("inTransaction should not run for a no-work synchronize intake");
     });
 
-    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
+    const scheduler = makeAgentWorkScheduler(pool, boss, {
+      ...intakeCfg,
+      verificationAutoActions: new Set(),
+    });
     const intakeLog = createOperationLogger({
       method: "POST",
       path: "/webhooks",
@@ -126,6 +135,39 @@ describe("makeAgentWorkScheduler automated describe", () => {
     }
   });
 
+  it("enqueues verification on synchronize with default verification actions", async () => {
+    const sentQueues: string[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string) => {
+        sentQueues.push(queue);
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+
+    const client = mockAutomatedClient();
+    const pool = {} as Pool;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(
+      scheduler.submitAutomatedReview(
+        makeAutomatedHeaders(),
+        makePrRef(),
+        "synchronize",
+        intakeLog,
+      ),
+    );
+
+    expect(sentQueues).toContain(VERIFICATION_QUEUE);
+    expect(sentQueues).not.toContain(REVIEW_QUEUE);
+    expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
+  });
+
   it("enqueues description on synchronize when DESCRIPTION_AUTO_ACTIONS includes it", async () => {
     const sentQueues: string[] = [];
     const boss = {
@@ -142,6 +184,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     const scheduler = makeAgentWorkScheduler(pool, boss, {
       ...intakeCfg,
       descriptionAutoActions: new Set(["opened", "synchronize"]),
+      verificationAutoActions: new Set(),
     });
     const intakeLog = createOperationLogger({
       method: "POST",

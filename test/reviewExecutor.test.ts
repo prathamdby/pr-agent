@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { AgentWorkItem, ReviewJobData } from "../src/agentWork/types.js";
+import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
@@ -504,6 +505,38 @@ describe("executeReviewJob", () => {
     });
     expect(mocks.runFullPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ severityFloor: undefined }),
+    );
+  });
+
+  it("threads hasDescriptionAgentBlock false when PR body lacks the description header", async () => {
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ hasDescriptionAgentBlock: false }),
+    );
+  });
+
+  it("threads hasDescriptionAgentBlock true when PR body contains the description header", async () => {
+    const prWithDescription = {
+      ...pullRequest,
+      body: `Intro\n\n${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement`,
+    };
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.execute(makeItem("slash"), {
+        installation: {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
+        headSha: "head",
+        pullRequest: prWithDescription,
+      });
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ hasDescriptionAgentBlock: true }),
     );
   });
 });

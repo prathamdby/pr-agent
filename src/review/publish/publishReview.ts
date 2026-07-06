@@ -289,6 +289,7 @@ export async function publishReview(
     repo,
     prNumber,
     headSha,
+    hasDescriptionAgentBlock: params.hasDescriptionAgentBlock ?? false,
   };
 
   let summaryCommentUrl: string | undefined;

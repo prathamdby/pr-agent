@@ -1,4 +1,5 @@
 import { DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../../settings/index.js";
+import { MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS } from "../../settings/index.js";
 import type { ReviewPayload } from "../reviewSchema.js";
 import { isInlineSeverity } from "../reviewSchema.js";
 import { planInlinePlacements, type InlinePlacement } from "../placement/reviewDiffPlacement.js";
@@ -108,6 +109,7 @@ export function validateReviewPayload(params: {
   const overviewFields: Array<[string, string | null | undefined]> = [
     ["prCharacter", params.payload.prCharacter],
     ["securityConcerns", params.payload.securityConcerns],
+    ["mergeVerdict.rationale", params.payload.mergeVerdict?.rationale],
   ];
   for (const [name, value] of overviewFields) {
     if (value != null && containsInternalFailurePhrasing(value)) {
@@ -147,6 +149,28 @@ export function validateReviewPayload(params: {
       message: formatAnchorFailureRepairMessage(anchorFailures),
       anchorFailures,
     };
+  }
+
+  const hasBlockingFindings = params.payload.findings.some(
+    (f) => f.severity === "P0" || f.severity === "P1",
+  );
+  if (hasBlockingFindings && params.payload.mergeVerdict != null) {
+    const verdict = params.payload.mergeVerdict;
+    if (verdict.score > 3) {
+      return {
+        ok: false,
+        message: "mergeVerdict.score must be <= 3 when P0/P1 findings are open on this pass",
+        anchorFailures: [],
+      };
+    }
+    if (MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS.some((pattern) => pattern.test(verdict.rationale))) {
+      return {
+        ok: false,
+        message:
+          "mergeVerdict.rationale must not claim safe-to-merge while P0/P1 findings are open on this pass",
+        anchorFailures: [],
+      };
+    }
   }
 
   return { ok: true, placements };

@@ -8,6 +8,9 @@ import {
   DEFAULT_DESCRIPTION_GENERATE_TITLE,
   DEFAULT_DESCRIPTION_AUTO_ACTIONS,
   DEFAULT_REVIEW_AUTO_ACTIONS,
+  DEFAULT_VERIFICATION_AUTO_ACTIONS,
+  DEFAULT_VERIFICATION_CONCURRENCY,
+  DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
   DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
@@ -163,6 +166,21 @@ function readAutoActions(name: string, defaultValue: string): ReadonlySet<string
   return new Set(values);
 }
 
+function readAutoActionsAllowEmpty(name: string, defaultValue: string): ReadonlySet<string> {
+  const values = optionalEnv(name, defaultValue)
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter((value) => value.length > 0);
+  for (const value of values) {
+    if (!AUTOMATED_PR_ACTIONS.has(value)) {
+      throw new Error(
+        `${name} contains unknown action "${value}"; allowed: ${[...AUTOMATED_PR_ACTIONS].join(", ")}`,
+      );
+    }
+  }
+  return new Set(values);
+}
+
 function readIntegerInRange(name: string, defaultValue: number, min: number, max: number): number {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isInteger(value) || value < min || value > max) {
@@ -282,6 +300,10 @@ export function loadConfig() {
     DEFAULT_DESCRIPTION_CONCURRENCY,
   );
   const triageConcurrency = readPositiveNumber(ENV.TRIAGE_CONCURRENCY, DEFAULT_TRIAGE_CONCURRENCY);
+  const verificationConcurrency = readPositiveNumber(
+    ENV.VERIFICATION_CONCURRENCY,
+    DEFAULT_VERIFICATION_CONCURRENCY,
+  );
   const maxToolRoundsDescribe = readPositiveNumber(
     ENV.MAX_TOOL_ROUNDS_DESCRIBE,
     DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
@@ -289,6 +311,10 @@ export function loadConfig() {
   const maxToolRoundsTriage = readPositiveNumber(
     ENV.MAX_TOOL_ROUNDS_TRIAGE,
     DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
+  );
+  const maxToolRoundsVerification = readPositiveNumber(
+    ENV.MAX_TOOL_ROUNDS_VERIFICATION,
+    DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
   );
   const maxTriageFixesPerRun = readPositiveNumber(
     ENV.MAX_TRIAGE_FIXES_PER_RUN,
@@ -403,6 +429,10 @@ export function loadConfig() {
     DEFAULT_DESCRIPTION_AUTO_ACTIONS,
   );
   const reviewAutoActions = readAutoActions(ENV.REVIEW_AUTO_ACTIONS, DEFAULT_REVIEW_AUTO_ACTIONS);
+  const verificationAutoActions = readAutoActionsAllowEmpty(
+    ENV.VERIFICATION_AUTO_ACTIONS,
+    DEFAULT_VERIFICATION_AUTO_ACTIONS,
+  );
 
   const configuredMaxPrFilesListed = readPositiveNumber(
     ENV.MAX_PR_FILES_LISTED,
@@ -521,8 +551,10 @@ export function loadConfig() {
     ackConcurrency,
     descriptionConcurrency,
     triageConcurrency,
+    verificationConcurrency,
     maxToolRoundsDescribe,
     maxToolRoundsTriage,
+    maxToolRoundsVerification,
     maxTriageFixesPerRun,
     descriptionGenerateTitle,
     slashAllowedAssociations,
@@ -554,6 +586,7 @@ export function loadConfig() {
     enableReviewCheckRun,
     descriptionAutoActions,
     reviewAutoActions,
+    verificationAutoActions,
     maxPrFilesListed,
     maxPrFilesPatchBytes,
     logLevel,

@@ -14,6 +14,8 @@ const intakeCfg = makeTestConfig({
   // These tests exercise the supersede/cancel mechanism on repeated synchronize
   // deliveries, which only runs auto-review on push when REVIEW_AUTO_ACTIONS includes synchronize.
   reviewAutoActions: new Set(["opened", "synchronize"]),
+  // Disable verification auto-actions so work-item counts only reflect review intake.
+  verificationAutoActions: new Set([]),
 });
 import {
   ACK_QUEUE,

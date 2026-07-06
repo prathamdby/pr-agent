@@ -108,6 +108,7 @@ const baseParams = {
   repo: "r",
   prNumber: 1,
   headSha: "sha",
+  hasDescriptionAgentBlock: false,
   cfg: {
     enableReviewLabelsEffort: false,
     enableReviewLabelsSecurity: false,

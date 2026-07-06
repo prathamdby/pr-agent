@@ -2,6 +2,7 @@ import { escapeTableCellContent, renderTableCode } from "../../github/markdownFo
 import type { TriageScope } from "../../agentWork/types.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { TriagePayload, TriageVerdict } from "../../review/triageSchema.js";
+import { renderPolicySuggestionForDismissed } from "../../review/repoPolicy.js";
 import { TRIAGE_SUMMARY_SENTINEL } from "../../settings/index.js";
 
 type CommitDetail = {
@@ -115,6 +116,26 @@ export function renderTriageReport(params: {
         `[thread](${thread.threadUrl})`,
       ].join(" | ")} |`,
     );
+  }
+
+  const dismissedSuggestions = params.payload.verdicts.filter(
+    (verdict): verdict is Extract<TriageVerdict, { verdict: "dismissed" }> =>
+      verdict.verdict === "dismissed",
+  );
+  if (dismissedSuggestions.length > 0) {
+    const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
+    lines.push("", "### Policy suggestions for dismissed findings", "");
+    lines.push("Commit these to `.pr-agent.yml` to steer future reviews:", "");
+    for (const verdict of dismissedSuggestions) {
+      const thread = threadById.get(verdict.threadRootCommentId);
+      if (!thread) continue;
+      lines.push(
+        renderPolicySuggestionForDismissed({
+          filePath: thread.path,
+          dismissalEvidence: verdict.evidence,
+        }),
+      );
+    }
   }
 
   return lines.join("\n");

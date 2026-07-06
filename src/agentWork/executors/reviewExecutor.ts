@@ -33,7 +33,7 @@ import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { MAX_REPO_POLICY_BYTES } from "../../settings/index.js";
+import { DESCRIPTION_AGENT_HEADER, MAX_REPO_POLICY_BYTES } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
   completeReviewCheckRun,
@@ -307,6 +307,9 @@ export async function executeReviewJob(
             workspace: repositoryView.workspace,
             shouldLinkToSummary,
             summaryCommentIdHint,
+            hasDescriptionAgentBlock: (
+              (env.pullRequest as { body?: string | null } | undefined)?.body ?? ""
+            ).includes(DESCRIPTION_AGENT_HEADER),
             initialPublishState: {
               inlinePublished: publishState.inlinePublished,
               published: publishState.summaryPublished,

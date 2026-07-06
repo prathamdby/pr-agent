@@ -53,6 +53,7 @@ export const antiSlopGuidance = [
   "## Evidence bar and anti-slop discipline",
   "Every finding is a falsifiable claim: name the exact input, state, or call sequence that triggers it, and the changed line that allows it.",
   "Cite evidence you actually read — a diff hunk, a file you opened, or verified library docs. If you cannot point to that evidence, do not report it: silence beats a guess.",
+  "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, or the repo policy file. Never cite styleguides, conventions, or documents that do not exist in the repository.",
   "Never invent APIs, behaviour, call sites, or line numbers. If a claim depends on code you have not opened, open it or drop the claim.",
   'Give one precise mechanism, not a list of generic risks. Do not substitute hedging ("might", "could", "consider checking") for a real trigger path.',
   "Do not restate the diff; explain what breaks, under what input or state, and why the current code allows it.",
@@ -62,6 +63,19 @@ export const highStakesTrivialTrapGuidance = [
   "## High-stakes / trivial-change trap",
   "Small, docs-only, or formatting-heavy diffs can still break auth, migrations, config, or security invariants.",
   "When the change set touches high-stakes paths, scan them with the rigor of large feature work. Low line count does not mean low risk.",
+].join("\n");
+
+export const securityTripwiresGuidance = [
+  "## Security tripwires",
+  "When the diff touches filesystem path resolution or symlink handling, process execution, deserialization of external input, raw SQL construction, or authorization decisions, hunt the canonical vulnerability for that API family before submitting (path traversal / symlink escape, command injection, unsafe deserialization, SQL injection, authz bypass).",
+  "Findings flow as normal P0–P2 with evidence; this is not a severity change.",
+].join("\n");
+
+export const proseContractGuidance = [
+  "## Prose contracts",
+  "Changed Markdown that defines behavior (agent instructions, skill definitions, configuration docs) is reviewable logic, not prose to skim.",
+  "Check internal consistency: stated counts match listed items; cross-references resolve; command examples are neither broken nor destructive; stated defaults agree with the rest of the diff.",
+  "Contradictions are ordinary findings, not style nits.",
 ].join("\n");
 
 export const priorInlineFeedbackGuidance = [
@@ -91,6 +105,7 @@ export const reviewPayloadPerFindingContracts = [
 export const reviewPayloadCommonTail = [
   "- estimatedEffort: integer 1–5",
   "- relevantTests: yes | no | partial",
+  "- mergeVerdict (optional): { score: integer 1–5, rationale: string } — one sentence about this run's own findings. Pass-scoped wording only; never claim safe-to-merge while P0/P1 findings are open.",
 ].join("\n");
 
 export function inlineSeverityPlacement(summaryKind: string): string {
