@@ -1,72 +1,38 @@
-# Agent maintenance rules
+# Agent maintenance index
 
-## Configuration discoverability
+**pr-agent** is a GitHub PR agent: automated reviews on `pull_request` events plus `/review`, `/describe`, `/ask`, and `/triage` slash commands. It runs as two roles over Postgres + pg-boss: **web** (webhook intake, durable dedupe, job enqueue) and **worker** (ack, review, ask, description, triage, retention queues).
 
-All tunables are catalogued in [docs/configuration.md](docs/configuration.md).
+## Always apply
 
-Code entry points:
+- Use the domain vocabulary from [CONTEXT.md](CONTEXT.md); it is the canonical product language — do not invent synonyms.
+- No magic numbers or env defaults in feature modules; everything goes through `src/settings/`. Follow the knob-change checklist in [docs/configuration.md](docs/configuration.md).
+- Long prompt prose lives in prompt modules, not settings; see [docs/development.md](docs/development.md).
+- Import concrete modules, not removed barrel `index.ts` files; run `nubx knip` after refactors (details in [docs/development.md](docs/development.md)).
+- If a change alters runtime topology, update the [README.md](README.md) "How It Works" Mermaid diagram in the same PR (rubric in [docs/development.md](docs/development.md)).
+- Docs are part of the change: if your change is critical (see Keep the docs true), update the matching doc in the same PR.
 
-- **Env-backed defaults** — [src/settings/defaults.ts](src/settings/defaults.ts) and [src/settings/envKeys.ts](src/settings/envKeys.ts); loaded in [src/config.ts](src/config.ts)
-- **Code constants** — [src/settings/constants.ts](src/settings/constants.ts), re-exported from [src/settings/index.ts](src/settings/index.ts)
+## Where to look
 
-## When you change a knob
+| Read | When |
+| ---- | ---- |
+| [CONTEXT.md](CONTEXT.md) | Domain language — always read before naming things |
+| [README.md](README.md) "How It Works" | Runtime topology (web vs worker, Postgres, pg-boss queues) |
+| [docs/configuration.md](docs/configuration.md) | Any tunable, env var, or code constant change |
+| [docs/development.md](docs/development.md) | Module layout, import rules, Cursor Cloud setup, topology-diagram rubric |
+| [docs/operations.md](docs/operations.md) | Behaviour, deployment, developer scripts |
+| [docs/agent-work-ops.md](docs/agent-work-ops.md) | Queue health, retry and recovery |
+| [docs/adr/](docs/adr/) | Architecture rationale (ADRs numbered 0001-0018) |
+| [test/settingsInventory.test.ts](test/settingsInventory.test.ts) | CI gate for env/config alignment |
 
-| Change                       | Update                                                                            |
-| ---------------------------- | --------------------------------------------------------------------------------- |
-| New or renamed env var       | `envKeys.ts`, `defaults.ts`, `config.ts`, `.env.example`, `docs/configuration.md` |
-| New or changed code constant | `constants.ts`, `docs/configuration.md`                                           |
-| Default value only           | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md`      |
+## Keep the docs true
 
-Do not add magic numbers or env default strings in feature modules; import from `src/settings/`.
+| If you change | Update in the same PR |
+| ------------- | --------------------- |
+| Domain vocabulary or a product concept | [CONTEXT.md](CONTEXT.md) |
+| Env var, default, or code constant | [docs/configuration.md](docs/configuration.md) (follow its knob-change checklist) |
+| Module layout, public entry points, or import rules | [docs/development.md](docs/development.md) |
+| Runtime topology (roles, queues, webhook route, executor ownership) | [README.md](README.md) "How It Works" Mermaid diagram |
+| User-facing behaviour, deployment, or scripts | [docs/operations.md](docs/operations.md) |
+| A significant architecture decision | new ADR in [docs/adr/](docs/adr/) (next number) |
 
-`docs/configuration.md` code-constant rows are maintained on the honor system. CI enforces env alignment via `test/settingsInventory.test.ts`.
-
-## Prompt prose
-
-Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, and `src/agent/description/`. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
-
-## Module layout (production)
-
-| Area                 | Path                       | Public entry                                                        |
-| -------------------- | -------------------------- | ------------------------------------------------------------------- |
-| Review run + publish | `src/review/`              | `run/reviewRun.ts`, `publish/publishReview.ts`                      |
-| Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                                 |
-| Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss)              |
-| Agent work execution | `src/agentWork/executors/` | `index.ts`                                                          |
-| Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`                           |
-| Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                    |
-| Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts` |
-
-Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `reviewDiffPlacement.ts`.
-
-Run `nubx knip` after refactors to catch unused exports and files.
-
-## Documentation
-
-### README runtime topology diagram
-
-When a change alters **runtime topology**, update the Mermaid diagram in [README.md](README.md) **How It Works** in the same PR.
-
-**Counts as topology change:** web vs worker responsibilities, Postgres or pg-boss role, webhook route, pg-boss queue lanes, or which executor owns a work type.
-
-**Does not require diagram updates:** prompt tweaks, tool implementation details, publish formatting, or other changes that do not change the diagram’s boxes or arrows.
-
-## Cursor Cloud specific instructions
-
-### Services overview
-
-| Service              | How to run                                                                                                                                               | Notes                                                        |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Postgres 16          | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                       |
-| Web (webhook intake) | `ROLE=web nub src/index.ts`                                                                                                                              | Listens on `PORT` (default 7224); `GET /health` returns `ok` |
-| Worker (agent work)  | `ROLE=worker nub src/index.ts`                                                                                                                           | Processes reviews, descriptions, asks, and triage            |
-
-### Gotchas
-
-- **Install Nub once** — `npm install -g --ignore-scripts=false @nubjs/nub`, then `nub install` in the repo. Node 22.22.0 is pinned in [`.node-version`](.node-version); Nub provisions it on demand.
-- **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key** — `loadConfig()` calls `crypto.createPrivateKey()` and throws on placeholders. For local-only dev, generate a throwaway key: `openssl genrsa 2048 > key.pem` and set the `.env` value to the escaped content.
-- **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`.
-- **Tests (`nub run test`)** are pure unit/integration tests and do not need Postgres or any running service. Use `nub run --node test` if Vitest shows augmentation-related flakiness.
-- **Lint/fmt commands**: `nub run lint` (oxlint, type-aware), `nub run typecheck` (tsc), `nub run fmt:check` (oxfmt). Combined: `nub run check:code`.
-- **Ignored build scripts warning** from Nub is expected for some transitive deps (`esbuild`, `protobufjs`). **`sqlite3` is approved** in `package.json` (`pnpm.onlyBuiltDependencies`) because `@cursor/sdk` needs its native binding when `PI_PROVIDER=cursor`. The Docker image compiles `sqlite3` in the `deps` stage (with `python3`/`make`/`g++`) and copies `node_modules` into runtime — do not run a fresh `nub prune --prod` in the final stage without build tools.
-- **Vercel site deploys** remain on pnpm via [`site/vercel.json`](site/vercel.json); all other surfaces use Nub in pnpm incumbent mode.
+If none apply, no doc update is needed; do not update docs speculatively.

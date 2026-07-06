@@ -14,6 +14,18 @@ For behaviour, deployment, and developer scripts see [operations.md](operations.
 
 Import convention: `import { … } from "../settings/index.js"` for constants; `Config` from `config.ts` at runtime.
 
+### When you change a knob
+
+| Change                       | Update                                                                            |
+| ---------------------------- | --------------------------------------------------------------------------------- |
+| New or renamed env var       | `envKeys.ts`, `defaults.ts`, `config.ts`, `.env.example`, `docs/configuration.md` |
+| New or changed code constant | `constants.ts`, `docs/configuration.md`                                           |
+| Default value only           | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md`      |
+
+Do not add magic numbers or env default strings in feature modules; import from `src/settings/`.
+
+CI enforces env alignment via `test/settingsInventory.test.ts`. `docs/configuration.md` code-constant rows are maintained on the honor system.
+
 ---
 
 ## Environment (`loadConfig`)
