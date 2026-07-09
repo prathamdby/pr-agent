@@ -27,10 +27,6 @@ type PublishVerificationParams = {
   readonly changedFilePaths: readonly string[];
 };
 
-function shortSha(sha: string): string {
-  return sha.slice(0, 7);
-}
-
 function actedThreadIdsFromDetail(detail: unknown): number[] {
   if (!detail || typeof detail !== "object" || !("actedThreadIds" in detail)) return [];
   const value = detail.actedThreadIds;
@@ -70,18 +66,6 @@ async function recordActedThreadIds(
     step: "verification_thread_actions",
     detail: { actedThreadIds: params.actedThreadIds },
   });
-}
-
-function fixedReplyBody(verdict: Extract<VerificationVerdict, { verdict: "fixed" }>): string {
-  return redactReviewText(
-    `**Verification**: fixed in ${shortSha(verdict.commitSha)} - ${verdict.evidence}`,
-  );
-}
-
-function alreadyResolvedReplyBody(
-  verdict: Extract<VerificationVerdict, { verdict: "already-resolved" }>,
-): string {
-  return redactReviewText(`**Verification**: already resolved - ${verdict.evidence}`);
 }
 
 function skippedReplyBody(verdict: Extract<VerificationVerdict, { verdict: "skipped" }>): string {
@@ -144,15 +128,12 @@ export async function publishVerification(
       }
       if (resolution.isResolved) continue;
       if (!actedThreadIds.has(verdict.threadRootCommentId)) {
-        const body =
-          verdict.verdict === "fixed" ? fixedReplyBody(verdict) : alreadyResolvedReplyBody(verdict);
         actedThreadIds.add(verdict.threadRootCommentId);
         await recordActedThreadIds(params.pool, {
           workItemId: params.workItemId,
           resourceKey: params.resourceKey,
           actedThreadIds: [...actedThreadIds],
         });
-        await replyToThread({ ...params, thread, body });
       }
       await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
     } else if (verdict.verdict === "skipped") {
