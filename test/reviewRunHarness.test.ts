@@ -83,6 +83,7 @@ vi.mock("../src/review/run/reviewRunSetup.js", async (importOriginal) => {
     buildReviewRunSetup: vi.fn((params) => ({
       systemPrompt: "system",
       userContent: "investigate",
+      reviewerUserContent: "reviewer investigate",
       piTools: [{ name: "submitReview", description: "submit", parameters: {} }],
       executors: { submitReview: vi.fn(async () => ({ ok: true })) },
       cachedDiffIndex,

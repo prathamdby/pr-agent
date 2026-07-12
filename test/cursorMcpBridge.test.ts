@@ -5,6 +5,7 @@ import * as evlog from "../src/evlog.js";
 import { checkMcpBearerAuth, createMcpBridge } from "../src/agent/providers/cursor/mcpBridge.js";
 import {
   initReviewRunMetrics,
+  recordReviewMetric,
   snapshotReviewRunMetrics,
 } from "../src/review/run/reviewRunMetrics.js";
 
@@ -85,7 +86,7 @@ describe("createMcpBridge", () => {
     });
   });
 
-  it("records tool_call metrics via ambient logger", async () => {
+  it("records tool_call metrics via injected recorder", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/mcp" }, async () => {
       initReviewRunMetrics({
@@ -93,18 +94,27 @@ describe("createMcpBridge", () => {
         model: "composer-2.5",
         mode: "review",
       });
-      await withNoopBridge(async (bridge) => {
-        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
-        const result = await client.callTool({ name: "noop", arguments: {} });
-        expect(result.isError).not.toBe(true);
-        expect(snapshotReviewRunMetrics()?.toolCallCount).toBe(1);
-        expect(snapshotReviewRunMetrics()?.toolResultBytes).toBeGreaterThan(0);
-        await client.close();
-      });
+      await withBridge(
+        {
+          ...noopBridgeSpec,
+          onToolCallMetric: (event) => {
+            recordReviewMetric({ ...event, sessionRole: "orchestrator" });
+          },
+        },
+        async (bridge) => {
+          const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+          const result = await client.callTool({ name: "noop", arguments: {} });
+          expect(result.isError).not.toBe(true);
+          expect(snapshotReviewRunMetrics()?.toolCallCount).toBe(1);
+          expect(snapshotReviewRunMetrics()?.toolResultBytes).toBeGreaterThan(0);
+          expect(snapshotReviewRunMetrics()?.bySessionRole.orchestrator?.toolCallCount).toBe(1);
+          await client.close();
+        },
+      );
     });
   });
 
-  it("records tool_call failures for unknown tools", async () => {
+  it("records tool_call failures for unknown tools via injected recorder", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/mcp" }, async () => {
       initReviewRunMetrics({
@@ -112,31 +122,56 @@ describe("createMcpBridge", () => {
         model: "composer-2.5",
         mode: "review",
       });
-      await withNoopBridge(async (bridge) => {
-        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
-        const result = await client.callTool({
-          name: "missing",
-          arguments: {},
-        });
-        expect(result.isError).toBe(true);
-        expect(snapshotReviewRunMetrics()).toMatchObject({
-          toolCallCount: 1,
-          toolCallErrors: 1,
-          toolResultBytes: expect.any(Number),
-          toolResultCharacters: expect.any(Number),
-        });
-        await client.close();
-      });
+      await withBridge(
+        {
+          ...noopBridgeSpec,
+          onToolCallMetric: (event) => {
+            recordReviewMetric(event);
+          },
+        },
+        async (bridge) => {
+          const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+          const result = await client.callTool({
+            name: "missing",
+            arguments: {},
+          });
+          expect(result.isError).toBe(true);
+          expect(snapshotReviewRunMetrics()).toMatchObject({
+            toolCallCount: 1,
+            toolCallErrors: 1,
+            toolResultBytes: expect.any(Number),
+            toolResultCharacters: expect.any(Number),
+          });
+          await client.close();
+        },
+      );
     });
   });
 
-  it("completes tool RPC without operation logger", async () => {
+  it("completes tool RPC without recorder or operation logger", async () => {
     await withNoopBridge(async (bridge) => {
       const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
       const result = await client.callTool({ name: "noop", arguments: {} });
       expect(result.isError).not.toBe(true);
       await client.close();
     });
+  });
+
+  it("does not crash when the injected recorder throws", async () => {
+    await withBridge(
+      {
+        ...noopBridgeSpec,
+        onToolCallMetric: () => {
+          throw new Error("recorder boom");
+        },
+      },
+      async (bridge) => {
+        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+        const result = await client.callTool({ name: "noop", arguments: {} });
+        expect(result.isError).not.toBe(true);
+        await client.close();
+      },
+    );
   });
 
   it("serializes object tool results as compact JSON", async () => {
