@@ -23,7 +23,10 @@ import {
   hasManagedCategoryLabel,
 } from "../run/reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
-import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
+import {
+  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
+  REVIEW_SUMMARY_SENTINEL,
+} from "../../settings/index.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import {
   type FingerprintedInlinePlacement,
@@ -35,7 +38,6 @@ import { mergeInlineFingerprintRecords } from "../findings/reviewFindingFingerpr
 import { prepareFindingsForPublish } from "../findings/findingPipeline.js";
 import {
   reviewEventForFindings,
-  reviewSummarySentinelForMode,
   type ReviewMode,
   type ReviewPayload,
   type ReviewPublishContext,
@@ -256,14 +258,13 @@ export async function publishReview(
   const { token, owner, repo, prNumber, headSha, cfg, payload, publishState } = params;
   const tokenExpiresAtTs = params.tokenExpiresAtTs;
   const mode = params.mode ?? "review";
-  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const storedInlineFingerprints = params.storedInlineFingerprints ?? [];
   const inlineReviewFingerprints = (placements: readonly FingerprintedInlinePlacement[]) =>
     mergeInlineFingerprintRecords(storedInlineFingerprints, placements);
 
   const preparedFindings = prepareFindingsForPublish({
     payload,
-    mode,
     cachedDiffIndex: params.cachedDiffIndex,
     inlinePlacements: params.inlinePlacements,
     storedInlineFingerprints,
@@ -556,40 +557,30 @@ export async function publishReview(
   }
 
   const wantsCategoryLabel = dominantReviewCategory(payload.findings) != null;
-  const syncCategoryLabels =
-    mode === "review" && (wantsCategoryLabel || hasManagedCategoryLabel(currentLabels));
+  const syncCategoryLabels = wantsCategoryLabel || hasManagedCategoryLabel(currentLabels);
   const shouldSyncLabels =
     cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity || syncCategoryLabels;
 
   if (shouldSyncLabels) {
     try {
       if (
-        labelsAlreadySynced(
-          currentLabels,
-          payload,
-          {
-            effort: cfg.enableReviewLabelsEffort,
-            security: cfg.enableReviewLabelsSecurity,
-            category: syncCategoryLabels,
-          },
-          mode,
-        )
+        labelsAlreadySynced(currentLabels, payload, {
+          effort: cfg.enableReviewLabelsEffort,
+          security: cfg.enableReviewLabelsSecurity,
+          category: syncCategoryLabels,
+        })
       ) {
         await params.recordPublishStep?.("labels", {
           meta: { labels: currentLabels, alreadySynced: true },
         });
         return;
       }
-      const managed = reviewLabelsFromPayload(
-        payload,
-        {
-          effort: cfg.enableReviewLabelsEffort,
-          security: cfg.enableReviewLabelsSecurity,
-          category: syncCategoryLabels,
-        },
-        mode,
-      );
-      const next = syncReviewLabels(currentLabels, managed, mode);
+      const managed = reviewLabelsFromPayload(payload, {
+        effort: cfg.enableReviewLabelsEffort,
+        security: cfg.enableReviewLabelsSecurity,
+        category: syncCategoryLabels,
+      });
+      const next = syncReviewLabels(currentLabels, managed);
       if (tokenExpiresAtTs == null) {
         await setPullRequestLabels(token, owner, repo, prNumber, next);
       } else {

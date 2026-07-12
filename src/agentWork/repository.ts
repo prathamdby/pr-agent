@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
+import { LEGACY_REVIEW_LENSES, type LegacyReviewLens } from "../review/reviewSchema.js";
 import {
   ASK_PUBLISH_LENS,
   DESCRIPTION_PUBLISH_LENS,
@@ -45,7 +46,7 @@ type AgentWorkRow = {
   pr_number: number;
   installation_id: string;
   head_sha: string;
-  review_lens: "review" | "review-security" | "review-quality" | "review-tests" | null;
+  review_lens: LegacyReviewLens | null;
   resource_key: string;
   attempt_count: number;
   payload: AgentWorkItem["payload"];
@@ -510,17 +511,17 @@ export async function releaseUnstartedReviewCheckRunReservation(
 export async function listTriageEligibleInlineReviews(
   pool: Pool,
   resourceKey: string,
-): Promise<Map<number, ReviewWorkPayload["mode"]>> {
-  const result = await pool.query<{ github_id: string; review_lens: ReviewWorkPayload["mode"] }>(
+): Promise<Map<number, LegacyReviewLens>> {
+  const result = await pool.query<{ github_id: string; review_lens: LegacyReviewLens }>(
     `SELECT github_id, review_lens
        FROM publish_records
       WHERE resource_key = $1
         AND step = 'inline_review'
         AND status = 'completed'
-        AND review_lens IN ('review', 'review-security', 'review-quality', 'review-tests')`,
-    [resourceKey],
+        AND review_lens = ANY($2::text[])`,
+    [resourceKey, LEGACY_REVIEW_LENSES],
   );
-  const reviewLenses = new Map<number, ReviewWorkPayload["mode"]>();
+  const reviewLenses = new Map<number, LegacyReviewLens>();
   for (const row of result.rows) {
     if (!row.github_id) continue;
     const reviewId = Number(row.github_id);
@@ -621,7 +622,7 @@ export async function loadReviewExecutorPublishContext(
          SELECT 1
            FROM publish_records
           WHERE resource_key = $1
-            AND review_lens = $2
+            AND review_lens = ANY($4::text[])
             AND step = 'summary_comment'
             AND status = 'completed'
             AND work_item_id <> $3
@@ -631,7 +632,7 @@ export async function loadReviewExecutorPublishContext(
            SELECT json_agg(json_build_object('detail', detail))
              FROM publish_records
             WHERE resource_key = $1
-              AND review_lens = $2
+              AND review_lens = ANY($4::text[])
               AND step = 'inline_review'
               AND status = 'completed'
          ),
@@ -641,14 +642,14 @@ export async function loadReviewExecutorPublishContext(
          SELECT github_id
            FROM publish_records
           WHERE resource_key = $1
-            AND review_lens = $2
+            AND review_lens = ANY($4::text[])
             AND step IN ('summary_comment', 'progress_comment')
             AND status = 'completed'
             AND github_id IS NOT NULL
           ORDER BY updated_at DESC
           LIMIT 1
        ) AS latest_summary_github_id`,
-    [resourceKey, reviewLens, workItemId],
+    [resourceKey, reviewLens, workItemId, LEGACY_REVIEW_LENSES],
   );
   const currentPublish = row?.current_publish ?? [];
   const shouldLinkToSummary = row?.prior_summary_exists ?? false;

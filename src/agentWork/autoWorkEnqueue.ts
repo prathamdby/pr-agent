@@ -1,13 +1,11 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { ReviewMode } from "../review/reviewSchema.js";
 import type { SingletonSlotDb } from "./singletonQueue.js";
 
 export type AutoWorkSupersedeTarget =
   | {
       readonly kind: "review";
       readonly resourceKey: string;
-      readonly lens: ReviewMode;
     }
   | { readonly kind: "description"; readonly resourceKey: string }
   | { readonly kind: "triage"; readonly resourceKey: string }
@@ -22,11 +20,11 @@ function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
       sql: `UPDATE agent_work_items
 			       SET status = 'superseded', updated_at = now()
 			     WHERE resource_key = $1
-			       AND review_lens = $2
+			       AND type = 'review'
 			       AND source = 'auto'
 			       AND status = 'queued'
 			     RETURNING id`,
-      params: [target.resourceKey, target.lens],
+      params: [target.resourceKey],
     };
   }
   return {
@@ -50,11 +48,11 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
       sql: `UPDATE agent_work_items
 			       SET cancel_requested_at = COALESCE(cancel_requested_at, now()), updated_at = now()
 			     WHERE resource_key = $1
-			       AND review_lens = $2
+			       AND type = 'review'
 			       AND source = 'auto'
 			       AND status = 'running'
 			     RETURNING id`,
-      params: [target.resourceKey, target.lens],
+      params: [target.resourceKey],
     };
   }
   return {

@@ -18,7 +18,6 @@ import {
   isInlineSeverity,
   normalizeReviewPayload,
   type ReviewFinding,
-  type ReviewMode,
   type ReviewPayload,
 } from "../reviewSchema.js";
 
@@ -46,7 +45,6 @@ function passesSeverityFloor(severity: ReviewFinding["severity"], severityFloor?
 
 export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
-  mode: ReviewMode;
   reviewMinConfidence?: number;
   severityFloor?: number;
   cachedDiffIndex?: CachedPrDiffIndex;
@@ -110,7 +108,6 @@ export function prepareReviewPayloadForPublish(params: {
 
 export function prepareFindingsForPublish(params: {
   payload: ReviewPayload;
-  mode: ReviewMode;
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
   storedInlineFingerprints?: readonly string[];
@@ -120,7 +117,7 @@ export function prepareFindingsForPublish(params: {
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
-  const fingerprintedPlacements = fingerprintInlinePlacements(plannedPlacements, params.mode);
+  const fingerprintedPlacements = fingerprintInlinePlacements(plannedPlacements);
   const suppression = suppressInlinePlacementsByFingerprint(
     fingerprintedPlacements,
     params.storedInlineFingerprints ?? [],

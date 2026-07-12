@@ -99,7 +99,8 @@ function toCodingAgentTool(
 }
 
 export const piAgentRunnerProvider: AgentRunnerProvider = {
-  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool }) {
+  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool, signal }) {
+    signal?.throwIfAborted();
     const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
     const authPath = join(agentDir, "auth.json");
     const authStorage = AuthStorage.create(authPath);
@@ -149,9 +150,20 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         toCodingAgentTool(tool, executors[tool.name], refreshBeforeTool),
       ),
     });
+    const sessionAbortController = new AbortController();
+    const forwardSessionAbort = () => sessionAbortController.abort(signal?.reason);
+    signal?.addEventListener("abort", forwardSessionAbort, { once: true });
+    if (signal?.aborted) forwardSessionAbort();
 
     return {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
+        const sendSignal = opts?.signal
+          ? AbortSignal.any([sessionAbortController.signal, opts.signal])
+          : sessionAbortController.signal;
+        const abortProviderSession = () => {
+          void session.abort();
+        };
+        sendSignal.addEventListener("abort", abortProviderSession, { once: true });
         let sessionToolTurnCount = 0;
         let finalText = "";
         let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
@@ -201,6 +213,8 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
           }
         });
         try {
+          if (sendSignal.aborted) abortProviderSession();
+          sendSignal.throwIfAborted();
           const run = session.prompt(prompt);
           if (idleTimeoutEnabled) {
             const idle = new Promise<never>((_, reject) => {
@@ -212,6 +226,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
           } else {
             await run;
           }
+          sendSignal.throwIfAborted();
           const promptMeta = promptMetadataFromText(prompt);
           return aggregatedUsage
             ? { text: finalText, prompt: promptMeta, usage: aggregatedUsage }
@@ -219,7 +234,12 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         } finally {
           if (idleCheckHandle) clearInterval(idleCheckHandle);
           unsubscribe();
+          sendSignal.removeEventListener("abort", abortProviderSession);
         }
+      },
+      async cancel() {
+        sessionAbortController.abort();
+        await session.abort();
       },
       // customTools are fixed at session creation; restrictToTools only toggles active names.
       restrictToTools(nextTools, _executors) {
@@ -229,6 +249,8 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         session.setActiveToolsByName(allToolNames);
       },
       async dispose() {
+        sessionAbortController.abort();
+        signal?.removeEventListener("abort", forwardSessionAbort);
         await rm(agentDir, { recursive: true, force: true });
       },
     };

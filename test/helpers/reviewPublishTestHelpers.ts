@@ -14,10 +14,8 @@ import { createSubmitReviewState } from "../../src/review/publish/submitReviewTo
 export async function publishReviewForTest(
   params: Parameters<typeof publishReview>[0] & { mode?: ReviewMode },
 ): Promise<void> {
-  const mode = params.mode ?? "review";
   const prepared = prepareReviewPayloadForPublish({
     payload: params.payload,
-    mode,
     cachedDiffIndex: params.cachedDiffIndex,
   });
   if (!prepared.ok) {

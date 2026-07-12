@@ -4,9 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import { buildCursorPrompt } from "../src/agent/providers/cursor/promptBuilder.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
@@ -16,7 +13,7 @@ import {
 } from "../src/review/publish/submitReviewTool.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
-import { createReviewPayloadSchema, type ReviewMode } from "../src/review/reviewSchema.js";
+import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
 import {
   assertPromptCostWithinBudget,
   measurePromptCost,
@@ -32,7 +29,6 @@ type PromptSurface = {
   readonly budget: PromptCostBudget;
 };
 
-const REVIEW_MODES = ["review", "review-security", "review-quality", "review-tests"] as const;
 const SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
 const REVIEW_PAYLOAD_FIELDS = [
   "prCharacter",
@@ -72,12 +68,10 @@ describe("prompt cost baselines", () => {
   });
 
   it("keeps review user content mode instructions bounded and structured", () => {
-    for (const mode of REVIEW_MODES) {
-      const content = representativeReviewUserContent(mode);
-      expect(content).toContain("Target repository: octo/hello");
-      expect(content).toContain("Head commit SHA: abc123");
-      expect(content).toContain("submitReview exactly once");
-    }
+    const content = representativeReviewUserContent();
+    expect(content).toContain("Target repository: octo/hello");
+    expect(content).toContain("Head commit SHA: abc123");
+    expect(content).toContain("submitReview exactly once");
   });
 
   it("keeps structured review schema top-level fields required", () => {
@@ -219,26 +213,11 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
-      budget: { bytes: 10_600, characters: 10_600, estimatedTokens: 2_650 },
-    },
-    {
-      name: "security review system prompt",
-      content: automatedSecuritySystemPrompt,
-      budget: { bytes: 12_100, characters: 12_100, estimatedTokens: 3_025 },
-    },
-    {
-      name: "quality review system prompt",
-      content: automatedQualitySystemPrompt,
-      budget: { bytes: 10_050, characters: 10_000, estimatedTokens: 2_500 },
-    },
-    {
-      name: "tests review system prompt",
-      content: automatedReviewTestsSystemPrompt,
-      budget: { bytes: 9_000, characters: 9_000, estimatedTokens: 2_250 },
+      budget: { bytes: 10_700, characters: 10_700, estimatedTokens: 2_675 },
     },
     {
       name: "representative review user content",
-      content: representativeReviewUserContent("review"),
+      content: representativeReviewUserContent(),
       budget: { bytes: 400, characters: 400, estimatedTokens: 100 },
     },
     {
@@ -259,27 +238,21 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "representative Cursor prompt",
       content: cursorPrompt,
-      budget: { bytes: 11_000, characters: 11_000, estimatedTokens: 2_750 },
+      budget: { bytes: 11_100, characters: 11_100, estimatedTokens: 2_775 },
     },
   ];
 }
 
 function reviewLensPrompts(): ReadonlyArray<readonly [string, string]> {
-  return [
-    ["general review system prompt", buildAutomatedSystemPrompt()],
-    ["security review system prompt", automatedSecuritySystemPrompt],
-    ["quality review system prompt", automatedQualitySystemPrompt],
-    ["tests review system prompt", automatedReviewTestsSystemPrompt],
-  ];
+  return [["review system prompt", buildAutomatedSystemPrompt()]];
 }
 
-function representativeReviewUserContent(reviewMode: ReviewMode): string {
+function representativeReviewUserContent(): string {
   return buildReviewRunUserContent({
     owner: "octo",
     repo: "hello",
     prNumber: 42,
     headSha: "abc123",
-    reviewMode,
     userSupplement: "Focus on the billing retry path.",
     trustedContext: '<context trusted="server">\nChanged files: src/billing.ts\n</context>',
   });
@@ -291,7 +264,7 @@ function representativeCursorContext(): Context {
     messages: [
       {
         role: "user",
-        content: representativeReviewUserContent("review"),
+        content: representativeReviewUserContent(),
         timestamp: 1,
       },
     ],

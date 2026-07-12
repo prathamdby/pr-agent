@@ -1,7 +1,6 @@
 import type { PgBoss } from "pg-boss";
 import type { PoolClient } from "pg";
 import { pgBossDb } from "../db/postgres.js";
-import type { ReviewMode } from "../review/reviewSchema.js";
 import { REVIEW_QUEUE } from "../settings/index.js";
 import { reviewSingletonKey } from "./types.js";
 
@@ -32,14 +31,20 @@ export async function releaseSingletonSlot(
 export async function releaseReviewSingletonSlot(
   boss: PgBoss,
   resourceKey: string,
-  lens: ReviewMode,
   opts?: { readonly skipJobId?: string },
 ): Promise<void> {
-  await releaseSingletonSlot(boss, {
-    queue: REVIEW_QUEUE,
-    singletonKey: reviewSingletonKey(resourceKey, lens),
-    skipJobId: opts?.skipJobId,
-  });
+  const legacySingletonKeys = [
+    `${resourceKey}:review-security`,
+    `${resourceKey}:review-quality`,
+    `${resourceKey}:review-tests`,
+  ] as const;
+  for (const singletonKey of [reviewSingletonKey(resourceKey), ...legacySingletonKeys]) {
+    await releaseSingletonSlot(boss, {
+      queue: REVIEW_QUEUE,
+      singletonKey,
+      skipJobId: opts?.skipJobId,
+    });
+  }
 }
 
 export function reviewSingletonSlotDb(client: PoolClient): SingletonSlotDb {

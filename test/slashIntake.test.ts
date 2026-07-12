@@ -104,7 +104,7 @@ describe("applySlashCommandIntake", () => {
     );
   });
 
-  it("enqueues a review work item with the review-tests lens", async () => {
+  it("replies with help for a removed review command", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
     const boss = {
       send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
@@ -112,21 +112,10 @@ describe("applySlashCommandIntake", () => {
         return "job-1";
       }),
     } as unknown as PgBoss;
-    const workItemInserts: unknown[][] = [];
     const client = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+      query: vi.fn(async (sql: string, _params?: unknown[]) => {
         if (sql.includes("INSERT INTO webhook_events")) {
           return { rows: [{ id: "event-1" }] };
-        }
-        if (sql.includes("SELECT id")) {
-          return { rows: [] };
-        }
-        if (sql.includes("INSERT INTO agent_work_items")) {
-          workItemInserts.push(params ?? []);
-          return { rows: [] };
-        }
-        if (sql.includes("INSERT INTO publish_records")) {
-          return { rows: [] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -143,16 +132,48 @@ describe("applySlashCommandIntake", () => {
       scheduler.submitSlashCommand(makeSlashInput("/review-tests"), intakeLog),
     );
 
-    expect(workItemInserts).toHaveLength(1);
-    expect(workItemInserts[0]).toContain("review-tests");
-    expect(sentJobs.map((j) => j.queue)).toContain(REVIEW_QUEUE);
-    expect(intakeLog.getContext().events).toContainEqual(
-      expect.objectContaining({
-        event: "agent_work_enqueued",
-        type: "review",
-        lens: "review-tests",
+    expect(sentJobs).toHaveLength(1);
+    expect(sentJobs[0]).toMatchObject({
+      queue: ACK_QUEUE,
+      data: { reply: { body: SLASH_HELP_BODY } },
+    });
+    expect(sentJobs.map((job) => job.queue)).not.toContain(REVIEW_QUEUE);
+  });
+
+  it("enqueues the unified review work item", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown>; options?: unknown }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>, options?: unknown) => {
+        sentJobs.push({ queue, data, options });
+        return "job-1";
       }),
-    );
+    } as unknown as PgBoss;
+    const workItemInserts: unknown[][] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("SELECT id")) return { rows: [] };
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          workItemInserts.push(params ?? []);
+          return { rows: [] };
+        }
+        if (sql.includes("INSERT INTO publish_records")) return { rows: [] };
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/review"), intakeLog));
+
+    expect(workItemInserts).toHaveLength(1);
+    expect(workItemInserts[0]).toContain("review");
+    expect(sentJobs.map((job) => job.queue)).toContain(REVIEW_QUEUE);
+    expect(sentJobs.find((job) => job.queue === REVIEW_QUEUE)?.options).toMatchObject({
+      singletonKey: "acme/app#7:review",
+    });
   });
 
   it("enqueues a triage work item and ack", async () => {

@@ -11,19 +11,18 @@ import {
   REVIEW_PROGRESS_NOTE,
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
+  REVIEW_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
 import type { WorkSource } from "../reviewSchema.js";
 
 export function renderReviewProgressComment(params: {
-  mode: ReviewMode;
   headSha: string;
   source: WorkSource;
 }): string {
   const sourceLabel =
     params.source === "auto" ? REVIEW_PROGRESS_SOURCE_AUTO : REVIEW_PROGRESS_SOURCE_SLASH;
   return [
-    reviewSummarySentinelForMode(params.mode),
+    REVIEW_SUMMARY_SENTINEL,
     "",
     renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_PROGRESS_NOTE),
     "",
@@ -34,12 +33,9 @@ export function renderReviewProgressComment(params: {
   ].join("\n");
 }
 
-export function renderReviewFailureNotice(params: {
-  mode: ReviewMode;
-  retryCommand: string;
-}): string {
+export function renderReviewFailureNotice(params: { retryCommand: string }): string {
   return [
-    reviewSummarySentinelForMode(params.mode),
+    REVIEW_SUMMARY_SENTINEL,
     "",
     renderGitHubAlert(
       REVIEW_FAILURE_ALERT,

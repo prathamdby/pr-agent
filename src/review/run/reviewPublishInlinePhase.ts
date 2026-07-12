@@ -225,7 +225,7 @@ export async function runInlinePublishPhase(params: {
       });
     }
   } else if (params.shouldLinkToSummary && payload.findings.length === 0) {
-    const body = renderRepeatNoBugsReviewBody(mode, summaryCommentUrl);
+    const body = renderRepeatNoBugsReviewBody(summaryCommentUrl);
     try {
       const review = await withTransientReviewRetry(() =>
         createPullRequestReviewWithComments(token, ctx.owner, ctx.repo, ctx.prNumber, {

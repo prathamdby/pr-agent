@@ -53,7 +53,11 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
   async boot(cfg) {
     return assertCursorWorkerBootInfo(await initCursorWorker(cfg));
   },
-  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool }) {
+  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool, signal }) {
+    signal?.throwIfAborted();
+    const sessionAbortController = new AbortController();
+    const forwardSessionAbort = () => sessionAbortController.abort(signal?.reason);
+    signal?.addEventListener("abort", forwardSessionAbort, { once: true });
     const context: Context = {
       systemPrompt,
       messages: [],
@@ -65,6 +69,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     let savedTools: PiTool[] | null = null;
     let savedExecutors: Record<string, AgentRunnerToolExecutor> | null = null;
     let activeMaxToolRounds: number | undefined;
+    let activeSendSignal: AbortSignal = sessionAbortController.signal;
     const toolRoundCounter = { count: 0 };
     const apiKey = cfg.cursorApiKey?.trim();
     if (!apiKey) {
@@ -75,6 +80,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       tools: () => context.tools ?? [],
       executors: () => activeExecutors,
       refreshBeforeTool,
+      signal: () => activeSendSignal,
       maxToolRounds: () => activeMaxToolRounds,
       toolRoundCounter,
     });
@@ -108,28 +114,41 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
 
     return {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
-        toolRoundCounter.count = 0;
-        syncRunContext(opts?.maxToolRounds ?? activeMaxToolRounds);
-        context.messages.push({
-          role: "user",
-          content: prompt,
-          timestamp: Date.now(),
-        });
-        const { text: sendText, inputChars } = buildCursorSendText(context, {
-          reuseAgentConversation: true,
-        });
-        const assistant = await complete(model, context, {
-          apiKey: cfg.cursorApiKey,
-        });
-        context.messages.push(assistant);
-        return {
-          text: assistantText(assistant),
-          prompt: {
-            inputCharacters: inputChars,
-            inputBytes: Buffer.byteLength(sendText, "utf8"),
-          },
-          usage: estimatedUsageFromTokenCounts(assistant.usage.input, assistant.usage.output),
-        };
+        activeSendSignal = opts?.signal
+          ? AbortSignal.any([sessionAbortController.signal, opts.signal])
+          : sessionAbortController.signal;
+        try {
+          activeSendSignal.throwIfAborted();
+          toolRoundCounter.count = 0;
+          syncRunContext(opts?.maxToolRounds ?? activeMaxToolRounds);
+          context.messages.push({
+            role: "user",
+            content: prompt,
+            timestamp: Date.now(),
+          });
+          const { text: sendText, inputChars } = buildCursorSendText(context, {
+            reuseAgentConversation: true,
+          });
+          const assistant = await complete(model, context, {
+            apiKey: cfg.cursorApiKey,
+            signal: activeSendSignal,
+          });
+          activeSendSignal.throwIfAborted();
+          context.messages.push(assistant);
+          return {
+            text: assistantText(assistant),
+            prompt: {
+              inputCharacters: inputChars,
+              inputBytes: Buffer.byteLength(sendText, "utf8"),
+            },
+            usage: estimatedUsageFromTokenCounts(assistant.usage.input, assistant.usage.output),
+          };
+        } finally {
+          activeSendSignal = sessionAbortController.signal;
+        }
+      },
+      async cancel() {
+        sessionAbortController.abort();
       },
       restrictToTools(nextTools, nextExecutors) {
         savedTools = [...(context.tools ?? [])];
@@ -157,6 +176,8 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       async dispose() {
         if (disposed) return;
         disposed = true;
+        sessionAbortController.abort();
+        signal?.removeEventListener("abort", forwardSessionAbort);
         const disposeAgent = agent[Symbol.asyncDispose];
         await Promise.allSettled([
           typeof disposeAgent === "function"

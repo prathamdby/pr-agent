@@ -54,8 +54,6 @@ docker compose up`}
               <code className="text-neutral-700">
                 {`/review
 /describe
-/review-security
-/review-quality
 /ask Why is this function async?`}
               </code>
             </pre>

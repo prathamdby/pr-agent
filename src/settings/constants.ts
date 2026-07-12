@@ -99,9 +99,6 @@ export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
 export const QUALITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Quality Review";
 export const TESTS_REVIEW_SUMMARY_SENTINEL = "## PR Agent Tests Review";
 export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
-export const LABEL_SECURITY_EFFORT_PREFIX = "Security effort ";
-export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
-export const LABEL_TESTS_EFFORT_PREFIX = "Tests effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
@@ -132,7 +129,8 @@ export const REVIEW_EFFORT_WORDS = [
 ] as const;
 export const REVIEW_OVERVIEW_ALERT = "NOTE";
 export const REVIEW_FAILURE_ALERT = "CAUTION";
-export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
+export const REVIEW_PROGRESS_NOTE =
+  "Reviewing the latest commit from eight independent angles before one synthesized result.";
 export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
 export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
@@ -410,18 +408,14 @@ export const SLASH_HELP_BODY = [
   "- `/help` — show this message",
   "- `/ask <question>` — ask about this PR or a specific line of code",
   "- `/describe` — generate or refresh the PR title/body summary (also runs automatically on PR open)",
-  "- `/review` — general bug-and-correctness review (also runs automatically on PR open; further reviews need a manual `/review`)",
-  "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
-  "- `/review-quality` — deep code-quality review (maintainability; trigger-only, not auto-run)",
-  "- `/review-tests` — draft missing test cases for the PR's changes (trigger-only, not auto-run)",
+  "- `/review` — comprehensive multi-agent review (also runs automatically on PR open; further reviews need a manual `/review`)",
   "- `/triage` — fix earlier PR Agent findings on this PR: commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs). Post on the PR conversation to triage all findings, or reply `/triage` inside a bot inline finding thread to triage that finding only.",
   "",
   "Notes:",
   "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on PR actions listed in `REVIEW_AUTO_ACTIONS` (default `opened` only, so follow-up pushes need a manual `/review`).",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
-  "- `/review`, `/review-security`, `/review-quality`, and `/review-tests` can each leave summary comments on the same PR (different sentinels).",
+  "- `/review` publishes one synthesized review across correctness, security, testing, reliability, contracts, standards, adversarial, and maintainability concerns.",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
-  "- Some security issues may appear in both passes; pick the command that matches your question.",
   "- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");
 
@@ -433,3 +427,15 @@ export const MIGRATION_ADVISORY_LOCK_KEY = 4_785_219;
 
 /** Wall-clock budget (ms) for the /ready Postgres ping. */
 export const HEALTH_DB_PING_TIMEOUT_MS = 2_000;
+/** Maximum model sessions investigating one Review run at the same time. */
+export const REVIEW_AGENT_CONCURRENCY = 4;
+/** Maximum P0/P1 candidates independently validated in one Review run. */
+export const REVIEW_VALIDATION_MAX_CANDIDATES = 16;
+/** Poll interval for cooperative Review cancellation while model turns are in flight. */
+export const REVIEW_CANCELLATION_POLL_MS = 1_000;
+/** Maximum characters sent from reviewer reports into Review synthesis. */
+export const REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS = 80_000;
+/** Lower-severity report detail retained before the overall synthesis budget is applied. */
+export const REVIEW_SYNTHESIS_LOW_SEVERITY_DETAIL_MAX_CHARS = 1_500;
+/** Lower-severity report evidence retained before the overall synthesis budget is applied. */
+export const REVIEW_SYNTHESIS_LOW_SEVERITY_EVIDENCE_MAX_CHARS = 800;

@@ -1,6 +1,5 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import type { ReviewMode } from "../../review/reviewSchema.js";
 import { pgBossDb } from "../../db/postgres.js";
 import {
   ACK_QUEUE,
@@ -65,14 +64,13 @@ export async function enqueueReview(
   client: PoolClient,
   ref: PrRef,
   workItemId: string,
-  lens: ReviewMode,
   correlation: JobCorrelation,
 ): Promise<void> {
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
   const data: ReviewJobData = { kind: "review", workItemId, ...correlation };
   await requireBossJobSend(boss, REVIEW_QUEUE, data, {
     db: pgBossDb(client),
-    singletonKey: reviewSingletonKey(resourceKey, lens),
+    singletonKey: reviewSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
   });
 }

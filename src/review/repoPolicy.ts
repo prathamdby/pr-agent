@@ -10,7 +10,6 @@ import {
   MAX_REPO_POLICY_TONE_CHARS,
   REPO_POLICY_FILENAME,
 } from "../settings/index.js";
-import type { ReviewMode } from "./reviewSchema.js";
 
 const repoPolicySchema = z
   .object({
@@ -26,16 +25,11 @@ const repoPolicySchema = z
       )
       .max(MAX_REPO_POLICY_PATH_INSTRUCTIONS)
       .optional(),
-    lensOverrides: z
-      .record(
-        z.string(),
-        z.object({
-          instructions: z.string().max(MAX_REPO_POLICY_INSTRUCTION_CHARS).optional(),
-        }),
-      )
-      .optional(),
+    instructions: z.string().max(MAX_REPO_POLICY_INSTRUCTION_CHARS).optional(),
+    lensOverrides: z.unknown().optional(),
   })
-  .strict();
+  .strict()
+  .transform(({ lensOverrides: _ignored, ...policy }) => policy);
 
 export type RepoPolicy = z.infer<typeof repoPolicySchema>;
 
@@ -88,6 +82,11 @@ export async function loadRepoPolicy(
     if (!validated.success) {
       return { kind: "invalid", reason: "schema validation failed" };
     }
+    if (Object.hasOwn(parsed, "lensOverrides")) {
+      logWarn("repo_policy_lens_overrides_ignored", {
+        path: policyPath,
+      });
+    }
     return { kind: "ok", policy: validated.data };
   } catch (error) {
     if (
@@ -105,10 +104,9 @@ export async function loadRepoPolicy(
 
 export function renderRepoPolicyBlock(params: {
   policy: RepoPolicy;
-  mode: ReviewMode;
   changedFiles?: readonly string[];
 }): string {
-  const { policy, mode, changedFiles } = params;
+  const { policy, changedFiles } = params;
   const lines = ["Trusted context (repo policy):"];
 
   if (policy.tone) {
@@ -118,9 +116,8 @@ export function renderRepoPolicyBlock(params: {
     lines.push(`- Severity floor: P${policy.severityFloor} and above`);
   }
 
-  const lensInstructions = policy.lensOverrides?.[mode]?.instructions;
-  if (lensInstructions) {
-    lines.push(`- Lens instructions: ${sanitizeRenderedPolicyText(lensInstructions)}`);
+  if (policy.instructions) {
+    lines.push(`- Review instructions: ${sanitizeRenderedPolicyText(policy.instructions)}`);
   }
 
   const pathEntries = policy.pathInstructions ?? [];

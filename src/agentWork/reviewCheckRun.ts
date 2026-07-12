@@ -67,19 +67,8 @@ function logCheckRunWarning(
   });
 }
 
-export function reviewCheckRunName(mode: ReviewMode): string {
-  switch (mode) {
-    case "review-security":
-      return "PR Agent Security Review";
-    case "review-quality":
-      return "PR Agent Quality Review";
-    case "review-tests":
-      return "PR Agent Tests Review";
-    case "review":
-      return "PR Agent Review";
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
+export function reviewCheckRunName(): string {
+  return "PR Agent Review";
 }
 
 export function reviewCheckDetailsUrl(
@@ -111,7 +100,7 @@ export async function ensureReviewCheckRunStarted(
   const existing = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (existing != null) return existing;
 
-  const name = reviewCheckRunName(params.reviewLens);
+  const name = reviewCheckRunName();
   let reserved = await reserveReviewCheckRun(pool, {
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
@@ -295,7 +284,7 @@ export async function completeReviewCheckRun(
   if (checkRunId == null) return false;
 
   const completedAt = new Date().toISOString();
-  const name = reviewCheckRunName(params.reviewLens);
+  const name = reviewCheckRunName();
   try {
     await updateReviewCheckRun(
       params.token,

@@ -8,13 +8,13 @@ import { prepareReviewPayloadForPublish } from "../findings/findingPipeline.js";
 import {
   PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
   REVIEW_DIFF_CACHE_REQUIRED_MESSAGE,
+  REVIEW_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
 import { recordReviewMetric } from "../run/reviewRunMetrics.js";
 import {
   coerceReviewPayloadInput,
   createReviewPayloadSchema,
   formatReviewValidationError,
-  reviewSummarySentinelForMode,
   type ReviewMode,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
@@ -76,7 +76,7 @@ export function buildSubmitReviewTool(params: {
 } {
   const mode = params.mode ?? "review";
 
-  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const piTool: PiTool = {
     name: "submitReview",
     description: [
@@ -153,7 +153,6 @@ export function buildSubmitReviewTool(params: {
 
     const prepared = prepareReviewPayloadForPublish({
       payload: parsed.data,
-      mode,
       reviewMinConfidence: params.cfg.reviewMinConfidence,
       severityFloor: params.severityFloor,
       cachedDiffIndex: params.cachedDiffIndex,

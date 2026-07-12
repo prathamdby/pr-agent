@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0022](0022-unified-multi-agent-review.md). Retained as history of the removed quality review lens.
 
 ## Context
 

@@ -110,7 +110,7 @@ describe("reviewPriorFeedback", () => {
       },
     } as never);
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual(["False positive — already handled upstream"]);
@@ -171,7 +171,7 @@ describe("reviewPriorFeedback", () => {
       },
     } as never);
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual([
@@ -179,4 +179,50 @@ describe("reviewPriorFeedback", () => {
       "The helper already awaits it",
     ]);
   });
+
+  it.each([SECURITY_REVIEW_POINTER_BODY, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY])(
+    "includes dismissed findings from historical review pointers",
+    async (pointerBody) => {
+      const botUserId = 1;
+      const reviewId = 100;
+      vi.mocked(installationOctokit).mockReturnValue({
+        rest: {
+          pulls: {
+            listReviews: vi.fn(async () => ({
+              data: [{ id: reviewId, user: { id: botUserId }, body: pointerBody }],
+            })),
+            listReviewComments: vi.fn(async () => ({
+              data: [
+                {
+                  id: 10,
+                  in_reply_to_id: null,
+                  pull_request_review_id: reviewId,
+                  user: { id: botUserId },
+                  body: "**P1** · **Historical finding**",
+                  path: "src/a.ts",
+                  line: 4,
+                  html_url: "https://github.com/o/r/pull/1#discussion_r10",
+                },
+                {
+                  id: 11,
+                  in_reply_to_id: 10,
+                  pull_request_review_id: null,
+                  user: { id: 2 },
+                  body: "Dismissed: false positive",
+                  path: "src/a.ts",
+                  line: 4,
+                  html_url: "https://github.com/o/r/pull/1#discussion_r11",
+                },
+              ],
+            })),
+          },
+        },
+      } as never);
+
+      const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
+
+      expect(threads).toHaveLength(1);
+      expect(threads[0]?.humanReplies).toEqual(["Dismissed: false positive"]);
+    },
+  );
 });

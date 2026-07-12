@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { renderPolicySuggestionForDismissed } from "../src/review/repoPolicy.js";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it, vi } from "vitest";
+import * as evlog from "../src/evlog.js";
+import { loadRepoPolicy, renderPolicySuggestionForDismissed } from "../src/review/repoPolicy.js";
 
 describe("renderPolicySuggestionForDismissed", () => {
   it("renders a paste-ready yaml snippet with file path and dismissal evidence", () => {
@@ -41,5 +45,40 @@ describe("renderPolicySuggestionForDismissed", () => {
     // The yaml block should still be well-formed
     expect(result).toContain("```yaml");
     expect(result).toContain("```");
+  });
+});
+
+describe("loadRepoPolicy", () => {
+  it("soft-ignores deprecated lensOverrides while preserving unified policy", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "repo-policy-"));
+    const warn = vi.spyOn(evlog, "logWarn");
+    try {
+      await writeFile(
+        join(dir, ".pr-agent.yml"),
+        [
+          "version: 1",
+          "tone: Be direct",
+          "severityFloor: 2",
+          "lensOverrides:",
+          "  review-security:",
+          "    tone: Be alarmist",
+        ].join("\n"),
+      );
+
+      await expect(loadRepoPolicy(dir, 32_768)).resolves.toEqual({
+        kind: "ok",
+        policy: {
+          version: 1,
+          tone: "Be direct",
+          severityFloor: 2,
+        },
+      });
+      expect(warn).toHaveBeenCalledWith("repo_policy_lens_overrides_ignored", {
+        path: join(dir, ".pr-agent.yml"),
+      });
+    } finally {
+      warn.mockRestore();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

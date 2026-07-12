@@ -85,7 +85,6 @@ async function applyPlannedAutomatedPullRequestIntake(
     const reviewTarget: AutoWorkSupersedeTarget = {
       kind: "review",
       resourceKey,
-      lens: AUTOMATED_REVIEW_LENS,
     };
     const { workItemId, supersededIds: reviewSuperseded } = await replaceAutoWorkItem({
       client,
@@ -105,7 +104,7 @@ async function applyPlannedAutomatedPullRequestIntake(
       release: () =>
         releaseSingletonSlot(boss, {
           queue: REVIEW_QUEUE,
-          singletonKey: reviewSingletonKey(resourceKey, AUTOMATED_REVIEW_LENS),
+          singletonKey: reviewSingletonKey(resourceKey),
           db: slotDb,
         }),
     });
@@ -126,7 +125,7 @@ async function applyPlannedAutomatedPullRequestIntake(
       ...correlation,
     };
     await enqueueAck(boss, client, ackData);
-    await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation);
+    await enqueueReview(boss, client, ref, workItemId, correlation);
     recordEvent(intakeLog, "agent_work_enqueued", {
       type: "review",
       source: "auto",

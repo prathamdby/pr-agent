@@ -1,13 +1,10 @@
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../../settings/index.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
-import {
-  reviewRetrySlashCommandForMode,
-  reviewSummarySentinelForMode,
-  type ReviewMode,
-} from "../reviewSchema.js";
+import type { ReviewMode } from "../reviewSchema.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;
@@ -24,18 +21,16 @@ export async function publishReviewRunFailureNotice(params: {
     publishCallCount: params.setup.submitState.publishCallCount,
     maxPublishCalls: params.cfg.maxReviewPublishCalls,
   });
-  const retryCommand = reviewRetrySlashCommandForMode(params.reviewMode);
   const token = params.setup.getToken();
   const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
-  const sentinel = reviewSummarySentinelForMode(params.reviewMode);
   try {
     await upsertReviewSummaryComment(
       token,
       params.owner,
       params.repo,
       params.prNumber,
-      renderReviewFailureNotice({ mode: params.reviewMode, retryCommand }),
-      sentinel,
+      renderReviewFailureNotice({ retryCommand: "/review" }),
+      REVIEW_SUMMARY_SENTINEL,
       undefined,
       tokenExpiresAtTs,
     );

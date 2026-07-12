@@ -11,12 +11,27 @@ import { PROSE_ONLY_NUDGE } from "../src/settings/index.js";
 import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE } from "../src/review/reviewSchema.js";
 
 const sendMock = vi.fn(async (_message: string) => ({ text: "done" }));
-const createSessionMock = vi.fn(async (_params: unknown) => ({
-  send: sendMock,
-  restrictToTools: vi.fn(),
-  restoreTools: vi.fn(),
-  dispose: vi.fn(async () => undefined),
-}));
+const createSessionMock = vi.fn(
+  async (params: {
+    executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  }) => ({
+    send: params.executors.submitReviewerReport
+      ? async () => {
+          await params.executors.submitReviewerReport?.({
+            coverage: "changed code",
+            findings: [],
+            residualRisks: [],
+            testingGaps: [],
+          });
+          return { text: "done" };
+        }
+      : sendMock,
+    restrictToTools: vi.fn(),
+    restoreTools: vi.fn(),
+    cancel: vi.fn(async () => undefined),
+    dispose: vi.fn(async () => undefined),
+  }),
+);
 
 const nonEmptyDiffIndex = () => ({
   files: new Map([
@@ -68,8 +83,8 @@ vi.mock("../src/review/run/reviewRunSetup.js", async (importOriginal) => {
     buildReviewRunSetup: vi.fn((params) => ({
       systemPrompt: "system",
       userContent: "investigate",
-      piTools: [],
-      executors: {},
+      piTools: [{ name: "submitReview", description: "submit", parameters: {} }],
+      executors: { submitReview: vi.fn(async () => ({ ok: true })) },
       cachedDiffIndex,
       submitState,
       getToken: () => params.token,
@@ -123,9 +138,10 @@ describe("runFullPrReview harness behavior", () => {
   it("bundles the anchor menu into the first pre-submit send", async () => {
     await runHarness();
 
-    expect(createSessionMock).toHaveBeenCalledTimes(1);
+    expect(createSessionMock).toHaveBeenCalledTimes(9);
     expect(sendMock).toHaveBeenCalledTimes(3);
-    expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
+    expect(sendMock.mock.calls[0]?.[0]).toContain("investigate");
+    expect(sendMock.mock.calls[0]?.[0]).toContain('<reviewer_reports untrusted="true">');
     expect(sendMock.mock.calls[1]?.[0]).toContain("commentable RIGHT-side line ranges");
     expect(sendMock.mock.calls[1]?.[0]).toContain("submitReview");
     expect(sendMock.mock.calls[2]?.[0]).toBe(PRE_SUBMIT_REMINDER);
@@ -135,7 +151,7 @@ describe("runFullPrReview harness behavior", () => {
     await runHarness({ reviewInjectAnchorMenu: false });
 
     expect(sendMock).toHaveBeenCalledTimes(3);
-    expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
+    expect(sendMock.mock.calls[0]?.[0]).toContain("investigate");
     expect(sendMock.mock.calls[1]?.[0]).toBe(
       [PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE].join("\n\n"),
     );
@@ -148,7 +164,7 @@ describe("runFullPrReview harness behavior", () => {
     await runHarness();
 
     expect(sendMock).toHaveBeenCalledTimes(3);
-    expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
+    expect(sendMock.mock.calls[0]?.[0]).toContain("investigate");
     expect(sendMock.mock.calls[1]?.[0]).toBe(
       [PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE].join("\n\n"),
     );
@@ -164,7 +180,7 @@ describe("runFullPrReview harness behavior", () => {
     await runHarness();
 
     expect(sendMock).toHaveBeenCalledTimes(1);
-    expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
+    expect(sendMock.mock.calls[0]?.[0]).toContain("investigate");
   });
 
   it("includes the minimal example only on the first validation repair round", async () => {

@@ -302,10 +302,10 @@ export async function fetchActiveWorkItem(
     `SELECT id
 		   FROM agent_work_items
 		  WHERE resource_key = $1
-		    AND review_lens = $2
+		    AND type = 'review'
 		    AND status IN ('queued', 'running')
 		  LIMIT 1`,
-    [target.resourceKey, target.lens],
+    [target.resourceKey],
   );
   return result.rows[0]?.id ?? null;
 }

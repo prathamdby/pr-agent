@@ -6,6 +6,7 @@ import {
   type StructuredAgentPhase,
 } from "../../agentRun/structuredAgentLoop.js";
 import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
+import type { AgentRunnerSession } from "../../agent/providers/interface.js";
 import { renderAnchorMenuBlock } from "../placement/reviewDiffIndex.js";
 import {
   PRE_SUBMIT_REMINDER,
@@ -18,6 +19,7 @@ import {
   PROSE_ONLY_NUDGE,
   PUBLISH_RECOVERY_PROMPTS,
   PUBLISH_RECOVERY_ROUNDS,
+  REVIEW_CANCELLATION_POLL_MS,
   TOKEN_FRESHNESS_BUFFER_MS,
   VALIDATION_REPAIR_ROUNDS,
   type ReviewPhase,
@@ -37,6 +39,11 @@ import {
   shouldContinueReviewRun,
 } from "./reviewRunSetup.js";
 import { sendReviewAgentTurn } from "./reviewRunAgentSend.js";
+import {
+  buildSynthesisContext,
+  runReviewerEnsemble,
+  validateHighRiskFindings,
+} from "./reviewEnsemble.js";
 
 export type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
 
@@ -63,132 +70,273 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
 
   const setup = buildReviewRunSetup({ ...params, tokenTtlMs, reviewMode });
   const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
-    cfg,
-    cwd: params.cwd,
-    systemPrompt: setup.systemPrompt,
-    tools: setup.piTools,
-    executors: setup.executors,
-    refreshBeforeTool: setup.refreshBeforeTool,
-  });
-
+  const submitTool = setup.piTools.find((tool) => tool.name === "submitReview");
+  const readOnlyTools = setup.piTools.filter((tool) => tool.name !== "submitReview");
+  const { submitReview: _submitReview, ...readOnlyExecutors } = setup.executors;
+  if (!submitTool || !_submitReview) {
+    throw new Error("Review orchestrator requires submitReview");
+  }
+  const abortController = new AbortController();
+  let session: AgentRunnerSession | undefined;
   let lastText = "";
   let publishAttempts = 0;
   let hasSentMinimalExample = false;
+  let abortCheck: Promise<boolean> | undefined;
+  let cancellationWatcher: Promise<void> | undefined;
+  let cancelCancellationDelay: (() => void) | undefined;
 
-  const minimalExampleBlock = () =>
-    `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`;
-
-  const takeMinimalExampleBlock = (): string | null => {
-    if (hasSentMinimalExample) return null;
-    hasSentMinimalExample = true;
-    return minimalExampleBlock();
-  };
-
-  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(
-      session,
-      buildSubmitOnlyReviewSessionTools(setup),
-      prompt,
-      sendReviewAgentTurn,
-    );
-
-  const runValidationRepair = async () => {
-    await runValidationRepairLoop({
-      rounds: VALIDATION_REPAIR_ROUNDS,
-      shouldContinue: () => shouldContinueReviewRun(setup),
-      getValidationError: () => setup.submitState.lastValidationError,
-      clearValidationError: () => {
-        setup.submitState.lastValidationError = null;
-      },
-      repair: async (validationError) => {
-        const exampleBlock = takeMinimalExampleBlock();
-        const repairSuffix = exampleBlock
-          ? VALIDATION_REPAIR_ROUND0_SUFFIX
-          : VALIDATION_REPAIR_REMINDER;
-        lastText = await sendSubmitOnlyRepair(
-          [validationError, repairSuffix, exampleBlock].filter(Boolean).join("\n\n"),
-        );
-      },
+  const finish = (): ReviewRunResult => {
+    setReviewRunMetricFields({
+      published: setup.submitState.published,
+      publishAttempts,
     });
+    logReviewRunCompleted();
+    return {
+      lastAssistant: assistantFromText(cfg, lastText, providerName),
+      published: setup.submitState.published,
+      publishAttempts,
+      publishSuperseded: setup.submitState.publishSuperseded,
+    };
   };
 
-  const runInvestigationPhase = async () => {
-    const investigationOpts = { maxToolRounds: cfg.maxToolRounds };
-    lastText = (await sendReviewAgentTurn(session, setup.userContent, investigationOpts)).text;
-    if (!shouldContinueReviewRun(setup)) return;
+  const abortIfRequested = async (activeSession?: AgentRunnerSession): Promise<boolean> => {
+    if (abortController.signal.aborted) return true;
+    if (!params.shouldAbortPublish) return false;
+    abortCheck ??= (async () => {
+      try {
+        return (await params.shouldAbortPublish?.()) ?? false;
+      } catch (error) {
+        logWarn("review_abort_check_failed", {
+          mode: reviewMode,
+          owner,
+          repo,
+          pr: prNumber,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        return true;
+      }
+    })().finally(() => {
+      abortCheck = undefined;
+    });
+    if (!(await abortCheck)) return false;
 
-    let anchorMenuBlock: string | undefined;
-    if (
-      cfg.reviewInjectAnchorMenu &&
-      setup.cachedDiffIndex.files.size > 0 &&
-      shouldContinueReviewRun(setup)
-    ) {
-      anchorMenuBlock = renderAnchorMenuBlock(setup.cachedDiffIndex, {
-        maxFiles: cfg.reviewAnchorMenuMaxFiles,
-        maxRangesPerFile: cfg.reviewAnchorMenuMaxRangesPerFile,
+    setup.submitState.publishSuperseded = true;
+    abortController.abort();
+    try {
+      await activeSession?.cancel();
+    } catch (error) {
+      logWarn("review_session_cancel_failed", {
+        mode: reviewMode,
+        owner,
+        repo,
+        pr: prNumber,
+        message: error instanceof Error ? error.message : String(error),
       });
     }
-
-    if (shouldContinueReviewRun(setup)) {
-      recordReviewMetric({ kind: "prose_only", phase: "pre_submit" });
-      for (let round = 0; round < 2 && shouldContinueReviewRun(setup); round++) {
-        const prompt =
-          round === 0
-            ? [anchorMenuBlock, PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE]
-                .filter(Boolean)
-                .join("\n\n")
-            : PRE_SUBMIT_REMINDER;
-        lastText = await sendSubmitOnlyRepair(prompt);
-        if (!shouldContinueReviewRun(setup)) break;
-      }
-    }
-
-    if (shouldContinueReviewRun(setup)) {
-      recordReviewMetric({ kind: "phase_enter", phase: "validation_repair" });
-      await runValidationRepair();
-    }
+    return true;
   };
 
-  const runPublishRecoveryPhase = async (attemptIndex: number) => {
-    if (!shouldContinueReviewRun(setup)) return;
-    const prompt =
-      PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
-      PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
-    const isLastAttempt = attemptIndex >= cfg.maxReviewPublishAttempts - 1;
-    logInfo("review_publish_retry", {
-      mode: reviewMode,
-      attempt: attemptIndex + 1,
-      maxAttempts: cfg.maxReviewPublishAttempts,
-      submitOnly: isLastAttempt,
-      owner,
-      repo,
-      pr: prNumber,
+  const waitForCancellationPoll = (): Promise<void> =>
+    new Promise((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout>;
+      const finishDelay = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        abortController.signal.removeEventListener("abort", finishDelay);
+        cancelCancellationDelay = undefined;
+        resolve();
+      };
+      timer = setTimeout(finishDelay, REVIEW_CANCELLATION_POLL_MS);
+      abortController.signal.addEventListener("abort", finishDelay, { once: true });
+      cancelCancellationDelay = finishDelay;
     });
-    if (isLastAttempt) {
-      const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
-      session.restrictToTools(submitOnly.piTools, submitOnly.executors);
-    }
-    for (
-      let round = 0;
-      round < PUBLISH_RECOVERY_ROUNDS && shouldContinueReviewRun(setup);
-      round++
-    ) {
-      const exampleBlock = takeMinimalExampleBlock();
-      const recoverySuffix = exampleBlock ?? PUBLISH_RECOVERY_COMPACT_REMINDER;
-      lastText = (await sendReviewAgentTurn(session, [prompt, recoverySuffix].join("\n\n"))).text;
-      if (!shouldContinueReviewRun(setup)) break;
-    }
-    if (shouldContinueReviewRun(setup)) {
-      recordReviewMetric({ kind: "phase_enter", phase: "validation_repair" });
-      await runValidationRepair();
-    }
-    if (isLastAttempt) {
-      session.restoreTools();
-    }
+
+  const startCancellationWatcher = (): void => {
+    if (!params.shouldAbortPublish) return;
+    cancellationWatcher = (async () => {
+      while (!abortController.signal.aborted) {
+        await waitForCancellationPoll();
+        if (abortController.signal.aborted) return;
+        if (await abortIfRequested(session)) return;
+      }
+    })();
   };
 
   try {
+    if (await abortIfRequested()) return finish();
+    startCancellationWatcher();
+    const ensemble = await runReviewerEnsemble({
+      cfg,
+      runner,
+      cwd: params.cwd,
+      userContent: setup.userContent,
+      readOnlyTools,
+      readOnlyExecutors,
+      refreshBeforeTool: setup.refreshBeforeTool,
+      signal: abortController.signal,
+    });
+    if (await abortIfRequested()) return finish();
+    if (ensemble.failed.includes("correctness") || ensemble.failed.includes("security")) {
+      throw new Error("Required review coverage did not complete");
+    }
+    const validation = await validateHighRiskFindings({
+      cfg,
+      runner,
+      cwd: params.cwd,
+      reports: ensemble.reports,
+      readOnlyTools,
+      readOnlyExecutors,
+      refreshBeforeTool: setup.refreshBeforeTool,
+      signal: abortController.signal,
+    });
+    if (await abortIfRequested()) return finish();
+    const synthesisInput = {
+      ...ensemble,
+      reports: validation.reports,
+      validationTruncatedCandidates: validation.truncatedCandidates,
+    };
+    const orchestratorSession = await runner.createSession({
+      cfg,
+      cwd: params.cwd,
+      signal: abortController.signal,
+      systemPrompt: setup.systemPrompt,
+      tools: setup.piTools,
+      executors: setup.executors,
+      refreshBeforeTool: setup.refreshBeforeTool,
+    });
+    session = orchestratorSession;
+    if (await abortIfRequested(orchestratorSession)) return finish();
+
+    const minimalExampleBlock = () =>
+      `Minimal valid example:\n${JSON.stringify(REVIEW_PAYLOAD_MINIMAL_EXAMPLE, null, 2)}`;
+
+    const takeMinimalExampleBlock = (): string | null => {
+      if (hasSentMinimalExample) return null;
+      hasSentMinimalExample = true;
+      return minimalExampleBlock();
+    };
+
+    const sendSubmitOnlyRepair = async (prompt: string): Promise<string> => {
+      if (await abortIfRequested(orchestratorSession)) return "";
+      const text = await runSubmitOnlyRound(
+        orchestratorSession,
+        buildSubmitOnlyReviewSessionTools(setup),
+        prompt,
+        sendReviewAgentTurn,
+      );
+      await abortIfRequested(orchestratorSession);
+      return text;
+    };
+
+    const runValidationRepair = async () => {
+      await runValidationRepairLoop({
+        rounds: VALIDATION_REPAIR_ROUNDS,
+        shouldContinue: () => shouldContinueReviewRun(setup),
+        getValidationError: () => setup.submitState.lastValidationError,
+        clearValidationError: () => {
+          setup.submitState.lastValidationError = null;
+        },
+        repair: async (validationError) => {
+          const exampleBlock = takeMinimalExampleBlock();
+          const repairSuffix = exampleBlock
+            ? VALIDATION_REPAIR_ROUND0_SUFFIX
+            : VALIDATION_REPAIR_REMINDER;
+          lastText = await sendSubmitOnlyRepair(
+            [validationError, repairSuffix, exampleBlock].filter(Boolean).join("\n\n"),
+          );
+        },
+      });
+    };
+
+    const runInvestigationPhase = async () => {
+      if (await abortIfRequested(orchestratorSession)) return;
+      const investigationOpts = { maxToolRounds: cfg.maxToolRounds };
+      lastText = (
+        await sendReviewAgentTurn(
+          orchestratorSession,
+          [setup.userContent, buildSynthesisContext(synthesisInput)].join("\n\n"),
+          investigationOpts,
+        )
+      ).text;
+      await abortIfRequested(orchestratorSession);
+      if (!shouldContinueReviewRun(setup)) return;
+
+      let anchorMenuBlock: string | undefined;
+      if (
+        cfg.reviewInjectAnchorMenu &&
+        setup.cachedDiffIndex.files.size > 0 &&
+        shouldContinueReviewRun(setup)
+      ) {
+        anchorMenuBlock = renderAnchorMenuBlock(setup.cachedDiffIndex, {
+          maxFiles: cfg.reviewAnchorMenuMaxFiles,
+          maxRangesPerFile: cfg.reviewAnchorMenuMaxRangesPerFile,
+        });
+      }
+
+      if (shouldContinueReviewRun(setup)) {
+        recordReviewMetric({ kind: "prose_only", phase: "pre_submit" });
+        for (let round = 0; round < 2 && shouldContinueReviewRun(setup); round++) {
+          const prompt =
+            round === 0
+              ? [anchorMenuBlock, PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE]
+                  .filter(Boolean)
+                  .join("\n\n")
+              : PRE_SUBMIT_REMINDER;
+          lastText = await sendSubmitOnlyRepair(prompt);
+          if (!shouldContinueReviewRun(setup)) break;
+        }
+      }
+
+      if (shouldContinueReviewRun(setup)) {
+        recordReviewMetric({ kind: "phase_enter", phase: "validation_repair" });
+        await runValidationRepair();
+      }
+    };
+
+    const runPublishRecoveryPhase = async (attemptIndex: number) => {
+      if (!shouldContinueReviewRun(setup)) return;
+      const prompt =
+        PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
+        PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
+      const isLastAttempt = attemptIndex >= cfg.maxReviewPublishAttempts - 1;
+      logInfo("review_publish_retry", {
+        mode: reviewMode,
+        attempt: attemptIndex + 1,
+        maxAttempts: cfg.maxReviewPublishAttempts,
+        submitOnly: isLastAttempt,
+        owner,
+        repo,
+        pr: prNumber,
+      });
+      if (isLastAttempt) {
+        const submitOnly = buildSubmitOnlyReviewSessionTools(setup);
+        orchestratorSession.restrictToTools(submitOnly.piTools, submitOnly.executors);
+      }
+      for (
+        let round = 0;
+        round < PUBLISH_RECOVERY_ROUNDS && shouldContinueReviewRun(setup);
+        round++
+      ) {
+        const exampleBlock = takeMinimalExampleBlock();
+        const recoverySuffix = exampleBlock ?? PUBLISH_RECOVERY_COMPACT_REMINDER;
+        if (await abortIfRequested(orchestratorSession)) break;
+        lastText = (
+          await sendReviewAgentTurn(orchestratorSession, [prompt, recoverySuffix].join("\n\n"))
+        ).text;
+        await abortIfRequested(orchestratorSession);
+        if (!shouldContinueReviewRun(setup)) break;
+      }
+      if (shouldContinueReviewRun(setup)) {
+        recordReviewMetric({ kind: "phase_enter", phase: "validation_repair" });
+        await runValidationRepair();
+      }
+      if (isLastAttempt) {
+        orchestratorSession.restoreTools();
+      }
+    };
+
     const phases: StructuredAgentPhase<ReviewPhase>[] =
       cfg.maxReviewPublishAttempts > 0
         ? [
@@ -242,20 +390,11 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
         });
       }
     }
+    return finish();
   } finally {
-    await session.dispose();
+    abortController.abort();
+    cancelCancellationDelay?.();
+    await cancellationWatcher;
+    await session?.dispose();
   }
-
-  setReviewRunMetricFields({
-    published: setup.submitState.published,
-    publishAttempts,
-  });
-  logReviewRunCompleted();
-
-  return {
-    lastAssistant: assistantFromText(cfg, lastText, providerName),
-    published: setup.submitState.published,
-    publishAttempts,
-    publishSuperseded: setup.submitState.publishSuperseded,
-  };
 }
