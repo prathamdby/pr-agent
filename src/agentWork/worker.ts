@@ -190,7 +190,8 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             TRIAGE_QUEUE,
             VERIFICATION_QUEUE,
           ]) {
-            const stats = await boss.getQueueStats(queue);
+            const stats = await boss.getQueue(queue);
+            if (!stats) continue;
             logDebug("agent_queue_stats", {
               queue,
               queued: stats.queuedCount,
