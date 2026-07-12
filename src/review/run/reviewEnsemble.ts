@@ -5,11 +5,9 @@ import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import type { Config } from "../../config.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import {
-  REVIEW_AGENT_CONCURRENCY,
   REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS,
   REVIEW_SYNTHESIS_LOW_SEVERITY_DETAIL_MAX_CHARS,
   REVIEW_SYNTHESIS_LOW_SEVERITY_EVIDENCE_MAX_CHARS,
-  REVIEW_VALIDATION_MAX_CANDIDATES,
 } from "../../settings/index.js";
 import {
   buildReviewerSystemPrompt,
@@ -117,7 +115,7 @@ async function runReviewer(params: {
       session,
       params.userContent,
       {
-        maxToolRounds: params.cfg.maxToolRounds,
+        maxToolRounds: params.cfg.maxToolRoundsReviewer,
         signal: params.signal,
       },
       sessionRole,
@@ -146,7 +144,7 @@ export async function runReviewerEnsemble(params: {
   const queue = [...REVIEWER_IDS];
   const concurrency = Math.max(
     1,
-    Math.min(params.concurrency ?? REVIEW_AGENT_CONCURRENCY, REVIEWER_IDS.length),
+    Math.min(params.concurrency ?? params.cfg.reviewAgentConcurrency, REVIEWER_IDS.length),
   );
   const workers = Array.from({ length: concurrency }, async () => {
     while (queue.length > 0 && !params.signal?.aborted) {
@@ -213,13 +211,19 @@ export async function validateHighRiskFindings(params: {
         : [],
     ),
   );
-  const maxCandidates = Math.max(0, params.maxCandidates ?? REVIEW_VALIDATION_MAX_CANDIDATES);
+  const maxCandidates = Math.max(
+    0,
+    params.maxCandidates ?? params.cfg.reviewValidationMaxCandidates,
+  );
   const queue = candidates.slice(0, maxCandidates);
   const truncatedCandidates = candidates.length - queue.length;
   const dropped = new Set<string>();
   const concurrency = Math.max(
     1,
-    Math.min(params.concurrency ?? REVIEW_AGENT_CONCURRENCY, Math.max(1, queue.length)),
+    Math.min(
+      params.concurrency ?? params.cfg.reviewAgentConcurrency,
+      Math.max(1, queue.length),
+    ),
   );
   const validationTool: PiTool = {
     name: "submitValidation",
@@ -255,7 +259,7 @@ export async function validateHighRiskFindings(params: {
           session,
           buildValidatorUserContent(candidate.finding),
           {
-            maxToolRounds: params.cfg.maxToolRounds,
+            maxToolRounds: params.cfg.maxToolRoundsValidator,
             signal: params.signal,
           },
           "validator",

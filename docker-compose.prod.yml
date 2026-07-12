@@ -27,5 +27,3 @@ services:
   pr-agent-worker:
     environment:
       DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
-    healthcheck:
-      disable: true
