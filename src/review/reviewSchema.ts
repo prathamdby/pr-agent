@@ -12,7 +12,6 @@ import {
   REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
-  REVIEW_SUMMARY_SENTINEL,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
