@@ -44,6 +44,7 @@ import {
   runReviewerEnsemble,
   validateHighRiskFindings,
 } from "./reviewEnsemble.js";
+import { createReviewToolCallRecorder } from "./reviewToolCallRecorder.js";
 
 export type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
 
@@ -171,7 +172,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       cfg,
       runner,
       cwd: params.cwd,
-      userContent: setup.userContent,
+      userContent: setup.reviewerUserContent,
       readOnlyTools,
       readOnlyExecutors,
       refreshBeforeTool: setup.refreshBeforeTool,
@@ -179,6 +180,14 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
     });
     if (await abortIfRequested()) return finish();
     if (ensemble.failed.includes("correctness") || ensemble.failed.includes("security")) {
+      const failedRequired = ensemble.failed.filter(
+        (id) => id === "correctness" || id === "security",
+      );
+      logWarn("required_review_coverage_failed", {
+        failed_reviewer_ids: ensemble.failed,
+        failed_required_reviewer_ids: failedRequired,
+        session_roles: failedRequired.map((id) => `reviewer:${id}`),
+      });
       throw new Error("Required review coverage did not complete");
     }
     const validation = await validateHighRiskFindings({
@@ -205,6 +214,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       tools: setup.piTools,
       executors: setup.executors,
       refreshBeforeTool: setup.refreshBeforeTool,
+      onToolCallMetric: createReviewToolCallRecorder("orchestrator"),
     });
     session = orchestratorSession;
     if (await abortIfRequested(orchestratorSession)) return finish();

@@ -53,7 +53,16 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
   async boot(cfg) {
     return assertCursorWorkerBootInfo(await initCursorWorker(cfg));
   },
-  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool, signal }) {
+  async createSession({
+    cfg,
+    cwd,
+    systemPrompt,
+    tools,
+    executors,
+    refreshBeforeTool,
+    signal,
+    onToolCallMetric,
+  }) {
     signal?.throwIfAborted();
     const sessionAbortController = new AbortController();
     const forwardSessionAbort = () => sessionAbortController.abort(signal?.reason);
@@ -83,6 +92,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       signal: () => activeSendSignal,
       maxToolRounds: () => activeMaxToolRounds,
       toolRoundCounter,
+      onToolCallMetric,
     });
     const agent = await Agent.create({
       apiKey,

@@ -1,5 +1,11 @@
 import { logInfo, tryUseLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
+import {
+  emptySessionRoleTotals,
+  type ReviewEnsembleStageMetrics,
+  type ReviewSessionRole,
+  type ReviewSessionRoleTotals,
+} from "./reviewSessionRole.js";
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }
@@ -15,9 +21,11 @@ export type ReviewMetricEvent =
       readonly durationMs?: number;
       readonly resultBytes?: number;
       readonly resultCharacters?: number;
+      readonly sessionRole?: ReviewSessionRole;
     }
   | {
       readonly kind: "model_turn";
+      readonly sessionRole?: ReviewSessionRole;
       readonly usage?: {
         readonly estimated: boolean;
         readonly inputTokens?: number;
@@ -51,6 +59,21 @@ export type ReviewMetricEvent =
       readonly kind: "published";
       readonly findingsCount: number;
       readonly severities: readonly string[];
+    }
+  | {
+      readonly kind: "ensemble_completed";
+      readonly completedReviewerIds: readonly string[];
+      readonly failedReviewerIds: readonly string[];
+      readonly candidateFindings: number;
+      readonly durationMs: number;
+      readonly degraded: boolean;
+    }
+  | {
+      readonly kind: "validation_stage_completed";
+      readonly candidateCount: number;
+      readonly truncatedCandidates: number;
+      readonly droppedCount: number;
+      readonly durationMs: number;
     };
 
 export type ReviewRunMetricsSnapshot = {
@@ -89,7 +112,22 @@ export type ReviewRunMetricsSnapshot = {
   readonly findingsCount: number;
   readonly severities: readonly string[];
   readonly wallClockMs: number;
+  readonly bySessionRole: Readonly<Record<string, ReviewSessionRoleTotals>>;
+  readonly ensemble?: ReviewEnsembleStageMetrics;
   readonly lightweight?: boolean;
+};
+
+type MutableSessionRoleTotals = {
+  modelTurnCount: number;
+  toolCallCount: number;
+  toolCallErrors: number;
+  toolCallDurationMs: number;
+  promptBytes: number;
+  promptCharacters: number;
+  estimatedInputTokens: number;
+  estimatedOutputTokens: number;
+  providerInputTokens: number;
+  providerOutputTokens: number;
 };
 
 type MutableReviewRunMetrics = {
@@ -127,6 +165,8 @@ type MutableReviewRunMetrics = {
   estimatedTurnCount: number;
   findingsCount: number;
   severities: string[];
+  bySessionRole: Record<string, MutableSessionRoleTotals>;
+  ensemble?: ReviewEnsembleStageMetrics;
   lightweight?: boolean;
 };
 
@@ -170,6 +210,7 @@ function createEmptyMetrics(meta: {
     estimatedTurnCount: 0,
     findingsCount: 0,
     severities: [],
+    bySessionRole: {},
   };
 }
 
@@ -199,19 +240,40 @@ function addKnownCacheTotal(current: number | null, delta: number | undefined): 
   return current + delta;
 }
 
+function roleBucket(
+  metrics: MutableReviewRunMetrics,
+  sessionRole: ReviewSessionRole | undefined,
+): MutableSessionRoleTotals | null {
+  if (!sessionRole) return null;
+  const existing = metrics.bySessionRole[sessionRole];
+  if (existing) return existing;
+  const created = { ...emptySessionRoleTotals() };
+  metrics.bySessionRole[sessionRole] = created;
+  return created;
+}
+
 function recordModelTurnUsage(
   metrics: MutableReviewRunMetrics,
   usage: NonNullable<Extract<ReviewMetricEvent, { kind: "model_turn" }>["usage"]>,
+  role: MutableSessionRoleTotals | null,
 ): void {
   if (usage.estimated) {
     metrics.estimatedTurnCount += 1;
     metrics.estimatedInputTokens += usage.inputTokens ?? 0;
     metrics.estimatedOutputTokens += usage.outputTokens ?? 0;
+    if (role) {
+      role.estimatedInputTokens += usage.inputTokens ?? 0;
+      role.estimatedOutputTokens += usage.outputTokens ?? 0;
+    }
   } else {
     metrics.providerInputTokens += usage.inputTokens ?? 0;
     metrics.providerOutputTokens += usage.outputTokens ?? 0;
     metrics.cacheReadTokens = addKnownCacheTotal(metrics.cacheReadTokens, usage.cacheReadTokens);
     metrics.cacheWriteTokens = addKnownCacheTotal(metrics.cacheWriteTokens, usage.cacheWriteTokens);
+    if (role) {
+      role.providerInputTokens += usage.inputTokens ?? 0;
+      role.providerOutputTokens += usage.outputTokens ?? 0;
+    }
   }
 }
 
@@ -226,14 +288,21 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
     case "phase_span":
       bumpRecord(metrics.phaseSpansMs, event.phase, event.durationMs);
       break;
-    case "tool_call":
+    case "tool_call": {
       metrics.toolCallCount += 1;
       if (!event.ok) metrics.toolCallErrors += 1;
       if (event.resultBytes != null) metrics.toolResultBytes += event.resultBytes;
       if (event.resultCharacters != null) {
         metrics.toolResultCharacters += event.resultCharacters;
       }
+      const role = roleBucket(metrics, event.sessionRole);
+      if (role) {
+        role.toolCallCount += 1;
+        if (!event.ok) role.toolCallErrors += 1;
+        if (event.durationMs != null) role.toolCallDurationMs += event.durationMs;
+      }
       break;
+    }
     case "submit_validated":
       for (const rule of event.coercions) {
         bumpRecord(metrics.coercionsApplied, rule);
@@ -273,13 +342,48 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
       metrics.findingsCount = event.findingsCount;
       metrics.severities = [...event.severities];
       break;
-    case "model_turn":
+    case "model_turn": {
       metrics.modelTurnCount += 1;
+      const role = roleBucket(metrics, event.sessionRole);
+      if (role) role.modelTurnCount += 1;
       if (event.prompt) {
         metrics.promptBytes += event.prompt.inputBytes;
         metrics.promptCharacters += event.prompt.inputCharacters;
+        if (role) {
+          role.promptBytes += event.prompt.inputBytes;
+          role.promptCharacters += event.prompt.inputCharacters;
+        }
       }
-      if (event.usage) recordModelTurnUsage(metrics, event.usage);
+      if (event.usage) recordModelTurnUsage(metrics, event.usage, role);
+      break;
+    }
+    case "ensemble_completed":
+      metrics.ensemble = {
+        completedReviewerIds: [...event.completedReviewerIds],
+        failedReviewerIds: [...event.failedReviewerIds],
+        candidateFindings: event.candidateFindings,
+        durationMs: event.durationMs,
+        degraded: event.degraded,
+        validationCandidateCount: metrics.ensemble?.validationCandidateCount ?? 0,
+        validationTruncatedCandidates: metrics.ensemble?.validationTruncatedCandidates ?? 0,
+        validationDroppedCount: metrics.ensemble?.validationDroppedCount ?? 0,
+        validationDurationMs: metrics.ensemble?.validationDurationMs ?? 0,
+      };
+      bumpRecord(metrics.phaseSpansMs, "ensemble", event.durationMs);
+      break;
+    case "validation_stage_completed":
+      metrics.ensemble = {
+        completedReviewerIds: metrics.ensemble?.completedReviewerIds ?? [],
+        failedReviewerIds: metrics.ensemble?.failedReviewerIds ?? [],
+        candidateFindings: metrics.ensemble?.candidateFindings ?? 0,
+        durationMs: metrics.ensemble?.durationMs ?? 0,
+        degraded: metrics.ensemble?.degraded ?? false,
+        validationCandidateCount: event.candidateCount,
+        validationTruncatedCandidates: event.truncatedCandidates,
+        validationDroppedCount: event.droppedCount,
+        validationDurationMs: event.durationMs,
+      };
+      bumpRecord(metrics.phaseSpansMs, "validation", event.durationMs);
       break;
     default: {
       const exhaustive: never = event;
@@ -327,6 +431,10 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
   const metrics = getOrInitMetrics();
   if (!metrics) return null;
   const wallClockMs = Date.now() - metrics.startedAtMs;
+  const bySessionRole: Record<string, ReviewSessionRoleTotals> = {};
+  for (const [role, totals] of Object.entries(metrics.bySessionRole)) {
+    bySessionRole[role] = { ...totals };
+  }
   return {
     provider: metrics.provider,
     model: metrics.model,
@@ -363,6 +471,8 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     findingsCount: metrics.findingsCount,
     severities: [...metrics.severities],
     wallClockMs,
+    bySessionRole,
+    ...(metrics.ensemble ? { ensemble: { ...metrics.ensemble } } : {}),
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
   };
 }

@@ -71,6 +71,7 @@ describe("reviewRunMetrics", () => {
       });
       recordReviewMetric({
         kind: "model_turn",
+        sessionRole: "orchestrator",
         prompt: { inputCharacters: 100, inputBytes: 104 },
         usage: {
           estimated: true,
@@ -81,6 +82,7 @@ describe("reviewRunMetrics", () => {
       });
       recordReviewMetric({
         kind: "model_turn",
+        sessionRole: "reviewer:correctness",
         prompt: { inputCharacters: 40, inputBytes: 40 },
         usage: {
           estimated: false,
@@ -90,6 +92,28 @@ describe("reviewRunMetrics", () => {
           cacheWriteTokens: 3,
           totalTokens: 18,
         },
+      });
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "submitReviewerReport",
+        ok: true,
+        durationMs: 17,
+        sessionRole: "reviewer:correctness",
+      });
+      recordReviewMetric({
+        kind: "ensemble_completed",
+        completedReviewerIds: ["correctness", "security"],
+        failedReviewerIds: ["tests"],
+        candidateFindings: 3,
+        durationMs: 42,
+        degraded: true,
+      });
+      recordReviewMetric({
+        kind: "validation_stage_completed",
+        candidateCount: 5,
+        truncatedCandidates: 2,
+        droppedCount: 1,
+        durationMs: 11,
       });
       setReviewRunMetricFields({ published: true, publishAttempts: 1 });
 
@@ -108,10 +132,11 @@ describe("reviewRunMetrics", () => {
         anchorFailureFiles: ["a.ts", "b.ts"],
         proseOnlyCollapsesByPhase: { pre_submit: 1 },
         phaseRoundCounts: { investigation: 1 },
+        phaseSpansMs: { ensemble: 42, validation: 11 },
         rateLimitCircuitOpened: true,
         tokenNearExpiryGuardHits: 1,
         diffCacheEmptyAtFirstSubmit: true,
-        toolCallCount: 2,
+        toolCallCount: 3,
         toolCallErrors: 1,
         toolResultBytes: 120,
         toolResultCharacters: 118,
@@ -127,6 +152,26 @@ describe("reviewRunMetrics", () => {
         estimatedTurnCount: 1,
         findingsCount: 1,
         severities: ["P1"],
+        bySessionRole: {
+          orchestrator: expect.objectContaining({ modelTurnCount: 1 }),
+          "reviewer:correctness": expect.objectContaining({
+            modelTurnCount: 1,
+            toolCallCount: 1,
+            toolCallDurationMs: 17,
+            providerInputTokens: 12,
+          }),
+        },
+        ensemble: {
+          completedReviewerIds: ["correctness", "security"],
+          failedReviewerIds: ["tests"],
+          candidateFindings: 3,
+          durationMs: 42,
+          degraded: true,
+          validationCandidateCount: 5,
+          validationTruncatedCandidates: 2,
+          validationDroppedCount: 1,
+          validationDurationMs: 11,
+        },
       });
       expect(snapshot?.wallClockMs).toBeGreaterThanOrEqual(0);
     });

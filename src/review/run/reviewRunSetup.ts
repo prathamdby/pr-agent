@@ -20,11 +20,13 @@ import {
   type SubmitReviewState,
 } from "../publish/submitReviewTool.js";
 import type { ReviewMode } from "../reviewSchema.js";
+import { buildReviewerUserContent } from "../prompts/reviewerPrompt.js";
 import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
 
 export type ReviewRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
+  readonly reviewerUserContent: string;
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
@@ -172,6 +174,14 @@ export function buildReviewRunSetup(params: {
   return {
     systemPrompt: buildAutomatedSystemPrompt(),
     userContent: buildReviewRunUserContent({
+      owner,
+      repo,
+      prNumber,
+      headSha,
+      userSupplement,
+      trustedContext,
+    }),
+    reviewerUserContent: buildReviewerUserContent({
       owner,
       repo,
       prNumber,

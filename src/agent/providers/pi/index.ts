@@ -14,12 +14,12 @@ import type { TextContent, Tool as PiTool } from "@earendil-works/pi-ai";
 import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { recordReviewMetric } from "../../../review/run/reviewRunMetrics.js";
 import type {
   AgentRunnerProvider,
   AgentRunnerSendOptions,
   AgentRunnerToolExecutor,
 } from "../interface.js";
+import { safeEmitToolCallMetric, type OnAgentToolCallMetric } from "../sessionMetrics.js";
 import {
   exactUsageFromProviderUsage,
   mergeExactUsage,
@@ -39,16 +39,6 @@ function toolResultSize(result: unknown): { resultBytes: number; resultCharacter
   };
 }
 
-function safeRecordToolCallMetric(
-  event: Extract<Parameters<typeof recordReviewMetric>[0], { kind: "tool_call" }>,
-): void {
-  try {
-    recordReviewMetric(event);
-  } catch {
-    // metrics are best-effort outside review runs
-  }
-}
-
 function assistantMessageText(message: TurnEndEvent["message"]): string {
   if (message.role !== "assistant") return "";
   return message.content
@@ -61,7 +51,8 @@ function assistantMessageText(message: TurnEndEvent["message"]): string {
 function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
-  refreshBeforeTool?: (toolName: string) => Promise<void>,
+  refreshBeforeTool: ((toolName: string) => Promise<void>) | undefined,
+  onToolCallMetric: OnAgentToolCallMetric | undefined,
 ): ReturnType<typeof defineTool> {
   return defineTool({
     name: tool.name,
@@ -70,7 +61,11 @@ function toCodingAgentTool(
     parameters: tool.parameters as never,
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
       if (!executor) {
-        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
+        safeEmitToolCallMetric(onToolCallMetric, {
+          kind: "tool_call",
+          name: tool.name,
+          ok: false,
+        });
         throw new Error(`No executor registered for tool ${tool.name}`);
       }
       try {
@@ -79,7 +74,7 @@ function toCodingAgentTool(
         }
         const result = await executor(params);
         const size = toolResultSize(result);
-        safeRecordToolCallMetric({
+        safeEmitToolCallMetric(onToolCallMetric, {
           kind: "tool_call",
           name: tool.name,
           ok: true,
@@ -91,7 +86,11 @@ function toCodingAgentTool(
           details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
         };
       } catch (error) {
-        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
+        safeEmitToolCallMetric(onToolCallMetric, {
+          kind: "tool_call",
+          name: tool.name,
+          ok: false,
+        });
         throw error;
       }
     },
@@ -99,7 +98,16 @@ function toCodingAgentTool(
 }
 
 export const piAgentRunnerProvider: AgentRunnerProvider = {
-  async createSession({ cfg, cwd, systemPrompt, tools, executors, refreshBeforeTool, signal }) {
+  async createSession({
+    cfg,
+    cwd,
+    systemPrompt,
+    tools,
+    executors,
+    refreshBeforeTool,
+    signal,
+    onToolCallMetric,
+  }) {
     signal?.throwIfAborted();
     const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
     const authPath = join(agentDir, "auth.json");
@@ -147,7 +155,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       sessionManager: SessionManager.inMemory(cwd ?? process.cwd()),
       noTools: "builtin",
       customTools: tools.map((tool) =>
-        toCodingAgentTool(tool, executors[tool.name], refreshBeforeTool),
+        toCodingAgentTool(tool, executors[tool.name], refreshBeforeTool, onToolCallMetric),
       ),
     });
     const sessionAbortController = new AbortController();

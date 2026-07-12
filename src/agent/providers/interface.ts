@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { OnAgentToolCallMetric } from "./sessionMetrics.js";
 import type {
   AgentRunnerPromptMetadata,
   AgentRunnerTurn,
@@ -33,15 +34,19 @@ type AgentProviderBootResult = {
   readonly ripgrepPath?: string;
 };
 
+export type AgentRunnerCreateSessionParams = {
+  readonly cfg: Config;
+  readonly cwd?: string;
+  readonly systemPrompt: string;
+  readonly tools: readonly PiTool[];
+  readonly executors: Record<string, AgentRunnerToolExecutor>;
+  readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+  readonly signal?: AbortSignal;
+  /** Optional injected recorder; providers must not import review metrics. */
+  readonly onToolCallMetric?: OnAgentToolCallMetric;
+};
+
 export type AgentRunnerProvider = {
   readonly boot?: (cfg: Config) => Promise<AgentProviderBootResult | undefined>;
-  readonly createSession: (params: {
-    readonly cfg: Config;
-    readonly cwd?: string;
-    readonly systemPrompt: string;
-    readonly tools: readonly PiTool[];
-    readonly executors: Record<string, AgentRunnerToolExecutor>;
-    readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-    readonly signal?: AbortSignal;
-  }) => Promise<AgentRunnerSession>;
+  readonly createSession: (params: AgentRunnerCreateSessionParams) => Promise<AgentRunnerSession>;
 };

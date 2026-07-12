@@ -19,16 +19,8 @@ import {
   CURSOR_MAX_PORT_RETRIES,
 } from "../../../settings/index.js";
 import type { CursorExecutor } from "./runContext.js";
-import { logDebug } from "../../../evlog.js";
-import { recordReviewMetric } from "../../../review/run/reviewRunMetrics.js";
-
-function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
-  try {
-    recordReviewMetric(event);
-  } catch {
-    logDebug("review_metric_record_failed", { kind: event.kind });
-  }
-}
+import type { OnAgentToolCallMetric } from "../sessionMetrics.js";
+import { safeEmitToolCallMetric } from "../sessionMetrics.js";
 
 export type McpBridgeOptions = {
   readonly tools: readonly PiTool[] | (() => readonly PiTool[]);
@@ -37,6 +29,7 @@ export type McpBridgeOptions = {
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly maxToolRounds?: number | (() => number | undefined);
   readonly toolRoundCounter?: { count: number };
+  readonly onToolCallMetric?: OnAgentToolCallMetric;
 };
 
 export type McpBridgeHandle = {
@@ -173,7 +166,11 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     const toolStarted = Date.now();
 
     if (disposed) {
-      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
+      safeEmitToolCallMetric(options.onToolCallMetric, {
+        kind: "tool_call",
+        name: toolName,
+        ok: false,
+      });
       return {
         content: [{ type: "text", text: "MCP bridge disposed" }],
         isError: true,
@@ -201,13 +198,13 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
         const counter = options.toolRoundCounter ?? { count: 0 };
         counter.count += 1;
         if (counter.count > maxToolRounds) {
-          safeRecordReviewMetric({
+          safeEmitToolCallMetric(options.onToolCallMetric, {
             kind: "tool_call",
             name: toolName,
             ok: false,
           });
           return executorResultToMcp(
-            `Tool round limit (${maxToolRounds}) reached; call submitReview with your findings.`,
+            `Tool round limit (${maxToolRounds}) reached; finish by calling your session's submit tool with your findings.`,
             true,
           );
         }
@@ -220,7 +217,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       }
       const exec = resolveOption(options.executors)[toolName];
       if (!exec) {
-        safeRecordReviewMetric({
+        safeEmitToolCallMetric(options.onToolCallMetric, {
           kind: "tool_call",
           name: toolName,
           ok: false,
@@ -237,7 +234,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       const out = await runWithAbortSignal(() => exec(args), abortController.signal);
       const mcpResult = executorResultToMcp(out);
       const resultSize = mcpResultSize(mcpResult);
-      safeRecordReviewMetric({
+      safeEmitToolCallMetric(options.onToolCallMetric, {
         kind: "tool_call",
         name: toolName,
         ok: true,
@@ -250,7 +247,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       const message = e instanceof Error ? e.message : String(e);
       const mcpResult = executorResultToMcp(message, true);
       const resultSize = mcpResultSize(mcpResult);
-      safeRecordReviewMetric({
+      safeEmitToolCallMetric(options.onToolCallMetric, {
         kind: "tool_call",
         name: toolName,
         ok: false,
