@@ -19,10 +19,6 @@ import {
 } from "../../review/prompts/reviewTrustedContext.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
 import {
-  reviewRetrySlashCommandForMode,
-  reviewSummarySentinelForMode,
-} from "../../review/reviewSchema.js";
-import {
   initReviewRunMetrics,
   logReviewRunCompleted,
   recordReviewPhaseSpan,
@@ -33,7 +29,11 @@ import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { DESCRIPTION_AGENT_HEADER, MAX_REPO_POLICY_BYTES } from "../../settings/index.js";
+import {
+  DESCRIPTION_AGENT_HEADER,
+  MAX_REPO_POLICY_BYTES,
+  REVIEW_SUMMARY_SENTINEL,
+} from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
   completeReviewCheckRun,
@@ -72,10 +72,12 @@ export async function executeReviewJob(
     boss,
     job,
     type: "review",
+    // Accept historical lens rows so cutover orphans cannot block unified /review.
+    // execute() always runs as ReviewMode "review".
     acceptItem: (item) => item.reviewLens != null,
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
-      const reviewLens = item.reviewLens!;
+      const reviewLens = "review" as const;
       const payload = item.payload as ReviewWorkPayload;
       initReviewRunMetrics({
         provider: cfg.agentProvider,
@@ -242,7 +244,6 @@ export async function executeReviewJob(
             owner: item.owner,
             repo: item.repo,
             prNumber: item.prNumber,
-            reviewLens,
             botUserId: bot.userId,
             onPriorFeedbackError: logPriorFeedbackError,
           }),
@@ -277,7 +278,6 @@ export async function executeReviewJob(
             severityFloor = policyResult.policy.severityFloor;
             const rendered = renderRepoPolicyBlock({
               policy: policyResult.policy,
-              mode: reviewLens,
               changedFiles: repositoryView.preflight.files.map((file) => file.filename),
             });
             repoPolicyBlock = rendered || undefined;
@@ -425,8 +425,8 @@ export async function executeReviewJob(
       );
     },
     onCancelled: async (item, installation) => {
-      if (!item.reviewLens) return;
-      const reviewLens = item.reviewLens;
+      if (item.reviewLens == null) return;
+      const reviewLens = "review" as const;
       const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
       await completeReviewCheckRun(pool, {
         cfg,
@@ -445,17 +445,16 @@ export async function executeReviewJob(
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
-      const reviewLens = item.reviewLens!;
+      const reviewLens = "review" as const;
       const summary = await upsertReviewSummaryComment(
         installation.token,
         item.owner,
         item.repo,
         item.prNumber,
         renderReviewFailureNotice({
-          mode: reviewLens,
-          retryCommand: reviewRetrySlashCommandForMode(reviewLens),
+          retryCommand: "/review",
         }),
-        reviewSummarySentinelForMode(reviewLens),
+        REVIEW_SUMMARY_SENTINEL,
         undefined,
         installation.expiresAtTs,
       );

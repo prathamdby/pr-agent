@@ -153,23 +153,20 @@ Tunables live in env vars and [docs/configuration.md](docs/configuration.md). Pr
 
 Run on your infrastructure with your GitHub App credentials and chosen LLM provider (Pi/OpenAI, Cursor SDK, and others via `@earendil-works/pi-ai`).
 
-### Specialized review lenses
+### Comprehensive review synthesis
 
-General bug-and-correctness reviews run on PR open and sync. **`/review-security`**, **`/review-quality`**, and **`/review-tests`** add separate **review summary comments** on demand, each with its own **review lens** and progress comment.
+Every Review run dispatches independent agents for correctness, security, tests, maintainability, project standards, reliability, API/contracts, and adversarial analysis. Validator sessions check high-risk candidates, then a publishing orchestrator synthesizes the reports into one review, so maintainers use one **`/review`** command and one **review summary comment**.
 
 ## Features
 
-| Capability              | Auto on PR             | Slash command      | Notes                                                                                     |
-| ----------------------- | ---------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| General review          | opened / sync / reopen | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
-| PR description          | opened (configurable)  | `/describe`        | Merges under `## PR Agent Description`                                                    |
-| Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
-| Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
-| Tests lens              | No                     | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |
-| Triage                  | No                     | `/triage`          | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`         |
-| Ask                     | No                     | `/ask <question>`  | PR conversation or inline diff **code anchor**                                            |
-| Help                    | No                     | `/help`            | Worker-published guidance                                                                 |
-| Lightweight auto-review | docs-only trivial PRs  | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
+| Capability              | Auto on PR                      | Slash command     | Notes                                                                                         |
+| ----------------------- | ------------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| Multi-agent review      | configurable (`opened` default) | `/review`         | Eight reviewer angles -> validation -> one `## PR Agent Review`; inline P0 to P2 when present |
+| PR description          | opened (configurable)           | `/describe`       | Merges under `## PR Agent Description`                                                        |
+| Triage                  | No                              | `/triage`         | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`             |
+| Ask                     | No                              | `/ask <question>` | PR conversation or inline diff **code anchor**                                                |
+| Help                    | No                              | `/help`           | Worker-published guidance                                                                     |
+| Lightweight auto-review | docs-only trivial PRs           | No                | Skips full **Review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md)     |
 
 | Deployment                                | Supported |
 | ----------------------------------------- | --------- |
@@ -196,16 +193,6 @@ Slash commands are **case-sensitive** and must start the first non-empty line of
   <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
 </details>
 
-<details>
-  <summary><h3>/review-security</h3></summary>
-  <img src="site/public/screenshots/review-security.example.webp" alt="Example /review-security output showing PR Agent Security Review summary" width="800" />
-</details>
-
-<details>
-  <summary><h3>/review-quality</h3></summary>
-  <img src="site/public/screenshots/review-quality.example.webp" alt="Example /review-quality output showing PR Agent Quality Review summary" width="800" />
-</details>
-
 ## How It Works
 
 ```mermaid
@@ -222,7 +209,7 @@ flowchart LR
   Boss --> VerifQ[verification queue]
   Boss --> RetQ[retention queue]
   AckQ --> Worker["ROLE=worker executors"]
-  RevQ --> Worker
+  RevQ --> ReviewExec[review executor]
   AskQ --> Worker
   DescQ --> Worker
   TriageQ --> Worker
@@ -231,7 +218,12 @@ flowchart LR
   Worker --> Retention[retention cleanup]
   Retention --> Dedupe
   Retention --> Items
-  Worker --> LLM[LLM plus tools]
+  ReviewExec --> Workspace[shared read-only PR workspace]
+  Workspace --> Reviewers[8 independent reviewer agents]
+  Reviewers --> Validate[P0/P1 validation]
+  Validate --> Orchestrator[review orchestrator]
+  Orchestrator --> ReviewPublish[one synthesized review publish]
+  Worker --> LLM[other work agents plus tools]
   LLM --> Publish[GitHub PR-surface publish]
   Worker --> Push[git push PR branch]
 ```
@@ -241,7 +233,8 @@ flowchart LR
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
 5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
-6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
+6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): eight independent reviewer agents inspect one shared read-only workspace, required correctness/security coverage is enforced, and P0/P1 candidates are independently validated.
+7. **Review synthesis**: one orchestrator receives the internal reports and is the only session with **`submitReview`**, producing one summary comment and one optional inline GitHub review. Reviewer fan-out is bounded by `REVIEW_AGENT_CONCURRENCY` (default `4`) inside each review worker job.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).
 

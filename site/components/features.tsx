@@ -11,13 +11,11 @@ const features = [
   },
   {
     title: "Keeps results in the pull request",
-    detail:
-      "Reviews, descriptions, security notes, quality notes, and answers show up in the PR thread your team already reads.",
+    detail: "Reviews, descriptions, and answers show up in the PR thread your team already reads.",
   },
   {
     title: "Simple commands from PR comments",
-    detail:
-      "Type /review, /describe, /review-security, /review-quality, or /ask in a comment when you want a specific pass.",
+    detail: "Type /review, /describe, or /ask in a comment when you want a specific result.",
   },
   {
     title: "Honest limits on large changes",

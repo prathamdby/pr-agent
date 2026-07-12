@@ -12,10 +12,6 @@ import {
   REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-  QUALITY_REVIEW_SUMMARY_SENTINEL,
-  TESTS_REVIEW_SUMMARY_SENTINEL,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
@@ -23,45 +19,30 @@ import { fixDoubleEscapedString } from "../agent/tools/fixDoubleEscapedString.js
 
 export {
   REVIEW_SUMMARY_SENTINEL,
+  // Historical sentinels remain exported so prior review comments can be recognized.
   SECURITY_REVIEW_SUMMARY_SENTINEL,
   QUALITY_REVIEW_SUMMARY_SENTINEL,
   TESTS_REVIEW_SUMMARY_SENTINEL,
 } from "../settings/index.js";
 
-export type ReviewMode = "review" | "review-security" | "review-quality" | "review-tests";
+/** The only active review identity. */
+export type ReviewMode = "review";
+
+/** Read-only identifiers used to recognize reviews published before unified Review. */
+export const LEGACY_REVIEW_LENSES = [
+  "review",
+  "review-security",
+  "review-quality",
+  "review-tests",
+] as const;
+export type LegacyReviewLens = (typeof LEGACY_REVIEW_LENSES)[number];
+
+export function isLegacyReviewLens(value: string): value is LegacyReviewLens {
+  return LEGACY_REVIEW_LENSES.some((lens) => lens === value);
+}
 
 /** How a review run was triggered (automated webhook vs slash command). */
 export type WorkSource = "auto" | "slash";
-
-export function reviewSummarySentinelForMode(mode: ReviewMode): string {
-  switch (mode) {
-    case "review-security":
-      return SECURITY_REVIEW_SUMMARY_SENTINEL;
-    case "review-quality":
-      return QUALITY_REVIEW_SUMMARY_SENTINEL;
-    case "review-tests":
-      return TESTS_REVIEW_SUMMARY_SENTINEL;
-    case "review":
-      return REVIEW_SUMMARY_SENTINEL;
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
-}
-
-export function reviewRetrySlashCommandForMode(mode: ReviewMode): string {
-  switch (mode) {
-    case "review-security":
-      return "/review-security";
-    case "review-quality":
-      return "/review-quality";
-    case "review-tests":
-      return "/review-tests";
-    case "review":
-      return "/review";
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
-}
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 

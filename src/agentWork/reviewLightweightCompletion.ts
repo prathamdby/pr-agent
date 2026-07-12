@@ -2,13 +2,14 @@ import type { Pool } from "pg";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../review/reviewSchema.js";
+import type { ReviewMode } from "../review/reviewSchema.js";
 import {
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
 } from "../github/reviewPublish.js";
 import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
 export type LightweightAutoReviewResult =
   | { readonly handled: false }
@@ -46,8 +47,8 @@ export async function tryLightweightAutoReviewCompletion(
     return { handled: true, published: false, reason: "skipped" };
   }
 
-  const body = renderLightweightReviewCompletion(params.reviewLens);
-  const sentinel = reviewSummarySentinelForMode(params.reviewLens);
+  const body = renderLightweightReviewCompletion();
+  const sentinel = REVIEW_SUMMARY_SENTINEL;
   const storedId = await getSummaryCommentGithubId(
     pool,
     params.item.resourceKey,

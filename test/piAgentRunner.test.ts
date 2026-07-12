@@ -126,6 +126,22 @@ describe("piAgentRunnerProvider.send", () => {
     expect(result.usage).toBeUndefined();
   });
 
+  it("rejects session creation when its signal is already cancelled", async () => {
+    const controller = new AbortController();
+    controller.abort(new Error("review superseded"));
+
+    await expect(
+      piAgentRunnerProvider.createSession({
+        cfg,
+        systemPrompt: "test",
+        tools: [],
+        executors: {},
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow("review superseded");
+    expect(createAgentSession).not.toHaveBeenCalled();
+  });
+
   it("returns exact usage when mocked turn events include provider token data", async () => {
     const session = buildMockSession((emit) => {
       emit({
@@ -264,6 +280,56 @@ describe("piAgentRunnerProvider.send", () => {
 
     await expect(runnerSession.send("question")).rejects.toThrow(/timeout/i);
     expect(abort).toHaveBeenCalled();
+  });
+
+  it("aborts an active prompt when the send signal is cancelled", async () => {
+    let resolvePrompt: (() => void) | undefined;
+    let promptCount = 0;
+    const abort = vi.fn(() => resolvePrompt?.());
+    const session = {
+      subscribe: () => () => {},
+      prompt: () => {
+        promptCount += 1;
+        if (promptCount > 1) return Promise.resolve();
+        return new Promise<void>((resolve) => {
+          resolvePrompt = resolve;
+        });
+      },
+      abort,
+      setActiveToolsByName: vi.fn(),
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    const controller = new AbortController();
+
+    const sendPromise = runnerSession.send("question", { signal: controller.signal });
+    controller.abort(new Error("review superseded"));
+
+    await expect(sendPromise).rejects.toThrow("review superseded");
+    expect(abort).toHaveBeenCalled();
+
+    await expect(runnerSession.send("follow-up")).resolves.toMatchObject({ text: "" });
+  });
+
+  it("exposes provider-neutral session cancellation", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    await runnerSession.cancel();
+
+    expect(session.abort).toHaveBeenCalled();
+    await expect(runnerSession.send("question")).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("does not abort while the provider keeps streaming activity within the idle window", async () => {

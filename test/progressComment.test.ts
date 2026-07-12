@@ -8,7 +8,6 @@ import { REVIEW_PROGRESS_NOTE } from "../src/settings/index.js";
 describe("progressComment fallback wording", () => {
   it("uses neutral failure notice without attempt counts or server logs", () => {
     const body = renderReviewFailureNotice({
-      mode: "review",
       retryCommand: "/review",
     });
     expect(body).toContain("[!CAUTION]");
@@ -19,19 +18,8 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toMatch(/\d+\/\d+/);
   });
 
-  it("keeps security retry command", () => {
-    const body = renderReviewFailureNotice({
-      mode: "review-security",
-      retryCommand: "/review-security",
-    });
-    expect(body).toContain("/review-security");
-    expect(body).toContain("[!CAUTION]");
-    expect(body).not.toMatch(/structured publish/i);
-  });
-
   it("renders progress with NOTE alert and metadata table", () => {
     const body = renderReviewProgressComment({
-      mode: "review",
       headSha: "abc123",
       source: "auto",
     });

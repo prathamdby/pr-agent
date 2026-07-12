@@ -20,20 +20,6 @@ const screenshots = [
     width: 806,
     height: 745,
   },
-  {
-    src: "/screenshots/review-security.example.webp",
-    alt: "PR Agent security code review summary on a GitHub pull request with /review-security",
-    caption: "/review-security",
-    width: 806,
-    height: 639,
-  },
-  {
-    src: "/screenshots/review-quality.example.webp",
-    alt: "PR Agent code quality review on a GitHub pull request with /review-quality",
-    caption: "/review-quality",
-    width: 536,
-    height: 726,
-  },
 ];
 
 export function Gallery() {
@@ -49,8 +35,7 @@ export function Gallery() {
         </h2>
 
         <p className="text-sm text-neutral-500 mb-4">
-          Screenshots of real reviews, descriptions, Q&A, security, and quality checks posted back
-          to GitHub.
+          Screenshots of real reviews, descriptions, and Q&A posted back to GitHub.
         </p>
 
         <div className="space-y-6">

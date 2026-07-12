@@ -10,14 +10,9 @@ const capabilities = [
     detail: "Summary bullets and an optional diagram go into the PR body.",
   },
   {
-    title: "Ask for a security pass when the change touches risk",
-    trigger: "Comment /review-security on the PR",
-    detail: "Security notes are posted as a separate summary.",
-  },
-  {
-    title: "Ask for a quality pass before merge",
-    trigger: "Comment /review-quality on the PR",
-    detail: "Maintainability notes land in the PR conversation.",
+    title: "Review every change from multiple angles",
+    trigger: "Runs automatically or when you comment /review",
+    detail: "Correctness, security, tests, reliability, and maintainability are synthesized once.",
   },
   {
     title: "Ask code questions without leaving GitHub",

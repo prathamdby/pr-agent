@@ -14,9 +14,6 @@ import {
   renderReviewSummaryComment,
   renderStaleReviewMetadataComment,
   fitReviewSummaryBody,
-  SECURITY_REVIEW_POINTER_BODY,
-  QUALITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
 } from "../src/review/run/reviewRender.js";
 import {
   REVIEW_FINDING_FOOTNOTE_INLINE,
@@ -26,10 +23,7 @@ import {
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
 } from "../src/settings/index.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import {
   testPlacementsFromPayload,
   planInlineFromPayload,
@@ -322,17 +316,6 @@ describe("renderReviewSummaryComment", () => {
     });
     expect(body).toContain("[!NOTE]");
     expect(body).toContain("Adds auth | breaks table");
-  });
-
-  it("uses security sentinel when requested", () => {
-    const payload = basePayload();
-    const body = renderReviewSummaryComment(payload, {
-      ...ctx,
-      summarySentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
-      placements: testPlacementsFromPayload(payload),
-    });
-    expect(body).toContain("## PR Agent Security Review");
-    expect(body).not.toContain("## PR Agent Review\n");
   });
 
   it("escapes pipes in security and follow-ups table cells", () => {
@@ -848,7 +831,7 @@ describe("renderReviewPointerBody", () => {
     expect(body).toContain("Fix src/x.ts line 4.");
   });
 
-  it("uses security pointer line for review-security mode", () => {
+  it("renders the unified pointer line", () => {
     const payload = basePayload({
       findings: [
         {
@@ -864,7 +847,7 @@ describe("renderReviewPointerBody", () => {
     });
     const { body } = renderReviewPointerBody(payload, {
       ...renderCtx,
-      mode: "review-security",
+      mode: "review",
       placements: planInlineFromPayload(payload),
     });
 
@@ -940,11 +923,11 @@ describe("renderReviewPointerBody", () => {
     });
     const { body } = renderReviewPointerBody(payload, {
       ...renderCtx,
-      mode: "review-security",
+      mode: "review",
       placements: planInlineFromPayload(payload),
     });
 
-    expect(body.endsWith(renderReviewPointerLensMarker("review-security"))).toBe(true);
+    expect(body.endsWith(renderReviewPointerLensMarker("review"))).toBe(true);
   });
 });
 
@@ -952,60 +935,25 @@ describe("renderRepeatNoBugsReviewBody", () => {
   const url = "https://github.com/acme/widgets/pull/42#issuecomment-123";
 
   it("links to summary when URL is verified (general)", () => {
-    const body = renderRepeatNoBugsReviewBody("review", url);
+    const body = renderRepeatNoBugsReviewBody(url);
     expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
   });
 
-  it("links to summary when URL is verified (security)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-security", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${url}).`);
-  });
-
   it("falls back to plain pointer when URL is missing (general)", () => {
-    const body = renderRepeatNoBugsReviewBody("review");
+    const body = renderRepeatNoBugsReviewBody();
     expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
-  });
-
-  it("falls back to plain pointer when URL is missing (security)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-security");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${SECURITY_REVIEW_POINTER_BODY}`);
-  });
-
-  it("links to summary when URL is verified (quality)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-quality", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${url}).`);
-  });
-
-  it("falls back to plain pointer when URL is missing (quality)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-quality");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${QUALITY_REVIEW_POINTER_BODY}`);
-  });
-
-  it("links to summary when URL is verified (tests)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-tests", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated test-case proposals](${url}).`);
-  });
-
-  it("falls back to plain pointer when URL is missing (tests)", () => {
-    const body = renderRepeatNoBugsReviewBody("review-tests");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${TESTS_REVIEW_POINTER_BODY}`);
   });
 });
 
 describe("renderLightweightReviewCompletion", () => {
   it("preserves sentinel, alert, and table structure", () => {
-    const body = renderLightweightReviewCompletion("review");
+    const body = renderLightweightReviewCompletion();
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain("[!NOTE]");
     expect(body).toContain("<table>");
     expect(body).not.toContain("| | |");
     expect(body).not.toContain("—");
     expect(body).toContain("Use /review for a full review.");
-  });
-
-  it("uses security sentinel for security lens", () => {
-    const body = renderLightweightReviewCompletion("review-security");
-    expect(body).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
   });
 });
 
@@ -1039,12 +987,10 @@ describe("review hardening render helpers", () => {
   it("escapes double hyphens in stale review metadata attrs", () => {
     const comment = renderStaleReviewMetadataComment({
       headSha: "abc1234",
-      mode: "review-security",
+      mode: "review",
       stale: true,
     });
-    expect(comment).toBe(
-      "<!-- pr-agent:review-meta headSha=abc1234 lens=review-security stale=true -->",
-    );
+    expect(comment).toBe("<!-- pr-agent:review-meta headSha=abc1234 lens=review stale=true -->");
     expect(comment.slice(4, -3)).not.toContain("--");
   });
 

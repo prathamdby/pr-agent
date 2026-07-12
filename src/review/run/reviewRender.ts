@@ -31,11 +31,9 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
+  REVIEW_SUMMARY_SENTINEL,
   REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK,
   REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
 } from "../../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
@@ -43,9 +41,9 @@ import type {
   ReviewFinding,
   ReviewPayload,
   ReviewPublishContext,
+  LegacyReviewLens,
   ReviewMode,
 } from "../reviewSchema.js";
-import { reviewSummarySentinelForMode } from "../reviewSchema.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 
@@ -81,59 +79,21 @@ function formatEffortLabelHtml(effort: number): string {
   return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
 }
 
-function reviewPointerBodyForMode(mode: ReviewMode): string {
-  switch (mode) {
-    case "review-security":
-      return SECURITY_REVIEW_POINTER_BODY;
-    case "review-quality":
-      return QUALITY_REVIEW_POINTER_BODY;
-    case "review-tests":
-      return TESTS_REVIEW_POINTER_BODY;
-    case "review":
-      return REVIEW_POINTER_BODY;
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
+function renderReviewPointerLine(summaryCommentUrl?: string): string {
+  if (!summaryCommentUrl) return REVIEW_POINTER_BODY;
+  return `[View the updated review.](${summaryCommentUrl})`;
 }
 
-function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
-  if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
-  switch (mode) {
-    case "review-security":
-      return `[View the updated security review.](${summaryCommentUrl})`;
-    case "review-quality":
-      return `[View the updated code-quality review.](${summaryCommentUrl})`;
-    case "review-tests":
-      return `[View the updated test-case proposals.](${summaryCommentUrl})`;
-    case "review":
-      return `[View the updated review.](${summaryCommentUrl})`;
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
-}
-
-export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
+export function renderRepeatNoBugsReviewBody(summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
-    switch (mode) {
-      case "review-security":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`;
-      case "review-quality":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${summaryCommentUrl}).`;
-      case "review-tests":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated test-case proposals](${summaryCommentUrl}).`;
-      case "review":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
-    }
-    const exhaustive: never = mode;
-    return exhaustive;
+    return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
   }
-  return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
+  return `${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`;
 }
 
-export function renderLightweightReviewCompletion(mode: ReviewMode): string {
-  const summarySentinel = reviewSummarySentinelForMode(mode);
+export function renderLightweightReviewCompletion(): string {
   const rows: string[] = [];
-  rows.push(summarySentinel);
+  rows.push(REVIEW_SUMMARY_SENTINEL);
   rows.push("");
   rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, LIGHTWEIGHT_REVIEW_COMPLETION_LEAD));
   rows.push("");
@@ -356,9 +316,9 @@ export function renderAgentFixPrompt(
   ].join("\n");
 }
 
-function renderPointerLead(mode: ReviewMode, summaryCommentUrl?: string): string {
+function renderPointerLead(summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
-    return renderReviewPointerLine(mode, summaryCommentUrl);
+    return renderReviewPointerLine(summaryCommentUrl);
   }
   return renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_POINTER_NOTE_LEAD);
 }
@@ -410,7 +370,7 @@ function truncateAgentFixPromptForPointerBody(
   };
 }
 
-export function renderReviewPointerLensMarker(mode: ReviewMode): string {
+export function renderReviewPointerLensMarker(mode: LegacyReviewLens): string {
   return `<!-- pr-agent:review-pointer lens=${escapeHtmlCommentAttr(mode)} -->`;
 }
 
@@ -423,7 +383,7 @@ export function renderReviewPointerBody(
     droppedInlinePlacements?: readonly InlinePlacement[];
   },
 ): { body: string; truncated: boolean } {
-  const pointerLine = renderPointerLead(ctx.mode, ctx.summaryCommentUrl);
+  const pointerLine = renderPointerLead(ctx.summaryCommentUrl);
   const droppedNote = renderDroppedInlineAnchorNote(ctx.droppedInlinePlacements ?? []);
   let agentFixPrompt = renderAgentFixPrompt(payload, ctx, ctx.placements);
   let truncated = false;

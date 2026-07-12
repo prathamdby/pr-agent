@@ -15,7 +15,6 @@ import {
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
 } from "../../settings/index.js";
-import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
@@ -271,18 +270,17 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
-async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): Promise<void> {
+async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const existing = await fetchActiveWorkItem(ctx.client, {
     kind: "review",
     resourceKey,
-    lens: command,
   });
   if (existing) {
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
-        body: `A \`/${command}\` run is already queued or in progress for this pull request.`,
+        body: "A `/review` run is already queued or in progress for this pull request.",
       },
     });
     return;
@@ -291,26 +289,32 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     source: "slash",
-    lens: command,
-    userSupplement: clampStoredCommentText(`User invoked /${command} with:\n${ctx.input.body}`),
+    lens: "review",
+    userSupplement: clampStoredCommentText(`User invoked /review with:\n${ctx.input.body}`),
     commenterId: ctx.input.commenterId,
   });
   await enqueueSlashAck(ctx, {
     workItemId,
-    progress: { lens: command, headSha: ctx.ref.headSha, source: "slash" },
+    progress: { lens: "review", headSha: ctx.ref.headSha, source: "slash" },
   });
-  await enqueueReview(ctx.boss, ctx.client, ctx.ref, workItemId, command, ctx.correlation);
+  await enqueueReview(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   recordEvent(ctx.intakeLog, "agent_work_enqueued", {
     type: "review",
     source: "slash",
     workItemId,
     resourceKey,
-    lens: command,
+    lens: "review",
     ...ctx.correlation,
   });
 }
 
 async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
+  if (command === "review-security" || command === "review-quality" || command === "review-tests") {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: SLASH_HELP_BODY },
+    });
+    return;
+  }
   recordEvent(ctx.intakeLog, "ignored_unknown_slash_command", {
     command,
   });
@@ -324,10 +328,7 @@ const SLASH_INTAKE_HANDLERS: Record<
   ask: (ctx) => handleSlashAsk(ctx),
   describe: (ctx) => handleSlashDescribe(ctx),
   triage: (ctx) => handleSlashTriage(ctx),
-  review: (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
-  "review-security": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
-  "review-quality": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
-  "review-tests": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
+  review: (ctx) => handleSlashReview(ctx),
 };
 
 export async function applySlashCommandIntake(

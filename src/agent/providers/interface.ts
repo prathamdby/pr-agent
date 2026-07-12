@@ -12,10 +12,12 @@ export type AgentRunnerToolExecutor = (args: Record<string, unknown>) => Promise
 
 export type AgentRunnerSendOptions = {
   readonly maxToolRounds?: number;
+  readonly signal?: AbortSignal;
 };
 
 export type AgentRunnerSession = {
   readonly send: (prompt: string, opts?: AgentRunnerSendOptions) => Promise<AgentRunnerTurn>;
+  readonly cancel: () => Promise<void>;
   readonly restrictToTools: (
     tools: readonly PiTool[],
     executors: Record<string, AgentRunnerToolExecutor>,
@@ -40,5 +42,6 @@ export type AgentRunnerProvider = {
     readonly tools: readonly PiTool[];
     readonly executors: Record<string, AgentRunnerToolExecutor>;
     readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+    readonly signal?: AbortSignal;
   }) => Promise<AgentRunnerSession>;
 };

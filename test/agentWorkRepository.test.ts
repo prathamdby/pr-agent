@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { Pool } from "pg";
+import { LEGACY_REVIEW_LENSES } from "../src/review/reviewSchema.js";
 
 vi.mock("../src/db/postgres.js", () => ({
   queryOne: vi.fn(),
@@ -48,7 +49,13 @@ describe("loadReviewExecutorPublishContext", () => {
 
     expect(queryOne).toHaveBeenCalledTimes(1);
     expect(vi.mocked(queryOne).mock.calls[0]?.[1]).toContain("json_agg");
-    expect(vi.mocked(queryOne).mock.calls[0]?.[2]).toEqual(["o/r#1", "review", "wi-1"]);
+    expect(vi.mocked(queryOne).mock.calls[0]?.[1]).toContain("review_lens = ANY($4::text[])");
+    expect(vi.mocked(queryOne).mock.calls[0]?.[2]).toEqual([
+      "o/r#1",
+      "review",
+      "wi-1",
+      LEGACY_REVIEW_LENSES,
+    ]);
   });
 
   it("omits summary comment hint when no prior summary publish exists", async () => {
@@ -60,7 +67,7 @@ describe("loadReviewExecutorPublishContext", () => {
     });
 
     await expect(
-      loadReviewExecutorPublishContext(pool, "wi-2", "o/r#1", "review-security"),
+      loadReviewExecutorPublishContext(pool, "wi-2", "o/r#1", "review"),
     ).resolves.toMatchObject({
       shouldLinkToSummary: false,
       summaryCommentGithubId: null,
@@ -87,7 +94,10 @@ describe("listTriageEligibleInlineReviews", () => {
       ]),
     );
 
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("inline_review"), ["o/r#1"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("review_lens = ANY($2::text[])"), [
+      "o/r#1",
+      LEGACY_REVIEW_LENSES,
+    ]);
   });
 });
 

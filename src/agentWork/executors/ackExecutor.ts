@@ -5,9 +5,8 @@ import {
   upsertReviewSummaryComment,
 } from "../../github/reviewPublish.js";
 import { logDebug, logWarn } from "../../evlog.js";
-import { reviewSummarySentinelForMode } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
-import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
+import { DEFERRED_HEAD_SHA, REVIEW_SUMMARY_SENTINEL } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
@@ -67,12 +66,11 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
           )
         : data.progress.headSha;
     const body = renderReviewProgressComment({
-      mode: data.progress.lens,
       headSha,
       source: data.progress.source,
     });
     const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
-    const sentinel = reviewSummarySentinelForMode(data.progress.lens);
+    const sentinel = REVIEW_SUMMARY_SENTINEL;
     let summary;
     if (data.workItemId) {
       summary = await upsertSummaryCommentWithCreationClaim({

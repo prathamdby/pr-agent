@@ -3,10 +3,7 @@ import * as evlog from "../src/evlog.js";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import * as reviewSchema from "../src/review/reviewSchema.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REVIEW_POINTER_NOTE_LEAD,
@@ -160,7 +157,7 @@ describe("publishReview", () => {
 
   it("suppresses inline review when stored fingerprint matches", async () => {
     const finding = payload.findings[0];
-    const stored = fingerprintFinding(finding, "review");
+    const stored = fingerprintFinding(finding);
 
     await publishReviewForTest({
       ...baseParams,
@@ -178,7 +175,7 @@ describe("publishReview", () => {
 
   it("preserves stored fingerprints on inline_review step when all inline suppressed", async () => {
     const finding = payload.findings[0];
-    const stored = fingerprintFinding(finding, "review");
+    const stored = fingerprintFinding(finding);
     const recordPublishStep = vi.fn<RecordPublishStep>(async () => undefined);
 
     await publishReviewForTest({
@@ -245,19 +242,11 @@ describe("publishReview", () => {
     spy.mockRestore();
   });
 
-  it.each([
-    { label: "general", mode: undefined, sentinel: REVIEW_SUMMARY_SENTINEL },
-    {
-      label: "security",
-      mode: "review-security" as const,
-      sentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
-    },
-  ])("skips PR review when there are no P0–P2 findings ($label)", async ({ mode, sentinel }) => {
+  it("skips PR review when there are no P0–P2 findings", async () => {
     const publishState = testPublishState();
 
     await publishReviewForTest({
       ...baseParams,
-      ...(mode ? { mode } : {}),
       publishState,
       payload: { ...payload, findings: [] },
     });
@@ -268,8 +257,8 @@ describe("publishReview", () => {
       "o",
       "r",
       1,
-      expect.stringContaining(sentinel),
-      sentinel,
+      expect.stringContaining(REVIEW_SUMMARY_SENTINEL),
+      REVIEW_SUMMARY_SENTINEL,
     );
     expect(publishState.inlinePublished).toBe(true);
   });
@@ -348,11 +337,11 @@ describe("publishReview", () => {
     expect(summaryBody).toContain("#discussion_r99");
   });
 
-  it("uses security sentinel and pointer with agent fix prompt when mode is review-security", async () => {
+  it("uses the unified sentinel and pointer with agent fix prompt", async () => {
     const publishState = testPublishState();
     await publishReviewForTest({
       ...baseParams,
-      mode: "review-security",
+      mode: "review",
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
@@ -380,8 +369,8 @@ describe("publishReview", () => {
       "o",
       "r",
       1,
-      expect.stringContaining(SECURITY_REVIEW_SUMMARY_SENTINEL),
-      SECURITY_REVIEW_SUMMARY_SENTINEL,
+      expect.stringContaining(REVIEW_SUMMARY_SENTINEL),
+      REVIEW_SUMMARY_SENTINEL,
     );
   });
 
@@ -444,7 +433,7 @@ describe("publishReview", () => {
     ]);
   });
 
-  it("syncs quality effort without removing review effort", async () => {
+  it("syncs Review effort without removing a legacy quality label", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
       "Review effort 3/5",
       "Quality effort 1/5",
@@ -453,7 +442,7 @@ describe("publishReview", () => {
 
     await publishReviewForTest({
       ...baseParams,
-      mode: "review-quality",
+      mode: "review",
       publishState: testPublishState(),
       cfg: {
         enableReviewLabelsEffort: true,
@@ -465,9 +454,9 @@ describe("publishReview", () => {
     });
 
     expect(setPullRequestLabels).toHaveBeenCalledWith("t", "o", "r", 1, [
-      "Review effort 3/5",
+      "Quality effort 1/5",
       "bug",
-      "Quality effort 4/5",
+      "Review effort 4/5",
     ]);
   });
 

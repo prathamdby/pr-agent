@@ -62,7 +62,7 @@ export async function createSlashReviewRescheduleWorkItem(
   latestHeadSha: string,
 ): Promise<SlashReviewRescheduleWorkItem> {
   const payload = item.payload as ReviewWorkPayload;
-  const reviewLens = item.reviewLens!;
+  const reviewLens = "review" as const;
   let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
 
   if (!replacementWorkItemId) {
@@ -160,7 +160,7 @@ export async function enqueueSlashReviewReschedule(
   replacementHeadSha: string,
   activePgBossJobId?: string,
 ): Promise<void> {
-  const reviewLens = item.reviewLens!;
+  const reviewLens = "review" as const;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
   const parentPayload = item.payload as ReviewWorkPayload;
 
@@ -194,7 +194,7 @@ export async function enqueueSlashReviewReschedule(
   }
 
   try {
-    await releaseReviewSingletonSlot(boss, item.resourceKey, reviewLens, {
+    await releaseReviewSingletonSlot(boss, item.resourceKey, {
       skipJobId: activePgBossJobId,
     });
 
@@ -204,7 +204,7 @@ export async function enqueueSlashReviewReschedule(
       ...correlation,
     };
     const reviewJobId = await boss.send(REVIEW_QUEUE, reviewData, {
-      singletonKey: reviewSingletonKey(item.resourceKey, reviewLens),
+      singletonKey: reviewSingletonKey(item.resourceKey),
       group: { id: installationGroupId(item.installationId) },
     });
     if (reviewJobId == null) {

@@ -1,6 +1,6 @@
 import type { Config } from "../config.js";
 import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
-import type { ReviewMode } from "../review/reviewSchema.js";
+import type { LegacyReviewLens, ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 
@@ -136,7 +136,8 @@ export type AgentWorkItem = PrRef & {
   readonly type: WorkType;
   readonly source: WorkSource;
   readonly status: WorkStatus;
-  readonly reviewLens: ReviewMode | null;
+  /** Active work writes `review`; historical rows may retain a removed lens identifier. */
+  readonly reviewLens: LegacyReviewLens | null;
   readonly resourceKey: string;
   readonly attemptCount: number;
   readonly payload:
@@ -167,8 +168,8 @@ export function prResourceKey(owner: string, repo: string, prNumber: number): st
   return `${owner}/${repo}#${prNumber}`;
 }
 
-export function reviewSingletonKey(resourceKey: string, lens: ReviewMode): string {
-  return `${resourceKey}:${lens}`;
+export function reviewSingletonKey(resourceKey: string): string {
+  return `${resourceKey}:review`;
 }
 
 export function descriptionSingletonKey(resourceKey: string): string {

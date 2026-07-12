@@ -33,7 +33,7 @@ function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0])
 export type McpBridgeOptions = {
   readonly tools: readonly PiTool[] | (() => readonly PiTool[]);
   readonly executors: Record<string, CursorExecutor> | (() => Record<string, CursorExecutor>);
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | (() => AbortSignal | undefined);
   readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
   readonly maxToolRounds?: number | (() => number | undefined);
   readonly toolRoundCounter?: { count: number };
@@ -153,6 +153,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
   const bearerToken = crypto.randomBytes(CURSOR_MCP_TOKEN_BYTES).toString("hex");
   const endpointPath = `/mcp/${crypto.randomUUID()}`;
   const pendingCalls = new Set<AbortController>();
+  const lifecycleSignal = options.signal ? resolveOption(options.signal) : undefined;
   let disposed = false;
 
   const mcpServer = new McpProtocolServer(
@@ -182,8 +183,14 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     const abortController = new AbortController();
     pendingCalls.add(abortController);
     const linkAbort = (): void => abortController.abort();
-    extra.signal?.addEventListener("abort", linkAbort, { once: true });
-    options.signal?.addEventListener("abort", linkAbort, { once: true });
+    const optionSignal = options.signal ? resolveOption(options.signal) : undefined;
+    // addEventListener does not replay past aborts — check both signals first.
+    if (extra.signal?.aborted || optionSignal?.aborted) {
+      linkAbort();
+    } else {
+      extra.signal?.addEventListener("abort", linkAbort, { once: true });
+      optionSignal?.addEventListener("abort", linkAbort, { once: true });
+    }
 
     try {
       if (abortController.signal.aborted) {
@@ -253,7 +260,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       return mcpResult;
     } finally {
       extra.signal?.removeEventListener("abort", linkAbort);
-      options.signal?.removeEventListener("abort", linkAbort);
+      optionSignal?.removeEventListener("abort", linkAbort);
       pendingCalls.delete(abortController);
     }
   });
@@ -323,7 +330,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     });
   };
 
-  options.signal?.addEventListener(
+  lifecycleSignal?.addEventListener(
     "abort",
     () => {
       void dispose();

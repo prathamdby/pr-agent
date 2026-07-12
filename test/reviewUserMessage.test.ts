@@ -9,7 +9,6 @@ function baseReviewParams(
     repo: "hello-world",
     prNumber: 42,
     headSha: "abc123",
-    reviewMode: "review-security",
     userSupplement,
   };
 }

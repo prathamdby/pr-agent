@@ -57,11 +57,8 @@ describe("review check run lifecycle", () => {
     vi.clearAllMocks();
   });
 
-  it("maps review lenses to check names", () => {
-    expect(reviewCheckRunName("review")).toBe("PR Agent Review");
-    expect(reviewCheckRunName("review-security")).toBe("PR Agent Security Review");
-    expect(reviewCheckRunName("review-quality")).toBe("PR Agent Quality Review");
-    expect(reviewCheckRunName("review-tests")).toBe("PR Agent Tests Review");
+  it("uses one check name for Review", () => {
+    expect(reviewCheckRunName()).toBe("PR Agent Review");
   });
 
   it("does nothing when disabled", async () => {
