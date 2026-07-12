@@ -122,6 +122,8 @@ type MutableSessionRoleTotals = {
   toolCallCount: number;
   toolCallErrors: number;
   toolCallDurationMs: number;
+  toolResultBytes: number;
+  toolResultCharacters: number;
   promptBytes: number;
   promptCharacters: number;
   estimatedInputTokens: number;
@@ -300,6 +302,10 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
         role.toolCallCount += 1;
         if (!event.ok) role.toolCallErrors += 1;
         if (event.durationMs != null) role.toolCallDurationMs += event.durationMs;
+        if (event.resultBytes != null) role.toolResultBytes += event.resultBytes;
+        if (event.resultCharacters != null) {
+          role.toolResultCharacters += event.resultCharacters;
+        }
       }
       break;
     }

@@ -98,6 +98,8 @@ describe("reviewRunMetrics", () => {
         name: "submitReviewerReport",
         ok: true,
         durationMs: 17,
+        resultBytes: 8,
+        resultCharacters: 8,
         sessionRole: "reviewer:correctness",
       });
       recordReviewMetric({
@@ -138,8 +140,8 @@ describe("reviewRunMetrics", () => {
         diffCacheEmptyAtFirstSubmit: true,
         toolCallCount: 3,
         toolCallErrors: 1,
-        toolResultBytes: 120,
-        toolResultCharacters: 118,
+        toolResultBytes: 128,
+        toolResultCharacters: 126,
         modelTurnCount: 2,
         promptBytes: 144,
         promptCharacters: 140,
@@ -158,6 +160,8 @@ describe("reviewRunMetrics", () => {
             modelTurnCount: 1,
             toolCallCount: 1,
             toolCallDurationMs: 17,
+            toolResultBytes: 8,
+            toolResultCharacters: 8,
             providerInputTokens: 12,
           }),
         },

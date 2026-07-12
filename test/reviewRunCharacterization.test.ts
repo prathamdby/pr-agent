@@ -84,10 +84,7 @@ function createFakeSession(params: AgentRunnerCreateSessionParams): AgentRunnerS
         throw new Error("aborted");
       }
       if (kind === "reviewer" && reviewerId) {
-        if (
-          fakeState.mode === "required-correctness-failure" &&
-          reviewerId === "correctness"
-        ) {
+        if (fakeState.mode === "required-correctness-failure" && reviewerId === "correctness") {
           throw new Error("correctness Reviewer agent failed");
         }
         if (fakeState.mode === "required-security-failure" && reviewerId === "security") {
@@ -182,9 +179,12 @@ vi.mock("../src/review/run/reviewRunSetup.js", async (importOriginal) => {
     buildReviewRunSetup: vi.fn((params) => {
       const submitState = {
         published: false,
-        publishSuperseded: false,
+        inlinePublished: false,
+        inlineReviewId: null as number | null,
         lastValidationError: null as string | null,
         publishCallCount: 0,
+        publishCallsExhausted: false,
+        publishSuperseded: false,
       };
       return {
         systemPrompt: "Review orchestrator system",

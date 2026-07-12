@@ -1,3 +1,5 @@
+import { logDebug } from "../../evlog.js";
+
 /** Provider-neutral tool-call metric event. Review runs map this into review metrics. */
 export type AgentToolCallMetricEvent = {
   readonly kind: "tool_call";
@@ -17,7 +19,10 @@ export function safeEmitToolCallMetric(
   if (!onToolCallMetric) return;
   try {
     onToolCallMetric(event);
-  } catch {
-    // best-effort: recorder failures must not break tool execution
+  } catch (error) {
+    logDebug("agent_tool_call_metric_failed", {
+      tool: event.name,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 }

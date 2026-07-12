@@ -170,8 +170,7 @@ export async function runReviewerEnsemble(params: {
   failed.sort((a, b) => REVIEWER_IDS.indexOf(a) - REVIEWER_IDS.indexOf(b));
   const candidateFindings = reports.reduce((total, report) => total + report.findings.length, 0);
   const durationMs = Date.now() - startedAt;
-  const requiredFailed =
-    failed.includes("correctness") || failed.includes("security");
+  const requiredFailed = failed.includes("correctness") || failed.includes("security");
   // Degraded review = optional Reviewer agent gaps only (ADR 0022 / CONTEXT.md).
   const degraded = failed.length > 0 && !requiredFailed;
   recordReviewMetric({

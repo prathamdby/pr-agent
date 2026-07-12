@@ -31,14 +31,6 @@ function toolResultToText(result: unknown): string {
   return typeof result === "string" ? result : JSON.stringify(result);
 }
 
-function toolResultSize(result: unknown): { resultBytes: number; resultCharacters: number } {
-  const text = toolResultToText(result);
-  return {
-    resultCharacters: text.length,
-    resultBytes: Buffer.byteLength(text, "utf8"),
-  };
-}
-
 function assistantMessageText(message: TurnEndEvent["message"]): string {
   if (message.role !== "assistant") return "";
   return message.content
@@ -73,7 +65,15 @@ function toCodingAgentTool(
           await refreshBeforeTool(tool.name);
         }
         const result = await executor(params);
-        const size = toolResultSize(result);
+        const text = toolResultToText(result);
+        const size = {
+          resultCharacters: text.length,
+          resultBytes: Buffer.byteLength(text, "utf8"),
+        };
+        const payload = {
+          content: [{ type: "text" as const, text }],
+          details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
+        };
         safeEmitToolCallMetric(onToolCallMetric, {
           kind: "tool_call",
           name: tool.name,
@@ -81,10 +81,7 @@ function toCodingAgentTool(
           resultBytes: size.resultBytes,
           resultCharacters: size.resultCharacters,
         });
-        return {
-          content: [{ type: "text" as const, text: toolResultToText(result) }],
-          details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
-        };
+        return payload;
       } catch (error) {
         safeEmitToolCallMetric(onToolCallMetric, {
           kind: "tool_call",

@@ -35,17 +35,18 @@ describe("injected review tool-call recorder", () => {
 
   it("is a no-op when no Review run metrics bag exists", () => {
     const recorder = createReviewToolCallRecorder("orchestrator");
-    expect(() =>
-      recorder({ kind: "tool_call", name: "submitReview", ok: true }),
-    ).not.toThrow();
+    expect(() => recorder({ kind: "tool_call", name: "submitReview", ok: true })).not.toThrow();
     expect(snapshotReviewRunMetrics()).toBeNull();
   });
 
   it("swallows recorder failures so non-review sessions stay healthy", () => {
     expect(() =>
-      safeEmitToolCallMetric(() => {
-        throw new Error("boom");
-      }, { kind: "tool_call", name: "noop", ok: true }),
+      safeEmitToolCallMetric(
+        () => {
+          throw new Error("boom");
+        },
+        { kind: "tool_call", name: "noop", ok: true },
+      ),
     ).not.toThrow();
     expect(() =>
       safeEmitToolCallMetric(undefined, { kind: "tool_call", name: "noop", ok: true }),

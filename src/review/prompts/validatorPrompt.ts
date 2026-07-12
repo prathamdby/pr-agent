@@ -1,3 +1,5 @@
+import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+
 /** Dedicated confirmation contract for high-risk validation sessions. */
 export function buildValidatorSystemPrompt(): string {
   return [
@@ -15,6 +17,6 @@ export function buildValidatorUserContent(finding: unknown): string {
     "Validate this candidate finding against the changed code.",
     "Call submitValidation with confirmed=true only when the defect is real; otherwise confirmed=false and a short reason.",
     "",
-    JSON.stringify(finding),
+    wrapUntrustedBlock("candidate_finding", JSON.stringify(finding)),
   ].join("\n");
 }

@@ -67,6 +67,7 @@ describe("Reviewer agent and validator prompt contracts", () => {
     expect(system).not.toMatch(/\bcall submitReviewerReport\b/);
     const user = buildValidatorUserContent({ title: "x", severity: "P0" });
     expect(user).toContain("submitValidation");
+    expect(user).toContain('<candidate_finding untrusted="true">');
     expect(user).not.toMatch(/\bsubmitReview\b/);
   });
 
