@@ -190,12 +190,12 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             TRIAGE_QUEUE,
             VERIFICATION_QUEUE,
           ]) {
-            const stats = await boss.getQueueStats(queue);
+            const [stats] = await boss.getQueueStats(queue);
             logDebug("agent_queue_stats", {
               queue,
-              queued: stats.queuedCount,
-              active: stats.activeCount,
-              total: stats.totalCount,
+              queued: stats?.queuedCount,
+              active: stats?.activeCount,
+              total: stats?.totalCount,
             });
           }
           const blockedReviewKeys = await boss.getBlockedKeys(REVIEW_QUEUE);
