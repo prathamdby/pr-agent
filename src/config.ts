@@ -82,6 +82,7 @@ import {
   DEFAULT_WEBHOOK_MAX_BODY_BYTES,
   DEFAULT_POSTHOG_PROJECT_TOKEN,
   DEFAULT_POSTHOG_HOST,
+  DEFAULT_POSTHOG_ENABLED,
   DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
   ENV,
   EXTERNAL_ENV,
@@ -578,7 +579,9 @@ export function loadConfig() {
     posthogEnabledRaw != null && posthogEnabledRaw.trim() !== ""
       ? posthogEnabledRaw === "true"
       : undefined;
-  const posthogEnabled = posthogEnabledExplicit ?? posthogProjectToken.trim().length > 0;
+  const posthogEnabled =
+    posthogEnabledExplicit ??
+    (posthogProjectToken.trim().length > 0 ? true : DEFAULT_POSTHOG_ENABLED);
   const posthogExceptionAutocapture = readBooleanEnv(
     ENV.POSTHOG_EXCEPTION_AUTOCAPTURE,
     DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,

@@ -66,6 +66,12 @@ describe("loadConfig validation", () => {
     expect(cfg.posthogExceptionAutocapture).toBe(false);
   });
 
+  it("allows PostHog enablement to be forced off even when a token is set", async () => {
+    const cfg = await load({ POSTHOG_PROJECT_TOKEN: "phc_test", POSTHOG_ENABLED: "false" });
+    expect(cfg.posthogEnabled).toBe(false);
+    expect(cfg.posthogProjectToken).toBe("phc_test");
+  });
+
   it("rejects a non-numeric positive knob", async () => {
     await expect(load({ MAX_TOOL_ROUNDS: "abc" })).rejects.toThrow(
       /MAX_TOOL_ROUNDS must be a positive number/,

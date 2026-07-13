@@ -11,14 +11,18 @@ const mockPostHog = vi.hoisted(() => {
     readonly apiKey: string;
     readonly options: PostHogOptions;
     readonly shutdown: Mock;
+    readonly capture: Mock;
+    readonly captureException: Mock;
   }> = [];
 
   return {
     instances,
     PostHog: vi.fn(function MockPostHog(apiKey: string, options: PostHogOptions) {
       const shutdown = vi.fn(() => undefined);
-      instances.push({ apiKey, options, shutdown });
-      return { shutdown, capture: vi.fn(), captureException: vi.fn() };
+      const capture = vi.fn();
+      const captureException = vi.fn();
+      instances.push({ apiKey, options, shutdown, capture, captureException });
+      return { shutdown, capture, captureException };
     }),
   };
 });
@@ -30,6 +34,7 @@ function slice(partial: Partial<PostHogConfigSlice> = {}): PostHogConfigSlice {
     posthogProjectToken: "",
     posthogHost: "",
     posthogExceptionAutocapture: true,
+    posthogEnabled: false,
     ...partial,
   };
 }
@@ -84,6 +89,7 @@ describe("posthog client", () => {
       slice({
         posthogProjectToken: "token",
         posthogHost: "https://posthog.example",
+        posthogEnabled: true,
       }),
     );
 
@@ -91,23 +97,41 @@ describe("posthog client", () => {
     await shutdownPostHog();
 
     expect(mockPostHog.instances).toHaveLength(1);
+    expect(mockPostHog.instances[0]?.capture).toHaveBeenCalledTimes(1);
     expect(mockPostHog.instances[0]?.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it("no-ops capture when enablement is false", async () => {
+    const { initPostHog, posthog } = await import("../src/posthog.js");
+
+    initPostHog(
+      slice({
+        posthogProjectToken: "token",
+        posthogEnabled: false,
+      }),
+    );
+
+    posthog.capture({ distinctId: "server", event: "skipped" });
+    posthog.captureException(new Error("skipped"), "server");
+
+    expect(mockPostHog.instances[0]?.capture).not.toHaveBeenCalled();
+    expect(mockPostHog.instances[0]?.captureException).not.toHaveBeenCalled();
   });
 
   it("does not register process signal listeners", async () => {
     const processOn = vi.spyOn(process, "on");
     const { initPostHog } = await import("../src/posthog.js");
 
-    initPostHog(slice({ posthogProjectToken: "token" }));
+    initPostHog(slice({ posthogProjectToken: "token", posthogEnabled: true }));
 
     expect(processOn).not.toHaveBeenCalledWith("SIGINT", expect.any(Function));
     expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
   });
 
   it("lazily constructs from settings defaults before init", async () => {
-    const { posthog } = await import("../src/posthog.js");
+    const { createPostHogFromConfig } = await import("../src/posthog.js");
 
-    posthog.capture({ distinctId: "server", event: "pre-init" });
+    createPostHogFromConfig(slice());
 
     expect(mockPostHog.PostHog).toHaveBeenCalledWith("", {
       enableExceptionAutocapture: true,

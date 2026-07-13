@@ -100,4 +100,9 @@ export const DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS = 86_400;
 export const DEFAULT_POSTHOG_PROJECT_TOKEN = "";
 /** Empty host: omit host so posthog-node uses its default cloud endpoint. */
 export const DEFAULT_POSTHOG_HOST = "";
+/**
+ * Fallback when `POSTHOG_ENABLED` is empty/unset and no project token is set.
+ * A non-empty token flips the derived default to true.
+ */
+export const DEFAULT_POSTHOG_ENABLED = false;
 export const DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE = true;

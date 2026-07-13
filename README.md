@@ -165,6 +165,7 @@ Every Review run selects Reviewer agents from the **Review budget tier** (full r
 | ----------------------- | ------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
 | Multi-agent review      | configurable (`opened` default) | `/review`         | Tier-selected reviewers -> validation -> one `## PR Agent Review`; inline P0 to P2 when present |
 | PR description          | opened (configurable)           | `/describe`       | Merges under `## PR Agent Description`                                                          |
+| Verification            | synchronize (configurable)      | No                | Re-checks open findings on new head (`VERIFICATION_AUTO_ACTIONS`); not a full **Review run**    |
 | Triage                  | No                              | `/triage`         | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`               |
 | Ask                     | No                              | `/ask <question>` | PR conversation or inline diff **code anchor**                                                  |
 | Help                    | No                              | `/help`           | Worker-published guidance                                                                       |
@@ -257,7 +258,7 @@ When enabled, library lookup tools may call `https://context7.com/api`. Set `CON
 
 ### PostHog (optional)
 
-Product analytics are optional and load through settings/config (`POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`, `POSTHOG_ENABLED`, `POSTHOG_EXCEPTION_AUTOCAPTURE`). The Node client is always constructed at bootstrap—even with an empty token—so capture call sites stay stable; useful delivery requires a non-empty token (or an explicit `POSTHOG_ENABLED=true` override). When enabled, captures use distinct ids `installation:<github-installation-id>`, `worker`, or `server`, with coarse properties (owner, repo, PR number, work-item id, provider, event names, error messages). Diffs and finding bodies are not sent as analytics payloads. Exception autocapture defaults to on and may forward uncaught exceptions to your PostHog host. Details: [docs/configuration.md](docs/configuration.md), [docs/operations.md](docs/operations.md#security).
+Product analytics are optional and load through settings/config (`POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`, `POSTHOG_ENABLED`, `POSTHOG_EXCEPTION_AUTOCAPTURE`). The Node client is always constructed at bootstrap—even with an empty token—so capture call sites stay stable. When `POSTHOG_ENABLED` is empty/unset, enablement follows whether the token is non-empty; set `POSTHOG_ENABLED=false` to skip `capture` / `captureException` even if a token is present. When enabled, events use distinct ids `installation:<github-installation-id>`, `worker`, or `server`, plus coarse operational properties (for example owner/repo/PR number, optional work-item id, provider/model labels, event names, durations, delivery ids, error messages, and similar counters)—not raw diffs or finding bodies. Exception autocapture defaults to on and may forward uncaught exceptions to your PostHog host. Details: [docs/configuration.md](docs/configuration.md), [docs/operations.md](docs/operations.md#security).
 
 ### Logging
 

@@ -8,16 +8,18 @@ import {
 
 export type PostHogConfigSlice = Pick<
   Config,
-  "posthogProjectToken" | "posthogHost" | "posthogExceptionAutocapture"
+  "posthogProjectToken" | "posthogHost" | "posthogExceptionAutocapture" | "posthogEnabled"
 >;
 
 let client: PostHog | undefined;
+let enabled = false;
 
 function defaultConfigSlice(): PostHogConfigSlice {
   return {
     posthogProjectToken: DEFAULT_POSTHOG_PROJECT_TOKEN,
     posthogHost: DEFAULT_POSTHOG_HOST,
     posthogExceptionAutocapture: DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
+    posthogEnabled: false,
   };
 }
 
@@ -30,7 +32,12 @@ export function createPostHogFromConfig(cfg: PostHogConfigSlice): PostHog {
 }
 
 export function initPostHog(cfg: PostHogConfigSlice): void {
+  const previous = client;
+  enabled = cfg.posthogEnabled;
   client = createPostHogFromConfig(cfg);
+  if (previous !== undefined) {
+    void Promise.resolve(previous.shutdown()).catch(() => undefined);
+  }
 }
 
 function getClient(): PostHog {
@@ -41,9 +48,14 @@ function getClient(): PostHog {
 }
 
 export const posthog = {
-  capture: (...args: Parameters<PostHog["capture"]>) => getClient().capture(...args),
-  captureException: (...args: Parameters<PostHog["captureException"]>) =>
-    getClient().captureException(...args),
+  capture: (...args: Parameters<PostHog["capture"]>) => {
+    if (!enabled) return;
+    getClient().capture(...args);
+  },
+  captureException: (...args: Parameters<PostHog["captureException"]>) => {
+    if (!enabled) return;
+    getClient().captureException(...args);
+  },
   shutdown: () => getClient().shutdown(),
 };
 
@@ -56,4 +68,5 @@ export function shutdownPostHog(): Promise<void> {
 
 export function resetPostHogForTests(): void {
   client = undefined;
+  enabled = false;
 }
