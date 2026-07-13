@@ -40,6 +40,9 @@ export const REVIEW_EVIDENCE_MAX_TOTAL_DIFF_BYTES = 2_000_000;
 export const REVIEW_EVIDENCE_CONTRACT_VERSION = 1;
 /** Version of the hybrid critic prompt contract; bump to invalidate critic checkpoints (KTD5). */
 export const REVIEW_PROMPT_CONTRACT_VERSION = 1;
+/** Rollout modes for the Review pipeline (KTD11): legacy publishes via the eight-role roster, shadow adds a sampled non-publishing hybrid comparison, hybrid publishes via the four-critic pipeline. */
+export const REVIEW_PIPELINE_MODES = ["legacy", "shadow", "hybrid"] as const;
+export type ReviewPipelineMode = (typeof REVIEW_PIPELINE_MODES)[number];
 
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";

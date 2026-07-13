@@ -21,6 +21,7 @@ export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;
   readonly preflight: ReviewPreflightMetadata;
   readonly agentCwd: string;
+  readonly prFiles: ListPullRequestFilesResult;
 };
 
 export type PreparePrRepositoryViewParams = {
@@ -107,12 +108,14 @@ async function prepareUncached(
     installationToken: params.installationToken,
     prFiles,
     repositorySizeKb: params.repositorySizeKb,
-    deriveAuthoritativeChangeSet: params.deriveAuthoritativeChangeSet,
+    // The GitHub listing stays authoritative while complete; git derivation is for truncated listings (KTD2).
+    deriveAuthoritativeChangeSet: params.deriveAuthoritativeChangeSet === true && prFiles.truncated,
   });
   return {
     workspace,
     preflight: buildReviewPreflightMetadataFromWorkspace(workspace),
     agentCwd: workspace.agentCwd,
+    prFiles,
     cleanup: () => workspace.cleanup(),
   };
 }

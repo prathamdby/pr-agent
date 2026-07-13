@@ -27,7 +27,7 @@ import type { ReviewBudgetTier } from "./reviewSizeBudget.js";
 export { REVIEWER_IDS };
 export type { ReviewerId };
 
-const reviewerFindingSchema = z.object({
+export const reviewerFindingSchema = z.object({
   severity: z.enum(["P0", "P1", "P2", "P3"]),
   file: z.string().min(1),
   startLine: z.number().int().positive(),
@@ -41,7 +41,7 @@ const reviewerFindingSchema = z.object({
   evidence: z.string().min(1).max(3000),
 });
 
-const reviewerReportSchema = z.object({
+export const reviewerReportSchema = z.object({
   coverage: z.string().min(1).max(2000),
   findings: z.array(reviewerFindingSchema).max(128),
   residualRisks: z.array(z.string().max(1000)).max(20),
@@ -50,6 +50,11 @@ const reviewerReportSchema = z.object({
 
 export type ReviewerReport = z.infer<typeof reviewerReportSchema> & {
   readonly reviewer: ReviewerId;
+};
+
+/** Minimal report shape accepted by synthesis-context building (legacy Reviewer or hybrid critic). */
+export type SynthesisReportInput = z.infer<typeof reviewerReportSchema> & {
+  readonly reviewer: string;
 };
 
 const validatorVerdictSchema = z.object({
@@ -333,10 +338,12 @@ export async function validateHighRiskFindings(params: {
 }
 
 export function buildSynthesisContext(params: {
-  reports: readonly ReviewerReport[];
-  failed: readonly ReviewerId[];
-  omitted?: readonly ReviewerId[];
+  reports: readonly SynthesisReportInput[];
+  failed: readonly string[];
+  omitted?: readonly string[];
   validationTruncatedCandidates?: number;
+  unvalidatedHighRisk?: number;
+  instruction?: string;
 }): string {
   const compactReports = params.reports.map((report) => ({
     ...report,
@@ -344,6 +351,7 @@ export function buildSynthesisContext(params: {
   }));
   const degradedCoverage = buildDegradedCoverage(params);
   const instruction =
+    params.instruction ??
     "Synthesize these independent Reviewer reports into one ReviewPayload. Use tools only to resolve concrete conflicts or unvalidated high-risk claims. Merge semantic duplicates, reject unsupported claims, do not re-sweep the full diff for new findings, and call submitReview exactly once.";
   const fixedContext = [degradedCoverage, instruction].join("\n\n");
   const reportBlockBudget = REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS - fixedContext.length - 4;
@@ -351,7 +359,7 @@ export function buildSynthesisContext(params: {
   return [reviewerReports, degradedCoverage, instruction].join("\n\n");
 }
 
-function highRiskRank(severity: ReviewerReport["findings"][number]["severity"]): number {
+function highRiskRank(severity: SynthesisReportInput["findings"][number]["severity"]): number {
   return severity === "P0" || severity === "P1" ? 0 : 1;
 }
 
@@ -361,8 +369,8 @@ function truncateForSynthesis(value: string, maxChars: number): string {
 }
 
 function compactFindingForSynthesis(
-  finding: ReviewerReport["findings"][number],
-): ReviewerReport["findings"][number] {
+  finding: SynthesisReportInput["findings"][number],
+): SynthesisReportInput["findings"][number] {
   if (finding.severity === "P0" || finding.severity === "P1") return finding;
   const { suggestedCode: _suggestedCode, fixPrompt: _fixPrompt, ...rest } = finding;
   return {
@@ -376,9 +384,10 @@ function compactFindingForSynthesis(
 }
 
 function buildDegradedCoverage(params: {
-  failed: readonly ReviewerId[];
-  omitted?: readonly ReviewerId[];
+  failed: readonly string[];
+  omitted?: readonly string[];
   validationTruncatedCandidates?: number;
+  unvalidatedHighRisk?: number;
 }): string {
   const reasons: string[] = [];
   if (params.failed.length > 0) {
@@ -394,11 +403,16 @@ function buildDegradedCoverage(params: {
       `High-risk validation truncated: ${params.validationTruncatedCandidates} candidate(s) were kept unvalidated.`,
     );
   }
+  if ((params.unvalidatedHighRisk ?? 0) > 0) {
+    reasons.push(
+      `Unvalidated high-risk findings: ${params.unvalidatedHighRisk} candidate(s) could not be independently verified and were kept.`,
+    );
+  }
   return `<degraded_coverage>${reasons.length > 0 ? reasons.join(" ") : "none"}</degraded_coverage>`;
 }
 
 function buildBudgetedReviewerReports(
-  reports: readonly ReviewerReport[],
+  reports: readonly SynthesisReportInput[],
   maxChars: number,
 ): string {
   const full = wrapUntrustedBlock(

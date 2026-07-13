@@ -8,6 +8,7 @@ import {
   type ListPullRequestFilesResult,
 } from "../../github/listPullRequestFiles.js";
 import { runFullPrReview } from "../../review/run/reviewRun.js";
+import { runHybridPrReview } from "../../review/run/hybridReviewRun.js";
 import {
   loadRepoPolicy,
   logInvalidRepoPolicy,
@@ -45,6 +46,7 @@ import {
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
+  createReviewCheckpointStores,
 } from "../repository.js";
 import { buildStaleReviewRescheduleResult } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
@@ -281,6 +283,7 @@ export async function executeReviewJob(
           prFiles: prefetchedPrFiles,
           pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
+          deriveAuthoritativeChangeSet: cfg.reviewPipelineMode !== "legacy",
         },
         async (repositoryView) => {
           const priorInlineFeedbackResult = await priorInlineFeedback;
@@ -306,7 +309,7 @@ export async function executeReviewJob(
             repoPolicyBlock,
           });
 
-          const result = await runFullPrReview({
+          const runParams = {
             cfg,
             token: tokenState.installation.token,
             tokenExpiresAtTs: tokenState.installation.expiresAtTs,
@@ -325,6 +328,7 @@ export async function executeReviewJob(
             storedInlineFingerprints,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
+            prFiles: repositoryView.prFiles,
             shouldLinkToSummary,
             summaryCommentIdHint,
             hasDescriptionAgentBlock: (
@@ -371,7 +375,18 @@ export async function executeReviewJob(
               item.installationId,
               tokenState,
             ),
-          });
+          };
+
+          const result =
+            cfg.reviewPipelineMode === "hybrid"
+              ? await runHybridPrReview({
+                  ...runParams,
+                  hybrid: {
+                    workItemId: item.id,
+                    ...(createReviewCheckpointStores(pool)),
+                  },
+                })
+              : await runFullPrReview(runParams);
           if (
             staleHeadAtPublish &&
             !payload.staleHeadRescheduled &&
