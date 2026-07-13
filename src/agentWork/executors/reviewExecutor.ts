@@ -10,6 +10,11 @@ import {
 import { runFullPrReview } from "../../review/run/reviewRun.js";
 import { runHybridPrReview } from "../../review/run/hybridReviewRun.js";
 import {
+  runShadowReview,
+  shouldSampleShadow,
+} from "../../review/evaluation/reviewShadow.js";
+import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
+import {
   loadRepoPolicy,
   logInvalidRepoPolicy,
   renderRepoPolicyBlock,
@@ -450,6 +455,50 @@ export async function executeReviewJob(
               },
             });
           }
+
+          if (
+            cfg.reviewPipelineMode === "shadow" &&
+            shouldSampleShadow({
+              sampleRate: cfg.reviewShadowSampleRate,
+              workItemId: item.id,
+              headSha,
+            })
+          ) {
+            try {
+              const shadowResult = await runShadowReview({
+                cfg,
+                runner: resolveAgentRunnerProvider(cfg),
+                cwd: repositoryView.agentCwd,
+                owner: item.owner,
+                repo: item.repo,
+                prNumber: item.prNumber,
+                headSha,
+                userSupplement: payload.userSupplement,
+                trustedContext,
+                workspace: repositoryView.workspace,
+                prFiles: repositoryView.prFiles,
+              });
+              logInfo("review_shadow_paired", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                headSha,
+                legacy_published: result.published,
+                shadow_findings_count: shadowResult.findings.length,
+                shadow_degraded: shadowResult.degraded,
+                shadow_duration_ms: shadowResult.durationMs,
+              });
+            } catch (error) {
+              logWarn("review_shadow_failed", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                headSha,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
           return { degraded: !result.published && !result.publishSuperseded };
         },
       );

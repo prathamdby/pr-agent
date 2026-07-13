@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "caseId": "case-001-correctness-small",
+      "domain": "correctness",
+      "sizeTag": "small",
+      "snapshot": {
+        "owner": "test-owner",
+        "repo": "test-repo",
+        "prNumber": 1,
+        "headSha": "aaaaaaa0000000000000000000000000000000000",
+        "baseSha": "bbbbbbb0000000000000000000000000000000000",
+        "files": [
+          {
+            "path": "src/handler.ts",
+            "status": "modified",
+            "patch": "@@ -1,5 +1,8 @@\n export function handle(req) {\n-  return process(req);\n+  const result = process(req);\n+  if (!result.ok) {\n+    throw new Error(result.error);\n+  }\n+  return result;\n }"
+          }
+        ],
+        "contentHash": "8e272218eb219e6c"
+      },
+      "expectedFindings": [
+        {
+          "id": "f001",
+          "file": "src/handler.ts",
+          "lineBucket": 0,
+          "normalizedTitle": "missing error handling for failed result",
+          "severity": "P1",
+          "valid": true
+        }
+      ],
+      "acceptedClean": false
+    },
+    {
+      "caseId": "case-002-security-small",
+      "domain": "security",
+      "sizeTag": "small",
+      "snapshot": {
+        "owner": "test-owner",
+        "repo": "test-repo",
+        "prNumber": 2,
+        "headSha": "ccccccc0000000000000000000000000000000000",
+        "baseSha": "ddddddd0000000000000000000000000000000000",
+        "files": [
+          {
+            "path": "src/auth.ts",
+            "status": "modified",
+            "patch": "@@ -10,3 +10,5 @@\n function checkPassword(input) {\n-  return input === storedHash;\n+  const hashed = sha256(input);\n+  return hashed === storedHash;\n }"
+          }
+        ],
+        "contentHash": "123dc14e122c6aed"
+      },
+      "expectedFindings": [],
+      "acceptedClean": true
+    }
+  ]
+}
