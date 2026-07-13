@@ -20,7 +20,7 @@ function finding(
   };
 }
 
-function criticReport(critic: string, findings: CriticReport["findings"][]): CriticReport {
+function criticReport(critic: string, findings: CriticReport["findings"]): CriticReport {
   return {
     critic: critic as CriticReport["critic"],
     coverage: "covered",

@@ -6,7 +6,8 @@ Module layout, import rules, Cursor Cloud setup, and the runtime topology diagra
 
 | Area                 | Path                       | Public entry                                                            |
 | -------------------- | -------------------------- | ----------------------------------------------------------------------- |
-| Review orchestration | `src/review/`              | `run/reviewRun.ts`, `run/reviewEnsemble.ts`, `publish/publishReview.ts` |
+| Review orchestration | `src/review/`              | `run/reviewRun.ts`, `run/reviewEnsemble.ts`, `run/hybridReviewRun.ts`, `publish/publishReview.ts` |
+| Review evaluation    | `src/review/evaluation/`   | `reviewComparison.ts`, `reviewReplay.ts`, `reviewShadow.ts`             |
 | Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                                     |
 | Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss)                  |
 | Agent work execution | `src/agentWork/executors/` | `index.ts`                                                              |
@@ -22,7 +23,7 @@ Run `nubx knip` after refactors to catch unused exports and files.
 
 Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, and `src/agent/description/`. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
 
-The provider-neutral reviewer fan-out, internal report/validation schemas, and synthesis context live in `src/review/run/reviewEnsemble.ts`. Reviewer and validator sessions receive read-only workspace tools; only the orchestrator session assembled by `reviewRun.ts` receives `submitReview`.
+The provider-neutral reviewer fan-out, internal report/validation schemas, and synthesis context live in `src/review/run/reviewEnsemble.ts`. Reviewer and validator sessions receive read-only workspace tools; only the orchestrator session assembled by `reviewRun.ts` receives `submitReview`. The hybrid pipeline (`run/hybridReviewRun.ts`) runs four bounded critics (`run/reviewCritics.ts`), one batched validator (`run/reviewValidation.ts`), and one submission-only synthesis turn (`run/reviewSynthesis.ts`); the review executor dispatches between legacy and hybrid based on `REVIEW_PIPELINE_MODE`. Replay and shadow evaluation live in `src/review/evaluation/` and are structurally non-publishing.
 
 ## README runtime topology diagram
 
