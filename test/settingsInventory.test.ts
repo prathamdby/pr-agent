@@ -65,4 +65,29 @@ describe("settings inventory", () => {
     expect(readExample(ENV.WEBHOOK_MAX_BODY_BYTES)).toBe(String(DEFAULT_WEBHOOK_MAX_BODY_BYTES));
     expect(documented.length).toBeGreaterThan(20);
   });
+
+  it("PostHog keys are inventory-gated and the client module does not read process.env", () => {
+    expect(Object.values(ENV)).toContain("POSTHOG_PROJECT_TOKEN");
+    expect(Object.values(ENV)).toContain("POSTHOG_HOST");
+    expect(Object.values(ENV)).toContain("POSTHOG_ENABLED");
+    expect(Object.values(ENV)).toContain("POSTHOG_EXCEPTION_AUTOCAPTURE");
+
+    const posthogSrc = fs.readFileSync(path.join(process.cwd(), "src/posthog.ts"), "utf8");
+    expect(posthogSrc).not.toMatch(/process\.env/);
+
+    const configSrc = fs.readFileSync(path.join(process.cwd(), "src/config.ts"), "utf8");
+    expect(configSrc).toMatch(/ENV\.POSTHOG_PROJECT_TOKEN/);
+    expect(configSrc).toMatch(/ENV\.POSTHOG_HOST/);
+    expect(configSrc).toMatch(/ENV\.POSTHOG_ENABLED/);
+    expect(configSrc).toMatch(/ENV\.POSTHOG_EXCEPTION_AUTOCAPTURE/);
+
+    const configurationDocs = fs.readFileSync(
+      path.join(process.cwd(), "docs/configuration.md"),
+      "utf8",
+    );
+    expect(configurationDocs).toMatch(/POSTHOG_PROJECT_TOKEN/);
+    expect(configurationDocs).toMatch(/POSTHOG_HOST/);
+    expect(configurationDocs).toMatch(/POSTHOG_ENABLED/);
+    expect(configurationDocs).toMatch(/POSTHOG_EXCEPTION_AUTOCAPTURE/);
+  });
 });

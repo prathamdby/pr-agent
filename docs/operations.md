@@ -130,5 +130,6 @@ Maintainer rules: [AGENTS.md](../AGENTS.md).
 
 - Treat `WEBHOOK_SECRET` and app private keys as production secrets.
 - **`/ask`** applies deterministic outbound redaction (tokens, host URLs, PEM blocks) before posting replies; obvious bot-internals probes get an **Ask meta refusal** without an LLM call ([ADR 0010](adr/0010-ask-red-team-hardening.md)).
+- Optional PostHog analytics (`POSTHOG_*` knobs in [configuration.md](configuration.md)): when enabled with a project token, events and optional exception autocapture leave the process to the configured host. Distinct ids: `server`, `worker`, `installation:<id>`. Typical properties include GitHub event/delivery, owner/repo/PR number, work-item type, provider/model, publish attempts, finding counts/severities, and error messages on failure paths (see also [README Data Privacy](../README.md#data-privacy)).
 - Structured logging uses [evlog](https://www.evlog.dev) with `service: pr-agent`. `LOG_LEVEL` maps to evlog `minLevel` (default `info`). `LOG_MAX_WIDE_EVENTS` (default `128`) caps sub-events per webhook/worker operation. `LOG_REDACT` (default true) redacts secret-shaped substrings from logs. `LOG_PRETTY` defaults to off in production (JSON lines).
 - Production logging should stay at `info` unless debugging a specific review run (`LOG_LEVEL=debug`).

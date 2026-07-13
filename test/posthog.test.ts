@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import type { PostHogInitOptions } from "../src/posthog.js";
 
 type PostHogOptions = {
   readonly host?: string;
@@ -24,20 +25,27 @@ const mockPostHog = vi.hoisted(() => {
 
 vi.mock("posthog-node", () => ({ PostHog: mockPostHog.PostHog }));
 
+function initFromOptions(options: PostHogInitOptions) {
+  return import("../src/posthog.js").then(({ initPostHog }) => {
+    initPostHog(options);
+  });
+}
+
 describe("posthog client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
     mockPostHog.instances.length = 0;
-    delete process.env.POSTHOG_PROJECT_TOKEN;
-    delete process.env.POSTHOG_HOST;
+    mockPostHog.PostHog.mockClear();
   });
 
-  it("constructs the client with exception autocapture enabled", async () => {
-    process.env.POSTHOG_PROJECT_TOKEN = "token";
-    process.env.POSTHOG_HOST = "https://posthog.example";
-
-    await import("../src/posthog.js");
+  it("constructs the client from Config options with exception autocapture", async () => {
+    await initFromOptions({
+      enabled: true,
+      projectToken: "token",
+      host: "https://posthog.example",
+      exceptionAutocapture: true,
+    });
 
     expect(mockPostHog.PostHog).toHaveBeenCalledWith("token", {
       host: "https://posthog.example",
@@ -45,20 +53,81 @@ describe("posthog client", () => {
     });
   });
 
+  it("constructs with an empty token when enabled (intentional no-op SDK client)", async () => {
+    await initFromOptions({
+      enabled: true,
+      projectToken: "",
+      host: "",
+      exceptionAutocapture: true,
+    });
+
+    expect(mockPostHog.PostHog).toHaveBeenCalledWith("", {
+      enableExceptionAutocapture: true,
+    });
+  });
+
+  it("skips client construction when disabled", async () => {
+    await initFromOptions({
+      enabled: false,
+      projectToken: "token",
+      host: "https://posthog.example",
+      exceptionAutocapture: true,
+    });
+
+    expect(mockPostHog.PostHog).not.toHaveBeenCalled();
+  });
+
+  it("honors exception autocapture=false from Config", async () => {
+    await initFromOptions({
+      enabled: true,
+      projectToken: "token",
+      host: "",
+      exceptionAutocapture: false,
+    });
+
+    expect(mockPostHog.PostHog).toHaveBeenCalledWith("token", {
+      enableExceptionAutocapture: false,
+    });
+  });
+
   it("does not register process signal listeners", async () => {
     const processOn = vi.spyOn(process, "on");
 
-    await import("../src/posthog.js");
+    await initFromOptions({
+      enabled: true,
+      projectToken: "token",
+      host: "",
+      exceptionAutocapture: true,
+    });
 
     expect(processOn).not.toHaveBeenCalledWith("SIGINT", expect.any(Function));
     expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
   });
 
   it("shuts down the singleton client through the exported helper", async () => {
-    const { shutdownPostHog } = await import("../src/posthog.js");
+    const { initPostHog, shutdownPostHog } = await import("../src/posthog.js");
+    initPostHog({
+      enabled: true,
+      projectToken: "token",
+      host: "",
+      exceptionAutocapture: true,
+    });
 
     await shutdownPostHog();
 
     expect(mockPostHog.instances[0]?.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it("shutdown is a no-op when analytics is disabled", async () => {
+    const { initPostHog, shutdownPostHog } = await import("../src/posthog.js");
+    initPostHog({
+      enabled: false,
+      projectToken: "",
+      host: "",
+      exceptionAutocapture: true,
+    });
+
+    await expect(shutdownPostHog()).resolves.toBeUndefined();
+    expect(mockPostHog.PostHog).not.toHaveBeenCalled();
   });
 });

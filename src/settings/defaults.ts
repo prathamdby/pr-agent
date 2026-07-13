@@ -59,6 +59,13 @@ export const DEFAULT_WEBHOOK_TIMEOUT_MS = 10_000;
 export const DEFAULT_CONTEXT7_API_KEY = "";
 export const DEFAULT_CURSOR_API_KEY = "";
 
+/** Empty token still constructs a client when enabled (SDK no-ops outbound). */
+export const DEFAULT_POSTHOG_PROJECT_TOKEN = "";
+export const DEFAULT_POSTHOG_HOST = "";
+/** Default true preserves prior empty-token client construction. */
+export const DEFAULT_POSTHOG_ENABLED = true;
+export const DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE = true;
+
 export const DEFAULT_ENABLE_REVIEW_LABELS_EFFORT = true;
 export const DEFAULT_ENABLE_REVIEW_LABELS_SECURITY = false;
 export const DEFAULT_ENABLE_THREAD_REPLIES = false;

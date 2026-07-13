@@ -5,7 +5,7 @@ import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
 import { captureAgentProviderBootFailure } from "./agent/providers/bootAnalytics.js";
 import { resolveAgentRunnerProvider } from "./agent/providers/index.js";
-import { shutdownPostHog } from "./posthog.js";
+import { initPostHog, shutdownPostHog } from "./posthog.js";
 async function main() {
   let cfg: Config;
   try {
@@ -15,6 +15,13 @@ async function main() {
     process.exit(1);
     return;
   }
+
+  initPostHog({
+    enabled: cfg.posthogEnabled,
+    projectToken: cfg.posthogProjectToken,
+    host: cfg.posthogHost,
+    exceptionAutocapture: cfg.posthogExceptionAutocapture,
+  });
 
   initEvlog(cfg.logLevel, {
     maxWideEvents: cfg.logMaxWideEvents,

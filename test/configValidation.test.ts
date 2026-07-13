@@ -47,6 +47,10 @@ describe("loadConfig validation", () => {
     expect(cfg.logLevel).toBe("info");
     expect(cfg.reviewMinConfidence).toBe(1);
     expect(cfg.enableReviewCheckRun).toBe(false);
+    expect(cfg.posthogEnabled).toBe(true);
+    expect(cfg.posthogProjectToken).toBe("");
+    expect(cfg.posthogHost).toBe("");
+    expect(cfg.posthogExceptionAutocapture).toBe(true);
     expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
   });
 
@@ -103,6 +107,19 @@ describe("loadConfig validation", () => {
   it("parses review check run flag", async () => {
     expect((await load({ ENABLE_REVIEW_CHECK_RUN: "true" })).enableReviewCheckRun).toBe(true);
     expect((await load({ ENABLE_REVIEW_CHECK_RUN: "false" })).enableReviewCheckRun).toBe(false);
+  });
+
+  it("parses PostHog knobs from env", async () => {
+    const cfg = await load({
+      POSTHOG_PROJECT_TOKEN: "phc_test",
+      POSTHOG_HOST: "https://posthog.example",
+      POSTHOG_ENABLED: "false",
+      POSTHOG_EXCEPTION_AUTOCAPTURE: "false",
+    });
+    expect(cfg.posthogProjectToken).toBe("phc_test");
+    expect(cfg.posthogHost).toBe("https://posthog.example");
+    expect(cfg.posthogEnabled).toBe(false);
+    expect(cfg.posthogExceptionAutocapture).toBe(false);
   });
 
   it("rejects an invalid enum", async () => {

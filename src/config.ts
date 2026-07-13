@@ -21,6 +21,10 @@ import {
   DEFAULT_WORKER_READINESS_POLL_STALE_SECONDS,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
+  DEFAULT_POSTHOG_PROJECT_TOKEN,
+  DEFAULT_POSTHOG_HOST,
+  DEFAULT_POSTHOG_ENABLED,
+  DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   DEFAULT_ENABLE_REVIEW_CHECK_RUN,
@@ -441,6 +445,17 @@ export function loadConfig() {
     DEFAULT_CONTEXT7_RESPONSE_BYTES,
   );
 
+  const posthogProjectToken = optionalEnv(
+    ENV.POSTHOG_PROJECT_TOKEN,
+    DEFAULT_POSTHOG_PROJECT_TOKEN,
+  );
+  const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST);
+  const posthogEnabled = readBooleanEnv(ENV.POSTHOG_ENABLED, DEFAULT_POSTHOG_ENABLED);
+  const posthogExceptionAutocapture = readBooleanEnv(
+    ENV.POSTHOG_EXCEPTION_AUTOCAPTURE,
+    DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
+  );
+
   const enableReviewLabelsEffort = readBooleanEnv(
     ENV.ENABLE_REVIEW_LABELS_EFFORT,
     DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
@@ -622,6 +637,10 @@ export function loadConfig() {
     webhookTimeoutMs,
     context7ApiKey,
     context7ResponseBytes,
+    posthogProjectToken,
+    posthogHost,
+    posthogEnabled,
+    posthogExceptionAutocapture,
     cursorApiKey,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,

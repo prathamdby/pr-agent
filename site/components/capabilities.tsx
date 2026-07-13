@@ -1,8 +1,9 @@
 const capabilities = [
   {
-    title: "Catch review basics before a human opens the diff",
-    trigger: "Runs when a PR opens or updates, or when you comment /review",
-    detail: "Inline comments appear on the Files changed tab.",
+    title: "One multi-agent Review run under /review",
+    trigger: "Runs when a PR opens (REVIEW_AUTO_ACTIONS default), or when you comment /review",
+    detail:
+      "Eight reviewer agents synthesize into one Review summary comment—not four separate lens products.",
   },
   {
     title: "Turn a blank PR body into a readable summary",
@@ -10,9 +11,17 @@ const capabilities = [
     detail: "Summary bullets and an optional diagram go into the PR body.",
   },
   {
-    title: "Review every change from multiple angles",
-    trigger: "Runs automatically or when you comment /review",
-    detail: "Correctness, security, tests, reliability, and maintainability are synthesized once.",
+    title: "Verification on follow-up commits",
+    trigger:
+      "Runs on synchronize by default (VERIFICATION_AUTO_ACTIONS)—not a full Review run on every push",
+    detail:
+      "A Verification run re-checks open PR Agent findings against the new head; it does not open new findings.",
+  },
+  {
+    title: "Triage autofix and repo policy as the resolution loop",
+    trigger: "Comment /triage on the PR or in an inline finding thread",
+    detail:
+      "A Triage run fixes valid same-repo findings and pushes commits; dismissals can draft .pr-agent.yml policy suggestions.",
   },
   {
     title: "Ask code questions without leaving GitHub",
@@ -21,8 +30,9 @@ const capabilities = [
   },
   {
     title: "Skip AI review when the PR is only docs",
-    trigger: "Runs automatically on small documentation-only changes",
-    detail: "Docs-only pull requests take a lighter path instead of a full review.",
+    trigger: "Lightweight review completion on docs-only automated reviews",
+    detail:
+      "Documentation-only change sets take a lighter path instead of a full Review run (slash /review still runs fully).",
   },
 ];
 
