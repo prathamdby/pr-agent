@@ -9,10 +9,7 @@ import {
 } from "../../github/listPullRequestFiles.js";
 import { runFullPrReview } from "../../review/run/reviewRun.js";
 import { runHybridPrReview } from "../../review/run/hybridReviewRun.js";
-import {
-  runShadowReview,
-  shouldSampleShadow,
-} from "../../review/evaluation/reviewShadow.js";
+import { runShadowReview, shouldSampleShadow } from "../../review/evaluation/reviewShadow.js";
 import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import {
   loadRepoPolicy,
@@ -388,7 +385,7 @@ export async function executeReviewJob(
                   ...runParams,
                   hybrid: {
                     workItemId: item.id,
-                    ...(createReviewCheckpointStores(pool)),
+                    ...createReviewCheckpointStores(pool),
                   },
                 })
               : await runFullPrReview(runParams);

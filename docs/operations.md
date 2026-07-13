@@ -137,11 +137,11 @@ Maintainer rules: [AGENTS.md](../AGENTS.md).
 
 The Review pipeline has three rollout modes selected by `REVIEW_PIPELINE_MODE` (ADR 0024):
 
-| Mode    | Publishing pipeline | Shadow comparison | Notes |
-| ------- | ------------------- | ----------------- | ----- |
-| `legacy`  | Eight-role Reviewer roster | None | Default; current behavior |
-| `shadow`  | Eight-role Reviewer roster | Sampled hybrid (non-publishing) | `REVIEW_SHADOW_SAMPLE_RATE` controls sampling fraction |
-| `hybrid`  | Four-critic pipeline | None | Target architecture after gates pass |
+| Mode     | Publishing pipeline        | Shadow comparison               | Notes                                                  |
+| -------- | -------------------------- | ------------------------------- | ------------------------------------------------------ |
+| `legacy` | Eight-role Reviewer roster | None                            | Default; current behavior                              |
+| `shadow` | Eight-role Reviewer roster | Sampled hybrid (non-publishing) | `REVIEW_SHADOW_SAMPLE_RATE` controls sampling fraction |
+| `hybrid` | Four-critic pipeline       | None                            | Target architecture after gates pass                   |
 
 ### SLO measurement
 

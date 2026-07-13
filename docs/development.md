@@ -4,16 +4,16 @@ Module layout, import rules, Cursor Cloud setup, and the runtime topology diagra
 
 ## Module layout (production)
 
-| Area                 | Path                       | Public entry                                                            |
-| -------------------- | -------------------------- | ----------------------------------------------------------------------- |
+| Area                 | Path                       | Public entry                                                                                      |
+| -------------------- | -------------------------- | ------------------------------------------------------------------------------------------------- |
 | Review orchestration | `src/review/`              | `run/reviewRun.ts`, `run/reviewEnsemble.ts`, `run/hybridReviewRun.ts`, `publish/publishReview.ts` |
-| Review evaluation    | `src/review/evaluation/`   | `reviewComparison.ts`, `reviewReplay.ts`, `reviewShadow.ts`             |
-| Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                                     |
-| Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss)                  |
-| Agent work execution | `src/agentWork/executors/` | `index.ts`                                                              |
-| Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`                               |
-| Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                        |
-| Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`     |
+| Review evaluation    | `src/review/evaluation/`   | `reviewComparison.ts`, `reviewReplay.ts`, `reviewShadow.ts`                                       |
+| Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                                                               |
+| Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss)                                            |
+| Agent work execution | `src/agentWork/executors/` | `index.ts`                                                                                        |
+| Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`                                                         |
+| Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                                                  |
+| Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`                               |
 
 Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `reviewDiffPlacement.ts`.
 
