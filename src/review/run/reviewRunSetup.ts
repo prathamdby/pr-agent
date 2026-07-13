@@ -13,20 +13,28 @@ import {
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
 } from "../placement/reviewDiffIndex.js";
-import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
+import { buildOrchestratorSystemPrompt } from "../prompts/reviewOrchestratorPrompt.js";
 import {
   buildSubmitReviewTool,
   createSubmitReviewState,
   type SubmitReviewState,
 } from "../publish/submitReviewTool.js";
 import type { ReviewMode } from "../reviewSchema.js";
-import { buildReviewerUserContent } from "../prompts/reviewerPrompt.js";
+import {
+  buildReviewerUserContent,
+  REVIEWER_IDS,
+  type ReviewerId,
+} from "../prompts/reviewerPrompt.js";
 import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
+import type { ReviewBudgetTier } from "./reviewSizeBudget.js";
 
 export type ReviewRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
   readonly reviewerUserContent: string;
+  readonly budgetTier: ReviewBudgetTier;
+  readonly selectedReviewerIds: readonly ReviewerId[];
+  readonly omittedReviewerIds: readonly ReviewerId[];
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
@@ -55,6 +63,9 @@ export function buildReviewRunSetup(params: {
   reviewMode: ReviewMode;
   userSupplement?: string;
   trustedContext?: string;
+  budgetTier?: ReviewBudgetTier;
+  selectedReviewerIds?: readonly ReviewerId[];
+  omittedReviewerIds?: readonly ReviewerId[];
   workspace: LocalPrWorkspace;
   initialPublishState?: {
     published?: boolean;
@@ -171,8 +182,13 @@ export function buildReviewRunSetup(params: {
     }
   };
 
+  const selectedReviewerIds = params.selectedReviewerIds ?? REVIEWER_IDS;
+  const selectedSet = new Set<string>(selectedReviewerIds);
+  const omittedReviewerIds =
+    params.omittedReviewerIds ?? REVIEWER_IDS.filter((id) => !selectedSet.has(id));
+
   return {
-    systemPrompt: buildAutomatedSystemPrompt(),
+    systemPrompt: buildOrchestratorSystemPrompt(),
     userContent: buildReviewRunUserContent({
       owner,
       repo,
@@ -189,6 +205,9 @@ export function buildReviewRunSetup(params: {
       userSupplement,
       trustedContext,
     }),
+    budgetTier: params.budgetTier ?? "small",
+    selectedReviewerIds,
+    omittedReviewerIds,
     piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, submitBundle.piTool],
     executors,
     cachedDiffIndex,

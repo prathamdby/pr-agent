@@ -106,6 +106,8 @@ describe("reviewRunMetrics", () => {
         kind: "ensemble_completed",
         completedReviewerIds: ["correctness", "security"],
         failedReviewerIds: ["tests"],
+        selectedReviewerIds: ["correctness", "security", "tests"],
+        omittedReviewerIds: ["maintainability"],
         candidateFindings: 3,
         durationMs: 42,
         degraded: true,
@@ -168,6 +170,8 @@ describe("reviewRunMetrics", () => {
         ensemble: {
           completedReviewerIds: ["correctness", "security"],
           failedReviewerIds: ["tests"],
+          selectedReviewerIds: ["correctness", "security", "tests"],
+          omittedReviewerIds: ["maintainability"],
           candidateFindings: 3,
           durationMs: 42,
           degraded: true,

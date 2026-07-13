@@ -16,6 +16,6 @@ export function buildReviewRunUserContent(params: {
     userSupplement ? `\n${wrapUntrustedBlock("user_supplement", userSupplement)}\n` : "",
     trustedContext ? `\n${trustedContext}\n` : "",
     "",
-    "Perform Review synthesis: resolve conflicts with read-only tools, then call submitReview exactly once with all evidenced P0–P2 findings.",
+    "Synthesize Reviewer reports only: resolve concrete conflicts with tools, then call submitReview exactly once. Do not re-investigate the full change set.",
   ].join("\n");
 }

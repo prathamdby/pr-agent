@@ -36,7 +36,7 @@ describe("loadConfig validation", () => {
   it("applies documented defaults", async () => {
     const cfg = await load({});
     expect(cfg.port).toBe(3000);
-    expect(cfg.maxToolRounds).toBe(24);
+    expect(cfg.maxToolRounds).toBe(16);
     expect(cfg.providerPromptTimeoutMs).toBe(300_000);
     expect(cfg.queueRetryLimit).toBe(3);
     expect(cfg.queueHeartbeatSeconds).toBe(60);
@@ -224,9 +224,9 @@ describe("loadConfig validation", () => {
     const cfg = await load({});
     expect(cfg.reviewAgentConcurrency).toBe(4);
     expect(cfg.reviewValidationMaxCandidates).toBe(16);
-    expect(cfg.maxToolRoundsReviewer).toBe(24);
-    expect(cfg.maxToolRoundsValidator).toBe(24);
-    expect(cfg.maxToolRoundsOrchestrator).toBe(24);
+    expect(cfg.maxToolRoundsReviewer).toBe(16);
+    expect(cfg.maxToolRoundsValidator).toBe(8);
+    expect(cfg.maxToolRoundsOrchestrator).toBe(8);
     expect(cfg.queueStallDiagnosticsIntervalSeconds).toBe(60);
     expect(cfg.workerReadinessPollStaleSeconds).toBe(30);
   });

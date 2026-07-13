@@ -216,7 +216,26 @@ describe("executeReviewJob", () => {
       publishAttempts: 1,
       publishSuperseded: false,
     });
-    mocks.buildTrustedContext.mockResolvedValue("trusted");
+    mocks.buildTrustedContext.mockReturnValue({
+      trustedContext: "trusted",
+      sizeBudget: {
+        tier: "small",
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+        selectedReviewerIds: [
+          "correctness",
+          "security",
+          "tests",
+          "maintainability",
+          "project-standards",
+          "reliability",
+          "api-contracts",
+          "adversarial",
+        ],
+        omittedReviewerIds: [],
+      },
+    });
     mocks.fetchPriorFeedback.mockResolvedValue(undefined);
     mocks.getSummaryCommentGithubId.mockResolvedValue(1);
     mocks.ensureCheckRunStarted.mockResolvedValue(123);

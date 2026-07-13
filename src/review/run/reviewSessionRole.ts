@@ -19,6 +19,8 @@ export type ReviewSessionRoleTotals = {
 export type ReviewEnsembleStageMetrics = {
   readonly completedReviewerIds: readonly string[];
   readonly failedReviewerIds: readonly string[];
+  readonly selectedReviewerIds: readonly string[];
+  readonly omittedReviewerIds: readonly string[];
   readonly candidateFindings: number;
   readonly durationMs: number;
   readonly degraded: boolean;

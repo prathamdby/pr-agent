@@ -5,8 +5,10 @@ import {
   VALIDATION_REPAIR_ROUND0_SUFFIX,
   securityTripwiresGuidance,
   proseContractGuidance,
+  PRE_SUBMIT_ROUND0_PROMPT,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { buildOrchestratorSystemPrompt } from "../src/review/prompts/reviewOrchestratorPrompt.js";
 import {
   buildReviewerSystemPrompt,
   buildReviewerUserContent,
@@ -19,7 +21,7 @@ import {
 import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
 
 describe("review prompt contract", () => {
-  it("keeps structured delivery and single-pass submission", () => {
+  it("keeps structured delivery and single-pass submission in the methodology prompt", () => {
     const prompt = buildAutomatedSystemPrompt();
     expect(prompt).toContain(structuredDeliveryHeader);
     expect(prompt).toContain("submitReview exactly once");
@@ -39,6 +41,19 @@ describe("review prompt contract", () => {
   });
 });
 
+describe("Review orchestrator prompt contract", () => {
+  it("requires synthesis-only behavior without a full-diff rediscovery pass", () => {
+    const prompt = buildOrchestratorSystemPrompt();
+    expect(prompt).toContain("Review synthesis");
+    expect(prompt).toContain("Do not originate new findings");
+    expect(prompt).toContain("never to re-sweep every changed file");
+    expect(prompt).toContain("submitReview exactly once");
+    expect(prompt).not.toContain("Inspect **every changed file**");
+    expect(PRE_SUBMIT_ROUND0_PROMPT).not.toContain("Every changed file was listed and inspected");
+    expect(PRE_SUBMIT_ROUND0_PROMPT).toContain("comes from Reviewer reports");
+  });
+});
+
 describe("Reviewer agent and validator prompt contracts", () => {
   it("tells each Reviewer agent to finish with submitReviewerReport, not submitReview", () => {
     for (const reviewer of REVIEWER_IDS) {
@@ -46,6 +61,7 @@ describe("Reviewer agent and validator prompt contracts", () => {
       expect(system).toContain("submitReviewerReport exactly once");
       expect(system).toContain("Do not call submitReview");
       expect(system).toMatch(/Evidence and severity for Reviewer reports/);
+      expect(system).toContain("Speed and focus");
       expect(system).not.toMatch(/\bcall submitReview exactly once\b/);
     }
     const user = buildReviewerUserContent({
@@ -56,6 +72,14 @@ describe("Reviewer agent and validator prompt contracts", () => {
     });
     expect(user).toContain("submitReviewerReport exactly once");
     expect(user).not.toMatch(/\bsubmitReview\b(?!erReport)/);
+  });
+
+  it("adds delegated coverage guidance on core-roster tiers", () => {
+    const correctness = buildReviewerSystemPrompt("correctness", { budgetTier: "large" });
+    expect(correctness).toContain("On a core roster");
+    expect(correctness).toContain("API/contract");
+    const small = buildReviewerSystemPrompt("correctness", { budgetTier: "small" });
+    expect(small).not.toContain("On a core roster");
   });
 
   it("gives validators a confirmation-only contract against changed code", () => {
@@ -79,7 +103,7 @@ describe("Reviewer agent and validator prompt contracts", () => {
       headSha: "sha",
     });
     expect(user).toContain("submitReview exactly once");
-    expect(user).toContain("Review synthesis");
+    expect(user).toContain("Synthesize Reviewer reports only");
     expect(user).not.toContain("submitReviewerReport");
   });
 });

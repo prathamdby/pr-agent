@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Supersedes ADR 0006 and ADR 0016 as active product behaviour, plus the lens-specific parts of ADRs 0009, 0011, 0014, and 0018. Those ADRs remain in the repository as decision history.
+Accepted. Supersedes ADR 0006 and ADR 0016 as active product behaviour, plus the lens-specific parts of ADRs 0009, 0011, 0014, and 0018. Those ADRs remain in the repository as decision history. Roster selection and orchestrator investigation responsibility are refined by ADR 0023.
 
 ## Context
 
@@ -16,13 +16,13 @@ We want one command and one public result while retaining independent review per
 
 1. **One active review identity.** `/review` is the only review slash command. Automated reviews and slash reviews enqueue the same `review` work type with one per-PR singleton key, one `## PR Agent Review` progress/summary comment, one label family, and one retry command. The removed lens commands return normal help guidance and never enqueue work.
 
-2. **In-process fan-out inside one durable job.** A full Review run prepares one read-only local PR workspace, then creates eight independent reviewer-agent sessions: correctness, security, tests, maintainability, project standards, reliability, API/contracts, and adversarial analysis. Reviewer sessions share repository state but not provider conversation state. Fan-out is bounded by the env-backed setting `REVIEW_AGENT_CONCURRENCY` (default `4`); `REVIEW_CONCURRENCY` continues to control concurrent durable Review jobs.
+2. **In-process fan-out inside one durable job.** A full Review run prepares one read-only local PR workspace, then creates independent reviewer-agent sessions for the Review budget tier's selected roster (full eight on small; core four on medium/large — see ADR 0023). Reviewer sessions share repository state but not provider conversation state. Fan-out is bounded by the env-backed setting `REVIEW_AGENT_CONCURRENCY` (default `4`); `REVIEW_CONCURRENCY` continues to control concurrent durable Review jobs.
 
 3. **Internal reports, not public reviews.** Reviewer agents receive read-only workspace and documentation tools plus `submitReviewerReport`. They cannot call `submitReview`. Each submits structured coverage, candidate findings, residual risks, and testing gaps. Repository and PR content remain untrusted data in every reviewer prompt.
 
 4. **Required coverage and independent validation.** Correctness and security reports are required; failure of either fails the Review run before publication. Other reviewer failures produce degraded coverage supplied to synthesis. Candidate P0 and P1 findings are checked by separate read-only validator sessions and rejected candidates are removed.
 
-5. **One publishing orchestrator.** After validation, one orchestrator session receives all surviving reports and the degraded-coverage state. It can use the same read-only tools to resolve conflicts, merge duplicate claims, and reject unsupported findings. It is the only session with `submitReview`, so the existing ReviewPayload validation, placement, fingerprint suppression, labels, check/status publication, summary upsert, and publish recovery remain the sole public path.
+5. **One publishing orchestrator.** After validation, one orchestrator session receives all surviving reports and the degraded-coverage state. It synthesizes only: resolve conflicts with read-only tools, merge duplicate claims, and reject unsupported findings — it does not rediscover the full change set (ADR 0023). It is the only session with `submitReview`, so the existing ReviewPayload validation, placement, fingerprint suppression, labels, check/status publication, summary upsert, and publish recovery remain the sole public path.
 
 6. **Provider-neutral lifecycle.** Pi and Cursor sessions accept cooperative cancellation signals and expose cancellation/disposal. Every reviewer and validator session is disposed after completion or failure; the orchestrator owns its own isolated session.
 

@@ -9,6 +9,7 @@ describe("deriveReviewProviderPressure", () => {
     );
     expect(pressure.maxConcurrentReviewerSessions).toBe(8);
     expect(pressure.reviewerRosterSize).toBe(8);
+    expect(pressure.coreReviewerRosterSize).toBe(4);
     expect(pressure.reviewValidationMaxCandidates).toBe(16);
     expect(pressure.maxOrchestratorsPerReviewJob).toBe(1);
   });

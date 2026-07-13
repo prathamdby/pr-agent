@@ -130,7 +130,7 @@ export const REVIEW_EFFORT_WORDS = [
 export const REVIEW_OVERVIEW_ALERT = "NOTE";
 export const REVIEW_FAILURE_ALERT = "CAUTION";
 export const REVIEW_PROGRESS_NOTE =
-  "Reviewing the latest commit from eight independent angles before one synthesized result.";
+  "Reviewing the latest commit with parallel Reviewer agents before one synthesized result.";
 export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
 export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
@@ -146,10 +146,23 @@ export const LIGHTWEIGHT_REVIEW_COMPLETION_LEAD =
 export const LIGHTWEIGHT_REVIEW_COMPLETION_REASON = "Documentation-only change set";
 export const LIGHTWEIGHT_REVIEW_COMPLETION_HINT = "Use /review for a full review.";
 
-/** Review budget tier thresholds (advisory hints only). */
+/** Review budget tier thresholds (roster selection + advisory hints). */
 export const REVIEW_SIZE_TIER_SMALL_MAX_FILES = 10;
+export const REVIEW_SIZE_TIER_SMALL_MAX_CHANGES = 500;
 export const REVIEW_SIZE_TIER_MEDIUM_MAX_FILES = 50;
 export const REVIEW_SIZE_TIER_LARGE_MIN_CHANGES = 2000;
+
+/**
+ * Core Reviewer-agent roster for medium and large Review budget tiers.
+ * Sized to match default REVIEW_AGENT_CONCURRENCY so fan-out completes in one wave.
+ * Matches the high-signal set: correctness, security, tests, and quality (maintainability).
+ */
+export const REVIEW_CORE_REVIEWER_IDS = [
+  "correctness",
+  "security",
+  "tests",
+  "maintainability",
+] as const;
 
 /** Per-repo review policy file at checkout root. */
 export const REPO_POLICY_FILENAME = ".pr-agent.yml";
@@ -414,7 +427,7 @@ export const SLASH_HELP_BODY = [
   "Notes:",
   "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on PR actions listed in `REVIEW_AUTO_ACTIONS` (default `opened` only, so follow-up pushes need a manual `/review`).",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
-  "- `/review` publishes one synthesized review across correctness, security, testing, reliability, contracts, standards, adversarial, and maintainability concerns.",
+  "- `/review` publishes one synthesized review. Reviewer agents are selected by Review budget tier (full roster on small; core four on medium/large).",
   "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
   "- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");

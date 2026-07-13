@@ -177,6 +177,8 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       readOnlyExecutors,
       refreshBeforeTool: setup.refreshBeforeTool,
       signal: abortController.signal,
+      selectedReviewerIds: setup.selectedReviewerIds,
+      budgetTier: setup.budgetTier,
     });
     if (await abortIfRequested()) return finish();
     if (ensemble.failed.includes("correctness") || ensemble.failed.includes("security")) {
@@ -187,6 +189,9 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
         failed_reviewer_ids: ensemble.failed,
         failed_required_reviewer_ids: failedRequired,
         session_roles: failedRequired.map((id) => `reviewer:${id}`),
+        budget_tier: setup.budgetTier,
+        selected_reviewer_ids: ensemble.selected,
+        omitted_reviewer_ids: ensemble.omitted,
       });
       throw new Error("Required review coverage did not complete");
     }
@@ -204,6 +209,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
     const synthesisInput = {
       ...ensemble,
       reports: validation.reports,
+      omitted: ensemble.omitted,
       validationTruncatedCandidates: validation.truncatedCandidates,
     };
     const orchestratorSession = await runner.createSession({

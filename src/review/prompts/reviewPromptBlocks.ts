@@ -26,10 +26,10 @@ export const categoryFieldContract = [
 /** Round-0 pre-submit nudge: a noise-cutting self-check plus the submit instruction (harness only). */
 export const PRE_SUBMIT_ROUND0_PROMPT = [
   "Before submitReview, run this self-check and delete anything that fails it:",
-  "- Every changed file was listed and inspected.",
+  "- Every kept finding comes from Reviewer reports (or a conflict check that confirmed an existing candidate).",
   "- Each finding names a concrete trigger path and points to evidence you actually read; cut speculative or unprovable ones.",
   "- No two findings describe the same root cause; merge duplicates.",
-  "- Every evidenced P0–P2 is present. If pushing again would surface more real bugs, keep investigating instead.",
+  "- Conflicts and unvalidated P0/P1 candidates were resolved; do not start a fresh full-diff investigation.",
   "Then call submitReview once. Do not call investigation tools unless fixing a submitReview validation error.",
 ].join("\n");
 
