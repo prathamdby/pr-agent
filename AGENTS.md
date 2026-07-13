@@ -21,7 +21,7 @@
 | [docs/development.md](docs/development.md)                       | Module layout, import rules, Cursor Cloud setup, topology-diagram rubric |
 | [docs/operations.md](docs/operations.md)                         | Behaviour, deployment, developer scripts                                 |
 | [docs/agent-work-ops.md](docs/agent-work-ops.md)                 | Queue health, retry and recovery                                         |
-| [docs/adr/](docs/adr/)                                           | Architecture rationale (ADRs numbered 0001-0018)                         |
+| [docs/adr/](docs/adr/)                                           | Architecture rationale (ADRs numbered 0001-0023)                         |
 | [test/settingsInventory.test.ts](test/settingsInventory.test.ts) | CI gate for env/config alignment                                         |
 
 ## Keep the docs true

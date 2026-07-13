@@ -83,7 +83,48 @@ describe("reviewer ensemble", () => {
 
     expect(result.failed).toEqual([]);
     expect(result.reports.map((item) => item.reviewer)).toEqual(REVIEWER_IDS);
+    expect(result.selected).toEqual([...REVIEWER_IDS]);
+    expect(result.omitted).toEqual([]);
     expect(createSession).toHaveBeenCalledTimes(REVIEWER_IDS.length);
+  });
+
+  it("runs only the selected Reviewer roster", async () => {
+    const selected = ["correctness", "security", "tests", "reliability"] as const;
+    const createSession = vi.fn(
+      async (params: {
+        executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+      }) =>
+        session({
+          send: async () => {
+            await params.executors.submitReviewerReport?.({
+              coverage: "changed code",
+              findings: [],
+              residualRisks: [],
+              testingGaps: [],
+            });
+            return { text: "done" };
+          },
+        }),
+    );
+
+    const result = await runReviewerEnsemble({
+      cfg: makeTestConfig(),
+      runner: { createSession },
+      userContent: "review",
+      readOnlyTools: [],
+      readOnlyExecutors: {},
+      concurrency: 4,
+      selectedReviewerIds: selected,
+      budgetTier: "large",
+    });
+
+    expect(result.failed).toEqual([]);
+    expect(result.reports.map((item) => item.reviewer)).toEqual([...selected]);
+    expect(result.selected).toEqual([...selected]);
+    expect(result.omitted).toEqual(
+      REVIEWER_IDS.filter((id) => !(selected as readonly string[]).includes(id)),
+    );
+    expect(createSession).toHaveBeenCalledTimes(selected.length);
   });
 
   it("records one failed reviewer without discarding successful reports", async () => {

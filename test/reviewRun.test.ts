@@ -65,7 +65,7 @@ vi.mock("../src/review/run/reviewEnsemble.js", () => ({
 }));
 
 import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
-import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { buildOrchestratorSystemPrompt } from "../src/review/prompts/reviewOrchestratorPrompt.js";
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const cfg = makeTestConfig({
@@ -117,6 +117,8 @@ describe("runFullPrReview mode", () => {
     reviewEnsembleMocks.runReviewerEnsemble.mockResolvedValue({
       reports: defaultReports,
       failed: [],
+      selected: ["correctness", "security"],
+      omitted: [],
     });
     reviewEnsembleMocks.validateHighRiskFindings.mockImplementation(async ({ reports }) => ({
       reports,
@@ -134,14 +136,14 @@ describe("runFullPrReview mode", () => {
     );
   });
 
-  it("selects general system prompt by default", async () => {
+  it("selects the Review orchestrator system prompt by default", async () => {
     await runFullPrReview(
       reviewParams({
         cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
       }),
     );
 
-    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(buildAutomatedSystemPrompt());
+    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(buildOrchestratorSystemPrompt());
   });
 
   it.each(["correctness", "security"] as const)(
@@ -150,6 +152,8 @@ describe("runFullPrReview mode", () => {
       reviewEnsembleMocks.runReviewerEnsemble.mockResolvedValueOnce({
         reports: defaultReports.filter((item) => item.reviewer !== reviewer),
         failed: [reviewer],
+        selected: ["correctness", "security"],
+        omitted: [],
       });
 
       await expect(runFullPrReview(reviewParams())).rejects.toThrow(
@@ -179,6 +183,8 @@ describe("runFullPrReview mode", () => {
     reviewEnsembleMocks.runReviewerEnsemble.mockResolvedValueOnce({
       reports: [{ ...defaultReports[0], findings: [candidate] }, defaultReports[1]],
       failed: [],
+      selected: ["correctness", "security"],
+      omitted: [],
     });
     reviewEnsembleMocks.validateHighRiskFindings.mockResolvedValueOnce({
       reports: defaultReports,
@@ -201,6 +207,8 @@ describe("runFullPrReview publish retries", () => {
     reviewEnsembleMocks.runReviewerEnsemble.mockResolvedValue({
       reports: defaultReports,
       failed: [],
+      selected: ["correctness", "security"],
+      omitted: [],
     });
     reviewEnsembleMocks.validateHighRiskFindings.mockImplementation(async ({ reports }) => ({
       reports,

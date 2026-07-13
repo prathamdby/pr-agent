@@ -22,6 +22,7 @@ import { recordReviewMetric } from "./reviewRunMetrics.js";
 import { sendReviewAgentTurn } from "./reviewRunAgentSend.js";
 import { createReviewToolCallRecorder } from "./reviewToolCallRecorder.js";
 import type { ReviewSessionRole } from "./reviewSessionRole.js";
+import type { ReviewBudgetTier } from "./reviewSizeBudget.js";
 
 export { REVIEWER_IDS };
 export type { ReviewerId };
@@ -93,6 +94,7 @@ async function runReviewer(params: {
   readOnlyExecutors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   refreshBeforeTool?: (toolName: string) => Promise<void>;
   signal?: AbortSignal;
+  budgetTier?: ReviewBudgetTier;
 }): Promise<ReviewerReport> {
   let submitted: z.infer<typeof reviewerReportSchema> | undefined;
   const submit = buildSubmitReviewerReportTool((report) => {
@@ -104,7 +106,9 @@ async function runReviewer(params: {
     cfg: params.cfg,
     cwd: params.cwd,
     signal: params.signal,
-    systemPrompt: buildReviewerSystemPrompt(params.reviewer),
+    systemPrompt: buildReviewerSystemPrompt(params.reviewer, {
+      budgetTier: params.budgetTier,
+    }),
     tools: [...params.readOnlyTools, submit.tool],
     executors: { ...params.readOnlyExecutors, submitReviewerReport: submit.executor },
     refreshBeforeTool: params.refreshBeforeTool,
@@ -137,21 +141,39 @@ export async function runReviewerEnsemble(params: {
   refreshBeforeTool?: (toolName: string) => Promise<void>;
   signal?: AbortSignal;
   concurrency?: number;
-}): Promise<{ reports: ReviewerReport[]; failed: ReviewerId[] }> {
+  selectedReviewerIds?: readonly ReviewerId[];
+  budgetTier?: ReviewBudgetTier;
+}): Promise<{
+  reports: ReviewerReport[];
+  failed: ReviewerId[];
+  selected: ReviewerId[];
+  omitted: ReviewerId[];
+}> {
   const startedAt = Date.now();
   const reports: ReviewerReport[] = [];
   const failed: ReviewerId[] = [];
-  const queue = [...REVIEWER_IDS];
+  const selected = [...(params.selectedReviewerIds ?? REVIEWER_IDS)].sort(
+    (a, b) => REVIEWER_IDS.indexOf(a) - REVIEWER_IDS.indexOf(b),
+  );
+  const selectedSet = new Set<string>(selected);
+  const omitted = REVIEWER_IDS.filter((id) => !selectedSet.has(id));
+  const queue = [...selected];
   const concurrency = Math.max(
     1,
-    Math.min(params.concurrency ?? params.cfg.reviewAgentConcurrency, REVIEWER_IDS.length),
+    Math.min(params.concurrency ?? params.cfg.reviewAgentConcurrency, Math.max(1, selected.length)),
   );
   const workers = Array.from({ length: concurrency }, async () => {
     while (queue.length > 0 && !params.signal?.aborted) {
       const reviewer = queue.shift();
       if (!reviewer) return;
       try {
-        reports.push(await runReviewer({ ...params, reviewer }));
+        reports.push(
+          await runReviewer({
+            ...params,
+            reviewer,
+            budgetTier: params.budgetTier,
+          }),
+        );
       } catch (error) {
         if (params.signal?.aborted) return;
         failed.push(reviewer);
@@ -169,18 +191,24 @@ export async function runReviewerEnsemble(params: {
   const candidateFindings = reports.reduce((total, report) => total + report.findings.length, 0);
   const durationMs = Date.now() - startedAt;
   const requiredFailed = failed.includes("correctness") || failed.includes("security");
-  // Degraded review = optional Reviewer agent gaps only (ADR 0022 / CONTEXT.md).
+  // Degraded review = optional selected Reviewer agent gaps only (ADR 0022 / 0023).
+  // Reviewer agents omitted by Review budget tier are expected policy, not degradation.
   const degraded = failed.length > 0 && !requiredFailed;
   recordReviewMetric({
     kind: "ensemble_completed",
     completedReviewerIds: reports.map((report) => report.reviewer),
     failedReviewerIds: failed,
+    selectedReviewerIds: selected,
+    omittedReviewerIds: omitted,
     candidateFindings,
     durationMs,
     degraded,
   });
   logInfo("review_ensemble_completed", {
-    selected: REVIEWER_IDS.length,
+    budget_tier: params.budgetTier ?? null,
+    selected: selected.length,
+    selected_reviewer_ids: selected,
+    omitted_reviewer_ids: omitted,
     completed: reports.length,
     failed: failed.length,
     failed_reviewer_ids: failed,
@@ -188,7 +216,7 @@ export async function runReviewerEnsemble(params: {
     duration_ms: durationMs,
     degraded,
   });
-  return { reports, failed };
+  return { reports, failed, selected, omitted };
 }
 
 export async function validateHighRiskFindings(params: {
@@ -304,6 +332,7 @@ export async function validateHighRiskFindings(params: {
 export function buildSynthesisContext(params: {
   reports: readonly ReviewerReport[];
   failed: readonly ReviewerId[];
+  omitted?: readonly ReviewerId[];
   validationTruncatedCandidates?: number;
 }): string {
   const compactReports = params.reports.map((report) => ({
@@ -312,7 +341,7 @@ export function buildSynthesisContext(params: {
   }));
   const degradedCoverage = buildDegradedCoverage(params);
   const instruction =
-    "Synthesize these independent Reviewer reports into one ReviewPayload. Verify conflicts with read-only tools, merge semantic duplicates, reject unsupported claims, and call submitReview exactly once.";
+    "Synthesize these independent Reviewer reports into one ReviewPayload. Use tools only to resolve concrete conflicts or unvalidated high-risk claims. Merge semantic duplicates, reject unsupported claims, do not re-sweep the full diff for new findings, and call submitReview exactly once.";
   const fixedContext = [degradedCoverage, instruction].join("\n\n");
   const reportBlockBudget = REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS - fixedContext.length - 4;
   const reviewerReports = buildBudgetedReviewerReports(compactReports, reportBlockBudget);
@@ -345,11 +374,17 @@ function compactFindingForSynthesis(
 
 function buildDegradedCoverage(params: {
   failed: readonly ReviewerId[];
+  omitted?: readonly ReviewerId[];
   validationTruncatedCandidates?: number;
 }): string {
   const reasons: string[] = [];
   if (params.failed.length > 0) {
     reasons.push(`Unavailable reviewers: ${params.failed.join(", ")}`);
+  }
+  if ((params.omitted?.length ?? 0) > 0) {
+    reasons.push(
+      `Omitted by Review budget tier policy (not a failure): ${params.omitted?.join(", ")}`,
+    );
   }
   if ((params.validationTruncatedCandidates ?? 0) > 0) {
     reasons.push(

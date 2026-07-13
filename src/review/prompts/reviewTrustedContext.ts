@@ -3,7 +3,11 @@ import {
   formatReviewPathProfileBlock,
 } from "../placement/reviewPathProfile.js";
 import type { ReviewPreflightMetadata } from "../placement/reviewPreflightFiles.js";
-import { buildReviewSizeBudget, formatReviewSizeBudgetBlock } from "../run/reviewSizeBudget.js";
+import {
+  buildReviewSizeBudget,
+  formatReviewSizeBudgetBlock,
+  type ReviewSizeBudget,
+} from "../run/reviewSizeBudget.js";
 import {
   fetchPriorInlineReviewFeedback,
   formatPriorInlineFeedbackBlock,
@@ -12,7 +16,7 @@ import {
 function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
   extras?: { priorInlineFeedback?: string; repoPolicyBlock?: string },
-): string {
+): { trustedContext: string; sizeBudget: ReviewSizeBudget } {
   const filenames = metadata.files.map((file) => file.filename);
   const pathProfile = buildReviewPathProfile(filenames);
   const sizeBudget = buildReviewSizeBudget({
@@ -32,14 +36,14 @@ function buildTrustedReviewContextBlock(
   if (extras?.repoPolicyBlock) {
     blocks.push("", extras.repoPolicyBlock);
   }
-  return blocks.join("\n");
+  return { trustedContext: blocks.join("\n"), sizeBudget };
 }
 
 export function buildTrustedReviewContextForReview(params: {
   preflight: ReviewPreflightMetadata;
   priorInlineFeedback?: string;
   repoPolicyBlock?: string;
-}): string {
+}): { trustedContext: string; sizeBudget: ReviewSizeBudget } {
   return buildTrustedReviewContextBlock(params.preflight, {
     priorInlineFeedback: params.priorInlineFeedback,
     repoPolicyBlock: params.repoPolicyBlock,

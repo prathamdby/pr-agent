@@ -268,6 +268,8 @@ describe("fake-provider full Review run characterization", () => {
       expect(snapshot?.ensemble).toMatchObject({
         completedReviewerIds: [...REVIEWER_IDS],
         failedReviewerIds: [],
+        selectedReviewerIds: [...REVIEWER_IDS],
+        omittedReviewerIds: [],
         degraded: false,
         candidateFindings: 1,
         validationTruncatedCandidates: 0,

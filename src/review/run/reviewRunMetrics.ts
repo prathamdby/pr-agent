@@ -64,6 +64,8 @@ export type ReviewMetricEvent =
       readonly kind: "ensemble_completed";
       readonly completedReviewerIds: readonly string[];
       readonly failedReviewerIds: readonly string[];
+      readonly selectedReviewerIds: readonly string[];
+      readonly omittedReviewerIds: readonly string[];
       readonly candidateFindings: number;
       readonly durationMs: number;
       readonly degraded: boolean;
@@ -367,6 +369,8 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
       metrics.ensemble = {
         completedReviewerIds: [...event.completedReviewerIds],
         failedReviewerIds: [...event.failedReviewerIds],
+        selectedReviewerIds: [...event.selectedReviewerIds],
+        omittedReviewerIds: [...event.omittedReviewerIds],
         candidateFindings: event.candidateFindings,
         durationMs: event.durationMs,
         degraded: event.degraded,
@@ -381,6 +385,8 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
       metrics.ensemble = {
         completedReviewerIds: metrics.ensemble?.completedReviewerIds ?? [],
         failedReviewerIds: metrics.ensemble?.failedReviewerIds ?? [],
+        selectedReviewerIds: metrics.ensemble?.selectedReviewerIds ?? [],
+        omittedReviewerIds: metrics.ensemble?.omittedReviewerIds ?? [],
         candidateFindings: metrics.ensemble?.candidateFindings ?? 0,
         durationMs: metrics.ensemble?.durationMs ?? 0,
         degraded: metrics.ensemble?.degraded ?? false,

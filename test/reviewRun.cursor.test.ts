@@ -4,7 +4,7 @@ import {
   setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import * as evlog from "../src/evlog.js";
-import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { buildOrchestratorSystemPrompt } from "../src/review/prompts/reviewOrchestratorPrompt.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
@@ -25,6 +25,8 @@ vi.mock("../src/review/run/reviewEnsemble.js", () => ({
       { reviewer: "security", coverage: "test", findings: [], residualRisks: [], testingGaps: [] },
     ],
     failed: [],
+    selected: ["correctness", "security"],
+    omitted: [],
   })),
   validateHighRiskFindings: vi.fn(async ({ reports }) => ({
     reports,
@@ -145,7 +147,7 @@ describe("runFullPrReview cursor provider", () => {
     const context = vi.mocked(complete).mock.calls[0][1] as {
       systemPrompt: string;
     };
-    expect(context.systemPrompt).toBe(buildAutomatedSystemPrompt());
+    expect(context.systemPrompt).toBe(buildOrchestratorSystemPrompt());
     expect(result.publishAttempts).toBe(3);
     expect(result.published).toBe(false);
     expect(vi.mocked(buildSubmitReviewTool)).toHaveBeenCalledWith(

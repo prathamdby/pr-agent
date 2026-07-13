@@ -1,7 +1,9 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
+import type { ReviewerId } from "../prompts/reviewerPrompt.js";
 import type { WorkSource, ReviewMode } from "../reviewSchema.js";
+import type { ReviewBudgetTier } from "./reviewSizeBudget.js";
 
 export type ReviewRunParams = {
   readonly cfg: Config;
@@ -15,6 +17,9 @@ export type ReviewRunParams = {
   readonly mode?: ReviewMode;
   readonly userSupplement?: string;
   readonly trustedContext?: string;
+  readonly budgetTier?: ReviewBudgetTier;
+  readonly selectedReviewerIds?: readonly ReviewerId[];
+  readonly omittedReviewerIds?: readonly ReviewerId[];
   readonly cwd?: string;
   readonly workspace: LocalPrWorkspace;
   readonly shouldLinkToSummary?: boolean;

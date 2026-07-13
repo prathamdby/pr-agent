@@ -157,13 +157,13 @@ Run on your infrastructure with your GitHub App credentials and chosen LLM provi
 
 ### Comprehensive review synthesis
 
-Every Review run dispatches independent agents for correctness, security, tests, maintainability, project standards, reliability, API/contracts, and adversarial analysis. Validator sessions check high-risk candidates, then a publishing orchestrator synthesizes the reports into one review, so maintainers use one **`/review`** command and one **review summary comment**.
+Every Review run selects Reviewer agents from the **Review budget tier** (full roster on small; core four on medium/large), then validators check high-risk candidates and a publishing orchestrator synthesizes the reports into one review. Maintainers use one **`/review`** command and one **review summary comment**.
 
 ## Features
 
 | Capability              | Auto on PR                      | Slash command     | Notes                                                                                         |
 | ----------------------- | ------------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
-| Multi-agent review      | configurable (`opened` default) | `/review`         | Eight reviewer angles -> validation -> one `## PR Agent Review`; inline P0 to P2 when present |
+| Multi-agent review      | configurable (`opened` default) | `/review`         | Tier-selected reviewers -> validation -> one `## PR Agent Review`; inline P0 to P2 when present |
 | PR description          | opened (configurable)           | `/describe`       | Merges under `## PR Agent Description`                                                        |
 | Triage                  | No                              | `/triage`         | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`             |
 | Ask                     | No                              | `/ask <question>` | PR conversation or inline diff **code anchor**                                                |
@@ -221,9 +221,9 @@ flowchart LR
   Retention --> Dedupe
   Retention --> Items
   ReviewExec --> Workspace[shared read-only PR workspace]
-  Workspace --> Reviewers[8 independent reviewer agents]
+  Workspace --> Reviewers[tier-selected reviewer agents]
   Reviewers --> Validate[P0/P1 validation]
-  Validate --> Orchestrator[review orchestrator]
+  Validate --> Orchestrator[review orchestrator synthesis]
   Orchestrator --> ReviewPublish[one synthesized review publish]
   Worker --> LLM[other work agents plus tools]
   LLM --> Publish[GitHub PR-surface publish]
@@ -236,8 +236,8 @@ flowchart LR
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision, the daily retention cleanup lane, worker `/health`+`/ready`, and continuous queue-stall diagnostics.
 5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
-6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): eight independent reviewer agents inspect one shared read-only workspace, required correctness/security coverage is enforced, and P0/P1 candidates are independently validated.
-7. **Review synthesis**: one orchestrator receives the internal reports and is the only session with **`submitReview`**, producing one summary comment and one optional inline GitHub review. Reviewer fan-out is bounded by `REVIEW_AGENT_CONCURRENCY` (default `4`) inside each review worker job.
+6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): Review budget tier selects Reviewer agents on one shared read-only workspace (full eight on small; core four on medium/large), required correctness/security coverage is enforced, and P0/P1 candidates are independently validated.
+7. **Review synthesis**: one orchestrator receives the internal reports and is the only session with **`submitReview`**, producing one summary comment and one optional inline GitHub review. The orchestrator synthesizes only (no full-diff rediscovery). Reviewer fan-out is bounded by `REVIEW_AGENT_CONCURRENCY` (default `4`) inside each review worker job.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).
 

@@ -283,7 +283,7 @@ export async function executeReviewJob(
             repoPolicyBlock = rendered || undefined;
           }
 
-          const trustedContext = buildTrustedReviewContextForReview({
+          const { trustedContext, sizeBudget } = buildTrustedReviewContextForReview({
             preflight: repositoryView.preflight,
             priorInlineFeedback: priorInlineFeedbackResult.value,
             repoPolicyBlock,
@@ -301,6 +301,9 @@ export async function executeReviewJob(
             mode: reviewLens,
             userSupplement: payload.userSupplement,
             trustedContext,
+            budgetTier: sizeBudget.tier,
+            selectedReviewerIds: sizeBudget.selectedReviewerIds,
+            omittedReviewerIds: sizeBudget.omittedReviewerIds,
             severityFloor,
             storedInlineFingerprints,
             cwd: repositoryView.agentCwd,

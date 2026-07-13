@@ -12,6 +12,7 @@ import {
   createSubmitReviewState,
 } from "../src/review/publish/submitReviewTool.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { buildOrchestratorSystemPrompt } from "../src/review/prompts/reviewOrchestratorPrompt.js";
 import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
 import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
 import {
@@ -216,6 +217,11 @@ function promptSurfaces(): PromptSurface[] {
       budget: { bytes: 10_700, characters: 10_700, estimatedTokens: 2_675 },
     },
     {
+      name: "review orchestrator system prompt",
+      content: buildOrchestratorSystemPrompt(),
+      budget: { bytes: 7_200, characters: 7_200, estimatedTokens: 1_800 },
+    },
+    {
       name: "representative review user content",
       content: representativeReviewUserContent(),
       budget: { bytes: 400, characters: 400, estimatedTokens: 100 },
@@ -244,7 +250,10 @@ function promptSurfaces(): PromptSurface[] {
 }
 
 function reviewLensPrompts(): ReadonlyArray<readonly [string, string]> {
-  return [["review system prompt", buildAutomatedSystemPrompt()]];
+  return [
+    ["review methodology system prompt", buildAutomatedSystemPrompt()],
+    ["review orchestrator system prompt", buildOrchestratorSystemPrompt()],
+  ];
 }
 
 function representativeReviewUserContent(): string {
@@ -260,7 +269,7 @@ function representativeReviewUserContent(): string {
 
 function representativeCursorContext(): Context {
   return {
-    systemPrompt: buildAutomatedSystemPrompt(),
+    systemPrompt: buildOrchestratorSystemPrompt(),
     messages: [
       {
         role: "user",
