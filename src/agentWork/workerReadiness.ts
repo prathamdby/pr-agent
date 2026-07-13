@@ -1,9 +1,6 @@
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import {
-  HEALTH_DB_PING_TIMEOUT_MS,
-  QUEUE_STALL_DIAGNOSTIC_QUEUES,
-} from "../settings/index.js";
+import { HEALTH_DB_PING_TIMEOUT_MS, QUEUE_STALL_DIAGNOSTIC_QUEUES } from "../settings/index.js";
 
 export type WorkerReadinessState = {
   consumersRegistered: boolean;
@@ -23,14 +20,19 @@ export type WorkerReadinessResult = {
 };
 
 async function pingPostgres(pool: Pool): Promise<boolean> {
-  const timeout = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error("postgres ping timed out")), HEALTH_DB_PING_TIMEOUT_MS);
-  });
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await Promise.race([pool.query("SELECT 1"), timeout]);
-    return true;
-  } catch {
-    return false;
+    return await Promise.race([
+      pool.query("SELECT 1").then(
+        () => true,
+        () => false,
+      ),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), HEALTH_DB_PING_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
   }
 }
 
@@ -59,9 +61,7 @@ function pollingFresh(
   }
   const now = nowMs();
   const staleMs = pollStaleSeconds * 1000;
-  const freshest = Math.max(
-    ...active.map((entry) => entry.lastFetchedOn ?? entry.createdOn ?? 0),
-  );
+  const freshest = Math.max(...active.map((entry) => entry.lastFetchedOn ?? entry.createdOn ?? 0));
   if (freshest <= 0 || now - freshest > staleMs) {
     return { ok: false, reason: "polling_stale" };
   }

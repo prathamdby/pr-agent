@@ -71,7 +71,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts`. `docs/configurat
 | Job expire                  | `QUEUE_EXPIRE_IN_SECONDS`                   | `3600`                      |                                                                                                                                                                                                                                                                                                                                                            |
 | Job heartbeat               | `QUEUE_HEARTBEAT_SECONDS`                   | `60`                        | min 10                                                                                                                                                                                                                                                                                                                                                     |
 | Queue polling interval      | `QUEUE_POLLING_INTERVAL_SECONDS`            | `0.5`                       | pg-boss worker poll interval in seconds; min 0.5                                                                                                                                                                                                                                                                                                           |
-| Queue stall diagnostics     | `QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS`  | `60`                        | worker interval for structured depth/age, DLQ, blocked-key, and oldest-active-work logs; empty queues are not treated as healthy                                                                                                                                                                                                                            |
+| Queue stall diagnostics     | `QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS`  | `60`                        | worker interval for structured depth/age, DLQ, blocked-key, and oldest-active-work logs; empty queues are not treated as healthy                                                                                                                                                                                                                           |
 | Worker readiness poll stale | `WORKER_READINESS_POLL_STALE_SECONDS`       | `30`                        | worker `GET /ready` fails when registered consumers have not polled within this many seconds                                                                                                                                                                                                                                                               |
 | Job retention               | `QUEUE_RETENTION_SECONDS`                   | `1209600`                   |                                                                                                                                                                                                                                                                                                                                                            |
 | Job delete after            | `QUEUE_DELETE_AFTER_SECONDS`                | `604800`                    |                                                                                                                                                                                                                                                                                                                                                            |
@@ -237,23 +237,23 @@ pathInstructions:
 
 ### Review / ask agent loops
 
-| Symbol                                             | Default                                                                                                          |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `REVIEW_CANCELLATION_POLL_MS`                      | 1000 ms between supersede/cancel checks while model turns are in flight                                          |
-| `REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS`               | 80000 characters of reviewer-report synthesis context                                                            |
-| `REVIEW_SYNTHESIS_LOW_SEVERITY_DETAIL_MAX_CHARS`   | 1500 characters retained from each P2/P3 detail before the overall budget                                        |
-| `REVIEW_SYNTHESIS_LOW_SEVERITY_EVIDENCE_MAX_CHARS` | 800 characters retained from each P2/P3 evidence field before the overall budget                                 |
-| `QUEUE_STALL_DIAGNOSTIC_QUEUES`                    | ack/review/ask/description/triage/verification/retention lanes for stall diagnostics                             |
-| `QUEUE_STALL_DIAGNOSTIC_DEAD_LETTER_QUEUES`        | corresponding `*-dead` archival queues                                                                           |
-| `QUEUE_STALL_BLOCKED_KEY_QUEUES`                   | `key_strict_fifo` lanes checked for blocked singleton keys                                                       |
-| `VALIDATION_REPAIR_ROUNDS`                         | 3                                                                                                                |
-| `PUBLISH_RECOVERY_ROUNDS`                          | 4                                                                                                                |
-| `PUBLISH_RECOVERY_PROMPTS`                         | recovery nudge strings                                                                                           |
-| `PUBLISH_BUDGET_EXHAUSTED_MESSAGE`                 | submitReview guard                                                                                               |
-| `REVIEW_DIFF_CACHE_REQUIRED_MESSAGE`               | submitReview diff-cache guard                                                                                    |
-| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`                   | untrusted anchor menu block label                                                                                |
-| `ReviewValidationFailureKind`                      | validation failure metric categories                                                                             |
-| `ReviewPhase`                                      | review harness phase metric categories                                                                           |
+| Symbol                                             | Default                                                                              |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `REVIEW_CANCELLATION_POLL_MS`                      | 1000 ms between supersede/cancel checks while model turns are in flight              |
+| `REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS`               | 80000 characters of reviewer-report synthesis context                                |
+| `REVIEW_SYNTHESIS_LOW_SEVERITY_DETAIL_MAX_CHARS`   | 1500 characters retained from each P2/P3 detail before the overall budget            |
+| `REVIEW_SYNTHESIS_LOW_SEVERITY_EVIDENCE_MAX_CHARS` | 800 characters retained from each P2/P3 evidence field before the overall budget     |
+| `QUEUE_STALL_DIAGNOSTIC_QUEUES`                    | ack/review/ask/description/triage/verification/retention lanes for stall diagnostics |
+| `QUEUE_STALL_DIAGNOSTIC_DEAD_LETTER_QUEUES`        | corresponding `*-dead` archival queues                                               |
+| `QUEUE_STALL_BLOCKED_KEY_QUEUES`                   | `key_strict_fifo` lanes checked for blocked singleton keys                           |
+| `VALIDATION_REPAIR_ROUNDS`                         | 3                                                                                    |
+| `PUBLISH_RECOVERY_ROUNDS`                          | 4                                                                                    |
+| `PUBLISH_RECOVERY_PROMPTS`                         | recovery nudge strings                                                               |
+| `PUBLISH_BUDGET_EXHAUSTED_MESSAGE`                 | submitReview guard                                                                   |
+| `REVIEW_DIFF_CACHE_REQUIRED_MESSAGE`               | submitReview diff-cache guard                                                        |
+| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`                   | untrusted anchor menu block label                                                    |
+| `ReviewValidationFailureKind`                      | validation failure metric categories                                                 |
+| `ReviewPhase`                                      | review harness phase metric categories                                               |
 
 ### Triage
 

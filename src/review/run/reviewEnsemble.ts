@@ -220,10 +220,7 @@ export async function validateHighRiskFindings(params: {
   const dropped = new Set<string>();
   const concurrency = Math.max(
     1,
-    Math.min(
-      params.concurrency ?? params.cfg.reviewAgentConcurrency,
-      Math.max(1, queue.length),
-    ),
+    Math.min(params.concurrency ?? params.cfg.reviewAgentConcurrency, Math.max(1, queue.length)),
   );
   const validationTool: PiTool = {
     name: "submitValidation",

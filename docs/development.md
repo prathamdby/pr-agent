@@ -36,11 +36,11 @@ When a change alters **runtime topology**, update the Mermaid diagram in [README
 
 ### Services overview
 
-| Service              | How to run                                                                                                                                               | Notes                                                           |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Postgres 16          | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                          |
-| Web (webhook intake) | `ROLE=web nub src/index.ts`                                                                                                                              | Listens on `PORT` (default 7224); `GET /health` liveness; `GET /ready` = Postgres for intake |
-| Worker (agent work)  | `ROLE=worker nub src/index.ts`                                                                                                                           | Queue consumers + worker `GET /health` / `GET /ready` (consumers + polling + Postgres/pg-boss) |
+| Service              | How to run                                                                                                                                               | Notes                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Postgres 16          | `docker run -d --name pr-agent-postgres -e POSTGRES_DB=pr_agent -e POSTGRES_USER=pr_agent -e POSTGRES_PASSWORD=pr_agent -p 5432:5432 postgres:16-alpine` | Required for both web and worker roles                                                                 |
+| Web (webhook intake) | `ROLE=web PORT=7224 nub src/index.ts`                                                                                                                    | Listens on `PORT`; `GET /health` liveness; `GET /ready` = Postgres for intake                          |
+| Worker (agent work)  | `ROLE=worker PORT=7225 nub src/index.ts`                                                                                                                 | Use a different `PORT` than web when both run on one host; queue consumers + worker `/health` `/ready` |
 
 ### Gotchas
 

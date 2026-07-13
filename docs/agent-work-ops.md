@@ -10,12 +10,12 @@ Queue inspection, retry, and recovery for pg-boss workers. For behaviour and dep
 
 ## Probes (web vs worker)
 
-| Probe | Role | Meaning |
-| ----- | ---- | ------- |
-| `GET /health` | web | Process liveness only |
-| `GET /ready` | web | Postgres reachable for webhook intake — **not** worker health |
-| `GET /health` | worker | Process liveness only |
-| `GET /ready` | worker | Consumers registered, polling fresh, Postgres + pg-boss reachable. Empty queues do **not** imply healthy |
+| Probe         | Role   | Meaning                                                                                                  |
+| ------------- | ------ | -------------------------------------------------------------------------------------------------------- |
+| `GET /health` | web    | Process liveness only                                                                                    |
+| `GET /ready`  | web    | Postgres reachable for webhook intake — **not** worker health                                            |
+| `GET /health` | worker | Process liveness only                                                                                    |
+| `GET /ready`  | worker | Consumers registered, polling fresh, Postgres + pg-boss reachable. Empty queues do **not** imply healthy |
 
 Compose: web healthcheck hits `/health`; worker healthcheck hits `/ready`.
 

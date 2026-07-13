@@ -32,15 +32,9 @@ import {
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
 import { deriveReviewProviderPressure } from "./providerPressure.js";
-import {
-  collectQueueStallDiagnostic,
-  formatQueueStallLogFields,
-} from "./queueDiagnostics.js";
+import { collectQueueStallDiagnostic, formatQueueStallLogFields } from "./queueDiagnostics.js";
 import { startWorkerHealthServer } from "./workerHealthServer.js";
-import {
-  evaluateWorkerReadiness,
-  type WorkerReadinessState,
-} from "./workerReadiness.js";
+import { evaluateWorkerReadiness, type WorkerReadinessState } from "./workerReadiness.js";
 
 function workerJobMeta(
   queue: string,
@@ -220,7 +214,10 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             });
           }
 
+          let diagnosticsInFlight = false;
           const logStallDiagnostic = async () => {
+            if (diagnosticsInFlight) return;
+            diagnosticsInFlight = true;
             try {
               const diagnostic = await collectQueueStallDiagnostic({ boss, pool });
               const fields = formatQueueStallLogFields(diagnostic);
@@ -240,6 +237,8 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               logWarn("agent_queue_stall_diagnostic_failed", {
                 message: e instanceof Error ? e.message : String(e),
               });
+            } finally {
+              diagnosticsInFlight = false;
             }
           };
           await logStallDiagnostic();
@@ -248,7 +247,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           }, cfg.queueStallDiagnosticsIntervalSeconds * 1000);
           diagnosticsTimer.unref();
 
-          const healthServer = startWorkerHealthServer({
+          const healthServer = await startWorkerHealthServer({
             port: cfg.port,
             evaluateReady: () =>
               evaluateWorkerReadiness({

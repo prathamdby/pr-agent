@@ -6,14 +6,30 @@ export type WorkerHealthServer = {
   readonly close: () => Promise<void>;
 };
 
+function listen(server: http.Server, port: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onError = (error: Error) => {
+      server.off("listening", onListening);
+      reject(error);
+    };
+    const onListening = () => {
+      server.off("error", onError);
+      resolve();
+    };
+    server.once("error", onError);
+    server.once("listening", onListening);
+    server.listen(port);
+  });
+}
+
 /**
  * Minimal liveness/readiness HTTP surface for ROLE=worker.
  * Distinct from web `/ready` (Postgres-only for webhook intake).
  */
-export function startWorkerHealthServer(params: {
+export async function startWorkerHealthServer(params: {
   readonly port: number;
   readonly evaluateReady: () => Promise<WorkerReadinessResult>;
-}): WorkerHealthServer {
+}): Promise<WorkerHealthServer> {
   const server = http.createServer((req, res) => {
     void (async () => {
       const path = (req.url ?? "").split("?")[0] ?? "";
@@ -40,7 +56,7 @@ export function startWorkerHealthServer(params: {
     });
   });
 
-  server.listen(params.port);
+  await listen(server, params.port);
 
   return {
     server,
