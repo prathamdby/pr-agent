@@ -5,7 +5,7 @@ import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
 import { captureAgentProviderBootFailure } from "./agent/providers/bootAnalytics.js";
 import { resolveAgentRunnerProvider } from "./agent/providers/index.js";
-import { shutdownPostHog } from "./posthog.js";
+import { initPostHog, shutdownPostHog } from "./posthog.js";
 async function main() {
   let cfg: Config;
   try {
@@ -16,6 +16,7 @@ async function main() {
     return;
   }
 
+  initPostHog(cfg);
   initEvlog(cfg.logLevel, {
     maxWideEvents: cfg.logMaxWideEvents,
     pretty: cfg.logPretty,

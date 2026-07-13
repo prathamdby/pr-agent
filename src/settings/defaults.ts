@@ -95,3 +95,9 @@ export const DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES = 500_000_000;
 export const DEFAULT_LOCAL_WORKSPACE_MAX_FETCH_BYTES = 2 * 1024 * 1024 * 1024;
 export const DEFAULT_LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB = 1_000_000;
 export const DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS = 86_400;
+
+/** Empty token: client is still constructed; useful capture requires a non-empty token. */
+export const DEFAULT_POSTHOG_PROJECT_TOKEN = "";
+/** Empty host: omit host so posthog-node uses its default cloud endpoint. */
+export const DEFAULT_POSTHOG_HOST = "";
+export const DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE = true;

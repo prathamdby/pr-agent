@@ -80,6 +80,9 @@ import {
   DEFAULT_RETENTION_ENABLED,
   DEFAULT_WEBHOOK_TIMEOUT_MS,
   DEFAULT_WEBHOOK_MAX_BODY_BYTES,
+  DEFAULT_POSTHOG_PROJECT_TOKEN,
+  DEFAULT_POSTHOG_HOST,
+  DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
   ENV,
   EXTERNAL_ENV,
   GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
@@ -567,6 +570,20 @@ export function loadConfig() {
     ENV.LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
     DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   );
+
+  const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
+  const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST);
+  const posthogEnabledRaw = process.env[ENV.POSTHOG_ENABLED];
+  const posthogEnabledExplicit =
+    posthogEnabledRaw != null && posthogEnabledRaw.trim() !== ""
+      ? posthogEnabledRaw === "true"
+      : undefined;
+  const posthogEnabled = posthogEnabledExplicit ?? posthogProjectToken.trim().length > 0;
+  const posthogExceptionAutocapture = readBooleanEnv(
+    ENV.POSTHOG_EXCEPTION_AUTOCAPTURE,
+    DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
+  );
+
   return {
     port,
     githubAppId,
@@ -653,6 +670,10 @@ export function loadConfig() {
     localWorkspaceMaxFetchBytes,
     localWorkspaceFullCloneMaxRepoKb,
     localWorkspaceStaleCleanupAgeSeconds,
+    posthogProjectToken,
+    posthogHost,
+    posthogEnabled,
+    posthogExceptionAutocapture,
   };
 }
 

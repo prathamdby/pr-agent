@@ -10,6 +10,7 @@ import {
 } from "../src/settings/index.js";
 
 const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
+const SRC_ROOT = path.join(process.cwd(), "src");
 
 function parseEnvExampleKeys(content: string): string[] {
   const keys: string[] = [];
@@ -23,11 +24,30 @@ function parseEnvExampleKeys(content: string): string[] {
   return keys;
 }
 
+function listTsFiles(dir: string): string[] {
+  const out: string[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...listTsFiles(full));
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith(".ts")) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
 describe("settings inventory", () => {
   it("ENV keys match loadConfig surface", () => {
     const envValues = Object.values(ENV);
     expect(envValues).toContain("PORT");
     expect(envValues).toContain("DATABASE_URL");
+    expect(envValues).toContain(ENV.POSTHOG_PROJECT_TOKEN);
+    expect(envValues).toContain(ENV.POSTHOG_HOST);
+    expect(envValues).toContain(ENV.POSTHOG_ENABLED);
+    expect(envValues).toContain(ENV.POSTHOG_EXCEPTION_AUTOCAPTURE);
     expect(new Set(envValues).size).toBe(envValues.length);
   });
 
@@ -64,5 +84,25 @@ describe("settings inventory", () => {
     );
     expect(readExample(ENV.WEBHOOK_MAX_BODY_BYTES)).toBe(String(DEFAULT_WEBHOOK_MAX_BODY_BYTES));
     expect(documented.length).toBeGreaterThan(20);
+  });
+
+  it("PostHog keys are not read as raw process.env outside settings/config", () => {
+    const allowed = new Set([
+      path.join(SRC_ROOT, "config.ts"),
+      path.join(SRC_ROOT, "settings", "envKeys.ts"),
+      path.join(SRC_ROOT, "settings", "defaults.ts"),
+    ]);
+    const rawPosthogEnv = /process\.env(?:\.POSTHOG_[A-Z0-9_]+|\[[^\]]*POSTHOG_[A-Z0-9_]+)/;
+    const offenders: string[] = [];
+
+    for (const file of listTsFiles(SRC_ROOT)) {
+      if (allowed.has(file)) continue;
+      const content = fs.readFileSync(file, "utf8");
+      if (rawPosthogEnv.test(content)) {
+        offenders.push(path.relative(process.cwd(), file));
+      }
+    }
+
+    expect(offenders).toEqual([]);
   });
 });

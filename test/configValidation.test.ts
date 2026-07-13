@@ -48,6 +48,22 @@ describe("loadConfig validation", () => {
     expect(cfg.reviewMinConfidence).toBe(1);
     expect(cfg.enableReviewCheckRun).toBe(false);
     expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    expect(cfg.posthogProjectToken).toBe("");
+    expect(cfg.posthogHost).toBe("");
+    expect(cfg.posthogEnabled).toBe(false);
+    expect(cfg.posthogExceptionAutocapture).toBe(true);
+  });
+
+  it("derives PostHog enablement from token when POSTHOG_ENABLED is empty", async () => {
+    const cfg = await load({ POSTHOG_PROJECT_TOKEN: "phc_test", POSTHOG_ENABLED: "" });
+    expect(cfg.posthogEnabled).toBe(true);
+    expect(cfg.posthogProjectToken).toBe("phc_test");
+  });
+
+  it("allows explicit PostHog enablement override with an empty token", async () => {
+    const cfg = await load({ POSTHOG_ENABLED: "true", POSTHOG_EXCEPTION_AUTOCAPTURE: "false" });
+    expect(cfg.posthogEnabled).toBe(true);
+    expect(cfg.posthogExceptionAutocapture).toBe(false);
   });
 
   it("rejects a non-numeric positive knob", async () => {

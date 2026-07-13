@@ -15,7 +15,8 @@ const features = [
   },
   {
     title: "Simple commands from PR comments",
-    detail: "Type /review, /describe, or /ask in a comment when you want a specific result.",
+    detail:
+      "Type /review, /describe, /ask, /triage, or /help in a comment when you want a specific result.",
   },
   {
     title: "Honest limits on large changes",

@@ -255,6 +255,10 @@ Review, description, and ask content is sent to your configured model provider d
 
 When enabled, library lookup tools may call `https://context7.com/api`. Set `CONTEXT7_API_KEY` for higher limits; queries leave your network to Context7 when those tools run.
 
+### PostHog (optional)
+
+Product analytics are optional and load through settings/config (`POSTHOG_PROJECT_TOKEN`, `POSTHOG_HOST`, `POSTHOG_ENABLED`, `POSTHOG_EXCEPTION_AUTOCAPTURE`). The Node client is always constructed at bootstrap—even with an empty token—so capture call sites stay stable; useful delivery requires a non-empty token (or an explicit `POSTHOG_ENABLED=true` override). When enabled, captures use distinct ids `installation:<github-installation-id>`, `worker`, or `server`, with coarse properties (owner, repo, PR number, work-item id, provider, event names, error messages). Diffs and finding bodies are not sent as analytics payloads. Exception autocapture defaults to on and may forward uncaught exceptions to your PostHog host. Details: [docs/configuration.md](docs/configuration.md), [docs/operations.md](docs/operations.md#security).
+
 ### Logging
 
 Structured logs use [evlog](https://www.evlog.dev) on your hosts. `LOG_REDACT` (default true) redacts secret-shaped substrings; tune via [docs/configuration.md](docs/configuration.md).

@@ -20,7 +20,10 @@ export function Quickstart() {
                 Webhook URL: <code>https://&lt;host&gt;/webhooks</code>
               </li>
               <li>Events: pull requests and pull request comments</li>
-              <li>Permissions: Issues and Pull requests read/write, Contents read</li>
+              <li>
+                Permissions: Issues and Pull requests read/write, Contents read (add Contents write
+                for Triage autofix; read-only Contents makes `/triage` report-only)
+              </li>
             </ul>
             <p className="mt-2 text-sm text-neutral-500">
               Full deploy steps in the{" "}
@@ -52,9 +55,11 @@ docker compose up`}
             <h3 className="text-sm font-medium text-neutral-800 mb-2">3. Ask in the PR thread</h3>
             <pre className="bg-neutral-50 border border-neutral-200 rounded p-3 text-sm overflow-x-auto">
               <code className="text-neutral-700">
-                {`/review
+                {`/help
+/review
 /describe
-/ask Why is this function async?`}
+/ask Why is this function async?
+/triage`}
               </code>
             </pre>
           </div>

@@ -94,6 +94,10 @@ const baseTestConfig: Config = {
   localWorkspaceMaxFetchBytes: Number.MAX_SAFE_INTEGER,
   localWorkspaceFullCloneMaxRepoKb: 1_000,
   localWorkspaceStaleCleanupAgeSeconds: 1,
+  posthogProjectToken: "",
+  posthogHost: "",
+  posthogEnabled: false,
+  posthogExceptionAutocapture: true,
 };
 
 export function makeTestConfig(overrides: TestConfigOverrides = {}): Config {

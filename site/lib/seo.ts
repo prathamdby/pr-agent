@@ -38,12 +38,12 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "What is PR Agent?",
     answer:
-      "PR Agent reviews GitHub pull requests on your servers. You deploy webhook intake, a Postgres job queue, background workers, and AI agents. It posts reviews, PR descriptions, security notes, quality notes, and Q&A replies back to GitHub.",
+      "PR Agent reviews GitHub pull requests on your servers. You deploy webhook intake, a Postgres job queue, background workers, and AI agents. A Review run synthesizes multi-agent findings into one Review summary comment, with optional Description runs, Ask replies, Triage autofix, and Verification on follow-up pushes.",
   },
   {
     question: "Is PR Agent a self-hosted alternative to CodeRabbit?",
     answer:
-      "Yes. PR Agent covers GitHub reviews on PR open and sync, inline comments, PR summaries, descriptions, and slash-command triggers. Unlike CodeRabbit's hosted SaaS, PR Agent runs on your servers, uses your GitHub App credentials, and lets you bring your own LLM provider.",
+      "Yes. PR Agent covers GitHub Review runs on PR open (configurable), Verification runs on synchronize by default, inline comments, Review summary comments, descriptions, Triage, and slash-command triggers. Unlike CodeRabbit's hosted SaaS, PR Agent runs on your servers, uses your GitHub App credentials, and lets you bring your own LLM provider.",
   },
   {
     question: "How does PR Agent compare to Greptile?",
@@ -125,10 +125,10 @@ export function softwareApplicationJsonLd() {
     softwareVersion: "0.1.0",
     license: "https://opensource.org/licenses/MIT",
     featureList: [
-      "Automated AI pull request reviews",
+      "Automated multi-agent pull request Review runs",
       "PR description generation",
-      "Security and quality review lenses",
-      "Slash-command Q&A on pull requests",
+      "Verification runs on follow-up commits",
+      "Triage autofix and Ask Q&A on pull requests",
       "Self-hosted GitHub App",
       "Bring your own LLM provider",
       "Durable webhook intake and job queue",

@@ -1,8 +1,9 @@
 const capabilities = [
   {
-    title: "Catch review basics before a human opens the diff",
-    trigger: "Runs when a PR opens or updates, or when you comment /review",
-    detail: "Inline comments appear on the Files changed tab.",
+    title: "One synthesized Review summary per Review run",
+    trigger: "Runs when a PR opens (REVIEW_AUTO_ACTIONS default), or when you comment /review",
+    detail:
+      "Multi-agent Reviewer reports are validated and synthesized into one Review summary comment—not separate lens products.",
   },
   {
     title: "Turn a blank PR body into a readable summary",
@@ -10,9 +11,17 @@ const capabilities = [
     detail: "Summary bullets and an optional diagram go into the PR body.",
   },
   {
-    title: "Review every change from multiple angles",
-    trigger: "Runs automatically or when you comment /review",
-    detail: "Correctness, security, tests, reliability, and maintainability are synthesized once.",
+    title: "Verification on follow-up commits, not a full re-review",
+    trigger:
+      "Runs on synchronize by default (VERIFICATION_AUTO_ACTIONS); full Review needs /review",
+    detail:
+      "A Verification run re-checks open findings against the new head. Follow-up pushes do not re-run a full Review run unless you add synchronize to REVIEW_AUTO_ACTIONS or comment /review.",
+  },
+  {
+    title: "Close the loop with Triage and repo policy",
+    trigger: "Comment /triage on the PR or inside an inline finding thread",
+    detail:
+      "A Triage run can autofix eligible findings (Contents write required) and suggest repo policy snippets for dismissed patterns.",
   },
   {
     title: "Ask code questions without leaving GitHub",
@@ -20,9 +29,10 @@ const capabilities = [
     detail: "Get an answer in the same thread, right where the code lives.",
   },
   {
-    title: "Skip AI review when the PR is only docs",
-    trigger: "Runs automatically on small documentation-only changes",
-    detail: "Docs-only pull requests take a lighter path instead of a full review.",
+    title: "Skip a full Review run when the PR is only docs",
+    trigger: "Lightweight review completion on docs-only trivial changes",
+    detail:
+      "Docs-only pull requests can finish with a short notice instead of a full multi-agent Review run.",
   },
 ];
 
