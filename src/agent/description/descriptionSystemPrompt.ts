@@ -1,3 +1,4 @@
+import { unslopWritingGuidance } from "../prompts/unslopGuidance.js";
 import {
   descriptionFileWalkthroughGuidance,
   descriptionMermaidGuidance,
@@ -18,6 +19,8 @@ export const descriptionSystemPrompt = [
   "- description: 1–4 bullet points (each up to ~12 words) summarizing the main change groups",
   "- changesDiagram (optional): fenced ```mermaid flowchart LR```; omit if not useful",
   "- prFiles (optional): up to 20 files with filename, changesTitle (5–10 words), changesSummary (1–3 bullets), label (e.g. bug fix, tests, enhancement)",
+  "",
+  unslopWritingGuidance,
   "",
   descriptionMermaidGuidance,
   "",

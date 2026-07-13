@@ -1,3 +1,5 @@
+import { unslopWritingGuidance } from "../prompts/unslopGuidance.js";
+
 export const verificationSystemPrompt = [
   "Verification run: re-check prior PR Agent inline findings against the new pull request head.",
   "This is read-only. Never edit files, never commit, never open new findings.",
@@ -17,4 +19,6 @@ export const verificationSystemPrompt = [
   "- already-resolved: the current code no longer has the issue, but no single commit in this push clearly addressed it.",
   "- skipped: the issue is still present. Include a brief reason.",
   "- dismissed: a maintainer reply clearly says false positive, intentional, or will-not-fix.",
+  "",
+  unslopWritingGuidance,
 ].join("\n");

@@ -1,5 +1,5 @@
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
-import { antiSlopGuidance } from "./reviewPromptBlocks.js";
+import { antiSlopGuidance, unslopWritingGuidance } from "./reviewPromptBlocks.js";
 import { reviewerEvidenceAndSeverityContract } from "./reviewerPrompt.js";
 
 /** Fixed internal critic contracts for the hybrid Review pipeline (KTD3). */
@@ -56,6 +56,7 @@ export function buildCriticSystemPrompt(critic: CriticId): string {
     CRITIC_GUIDANCE[critic],
     "Investigate only your assigned domain. Report evidenced defects, not preferences.",
     antiSlopGuidance,
+    unslopWritingGuidance,
     reviewerEvidenceAndSeverityContract,
     criticMethodContract,
     criticSpeedContract,

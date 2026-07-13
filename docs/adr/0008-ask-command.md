@@ -26,7 +26,7 @@ This repo already runs reviews through a Pi-AI tool loop with native GitHub REST
 
 6. **Failure handling** — One retry nudge, then text-only fallback, then an honest short failure reply if still stuck.
 
-7. **Style** — System prompt requires simple, humane prose with no em dashes and no AI-tell openers; enforcement is prompt-only (no post-processing).
+7. **Style** — System prompts for PR-visible output inline shared unslop writing guidance (`src/agent/prompts/unslopGuidance.ts`): plain concrete speech, no em dashes, no AI-tell openers or filler. Enforcement is prompt-only (no post-processing). Server-rendered PR strings follow the same rules.
 
 ## Consequences
 

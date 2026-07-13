@@ -214,12 +214,12 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
-      budget: { bytes: 10_700, characters: 10_700, estimatedTokens: 2_675 },
+      budget: { bytes: 15_000, characters: 15_000, estimatedTokens: 3_750 },
     },
     {
       name: "review orchestrator system prompt",
       content: buildOrchestratorSystemPrompt(),
-      budget: { bytes: 7_200, characters: 7_200, estimatedTokens: 1_800 },
+      budget: { bytes: 11_400, characters: 11_400, estimatedTokens: 2_850 },
     },
     {
       name: "representative review user content",
@@ -244,7 +244,7 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "representative Cursor prompt",
       content: cursorPrompt,
-      budget: { bytes: 11_100, characters: 11_100, estimatedTokens: 2_775 },
+      budget: { bytes: 11_800, characters: 11_800, estimatedTokens: 2_950 },
     },
   ];
 }

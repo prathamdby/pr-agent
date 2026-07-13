@@ -167,7 +167,7 @@ function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boo
   const lines: string[] = [];
 
   if (finding.severity === "P3") {
-    lines.push(`[P3 — no inline thread] ${finding.title}`);
+    lines.push(`[P3, no inline thread] ${finding.title}`);
     lines.push(finding.detail);
     return lines.join("\n");
   }
@@ -175,7 +175,7 @@ function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boo
   lines.push(`[${finding.severity}] ${location}`);
   lines.push(finding.fixPrompt ? escapeCodeFenceBreakers(finding.fixPrompt) : "");
   if (!opts.inlinePosted) {
-    lines.push("[inline thread omitted — summary only]");
+    lines.push("[inline thread omitted, summary only]");
   }
   return lines.join("\n");
 }
@@ -199,7 +199,7 @@ function renderSummaryOnlyFixAccordion(
 ): string[] {
   return [
     "<details>",
-    `<summary>Prompt to fix — ${severity} · ${escapeTableHtml(title)}</summary>`,
+    `<summary>Prompt to fix: ${severity} · ${escapeTableHtml(title)}</summary>`,
     "",
     "```",
     escapeCodeFenceBreakers(fixPrompt),

@@ -29,7 +29,7 @@ describe("review prompt contract", () => {
 
   it("keeps unified correctness, security, and prose guidance", () => {
     const prompt = buildAutomatedSystemPrompt();
-    expect(prompt).toContain("you report problems, not prescriptions");
+    expect(prompt).toContain("You report problems, not prescriptions");
     expect(prompt).toContain(securityTripwiresGuidance);
     expect(prompt).toContain(proseContractGuidance);
   });
@@ -46,7 +46,7 @@ describe("Review orchestrator prompt contract", () => {
     const prompt = buildOrchestratorSystemPrompt();
     expect(prompt).toContain("Review synthesis");
     expect(prompt).toContain("Do not originate new findings");
-    expect(prompt).toContain("never to re-sweep every changed file");
+    expect(prompt).toContain("Never re-sweep every changed file");
     expect(prompt).toContain("submitReview exactly once");
     expect(prompt).not.toContain("Inspect **every changed file**");
     expect(PRE_SUBMIT_ROUND0_PROMPT).not.toContain("Every changed file was listed and inspected");

@@ -39,7 +39,7 @@ export function repairMermaidNodeLabels(line: string): string {
       const text = inner.replace(/^\//, "").trim();
       return `${nodeId}${quoteLabel(text)}`;
     }
-    // Valid subroutine [/text/] — convert to quoted (slashes break GitHub on paths)
+    // Valid subroutine [/text/]: convert to quoted (slashes break GitHub on paths)
     if (inner.startsWith("/") && inner.endsWith("/") && inner.length > 2) {
       const text = inner.slice(1, -1).trim();
       return `${nodeId}${quoteLabel(text)}`;
@@ -116,19 +116,19 @@ function validateMermaidDiagramBody(body: string): MermaidValidationIssue[] {
         issues.push({
           line: lineNo,
           message:
-            'Unquoted label starts with / but is not valid subroutine syntax — use quoted labels, e.g. A["api route"].',
+            'Unquoted label starts with / but is not valid subroutine syntax. Use quoted labels, e.g. A["api route"].',
         });
       } else if (label.includes("/")) {
         issues.push({
           line: lineNo,
           message:
-            'Slash in unquoted label breaks GitHub — use quoted labels, e.g. A["api/route"].',
+            'Slash in unquoted label breaks GitHub. Use quoted labels, e.g. A["api/route"].',
         });
       }
       if (/[()]/.test(label) && !(label.startsWith('"') && label.endsWith('"'))) {
         issues.push({
           line: lineNo,
-          message: "Parentheses in unquoted labels are unsafe — use quoted labels.",
+          message: "Parentheses in unquoted labels are unsafe. Use quoted labels.",
         });
       }
     }

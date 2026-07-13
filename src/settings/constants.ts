@@ -242,7 +242,7 @@ export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
 export const REVIEW_SUMMARY_COMPACTION_NOTE =
   "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";
 export const REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX =
-  "finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.";
+  "finding(s) omitted from this summary due to GitHub comment size limits. See inline threads where posted.";
 export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
 /** Max wait for a peer (e.g. ack job) to persist a started check run id. */
 export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
@@ -316,7 +316,7 @@ export const ASK_META_REFUSAL =
 export const MAX_ASK_QUESTION_CHARS = 8192;
 
 export const ASK_USAGE_HINT =
-  "Usage: `/ask <your question>` — ask about this PR or a specific line of code.";
+  "Usage: `/ask <your question>`. Ask about this PR or a specific line of code.";
 
 export function askQuestionTooLongHint(maxChars: number = MAX_ASK_QUESTION_CHARS): string {
   return `Your question exceeds the ${maxChars} character limit. Shorten it or reference files by path instead of pasting large blocks.`;
@@ -439,11 +439,11 @@ export const SLASH_HELP_BODY = [
   "### PR Agent help",
   "",
   "Commands (first line of a **new** comment):",
-  "- `/help` — show this message",
-  "- `/ask <question>` — ask about this PR or a specific line of code",
-  "- `/describe` — generate or refresh the PR title/body summary (also runs automatically on PR open)",
-  "- `/review` — comprehensive multi-agent review (also runs automatically on PR open; further reviews need a manual `/review`)",
-  "- `/triage` — fix earlier PR Agent findings on this PR: commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs). Post on the PR conversation to triage all findings, or reply `/triage` inside a bot inline finding thread to triage that finding only.",
+  "- `/help`: show this message",
+  "- `/ask <question>`: ask about this PR or a specific line of code",
+  "- `/describe`: generate or refresh the PR title/body summary (also runs automatically on PR open)",
+  "- `/review`: comprehensive multi-agent review (also runs automatically on PR open; further reviews need a manual `/review`)",
+  "- `/triage`: fix earlier PR Agent findings on this PR. Commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs). Post on the PR conversation to triage all findings, or reply `/triage` inside a bot inline finding thread to triage that finding only.",
   "",
   "Notes:",
   "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on PR actions listed in `REVIEW_AUTO_ACTIONS` (default `opened` only, so follow-up pushes need a manual `/review`).",

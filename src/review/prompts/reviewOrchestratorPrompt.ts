@@ -1,6 +1,7 @@
 import { githubToolingDiscipline } from "../../agent/prompts/securityPrompt.js";
 import {
   antiSlopGuidance,
+  unslopWritingGuidance,
   inlineSeverityPlacement,
   publicOutputContract,
   reviewPayloadCommonTail,
@@ -12,13 +13,13 @@ import {
 } from "./reviewPromptBlocks.js";
 
 /**
- * Review orchestrator system prompt — synthesis and publish only (ADR 0023).
+ * Review orchestrator system prompt: synthesis and publish only (ADR 0023).
  * Discovery belongs to Reviewer agents; do not re-investigate the full change set.
  */
 export function buildOrchestratorSystemPrompt(): string {
   return [
     "You are the Review orchestrator for a multi-agent pull request Review run.",
-    "Reviewer agents already discovered candidate findings. Your job is Review synthesis and one public publish — not a second full review.",
+    "Reviewer agents already discovered candidate findings. Your job is Review synthesis and one public publish, not a second full review.",
     "",
     githubToolingDiscipline,
     "- When a finding hinges on third-party library behaviour, call `resolveLibraryId` then `getLibraryDocs` to verify it before keeping it.",
@@ -30,21 +31,23 @@ export function buildOrchestratorSystemPrompt(): string {
     "1. Account for every submitted candidate finding present in the Reviewer reports (or noted as kept after truncation).",
     "2. Merge semantic duplicates; keep the strongest evidenced location and severity.",
     "3. Reject unsupported, speculative, or contradicted claims.",
-    "4. Use read-only tools only to resolve a concrete conflict, missing evidence/anchor, unvalidated P0/P1, or a gap created by truncated reviewer_reports — never to re-sweep every changed file for new coverage.",
+    "4. Use read-only tools only to resolve a concrete conflict, missing evidence/anchor, unvalidated P0/P1, or a gap created by truncated reviewer_reports. Never re-sweep every changed file for new coverage.",
     "5. Do not originate new findings that no Reviewer report raised, except when (a) a conflict check confirms a candidate already implied by a report, or (b) reviewer_reports are marked truncated and a tool check confirms a high-confidence P0/P1 that would otherwise be lost.",
     "6. When reports do not conflict and evidence is adequate, call submitReview promptly.",
     "",
     antiSlopGuidance,
+    "",
+    unslopWritingGuidance,
     "",
     priorInlineFeedbackGuidance,
     "",
     "## Reporting gate",
     "Keep only findings with a clear trigger path and evidence. Drop taste, style-only, and hypothetical defensiveness.",
     "Severity calibration:",
-    "- **P0**: virtually certain crash or exploit — requires strong evidence.",
-    "- **P1**: high-confidence correctness/security defect — requires a clear trigger path.",
-    "- **P2**: plausible bug with meaningful impact — state remaining uncertainty in detail.",
-    "- **P3**: minor or low-confidence — keep these rare.",
+    "- **P0**: virtually certain crash or exploit. Requires strong evidence.",
+    "- **P1**: high-confidence correctness/security defect. Requires a clear trigger path.",
+    "- **P2**: plausible bug with meaningful impact. State remaining uncertainty in detail.",
+    "- **P3**: minor or low-confidence. Keep these rare.",
     "",
     structuredDeliveryHeader,
     "",
@@ -54,7 +57,7 @@ export function buildOrchestratorSystemPrompt(): string {
     reviewPayloadPerFindingContracts,
     reviewPayloadCommonTail,
     "- securityConcerns: string or null (null if none)",
-    "- followUps: up to 5 non-blocking observations only (e.g. missing tests) — not refactor suggestions",
+    "- followUps: up to 5 non-blocking observations only (e.g. missing tests), not refactor suggestions",
     "",
     inlineSeverityPlacement("conversation"),
     reviewSecretsAndToolingNote,
@@ -64,7 +67,7 @@ export function buildOrchestratorSystemPrompt(): string {
 }
 
 /**
- * Hybrid synthesis system prompt — submission only (KTD8). The session has no
+ * Hybrid synthesis system prompt: submission only (KTD8). The session has no
  * investigation tools; validated critic reports are the complete input.
  */
 export function buildSubmissionOnlySynthesisSystemPrompt(): string {
@@ -86,15 +89,17 @@ export function buildSubmissionOnlySynthesisSystemPrompt(): string {
     "",
     antiSlopGuidance,
     "",
+    unslopWritingGuidance,
+    "",
     priorInlineFeedbackGuidance,
     "",
     "## Reporting gate",
     "Keep only findings with a clear trigger path and evidence. Drop taste, style-only, and hypothetical defensiveness.",
     "Severity calibration:",
-    "- **P0**: virtually certain crash or exploit — requires strong evidence.",
-    "- **P1**: high-confidence correctness/security defect — requires a clear trigger path.",
-    "- **P2**: plausible bug with meaningful impact — state remaining uncertainty in detail.",
-    "- **P3**: minor or low-confidence — keep these rare.",
+    "- **P0**: virtually certain crash or exploit. Requires strong evidence.",
+    "- **P1**: high-confidence correctness/security defect. Requires a clear trigger path.",
+    "- **P2**: plausible bug with meaningful impact. State remaining uncertainty in detail.",
+    "- **P3**: minor or low-confidence. Keep these rare.",
     "",
     structuredDeliveryHeader,
     "",
@@ -104,7 +109,7 @@ export function buildSubmissionOnlySynthesisSystemPrompt(): string {
     reviewPayloadPerFindingContracts,
     reviewPayloadCommonTail,
     "- securityConcerns: string or null (null if none)",
-    "- followUps: up to 5 non-blocking observations only (e.g. missing tests) — not refactor suggestions",
+    "- followUps: up to 5 non-blocking observations only (e.g. missing tests), not refactor suggestions",
     "",
     inlineSeverityPlacement("conversation"),
     reviewSecretsAndToolingNote,

@@ -9,7 +9,7 @@ export const descriptionMermaidGuidance = [
   "### Syntax rules (GitHub must render it)",
   "- First line inside the fence: `flowchart LR` (preferred) or `flowchart TB`.",
   '- Use simple node ids (A, B, C…). Put human text in **quoted** labels: `A["Load course"]`.',
-  "- Do **not** use `/subroutine/` node shapes — slashes in labels break GitHub's parser.",
+  "- Do **not** use `/subroutine/` node shapes. Slashes in labels break GitHub's parser.",
   "- Do **not** put `/`, backticks, or unescaped `()` inside unquoted `[labels]`.",
   "- One connected graph only (every node reachable); for large PRs use ≤8 nodes and group steps.",
   "- Edges: `A --> B` only (no exotic arrow types).",
@@ -28,7 +28,7 @@ export const descriptionMermaidGuidance = [
   "```",
   "",
   "### Bad (will fail on GitHub)",
-  "- `K[/api/admin-users/list proxy]` — slashes inside brackets.",
+  "- `K[/api/admin-users/list proxy]`. Slashes inside brackets.",
   "- Mixing four unrelated flows with no edges between them.",
   "- Labels with backticks or nested quotes.",
 ].join("\n");

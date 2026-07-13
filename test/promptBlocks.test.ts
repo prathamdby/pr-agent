@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 import { wrapTrustedContext, wrapUntrustedBlock } from "../src/agent/prompts/promptBlocks.js";
+import { unslopWritingGuidance } from "../src/agent/prompts/unslopGuidance.js";
+import { buildAskSystemPrompt } from "../src/agent/ask/askPrompt.js";
+import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
+import { triageSystemPrompt } from "../src/agent/triage/triagePrompt.js";
+import { verificationSystemPrompt } from "../src/agent/verification/verificationPrompt.js";
 import {
-  securityTripwiresGuidance,
   proseContractGuidance,
+  securityTripwiresGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
+import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import {
+  buildOrchestratorSystemPrompt,
+  buildSubmissionOnlySynthesisSystemPrompt,
+} from "../src/review/prompts/reviewOrchestratorPrompt.js";
+import { buildReviewerSystemPrompt } from "../src/review/prompts/reviewerPrompt.js";
+import { buildCriticSystemPrompt } from "../src/review/prompts/criticPrompt.js";
+import {
+  buildBatchValidatorSystemPrompt,
+  buildValidatorSystemPrompt,
+} from "../src/review/prompts/validatorPrompt.js";
 
 function untrustedBlockBody(label: string, block: string): string {
   const open = `<${label} untrusted="true">\n`;
@@ -113,5 +129,33 @@ describe("review prompt guidance block exports", () => {
     expect(proseContractGuidance).toContain("## Prose contracts");
     expect(proseContractGuidance.length).toBeGreaterThan("## Prose contracts".length);
     expect(proseContractGuidance).toContain("Contradictions are ordinary findings");
+  });
+});
+
+describe("unslop writing guidance", () => {
+  it("is inlined into every PR-visible system prompt surface", () => {
+    expect(unslopWritingGuidance).toContain("## Unslop writing (PR-visible text)");
+    expect(unslopWritingGuidance).toContain("Self-audit");
+    expect(unslopWritingGuidance).toContain("Notability name-dropping");
+    expect(unslopWritingGuidance).toContain("Acknowledge complexity");
+    expect(unslopWritingGuidance).toContain("No em dashes");
+    expect(unslopWritingGuidance).toContain("Certainly!");
+
+    for (const [name, prompt] of [
+      ["ask", buildAskSystemPrompt()],
+      ["description", descriptionSystemPrompt],
+      ["triage", triageSystemPrompt],
+      ["verification", verificationSystemPrompt],
+      ["review methodology", buildAutomatedSystemPrompt()],
+      ["orchestrator", buildOrchestratorSystemPrompt()],
+      ["hybrid synthesis", buildSubmissionOnlySynthesisSystemPrompt()],
+      ["reviewer", buildReviewerSystemPrompt("correctness")],
+      ["critic", buildCriticSystemPrompt("correctness")],
+      ["validator", buildValidatorSystemPrompt()],
+      ["batch validator", buildBatchValidatorSystemPrompt()],
+    ] as const) {
+      expect(prompt, `${name} should inline unslop guidance`).toContain(unslopWritingGuidance);
+      expect(prompt, `${name} prompt strings should not teach em dashes`).not.toContain("—");
+    }
   });
 });

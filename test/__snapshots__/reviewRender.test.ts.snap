@@ -15,7 +15,7 @@ In src/a.ts lines 5-7, guard the map with a mutex.
 [P2] @src/b.ts lines 20-22
 In src/b.ts lines 20-22, adjust slice end index.
 
-[P3 — no inline thread] Typo in heading
+[P3, no inline thread] Typo in heading
 minor typo"
 `;
 
@@ -141,5 +141,5 @@ exports[`renderReviewSummaryComment > drops finding rows from the tail when comp
 > Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.
 
 > [!NOTE]
-> 5 finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted."
+> 5 finding(s) omitted from this summary due to GitHub comment size limits. See inline threads where posted."
 `;

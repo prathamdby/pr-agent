@@ -198,7 +198,7 @@ describe("renderReviewSummaryComment", () => {
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
     expect(body).toContain("Summary only");
-    expect(body).toContain("<summary>Prompt to fix — P1 · Bug</summary>");
+    expect(body).toContain("<summary>Prompt to fix: P1 · Bug</summary>");
     expect(body).toContain("Fix src/x.ts line 4.");
   });
 
@@ -272,8 +272,8 @@ describe("renderReviewSummaryComment", () => {
       ...ctx,
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
-    expect(body).toContain("<summary>Prompt to fix — P1 · First</summary>");
-    expect(body).toContain("<summary>Prompt to fix — P2 · Second</summary>");
+    expect(body).toContain("<summary>Prompt to fix: P1 · First</summary>");
+    expect(body).toContain("<summary>Prompt to fix: P2 · Second</summary>");
   });
 
   it("HTML-escapes summary-only accordion titles", () => {
@@ -294,7 +294,7 @@ describe("renderReviewSummaryComment", () => {
       ...ctx,
       placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
-    expect(body).toContain("<summary>Prompt to fix — P1 · Bug &lt;script&gt;</summary>");
+    expect(body).toContain("<summary>Prompt to fix: P1 · Bug &lt;script&gt;</summary>");
   });
 
   it("(c) securityConcerns set", () => {
@@ -667,11 +667,11 @@ describe("renderAgentFixPrompt", () => {
     expect(prompt).toContain("Head SHA: abc123def456");
     expect(prompt.indexOf("[P0] @src/a.ts")).toBeLessThan(prompt.indexOf("[P2] @src/b.ts"));
     expect(prompt.indexOf("[P2] @src/b.ts")).toBeLessThan(
-      prompt.indexOf("[P3 — no inline thread]"),
+      prompt.indexOf("[P3, no inline thread]"),
     );
     expect(prompt).toContain("In src/a.ts lines 5-7, guard the map with a mutex.");
     expect(prompt).not.toContain("Concurrent writes without lock.");
-    expect(prompt).toContain("[P3 — no inline thread] Typo in heading");
+    expect(prompt).toContain("[P3, no inline thread] Typo in heading");
     expect(prompt).toContain("minor typo");
   });
 
@@ -706,8 +706,8 @@ describe("renderAgentFixPrompt", () => {
     );
 
     expect(prompt.indexOf("[P1]")).toBeLessThan(prompt.indexOf("[P2]"));
-    expect(prompt).toContain("[inline thread omitted — summary only]");
-    expect(prompt).not.toContain("[inline thread omitted — severity cap]");
+    expect(prompt).toContain("[inline thread omitted, summary only]");
+    expect(prompt).not.toContain("[inline thread omitted, severity cap]");
   });
 
   it("uses singular line range for single-line findings", () => {
@@ -746,8 +746,8 @@ describe("renderAgentFixPrompt", () => {
     });
     const prompt = renderAgentFixPrompt(payload, renderCtx, planInlineFromPayload(payload));
 
-    expect(prompt).toContain("[inline thread omitted — summary only]");
-    expect(prompt).not.toContain("[inline thread omitted — severity cap]");
+    expect(prompt).toContain("[inline thread omitted, summary only]");
+    expect(prompt).not.toContain("[inline thread omitted, severity cap]");
   });
 });
 

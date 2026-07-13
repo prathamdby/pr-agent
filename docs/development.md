@@ -21,7 +21,7 @@ Run `nubx knip` after refactors to catch unused exports and files.
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, and `src/agent/description/`. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
+Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`. Shared unslop writing guidance for PR-visible model output lives in `src/agent/prompts/unslopGuidance.ts` and is inlined into those system prompts. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
 
 The provider-neutral reviewer fan-out, internal report/validation schemas, and synthesis context live in `src/review/run/reviewEnsemble.ts`. Reviewer and validator sessions receive read-only workspace tools; only the orchestrator session assembled by `reviewRun.ts` receives `submitReview`. The hybrid pipeline (`run/hybridReviewRun.ts`) runs four bounded critics (`run/reviewCritics.ts`), one batched validator (`run/reviewValidation.ts`), and one submission-only synthesis turn (`run/reviewSynthesis.ts`); the review executor dispatches between legacy and hybrid based on `REVIEW_PIPELINE_MODE`. Replay and shadow evaluation live in `src/review/evaluation/` and are structurally non-publishing.
 
