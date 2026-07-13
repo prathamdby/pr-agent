@@ -10,6 +10,14 @@ import {
   TRIAGE_PUBLISH_LENS,
   VERIFICATION_PUBLISH_LENS,
 } from "../settings/index.js";
+import type {
+  ReviewCriticCheckpointKey,
+  ReviewCriticCheckpointScope,
+  ReviewCriticCheckpointState,
+  ReviewCriticCheckpointStore,
+  ReviewPayloadCheckpoint,
+  ReviewPayloadCheckpointStore,
+} from "../review/run/reviewCriticCheckpoint.js";
 import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
 
 export type PublishLens =
@@ -697,6 +705,190 @@ export async function recordPublishStep(
       JSON.stringify(params.detail ?? {}),
     ],
   );
+}
+
+export async function loadReviewCriticCheckpoints(
+  pool: Pool,
+  scope: ReviewCriticCheckpointScope,
+): Promise<Map<string, ReviewCriticCheckpointState>> {
+  const result = await pool.query<{
+    critic_id: string;
+    status: ReviewCriticCheckpointState["status"];
+    attempt_count: number;
+    report: Record<string, unknown> | null;
+  }>(
+    `SELECT critic_id, status, attempt_count, report
+		   FROM review_critic_checkpoints
+		  WHERE work_item_id = $1
+		    AND head_sha = $2
+		    AND evidence_hash = $3
+		    AND prompt_contract_version = $4`,
+    [scope.workItemId, scope.headSha, scope.evidenceHash, scope.promptContractVersion],
+  );
+  const out = new Map<string, ReviewCriticCheckpointState>();
+  for (const row of result.rows) {
+    out.set(row.critic_id, {
+      status: row.status,
+      attemptCount: row.attempt_count,
+      report: row.report,
+    });
+  }
+  return out;
+}
+
+/** Record one critic attempt; completed checkpoints are never incremented or reopened. */
+export async function claimReviewCriticAttempt(
+  pool: Pool,
+  key: ReviewCriticCheckpointKey,
+): Promise<{ attemptCount: number; claimed: boolean }> {
+  const row = await queryOne<{ attempt_count: number }>(
+    pool,
+    `INSERT INTO review_critic_checkpoints
+		    (id, work_item_id, head_sha, evidence_hash, critic_id, prompt_contract_version, attempt_count, status)
+		 VALUES ($1, $2, $3, $4, $5, $6, 1, 'in_progress')
+		 ON CONFLICT (work_item_id, head_sha, evidence_hash, critic_id, prompt_contract_version)
+		 DO UPDATE SET attempt_count = review_critic_checkpoints.attempt_count + 1,
+		               status = 'in_progress',
+		               updated_at = now()
+		 WHERE review_critic_checkpoints.status <> 'completed'
+		 RETURNING attempt_count`,
+    [
+      crypto.randomUUID(),
+      key.workItemId,
+      key.headSha,
+      key.evidenceHash,
+      key.criticId,
+      key.promptContractVersion,
+    ],
+  );
+  if (row) return { attemptCount: row.attempt_count, claimed: true };
+  const existing = await queryOne<{ attempt_count: number }>(
+    pool,
+    `SELECT attempt_count
+		   FROM review_critic_checkpoints
+		  WHERE work_item_id = $1
+		    AND head_sha = $2
+		    AND evidence_hash = $3
+		    AND critic_id = $4
+		    AND prompt_contract_version = $5`,
+    [key.workItemId, key.headSha, key.evidenceHash, key.criticId, key.promptContractVersion],
+  );
+  return { attemptCount: existing?.attempt_count ?? 0, claimed: false };
+}
+
+/** Idempotent completion; a completed report can never be replaced or downgraded. */
+export async function saveReviewCriticReport(
+  pool: Pool,
+  key: ReviewCriticCheckpointKey,
+  report: Record<string, unknown>,
+): Promise<void> {
+  await pool.query(
+    `UPDATE review_critic_checkpoints
+		    SET status = 'completed',
+		        report = $6::jsonb,
+		        updated_at = now()
+		  WHERE work_item_id = $1
+		    AND head_sha = $2
+		    AND evidence_hash = $3
+		    AND critic_id = $4
+		    AND prompt_contract_version = $5
+		    AND status <> 'completed'`,
+    [
+      key.workItemId,
+      key.headSha,
+      key.evidenceHash,
+      key.criticId,
+      key.promptContractVersion,
+      JSON.stringify(report),
+    ],
+  );
+}
+
+export async function markReviewCriticExhausted(
+  pool: Pool,
+  key: ReviewCriticCheckpointKey,
+): Promise<void> {
+  await pool.query(
+    `UPDATE review_critic_checkpoints
+		    SET status = 'exhausted',
+		        updated_at = now()
+		  WHERE work_item_id = $1
+		    AND head_sha = $2
+		    AND evidence_hash = $3
+		    AND critic_id = $4
+		    AND prompt_contract_version = $5
+		    AND status <> 'completed'`,
+    [key.workItemId, key.headSha, key.evidenceHash, key.criticId, key.promptContractVersion],
+  );
+}
+
+export async function loadReviewPayloadCheckpoint(
+  pool: Pool,
+  workItemId: string,
+): Promise<ReviewPayloadCheckpoint | null> {
+  const row = await queryOne<{
+    work_item_id: string;
+    head_sha: string;
+    evidence_hash: string;
+    prompt_contract_version: number;
+    payload: Record<string, unknown>;
+  }>(
+    pool,
+    `SELECT work_item_id, head_sha, evidence_hash, prompt_contract_version, payload
+		   FROM review_payload_checkpoints
+		  WHERE work_item_id = $1`,
+    [workItemId],
+  );
+  if (!row) return null;
+  return {
+    workItemId: row.work_item_id,
+    headSha: row.head_sha,
+    evidenceHash: row.evidence_hash,
+    promptContractVersion: row.prompt_contract_version,
+    payload: row.payload,
+  };
+}
+
+/** Insert-once payload checkpoint; a different payload can never replace the first capture. */
+export async function saveReviewPayloadCheckpointOnce(
+  pool: Pool,
+  checkpoint: ReviewPayloadCheckpoint,
+): Promise<ReviewPayloadCheckpoint> {
+  await pool.query(
+    `INSERT INTO review_payload_checkpoints
+		    (work_item_id, head_sha, evidence_hash, prompt_contract_version, payload)
+		 VALUES ($1, $2, $3, $4, $5::jsonb)
+		 ON CONFLICT (work_item_id) DO NOTHING`,
+    [
+      checkpoint.workItemId,
+      checkpoint.headSha,
+      checkpoint.evidenceHash,
+      checkpoint.promptContractVersion,
+      JSON.stringify(checkpoint.payload),
+    ],
+  );
+  const stored = await loadReviewPayloadCheckpoint(pool, checkpoint.workItemId);
+  if (!stored) throw new Error("Review payload checkpoint write did not persist");
+  return stored;
+}
+
+/** Pg-backed checkpoint stores for the hybrid Review pipeline. */
+export function createReviewCheckpointStores(pool: Pool): {
+  criticStore: ReviewCriticCheckpointStore;
+  payloadStore: ReviewPayloadCheckpointStore;
+} {
+  return {
+    criticStore: {
+      loadCheckpoints: (scope) => loadReviewCriticCheckpoints(pool, scope),
+      claimAttempt: (key) => claimReviewCriticAttempt(pool, key),
+      saveCompletedReport: (key, report) => saveReviewCriticReport(pool, key, report),
+      markExhausted: (key) => markReviewCriticExhausted(pool, key),
+    },
+    payloadStore: {
+      load: (workItemId) => loadReviewPayloadCheckpoint(pool, workItemId),
+      saveOnce: (checkpoint) => saveReviewPayloadCheckpointOnce(pool, checkpoint),
+    },
+  };
 }
 
 export async function recordAskPublishStep(

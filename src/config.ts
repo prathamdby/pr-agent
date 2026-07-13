@@ -16,6 +16,11 @@ import {
   DEFAULT_MAX_TOOL_ROUNDS_REVIEWER,
   DEFAULT_MAX_TOOL_ROUNDS_VALIDATOR,
   DEFAULT_MAX_TOOL_ROUNDS_ORCHESTRATOR,
+  DEFAULT_MAX_TOOL_ROUNDS_CRITIC,
+  DEFAULT_REVIEW_CRITIC_MAX_INVESTIGATION_CALLS,
+  DEFAULT_REVIEW_PIPELINE_MODE,
+  DEFAULT_REVIEW_SHADOW_SAMPLE_RATE,
+  REVIEW_PIPELINE_MODES,
   DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
   DEFAULT_QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS,
   DEFAULT_WORKER_READINESS_POLL_STALE_SECONDS,
@@ -295,6 +300,26 @@ export function loadConfig() {
     ENV.MAX_TOOL_ROUNDS_ORCHESTRATOR,
     reviewToolRoundFallback ?? DEFAULT_MAX_TOOL_ROUNDS_ORCHESTRATOR,
   );
+  const maxToolRoundsCritic = readPositiveNumber(
+    ENV.MAX_TOOL_ROUNDS_CRITIC,
+    DEFAULT_MAX_TOOL_ROUNDS_CRITIC,
+  );
+  const reviewCriticMaxInvestigationCalls = readPositiveNumber(
+    ENV.REVIEW_CRITIC_MAX_INVESTIGATION_CALLS,
+    DEFAULT_REVIEW_CRITIC_MAX_INVESTIGATION_CALLS,
+  );
+  const reviewPipelineMode = readEnum(
+    ENV.REVIEW_PIPELINE_MODE,
+    REVIEW_PIPELINE_MODES,
+    DEFAULT_REVIEW_PIPELINE_MODE,
+  );
+  const reviewShadowSampleRate = readNonNegativeNumber(
+    ENV.REVIEW_SHADOW_SAMPLE_RATE,
+    DEFAULT_REVIEW_SHADOW_SAMPLE_RATE,
+  );
+  if (reviewShadowSampleRate > 1) {
+    throw new Error(`${ENV.REVIEW_SHADOW_SAMPLE_RATE} must be a fraction from 0 to 1`);
+  }
   const providerPromptTimeoutMs = readPositiveNumber(
     ENV.PROVIDER_PROMPT_TIMEOUT_MS,
     DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
@@ -582,6 +607,10 @@ export function loadConfig() {
     maxToolRoundsReviewer,
     maxToolRoundsValidator,
     maxToolRoundsOrchestrator,
+    maxToolRoundsCritic,
+    reviewCriticMaxInvestigationCalls,
+    reviewPipelineMode,
+    reviewShadowSampleRate,
     providerPromptTimeoutMs,
     maxReviewPublishAttempts,
     maxReviewPublishCalls,

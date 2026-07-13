@@ -52,4 +52,38 @@ describe("listPullRequestFilesPaginated", () => {
     expect(out.files).toHaveLength(150);
     expect(out.truncated).toBe(false);
   });
+
+  it("exposes head and base identity from the pull metadata", async () => {
+    const pullsListFiles = vi.fn().mockResolvedValueOnce({
+      data: [
+        {
+          filename: "a.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 0,
+          changes: 1,
+          patch: "@@a",
+        },
+      ],
+    });
+
+    const out = await listPullRequestFilesPaginated(
+      makeOctokitStub(pullsListFiles),
+      "o",
+      "r",
+      3,
+      { maxPrFilesListed: 300, maxPrFilesPatchBytes: 500_000 },
+      {
+        additions: 1,
+        deletions: 0,
+        changed_files: 1,
+        head: { sha: "a".repeat(40) },
+        base: { sha: "b".repeat(40), ref: "main" },
+      },
+    );
+
+    expect(out.headSha).toBe("a".repeat(40));
+    expect(out.baseSha).toBe("b".repeat(40));
+    expect(out.baseRef).toBe("main");
+  });
 });

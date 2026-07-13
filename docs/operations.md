@@ -132,3 +132,35 @@ Maintainer rules: [AGENTS.md](../AGENTS.md).
 - **`/ask`** applies deterministic outbound redaction (tokens, host URLs, PEM blocks) before posting replies; obvious bot-internals probes get an **Ask meta refusal** without an LLM call ([ADR 0010](adr/0010-ask-red-team-hardening.md)).
 - Structured logging uses [evlog](https://www.evlog.dev) with `service: pr-agent`. `LOG_LEVEL` maps to evlog `minLevel` (default `info`). `LOG_MAX_WIDE_EVENTS` (default `128`) caps sub-events per webhook/worker operation. `LOG_REDACT` (default true) redacts secret-shaped substrings from logs. `LOG_PRETTY` defaults to off in production (JSON lines).
 - Production logging should stay at `info` unless debugging a specific review run (`LOG_LEVEL=debug`).
+
+## Review pipeline rollout
+
+The Review pipeline has three rollout modes selected by `REVIEW_PIPELINE_MODE` (ADR 0024):
+
+| Mode     | Publishing pipeline        | Shadow comparison               | Notes                                                  |
+| -------- | -------------------------- | ------------------------------- | ------------------------------------------------------ |
+| `legacy` | Eight-role Reviewer roster | None                            | Default; current behavior                              |
+| `shadow` | Eight-role Reviewer roster | Sampled hybrid (non-publishing) | `REVIEW_SHADOW_SAMPLE_RATE` controls sampling fraction |
+| `hybrid` | Four-critic pipeline       | None                            | Target architecture after gates pass                   |
+
+### SLO measurement
+
+Eligible, non-cancelled, non-SLO-exempt Reviews target a median webhook-to-publication latency of at most three minutes and a p95 of at most five minutes. Large or truncated Reviews are recorded as SLO-exempt and may exceed the target to preserve comprehensive coverage.
+
+### Rollout gates
+
+Default cutover to `hybrid` requires all of the following:
+
+1. **Historical replay:** At least 50 adjudicated PRs retain every known valid P0-P2; hybrid's observed false-positive rate does not exceed legacy and the 95% confidence bound excludes a regression above two percentage points.
+2. **Live shadow:** At least seven days and 300 eligible paired Reviews show no confirmed legacy-only P0-P2 and hybrid meets latency SLOs for non-exempt runs.
+3. **Publishing canary:** At least 300 eligible, non-cancelled canary Reviews publish at least 99% without manual retry; no duplicate public payloads.
+
+Rollback to `legacy` is available until final cleanup. Set `REVIEW_PIPELINE_MODE=legacy` to return publishing traffic to the eight-role roster; critic and payload checkpoint data is preserved.
+
+### Replay script
+
+```bash
+node scripts/review-replay.mjs test/fixtures/review-replay/manifest.json
+```
+
+Loads a versioned replay manifest, runs both pipelines through a publication-free evaluation boundary, and prints gate results.

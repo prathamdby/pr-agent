@@ -221,10 +221,15 @@ flowchart LR
   Retention --> Dedupe
   Retention --> Items
   ReviewExec --> Workspace[shared read-only PR workspace]
-  Workspace --> Reviewers[tier-selected reviewer agents]
-  Reviewers --> Validate[P0/P1 validation]
-  Validate --> Orchestrator[review orchestrator synthesis]
-  Orchestrator --> ReviewPublish[one synthesized review publish]
+  Workspace --> Evidence[Review evidence snapshot]
+  Evidence --> Critics[four parallel Reviewer critics]
+  Critics --> BatchVal[one batched P0/P1 validator]
+  BatchVal --> Synthesis[submission-only synthesis]
+  Synthesis --> ReviewPublish[one synthesized review publish]
+  Workspace --> LegacyReviewers[legacy: tier-selected reviewer agents]
+  LegacyReviewers --> LegacyValidate[legacy: per-candidate validation]
+  LegacyValidate --> LegacyOrch[legacy: review orchestrator synthesis]
+  LegacyOrch --> ReviewPublish
   Worker --> LLM[other work agents plus tools]
   LLM --> Publish[GitHub PR-surface publish]
   Worker --> Push[git push PR branch]

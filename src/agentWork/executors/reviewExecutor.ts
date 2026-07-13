@@ -8,6 +8,9 @@ import {
   type ListPullRequestFilesResult,
 } from "../../github/listPullRequestFiles.js";
 import { runFullPrReview } from "../../review/run/reviewRun.js";
+import { runHybridPrReview } from "../../review/run/hybridReviewRun.js";
+import { runShadowReview, shouldSampleShadow } from "../../review/evaluation/reviewShadow.js";
+import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import {
   loadRepoPolicy,
   logInvalidRepoPolicy,
@@ -45,6 +48,7 @@ import {
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
+  createReviewCheckpointStores,
 } from "../repository.js";
 import { buildStaleReviewRescheduleResult } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
@@ -281,6 +285,7 @@ export async function executeReviewJob(
           prFiles: prefetchedPrFiles,
           pullRequest: env.pullRequest,
           repositorySizeKb: payload.repositorySizeKb,
+          deriveAuthoritativeChangeSet: cfg.reviewPipelineMode !== "legacy",
         },
         async (repositoryView) => {
           const priorInlineFeedbackResult = await priorInlineFeedback;
@@ -306,7 +311,7 @@ export async function executeReviewJob(
             repoPolicyBlock,
           });
 
-          const result = await runFullPrReview({
+          const runParams = {
             cfg,
             token: tokenState.installation.token,
             tokenExpiresAtTs: tokenState.installation.expiresAtTs,
@@ -325,6 +330,7 @@ export async function executeReviewJob(
             storedInlineFingerprints,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
+            prFiles: repositoryView.prFiles,
             shouldLinkToSummary,
             summaryCommentIdHint,
             hasDescriptionAgentBlock: (
@@ -371,7 +377,18 @@ export async function executeReviewJob(
               item.installationId,
               tokenState,
             ),
-          });
+          };
+
+          const result =
+            cfg.reviewPipelineMode === "hybrid"
+              ? await runHybridPrReview({
+                  ...runParams,
+                  hybrid: {
+                    workItemId: item.id,
+                    ...createReviewCheckpointStores(pool),
+                  },
+                })
+              : await runFullPrReview(runParams);
           if (
             staleHeadAtPublish &&
             !payload.staleHeadRescheduled &&
@@ -435,6 +452,50 @@ export async function executeReviewJob(
               },
             });
           }
+
+          if (
+            cfg.reviewPipelineMode === "shadow" &&
+            shouldSampleShadow({
+              sampleRate: cfg.reviewShadowSampleRate,
+              workItemId: item.id,
+              headSha,
+            })
+          ) {
+            try {
+              const shadowResult = await runShadowReview({
+                cfg,
+                runner: resolveAgentRunnerProvider(cfg),
+                cwd: repositoryView.agentCwd,
+                owner: item.owner,
+                repo: item.repo,
+                prNumber: item.prNumber,
+                headSha,
+                userSupplement: payload.userSupplement,
+                trustedContext,
+                workspace: repositoryView.workspace,
+                prFiles: repositoryView.prFiles,
+              });
+              logInfo("review_shadow_paired", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                headSha,
+                legacy_published: result.published,
+                shadow_findings_count: shadowResult.findings.length,
+                shadow_degraded: shadowResult.degraded,
+                shadow_duration_ms: shadowResult.durationMs,
+              });
+            } catch (error) {
+              logWarn("review_shadow_failed", {
+                owner: item.owner,
+                repo: item.repo,
+                pr: item.prNumber,
+                headSha,
+                message: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+
           return { degraded: !result.published && !result.publishSuperseded };
         },
       );

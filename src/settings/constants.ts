@@ -32,6 +32,27 @@ export const CURSOR_DEFAULT_MAX_TOKENS = 16_384;
 export const LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY = 32;
 export const LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE = 256;
 export const PR_REPOSITORY_VIEW_RELEASE_GRACE_MS = 60_000;
+/** Progressive `--deepen` steps used to reach the PR merge base for three-dot derivation. */
+export const LOCAL_WORKSPACE_MERGE_BASE_DEEPEN_STEPS = [64, 512, 4096] as const;
+/** Ceiling on total derived three-dot diff bytes embedded in one Review evidence snapshot. */
+export const REVIEW_EVIDENCE_MAX_TOTAL_DIFF_BYTES = 2_000_000;
+/** Version of the shared Review evidence snapshot contract (KTD1). */
+export const REVIEW_EVIDENCE_CONTRACT_VERSION = 1;
+/** Version of the hybrid critic prompt contract; bump to invalidate critic checkpoints (KTD5). */
+export const REVIEW_PROMPT_CONTRACT_VERSION = 1;
+/** Rollout modes for the Review pipeline (KTD11): legacy publishes via the eight-role roster, shadow adds a sampled non-publishing hybrid comparison, hybrid publishes via the four-critic pipeline. */
+export const REVIEW_PIPELINE_MODES = ["legacy", "shadow", "hybrid"] as const;
+export type ReviewPipelineMode = (typeof REVIEW_PIPELINE_MODES)[number];
+/** Minimum historical cases required for replay gate evaluation (R24). */
+export const MIN_REPLAY_CASES = 50;
+/** Minimum paired shadow Reviews required for shadow gate evaluation (R24). */
+export const MIN_SHADOW_REVIEWS = 300;
+/** Minimum shadow observation window in days (R24). */
+export const MIN_SHADOW_DAYS = 7;
+/** Maximum allowed false-positive regression in percentage points (R24). */
+export const MAX_FP_REGRESSION_PERCENTAGE_POINTS = 2;
+/** Max critic attempts per checkpoint scope (initial + one isolated retry). */
+export const MAX_CRITIC_ATTEMPTS = 2;
 
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";

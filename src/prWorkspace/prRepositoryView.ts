@@ -21,6 +21,7 @@ export type PrRepositoryView = {
   readonly workspace: LocalPrWorkspace;
   readonly preflight: ReviewPreflightMetadata;
   readonly agentCwd: string;
+  readonly prFiles: ListPullRequestFilesResult;
 };
 
 export type PreparePrRepositoryViewParams = {
@@ -34,6 +35,8 @@ export type PreparePrRepositoryViewParams = {
   readonly prFiles?: ListPullRequestFilesResult;
   readonly pullRequest?: PullRequestForFileList;
   readonly repositorySizeKb?: number;
+  /** Derive the authoritative three-dot change set from git (KTD2). */
+  readonly deriveAuthoritativeChangeSet?: boolean;
 };
 
 type CachedPrRepositoryView = PrRepositoryView & {
@@ -64,11 +67,18 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
 function cacheKey(
   params: Pick<
     PreparePrRepositoryViewParams,
-    "cfg" | "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+    | "cfg"
+    | "owner"
+    | "repo"
+    | "prNumber"
+    | "headSha"
+    | "repositorySizeKb"
+    | "deriveAuthoritativeChangeSet"
   >,
 ): string {
   const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.cfg, params.repositorySizeKb);
-  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}`;
+  const derived = params.deriveAuthoritativeChangeSet ? ":derived" : "";
+  return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}${derived}`;
 }
 
 async function prepareUncached(
@@ -98,11 +108,14 @@ async function prepareUncached(
     installationToken: params.installationToken,
     prFiles,
     repositorySizeKb: params.repositorySizeKb,
+    // The GitHub listing stays authoritative while complete; git derivation is for truncated listings (KTD2).
+    deriveAuthoritativeChangeSet: params.deriveAuthoritativeChangeSet === true && prFiles.truncated,
   });
   return {
     workspace,
     preflight: buildReviewPreflightMetadataFromWorkspace(workspace),
     agentCwd: workspace.agentCwd,
+    prFiles,
     cleanup: () => workspace.cleanup(),
   };
 }
@@ -148,7 +161,13 @@ async function acquirePrRepositoryView(
 async function releasePrRepositoryView(
   params: Pick<
     PreparePrRepositoryViewParams,
-    "cfg" | "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+    | "cfg"
+    | "owner"
+    | "repo"
+    | "prNumber"
+    | "headSha"
+    | "repositorySizeKb"
+    | "deriveAuthoritativeChangeSet"
   >,
 ): Promise<void> {
   const key = cacheKey(params);

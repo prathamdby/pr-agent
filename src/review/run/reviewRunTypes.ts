@@ -1,8 +1,13 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { ListPullRequestFilesResult } from "../../github/listPullRequestFiles.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import type { ReviewerId } from "../prompts/reviewerPrompt.js";
 import type { WorkSource, ReviewMode } from "../reviewSchema.js";
+import type {
+  ReviewCriticCheckpointStore,
+  ReviewPayloadCheckpointStore,
+} from "./reviewCriticCheckpoint.js";
 import type { ReviewBudgetTier } from "./reviewSizeBudget.js";
 
 export type ReviewRunParams = {
@@ -22,6 +27,14 @@ export type ReviewRunParams = {
   readonly omittedReviewerIds?: readonly ReviewerId[];
   readonly cwd?: string;
   readonly workspace: LocalPrWorkspace;
+  /** Complete PR file listing; required to run the hybrid pipeline (KTD1). */
+  readonly prFiles?: ListPullRequestFilesResult;
+  /** Durable checkpoint stores for the hybrid pipeline (KTD5, KTD8). */
+  readonly hybrid?: {
+    readonly workItemId: string;
+    readonly criticStore: ReviewCriticCheckpointStore;
+    readonly payloadStore: ReviewPayloadCheckpointStore;
+  };
   readonly shouldLinkToSummary?: boolean;
   readonly summaryCommentIdHint?: number | null;
   readonly hasDescriptionAgentBlock?: boolean;

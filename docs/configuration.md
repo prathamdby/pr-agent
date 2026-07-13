@@ -47,6 +47,10 @@ CI enforces env alignment via `test/settingsInventory.test.ts`. `docs/configurat
 | Reviewer tool rounds        | `MAX_TOOL_ROUNDS_REVIEWER`                  | `MAX_TOOL_ROUNDS` / `16`    | tool-loop cap for each reviewer-agent session                                                                                                                                                                                                                                                                                                              |
 | Validator tool rounds       | `MAX_TOOL_ROUNDS_VALIDATOR`                 | `MAX_TOOL_ROUNDS` / `8`     | tool-loop cap for each high-risk validator session                                                                                                                                                                                                                                                                                                         |
 | Orchestrator tool rounds    | `MAX_TOOL_ROUNDS_ORCHESTRATOR`              | `MAX_TOOL_ROUNDS` / `8`     | tool-loop cap for the Review orchestrator investigation (synthesis) phase                                                                                                                                                                                                                                                                                  |
+| Critic tool rounds          | `MAX_TOOL_ROUNDS_CRITIC`                    | `4`                         | tool-loop cap for each Reviewer critic session (hybrid pipeline)                                                                                                                                                                                                                                                                                           |
+| Critic investigation calls  | `REVIEW_CRITIC_MAX_INVESTIGATION_CALLS`     | `3`                         | max successful investigation tool calls per critic (hybrid pipeline)                                                                                                                                                                                                                                                                                       |
+| Review pipeline mode        | `REVIEW_PIPELINE_MODE`                      | `legacy`                    | `legacy`, `shadow`, or `hybrid`; selects the Review pipeline architecture (ADR 0024)                                                                                                                                                                                                                                                                       |
+| Shadow sample rate          | `REVIEW_SHADOW_SAMPLE_RATE`                 | `0`                         | fraction of eligible Reviews to sample for shadow comparison (0 to 1; shadow mode only)                                                                                                                                                                                                                                                                    |
 | Publish recovery attempts   | `MAX_REVIEW_PUBLISH_ATTEMPTS`               | `3`                         | when submitReview never succeeds                                                                                                                                                                                                                                                                                                                           |
 | Publish execution budget    | `MAX_REVIEW_PUBLISH_CALLS`                  | `2`                         | valid submitReview publishes per run                                                                                                                                                                                                                                                                                                                       |
 | Review min confidence       | `REVIEW_MIN_CONFIDENCE`                     | `1`                         | drop scored findings below this 1-5 threshold before publish; unscored findings are kept                                                                                                                                                                                                                                                                   |
@@ -310,11 +314,20 @@ pathInstructions:
 
 ### Local PR workspace
 
-| Symbol                                     | Default |
-| ------------------------------------------ | ------- |
-| `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE` | 256     |
-| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`    | 32      |
-| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`      | 60000   |
+| Symbol                                     | Default                                                                                          |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------ |
+| `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE` | 256                                                                                              |
+| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`    | 32                                                                                               |
+| `LOCAL_WORKSPACE_MERGE_BASE_DEEPEN_STEPS`  | 64, 512, 4096 — progressive `--deepen` steps to reach the PR merge base for three-dot derivation |
+| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`      | 60000                                                                                            |
+| `REVIEW_EVIDENCE_MAX_TOTAL_DIFF_BYTES`     | 2000000 — ceiling on total derived three-dot diff bytes in one evidence snapshot                 |
+| `REVIEW_EVIDENCE_CONTRACT_VERSION`         | 1 — shared Review evidence snapshot contract version                                             |
+| `REVIEW_PROMPT_CONTRACT_VERSION`           | 1 — hybrid critic prompt contract; bump to invalidate critic checkpoints                         |
+| `MIN_REPLAY_CASES`                         | 50 — minimum historical cases for replay gate evaluation                                         |
+| `MIN_SHADOW_REVIEWS`                       | 300 — minimum paired shadow Reviews for shadow gate evaluation                                   |
+| `MIN_SHADOW_DAYS`                          | 7 — minimum shadow observation window in days                                                    |
+| `MAX_FP_REGRESSION_PERCENTAGE_POINTS`      | 2 — max hybrid vs legacy false-positive regression (percentage points)                           |
+| `MAX_CRITIC_ATTEMPTS`                      | 2 — initial critic run plus one isolated retry                                                   |
 
 ### Cursor SDK bridge
 
