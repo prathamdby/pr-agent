@@ -1,5 +1,10 @@
 import { PostHog } from "posthog-node";
 import type { Config } from "./config.js";
+import {
+  DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
+  DEFAULT_POSTHOG_HOST,
+  DEFAULT_POSTHOG_PROJECT_TOKEN,
+} from "./settings/index.js";
 
 export type PostHogConfigSlice = Pick<
   Config,
@@ -7,6 +12,14 @@ export type PostHogConfigSlice = Pick<
 >;
 
 let client: PostHog | undefined;
+
+function defaultConfigSlice(): PostHogConfigSlice {
+  return {
+    posthogProjectToken: DEFAULT_POSTHOG_PROJECT_TOKEN,
+    posthogHost: DEFAULT_POSTHOG_HOST,
+    posthogExceptionAutocapture: DEFAULT_POSTHOG_EXCEPTION_AUTOCAPTURE,
+  };
+}
 
 export function createPostHogFromConfig(cfg: PostHogConfigSlice): PostHog {
   const host = cfg.posthogHost.trim();
@@ -17,24 +30,21 @@ export function createPostHogFromConfig(cfg: PostHogConfigSlice): PostHog {
 }
 
 export function initPostHog(cfg: PostHogConfigSlice): void {
-  if (client !== undefined) {
-    return;
-  }
   client = createPostHogFromConfig(cfg);
 }
 
-function requireClient(): PostHog {
+function getClient(): PostHog {
   if (client === undefined) {
-    throw new Error("PostHog is not initialized; call initPostHog(cfg) after loadConfig()");
+    client = createPostHogFromConfig(defaultConfigSlice());
   }
   return client;
 }
 
 export const posthog = {
-  capture: (...args: Parameters<PostHog["capture"]>) => requireClient().capture(...args),
+  capture: (...args: Parameters<PostHog["capture"]>) => getClient().capture(...args),
   captureException: (...args: Parameters<PostHog["captureException"]>) =>
-    requireClient().captureException(...args),
-  shutdown: () => requireClient().shutdown(),
+    getClient().captureException(...args),
+  shutdown: () => getClient().shutdown(),
 };
 
 export function shutdownPostHog(): Promise<void> {

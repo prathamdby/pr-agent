@@ -104,7 +104,17 @@ describe("posthog client", () => {
     expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
   });
 
-  it("shutdown is a no-op before init", async () => {
+  it("lazily constructs from settings defaults before init", async () => {
+    const { posthog } = await import("../src/posthog.js");
+
+    posthog.capture({ distinctId: "server", event: "pre-init" });
+
+    expect(mockPostHog.PostHog).toHaveBeenCalledWith("", {
+      enableExceptionAutocapture: true,
+    });
+  });
+
+  it("shutdown is a no-op before any client exists", async () => {
     const { shutdownPostHog } = await import("../src/posthog.js");
     await expect(shutdownPostHog()).resolves.toBeUndefined();
     expect(mockPostHog.PostHog).not.toHaveBeenCalled();
