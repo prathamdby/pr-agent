@@ -190,8 +190,8 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
         failed_required_reviewer_ids: failedRequired,
         session_roles: failedRequired.map((id) => `reviewer:${id}`),
         budget_tier: setup.budgetTier,
-        selected_reviewer_ids: setup.selectedReviewerIds,
-        omitted_reviewer_ids: setup.omittedReviewerIds,
+        selected_reviewer_ids: ensemble.selected,
+        omitted_reviewer_ids: ensemble.omitted,
       });
       throw new Error("Required review coverage did not complete");
     }

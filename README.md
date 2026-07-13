@@ -161,14 +161,14 @@ Every Review run selects Reviewer agents from the **Review budget tier** (full r
 
 ## Features
 
-| Capability              | Auto on PR                      | Slash command     | Notes                                                                                         |
-| ----------------------- | ------------------------------- | ----------------- | --------------------------------------------------------------------------------------------- |
+| Capability              | Auto on PR                      | Slash command     | Notes                                                                                           |
+| ----------------------- | ------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------- |
 | Multi-agent review      | configurable (`opened` default) | `/review`         | Tier-selected reviewers -> validation -> one `## PR Agent Review`; inline P0 to P2 when present |
-| PR description          | opened (configurable)           | `/describe`       | Merges under `## PR Agent Description`                                                        |
-| Triage                  | No                              | `/triage`         | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`             |
-| Ask                     | No                              | `/ask <question>` | PR conversation or inline diff **code anchor**                                                |
-| Help                    | No                              | `/help`           | Worker-published guidance                                                                     |
-| Lightweight auto-review | docs-only trivial PRs           | No                | Skips full **Review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md)     |
+| PR description          | opened (configurable)           | `/describe`       | Merges under `## PR Agent Description`                                                          |
+| Triage                  | No                              | `/triage`         | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`               |
+| Ask                     | No                              | `/ask <question>` | PR conversation or inline diff **code anchor**                                                  |
+| Help                    | No                              | `/help`           | Worker-published guidance                                                                       |
+| Lightweight auto-review | docs-only trivial PRs           | No                | Skips full **Review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md)       |
 
 | Deployment                                | Supported |
 | ----------------------------------------- | --------- |

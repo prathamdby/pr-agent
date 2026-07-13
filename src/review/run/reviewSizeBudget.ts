@@ -86,9 +86,7 @@ export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget): string {
     `- Selected Reviewer agents: ${budget.selectedReviewerIds.join(", ")}`,
   ];
   if (budget.omittedReviewerIds.length > 0) {
-    lines.push(
-      `- Omitted by policy (not a failure): ${budget.omittedReviewerIds.join(", ")}`,
-    );
+    lines.push(`- Omitted by policy (not a failure): ${budget.omittedReviewerIds.join(", ")}`);
   }
   if (budget.truncated) {
     lines.push("- Change set truncated: treat coverage as partial and note limits in prCharacter.");

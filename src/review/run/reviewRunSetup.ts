@@ -182,6 +182,11 @@ export function buildReviewRunSetup(params: {
     }
   };
 
+  const selectedReviewerIds = params.selectedReviewerIds ?? REVIEWER_IDS;
+  const selectedSet = new Set<string>(selectedReviewerIds);
+  const omittedReviewerIds =
+    params.omittedReviewerIds ?? REVIEWER_IDS.filter((id) => !selectedSet.has(id));
+
   return {
     systemPrompt: buildOrchestratorSystemPrompt(),
     userContent: buildReviewRunUserContent({
@@ -201,8 +206,8 @@ export function buildReviewRunSetup(params: {
       trustedContext,
     }),
     budgetTier: params.budgetTier ?? "small",
-    selectedReviewerIds: params.selectedReviewerIds ?? REVIEWER_IDS,
-    omittedReviewerIds: params.omittedReviewerIds ?? [],
+    selectedReviewerIds,
+    omittedReviewerIds,
     piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, submitBundle.piTool],
     executors,
     cachedDiffIndex,
