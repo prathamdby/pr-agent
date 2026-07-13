@@ -427,12 +427,34 @@ export const MIGRATION_ADVISORY_LOCK_KEY = 4_785_219;
 
 /** Wall-clock budget (ms) for the /ready Postgres ping. */
 export const HEALTH_DB_PING_TIMEOUT_MS = 2_000;
-/** Maximum model sessions investigating one Review run at the same time. */
-export const REVIEW_AGENT_CONCURRENCY = 4;
-/** Maximum P0/P1 candidates independently validated in one Review run. */
-export const REVIEW_VALIDATION_MAX_CANDIDATES = 16;
 /** Poll interval for cooperative Review cancellation while model turns are in flight. */
 export const REVIEW_CANCELLATION_POLL_MS = 1_000;
+/** Durable lanes included in continuous queue-stall diagnostics. */
+export const QUEUE_STALL_DIAGNOSTIC_QUEUES = [
+  ACK_QUEUE,
+  REVIEW_QUEUE,
+  ASK_QUEUE,
+  DESCRIPTION_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+  RETENTION_QUEUE,
+] as const;
+/** Dead-letter queues included in continuous stall diagnostics. */
+export const QUEUE_STALL_DIAGNOSTIC_DEAD_LETTER_QUEUES = [
+  ACK_DEAD_LETTER_QUEUE,
+  REVIEW_DEAD_LETTER_QUEUE,
+  ASK_DEAD_LETTER_QUEUE,
+  DESCRIPTION_DEAD_LETTER_QUEUE,
+  TRIAGE_DEAD_LETTER_QUEUE,
+  VERIFICATION_DEAD_LETTER_QUEUE,
+] as const;
+/** `key_strict_fifo` queues checked for blocked singleton keys. */
+export const QUEUE_STALL_BLOCKED_KEY_QUEUES = [
+  REVIEW_QUEUE,
+  DESCRIPTION_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+] as const;
 /** Maximum characters sent from reviewer reports into Review synthesis. */
 export const REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS = 80_000;
 /** Lower-severity report detail retained before the overall synthesis budget is applied. */

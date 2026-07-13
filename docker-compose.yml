@@ -61,13 +61,24 @@ services:
       - ${PR_AGENT_ENV_FILE:-.env}
     environment:
       ROLE: "worker"
+      PORT: "7224"
       DATABASE_URL: "postgres://${POSTGRES_USER:-pr_agent}:${POSTGRES_PASSWORD:-pr_agent}@postgres:5432/${POSTGRES_DB:-pr_agent}"
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      disable: true
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:7224/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
 volumes:
   postgres-data:

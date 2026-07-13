@@ -31,6 +31,10 @@ import {
   type VerificationJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
+import { deriveReviewProviderPressure } from "./providerPressure.js";
+import { collectQueueStallDiagnostic, formatQueueStallLogFields } from "./queueDiagnostics.js";
+import { startWorkerHealthServer } from "./workerHealthServer.js";
+import { evaluateWorkerReadiness, type WorkerReadinessState } from "./workerReadiness.js";
 
 function workerJobMeta(
   queue: string,
@@ -93,6 +97,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
     Effect.acquireRelease(
       Effect.tryPromise({
         try: async () => {
+          const readinessState: WorkerReadinessState = { consumersRegistered: false };
           const heartbeatRefresh = Math.max(1, Math.floor(cfg.queueHeartbeatSeconds / 2));
           const durableQueueOptions = {
             groupConcurrency: cfg.installationGroupConcurrency,
@@ -165,6 +170,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               }
             }),
           ]);
+          readinessState.consumersRegistered = true;
           logInfo("agent_worker_started", {
             queues: [
               ACK_QUEUE,
@@ -176,12 +182,14 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               RETENTION_QUEUE,
             ],
             reviewConcurrency: cfg.reviewConcurrency,
+            reviewAgentConcurrency: cfg.reviewAgentConcurrency,
             askConcurrency: cfg.askConcurrency,
             ackConcurrency: cfg.ackConcurrency,
             descriptionConcurrency: cfg.descriptionConcurrency,
             triageConcurrency: cfg.triageConcurrency,
             verificationConcurrency: cfg.verificationConcurrency,
           });
+          logInfo("review_provider_pressure", deriveReviewProviderPressure(cfg));
           for (const queue of [
             ACK_QUEUE,
             REVIEW_QUEUE,
@@ -205,12 +213,62 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               keys: blockedReviewKeys,
             });
           }
+
+          let diagnosticsInFlight = false;
+          const logStallDiagnostic = async () => {
+            if (diagnosticsInFlight) return;
+            diagnosticsInFlight = true;
+            try {
+              const diagnostic = await collectQueueStallDiagnostic({ boss, pool });
+              const fields = formatQueueStallLogFields(diagnostic);
+              logInfo("agent_queue_stall_diagnostic", fields);
+              if (diagnostic.blockedKeys.length > 0) {
+                logWarn("agent_queue_blocked_keys", {
+                  keys: diagnostic.blockedKeys,
+                });
+              }
+              if (fields.dead_letter_total > 0) {
+                logWarn("agent_queue_dead_letters", {
+                  dead_letters: diagnostic.deadLetters,
+                  dead_letter_total: fields.dead_letter_total,
+                });
+              }
+            } catch (e) {
+              logWarn("agent_queue_stall_diagnostic_failed", {
+                message: e instanceof Error ? e.message : String(e),
+              });
+            } finally {
+              diagnosticsInFlight = false;
+            }
+          };
+          await logStallDiagnostic();
+          const diagnosticsTimer = setInterval(() => {
+            void logStallDiagnostic();
+          }, cfg.queueStallDiagnosticsIntervalSeconds * 1000);
+          diagnosticsTimer.unref();
+
+          const healthServer = await startWorkerHealthServer({
+            port: cfg.port,
+            evaluateReady: () =>
+              evaluateWorkerReadiness({
+                pool,
+                boss,
+                state: readinessState,
+                pollStaleSeconds: cfg.workerReadinessPollStaleSeconds,
+              }),
+          });
+          logInfo("worker_health_server_started", { port: cfg.port });
+
+          return { healthServer, diagnosticsTimer, readinessState };
         },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
-      () =>
+      (resources) =>
         Effect.tryPromise({
           try: async () => {
+            clearInterval(resources.diagnosticsTimer);
+            resources.readinessState.consumersRegistered = false;
+            await resources.healthServer.close().catch(() => undefined);
             await Promise.all(
               [
                 ACK_QUEUE,

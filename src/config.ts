@@ -13,7 +13,12 @@ import {
   DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
+  DEFAULT_MAX_TOOL_ROUNDS_REVIEWER,
+  DEFAULT_MAX_TOOL_ROUNDS_VALIDATOR,
+  DEFAULT_MAX_TOOL_ROUNDS_ORCHESTRATOR,
   DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
+  DEFAULT_QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS,
+  DEFAULT_WORKER_READINESS_POLL_STALE_SECONDS,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
@@ -58,6 +63,8 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_REVIEW_CONCURRENCY,
+  DEFAULT_REVIEW_AGENT_CONCURRENCY,
+  DEFAULT_REVIEW_VALIDATION_MAX_CANDIDATES,
   DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES,
   DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
   DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
@@ -274,6 +281,20 @@ export function loadConfig() {
   };
 
   const maxToolRounds = readPositiveNumber(ENV.MAX_TOOL_ROUNDS, DEFAULT_MAX_TOOL_ROUNDS);
+  const reviewToolRoundFallback =
+    process.env[ENV.MAX_TOOL_ROUNDS] != null ? maxToolRounds : undefined;
+  const maxToolRoundsReviewer = readPositiveNumber(
+    ENV.MAX_TOOL_ROUNDS_REVIEWER,
+    reviewToolRoundFallback ?? DEFAULT_MAX_TOOL_ROUNDS_REVIEWER,
+  );
+  const maxToolRoundsValidator = readPositiveNumber(
+    ENV.MAX_TOOL_ROUNDS_VALIDATOR,
+    reviewToolRoundFallback ?? DEFAULT_MAX_TOOL_ROUNDS_VALIDATOR,
+  );
+  const maxToolRoundsOrchestrator = readPositiveNumber(
+    ENV.MAX_TOOL_ROUNDS_ORCHESTRATOR,
+    reviewToolRoundFallback ?? DEFAULT_MAX_TOOL_ROUNDS_ORCHESTRATOR,
+  );
   const providerPromptTimeoutMs = readPositiveNumber(
     ENV.PROVIDER_PROMPT_TIMEOUT_MS,
     DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
@@ -293,6 +314,14 @@ export function loadConfig() {
     5,
   );
   const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
+  const reviewAgentConcurrency = readPositiveNumber(
+    ENV.REVIEW_AGENT_CONCURRENCY,
+    DEFAULT_REVIEW_AGENT_CONCURRENCY,
+  );
+  const reviewValidationMaxCandidates = readPositiveNumber(
+    ENV.REVIEW_VALIDATION_MAX_CANDIDATES,
+    DEFAULT_REVIEW_VALIDATION_MAX_CANDIDATES,
+  );
   const askConcurrency = readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY);
   const ackConcurrency = readPositiveNumber(ENV.ACK_CONCURRENCY, DEFAULT_ACK_CONCURRENCY);
   const descriptionConcurrency = readPositiveNumber(
@@ -315,6 +344,14 @@ export function loadConfig() {
   const maxToolRoundsVerification = readPositiveNumber(
     ENV.MAX_TOOL_ROUNDS_VERIFICATION,
     DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
+  );
+  const queueStallDiagnosticsIntervalSeconds = readPositiveNumber(
+    ENV.QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS,
+    DEFAULT_QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS,
+  );
+  const workerReadinessPollStaleSeconds = readPositiveNumber(
+    ENV.WORKER_READINESS_POLL_STALE_SECONDS,
+    DEFAULT_WORKER_READINESS_POLL_STALE_SECONDS,
   );
   const maxTriageFixesPerRun = readPositiveNumber(
     ENV.MAX_TRIAGE_FIXES_PER_RUN,
@@ -542,11 +579,16 @@ export function loadConfig() {
     piModel,
     modelProviderKeys,
     maxToolRounds,
+    maxToolRoundsReviewer,
+    maxToolRoundsValidator,
+    maxToolRoundsOrchestrator,
     providerPromptTimeoutMs,
     maxReviewPublishAttempts,
     maxReviewPublishCalls,
     reviewMinConfidence,
     reviewConcurrency,
+    reviewAgentConcurrency,
+    reviewValidationMaxCandidates,
     askConcurrency,
     ackConcurrency,
     descriptionConcurrency,
@@ -555,6 +597,8 @@ export function loadConfig() {
     maxToolRoundsDescribe,
     maxToolRoundsTriage,
     maxToolRoundsVerification,
+    queueStallDiagnosticsIntervalSeconds,
+    workerReadinessPollStaleSeconds,
     maxTriageFixesPerRun,
     descriptionGenerateTitle,
     slashAllowedAssociations,

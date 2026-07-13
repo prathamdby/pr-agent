@@ -219,4 +219,59 @@ describe("loadConfig validation", () => {
     const cfg = await load({});
     expect(cfg.maxToolRoundsVerification).toBe(32);
   });
+
+  it("defaults ensemble pressure knobs to pre-change code-constant values", async () => {
+    const cfg = await load({});
+    expect(cfg.reviewAgentConcurrency).toBe(4);
+    expect(cfg.reviewValidationMaxCandidates).toBe(16);
+    expect(cfg.maxToolRoundsReviewer).toBe(24);
+    expect(cfg.maxToolRoundsValidator).toBe(24);
+    expect(cfg.maxToolRoundsOrchestrator).toBe(24);
+    expect(cfg.queueStallDiagnosticsIntervalSeconds).toBe(60);
+    expect(cfg.workerReadinessPollStaleSeconds).toBe(30);
+  });
+
+  it("rejects non-positive ensemble pressure knobs", async () => {
+    await expect(load({ REVIEW_AGENT_CONCURRENCY: "0" })).rejects.toThrow(
+      /REVIEW_AGENT_CONCURRENCY must be a positive number/,
+    );
+    await expect(load({ REVIEW_VALIDATION_MAX_CANDIDATES: "-1" })).rejects.toThrow(
+      /REVIEW_VALIDATION_MAX_CANDIDATES must be a positive number/,
+    );
+    await expect(load({ MAX_TOOL_ROUNDS_REVIEWER: "0" })).rejects.toThrow(
+      /MAX_TOOL_ROUNDS_REVIEWER must be a positive number/,
+    );
+    await expect(load({ MAX_TOOL_ROUNDS_VALIDATOR: "0" })).rejects.toThrow(
+      /MAX_TOOL_ROUNDS_VALIDATOR must be a positive number/,
+    );
+    await expect(load({ MAX_TOOL_ROUNDS_ORCHESTRATOR: "0" })).rejects.toThrow(
+      /MAX_TOOL_ROUNDS_ORCHESTRATOR must be a positive number/,
+    );
+    await expect(load({ QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS: "0" })).rejects.toThrow(
+      /QUEUE_STALL_DIAGNOSTICS_INTERVAL_SECONDS must be a positive number/,
+    );
+    await expect(load({ WORKER_READINESS_POLL_STALE_SECONDS: "0" })).rejects.toThrow(
+      /WORKER_READINESS_POLL_STALE_SECONDS must be a positive number/,
+    );
+  });
+
+  it("falls back role-specific review tool rounds to MAX_TOOL_ROUNDS", async () => {
+    const cfg = await load({ MAX_TOOL_ROUNDS: "11" });
+    expect(cfg.maxToolRounds).toBe(11);
+    expect(cfg.maxToolRoundsReviewer).toBe(11);
+    expect(cfg.maxToolRoundsValidator).toBe(11);
+    expect(cfg.maxToolRoundsOrchestrator).toBe(11);
+  });
+
+  it("allows role-specific review tool rounds to override MAX_TOOL_ROUNDS", async () => {
+    const cfg = await load({
+      MAX_TOOL_ROUNDS: "11",
+      MAX_TOOL_ROUNDS_REVIEWER: "21",
+      MAX_TOOL_ROUNDS_VALIDATOR: "22",
+      MAX_TOOL_ROUNDS_ORCHESTRATOR: "23",
+    });
+    expect(cfg.maxToolRoundsReviewer).toBe(21);
+    expect(cfg.maxToolRoundsValidator).toBe(22);
+    expect(cfg.maxToolRoundsOrchestrator).toBe(23);
+  });
 });

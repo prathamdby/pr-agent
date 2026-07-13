@@ -3,7 +3,6 @@ import { makeTestConfig } from "./helpers/config.js";
 import {
   REVIEW_SYNTHESIS_CONTEXT_MAX_CHARS,
   REVIEW_SYNTHESIS_LOW_SEVERITY_DETAIL_MAX_CHARS,
-  REVIEW_VALIDATION_MAX_CANDIDATES,
 } from "../src/settings/index.js";
 import {
   REVIEWER_IDS,
@@ -12,6 +11,8 @@ import {
   validateHighRiskFindings,
   type ReviewerReport,
 } from "../src/review/run/reviewEnsemble.js";
+
+const DEFAULT_VALIDATION_MAX_CANDIDATES = makeTestConfig().reviewValidationMaxCandidates;
 
 type Finding = ReviewerReport["findings"][number];
 
@@ -197,7 +198,7 @@ describe("high-risk validation", () => {
         send: async () => ({ text: "no verdict" }),
       }),
     );
-    const findings = Array.from({ length: REVIEW_VALIDATION_MAX_CANDIDATES + 2 }, (_, index) =>
+    const findings = Array.from({ length: DEFAULT_VALIDATION_MAX_CANDIDATES + 2 }, (_, index) =>
       finding(index),
     );
 
@@ -209,7 +210,7 @@ describe("high-risk validation", () => {
       readOnlyExecutors: {},
     });
 
-    expect(createSession).toHaveBeenCalledTimes(REVIEW_VALIDATION_MAX_CANDIDATES);
+    expect(createSession).toHaveBeenCalledTimes(DEFAULT_VALIDATION_MAX_CANDIDATES);
     expect(result.reports[0]?.findings).toHaveLength(findings.length);
     expect(result.truncatedCandidates).toBe(2);
     expect(

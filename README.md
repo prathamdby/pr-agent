@@ -50,8 +50,10 @@ docker compose up
 ```
 
 - Webhook URL (default ports): `http://<host>:7224/webhooks`
-- **`GET /health`**: liveness (`ok`)
-- **`GET /ready`**: readiness (Postgres reachable)
+- **Web `GET /health`**: liveness (`ok`)
+- **Web `GET /ready`**: Postgres reachable for webhook intake (does not imply workers are healthy)
+- **Worker `GET /health`**: liveness (`ok`)
+- **Worker `GET /ready`**: consumers registered, polling fresh, Postgres/pg-boss reachable (empty queues still ready)
 - Both **`pr-agent-web`** (`ROLE=web`) and **`pr-agent-worker`** (`ROLE=worker`) are required for reviews and asks.
 
 More deployment detail: [docs/operations.md](docs/operations.md).
@@ -208,7 +210,7 @@ flowchart LR
   Boss --> TriageQ[triage queue]
   Boss --> VerifQ[verification queue]
   Boss --> RetQ[retention queue]
-  AckQ --> Worker["ROLE=worker executors"]
+  AckQ --> Worker["ROLE=worker executors + /ready"]
   RevQ --> ReviewExec[review executor]
   AskQ --> Worker
   DescQ --> Worker
@@ -226,12 +228,13 @@ flowchart LR
   Worker --> LLM[other work agents plus tools]
   LLM --> Publish[GitHub PR-surface publish]
   Worker --> Push[git push PR branch]
+  Worker --> StallDiag[queue stall diagnostics]
 ```
 
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items**.
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, triage, verification).
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
-4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
+4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision, the daily retention cleanup lane, worker `/health`+`/ready`, and continuous queue-stall diagnostics.
 5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
 6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): eight independent reviewer agents inspect one shared read-only workspace, required correctness/security coverage is enforced, and P0/P1 candidates are independently validated.
 7. **Review synthesis**: one orchestrator receives the internal reports and is the only session with **`submitReview`**, producing one summary comment and one optional inline GitHub review. Reviewer fan-out is bounded by `REVIEW_AGENT_CONCURRENCY` (default `4`) inside each review worker job.

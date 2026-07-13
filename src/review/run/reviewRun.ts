@@ -262,7 +262,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
 
     const runInvestigationPhase = async () => {
       if (await abortIfRequested(orchestratorSession)) return;
-      const investigationOpts = { maxToolRounds: cfg.maxToolRounds };
+      const investigationOpts = { maxToolRounds: cfg.maxToolRoundsOrchestrator };
       lastText = (
         await sendReviewAgentTurn(
           orchestratorSession,
