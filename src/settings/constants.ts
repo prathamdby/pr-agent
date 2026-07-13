@@ -32,6 +32,14 @@ export const CURSOR_DEFAULT_MAX_TOKENS = 16_384;
 export const LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY = 32;
 export const LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE = 256;
 export const PR_REPOSITORY_VIEW_RELEASE_GRACE_MS = 60_000;
+/** Progressive `--deepen` steps used to reach the PR merge base for three-dot derivation. */
+export const LOCAL_WORKSPACE_MERGE_BASE_DEEPEN_STEPS = [64, 512, 4096] as const;
+/** Ceiling on total derived three-dot diff bytes embedded in one Review evidence snapshot. */
+export const REVIEW_EVIDENCE_MAX_TOTAL_DIFF_BYTES = 2_000_000;
+/** Version of the shared Review evidence snapshot contract (KTD1). */
+export const REVIEW_EVIDENCE_CONTRACT_VERSION = 1;
+/** Version of the hybrid critic prompt contract; bump to invalidate critic checkpoints (KTD5). */
+export const REVIEW_PROMPT_CONTRACT_VERSION = 1;
 
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";

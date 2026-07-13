@@ -15,7 +15,9 @@ import {
 } from "../review/placement/reviewDiffIndex.js";
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
+  LOCAL_WORKSPACE_MERGE_BASE_DEEPEN_STEPS,
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
+  REVIEW_EVIDENCE_MAX_TOTAL_DIFF_BYTES,
 } from "../settings/index.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 
@@ -35,10 +37,38 @@ type LocalPrChangedFile = {
   readonly oldPath?: string;
 };
 
+export type LocalPrBaseDerivationFailureReason =
+  | "base-unavailable"
+  | "base-verification-failed"
+  | "merge-base-unreachable";
+
+/** Comprehensive coverage could not be established from git; the Review must fail coverage. */
+export class LocalPrBaseDerivationError extends Error {
+  constructor(
+    readonly reason: LocalPrBaseDerivationFailureReason,
+    message: string,
+  ) {
+    super(message);
+    this.name = "LocalPrBaseDerivationError";
+  }
+}
+
+export type LocalPrBaseDerivation = {
+  readonly baseSha: string;
+  readonly mergeBaseSha: string;
+  /** Authoritative three-dot changed-path set derived from git. */
+  readonly changedFiles: readonly LocalPrChangedFile[];
+  /** Three-dot diffs for paths whose GitHub patch was omitted or unavailable. */
+  readonly derivedDiffByPath: ReadonlyMap<string, string>;
+  /** Paths whose derived diff was skipped after the evidence diff byte ceiling. */
+  readonly diffOmittedByBudgetPaths: ReadonlySet<string>;
+};
+
 export type LocalPrWorkspace = {
   readonly rootDir: string;
   readonly privateGitDir: string;
   readonly agentCwd: string;
+  readonly baseDerivation?: LocalPrBaseDerivation;
   readonly changedFiles: readonly LocalPrChangedFile[];
   readonly changedFileByPath: ReadonlyMap<string, LocalPrChangedFile>;
   readonly checkoutPaths: ReadonlySet<string>;
@@ -90,6 +120,12 @@ export type PrepareLocalPrWorkspaceParams = {
   readonly prFiles: ListPullRequestFilesResult;
   readonly repositorySizeKb?: number;
   readonly remoteUrlOverride?: string;
+  /**
+   * Derive the authoritative three-dot change set from git (KTD2). Requires the
+   * advertised base SHA; the workspace fails coverage instead of returning a
+   * partial change set when git cannot verify the base or reach the merge base.
+   */
+  readonly deriveAuthoritativeChangeSet?: boolean;
 };
 
 function assertSha(value: string, field: string): void {
@@ -388,6 +424,224 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): st
   return paths.length > 0 ? `${paths.join("\n")}\n` : "";
 }
 
+type GitRunner = (
+  args: readonly string[],
+  timeoutMs?: number,
+) => Promise<{ stdout: string; stderr: string }>;
+
+function mapDerivedStatus(code: string, path: string, oldPath?: string): LocalPrChangedFile {
+  if (code.startsWith("R") && oldPath) return { path, status: "renamed", oldPath };
+  if (code.startsWith("C") && oldPath) return { path, status: "copied", oldPath };
+  const status: ChangedFileStatus =
+    code === "A"
+      ? "added"
+      : code === "D"
+        ? "deleted"
+        : code === "M" || code === "T"
+          ? "modified"
+          : "other";
+  return { path, status };
+}
+
+/** Parse `git diff --name-status -z` output into changed files. */
+export function parseNameStatusZ(stdout: string): LocalPrChangedFile[] {
+  const tokens = stdout.split("\0");
+  const files: LocalPrChangedFile[] = [];
+  let index = 0;
+  while (index < tokens.length) {
+    const code = tokens[index];
+    if (!code) break;
+    if (code.startsWith("R") || code.startsWith("C")) {
+      const oldPath = tokens[index + 1];
+      const path = tokens[index + 2];
+      if (oldPath == null || path == null) break;
+      files.push(mapDerivedStatus(code, path, oldPath));
+      index += 3;
+      continue;
+    }
+    const path = tokens[index + 1];
+    if (path == null) break;
+    files.push(mapDerivedStatus(code, path));
+    index += 2;
+  }
+  return files;
+}
+
+async function fetchAndVerifyBase(
+  git: GitRunner,
+  cfg: Config,
+  filterArgs: readonly string[],
+  baseSha: string,
+  baseRef: string | undefined,
+): Promise<string> {
+  const fetchBase = (arg: string) =>
+    git(
+      ["fetch", "--no-tags", "--depth=1", ...filterArgs, "--no-recurse-submodules", "origin", arg],
+      cfg.localWorkspaceFetchTimeoutMs,
+    );
+  if (baseRef) {
+    const refFetched = await fetchBase(baseRef).then(
+      () => true,
+      () => false,
+    );
+    if (refFetched) {
+      const { stdout } = await git(["rev-parse", "FETCH_HEAD"]);
+      if (stdout.trim().toLowerCase() === baseSha.toLowerCase()) return baseRef;
+    }
+  }
+  // Base ref moved or was unavailable: fetch the advertised base SHA directly so
+  // derivation never mixes a newer base ref tip with the advertised base commit.
+  try {
+    await fetchBase(baseSha);
+  } catch (error) {
+    throw new LocalPrBaseDerivationError(
+      "base-verification-failed",
+      `Fetched base does not match advertised base SHA ${baseSha}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+  const present = await git(["cat-file", "-e", `${baseSha}^{commit}`]).then(
+    () => true,
+    () => false,
+  );
+  if (!present) {
+    throw new LocalPrBaseDerivationError(
+      "base-verification-failed",
+      `Advertised base SHA ${baseSha} is not present after fetch`,
+    );
+  }
+  return baseSha;
+}
+
+async function resolveMergeBase(
+  git: GitRunner,
+  cfg: Config,
+  filterArgs: readonly string[],
+  prRefSpec: string,
+  baseSha: string,
+  baseFetchArg: string,
+): Promise<string> {
+  const tryMergeBase = async (): Promise<string | null> => {
+    try {
+      const { stdout } = await git(["merge-base", baseSha, PR_HEAD_REF]);
+      return stdout.trim() || null;
+    } catch (error) {
+      if (failedWithExitCode(error, 1) || failedWithExitCode(error, 128)) return null;
+      throw error;
+    }
+  };
+  let mergeBaseSha = await tryMergeBase();
+  for (const step of LOCAL_WORKSPACE_MERGE_BASE_DEEPEN_STEPS) {
+    if (mergeBaseSha) break;
+    // Deepen head and base separately; combining refspecs makes git skip deepening.
+    for (const refArg of [prRefSpec, baseFetchArg]) {
+      await git(
+        [
+          "fetch",
+          "--no-tags",
+          `--deepen=${step}`,
+          ...filterArgs,
+          "--no-recurse-submodules",
+          "origin",
+          refArg,
+        ],
+        cfg.localWorkspaceFetchTimeoutMs,
+      );
+    }
+    await enforceMaxFetchBytes(
+      git,
+      cfg.localWorkspaceMaxFetchBytes,
+      cfg.localWorkspaceFetchTimeoutMs,
+    );
+    mergeBaseSha = await tryMergeBase();
+  }
+  if (!mergeBaseSha) {
+    throw new LocalPrBaseDerivationError(
+      "merge-base-unreachable",
+      `Could not reach a merge base for ${baseSha} within fetch safety limits`,
+    );
+  }
+  return mergeBaseSha;
+}
+
+async function deriveBaseChangeSet(params: {
+  git: GitRunner;
+  cfg: Config;
+  filterArgs: readonly string[];
+  prRefSpec: string;
+  prFiles: ListPullRequestFilesResult;
+}): Promise<LocalPrBaseDerivation> {
+  const { git, cfg, filterArgs, prFiles } = params;
+  const baseSha = prFiles.baseSha;
+  if (!baseSha) {
+    throw new LocalPrBaseDerivationError(
+      "base-unavailable",
+      "Pull request metadata did not include a base SHA for three-dot derivation",
+    );
+  }
+  assertSha(baseSha, "baseSha");
+  const baseFetchArg = await fetchAndVerifyBase(git, cfg, filterArgs, baseSha, prFiles.baseRef);
+  const mergeBaseSha = await resolveMergeBase(
+    git,
+    cfg,
+    filterArgs,
+    params.prRefSpec,
+    baseSha,
+    baseFetchArg,
+  );
+
+  const { stdout: nameStatusOut } = await git([
+    "diff",
+    "--name-status",
+    "-z",
+    "--find-renames",
+    mergeBaseSha,
+    PR_HEAD_REF,
+  ]);
+  const changedFiles = parseNameStatusZ(nameStatusOut);
+
+  const githubPatchPaths = new Set(
+    prFiles.files.filter((file) => file.patch && !file.patchOmitted).map((file) => file.filename),
+  );
+  const derivedDiffByPath = new Map<string, string>();
+  const diffOmittedByBudgetPaths = new Set<string>();
+  let totalDiffBytes = 0;
+  for (const file of changedFiles) {
+    if (githubPatchPaths.has(file.path)) continue;
+    if (totalDiffBytes >= REVIEW_EVIDENCE_MAX_TOTAL_DIFF_BYTES) {
+      diffOmittedByBudgetPaths.add(file.path);
+      continue;
+    }
+    const pathspecs = [
+      ...(file.oldPath ? [literalPathspec(file.oldPath)] : []),
+      literalPathspec(file.path),
+    ];
+    const { stdout } = await git([
+      "diff",
+      "--find-renames",
+      mergeBaseSha,
+      PR_HEAD_REF,
+      "--",
+      ...pathspecs,
+    ]);
+    const diff =
+      stdout.length > cfg.localWorkspaceMaxDiffBytes
+        ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[diff truncated]`
+        : stdout;
+    derivedDiffByPath.set(file.path, diff);
+    totalDiffBytes += Buffer.byteLength(diff, "utf8");
+  }
+
+  return {
+    baseSha,
+    mergeBaseSha,
+    changedFiles,
+    derivedDiffByPath,
+    diffOmittedByBudgetPaths,
+  };
+}
+
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
 async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
@@ -446,8 +700,9 @@ export async function prepareLocalPrWorkspace(
   const agentCwd = join(rootDir, AGENT_TREE_DIR);
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const credentials = await createGitCredentialFiles(rootDir, installationToken);
-  const changedFiles = prFiles.files.map(mapGithubStatus);
-  const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
+  let changedFiles = prFiles.files.map(mapGithubStatus);
+  let changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
+  let baseDerivation: LocalPrBaseDerivation | undefined;
   const checkoutMode = selectLocalPrWorkspaceCheckoutMode(cfg, params.repositorySizeKb);
   const diffIndex = createCachedPrDiffIndex();
   const patchByPath = new Map<string, string>();
@@ -468,10 +723,6 @@ export async function prepareLocalPrWorkspace(
       deletions: file.deletions,
     });
   }
-  ingestListPullRequestFilesResult(diffIndex, {
-    truncated: prFiles.truncated,
-    files: filesForIndex,
-  });
 
   const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
     execGit(args, {
@@ -493,6 +744,11 @@ export async function prepareLocalPrWorkspace(
     const normalized = path.replace(/\\/g, "/");
     const patch = patchByPath.get(normalized);
     if (patch == null) {
+      const derived = baseDerivation?.derivedDiffByPath.get(normalized);
+      if (derived != null) return derived;
+      if (baseDerivation?.diffOmittedByBudgetPaths.has(normalized)) {
+        return "[diff omitted: evidence diff byte ceiling exceeded]";
+      }
       if (patchOmittedByCapPaths.has(normalized)) {
         return "[patch omitted: exceeds configured PR patch byte cap]";
       }
@@ -540,6 +796,29 @@ export async function prepareLocalPrWorkspace(
       prRef,
     ];
     await git(fetchArgs, cfg.localWorkspaceFetchTimeoutMs);
+    if (params.deriveAuthoritativeChangeSet) {
+      baseDerivation = await deriveBaseChangeSet({
+        git,
+        cfg,
+        filterArgs: checkoutMode === "sparse" ? ["--filter=blob:none"] : [],
+        prRefSpec: prRef,
+        prFiles,
+      });
+      changedFiles = [...baseDerivation.changedFiles];
+      changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
+      ingestListPullRequestFilesResult(diffIndex, {
+        truncated: false,
+        files: [...baseDerivation.derivedDiffByPath].map(([filename, patch]) => ({
+          filename,
+          patch: patch.length > 0 ? patch : undefined,
+          patchOmitted: patch.length === 0,
+        })),
+      });
+    }
+    ingestListPullRequestFilesResult(diffIndex, {
+      truncated: baseDerivation ? false : prFiles.truncated,
+      files: filesForIndex,
+    });
     if (checkoutMode === "sparse") {
       await git(["config", "core.sparseCheckout", "true"], cfg.localWorkspaceCloneTimeoutMs);
       await git(["config", "core.sparseCheckoutCone", "false"], cfg.localWorkspaceCloneTimeoutMs);
@@ -569,6 +848,7 @@ export async function prepareLocalPrWorkspace(
       rootDir,
       privateGitDir,
       agentCwd,
+      baseDerivation,
       changedFiles,
       changedFileByPath,
       checkoutPaths,

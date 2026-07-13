@@ -20,6 +20,8 @@ export type ListPullRequestFilesResult = {
   readonly omittedCountLowerBound: number;
   readonly totalChanges: number;
   readonly headSha?: string;
+  readonly baseSha?: string;
+  readonly baseRef?: string;
   readonly warning?: string;
 };
 
@@ -35,6 +37,7 @@ export type PullRequestForFileList = {
   readonly deletions: number;
   readonly changed_files: number;
   readonly head?: { readonly sha?: string | null } | null;
+  readonly base?: { readonly sha?: string | null; readonly ref?: string | null } | null;
 };
 
 type PatchBudgetState = {
@@ -118,6 +121,8 @@ export async function listPullRequestFilesPaginated(
     ).data;
   const totalChanges = pull.additions + pull.deletions;
   const headSha = pull.head?.sha ?? undefined;
+  const baseSha = pull.base?.sha ?? undefined;
+  const baseRef = pull.base?.ref ?? undefined;
 
   const files: PullRequestFileEntry[] = [];
   let patchBytes = 0;
@@ -195,6 +200,8 @@ export async function listPullRequestFilesPaginated(
     omittedCountLowerBound,
     totalChanges,
     headSha,
+    baseSha,
+    baseRef,
     warning,
   };
 }

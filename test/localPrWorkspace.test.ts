@@ -7,6 +7,8 @@ import { describe, expect, it } from "vitest";
 import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
 import {
   assertWorkspacePath,
+  LocalPrBaseDerivationError,
+  parseNameStatusZ,
   prepareLocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -347,4 +349,207 @@ describe("local PR workspace", () => {
     },
     GIT_WORKSPACE_TEST_TIMEOUT_MS,
   );
+
+  it(
+    "derives the authoritative three-dot change set when the listing is truncated",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "workspace-derive-"));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await writeFile(join(repo, "src.txt"), "one\n");
+        await writeFile(join(repo, "other.txt"), "keep\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "base"]);
+        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+        await writeFile(join(repo, "extra.txt"), "new file\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "head"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await git(root, ["init", "--bare", remote]);
+        await git(repo, ["remote", "add", "origin", remote]);
+        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+        await git(repo, ["push", "origin", `${baseSha}:refs/heads/main`]);
+
+        const fullPrFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+        // Simulate a truncated GitHub listing missing extra.txt.
+        const prFiles = {
+          ...fullPrFiles,
+          files: fullPrFiles.files.filter((file) => file.filename !== "extra.txt"),
+          truncated: true,
+          omittedCountLowerBound: 1,
+          baseSha,
+          baseRef: "main",
+        };
+
+        const cfg = makeTestConfig();
+        const workspace = await prepareLocalPrWorkspace({
+          cfg,
+          owner: "owner",
+          repo: "repo",
+          prNumber: 1,
+          headSha,
+          installationToken: "unused",
+          prFiles,
+          remoteUrlOverride: remote,
+          deriveAuthoritativeChangeSet: true,
+        });
+        try {
+          expect(workspace.baseDerivation).toBeDefined();
+          expect(workspace.baseDerivation?.baseSha).toBe(baseSha);
+          expect(workspace.changedFiles.map((file) => file.path).toSorted()).toEqual([
+            "extra.txt",
+            "src.txt",
+          ]);
+          expect(workspace.changedFileByPath.get("extra.txt")?.status).toBe("added");
+          expect(workspace.stats.fileCount).toBe(2);
+          expect(await workspace.getDiffForPath("extra.txt")).toContain("+new file");
+          expect(workspace.diffIndex.files.has("extra.txt")).toBe(true);
+        } finally {
+          await workspace.cleanup();
+        }
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    GIT_WORKSPACE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "fails coverage when the advertised base cannot be verified after ref movement",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "workspace-base-verify-"));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await writeFile(join(repo, "src.txt"), "one\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "base"]);
+        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await writeFile(join(repo, "src.txt"), "one\ntwo\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "head"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await git(root, ["init", "--bare", remote]);
+        await git(repo, ["remote", "add", "origin", remote]);
+        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+        // The advertised base SHA is never pushed, simulating a moved/garbage-collected base.
+        await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
+
+        const fullPrFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+        const prFiles = {
+          ...fullPrFiles,
+          truncated: true,
+          omittedCountLowerBound: 1,
+          baseSha: "0".repeat(40),
+          baseRef: "main",
+        };
+
+        await expect(
+          prepareLocalPrWorkspace({
+            cfg: makeTestConfig(),
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha,
+            installationToken: "unused",
+            prFiles,
+            remoteUrlOverride: remote,
+            deriveAuthoritativeChangeSet: true,
+          }),
+        ).rejects.toThrow(LocalPrBaseDerivationError);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    GIT_WORKSPACE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "fails coverage when no merge base is reachable within deepen limits",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "workspace-merge-base-"));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await writeFile(join(repo, "src.txt"), "one\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "head"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        // Orphan branch shares no history with the PR head.
+        await git(repo, ["checkout", "--orphan", "disconnected"]);
+        await writeFile(join(repo, "unrelated.txt"), "other\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "disconnected base"]);
+        const orphanSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await git(root, ["init", "--bare", remote]);
+        await git(repo, ["remote", "add", "origin", remote]);
+        await git(repo, ["push", "origin", `${headSha}:refs/pull/1/head`]);
+        await git(repo, ["push", "origin", `${orphanSha}:refs/heads/main`]);
+
+        const prFiles = {
+          files: [],
+          truncated: true,
+          omittedCountLowerBound: 1,
+          totalChanges: 1,
+          baseSha: orphanSha,
+          baseRef: "main",
+        };
+
+        await expect(
+          prepareLocalPrWorkspace({
+            cfg: makeTestConfig(),
+            owner: "owner",
+            repo: "repo",
+            prNumber: 1,
+            headSha,
+            installationToken: "unused",
+            prFiles,
+            remoteUrlOverride: remote,
+            deriveAuthoritativeChangeSet: true,
+          }),
+        ).rejects.toThrow(/merge base/i);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    GIT_WORKSPACE_TEST_TIMEOUT_MS,
+  );
+});
+
+describe("parseNameStatusZ", () => {
+  it("parses adds, modifications, deletions, renames, and typechanges", () => {
+    const out = parseNameStatusZ(
+      ["A", "added.ts", "M", "mod.ts", "D", "gone.ts", "R100", "old.ts", "new.ts", "T", "link.ts"]
+        .join("\0")
+        .concat("\0"),
+    );
+    expect(out).toEqual([
+      { path: "added.ts", status: "added" },
+      { path: "mod.ts", status: "modified" },
+      { path: "gone.ts", status: "deleted" },
+      { path: "new.ts", status: "renamed", oldPath: "old.ts" },
+      { path: "link.ts", status: "modified" },
+    ]);
+  });
+
+  it("returns an empty list for empty output", () => {
+    expect(parseNameStatusZ("")).toEqual([]);
+  });
 });
