@@ -134,6 +134,35 @@ describe("evaluateGates", () => {
     expect(gate.falsePositivePass).toBe(false);
   });
 
+  it("fails recall when hybrid finds a different valid set than legacy (count-equal)", () => {
+    const adj = [
+      adjudicated({ id: "f1", file: "a.ts", normalizedTitle: "issue a" }),
+      adjudicated({ id: "f2", file: "b.ts", normalizedTitle: "issue b" }),
+    ];
+    const legacy = [normalizeFinding(finding({ file: "a.ts", title: "Issue A" }))];
+    const hybrid = [normalizeFinding(finding({ file: "b.ts", title: "Issue B" }))];
+    const comparison = compareFindings({ legacy, hybrid, adjudicated: adj });
+    const gate = evaluateGates({
+      comparison,
+      adjudicated: adj,
+      legacyCaseCount: MIN_REPLAY_CASES,
+    });
+    expect(gate.recallPass).toBe(false);
+  });
+
+  it("fails overallPass when case count is below the replay minimum", () => {
+    const comparison = compareFindings({ legacy: [], hybrid: [], adjudicated: [] });
+    const gate = evaluateGates({
+      comparison,
+      adjudicated: [],
+      legacyCaseCount: 10,
+      shadowReviewCount: MIN_SHADOW_REVIEWS,
+      shadowDays: MIN_SHADOW_DAYS,
+    });
+    expect(gate.caseCountPass).toBe(false);
+    expect(gate.overallPass).toBe(false);
+  });
+
   it("reports case count and shadow gate status", () => {
     const comparison = compareFindings({ legacy: [], hybrid: [], adjudicated: [] });
     const gate = evaluateGates({

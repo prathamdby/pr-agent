@@ -91,6 +91,8 @@ export async function runShadowReview(params: {
   const shadowSubmitExecutor: AgentRunnerToolExecutor = async (args) => {
     const payload = args as ReviewPayload;
     captureRef.payload = payload;
+    setup.submitState.published = true;
+    setup.submitState.lastValidationError = null;
     return {
       ok: true,
       shadowCaptured: true,
@@ -148,7 +150,9 @@ export async function runShadowReview(params: {
     }
 
     let reports = wave.reports;
-    const candidates = collectHighRiskCandidates(wave.reports);
+    const allCandidates = collectHighRiskCandidates(wave.reports);
+    const maxCandidates = Math.max(0, cfg.reviewValidationMaxCandidates);
+    const candidates = allCandidates.slice(0, maxCandidates);
     if (candidates.length > 0) {
       const validation = await recordReviewPhaseSpan("shadow_validation", () =>
         runBatchValidation({

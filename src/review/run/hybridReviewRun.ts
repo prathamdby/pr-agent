@@ -9,7 +9,9 @@ import {
   TOKEN_FRESHNESS_BUFFER_MS,
 } from "../../settings/index.js";
 import type { ReviewMode } from "../reviewSchema.js";
+import type { ReviewPayload } from "../reviewSchema.js";
 import type { SubmitReviewState } from "../publish/submitReviewTool.js";
+import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
 import {
   payloadCheckpointMatches,
   type ReviewPayloadCheckpointStore,
@@ -59,12 +61,16 @@ function wrapSubmitWithPayloadCheckpoint(params: {
 }): AgentRunnerToolExecutor {
   const saveOnce = async (payload: Record<string, unknown>) => {
     try {
+      const redacted = redactReviewPayloadSecrets(payload as ReviewPayload) as Record<
+        string,
+        unknown
+      >;
       await params.payloadStore.saveOnce({
         workItemId: params.workItemId,
         headSha: params.scope.headSha,
         evidenceHash: params.scope.evidenceHash,
         promptContractVersion: params.scope.promptContractVersion,
-        payload,
+        payload: redacted,
       });
     } catch (error) {
       logWarn("review_payload_checkpoint_save_failed", {
@@ -259,7 +265,10 @@ export async function runHybridPrReview(
 
     let reports = wave.reports;
     let unvalidatedHighRisk = 0;
-    const candidates = collectHighRiskCandidates(wave.reports);
+    const allCandidates = collectHighRiskCandidates(wave.reports);
+    const maxCandidates = Math.max(0, cfg.reviewValidationMaxCandidates);
+    const candidates = allCandidates.slice(0, maxCandidates);
+    const truncatedCandidates = allCandidates.length - candidates.length;
     if (candidates.length > 0) {
       const validation = await recordReviewPhaseSpan("batch_validation", () =>
         runBatchValidation({
@@ -276,7 +285,9 @@ export async function runHybridPrReview(
       if (await abortIfRequested()) return finish();
       const applied = applyValidationVerdicts(wave.reports, candidates, validation.verdictById);
       reports = applied.reports;
-      unvalidatedHighRisk = applied.unvalidatedCount;
+      unvalidatedHighRisk = applied.unvalidatedCount + truncatedCandidates;
+    } else if (truncatedCandidates > 0) {
+      unvalidatedHighRisk = truncatedCandidates;
     }
 
     const synthesisSubmitExecutor = params.hybrid

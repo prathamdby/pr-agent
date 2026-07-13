@@ -1,6 +1,19 @@
 import { normalizeFindingSubstance } from "../findings/reviewFindingFingerprint.js";
-import { REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE } from "../../settings/index.js";
+import {
+  MAX_FP_REGRESSION_PERCENTAGE_POINTS,
+  MIN_REPLAY_CASES,
+  MIN_SHADOW_DAYS,
+  MIN_SHADOW_REVIEWS,
+  REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE,
+} from "../../settings/index.js";
 import type { ReviewFinding } from "../reviewSchema.js";
+
+export {
+  MAX_FP_REGRESSION_PERCENTAGE_POINTS,
+  MIN_REPLAY_CASES,
+  MIN_SHADOW_DAYS,
+  MIN_SHADOW_REVIEWS,
+};
 
 /** A finding reduced to its adjudication-relevant substance for comparison. */
 export type NormalizedFinding = {
@@ -39,22 +52,13 @@ export type ComparisonResult = {
 export type GateResult = {
   readonly recallPass: boolean;
   readonly falsePositivePass: boolean;
+  readonly caseCountPass: boolean;
+  readonly shadowPass: boolean;
+  readonly overallPass: boolean;
   readonly recallRate: number;
   readonly falsePositiveRate: number;
   readonly details: string;
 };
-
-/** Minimum historical cases required for replay gate evaluation (R24). */
-export const MIN_REPLAY_CASES = 50;
-
-/** Minimum paired shadow Reviews required for shadow gate evaluation (R24). */
-export const MIN_SHADOW_REVIEWS = 300;
-
-/** Minimum shadow observation window in days (R24). */
-export const MIN_SHADOW_DAYS = 7;
-
-/** Maximum allowed false-positive regression in percentage points at 95% confidence (R24). */
-export const MAX_FP_REGRESSION_PERCENTAGE_POINTS = 2;
 
 export function normalizeFinding(finding: ReviewFinding): NormalizedFinding {
   return {
@@ -145,18 +149,27 @@ export function evaluateGates(params: {
   readonly shadowDays?: number;
 }): GateResult {
   const { comparison, adjudicated } = params;
-  const validAdjudicated = adjudicated.filter((a) => a.valid);
+  const validAdjudicated = adjudicated.filter(
+    (a) => a.valid && (a.severity === "P0" || a.severity === "P1" || a.severity === "P2"),
+  );
   const validKeys = new Set(validAdjudicated.map((a) => findingKey(a)));
 
-  const legacyValidFound = comparison.entries.filter(
-    (e) => e.legacy && validKeys.has(findingKey(e.legacy)),
-  ).length;
-  const hybridValidFound = comparison.entries.filter(
-    (e) => e.hybrid && validKeys.has(findingKey(e.hybrid)),
-  ).length;
+  const legacyValidKeys = new Set(
+    comparison.entries
+      .filter((e) => e.legacy && validKeys.has(findingKey(e.legacy)))
+      .map((e) => findingKey(e.legacy!)),
+  );
+  const hybridValidKeys = new Set(
+    comparison.entries
+      .filter((e) => e.hybrid && validKeys.has(findingKey(e.hybrid)))
+      .map((e) => findingKey(e.hybrid!)),
+  );
 
+  const legacyValidFound = legacyValidKeys.size;
+  const hybridValidFound = hybridValidKeys.size;
   const recallRate = validAdjudicated.length > 0 ? hybridValidFound / validAdjudicated.length : 1;
-  const recallPass = hybridValidFound >= legacyValidFound;
+  // Every valid P0-P2 key found by legacy must also appear in hybrid (set inclusion).
+  const recallPass = [...legacyValidKeys].every((key) => hybridValidKeys.has(key));
 
   const legacyFalsePositives = comparison.entries.filter(
     (e) => e.legacy && !validKeys.has(findingKey(e.legacy)),
@@ -174,17 +187,22 @@ export function evaluateGates(params: {
   const caseCountPass = params.legacyCaseCount >= MIN_REPLAY_CASES;
   const shadowCountPass = (params.shadowReviewCount ?? 0) >= MIN_SHADOW_REVIEWS;
   const shadowDaysPass = (params.shadowDays ?? 0) >= MIN_SHADOW_DAYS;
+  const shadowPass = shadowCountPass && shadowDaysPass;
+  const overallPass = recallPass && falsePositivePass && caseCountPass;
 
   const details = [
     `Recall: ${hybridValidFound}/${validAdjudicated.length} valid findings found (legacy found ${legacyValidFound}), rate=${recallRate.toFixed(3)}, pass=${recallPass}`,
     `False-positive: legacy=${legacyFpRate.toFixed(3)}, hybrid=${hybridFpRate.toFixed(3)}, regression=${fpRegression.toFixed(1)}pp, pass=${falsePositivePass}`,
     `Case count: ${params.legacyCaseCount}/${MIN_REPLAY_CASES} required, pass=${caseCountPass}`,
-    `Shadow: ${params.shadowReviewCount ?? 0}/${MIN_SHADOW_REVIEWS} reviews, ${params.shadowDays ?? 0}/${MIN_SHADOW_DAYS} days, pass=${shadowCountPass && shadowDaysPass}`,
+    `Shadow: ${params.shadowReviewCount ?? 0}/${MIN_SHADOW_REVIEWS} reviews, ${params.shadowDays ?? 0}/${MIN_SHADOW_DAYS} days, pass=${shadowPass}`,
   ].join("; ");
 
   return {
     recallPass,
     falsePositivePass,
+    caseCountPass,
+    shadowPass,
+    overallPass,
     recallRate,
     falsePositiveRate: hybridFpRate,
     details,

@@ -216,5 +216,16 @@ export function formatReviewEvidenceBlock(snapshot: ReviewEvidenceSnapshot): str
       return `${head}\n[diff omitted: ${file.diffOmitted ?? "diff-unavailable"}]`;
     })
     .join("\n\n");
-  return [header, wrapUntrustedBlock("shared_evidence_diffs", fileEntries)].join("\n\n");
+  return [
+    header,
+    snapshot.policyContext.trim()
+      ? `## Repository policy and trusted context\n${snapshot.policyContext.trim()}`
+      : "",
+    snapshot.priorInlineFeedback?.trim()
+      ? `## Prior inline feedback\n${snapshot.priorInlineFeedback.trim()}`
+      : "",
+    wrapUntrustedBlock("shared_evidence_diffs", fileEntries),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }

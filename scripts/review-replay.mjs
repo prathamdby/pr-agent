@@ -20,15 +20,25 @@ async function main() {
   const raw = JSON.parse(await readFile(manifestPath, "utf8"));
   const manifest = validateManifest(raw);
 
+  // Operators must replace these stubs with publication-free legacy/hybrid runners.
+  // Empty stubs must never green-light rollout gates.
   const report = await runReplay({
     manifest,
-    runLegacy: async () => ({ findings: [], durationMs: 0 }),
-    runHybrid: async () => ({ findings: [], durationMs: 0 }),
+    runLegacy: async () => {
+      throw new Error(
+        "review-replay: wire a publication-free legacy runner before evaluating gates",
+      );
+    },
+    runHybrid: async () => {
+      throw new Error(
+        "review-replay: wire a publication-free hybrid runner before evaluating gates",
+      );
+    },
   });
 
   console.log(JSON.stringify(report, null, 2));
   console.error(report.gate.details);
-  process.exit(report.gate.recallPass && report.gate.falsePositivePass ? 0 : 1);
+  process.exit(report.gate.overallPass ? 0 : 1);
 }
 
 main().catch((error) => {

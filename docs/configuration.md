@@ -318,7 +318,16 @@ pathInstructions:
 | ------------------------------------------ | ------- |
 | `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE` | 256     |
 | `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`    | 32      |
+| `LOCAL_WORKSPACE_MERGE_BASE_DEEPEN_STEPS`  | 64, 512, 4096 — progressive `--deepen` steps to reach the PR merge base for three-dot derivation |
 | `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`      | 60000   |
+| `REVIEW_EVIDENCE_MAX_TOTAL_DIFF_BYTES`     | 2000000 — ceiling on total derived three-dot diff bytes in one evidence snapshot |
+| `REVIEW_EVIDENCE_CONTRACT_VERSION`         | 1 — shared Review evidence snapshot contract version |
+| `REVIEW_PROMPT_CONTRACT_VERSION`           | 1 — hybrid critic prompt contract; bump to invalidate critic checkpoints |
+| `MIN_REPLAY_CASES`                         | 50 — minimum historical cases for replay gate evaluation |
+| `MIN_SHADOW_REVIEWS`                       | 300 — minimum paired shadow Reviews for shadow gate evaluation |
+| `MIN_SHADOW_DAYS`                          | 7 — minimum shadow observation window in days |
+| `MAX_FP_REGRESSION_PERCENTAGE_POINTS`      | 2 — max hybrid vs legacy false-positive regression (percentage points) |
+| `MAX_CRITIC_ATTEMPTS`                      | 2 — initial critic run plus one isolated retry |
 
 ### Cursor SDK bridge
 

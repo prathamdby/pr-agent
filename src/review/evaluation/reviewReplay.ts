@@ -165,22 +165,28 @@ export async function runReplayCase(params: {
   ) => Promise<{ findings: readonly ReviewFinding[]; durationMs: number }>;
 }): Promise<ReplayCaseResult> {
   const { caseEntry, runLegacy, runHybrid } = params;
-  const [legacyResult, hybridResult] = await Promise.all([
-    runLegacy(caseEntry.snapshot).catch((error: unknown) => {
-      logWarn("replay_legacy_failed", {
-        caseId: caseEntry.caseId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return { findings: [] as readonly ReviewFinding[], durationMs: 0 };
-    }),
-    runHybrid(caseEntry.snapshot).catch((error: unknown) => {
-      logWarn("replay_hybrid_failed", {
-        caseId: caseEntry.caseId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      return { findings: [] as readonly ReviewFinding[], durationMs: 0 };
-    }),
+  const [legacySettled, hybridSettled] = await Promise.allSettled([
+    runLegacy(caseEntry.snapshot),
+    runHybrid(caseEntry.snapshot),
   ]);
+  if (legacySettled.status === "rejected") {
+    const message =
+      legacySettled.reason instanceof Error
+        ? legacySettled.reason.message
+        : String(legacySettled.reason);
+    logWarn("replay_legacy_failed", { caseId: caseEntry.caseId, message });
+    throw new Error(`Replay legacy runner failed for case ${caseEntry.caseId}: ${message}`);
+  }
+  if (hybridSettled.status === "rejected") {
+    const message =
+      hybridSettled.reason instanceof Error
+        ? hybridSettled.reason.message
+        : String(hybridSettled.reason);
+    logWarn("replay_hybrid_failed", { caseId: caseEntry.caseId, message });
+    throw new Error(`Replay hybrid runner failed for case ${caseEntry.caseId}: ${message}`);
+  }
+  const legacyResult = legacySettled.value;
+  const hybridResult = hybridSettled.value;
 
   const legacyFindings = legacyResult.findings.map(normalizeFinding);
   const hybridFindings = hybridResult.findings.map(normalizeFinding);

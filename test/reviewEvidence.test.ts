@@ -189,10 +189,18 @@ describe("classifyReviewSloExemption", () => {
 });
 
 describe("formatReviewEvidenceBlock", () => {
-  it("renders identity, coverage, and untrusted diff content", async () => {
-    const snapshot = await buildReviewEvidenceSnapshot(baseParams());
+  it("renders identity, coverage, trusted policy context, and untrusted diff content", async () => {
+    const snapshot = await buildReviewEvidenceSnapshot({
+      ...baseParams(),
+      policyContext: "severity floor: P1",
+      priorInlineFeedback: "prior finding note",
+    });
     const block = formatReviewEvidenceBlock(snapshot);
     expect(block).toContain(`Evidence hash: ${snapshot.evidenceHash}`);
+    expect(block).toContain("## Repository policy and trusted context");
+    expect(block).toContain("severity floor: P1");
+    expect(block).toContain("## Prior inline feedback");
+    expect(block).toContain("prior finding note");
     expect(block).toContain('<shared_evidence_diffs untrusted="true">');
     expect(block).toContain("### a.ts [modified]");
     expect(block).toContain("+new");

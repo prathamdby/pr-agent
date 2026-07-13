@@ -43,6 +43,16 @@ export const REVIEW_PROMPT_CONTRACT_VERSION = 1;
 /** Rollout modes for the Review pipeline (KTD11): legacy publishes via the eight-role roster, shadow adds a sampled non-publishing hybrid comparison, hybrid publishes via the four-critic pipeline. */
 export const REVIEW_PIPELINE_MODES = ["legacy", "shadow", "hybrid"] as const;
 export type ReviewPipelineMode = (typeof REVIEW_PIPELINE_MODES)[number];
+/** Minimum historical cases required for replay gate evaluation (R24). */
+export const MIN_REPLAY_CASES = 50;
+/** Minimum paired shadow Reviews required for shadow gate evaluation (R24). */
+export const MIN_SHADOW_REVIEWS = 300;
+/** Minimum shadow observation window in days (R24). */
+export const MIN_SHADOW_DAYS = 7;
+/** Maximum allowed false-positive regression in percentage points (R24). */
+export const MAX_FP_REGRESSION_PERCENTAGE_POINTS = 2;
+/** Max critic attempts per checkpoint scope (initial + one isolated retry). */
+export const MAX_CRITIC_ATTEMPTS = 2;
 
 /** PR description agent block (merge-by-header). */
 export const DESCRIPTION_AGENT_HEADER = "## PR Agent Description";

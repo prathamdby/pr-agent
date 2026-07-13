@@ -6,7 +6,7 @@ import type {
 } from "../../agent/providers/interface.js";
 import type { Config } from "../../config.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { REVIEW_PROMPT_CONTRACT_VERSION } from "../../settings/index.js";
+import { MAX_CRITIC_ATTEMPTS, REVIEW_PROMPT_CONTRACT_VERSION } from "../../settings/index.js";
 import {
   buildCriticSystemPrompt,
   buildCriticUserContent,
@@ -40,9 +40,6 @@ export const CRITIC_INVESTIGATION_TOOL_NAMES = [
 export type CriticReport = z.infer<typeof reviewerReportSchema> & {
   readonly critic: CriticId;
 };
-
-/** Total attempts allowed per critic per work item: one run plus one isolated retry (R18). */
-const MAX_CRITIC_ATTEMPTS = 2;
 
 function criticSessionRole(critic: CriticId): ReviewSessionRole {
   return `reviewer:${critic}`;
@@ -213,7 +210,12 @@ async function runCriticWithRetry(
         const stored = (await store.loadCheckpoints(key)).get(critic);
         const parsed = reviewerReportSchema.safeParse(stored?.report ?? {});
         if (parsed.success) return parsed.data;
-        throw new Error(`${critic} critic checkpoint is completed but unreadable`);
+        logWarn("review_critic_checkpoint_unreadable", {
+          critic,
+          status: stored?.status,
+        });
+        await store.markExhausted(key);
+        return null;
       }
       attemptCount = claim.attemptCount;
     }
