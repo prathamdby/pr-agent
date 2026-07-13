@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   buildTrustedContext: vi.fn(),
   fetchPriorFeedback: vi.fn(),
   getAppBotIdentity: vi.fn(),
+  getPullRequestHeadSha: vi.fn(async () => "head"),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
@@ -56,7 +57,7 @@ vi.mock("../src/review/run/reviewRun.js", () => ({
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
   getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
-  getPullRequestHeadSha: vi.fn(async () => "head"),
+  getPullRequestHeadSha: mocks.getPullRequestHeadSha,
 }));
 
 import * as durableJob from "../src/agentWork/durableJob.js";
@@ -173,7 +174,7 @@ describe("executeReviewJob", () => {
       mocks.lightweight,
     );
     vi.spyOn(prWorkspace, "withPrRepositoryView").mockImplementation(mocks.withPrRepositoryView);
-    vi.spyOn(reviewReschedule, "buildStaleSlashReviewRescheduleResult").mockImplementation(
+    vi.spyOn(reviewReschedule, "buildStaleReviewRescheduleResult").mockImplementation(
       mocks.buildStaleReschedule,
     );
     vi.spyOn(reviewTrustedContext, "buildTrustedReviewContextForReview").mockImplementation(
@@ -195,6 +196,9 @@ describe("executeReviewJob", () => {
       run(),
     );
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1 });
+    mocks.getPullRequestHeadSha.mockResolvedValue("head");
+    mocks.shouldSkipWork.mockResolvedValue(false);
+    mocks.buildStaleReschedule.mockReset();
     mocks.loadPublishContext.mockResolvedValue({
       publishState: {
         inlinePublished: false,
@@ -324,6 +328,105 @@ describe("executeReviewJob", () => {
       expect.objectContaining({
         conclusion: "cancelled",
         summary: "Review publish was skipped because the work was superseded or cancelled.",
+      }),
+    );
+  });
+
+  it("reschedules an auto review when the PR head changes mid-flight", async () => {
+    mockDurableExecution("auto");
+    mockRepositoryView();
+    mocks.getPullRequestHeadSha.mockResolvedValue("newhead");
+    mocks.buildStaleReschedule.mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn(),
+    });
+    mocks.runFullPrReview.mockImplementation(async (params) => {
+      await params.shouldAbortPublish?.();
+      return { published: false, publishAttempts: 0, publishSuperseded: true };
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).toHaveBeenCalledTimes(1);
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was rescheduled for a newer pull request head.",
+      }),
+    );
+  });
+
+  it("reschedules an auto review when preflight files are for a newer head", async () => {
+    mockDurableExecution("auto");
+    mocks.fetchPrFiles.mockResolvedValue({ ...prFiles, headSha: "newhead" });
+    mocks.buildStaleReschedule.mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn(),
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).toHaveBeenCalledTimes(1);
+    expect(mocks.lightweight).not.toHaveBeenCalled();
+    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was rescheduled for a newer pull request head.",
+      }),
+    );
+  });
+
+  it("does not stale-head reschedule when intake already requested cancel", async () => {
+    mockDurableExecution("auto");
+    mockRepositoryView();
+    mocks.getPullRequestHeadSha.mockResolvedValue("newhead");
+    let skipWork = false;
+    mocks.shouldSkipWork.mockImplementation(async () => skipWork);
+    mocks.runFullPrReview.mockImplementation(async (params) => {
+      await params.shouldAbortPublish?.();
+      skipWork = true;
+      return { published: false, publishAttempts: 0, publishSuperseded: true };
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review publish was skipped because the work was superseded or cancelled.",
+      }),
+    );
+  });
+
+  it("reschedules a slash review when the PR head changes mid-flight", async () => {
+    mockDurableExecution("slash");
+    mockRepositoryView();
+    mocks.getPullRequestHeadSha.mockResolvedValue("newhead");
+    mocks.buildStaleReschedule.mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn(),
+    });
+    mocks.runFullPrReview.mockImplementation(async (params) => {
+      await params.shouldAbortPublish?.();
+      return { published: false, publishAttempts: 0, publishSuperseded: true };
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).toHaveBeenCalledTimes(1);
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+        summary: "Review was rescheduled for a newer pull request head.",
       }),
     );
   });
