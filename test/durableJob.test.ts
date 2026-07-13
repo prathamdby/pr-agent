@@ -486,6 +486,37 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
+  it("still enqueues a stale-head replacement when cancel is requested after execute", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "auto",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    let cancelAfterExecute = false;
+    vi.mocked(repo.shouldSkipWork).mockImplementation(async () => cancelAfterExecute);
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+    vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(true);
+    const afterComplete = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockImplementation(async () => {
+      cancelAfterExecute = true;
+      return {
+        rescheduled: true,
+        replacementWorkItemId: "replacement-wi",
+        afterComplete,
+      };
+    });
+
+    await runReviewWorkItem({ execute });
+
+    expect(afterComplete).toHaveBeenCalledWith(boss, "job-1");
+    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+  });
+
   it("throws when rescheduled parent cannot be completed and replacement marker exists", async () => {
     mockFetchedItem(
       makeItem({

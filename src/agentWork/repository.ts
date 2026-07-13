@@ -202,7 +202,6 @@ export async function forceMarkRescheduledParentCompleted(
 		        completed_at = COALESCE(completed_at, now()),
 		        updated_at = now()
 		  WHERE id = $1
-		    AND cancel_requested_at IS NULL
 		    AND (payload->>'staleHeadReplacementWorkItemId') IS NOT NULL
 		    AND status IN ('running', 'queued')`,
     [id],

@@ -15,23 +15,23 @@ import {
   type ReviewWorkPayload,
 } from "./types.js";
 
-export type StaleSlashReviewRescheduleResult = {
+export type StaleReviewRescheduleResult = {
   readonly rescheduled: true;
   readonly replacementWorkItemId: string;
   readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
 };
 
-type SlashReviewRescheduleWorkItem = {
+type StaleReviewRescheduleWorkItem = {
   readonly replacementWorkItemId: string;
   readonly headSha: string;
 };
 
-export async function buildStaleSlashReviewRescheduleResult(
+export async function buildStaleReviewRescheduleResult(
   pool: Pool,
   item: AgentWorkItem,
   token: string,
   expiresAtTs?: number,
-): Promise<StaleSlashReviewRescheduleResult> {
+): Promise<StaleReviewRescheduleResult> {
   const latestHeadSha = await getPullRequestHeadSha(
     token,
     item.owner,
@@ -39,12 +39,12 @@ export async function buildStaleSlashReviewRescheduleResult(
     item.prNumber,
     expiresAtTs,
   );
-  const replacement = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
+  const replacement = await createStaleReviewRescheduleWorkItem(pool, item, latestHeadSha);
   return {
     rescheduled: true,
     replacementWorkItemId: replacement.replacementWorkItemId,
     afterComplete: async (boss, activePgBossJobId) => {
-      await enqueueSlashReviewReschedule(
+      await enqueueStaleReviewReschedule(
         pool,
         boss,
         item,
@@ -56,13 +56,14 @@ export async function buildStaleSlashReviewRescheduleResult(
   };
 }
 
-export async function createSlashReviewRescheduleWorkItem(
+export async function createStaleReviewRescheduleWorkItem(
   pool: Pool,
   item: AgentWorkItem,
   latestHeadSha: string,
-): Promise<SlashReviewRescheduleWorkItem> {
+): Promise<StaleReviewRescheduleWorkItem> {
   const payload = item.payload as ReviewWorkPayload;
   const reviewLens = "review" as const;
+  const source = item.source;
   let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
 
   if (!replacementWorkItemId) {
@@ -93,6 +94,7 @@ export async function createSlashReviewRescheduleWorkItem(
 
   const nextPayload: ReviewWorkPayload = {
     ...payload,
+    source,
     staleHeadRescheduled: true,
     staleHeadReplacementWorkItemId: replacementWorkItemId,
   };
@@ -102,7 +104,7 @@ export async function createSlashReviewRescheduleWorkItem(
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
        head_sha, review_lens, resource_key, priority, payload
      )
-     VALUES ($1, $2, 'review', 'slash', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
+     VALUES ($1, $2, 'review', $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 0, $11::jsonb)
      ON CONFLICT (id) DO UPDATE SET
        payload = EXCLUDED.payload,
        updated_at = now()
@@ -110,6 +112,7 @@ export async function createSlashReviewRescheduleWorkItem(
     [
       replacementWorkItemId,
       item.webhookEventId,
+      source,
       item.owner,
       item.repo,
       item.prNumber,
@@ -152,7 +155,7 @@ async function releaseStaleHeadReplacementEnqueueClaim(
   );
 }
 
-export async function enqueueSlashReviewReschedule(
+export async function enqueueStaleReviewReschedule(
   pool: Pool,
   boss: PgBoss,
   item: AgentWorkItem,
@@ -163,6 +166,7 @@ export async function enqueueSlashReviewReschedule(
   const reviewLens = "review" as const;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
   const parentPayload = item.payload as ReviewWorkPayload;
+  const source = item.source;
 
   if (parentPayload.staleHeadReplacementEnqueued) {
     logInfo("review_stale_head_reschedule_enqueue_skipped", {
@@ -170,6 +174,7 @@ export async function enqueueSlashReviewReschedule(
       repo: item.repo,
       pr: item.prNumber,
       reviewLens,
+      source,
       previousWorkItemId: item.id,
       replacementWorkItemId: workItemId,
     });
@@ -185,6 +190,7 @@ export async function enqueueSlashReviewReschedule(
         repo: item.repo,
         pr: item.prNumber,
         reviewLens,
+        source,
         previousWorkItemId: item.id,
         replacementWorkItemId: workItemId,
       });
@@ -219,7 +225,7 @@ export async function enqueueSlashReviewReschedule(
       repo: item.repo,
       prNumber: item.prNumber,
       targets: [],
-      progress: { lens: reviewLens, headSha: replacementHeadSha, source: "slash" },
+      progress: { lens: reviewLens, headSha: replacementHeadSha, source },
       ...correlation,
     };
     const ackJobId = await boss.send(ACK_QUEUE, ackData, {
@@ -235,6 +241,7 @@ export async function enqueueSlashReviewReschedule(
       repo: item.repo,
       pr: item.prNumber,
       reviewLens,
+      source,
       previousWorkItemId: item.id,
       replacementWorkItemId: workItemId,
       previousHeadSha: item.headSha,

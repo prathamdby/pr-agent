@@ -46,7 +46,7 @@ import {
   recordPublishStep,
   shouldSkipWork,
 } from "../repository.js";
-import { buildStaleSlashReviewRescheduleResult } from "../reviewReschedule.js";
+import { buildStaleReviewRescheduleResult } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
 import {
   makeInstallationTokenRefresher,
@@ -84,11 +84,7 @@ export async function executeReviewJob(
         model: cfg.piModel,
         mode: reviewLens,
       });
-      if (
-        payload.source === "slash" &&
-        !payload.staleHeadRescheduled &&
-        payload.staleHeadReplacementWorkItemId
-      ) {
+      if (!payload.staleHeadRescheduled && payload.staleHeadReplacementWorkItemId) {
         await completeReviewCheckRun(pool, {
           cfg,
           token: env.installation.token,
@@ -102,7 +98,7 @@ export async function executeReviewJob(
           conclusion: "cancelled",
           summary: "Review was rescheduled for a newer pull request head.",
         });
-        return buildStaleSlashReviewRescheduleResult(
+        return buildStaleReviewRescheduleResult(
           pool,
           item,
           env.installation.token,
@@ -161,6 +157,19 @@ export async function executeReviewJob(
         });
       };
 
+      const rescheduleForNewerHead = async () => {
+        await completeCheckFromStoredSummary(
+          "cancelled",
+          "Review was rescheduled for a newer pull request head.",
+        );
+        return buildStaleReviewRescheduleResult(
+          pool,
+          item,
+          tokenState.installation.token,
+          tokenState.installation.expiresAtTs,
+        );
+      };
+
       if (payload.source === "auto") {
         prefetchedPrFiles = await recordReviewPhaseSpan("preflight", () =>
           fetchPullRequestFiles(
@@ -176,6 +185,14 @@ export async function executeReviewJob(
             tokenState.installation.expiresAtTs,
           ),
         );
+        if (
+          prefetchedPrFiles.headSha != null &&
+          prefetchedPrFiles.headSha.toLowerCase() !== headSha.toLowerCase() &&
+          !payload.staleHeadRescheduled &&
+          !(await shouldSkipWork(pool, item))
+        ) {
+          return rescheduleForNewerHead();
+        }
         assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
         const preflight = buildReviewPreflightMetadataFromPullRequestFiles(prefetchedPrFiles);
         const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
@@ -355,17 +372,12 @@ export async function executeReviewJob(
               tokenState,
             ),
           });
-          if (staleHeadAtPublish && payload.source === "slash" && !payload.staleHeadRescheduled) {
-            await completeCheckFromStoredSummary(
-              "cancelled",
-              "Review was rescheduled for a newer pull request head.",
-            );
-            return buildStaleSlashReviewRescheduleResult(
-              pool,
-              item,
-              tokenState.installation.token,
-              tokenState.installation.expiresAtTs,
-            );
+          if (
+            staleHeadAtPublish &&
+            !payload.staleHeadRescheduled &&
+            !(await shouldSkipWork(pool, item))
+          ) {
+            return rescheduleForNewerHead();
           }
           if (!result.published) {
             if (result.publishSuperseded) {

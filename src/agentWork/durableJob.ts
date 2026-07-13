@@ -337,11 +337,11 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
-    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
     if (result.rescheduled) {
       await completeRescheduledResult(result);
       return;
     }
+    if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
     if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
     if (!(await markWorkCompleted(spec.pool, item.id))) {
       await recheckSkippableAndCancel("completion_race", false);

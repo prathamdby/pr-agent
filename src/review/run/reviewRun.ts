@@ -381,9 +381,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
 
     if (!setup.submitState.published) {
       const willRescheduleStaleHead =
-        params.publishAbortState?.staleHead === true &&
-        params.reviewSource === "slash" &&
-        !params.staleHeadRescheduled;
+        params.publishAbortState?.staleHead === true && !params.staleHeadRescheduled;
       logWarn("review_publish_exhausted", {
         mode: reviewMode,
         attempts: publishAttempts,
