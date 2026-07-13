@@ -130,7 +130,7 @@ export const REVIEW_EFFORT_WORDS = [
 export const REVIEW_OVERVIEW_ALERT = "NOTE";
 export const REVIEW_FAILURE_ALERT = "CAUTION";
 export const REVIEW_PROGRESS_NOTE =
-  "Reviewing the latest commit from eight independent angles before one synthesized result.";
+  "Reviewing the latest commit with parallel Reviewer agents before one synthesized result.";
 export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
 export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
@@ -155,12 +155,13 @@ export const REVIEW_SIZE_TIER_LARGE_MIN_CHANGES = 2000;
 /**
  * Core Reviewer-agent roster for medium and large Review budget tiers.
  * Sized to match default REVIEW_AGENT_CONCURRENCY so fan-out completes in one wave.
+ * Matches the high-signal set: correctness, security, tests, and quality (maintainability).
  */
 export const REVIEW_CORE_REVIEWER_IDS = [
   "correctness",
   "security",
   "tests",
-  "reliability",
+  "maintainability",
 ] as const;
 
 /** Per-repo review policy file at checkout root. */

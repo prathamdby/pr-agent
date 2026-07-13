@@ -73,11 +73,22 @@ describe("buildReviewSizeBudget", () => {
       truncated: true,
     });
     expect(budget.truncated).toBe(true);
-    expect(budget.selectedReviewerIds).toEqual(REVIEWER_IDS);
-    expect(budget.omittedReviewerIds).toEqual([]);
+    expect(budget.tier).toBe("medium");
+    expect(budget.selectedReviewerIds).toEqual([...REVIEW_CORE_REVIEWER_IDS]);
+    expect(budget.omittedReviewerIds.length).toBeGreaterThan(0);
     const block = formatReviewSizeBudgetBlock(budget);
     expect(block).toContain("Change set truncated");
     expect(block).toContain("Selected Reviewer agents:");
+  });
+
+  it("never classifies truncated listings as small", () => {
+    expect(
+      classifyReviewBudgetTier({
+        fileCount: 2,
+        totalChanges: 10,
+        truncated: true,
+      }),
+    ).toBe("medium");
   });
 
   it("lists omitted reviewers for large tiers without calling them failures", () => {

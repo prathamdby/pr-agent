@@ -12,11 +12,11 @@ A **Review budget tier** already classified pull request size for advisory inves
 
 ## Decision
 
-1. **Tier-selected Reviewer roster.** Small Review budget tiers still run the full eight Reviewer agents. Medium and large tiers run the core roster only: correctness, security, tests, and reliability (`REVIEW_CORE_REVIEWER_IDS`). Core size matches default `REVIEW_AGENT_CONCURRENCY` so fan-out completes in one concurrency wave.
+1. **Tier-selected Reviewer roster.** Small Review budget tiers still run the full eight Reviewer agents. Medium and large tiers run the core roster only: correctness, security, tests, and maintainability (`REVIEW_CORE_REVIEWER_IDS`). Core size matches default `REVIEW_AGENT_CONCURRENCY` so fan-out completes in one concurrency wave.
 
 2. **Omission is policy, not degradation.** Reviewer agents omitted by tier are recorded as `omittedReviewerIds` and reported in trusted synthesis context. They do not count as failures and do not produce a Degraded review. Only selected optional Reviewer agents that fail produce Degraded review. Correctness and security remain required.
 
-3. **Core-roster delegated coverage.** On medium/large tiers, remaining Reviewer prompts absorb high-signal concerns from omitted angles (contract breaks into correctness, hostile inputs into security, races into reliability) without inventing new Reviewer ids.
+3. **Core-roster delegated coverage.** On medium/large tiers, remaining Reviewer prompts absorb high-signal concerns from omitted angles (contract breaks and reliability hazards into correctness, hostile inputs into security, project-standards into maintainability) without inventing new Reviewer ids.
 
 4. **Small-change volume gate.** A pull request with few files but many line changes is no longer classified small solely by file count. `REVIEW_SIZE_TIER_SMALL_MAX_CHANGES` promotes such changes to medium.
 

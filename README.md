@@ -236,7 +236,7 @@ flowchart LR
 3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision, the daily retention cleanup lane, worker `/health`+`/ready`, and continuous queue-stall diagnostics.
 5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
-6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): Review budget tier selects Reviewer agents on one shared read-only workspace (full eight on small; core four on medium/large), required correctness/security coverage is enforced, and P0/P1 candidates are independently validated.
+6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): Review budget tier selects Reviewer agents on one shared read-only workspace (full eight on small; core four — correctness, security, tests, maintainability — on medium/large), required correctness/security coverage is enforced, and P0/P1 candidates are independently validated.
 7. **Review synthesis**: one orchestrator receives the internal reports and is the only session with **`submitReview`**, producing one summary comment and one optional inline GitHub review. The orchestrator synthesizes only (no full-diff rediscovery). Reviewer fan-out is bounded by `REVIEW_AGENT_CONCURRENCY` (default `4`) inside each review worker job.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md).

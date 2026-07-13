@@ -174,7 +174,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `REVIEW_CHECK_RUN_RESERVATION_STALE_MS`                              | 300000                                                                                                 |
 | `REVIEW_CHECK_RUN_WAIT_FOR_ID_MS` / `REVIEW_CHECK_RUN_WAIT_POLL_MS`  | 15000 / 100 — poll for a peer-started check run id before giving up                                    |
 | `REVIEW_SIZE_TIER_*`                                                 | Review budget tier thresholds (files/changes) that select the Reviewer roster                          |
-| `REVIEW_CORE_REVIEWER_IDS`                                           | Core Reviewer-agent ids for medium/large tiers (correctness, security, tests, reliability)             |
+| `REVIEW_CORE_REVIEWER_IDS`                                           | Core Reviewer-agent ids for medium/large tiers (correctness, security, tests, maintainability)         |
 | `REVIEW_RISK_PATH_PATTERNS`                                          | Path categories for trusted review context                                                             |
 | `REVIEW_FINDING_FOOTNOTE_INLINE` / `REVIEW_FINDING_FOOTNOTE_SUMMARY` | Finding row footnotes                                                                                  |
 | `REVIEW_FINDINGS_NONE`                                               | Empty findings table cell                                                                              |

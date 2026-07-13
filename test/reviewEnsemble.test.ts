@@ -89,7 +89,7 @@ describe("reviewer ensemble", () => {
   });
 
   it("runs only the selected Reviewer roster", async () => {
-    const selected = ["correctness", "security", "tests", "reliability"] as const;
+    const selected = ["correctness", "security", "tests", "maintainability"] as const;
     const createSession = vi.fn(
       async (params: {
         executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;

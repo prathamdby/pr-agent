@@ -27,6 +27,16 @@ export type ReviewSizeBudget = {
 const CORE_REVIEWER_ID_SET = new Set<string>(REVIEW_CORE_REVIEWER_IDS);
 
 export function classifyReviewBudgetTier(input: ReviewSizeBudgetInput): ReviewBudgetTier {
+  // Truncated listings understate size; never treat them as small full-roster reviews.
+  if (input.truncated) {
+    if (
+      input.fileCount > REVIEW_SIZE_TIER_MEDIUM_MAX_FILES ||
+      input.totalChanges >= REVIEW_SIZE_TIER_LARGE_MIN_CHANGES
+    ) {
+      return "large";
+    }
+    return "medium";
+  }
   if (
     input.fileCount > REVIEW_SIZE_TIER_MEDIUM_MAX_FILES ||
     input.totalChanges >= REVIEW_SIZE_TIER_LARGE_MIN_CHANGES
@@ -45,7 +55,12 @@ export function classifyReviewBudgetTier(input: ReviewSizeBudgetInput): ReviewBu
 /** Select Reviewer agents for this Review budget tier (ADR 0023). */
 export function selectReviewerRoster(tier: ReviewBudgetTier): readonly ReviewerId[] {
   if (tier === "small") return REVIEWER_IDS;
-  return REVIEWER_IDS.filter((id) => CORE_REVIEWER_ID_SET.has(id));
+  const selected = REVIEWER_IDS.filter((id) => CORE_REVIEWER_ID_SET.has(id));
+  // Required coverage must always be present in the selected roster.
+  if (!selected.includes("correctness") || !selected.includes("security")) {
+    throw new Error("Core Reviewer roster must include correctness and security");
+  }
+  return selected;
 }
 
 export function buildReviewSizeBudget(input: ReviewSizeBudgetInput): ReviewSizeBudget {

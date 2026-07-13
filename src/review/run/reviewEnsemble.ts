@@ -155,6 +155,9 @@ export async function runReviewerEnsemble(params: {
   const selected = [...(params.selectedReviewerIds ?? REVIEWER_IDS)].sort(
     (a, b) => REVIEWER_IDS.indexOf(a) - REVIEWER_IDS.indexOf(b),
   );
+  if (!selected.includes("correctness") || !selected.includes("security")) {
+    throw new Error("Selected Reviewer roster must include correctness and security");
+  }
   const selectedSet = new Set<string>(selected);
   const omitted = REVIEWER_IDS.filter((id) => !selectedSet.has(id));
   const queue = [...selected];
