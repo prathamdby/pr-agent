@@ -558,20 +558,22 @@ describe("runDurableWorkItem", () => {
       }),
     );
     const boom = new Error("enqueue failed");
+    const onRescheduleAbort = vi.fn();
     const execute = vi.fn().mockResolvedValue({
       rescheduled: true,
       replacementWorkItemId: "replacement-wi",
       afterComplete: vi.fn().mockRejectedValue(boom),
+      onRescheduleAbort,
     });
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
 
     expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
-    expect(repo.markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
-  it("cancels un-enqueued replacement on terminal afterComplete failure", async () => {
+  it("invokes onRescheduleAbort on terminal afterComplete failure", async () => {
     mockFetchedItem(
       makeItem({
         status: "running",
@@ -583,20 +585,22 @@ describe("runDurableWorkItem", () => {
       }),
     );
     const boom = new Error("enqueue failed");
+    const onRescheduleAbort = vi.fn().mockResolvedValue(undefined);
     const execute = vi.fn().mockResolvedValue({
       rescheduled: true,
       replacementWorkItemId: "replacement-wi",
       afterComplete: vi.fn().mockRejectedValue(boom),
+      onRescheduleAbort,
     });
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
-    expect(repo.markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", boom);
+    expect(onRescheduleAbort).toHaveBeenCalledWith(boom);
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
   });
 
-  it("does not cancel already-enqueued replacement on terminal failure", async () => {
+  it("does not invoke onRescheduleAbort when execute fails without a reschedule result", async () => {
     mockFetchedItem(
       makeItem({
         status: "running",
@@ -609,15 +613,16 @@ describe("runDurableWorkItem", () => {
       }),
     );
     const boom = new Error("dead");
+    const onRescheduleAbort = vi.fn();
     const execute = vi.fn().mockRejectedValue(boom);
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
-    expect(repo.markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
   });
 
-  it("warns when queued replacement cancel races or misses", async () => {
+  it("clears pending onRescheduleAbort after successful afterComplete", async () => {
     mockFetchedItem(
       makeItem({
         status: "running",
@@ -628,45 +633,43 @@ describe("runDurableWorkItem", () => {
         },
       }),
     );
-    vi.mocked(repo.markQueuedWorkCancelled).mockResolvedValue(false);
-    const boom = new Error("enqueue failed");
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+    vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
+    const onRescheduleAbort = vi.fn();
     const execute = vi.fn().mockResolvedValue({
       rescheduled: true,
       replacementWorkItemId: "replacement-wi",
-      afterComplete: vi.fn().mockRejectedValue(boom),
+      afterComplete: vi.fn().mockResolvedValue(undefined),
+      onRescheduleAbort,
     });
 
-    await runReviewWorkItem({ job: makeJob(3, 3), execute });
-
-    expect(repo.markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", boom);
-    expect(evlog.logWarn).toHaveBeenCalledWith(
-      "agent_work_replacement_cancel_failed",
-      expect.objectContaining({
-        workItemId: "wi-1",
-        replacementWorkItemId: "replacement-wi",
-      }),
+    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toThrow(
+      /Failed to complete rescheduled parent/,
     );
+
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).toHaveBeenCalled();
   });
 
-  it("warns and continues terminal failure when replacement payload re-read is malformed", async () => {
-    const item = makeItem({
-      status: "running",
-      payload: {
-        mode: "review",
-        source: "slash",
-        staleHeadReplacementWorkItemId: "replacement-wi",
-      },
-    });
-    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload)
-      .mockResolvedValueOnce(item.payload)
-      .mockResolvedValueOnce({ question: "not-a-review-payload" });
+  it("warns and continues terminal failure when onRescheduleAbort throws", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
     const boom = new Error("enqueue failed");
     const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+    const onRescheduleAbort = vi.fn().mockRejectedValue(new Error("cancel blew up"));
     const execute = vi.fn().mockResolvedValue({
       rescheduled: true,
       replacementWorkItemId: "replacement-wi",
       afterComplete: vi.fn().mockRejectedValue(boom),
+      onRescheduleAbort,
     });
 
     await expect(
@@ -674,13 +677,13 @@ describe("runDurableWorkItem", () => {
     ).resolves.toBeUndefined();
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
-    expect(repo.markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(onRescheduleAbort).toHaveBeenCalledWith(boom);
     expect(evlog.logWarn).toHaveBeenCalledWith(
       "agent_work_replacement_cancel_failed",
       expect.objectContaining({
         type: "review",
         workItemId: "wi-1",
-        message: expect.stringMatching(/Invalid review work item payload/),
+        message: expect.stringMatching(/cancel blew up/),
       }),
     );
     expect(onTerminalFailure).toHaveBeenCalledTimes(1);
@@ -702,20 +705,22 @@ describe("runDurableWorkItem", () => {
     mockFetchedItem(item);
     const boom = new Error("enqueue failed");
     const afterComplete = vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(undefined);
+    const onRescheduleAbort = vi.fn();
     const execute = vi.fn().mockResolvedValue({
       rescheduled: true,
       replacementWorkItemId: "replacement-wi",
       afterComplete,
+      onRescheduleAbort,
     });
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
-    expect(repo.markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
     expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
 
     await runReviewWorkItem({ job: makeJob(1, 3), execute });
 
     expect(afterComplete).toHaveBeenCalledTimes(2);
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1");
-    expect(repo.markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
   });
 });

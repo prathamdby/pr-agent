@@ -22,7 +22,6 @@ import {
   getWorkItem,
   getWorkItemCore,
   getWorkItemPayload,
-  markQueuedWorkCancelled,
   markWorkCancelled,
   markWorkCompleted,
   markWorkFailed,
@@ -33,7 +32,7 @@ import {
 } from "./repository.js";
 import { getPullRequestHead } from "./githubPrSurface.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
-import { attachWorkItemPayload, parseWorkItemPayload } from "./workItemPayloadSchema.js";
+import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 
 type DurableExecutionContext = {
   installation: InstallationToken;
@@ -68,6 +67,8 @@ type DurableExecutionResult = {
   readonly rescheduled?: boolean;
   readonly replacementWorkItemId?: string;
   readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+  /** Review-owned: cancel a persisted-but-not-enqueued replacement on terminal parent failure. */
+  readonly onRescheduleAbort?: (error: unknown) => Promise<void>;
 };
 
 export type DurableHeadResolution = {
@@ -171,6 +172,7 @@ async function finishRescheduledParentWorkItem(
   pool: Pool,
   itemId: string,
   type: WorkType,
+  replacementWorkItemId: string | undefined,
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId)) {
     logInfo("agent_work_completed", {
@@ -189,7 +191,7 @@ async function finishRescheduledParentWorkItem(
     });
     return;
   }
-  if (refreshed?.type === "review" && refreshed.payload.staleHeadReplacementWorkItemId) {
+  if (replacementWorkItemId) {
     if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
       logInfo("agent_work_completed", {
         type,
@@ -223,13 +225,19 @@ function workItemCommenterId(item: AgentWorkItem): number | undefined {
   }
 }
 
+function isWorkType<T extends WorkType>(
+  item: AgentWorkItemCore,
+  type: T,
+): item is Extract<AgentWorkItemCore, { type: T }> {
+  return item.type === type;
+}
+
 function workItemAccepted<T extends WorkType>(
   item: AgentWorkItemCore | null,
   spec: DurableJobSpec<T>,
 ): item is Extract<AgentWorkItemCore, { type: T }> {
-  if (!item || item.type !== spec.type) return false;
-  const typed = item as Extract<AgentWorkItemCore, { type: T }>;
-  return !spec.acceptItem || spec.acceptItem(typed);
+  if (!item || !isWorkType(item, spec.type)) return false;
+  return !spec.acceptItem || spec.acceptItem(item);
 }
 
 /**
@@ -245,6 +253,8 @@ export async function runDurableWorkItem<T extends WorkType>(
   let workItem: TypedItem | undefined;
   let midScaffoldSkipChecksDisabled = false;
   let installation: InstallationToken | undefined;
+  /** Set while a reschedule afterComplete may still need abort on terminal failure. */
+  let pendingRescheduleAbort: ((error: unknown) => Promise<void>) | undefined;
 
   async function invokeCancelledHook(
     item: TypedCore,
@@ -298,7 +308,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     const rawPayload = await getWorkItemPayload(spec.pool, core.id);
     if (rawPayload === undefined) return;
     try {
-      workItem = attachWorkItemPayload(core, rawPayload) as TypedItem;
+      workItem = attachWorkItemPayload(core, rawPayload);
     } catch (error) {
       await markWorkFailed(spec.pool, core.id, error);
       throw error;
@@ -350,38 +360,30 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function completeRescheduledResult(result: DurableExecutionResult): Promise<void> {
+    pendingRescheduleAbort = result.onRescheduleAbort;
     if (result.afterComplete) {
       await result.afterComplete(spec.boss, spec.job.id);
     }
-    await finishRescheduledParentWorkItem(spec.pool, item.id, spec.type);
+    // Enqueue finished (or was already done); do not cancel the replacement if parent complete fails.
+    pendingRescheduleAbort = undefined;
+    await finishRescheduledParentWorkItem(
+      spec.pool,
+      item.id,
+      spec.type,
+      result.replacementWorkItemId,
+    );
   }
 
-  async function cancelOrphanedStaleHeadReplacement(error: unknown): Promise<void> {
-    if (item.type !== "review") return;
+  async function invokeRescheduleAbort(error: unknown): Promise<void> {
+    if (!pendingRescheduleAbort) return;
     try {
-      const rawPayload = await getWorkItemPayload(spec.pool, item.id);
-      if (rawPayload === undefined) return;
-      const payload = parseWorkItemPayload("review", rawPayload);
-      if (
-        !payload.staleHeadReplacementWorkItemId ||
-        payload.staleHeadReplacementEnqueued === true
-      ) {
-        return;
-      }
-      const replacementId = payload.staleHeadReplacementWorkItemId;
-      if (!(await markQueuedWorkCancelled(spec.pool, replacementId, error))) {
-        logWarn("agent_work_replacement_cancel_failed", {
-          type: spec.type,
-          workItemId: item.id,
-          replacementWorkItemId: replacementId,
-        });
-      }
-    } catch (cancelError) {
+      await pendingRescheduleAbort(error);
+    } catch (abortError) {
       logWarn("agent_work_replacement_cancel_failed", {
         type: spec.type,
         workItemId: item.id,
         message: sanitizeLogMessage(
-          cancelError instanceof Error ? cancelError.message : String(cancelError),
+          abortError instanceof Error ? abortError.message : String(abortError),
         ),
       });
     }
@@ -442,7 +444,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       await recheckSkippableAndCancel("failure_race");
       return;
     }
-    await cancelOrphanedStaleHeadReplacement(error);
+    await invokeRescheduleAbort(error);
     await invokeTerminalFailureHook(error);
     logError("agent_work_failed", {
       type: spec.type,

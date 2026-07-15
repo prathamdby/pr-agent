@@ -4,6 +4,7 @@ import type { PgBoss } from "pg-boss";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
 import {
   buildStaleSlashReviewRescheduleResult,
+  cancelUnenqueuedStaleHeadReplacement,
   createSlashReviewRescheduleWorkItem,
   enqueueSlashReviewReschedule,
 } from "../src/agentWork/reviewReschedule.js";
@@ -12,13 +13,19 @@ import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
+  markQueuedWorkCancelled: vi.fn(),
 }));
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getPullRequestHeadSha: vi.fn(),
 }));
+vi.mock("../src/evlog.js", () => ({
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+}));
 
-import { getWorkItem } from "../src/agentWork/repository.js";
+import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/repository.js";
 import { getPullRequestHeadSha } from "../src/agentWork/githubPrSurface.js";
+import * as evlog from "../src/evlog.js";
 
 function makeItem(
   overrides: Parameters<typeof makeReviewWorkItem>[0] & { attemptCount?: number } = {},
@@ -241,5 +248,160 @@ describe("enqueueSlashReviewReschedule", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
     expect(String(query.mock.calls[1]?.[0])).toContain("payload - 'staleHeadReplacementEnqueued'");
+  });
+});
+
+describe("cancelUnenqueuedStaleHeadReplacement", () => {
+  it("cancels a queued replacement when not yet enqueued", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    const boom = new Error("enqueue failed");
+    const pool = {} as Pool;
+
+    await cancelUnenqueuedStaleHeadReplacement(pool, "parent-wi", "replacement-wi", boom, false);
+
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", boom);
+  });
+
+  it("skips cancel when replacement was already enqueued", async () => {
+    const pool = {} as Pool;
+
+    await cancelUnenqueuedStaleHeadReplacement(
+      pool,
+      "parent-wi",
+      "replacement-wi",
+      new Error("dead"),
+      true,
+    );
+
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
+  });
+
+  it("warns when queued replacement cancel races or misses", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(false);
+    const pool = {} as Pool;
+
+    await cancelUnenqueuedStaleHeadReplacement(
+      pool,
+      "parent-wi",
+      "replacement-wi",
+      new Error("enqueue failed"),
+      false,
+    );
+
+    expect(evlog.logWarn).toHaveBeenCalledWith(
+      "agent_work_replacement_cancel_failed",
+      expect.objectContaining({
+        type: "review",
+        workItemId: "parent-wi",
+        replacementWorkItemId: "replacement-wi",
+      }),
+    );
+  });
+
+  it("warns and swallows cancel errors", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockRejectedValue(new Error("db down"));
+    const pool = {} as Pool;
+
+    await expect(
+      cancelUnenqueuedStaleHeadReplacement(
+        pool,
+        "parent-wi",
+        "replacement-wi",
+        new Error("enqueue failed"),
+        false,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(evlog.logWarn).toHaveBeenCalledWith(
+      "agent_work_replacement_cancel_failed",
+      expect.objectContaining({
+        type: "review",
+        workItemId: "parent-wi",
+        replacementWorkItemId: "replacement-wi",
+        message: expect.stringMatching(/db down/),
+      }),
+    );
+  });
+});
+
+describe("buildStaleSlashReviewRescheduleResult onRescheduleAbort", () => {
+  it("cancels un-enqueued replacement when afterComplete never ran", async () => {
+    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    const query = vi.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ head_sha: "latest-head" }],
+    });
+    const pool = { query } as unknown as Pool;
+    const boom = new Error("parent failed");
+
+    const result = await buildStaleSlashReviewRescheduleResult(
+      pool,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "existing-replacement",
+        },
+      }),
+      "token",
+    );
+    await result.onRescheduleAbort(boom);
+
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", boom);
+  });
+
+  it("does not cancel after afterComplete marks the replacement enqueued", async () => {
+    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValue("job-id");
+    const findJobs = vi.fn().mockResolvedValue([]);
+    const cancel = vi.fn();
+    const boss = { send, findJobs, cancel } as unknown as PgBoss;
+
+    const result = await buildStaleSlashReviewRescheduleResult(
+      pool,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "existing-replacement",
+        },
+      }),
+      "token",
+    );
+    await result.afterComplete(boss, "active-job");
+    await result.onRescheduleAbort(new Error("should not cancel"));
+
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel when parent payload already had enqueue marker", async () => {
+    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
+    const query = vi.fn().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ head_sha: "latest-head" }],
+    });
+    const pool = { query } as unknown as Pool;
+
+    const result = await buildStaleSlashReviewRescheduleResult(
+      pool,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "existing-replacement",
+          staleHeadReplacementEnqueued: true,
+        },
+      }),
+      "token",
+    );
+    await result.onRescheduleAbort(new Error("parent failed"));
+
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
   });
 });

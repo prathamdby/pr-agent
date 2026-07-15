@@ -150,6 +150,11 @@ export function parseWorkItemPayload(
   }
 }
 
+export function attachWorkItemPayload<T extends WorkType>(
+  core: Extract<AgentWorkItemCore, { type: T }>,
+  raw: unknown,
+): Extract<AgentWorkItem, { type: T }>;
+export function attachWorkItemPayload(core: AgentWorkItemCore, raw: unknown): AgentWorkItem;
 export function attachWorkItemPayload(core: AgentWorkItemCore, raw: unknown): AgentWorkItem {
   switch (core.type) {
     case "review":

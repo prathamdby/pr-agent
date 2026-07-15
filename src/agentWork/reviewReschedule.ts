@@ -1,10 +1,11 @@
 import crypto from "node:crypto";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
-import { logInfo } from "../evlog.js";
+import { logInfo, logWarn } from "../evlog.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
 import { getPullRequestHeadSha } from "./githubPrSurface.js";
-import { getWorkItem } from "./repository.js";
+import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
   installationGroupId,
@@ -19,12 +20,47 @@ export type StaleSlashReviewRescheduleResult = {
   readonly rescheduled: true;
   readonly replacementWorkItemId: string;
   readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+  /** Cancel a persisted-but-not-enqueued replacement when the parent fails terminally. */
+  readonly onRescheduleAbort: (error: unknown) => Promise<void>;
 };
 
 type SlashReviewRescheduleWorkItem = {
   readonly replacementWorkItemId: string;
   readonly headSha: string;
 };
+
+/**
+ * Cancel a queued stale-head replacement that was persisted but never enqueued.
+ * Uses the known replacement id from the reschedule result — no payload re-fetch/re-parse.
+ * No-ops when enqueue already succeeded (`replacementEnqueued`).
+ */
+export async function cancelUnenqueuedStaleHeadReplacement(
+  pool: Pool,
+  parentWorkItemId: string,
+  replacementWorkItemId: string,
+  error: unknown,
+  replacementEnqueued: boolean,
+): Promise<void> {
+  if (replacementEnqueued) return;
+  try {
+    if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
+      logWarn("agent_work_replacement_cancel_failed", {
+        type: "review",
+        workItemId: parentWorkItemId,
+        replacementWorkItemId,
+      });
+    }
+  } catch (cancelError) {
+    logWarn("agent_work_replacement_cancel_failed", {
+      type: "review",
+      workItemId: parentWorkItemId,
+      replacementWorkItemId,
+      message: sanitizeLogMessage(
+        cancelError instanceof Error ? cancelError.message : String(cancelError),
+      ),
+    });
+  }
+}
 
 export async function buildStaleSlashReviewRescheduleResult(
   pool: Pool,
@@ -40,6 +76,8 @@ export async function buildStaleSlashReviewRescheduleResult(
     expiresAtTs,
   );
   const replacement = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
+  // Closed over by afterComplete / onRescheduleAbort so terminal abort does not re-read payload.
+  let replacementEnqueued = item.payload.staleHeadReplacementEnqueued === true;
   return {
     rescheduled: true,
     replacementWorkItemId: replacement.replacementWorkItemId,
@@ -51,6 +89,17 @@ export async function buildStaleSlashReviewRescheduleResult(
         replacement.replacementWorkItemId,
         replacement.headSha,
         activePgBossJobId,
+      );
+      // enqueue either succeeded or was already marked; either way the replacement is live.
+      replacementEnqueued = true;
+    },
+    onRescheduleAbort: async (error) => {
+      await cancelUnenqueuedStaleHeadReplacement(
+        pool,
+        item.id,
+        replacement.replacementWorkItemId,
+        error,
+        replacementEnqueued,
       );
     },
   };
