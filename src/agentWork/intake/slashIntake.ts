@@ -127,7 +127,7 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const askRef = { ...ctx.ref, headSha: DEFERRED_HEAD_SHA };
-  const workItemId = await createAskWorkItem(ctx.client, {
+  const askInsert = await createAskWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: askRef,
     question: askParse.question,
@@ -136,6 +136,10 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
     commenterId: ctx.input.commenterId,
     codeAnchor: ctx.input.codeAnchor,
   });
+  if (!askInsert.created) {
+    return;
+  }
+  const workItemId = askInsert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueAsk(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   recordEvent(ctx.intakeLog, "agent_work_enqueued", {

@@ -4,9 +4,11 @@ Queue inspection, retry, and recovery for pg-boss workers. For behaviour and dep
 
 ## Services
 
-- `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly.
-- `pr-agent-worker` processes acknowledgement, review, ask, description, triage, and verification queues.
+- `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly. Non-slash inline thread replies (when `ENABLE_THREAD_REPLIES=true`) enqueue `agent-work-thread-classify` without GitHub API calls on the request fiber.
+- `pr-agent-worker` processes acknowledgement, review, ask, description, triage, verification, and thread-reply classification queues.
 - `postgres` stores pg-boss jobs plus app-owned workflow tables.
+
+**Rolling deploy:** start or upgrade workers that consume `agent-work-thread-classify` before web instances that enqueue it.
 
 ## Inspect Queue Health
 
@@ -28,6 +30,7 @@ Worker startup logs `agent_queue_stats` for each queue and `agent_review_queue_b
 - If a worker crashes mid-job, pg-boss heartbeat/expiration retries the job; publish steps are guarded by `publish_records`.
 - `/triage` uses `agent-work-triage` plus `triage_push`, `triage_thread_actions`, and `triage_report` publish records. A stale push posts the triage report without thread replies; re-run `/triage` after the PR branch settles.
 - Verification uses `agent-work-verification` plus the `verification_thread_actions` publish record. It is read-only with no ack/progress/summary comment; a failed job leaves finding threads untouched and records `agent_work_items.status = 'failed'`.
+- Thread-reply classification uses `agent-work-thread-classify`. Terminal `webhook_events.processing_decision` values: `thread_reply_ask_enqueued`, `ignored_non_bot_thread_reply`, `ignored_bot_slash_command`, `thread_reply_classification_failed`. Retries must not duplicate ask/ack jobs (event row lock + one ask per `webhook_event_id`).
 
 ## Local Development
 

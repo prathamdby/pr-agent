@@ -23,7 +23,7 @@ async function insertQueuedAgentWorkItem(
   params: {
     id: string;
     webhookEventId: string;
-    type: "review" | "description" | "ask" | "triage" | "verification";
+    type: "review" | "description" | "triage" | "verification";
     source: WorkSource;
     ref: PrRef;
     reviewLens: ReviewMode | null;
@@ -32,29 +32,6 @@ async function insertQueuedAgentWorkItem(
     payload: unknown;
   },
 ): Promise<void> {
-  if (params.type === "ask") {
-    await client.query(
-      `INSERT INTO agent_work_items (
-		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
-		   head_sha, resource_key, priority, payload
-		 )
-		 VALUES ($1, $2, 'ask', $3, 'queued', $4, $5, $6, $7, $8, $9, 50, $10::jsonb)`,
-      [
-        params.id,
-        params.webhookEventId,
-        params.source,
-        params.ref.owner,
-        params.ref.repo,
-        params.ref.prNumber,
-        params.ref.installationId,
-        params.ref.headSha,
-        params.resourceKey,
-        JSON.stringify(params.payload),
-      ],
-    );
-    return;
-  }
-
   await client.query(
     `INSERT INTO agent_work_items (
 		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
@@ -398,27 +375,57 @@ export async function createAskWorkItem(
     commenterId: number;
     codeAnchor?: CodeAnchor;
   },
-): Promise<string> {
+): Promise<
+  { readonly created: true; readonly id: string } | { readonly created: false; readonly id: string }
+> {
   const id = crypto.randomUUID();
-  await insertQueuedAgentWorkItem(client, {
-    id,
-    webhookEventId: params.webhookEventId,
-    type: "ask",
-    source: "slash",
-    ref: params.ref,
-    reviewLens: null,
-    resourceKey: prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
-    priority: 50,
-    payload: {
-      question: params.question,
-      replyTarget: params.replyTarget,
-      repositorySizeKb: params.ref.repositorySizeKb,
-      commentId: params.commentId,
-      commenterId: params.commenterId,
-      codeAnchor: params.codeAnchor,
-    },
-  });
-  return id;
+  const payload = {
+    question: params.question,
+    replyTarget: params.replyTarget,
+    repositorySizeKb: params.ref.repositorySizeKb,
+    commentId: params.commentId,
+    commenterId: params.commenterId,
+    codeAnchor: params.codeAnchor,
+  };
+  const result = await client.query<{ id: string }>(
+    `INSERT INTO agent_work_items (
+		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+		   head_sha, resource_key, priority, payload
+		 )
+		 VALUES ($1, $2, 'ask', 'slash', 'queued', $3, $4, $5, $6, $7, $8, 50, $9::jsonb)
+		 ON CONFLICT (webhook_event_id)
+		   WHERE type = 'ask' AND webhook_event_id IS NOT NULL
+		 DO NOTHING
+		 RETURNING id`,
+    [
+      id,
+      params.webhookEventId,
+      params.ref.owner,
+      params.ref.repo,
+      params.ref.prNumber,
+      params.ref.installationId,
+      params.ref.headSha,
+      prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
+      JSON.stringify(payload),
+    ],
+  );
+  const createdId = result.rows[0]?.id;
+  if (createdId) {
+    return { created: true, id: createdId };
+  }
+  const existing = await client.query<{ id: string }>(
+    `SELECT id
+       FROM agent_work_items
+      WHERE webhook_event_id = $1
+        AND type = 'ask'
+      LIMIT 1`,
+    [params.webhookEventId],
+  );
+  const existingId = existing.rows[0]?.id;
+  if (!existingId) {
+    throw new Error("ask work item conflict without existing row");
+  }
+  return { created: false, id: existingId };
 }
 
 export async function fetchActiveWorkItem(

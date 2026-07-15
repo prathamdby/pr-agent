@@ -10,6 +10,8 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
+  THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
+  THREAD_REPLY_CLASSIFY_QUEUE,
   TRIAGE_DEAD_LETTER_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_DEAD_LETTER_QUEUE,
@@ -68,6 +70,7 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   await boss.createQueue(DESCRIPTION_DEAD_LETTER_QUEUE, dlq);
   await boss.createQueue(TRIAGE_DEAD_LETTER_QUEUE, dlq);
   await boss.createQueue(VERIFICATION_DEAD_LETTER_QUEUE, dlq);
+  await boss.createQueue(THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE, dlq);
   await boss.createQueue(ACK_QUEUE, {
     ...defaults,
     policy: "standard",
@@ -97,6 +100,11 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     ...defaults,
     policy: "key_strict_fifo",
     deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
+  });
+  await boss.createQueue(THREAD_REPLY_CLASSIFY_QUEUE, {
+    ...defaults,
+    policy: "standard",
+    deadLetter: THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
   });
 }
 

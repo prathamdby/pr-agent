@@ -172,7 +172,6 @@ export const WebhookHandlersCore = Layer.effect(
               yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
               return;
             }
-            if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id, intakeLog)) return;
             if (
               yield* ignoreUnauthorizedSlash(
                 cfg,
@@ -184,19 +183,13 @@ export const WebhookHandlersCore = Layer.effect(
               return;
             }
             const threadRootCommentId = data.comment.in_reply_to_id;
-            const isBotThread = yield* scheduler.matchesStoredInlineReview(
-              data.installation.id,
+            const storedReviewMatchHint = yield* scheduler.lookupStoredInlineReviewHint(
               data.repository.owner.login,
               data.repository.name,
               data.pull_request.number,
               data.comment.pull_request_review_id,
-              threadRootCommentId,
             );
-            if (!isBotThread) {
-              yield* scheduler.recordIgnored(headers, "ignored_non_bot_thread_reply", intakeLog);
-              return;
-            }
-            yield* scheduler.submitSlashCommand(
+            yield* scheduler.submitThreadReplyClassification(
               {
                 headers,
                 installationId: data.installation.id,
@@ -206,14 +199,17 @@ export const WebhookHandlersCore = Layer.effect(
                 prNumber: data.pull_request.number,
                 commenterId: data.comment.user.id,
                 commentId: data.comment.id,
+                authorAssociation: data.comment.author_association ?? null,
                 body,
-                command: "ask",
                 replyTarget: {
                   kind: "inlineReviewThread",
                   prNumber: data.pull_request.number,
                   inReplyToCommentId: threadRootCommentId,
                 },
                 codeAnchor: codeAnchorFromReviewComment(data.comment),
+                inReplyToCommentId: threadRootCommentId,
+                pullRequestReviewId: data.comment.pull_request_review_id ?? null,
+                storedReviewMatchHint,
               },
               intakeLog,
             );

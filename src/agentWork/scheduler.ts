@@ -5,18 +5,19 @@ import type { Config } from "../config.js";
 import { inTransaction } from "../db/postgres.js";
 import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
-import { logWarn } from "../evlog.js";
 import {
   applyAutomatedPullRequestIntake,
   applySlashCommandIntake,
   recordIgnoredWebhook,
   type SlashCommandInput,
 } from "./intake/applier.js";
+import {
+  applyThreadReplyClassifyIntake,
+  type ThreadReplyClassifyInput,
+} from "./intake/threadReplyClassifyIntake.js";
 import { hasStoredInlineReviewId } from "./repository.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
 import { prResourceKey } from "./types.js";
-import { getPullRequestReviewComment } from "../github/reviewPublish.js";
-import { mintInstallationAuth, getAppBotIdentity } from "../github/appAuth.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   AgentWorkScheduler,
@@ -36,14 +37,17 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       input: SlashCommandInput,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
-    readonly matchesStoredInlineReview: (
-      installationId: number,
+    /** DB-only: true when pull_request_review_id is a stored bot inline review. */
+    readonly lookupStoredInlineReviewHint: (
       owner: string,
       repo: string,
       prNumber: number,
       pullRequestReviewId: number | null | undefined,
-      inReplyToId: number,
     ) => Effect.Effect<boolean, Error>;
+    readonly submitThreadReplyClassification: (
+      input: ThreadReplyClassifyInput,
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
     readonly ping: () => Effect.Effect<boolean>;
   }
 >() {}
@@ -51,14 +55,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
 export function makeAgentWorkScheduler(
   pool: Pool,
   boss: PgBoss,
-  cfg: Pick<
-    Config,
-    | "reviewAutoActions"
-    | "descriptionAutoActions"
-    | "verificationAutoActions"
-    | "githubAppId"
-    | "githubAppPrivateKey"
-  >,
+  cfg: Pick<Config, "reviewAutoActions" | "descriptionAutoActions" | "verificationAutoActions">,
 ) {
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
@@ -81,43 +78,24 @@ export function makeAgentWorkScheduler(
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 
-    matchesStoredInlineReview: (
-      installationId,
-      owner,
-      repo,
-      prNumber,
-      pullRequestReviewId,
-      inReplyToId,
-    ) =>
+    lookupStoredInlineReviewHint: (owner, repo, prNumber, pullRequestReviewId) =>
       Effect.tryPromise({
         try: async () => {
+          if (pullRequestReviewId == null) return false;
           const resourceKey = prResourceKey(owner, repo, prNumber);
-          let reviewId = pullRequestReviewId ?? null;
-          if (reviewId != null && (await hasStoredInlineReviewId(pool, resourceKey, reviewId))) {
-            return true;
-          }
-          const auth = await mintInstallationAuth(cfg, installationId);
-          const parent = await getPullRequestReviewComment(auth.token, owner, repo, inReplyToId);
-          const bot = await getAppBotIdentity(cfg);
-          if (parent.userId === bot.userId) return true;
-          reviewId = parent.pullRequestReviewId;
-          if (reviewId == null) return false;
-          return hasStoredInlineReviewId(pool, resourceKey, reviewId);
+          return hasStoredInlineReviewId(pool, resourceKey, pullRequestReviewId);
         },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }).pipe(
-        Effect.catchAll((e) =>
-          Effect.sync(() => {
-            logWarn("thread_reply_bot_thread_lookup_failed", {
-              owner,
-              repo,
-              pr: prNumber,
-              message: e.message,
-            });
-            return false;
-          }),
-        ),
-      ),
+      }),
+
+    submitThreadReplyClassification: (input, intakeLog) =>
+      Effect.tryPromise({
+        try: () =>
+          inTransaction(pool, (client) =>
+            applyThreadReplyClassifyIntake(boss, client, input, intakeLog),
+          ),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }),
 
     ping: () =>
       Effect.tryPromise({

@@ -126,7 +126,7 @@ describe("makeAgentWorkScheduler /ask slash", () => {
         }
         if (sql.includes("INSERT INTO agent_work_items")) {
           workItemInserts.push(params ?? []);
-          return { rows: [] };
+          return { rows: [{ id: "ask-work-1" }] };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),

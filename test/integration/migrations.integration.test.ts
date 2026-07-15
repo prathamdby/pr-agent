@@ -18,6 +18,7 @@ const EXPECTED_MIGRATIONS = [
   "012_review_check_run_step.sql",
   "013_verification_work.sql",
   "014_slash_active_uniqueness.sql",
+  "015_thread_reply_classification.sql",
 ];
 
 describe.skipIf(!hasDatabase)("migrations (integration)", () => {
@@ -50,6 +51,7 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(names).toContain("agent_work_items_webhook_event_id_idx");
     expect(names).toContain("agent_work_items_status_retention_age_idx");
     expect(names).toContain("agent_work_items_slash_active_uniqueness_idx");
+    expect(names).toContain("agent_work_items_ask_webhook_event_id_uniqueness_idx");
     expect(names).not.toContain("agent_work_items_status_idx");
     expect(names).not.toContain("agent_work_items_status_completed_at_idx");
     expect(names).not.toContain("agent_work_items_installation_status_idx");

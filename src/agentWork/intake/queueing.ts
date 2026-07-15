@@ -7,6 +7,7 @@ import {
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
+  THREAD_REPLY_CLASSIFY_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
@@ -23,6 +24,7 @@ import {
   type JobCorrelation,
   type PrRef,
   type ReviewJobData,
+  type ThreadReplyClassifyJobData,
   type TriageJobData,
   type VerificationJobData,
   type WebhookHeaders,
@@ -149,5 +151,16 @@ export async function enqueueVerification(
     db: pgBossDb(client),
     singletonKey: verificationSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
+export async function enqueueThreadReplyClassify(
+  boss: PgBoss,
+  client: PoolClient,
+  data: ThreadReplyClassifyJobData,
+): Promise<void> {
+  await requireBossJobSend(boss, THREAD_REPLY_CLASSIFY_QUEUE, data, {
+    db: pgBossDb(client),
+    group: { id: installationGroupId(data.installationId) },
   });
 }
