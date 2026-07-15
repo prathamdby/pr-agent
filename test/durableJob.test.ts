@@ -648,6 +648,48 @@ describe("runDurableWorkItem", () => {
     );
   });
 
+  it("warns and continues terminal failure when replacement payload re-read is malformed", async () => {
+    const item = makeItem({
+      status: "running",
+      payload: {
+        mode: "review",
+        source: "slash",
+        staleHeadReplacementWorkItemId: "replacement-wi",
+      },
+    });
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload)
+      .mockResolvedValueOnce(item.payload)
+      .mockResolvedValueOnce({ question: "not-a-review-payload" });
+    const boom = new Error("enqueue failed");
+    const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn().mockRejectedValue(boom),
+    });
+
+    await expect(
+      runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure }),
+    ).resolves.toBeUndefined();
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markQueuedWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logWarn).toHaveBeenCalledWith(
+      "agent_work_replacement_cancel_failed",
+      expect.objectContaining({
+        type: "review",
+        workItemId: "wi-1",
+        message: expect.stringMatching(/Invalid review work item payload/),
+      }),
+    );
+    expect(onTerminalFailure).toHaveBeenCalledTimes(1);
+    expect(evlog.logError).toHaveBeenCalledWith(
+      "agent_work_failed",
+      expect.objectContaining({ type: "review", workItemId: "wi-1" }),
+    );
+  });
+
   it("recovers replacement on retry after transient afterComplete failure", async () => {
     const item = makeItem({
       status: "running",

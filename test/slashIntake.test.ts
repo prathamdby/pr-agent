@@ -6,7 +6,14 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { makeAgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import { createOperationLogger, initEvlog } from "../src/evlog.js";
-import { ACK_QUEUE, REVIEW_QUEUE, SLASH_HELP_BODY, TRIAGE_QUEUE } from "../src/settings/index.js";
+import {
+  ACK_QUEUE,
+  DESCRIPTION_ALREADY_IN_PROGRESS,
+  DESCRIPTION_QUEUE,
+  REVIEW_QUEUE,
+  SLASH_HELP_BODY,
+  TRIAGE_QUEUE,
+} from "../src/settings/index.js";
 import * as postgres from "../src/db/postgres.js";
 
 function makeSlashInput(body: string) {
@@ -391,6 +398,54 @@ describe("applySlashCommandIntake", () => {
     expect(sentJobs[0]?.data.progress).toBeUndefined();
     expect(sentJobs[0]?.data.workItemId).toBeUndefined();
     expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toContain("already queued");
+    expect(intakeLog.getContext().events ?? []).not.toContainEqual(
+      expect.objectContaining({ event: "agent_work_enqueued" }),
+    );
+  });
+
+  it("acks already-in-progress when slash describe create loses the uniqueness race", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) {
+          return { rows: [{ id: "event-1" }] };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [] };
+        }
+        if (sql.includes("type = 'description'")) {
+          return { rows: [] };
+        }
+        if (sql.includes("source = 'slash'")) {
+          return { rows: [{ id: "winner-describe" }] };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/describe"), intakeLog));
+
+    expect(sentJobs).toHaveLength(1);
+    expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
+    expect(sentJobs.map((j) => j.queue)).not.toContain(DESCRIPTION_QUEUE);
+    expect(sentJobs[0]?.data.progress).toBeUndefined();
+    expect(sentJobs[0]?.data.workItemId).toBeUndefined();
+    expect(String((sentJobs[0]?.data.reply as { body?: string }).body)).toBe(
+      DESCRIPTION_ALREADY_IN_PROGRESS,
+    );
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "agent_work_enqueued" }),
     );

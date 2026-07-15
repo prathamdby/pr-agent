@@ -83,4 +83,87 @@ describe("sanitizePostHogEvent", () => {
     expect((frame.pre_context as string[])[0]).not.toContain("ghp_");
     expect(frame.post_context).toEqual(["return;"]);
   });
+
+  it("does not mutate the input event, nested exception structures, or original secret strings", () => {
+    const errorMessage = `push failed Bearer ${TOKEN}`;
+    const exceptionValue = `failed with OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz`;
+    const contextLine = `const auth = "Bearer ${TOKEN}";`;
+    const preContext = [`// token ${TOKEN}`];
+    const postContext = ["return;"];
+    const frame = {
+      platform: "node:javascript",
+      filename: "/tmp/app.ts",
+      function: "run",
+      context_line: contextLine,
+      pre_context: preContext,
+      post_context: postContext,
+      lineno: 12,
+    };
+    const frames = [frame];
+    const stacktrace = { type: "raw", frames };
+    const exceptionEntry = {
+      type: "Error",
+      value: exceptionValue,
+      stacktrace,
+    };
+    const exceptionList = [exceptionEntry];
+    const properties = {
+      step: "publish_report",
+      error_message: errorMessage,
+      $exception_list: exceptionList,
+    };
+    const event: EventMessage = {
+      distinctId: "installation:1",
+      event: "$exception",
+      properties,
+    };
+
+    const sanitized = sanitizePostHogEvent(event);
+
+    expect(sanitized).not.toBe(event);
+    expect(sanitized?.properties).not.toBe(properties);
+    expect(sanitized?.properties?.$exception_list).not.toBe(exceptionList);
+    expect((sanitized?.properties?.$exception_list as unknown[])[0]).not.toBe(exceptionEntry);
+    expect(
+      ((sanitized?.properties?.$exception_list as unknown[])[0] as { stacktrace: unknown })
+        .stacktrace,
+    ).not.toBe(stacktrace);
+    expect(
+      (
+        (sanitized?.properties?.$exception_list as unknown[])[0] as {
+          stacktrace: { frames: unknown[] };
+        }
+      ).stacktrace.frames,
+    ).not.toBe(frames);
+    expect(
+      (
+        (sanitized?.properties?.$exception_list as unknown[])[0] as {
+          stacktrace: { frames: unknown[] };
+        }
+      ).stacktrace.frames[0],
+    ).not.toBe(frame);
+    expect(
+      (
+        (sanitized?.properties?.$exception_list as unknown[])[0] as {
+          stacktrace: { frames: Array<{ pre_context: unknown }> };
+        }
+      ).stacktrace.frames[0].pre_context,
+    ).not.toBe(preContext);
+
+    expect(event.properties).toBe(properties);
+    expect(properties.error_message).toBe(errorMessage);
+    expect(properties.$exception_list).toBe(exceptionList);
+    expect(exceptionEntry.value).toBe(exceptionValue);
+    expect(exceptionEntry.stacktrace).toBe(stacktrace);
+    expect(stacktrace.frames).toBe(frames);
+    expect(frames[0]).toBe(frame);
+    expect(frame.context_line).toBe(contextLine);
+    expect(frame.pre_context).toBe(preContext);
+    expect(preContext[0]).toBe(`// token ${TOKEN}`);
+    expect(errorMessage).toContain("ghp_");
+    expect(exceptionValue).toContain("sk-");
+    expect(contextLine).toContain("ghp_");
+    expect(String(sanitized?.properties?.error_message)).toContain("[redacted]");
+    expect(String(sanitized?.properties?.error_message)).not.toContain("ghp_");
+  });
 });

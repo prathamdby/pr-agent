@@ -358,18 +358,31 @@ export async function runDurableWorkItem<T extends WorkType>(
 
   async function cancelOrphanedStaleHeadReplacement(error: unknown): Promise<void> {
     if (item.type !== "review") return;
-    const rawPayload = await getWorkItemPayload(spec.pool, item.id);
-    if (rawPayload === undefined) return;
-    const payload = parseWorkItemPayload("review", rawPayload);
-    if (!payload.staleHeadReplacementWorkItemId || payload.staleHeadReplacementEnqueued === true) {
-      return;
-    }
-    const replacementId = payload.staleHeadReplacementWorkItemId;
-    if (!(await markQueuedWorkCancelled(spec.pool, replacementId, error))) {
+    try {
+      const rawPayload = await getWorkItemPayload(spec.pool, item.id);
+      if (rawPayload === undefined) return;
+      const payload = parseWorkItemPayload("review", rawPayload);
+      if (
+        !payload.staleHeadReplacementWorkItemId ||
+        payload.staleHeadReplacementEnqueued === true
+      ) {
+        return;
+      }
+      const replacementId = payload.staleHeadReplacementWorkItemId;
+      if (!(await markQueuedWorkCancelled(spec.pool, replacementId, error))) {
+        logWarn("agent_work_replacement_cancel_failed", {
+          type: spec.type,
+          workItemId: item.id,
+          replacementWorkItemId: replacementId,
+        });
+      }
+    } catch (cancelError) {
       logWarn("agent_work_replacement_cancel_failed", {
         type: spec.type,
         workItemId: item.id,
-        replacementWorkItemId: replacementId,
+        message: sanitizeLogMessage(
+          cancelError instanceof Error ? cancelError.message : String(cancelError),
+        ),
       });
     }
   }

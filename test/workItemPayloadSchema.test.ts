@@ -85,6 +85,62 @@ describe("parseWorkItemPayload", () => {
       nestedLegacy: { ok: true },
     });
   });
+
+  it.each([
+    { type: "review" as const, missing: "mode", payload: { source: "auto" } },
+    { type: "review" as const, missing: "source", payload: { mode: "review" } },
+    {
+      type: "ask" as const,
+      missing: "question",
+      payload: { commentId: 1, replyTarget: { kind: "prConversation", prNumber: 1 } },
+    },
+    {
+      type: "ask" as const,
+      missing: "commentId",
+      payload: { question: "q", replyTarget: { kind: "prConversation", prNumber: 1 } },
+    },
+    {
+      type: "ask" as const,
+      missing: "replyTarget",
+      payload: { question: "q", commentId: 1 },
+    },
+    { type: "description" as const, missing: "source", payload: {} },
+    {
+      type: "triage" as const,
+      missing: "source",
+      payload: {
+        commentId: 1,
+        scope: "all",
+        replyTarget: { kind: "prConversation", prNumber: 1 },
+      },
+    },
+    {
+      type: "triage" as const,
+      missing: "commentId",
+      payload: {
+        source: "slash",
+        scope: "all",
+        replyTarget: { kind: "prConversation", prNumber: 1 },
+      },
+    },
+    {
+      type: "triage" as const,
+      missing: "scope",
+      payload: {
+        source: "slash",
+        commentId: 1,
+        replyTarget: { kind: "prConversation", prNumber: 1 },
+      },
+    },
+    {
+      type: "triage" as const,
+      missing: "replyTarget",
+      payload: { source: "slash", commentId: 1, scope: "all" },
+    },
+    { type: "verification" as const, missing: "source", payload: {} },
+  ])("rejects $type payload missing required $missing", ({ type, payload }) => {
+    expect(() => parseWorkItemPayload(type, payload)).toThrow(WorkItemPayloadValidationError);
+  });
 });
 
 describe("attachWorkItemPayload", () => {
