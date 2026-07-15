@@ -1,14 +1,4 @@
-const providers = [
-  {
-    name: "Many model providers",
-    detail:
-      "Use OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more with your own API keys.",
-  },
-  {
-    name: "Cursor models",
-    detail: "Use Cursor models while keeping the review pipeline on your own servers.",
-  },
-];
+import { PROVIDERS } from "@/lib/content";
 
 export function Providers() {
   return (
@@ -23,7 +13,7 @@ export function Providers() {
         </h2>
 
         <ul className="space-y-3 text-sm">
-          {providers.map((provider) => (
+          {PROVIDERS.map((provider) => (
             <li key={provider.name}>
               <h3 className="font-medium text-neutral-800">{provider.name}</h3>
               <p className="text-neutral-600">{provider.detail}</p>

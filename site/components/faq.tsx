@@ -1,4 +1,4 @@
-import { FAQ_ITEMS } from "@/lib/seo";
+import { FAQ_ITEMS } from "@/lib/content";
 
 export function Faq() {
   return (

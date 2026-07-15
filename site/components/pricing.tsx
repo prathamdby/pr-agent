@@ -1,22 +1,4 @@
-const plans = [
-  {
-    title: "Software is free",
-    price: "$0 from PR Agent",
-    detail: "No credit card. No per-seat fee. Open source under MIT.",
-  },
-  {
-    title: "You pay your own vendors",
-    price: "Hosting and AI usage only",
-    detail:
-      "Cover your server, database, and model bills. Add more developers without raising your PR Agent bill.",
-  },
-  {
-    title: "You own the full stack",
-    price: "Your security rules apply",
-    detail:
-      "Run it inside your network, choose your AI provider, and keep review traffic under your policies.",
-  },
-];
+import { PRICING_PLANS } from "@/lib/content";
 
 export function Pricing() {
   return (
@@ -34,7 +16,7 @@ export function Pricing() {
         </p>
 
         <ul className="space-y-4">
-          {plans.map((plan) => (
+          {PRICING_PLANS.map((plan) => (
             <li key={plan.title} className="text-sm">
               <h3 className="font-medium text-neutral-800">{plan.title}</h3>
               <p className="text-neutral-500">{plan.price}</p>
