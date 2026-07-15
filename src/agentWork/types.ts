@@ -212,6 +212,18 @@ export type AgentWorkItemCore =
   | TriageWorkItemCore
   | VerificationWorkItemCore;
 
+export function isWorkItemType<T extends WorkType>(
+  item: AgentWorkItem,
+  type: T,
+): item is Extract<AgentWorkItem, { type: T }>;
+export function isWorkItemType<T extends WorkType>(
+  item: AgentWorkItemCore,
+  type: T,
+): item is Extract<AgentWorkItemCore, { type: T }>;
+export function isWorkItemType(item: AgentWorkItem | AgentWorkItemCore, type: WorkType): boolean {
+  return item.type === type;
+}
+
 export type QueueConfig = Pick<
   Config,
   | "queueRetryLimit"
@@ -243,16 +255,6 @@ export function triageSingletonKey(resourceKey: string): string {
 
 export function verificationSingletonKey(resourceKey: string): string {
   return `${resourceKey}:verification`;
-}
-
-/** Idempotent ask-queue key so recover/retry does not double-send the same work item. */
-export function askSingletonKey(workItemId: string): string {
-  return `ask:${workItemId}`;
-}
-
-/** Idempotent ack-queue key for one ask promotion attempt on a webhook event. */
-export function askAckSingletonKey(webhookEventId: string): string {
-  return `ask-ack:${webhookEventId}`;
 }
 
 export function installationGroupId(installationId: number): string {

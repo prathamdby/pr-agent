@@ -31,7 +31,9 @@ import {
   updateRunningWorkHeadSha,
 } from "./repository.js";
 import { getPullRequestHead } from "./githubPrSurface.js";
+import { isTerminalPgBossAttempt } from "./pgBossJob.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
+import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 
 type DurableExecutionContext = {
@@ -68,7 +70,7 @@ type DurableExecutionResult = {
   readonly replacementWorkItemId?: string;
   readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
   /** Review-owned: cancel a persisted-but-not-enqueued replacement on terminal parent failure. */
-  readonly onRescheduleAbort?: (error: unknown) => Promise<void>;
+  readonly onRescheduleAbort?: (boss: PgBoss, error: unknown) => Promise<void>;
 };
 
 export type DurableHeadResolution = {
@@ -164,10 +166,6 @@ async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolea
   return bot.userId === commenterId;
 }
 
-function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
-  return job.retryCount >= job.retryLimit;
-}
-
 async function finishRescheduledParentWorkItem(
   pool: Pool,
   itemId: string,
@@ -225,18 +223,11 @@ function workItemCommenterId(item: AgentWorkItem): number | undefined {
   }
 }
 
-function isWorkType<T extends WorkType>(
-  item: AgentWorkItemCore,
-  type: T,
-): item is Extract<AgentWorkItemCore, { type: T }> {
-  return item.type === type;
-}
-
 function workItemAccepted<T extends WorkType>(
   item: AgentWorkItemCore | null,
   spec: DurableJobSpec<T>,
 ): item is Extract<AgentWorkItemCore, { type: T }> {
-  if (!item || !isWorkType(item, spec.type)) return false;
+  if (!item || !isWorkItemType(item, spec.type)) return false;
   return !spec.acceptItem || spec.acceptItem(item);
 }
 
@@ -254,7 +245,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   let midScaffoldSkipChecksDisabled = false;
   let installation: InstallationToken | undefined;
   /** Set while a reschedule afterComplete may still need abort on terminal failure. */
-  let pendingRescheduleAbort: ((error: unknown) => Promise<void>) | undefined;
+  let pendingRescheduleAbort: ((boss: PgBoss, error: unknown) => Promise<void>) | undefined;
 
   async function invokeCancelledHook(
     item: TypedCore,
@@ -377,7 +368,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function invokeRescheduleAbort(error: unknown): Promise<void> {
     if (!pendingRescheduleAbort) return;
     try {
-      await pendingRescheduleAbort(error);
+      await pendingRescheduleAbort(spec.boss, error);
     } catch (abortError) {
       logWarn("agent_work_replacement_cancel_failed", {
         type: spec.type,

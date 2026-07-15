@@ -24,10 +24,7 @@ import {
   lockWebhookEventForUpdate,
   updateWebhookEventDecision,
 } from "../intake/webhookEvents.js";
-
-function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
-  return job.retryCount >= job.retryLimit;
-}
+import { isTerminalPgBossAttempt } from "../pgBossJob.js";
 
 async function resolveIsBotThread(
   cfg: Config,
@@ -113,10 +110,7 @@ async function promotePositiveAsk(
     if (isTerminalThreadReplyDecision(locked.processingDecision)) return;
     if (!isThreadReplyClassificationQueued(locked.processingDecision)) return;
 
-    const correlation = jobCorrelation(eventId, {
-      delivery: data.delivery,
-      rawBody: Buffer.alloc(0),
-    });
+    const correlation = jobCorrelation(eventId, { delivery: data.delivery });
     const targets: AckTarget[] = [
       { kind: "pr", prNumber: data.prNumber },
       { kind: "reviewComment", commentId: data.commentId },

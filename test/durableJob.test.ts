@@ -596,7 +596,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
-    expect(onRescheduleAbort).toHaveBeenCalledWith(boom);
+    expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
   });
 
@@ -677,7 +677,7 @@ describe("runDurableWorkItem", () => {
     ).resolves.toBeUndefined();
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
-    expect(onRescheduleAbort).toHaveBeenCalledWith(boom);
+    expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
     expect(evlog.logWarn).toHaveBeenCalledWith(
       "agent_work_replacement_cancel_failed",
       expect.objectContaining({

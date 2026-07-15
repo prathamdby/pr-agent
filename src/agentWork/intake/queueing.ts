@@ -12,8 +12,6 @@ import {
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import {
-  askAckSingletonKey,
-  askSingletonKey,
   descriptionSingletonKey,
   installationGroupId,
   prResourceKey,
@@ -32,7 +30,10 @@ import {
   type WebhookHeaders,
 } from "../types.js";
 
-export function jobCorrelation(eventId: string, headers: WebhookHeaders): JobCorrelation {
+export function jobCorrelation(
+  eventId: string,
+  headers: Pick<WebhookHeaders, "delivery">,
+): JobCorrelation {
   return {
     webhookEventId: eventId,
     delivery: headers.delivery,
@@ -52,8 +53,8 @@ async function requireBossJobSend(
 }
 
 /**
- * Send a job that may already exist under a singleton key.
- * `null` from pg-boss means the singleton is already present — treat as success.
+ * Send a job with a deterministic id.
+ * `null` from pg-boss means the job already exists — treat as success.
  */
 async function sendBossJobIdempotent(
   boss: PgBoss,
@@ -79,7 +80,7 @@ export async function enqueueAck(
 }
 
 /**
- * Idempotent ack for ask promotion: same webhook event reuses one ack singleton.
+ * Idempotent ack for ask promotion: same webhook event reuses one pg-boss job id.
  */
 export async function enqueueAskAckIdempotent(
   boss: PgBoss,
@@ -90,8 +91,8 @@ export async function enqueueAskAckIdempotent(
 ): Promise<"enqueued" | "already_present"> {
   return sendBossJobIdempotent(boss, ACK_QUEUE, data, {
     db: pgBossDb(client),
+    id: webhookEventId,
     priority,
-    singletonKey: askAckSingletonKey(webhookEventId),
     group: { id: installationGroupId(data.installationId) },
   });
 }
@@ -123,8 +124,8 @@ export async function enqueueAsk(
   const data: AskJobData = { kind: "ask", workItemId, ...correlation };
   return sendBossJobIdempotent(boss, ASK_QUEUE, data, {
     db: pgBossDb(client),
+    id: workItemId,
     priority: 50,
-    singletonKey: askSingletonKey(workItemId),
     group: { id: installationGroupId(ref.installationId) },
   });
 }

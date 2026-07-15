@@ -217,6 +217,7 @@ describe("applySlashCommandIntake", () => {
     const client = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id, payload")) {
           return {
             rows: [
@@ -232,6 +233,7 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
+        if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -263,6 +265,7 @@ describe("applySlashCommandIntake", () => {
     const client = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("INSERT INTO agent_work_items")) return { rows: [] };
         if (sql.includes("SELECT id, payload")) {
           return {
             rows: [
@@ -278,6 +281,7 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
+        if (sql.includes("SELECT id")) return { rows: [{ id: "active" }] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -351,7 +355,7 @@ describe("applySlashCommandIntake", () => {
       ),
     );
 
-    const payload = JSON.parse(String(workItemInserts[0]?.[11]));
+    const payload = JSON.parse(String(workItemInserts[0]?.at(-1)));
     expect(payload.scope).toBe("all");
     expect(payload.needsThreadRootResolution).toBeUndefined();
     expect(payload.replyTarget).toEqual({ kind: "prConversation", prNumber: 7 });

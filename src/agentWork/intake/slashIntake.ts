@@ -37,7 +37,6 @@ import {
   createReviewWorkItem,
   createTriageWorkItem,
   fetchActiveTriageWorkItem,
-  fetchActiveWorkItem,
 } from "./workItemRepository.js";
 
 export type SlashCommandInput = {
@@ -135,19 +134,6 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  const existing = await fetchActiveWorkItem(ctx.client, {
-    kind: "description",
-    resourceKey,
-  });
-  if (existing) {
-    await enqueueSlashAck(ctx, {
-      reply: {
-        target: ctx.input.replyTarget,
-        body: DESCRIPTION_ALREADY_IN_PROGRESS,
-      },
-    });
-    return;
-  }
   const insert = await createDescriptionWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
@@ -232,11 +218,6 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
       },
     });
   };
-  const existing = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
-  if (existing) {
-    await rejectActiveTriage(existing);
-    return;
-  }
   const insert = await createTriageWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
@@ -286,20 +267,6 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const alreadyInProgressBody = `A \`/${command}\` run is already queued or in progress for this pull request.`;
-  const existing = await fetchActiveWorkItem(ctx.client, {
-    kind: "review",
-    resourceKey,
-    lens: command,
-  });
-  if (existing) {
-    await enqueueSlashAck(ctx, {
-      reply: {
-        target: ctx.input.replyTarget,
-        body: alreadyInProgressBody,
-      },
-    });
-    return;
-  }
   const insert = await createReviewWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,

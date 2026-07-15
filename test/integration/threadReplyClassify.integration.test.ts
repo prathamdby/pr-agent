@@ -9,6 +9,7 @@ import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import {
+  ACK_QUEUE,
   ASK_QUEUE,
   DEFERRED_HEAD_SHA,
   THREAD_REPLY_CLASSIFICATION_QUEUED,
@@ -190,7 +191,7 @@ describe.skipIf(!hasDatabase)("thread reply classify intake (integration)", () =
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe(first.workItemId);
 
-    const [stats] = await boss.getQueueStats(ASK_QUEUE);
-    expect((stats?.queuedCount ?? 0) + (stats?.totalCount ?? 0)).toBeGreaterThan(0);
+    await expect(boss.findJobs(ASK_QUEUE, { id: first.workItemId })).resolves.toHaveLength(1);
+    await expect(boss.findJobs(ACK_QUEUE, { id: eventId })).resolves.toHaveLength(1);
   });
 });

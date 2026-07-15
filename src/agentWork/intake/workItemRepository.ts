@@ -11,7 +11,6 @@ import type {
   VerificationWorkPayload,
 } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
-import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import { prResourceKey, type PrRef } from "../types.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
@@ -459,64 +458,4 @@ export async function createAskWorkItem(
     payload,
     conflict: "ask_webhook",
   });
-}
-
-export async function fetchActiveWorkItem(
-  client: PoolClient,
-  target: AutoWorkSupersedeTarget,
-): Promise<string | null> {
-  switch (target.kind) {
-    case "description": {
-      const result = await client.query<{ id: string }>(
-        `SELECT id
-			   FROM agent_work_items
-			  WHERE resource_key = $1
-			    AND type = 'description'
-			    AND status IN ('queued', 'running')
-			  LIMIT 1`,
-        [target.resourceKey],
-      );
-      return result.rows[0]?.id ?? null;
-    }
-    case "triage": {
-      const result = await client.query<{ id: string }>(
-        `SELECT id
-			   FROM agent_work_items
-			  WHERE resource_key = $1
-			    AND type = 'triage'
-			    AND status IN ('queued', 'running')
-			  LIMIT 1`,
-        [target.resourceKey],
-      );
-      return result.rows[0]?.id ?? null;
-    }
-    case "verification": {
-      const result = await client.query<{ id: string }>(
-        `SELECT id
-		   FROM agent_work_items
-		  WHERE resource_key = $1
-		    AND type = 'verification'
-		    AND status IN ('queued', 'running')
-		  LIMIT 1`,
-        [target.resourceKey],
-      );
-      return result.rows[0]?.id ?? null;
-    }
-    case "review": {
-      const result = await client.query<{ id: string }>(
-        `SELECT id
-		   FROM agent_work_items
-		  WHERE resource_key = $1
-		    AND review_lens = $2
-		    AND status IN ('queued', 'running')
-		  LIMIT 1`,
-        [target.resourceKey, target.lens],
-      );
-      return result.rows[0]?.id ?? null;
-    }
-    default: {
-      const exhaustive: never = target;
-      return exhaustive;
-    }
-  }
 }

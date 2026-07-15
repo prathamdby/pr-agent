@@ -287,8 +287,8 @@ describe("executeThreadReplyClassifyJob", () => {
     expect(sentQueues).toEqual([ACK_QUEUE, ASK_QUEUE]);
     expect(decisions).toEqual([THREAD_REPLY_ASK_ENQUEUED]);
     expect(sendOptions).toEqual([
-      expect.objectContaining({ singletonKey: "ask-ack:event-1" }),
-      expect.objectContaining({ singletonKey: "ask:ask-existing" }),
+      expect.objectContaining({ id: "event-1" }),
+      expect.objectContaining({ id: "ask-existing" }),
     ]);
   });
 

@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { applySlashCommandIntake } from "../../src/agentWork/intake/slashIntake.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { enqueueSlashReviewReschedule } from "../../src/agentWork/reviewReschedule.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
@@ -28,6 +29,7 @@ import {
 } from "../../src/settings/index.js";
 import type { QueueConfig } from "../../src/agentWork/types.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
+import { makeReviewWorkItem } from "../helpers/agentWorkItems.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "slash-uniq-it";
@@ -325,6 +327,77 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       ]),
     );
     expect(rows).toHaveLength(2);
+  });
+
+  it("atomically reuses stale-head review and ack jobs", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 57);
+    const webhookEventId = randomUUID();
+    const parentId = randomUUID();
+    const replacementId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, 'sha', 'accepted')`,
+      [webhookEventId, `reschedule-${webhookEventId}`, EVENT],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       ) VALUES
+       ($1, $2, 'review', 'slash', 'running', $3, $4, 57, 4242, 'sha-old', 'review', $5, 0,
+         $6::jsonb),
+       ($7, $2, 'review', 'slash', 'queued', $3, $4, 57, 4242, 'sha-new', 'review', $5, 0,
+         $8::jsonb)`,
+      [
+        parentId,
+        webhookEventId,
+        OWNER,
+        repo,
+        resourceKey,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: replacementId,
+        }),
+        replacementId,
+        JSON.stringify({
+          mode: "review",
+          source: "slash",
+          staleHeadRescheduled: true,
+          staleHeadReplacementWorkItemId: replacementId,
+        }),
+      ],
+    );
+    const parent = makeReviewWorkItem({
+      id: parentId,
+      webhookEventId,
+      owner: OWNER,
+      repo,
+      prNumber: 57,
+      installationId: 4242,
+      headSha: "sha-old",
+      resourceKey,
+      source: "slash",
+      payload: { staleHeadReplacementWorkItemId: replacementId },
+    });
+
+    await enqueueSlashReviewReschedule(pool, boss, parent, replacementId, "sha-new");
+    await boss.complete(REVIEW_QUEUE, replacementId, null, { includeQueued: true });
+    await enqueueSlashReviewReschedule(pool, boss, parent, replacementId, "sha-new");
+
+    const reviewJobs = await boss.findJobs(REVIEW_QUEUE, { id: replacementId });
+    expect(reviewJobs).toHaveLength(1);
+    expect(reviewJobs[0]?.state).toBe("completed");
+    await expect(boss.findJobs(ACK_QUEUE, { id: replacementId })).resolves.toHaveLength(1);
+    const { rows } = await pool.query<{ enqueued: boolean }>(
+      `SELECT (payload->>'staleHeadReplacementEnqueued')::boolean AS enqueued
+         FROM agent_work_items
+        WHERE id = $1`,
+      [parentId],
+    );
+    expect(rows).toEqual([{ enqueued: true }]);
   });
 
   it("migration cleanup cancels non-replacement duplicates and preserves a replacement pair", async () => {

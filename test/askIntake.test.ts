@@ -51,7 +51,7 @@ describe("promoteAskFromWebhookEvent", () => {
       target: { kind: "prConversation", prNumber: 7 },
       body: ASK_USAGE_HINT,
     });
-    expect(sent[0]?.options).toEqual(expect.objectContaining({ singletonKey: "ask-ack:event-1" }));
+    expect(sent[0]?.options).toEqual(expect.objectContaining({ id: "event-1" }));
     expect(client.query).not.toHaveBeenCalled();
   });
 
@@ -133,8 +133,8 @@ describe("promoteAskFromWebhookEvent", () => {
       created: false,
     });
     expect(sent.map((s) => s.queue)).toEqual([ACK_QUEUE, ASK_QUEUE]);
-    expect(sent[0]?.options).toEqual(expect.objectContaining({ singletonKey: "ask-ack:event-1" }));
-    expect(sent[1]?.options).toEqual(expect.objectContaining({ singletonKey: "ask:ask-existing" }));
+    expect(sent[0]?.options).toEqual(expect.objectContaining({ id: "event-1" }));
+    expect(sent[1]?.options).toEqual(expect.objectContaining({ id: "ask-existing" }));
   });
 
   it("promotes a new ask with singleton keys", async () => {
@@ -168,6 +168,6 @@ describe("promoteAskFromWebhookEvent", () => {
 
     expect(outcome).toEqual({ kind: "promoted", workItemId: "ask-new", created: true });
     expect(sent.map((s) => s.queue)).toEqual([ACK_QUEUE, ASK_QUEUE]);
-    expect(sent[1]?.options).toEqual(expect.objectContaining({ singletonKey: "ask:ask-new" }));
+    expect(sent[1]?.options).toEqual(expect.objectContaining({ id: "ask-new" }));
   });
 });

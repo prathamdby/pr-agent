@@ -16,6 +16,7 @@ import type {
   WorkStatus,
   WorkType,
 } from "./types.js";
+import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload, WorkItemPayloadValidationError } from "./workItemPayloadSchema.js";
 
 export type PublishLens =
@@ -237,7 +238,11 @@ export async function claimQueuedWorkItem<T extends WorkType>(
   );
   if (!row) return null;
   try {
-    return mapWorkItem(row) as Extract<AgentWorkItem, { type: T }>;
+    const item = mapWorkItem(row);
+    if (!isWorkItemType(item, type)) {
+      throw new Error(`claimed work item ${id} returned type ${item.type}, expected ${type}`);
+    }
+    return item;
   } catch (error) {
     return await terminalizeInvalidClaimedWorkItem(pool, id, error);
   }
