@@ -3,6 +3,7 @@ import type { Config } from "../../config.js";
 import type { RequestLogger } from "../../evlog.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
+import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
@@ -80,8 +81,7 @@ export const WebhookHandlersCore = Layer.effect(
       intakeLog: RequestLogger,
     ) =>
       Effect.gen(function* () {
-        if (cfg.slashAllowedAssociations.has("*")) return false;
-        if (association && cfg.slashAllowedAssociations.has(association.toUpperCase())) {
+        if (isSlashAssociationAllowed(cfg.slashAllowedAssociations, association)) {
           return false;
         }
         yield* scheduler.recordIgnored(headers, "ignored_unauthorized_slash", intakeLog);

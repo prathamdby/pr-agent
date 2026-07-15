@@ -2,12 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
+import { promoteAskFromWebhookEvent } from "../../src/agentWork/intake/askIntake.js";
 import { applyThreadReplyClassifyIntake } from "../../src/agentWork/intake/threadReplyClassifyIntake.js";
 import { createAskWorkItem } from "../../src/agentWork/intake/workItemRepository.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import {
+  ASK_QUEUE,
   DEFERRED_HEAD_SHA,
   THREAD_REPLY_CLASSIFICATION_QUEUED,
   THREAD_REPLY_CLASSIFY_QUEUE,
@@ -134,5 +136,61 @@ describe.skipIf(!hasDatabase)("thread reply classify intake (integration)", () =
       [eventId],
     );
     expect(rows).toHaveLength(1);
+  });
+
+  it("recover policy re-enqueues the same ask singleton without duplicating work items", async () => {
+    const eventId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [eventId, `tr-recover-${eventId}`, EVENT, "def", THREAD_REPLY_CLASSIFICATION_QUEUED],
+    );
+
+    const input = {
+      webhookEventId: eventId,
+      correlation: { webhookEventId: eventId, delivery: `d-${eventId}` },
+      installationId: 1,
+      owner: "acme-tr",
+      repo: "app-tr",
+      prNumber: 42,
+      body: "why is this still open?",
+      replyTarget: {
+        kind: "inlineReviewThread" as const,
+        prNumber: 42,
+        inReplyToCommentId: 100,
+      },
+      commentId: 101,
+      commenterId: 7,
+      ackTargets: [
+        { kind: "pr" as const, prNumber: 42 },
+        { kind: "reviewComment" as const, commentId: 101 },
+      ],
+    };
+
+    const first = await inTransaction(pool, (client) =>
+      promoteAskFromWebhookEvent(boss, client, input, "recover"),
+    );
+    expect(first.kind).toBe("promoted");
+    if (first.kind !== "promoted") return;
+    expect(first.created).toBe(true);
+
+    const second = await inTransaction(pool, (client) =>
+      promoteAskFromWebhookEvent(boss, client, input, "recover"),
+    );
+    expect(second).toEqual({
+      kind: "promoted",
+      workItemId: first.workItemId,
+      created: false,
+    });
+
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT id FROM agent_work_items WHERE webhook_event_id = $1 AND type = 'ask'`,
+      [eventId],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(first.workItemId);
+
+    const [stats] = await boss.getQueueStats(ASK_QUEUE);
+    expect((stats?.queuedCount ?? 0) + (stats?.totalCount ?? 0)).toBeGreaterThan(0);
   });
 });

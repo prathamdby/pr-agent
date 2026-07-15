@@ -241,6 +241,7 @@ describe("executeThreadReplyClassifyJob", () => {
     mocks.hasStoredInlineReviewId.mockResolvedValue(true);
     const decisions: string[] = [];
     const sentQueues: string[] = [];
+    const sendOptions: unknown[] = [];
     const client = {
       query: vi.fn(async (sql: string, params?: unknown[]) => {
         if (sql.includes("FOR UPDATE")) {
@@ -263,8 +264,9 @@ describe("executeThreadReplyClassifyJob", () => {
     } as unknown as PoolClient;
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
     const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>, options?: unknown) => {
         sentQueues.push(queue);
+        sendOptions.push(options);
         if (queue === ASK_QUEUE) {
           expect(data.workItemId).toBe("ask-existing");
         }
@@ -283,6 +285,49 @@ describe("executeThreadReplyClassifyJob", () => {
     );
 
     expect(sentQueues).toEqual([ACK_QUEUE, ASK_QUEUE]);
+    expect(decisions).toEqual([THREAD_REPLY_ASK_ENQUEUED]);
+    expect(sendOptions).toEqual([
+      expect.objectContaining({ singletonKey: "ask-ack:event-1" }),
+      expect.objectContaining({ singletonKey: "ask:ask-existing" }),
+    ]);
+  });
+
+  it("treats singleton-null ask enqueue as idempotent success on recover", async () => {
+    mocks.hasStoredInlineReviewId.mockResolvedValue(true);
+    const decisions: string[] = [];
+    const client = {
+      query: vi.fn(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("FOR UPDATE")) {
+          return {
+            rows: [{ id: "event-1", processing_decision: THREAD_REPLY_CLASSIFICATION_QUEUED }],
+          };
+        }
+        if (sql.includes("UPDATE webhook_events")) {
+          decisions.push(String(params?.[1]));
+          return { rows: [] };
+        }
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          return { rows: [] };
+        }
+        if (sql.includes("SELECT id") && sql.includes("agent_work_items")) {
+          return { rows: [{ id: "ask-existing" }] };
+        }
+        throw new Error(`unexpected: ${sql.slice(0, 100)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+    const boss = {
+      send: vi.fn(async () => null),
+    } as unknown as PgBoss;
+
+    await executeThreadReplyClassifyJob(
+      cfg,
+      {} as Pool,
+      boss,
+      makeJob(baseJobData({ pullRequestReviewId: 55 })),
+    );
+
+    expect(boss.send).toHaveBeenCalledTimes(2);
     expect(decisions).toEqual([THREAD_REPLY_ASK_ENQUEUED]);
   });
 
@@ -434,7 +479,7 @@ describe("executeThreadReplyClassifyJob", () => {
     expect(boss.send).not.toHaveBeenCalled();
   });
 
-  it("rolls back when ask enqueue fails after work item insert", async () => {
+  it("rolls back when ask enqueue throws after work item insert", async () => {
     mocks.hasStoredInlineReviewId.mockResolvedValue(true);
     const client = {
       query: vi.fn(async (sql: string) => {
@@ -452,7 +497,7 @@ describe("executeThreadReplyClassifyJob", () => {
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
     const boss = {
       send: vi.fn(async (queue: string) => {
-        if (queue === ASK_QUEUE) return null;
+        if (queue === ASK_QUEUE) throw new Error("ask queue unavailable");
         return "jid";
       }),
     } as unknown as PgBoss;
@@ -464,6 +509,6 @@ describe("executeThreadReplyClassifyJob", () => {
         boss,
         makeJob(baseJobData({ pullRequestReviewId: 55 })),
       ),
-    ).rejects.toThrow(/did not enqueue/);
+    ).rejects.toThrow(/ask queue unavailable/);
   });
 });

@@ -1,14 +1,8 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
-  parseAskQuestionResult,
-  ASK_QUESTION_TOO_LONG_HINT,
-} from "../../commands/parseAskQuestion.js";
-import {
-  ASK_USAGE_HINT,
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
-  MAX_ASK_QUESTION_CHARS,
   MAX_STORED_COMMENT_TEXT_LEN,
   SLASH_HELP_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
@@ -32,14 +26,13 @@ import { insertWebhookEvent } from "./webhookEvents.js";
 import { captureTriageEvent } from "../triageAnalytics.js";
 import {
   enqueueAck,
-  enqueueAsk,
   enqueueDescription,
   enqueueReview,
   enqueueTriage,
   jobCorrelation,
 } from "./queueing.js";
+import { promoteAskFromWebhookEvent } from "./askIntake.js";
 import {
-  createAskWorkItem,
   createDescriptionWorkItem,
   createReviewWorkItem,
   createTriageWorkItem,
@@ -100,54 +93,44 @@ async function handleSlashHelp(ctx: SlashIntakeContext): Promise<void> {
 }
 
 async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
-  let askParse = parseAskQuestionResult(ctx.input.body);
-  if (askParse.kind === "not_ask" && ctx.input.replyTarget.kind === "inlineReviewThread") {
-    const question = ctx.input.body.trim();
-    if (question.length === 0) {
-      askParse = { kind: "missing" };
-    } else if (question.length > MAX_ASK_QUESTION_CHARS) {
-      askParse = { kind: "too_long" };
-    } else {
-      askParse = { kind: "ok", question };
+  const outcome = await promoteAskFromWebhookEvent(
+    ctx.boss,
+    ctx.client,
+    {
+      webhookEventId: ctx.eventId,
+      correlation: ctx.correlation,
+      installationId: ctx.input.installationId,
+      owner: ctx.input.owner,
+      repo: ctx.input.repo,
+      repositorySizeKb: ctx.input.repositorySizeKb,
+      prNumber: ctx.input.prNumber,
+      body: ctx.input.body,
+      replyTarget: ctx.input.replyTarget,
+      commentId: ctx.input.commentId,
+      commenterId: ctx.input.commenterId,
+      codeAnchor: ctx.input.codeAnchor,
+      ackTargets: ctx.baseAck.targets,
+    },
+    "skip",
+  );
+
+  switch (outcome.kind) {
+    case "hint_acked":
+    case "already_exists_skipped":
+      return;
+    case "promoted":
+      recordEvent(ctx.intakeLog, "agent_work_enqueued", {
+        type: "ask",
+        source: "slash",
+        workItemId: outcome.workItemId,
+        ...ctx.correlation,
+      });
+      return;
+    default: {
+      const exhaustive: never = outcome;
+      return exhaustive;
     }
   }
-  if (askParse.kind === "too_long") {
-    await enqueueSlashAck(ctx, {
-      reply: {
-        target: ctx.input.replyTarget,
-        body: ASK_QUESTION_TOO_LONG_HINT,
-      },
-    });
-    return;
-  }
-  if (askParse.kind !== "ok") {
-    await enqueueSlashAck(ctx, {
-      reply: { target: ctx.input.replyTarget, body: ASK_USAGE_HINT },
-    });
-    return;
-  }
-  const askRef = { ...ctx.ref, headSha: DEFERRED_HEAD_SHA };
-  const askInsert = await createAskWorkItem(ctx.client, {
-    webhookEventId: ctx.eventId,
-    ref: askRef,
-    question: askParse.question,
-    replyTarget: ctx.input.replyTarget,
-    commentId: ctx.input.commentId,
-    commenterId: ctx.input.commenterId,
-    codeAnchor: ctx.input.codeAnchor,
-  });
-  if (!askInsert.created) {
-    return;
-  }
-  const workItemId = askInsert.id;
-  await enqueueSlashAck(ctx, { workItemId });
-  await enqueueAsk(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
-  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
-    type: "ask",
-    source: "slash",
-    workItemId,
-    ...ctx.correlation,
-  });
 }
 
 async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {

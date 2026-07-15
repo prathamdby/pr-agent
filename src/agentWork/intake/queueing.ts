@@ -12,6 +12,8 @@ import {
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
 import {
+  askAckSingletonKey,
+  askSingletonKey,
   descriptionSingletonKey,
   installationGroupId,
   prResourceKey,
@@ -49,6 +51,20 @@ async function requireBossJobSend(
   }
 }
 
+/**
+ * Send a job that may already exist under a singleton key.
+ * `null` from pg-boss means the singleton is already present — treat as success.
+ */
+async function sendBossJobIdempotent(
+  boss: PgBoss,
+  queue: string,
+  data: object,
+  options: Parameters<PgBoss["send"]>[2],
+): Promise<"enqueued" | "already_present"> {
+  const jobId = await boss.send(queue, data, options);
+  return jobId == null ? "already_present" : "enqueued";
+}
+
 export async function enqueueAck(
   boss: PgBoss,
   client: PoolClient,
@@ -58,6 +74,24 @@ export async function enqueueAck(
   await requireBossJobSend(boss, ACK_QUEUE, data, {
     db: pgBossDb(client),
     priority,
+    group: { id: installationGroupId(data.installationId) },
+  });
+}
+
+/**
+ * Idempotent ack for ask promotion: same webhook event reuses one ack singleton.
+ */
+export async function enqueueAskAckIdempotent(
+  boss: PgBoss,
+  client: PoolClient,
+  data: AckJobData,
+  webhookEventId: string,
+  priority = 100,
+): Promise<"enqueued" | "already_present"> {
+  return sendBossJobIdempotent(boss, ACK_QUEUE, data, {
+    db: pgBossDb(client),
+    priority,
+    singletonKey: askAckSingletonKey(webhookEventId),
     group: { id: installationGroupId(data.installationId) },
   });
 }
@@ -85,11 +119,12 @@ export async function enqueueAsk(
   ref: PrRef,
   workItemId: string,
   correlation: JobCorrelation,
-): Promise<void> {
+): Promise<"enqueued" | "already_present"> {
   const data: AskJobData = { kind: "ask", workItemId, ...correlation };
-  await requireBossJobSend(boss, ASK_QUEUE, data, {
+  return sendBossJobIdempotent(boss, ASK_QUEUE, data, {
     db: pgBossDb(client),
     priority: 50,
+    singletonKey: askSingletonKey(workItemId),
     group: { id: installationGroupId(ref.installationId) },
   });
 }

@@ -1,35 +1,23 @@
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Pool, PoolClient } from "pg";
-import {
-  parseAskQuestionResult,
-  ASK_QUESTION_TOO_LONG_HINT,
-} from "../../commands/parseAskQuestion.js";
 import type { Config } from "../../config.js";
+import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { inTransaction } from "../../db/postgres.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { getAppBotIdentity, mintInstallationAuth } from "../../github/appAuth.js";
 import { getPullRequestReviewComment } from "../../github/reviewPublish.js";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
 import {
-  ASK_USAGE_HINT,
-  DEFERRED_HEAD_SHA,
   IGNORED_BOT_SLASH_COMMAND,
   IGNORED_NON_BOT_THREAD_REPLY,
   IGNORED_UNAUTHORIZED_SLASH,
-  MAX_ASK_QUESTION_CHARS,
   THREAD_REPLY_ASK_ENQUEUED,
   THREAD_REPLY_CLASSIFICATION_FAILED,
 } from "../../settings/index.js";
 import { hasStoredInlineReviewId } from "../repository.js";
-import {
-  type AckJobData,
-  type AckTarget,
-  type PrRef,
-  type ThreadReplyClassifyJobData,
-  prResourceKey,
-} from "../types.js";
-import { enqueueAck, enqueueAsk, jobCorrelation } from "../intake/queueing.js";
-import { createAskWorkItem } from "../intake/workItemRepository.js";
+import { type AckTarget, type ThreadReplyClassifyJobData, prResourceKey } from "../types.js";
+import { promoteAskFromWebhookEvent } from "../intake/askIntake.js";
+import { jobCorrelation } from "../intake/queueing.js";
 import {
   isTerminalThreadReplyDecision,
   isThreadReplyClassificationQueued,
@@ -39,14 +27,6 @@ import {
 
 function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
   return job.retryCount >= job.retryLimit;
-}
-
-function isUnauthorizedAssociation(cfg: Config, association: string | null | undefined): boolean {
-  if (cfg.slashAllowedAssociations.has("*")) return false;
-  if (association && cfg.slashAllowedAssociations.has(association.toUpperCase())) {
-    return false;
-  }
-  return true;
 }
 
 async function resolveIsBotThread(
@@ -105,8 +85,8 @@ async function promoteNegative(
   pool: Pool,
   eventId: string,
   decision:
-    | typeof IGNORED_NON_BOT_THREAD_REPLY
     | typeof IGNORED_BOT_SLASH_COMMAND
+    | typeof IGNORED_NON_BOT_THREAD_REPLY
     | typeof IGNORED_UNAUTHORIZED_SLASH,
 ): Promise<void> {
   await inTransaction(pool, async (client) => {
@@ -133,80 +113,62 @@ async function promotePositiveAsk(
     if (isTerminalThreadReplyDecision(locked.processingDecision)) return;
     if (!isThreadReplyClassificationQueued(locked.processingDecision)) return;
 
-    let askParse = parseAskQuestionResult(data.body);
-    if (askParse.kind === "not_ask" && data.replyTarget.kind === "inlineReviewThread") {
-      const question = data.body.trim();
-      if (question.length === 0) {
-        askParse = { kind: "missing" };
-      } else if (question.length > MAX_ASK_QUESTION_CHARS) {
-        askParse = { kind: "too_long" };
-      } else {
-        askParse = { kind: "ok", question };
-      }
-    }
-
     const correlation = jobCorrelation(eventId, {
       delivery: data.delivery,
       rawBody: Buffer.alloc(0),
     });
-    const ref: PrRef = {
-      owner: data.owner,
-      repo: data.repo,
-      prNumber: data.prNumber,
-      installationId: data.installationId,
-      headSha: DEFERRED_HEAD_SHA,
-      repositorySizeKb: data.repositorySizeKb,
-    };
     const targets: AckTarget[] = [
       { kind: "pr", prNumber: data.prNumber },
       { kind: "reviewComment", commentId: data.commentId },
     ];
-    const baseAck: AckJobData = {
-      kind: "ack",
-      installationId: data.installationId,
-      owner: data.owner,
-      repo: data.repo,
-      prNumber: data.prNumber,
-      targets,
-      commenterId: data.commenterId,
-      ...correlation,
-    };
 
-    if (askParse.kind === "too_long") {
-      await enqueueAck(boss, client, {
-        ...baseAck,
-        reply: { target: data.replyTarget, body: ASK_QUESTION_TOO_LONG_HINT },
-      });
-      await updateWebhookEventDecision(client, eventId, THREAD_REPLY_ASK_ENQUEUED);
-      return;
-    }
-    if (askParse.kind !== "ok") {
-      await enqueueAck(boss, client, {
-        ...baseAck,
-        reply: { target: data.replyTarget, body: ASK_USAGE_HINT },
-      });
-      await updateWebhookEventDecision(client, eventId, THREAD_REPLY_ASK_ENQUEUED);
-      return;
-    }
+    const outcome = await promoteAskFromWebhookEvent(
+      boss,
+      client,
+      {
+        webhookEventId: eventId,
+        correlation,
+        installationId: data.installationId,
+        owner: data.owner,
+        repo: data.repo,
+        repositorySizeKb: data.repositorySizeKb,
+        prNumber: data.prNumber,
+        body: data.body,
+        replyTarget: data.replyTarget,
+        commentId: data.commentId,
+        commenterId: data.commenterId,
+        codeAnchor: data.codeAnchor,
+        ackTargets: targets,
+      },
+      "recover",
+    );
 
-    const askInsert = await createAskWorkItem(client, {
-      webhookEventId: eventId,
-      ref,
-      question: askParse.question,
-      replyTarget: data.replyTarget,
-      commentId: data.commentId,
-      commenterId: data.commenterId,
-      codeAnchor: data.codeAnchor,
-    });
-    await enqueueAck(boss, client, { ...baseAck, workItemId: askInsert.id });
-    await enqueueAsk(boss, client, ref, askInsert.id, correlation);
     await updateWebhookEventDecision(client, eventId, THREAD_REPLY_ASK_ENQUEUED);
-    logInfo("thread_reply_classification_terminal", {
-      webhookEventId: eventId,
-      decision: THREAD_REPLY_ASK_ENQUEUED,
-      workItemId: askInsert.id,
-      created: askInsert.created,
-    });
+
+    switch (outcome.kind) {
+      case "hint_acked":
+        logInfo("thread_reply_classification_terminal", {
+          webhookEventId: eventId,
+          decision: THREAD_REPLY_ASK_ENQUEUED,
+          hint: outcome.reason,
+        });
+        break;
+      case "promoted":
+        logInfo("thread_reply_classification_terminal", {
+          webhookEventId: eventId,
+          decision: THREAD_REPLY_ASK_ENQUEUED,
+          workItemId: outcome.workItemId,
+          created: outcome.created,
+        });
+        break;
+      case "already_exists_skipped":
+        // recover policy never returns this; keep exhaustive
+        break;
+      default: {
+        const exhaustive: never = outcome;
+        void exhaustive;
+      }
+    }
   });
 }
 
@@ -228,7 +190,7 @@ export async function executeThreadReplyClassifyJob(
       await promoteNegative(pool, eventId, IGNORED_BOT_SLASH_COMMAND);
       return;
     }
-    if (isUnauthorizedAssociation(cfg, data.authorAssociation)) {
+    if (!isSlashAssociationAllowed(cfg.slashAllowedAssociations, data.authorAssociation)) {
       await promoteNegative(pool, eventId, IGNORED_UNAUTHORIZED_SLASH);
       return;
     }

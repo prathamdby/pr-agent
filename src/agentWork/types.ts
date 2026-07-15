@@ -245,6 +245,16 @@ export function verificationSingletonKey(resourceKey: string): string {
   return `${resourceKey}:verification`;
 }
 
+/** Idempotent ask-queue key so recover/retry does not double-send the same work item. */
+export function askSingletonKey(workItemId: string): string {
+  return `ask:${workItemId}`;
+}
+
+/** Idempotent ack-queue key for one ask promotion attempt on a webhook event. */
+export function askAckSingletonKey(webhookEventId: string): string {
+  return `ask-ack:${webhookEventId}`;
+}
+
 export function installationGroupId(installationId: number): string {
   return String(installationId);
 }

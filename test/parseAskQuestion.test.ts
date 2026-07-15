@@ -5,6 +5,8 @@ import {
   ASK_QUESTION_TOO_LONG_HINT,
   askQuestionParseFailure,
   parseAskQuestion,
+  parseAskQuestionForReplyTarget,
+  parseAskQuestionResult,
 } from "../src/commands/parseAskQuestion.js";
 
 describe("parseAskQuestion", () => {
@@ -54,5 +56,48 @@ describe("parseAskQuestion", () => {
 
   it("exports too-long hint", () => {
     expect(ASK_QUESTION_TOO_LONG_HINT).toContain(String(MAX_ASK_QUESTION_CHARS));
+  });
+});
+
+describe("parseAskQuestionForReplyTarget", () => {
+  const prConversation = { kind: "prConversation" as const, prNumber: 7 };
+  const inlineThread = {
+    kind: "inlineReviewThread" as const,
+    prNumber: 7,
+    inReplyToCommentId: 100,
+  };
+
+  it("keeps explicit /ask parse on PR conversation", () => {
+    expect(parseAskQuestionForReplyTarget("/ask why?", prConversation)).toEqual({
+      kind: "ok",
+      question: "why?",
+    });
+    expect(parseAskQuestionForReplyTarget("why is this P1?", prConversation)).toEqual({
+      kind: "not_ask",
+    });
+  });
+
+  it("coerces raw inline-thread body into an ask question", () => {
+    expect(parseAskQuestionForReplyTarget("why is this P1?", inlineThread)).toEqual({
+      kind: "ok",
+      question: "why is this P1?",
+    });
+  });
+
+  it("treats empty inline-thread body as missing", () => {
+    expect(parseAskQuestionForReplyTarget("   ", inlineThread)).toEqual({ kind: "missing" });
+  });
+
+  it("treats too-long inline-thread body as too_long", () => {
+    const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
+    expect(parseAskQuestionForReplyTarget(long, inlineThread)).toEqual({ kind: "too_long" });
+  });
+
+  it("prefers explicit /ask over implicit body coercion", () => {
+    expect(parseAskQuestionForReplyTarget("/ask explicit", inlineThread)).toEqual({
+      kind: "ok",
+      question: "explicit",
+    });
+    expect(parseAskQuestionResult("/ask")).toEqual({ kind: "missing" });
   });
 });
