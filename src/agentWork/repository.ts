@@ -242,6 +242,26 @@ export async function markWorkFailed(pool: Pool, id: string, error: unknown): Pr
   return (result.rowCount ?? 0) > 0;
 }
 
+/** Cancel a still-queued work item and persist a sanitized failure reason. */
+export async function markQueuedWorkCancelled(
+  pool: Pool,
+  id: string,
+  error: unknown,
+): Promise<boolean> {
+  const message = sanitizeWorkError(error);
+  const result = await pool.query(
+    `UPDATE agent_work_items
+		    SET status = 'cancelled',
+		        last_error = $2,
+		        completed_at = now(),
+		        updated_at = now()
+		  WHERE id = $1
+		    AND status = 'queued'`,
+    [id, message],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function markWorkRetrying(pool: Pool, id: string, error: unknown): Promise<boolean> {
   const message = sanitizeWorkError(error);
   const result = await pool.query(

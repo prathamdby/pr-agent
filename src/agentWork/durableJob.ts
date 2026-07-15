@@ -22,6 +22,7 @@ import {
   getWorkItem,
   getWorkItemCore,
   getWorkItemPayload,
+  markQueuedWorkCancelled,
   markWorkCancelled,
   markWorkCompleted,
   markWorkFailed,
@@ -323,17 +324,25 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function completeRescheduledResult(result: DurableExecutionResult): Promise<void> {
-    try {
-      if (result.afterComplete) {
-        await result.afterComplete(spec.boss, spec.job.id);
-      }
-    } catch (e) {
-      if (result.replacementWorkItemId) {
-        await markWorkFailed(spec.pool, result.replacementWorkItemId, e);
-      }
-      throw e;
+    if (result.afterComplete) {
+      await result.afterComplete(spec.boss, spec.job.id);
     }
     await finishRescheduledParentWorkItem(spec.pool, item.id, spec.type);
+  }
+
+  async function cancelOrphanedStaleHeadReplacement(error: unknown): Promise<void> {
+    const payload = (await getWorkItemPayload(spec.pool, item.id)) as ReviewWorkPayload | null;
+    if (!payload?.staleHeadReplacementWorkItemId || payload.staleHeadReplacementEnqueued === true) {
+      return;
+    }
+    const replacementId = payload.staleHeadReplacementWorkItemId;
+    if (!(await markQueuedWorkCancelled(spec.pool, replacementId, error))) {
+      logWarn("agent_work_replacement_cancel_failed", {
+        type: spec.type,
+        workItemId: item.id,
+        replacementWorkItemId: replacementId,
+      });
+    }
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
@@ -391,6 +400,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       await recheckSkippableAndCancel("failure_race");
       return;
     }
+    await cancelOrphanedStaleHeadReplacement(error);
     await invokeTerminalFailureHook(error);
     logError("agent_work_failed", {
       type: spec.type,
