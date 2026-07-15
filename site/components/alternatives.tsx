@@ -1,4 +1,4 @@
-import { ALTERNATIVE_ROWS } from "@/lib/seo";
+import { ALTERNATIVE_ROWS } from "@/lib/content";
 
 export function Alternatives() {
   return (

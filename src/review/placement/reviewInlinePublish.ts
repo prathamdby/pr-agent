@@ -18,6 +18,7 @@ type InlinePublishParams<TPlacement extends InlinePlacement> = {
   commitId?: string;
   inlinePlacements: readonly TPlacement[];
   renderCommentBody: (finding: ReviewFinding) => string;
+  expiresAtTs?: number;
 };
 
 export type InlinePublishResult<TPlacement extends InlinePlacement = InlinePlacement> = {
@@ -104,13 +105,21 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
       commentByPlacement,
     );
     try {
+      const reviewParams = {
+        body: params.renderReviewBody(anchorDroppedPlacements),
+        event: params.event,
+        comments,
+        commitId: params.commitId,
+      };
       const review = await withTransientReviewRetry(() =>
-        createPullRequestReviewWithComments(token, owner, repo, pullNumber, {
-          body: params.renderReviewBody(anchorDroppedPlacements),
-          event: params.event,
-          comments,
-          commitId: params.commitId,
-        }),
+        createPullRequestReviewWithComments(
+          token,
+          owner,
+          repo,
+          pullNumber,
+          reviewParams,
+          params.expiresAtTs,
+        ),
       );
       return {
         review,

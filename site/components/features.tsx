@@ -1,30 +1,4 @@
-const features = [
-  {
-    title: "Works where your team already is",
-    detail:
-      "PR Agent watches pull requests and comments, then picks up review work without extra tabs or tools.",
-  },
-  {
-    title: "Runs on infrastructure you control",
-    detail:
-      "Deploy on your servers. Your GitHub credentials and AI keys stay in your environment, not a vendor's.",
-  },
-  {
-    title: "Keeps results in the pull request",
-    detail:
-      "Reviews, descriptions, security notes, quality notes, and answers show up in the PR thread your team already reads.",
-  },
-  {
-    title: "Simple commands from PR comments",
-    detail:
-      "Type /review, /describe, /review-security, /review-quality, or /ask in a comment when you want a specific pass.",
-  },
-  {
-    title: "Honest limits on large changes",
-    detail:
-      "Very large pull requests may get a partial review. When that happens, PR Agent tells you what it could not cover.",
-  },
-];
+import { FEATURES } from "@/lib/content";
 
 export function Features() {
   return (
@@ -39,7 +13,7 @@ export function Features() {
         </h2>
 
         <ul className="space-y-4">
-          {features.map((feature) => (
+          {FEATURES.map((feature) => (
             <li key={feature.title} className="text-sm">
               <h3 className="font-medium text-neutral-800">{feature.title}</h3>
               <p className="text-neutral-600 mt-0.5">{feature.detail}</p>

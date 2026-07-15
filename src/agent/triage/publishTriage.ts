@@ -200,7 +200,7 @@ async function upsertTriageReport(
     params.owner,
     params.repo,
     params.prNumber,
-    params.body,
+    redactReviewText(params.body),
     TRIAGE_SUMMARY_SENTINEL,
     undefined,
     params.tokenExpiresAtTs,

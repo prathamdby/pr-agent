@@ -43,7 +43,13 @@ function runWithIntake(
 
 function slashGateLayer(
   decisions: string[],
-  slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }>,
+  slashCalls: Array<{
+    command: string;
+    body?: string;
+    replyTarget?: unknown;
+    storedReviewMatchHint?: boolean;
+    commenterId?: number;
+  }>,
   opts: { botThreadMatch?: boolean } = {},
 ) {
   const schedulerLayer = Layer.succeed(
@@ -62,7 +68,17 @@ function slashGateLayer(
             replyTarget: input.replyTarget,
           });
         }),
-      matchesStoredInlineReview: () => Effect.succeed(opts.botThreadMatch ?? false),
+      lookupStoredInlineReviewHint: () => Effect.succeed(opts.botThreadMatch ?? false),
+      submitThreadReplyClassification: (input) =>
+        Effect.sync(() => {
+          slashCalls.push({
+            command: "thread_classify",
+            body: input.body,
+            replyTarget: input.replyTarget,
+            storedReviewMatchHint: input.storedReviewMatchHint,
+            commenterId: input.commenterId,
+          });
+        }),
       ping: () => Effect.succeed(true),
     }),
   );
@@ -73,6 +89,7 @@ function slashGateLayer(
 
 describe("processWebhookPostRequestEffect", () => {
   beforeEach(() => {
+    mocks.getAppBotIdentity.mockReset();
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 42, login: "pr-agent[bot]" });
   });
 
@@ -83,7 +100,8 @@ describe("processWebhookPostRequestEffect", () => {
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
-        matchesStoredInlineReview: () => Effect.succeed(false),
+        lookupStoredInlineReviewHint: () => Effect.succeed(false),
+        submitThreadReplyClassification: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     ),
@@ -207,7 +225,7 @@ describe("processWebhookPostRequestEffect", () => {
     expect(slashCalls).toEqual([]);
   });
 
-  it("submits ask for bot-thread reply when ENABLE_THREAD_REPLIES is true", async () => {
+  it("submits thread-reply classification when ENABLE_THREAD_REPLIES is true", async () => {
     const threadCfg = makeTestConfig({ enableThreadReplies: true });
     const payload = {
       action: "created",
@@ -228,7 +246,13 @@ describe("processWebhookPostRequestEffect", () => {
     };
     const body = Buffer.from(JSON.stringify(payload));
     const decisions: string[] = [];
-    const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
+    const slashCalls: Array<{
+      command: string;
+      body?: string;
+      replyTarget?: unknown;
+      storedReviewMatchHint?: boolean;
+      commenterId?: number;
+    }> = [];
 
     const out = await Effect.runPromise(
       runWithIntake(
@@ -252,18 +276,21 @@ describe("processWebhookPostRequestEffect", () => {
     expect(decisions).toEqual([]);
     expect(slashCalls).toEqual([
       {
-        command: "ask",
+        command: "thread_classify",
         body: "why is this P1?",
         replyTarget: {
           kind: "inlineReviewThread",
           prNumber: 3,
           inReplyToCommentId: 100,
         },
+        storedReviewMatchHint: true,
+        commenterId: 7,
       },
     ]);
+    expect(mocks.getAppBotIdentity).not.toHaveBeenCalled();
   });
 
-  it("ignores bot-authored thread replies", async () => {
+  it("enqueues classification for bot-authored thread replies without web GitHub calls", async () => {
     const threadCfg = makeTestConfig({ enableThreadReplies: true });
     const payload = {
       action: "created",
@@ -273,7 +300,7 @@ describe("processWebhookPostRequestEffect", () => {
       comment: {
         id: 101,
         user: { id: 42 },
-        author_association: "NONE",
+        author_association: "MEMBER",
         body: "auto reply",
         in_reply_to_id: 100,
         pull_request_review_id: 55,
@@ -284,7 +311,12 @@ describe("processWebhookPostRequestEffect", () => {
     };
     const body = Buffer.from(JSON.stringify(payload));
     const decisions: string[] = [];
-    const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
+    const slashCalls: Array<{
+      command: string;
+      body?: string;
+      replyTarget?: unknown;
+      commenterId?: number;
+    }> = [];
 
     const out = await Effect.runPromise(
       runWithIntake(
@@ -305,11 +337,70 @@ describe("processWebhookPostRequestEffect", () => {
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
-    expect(decisions).toEqual(["ignored_bot_slash_command"]);
-    expect(slashCalls).toEqual([]);
+    expect(decisions).toEqual([]);
+    expect(slashCalls).toEqual([
+      expect.objectContaining({
+        command: "thread_classify",
+        commenterId: 42,
+      }),
+    ]);
+    expect(mocks.getAppBotIdentity).not.toHaveBeenCalled();
   });
 
-  it("ignores non-bot-thread replies", async () => {
+  it("rejects unauthorized thread replies on web without classifier enqueue", async () => {
+    const threadCfg = makeTestConfig({ enableThreadReplies: true });
+    const payload = {
+      action: "created",
+      installation: { id: 1 },
+      repository: { owner: { login: "o" }, name: "r", size: 10 },
+      pull_request: { number: 3 },
+      comment: {
+        id: 101,
+        user: { id: 7 },
+        author_association: "NONE",
+        body: "why is this P1?",
+        in_reply_to_id: 100,
+        pull_request_review_id: 55,
+        path: "src/x.ts",
+        line: 4,
+        side: "RIGHT",
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const decisions: string[] = [];
+    const slashCalls: Array<{
+      command: string;
+      body?: string;
+      replyTarget?: unknown;
+      storedReviewMatchHint?: boolean;
+      commenterId?: number;
+    }> = [];
+
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": `sha256=${crypto
+              .createHmac("sha256", threadCfg.webhookSecret)
+              .update(body)
+              .digest("hex")}`,
+            "x-github-event": "pull_request_review_comment",
+            "x-github-delivery": "d-thread-unauthorized",
+          },
+          rawBody: body,
+        },
+        slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
+        threadCfg,
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual(["ignored_unauthorized_slash"]);
+    expect(slashCalls).toEqual([]);
+    expect(mocks.getAppBotIdentity).not.toHaveBeenCalled();
+  });
+
+  it("enqueues classification for non-bot-thread replies without deciding on web", async () => {
     const threadCfg = makeTestConfig({ enableThreadReplies: true });
     const payload = {
       action: "created",
@@ -351,11 +442,17 @@ describe("processWebhookPostRequestEffect", () => {
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
-    expect(decisions).toEqual(["ignored_non_bot_thread_reply"]);
-    expect(slashCalls).toEqual([]);
+    expect(decisions).toEqual([]);
+    expect(slashCalls).toEqual([
+      expect.objectContaining({
+        command: "thread_classify",
+        body: "human thread reply",
+        storedReviewMatchHint: false,
+      }),
+    ]);
   });
 
-  it("submits ask when pull_request_review_id is null but bot thread matches", async () => {
+  it("enqueues classification when pull_request_review_id is null", async () => {
     const threadCfg = makeTestConfig({ enableThreadReplies: true });
     const payload = {
       action: "created",
@@ -391,7 +488,7 @@ describe("processWebhookPostRequestEffect", () => {
           },
           rawBody: body,
         },
-        slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
+        slashGateLayer(decisions, slashCalls, { botThreadMatch: false }),
         threadCfg,
       ),
     );
@@ -403,6 +500,7 @@ describe("processWebhookPostRequestEffect", () => {
       prNumber: 3,
       inReplyToCommentId: 100,
     });
+    expect(slashCalls[0]?.command).toBe("thread_classify");
   });
 
   it("returns 503 when handling exceeds the timeout budget", async () => {
@@ -413,7 +511,8 @@ describe("processWebhookPostRequestEffect", () => {
           recordIgnored: () => Effect.sleep("20 millis"),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
-          matchesStoredInlineReview: () => Effect.succeed(false),
+          lookupStoredInlineReviewHint: () => Effect.succeed(false),
+          submitThreadReplyClassification: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),
@@ -465,7 +564,8 @@ describe("processWebhookPostRequestEffect", () => {
           recordIgnored: () => Effect.fail(new Error("boom")),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
-          matchesStoredInlineReview: () => Effect.succeed(false),
+          lookupStoredInlineReviewHint: () => Effect.succeed(false),
+          submitThreadReplyClassification: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),

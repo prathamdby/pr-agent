@@ -208,4 +208,79 @@ describe("cursorAgentRunnerProvider", () => {
     expect(agentDispose).toHaveBeenCalledTimes(1);
     expect(bridgeDisposeMock).toHaveBeenCalledTimes(1);
   });
+
+  it("disposes the MCP bridge when Agent.create fails", async () => {
+    vi.mocked(Agent.create).mockRejectedValue(new Error("create failed"));
+
+    await expect(
+      cursorAgentRunnerProvider.createSession({
+        cfg,
+        systemPrompt: "system",
+        tools: [],
+        executors: {},
+      }),
+    ).rejects.toThrow("create failed");
+
+    expect(createMcpBridgeMock).toHaveBeenCalledTimes(1);
+    expect(bridgeDisposeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the original tools after nested restrictToTools calls", async () => {
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: vi.fn(),
+    } as never);
+
+    const originalTools = [
+      { name: "read", description: "read", parameters: { type: "object" } },
+      { name: "write", description: "write", parameters: { type: "object" } },
+    ];
+    const originalExecutors = {
+      read: async () => "read-ok",
+      write: async () => "write-ok",
+    };
+    const submitOnlyTools = [
+      { name: "submitReview", description: "submit", parameters: { type: "object" } },
+    ];
+    const submitOnlyExecutors = {
+      submitReview: async () => "submitted",
+    };
+    const emptyExecutors = {};
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "system",
+      tools: originalTools,
+      executors: originalExecutors,
+    });
+
+    expect(createMcpBridgeMock).toHaveBeenCalled();
+    const bridgeOptions = createMcpBridgeMock.mock.calls.at(0)?.at(0) as
+      | {
+          tools: () => Array<{ name: string }>;
+          executors: () => Record<string, () => Promise<string>>;
+        }
+      | undefined;
+    if (!bridgeOptions) throw new Error("expected MCP bridge options");
+    expect(bridgeOptions.tools().map((tool) => tool.name)).toEqual(["read", "write"]);
+    expect(Object.keys(bridgeOptions.executors())).toEqual(["read", "write"]);
+
+    session.restrictToTools(submitOnlyTools, submitOnlyExecutors);
+    expect(bridgeOptions.tools().map((tool) => tool.name)).toEqual(["submitReview"]);
+    expect(Object.keys(bridgeOptions.executors())).toEqual(["submitReview"]);
+
+    session.restrictToTools([], emptyExecutors);
+    expect(bridgeOptions.tools()).toEqual([]);
+    expect(Object.keys(bridgeOptions.executors())).toEqual([]);
+
+    session.restoreTools();
+    expect(bridgeOptions.tools().map((tool) => tool.name)).toEqual(["read", "write"]);
+    expect(Object.keys(bridgeOptions.executors())).toEqual(["read", "write"]);
+    expect(await bridgeOptions.executors().read()).toBe("read-ok");
+
+    session.restoreTools();
+    expect(bridgeOptions.tools().map((tool) => tool.name)).toEqual(["read", "write"]);
+
+    await session.dispose();
+  });
 });

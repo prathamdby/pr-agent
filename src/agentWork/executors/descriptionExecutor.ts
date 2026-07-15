@@ -17,7 +17,7 @@ import {
   resolveWorkItemHead,
   runDurableWorkItem,
 } from "../durableJob.js";
-import { type DescriptionJobData, type DescriptionWorkPayload } from "../types.js";
+import { type DescriptionJobData } from "../types.js";
 export async function executeDescriptionJob(
   cfg: Config,
   pool: Pool,
@@ -34,7 +34,7 @@ export async function executeDescriptionJob(
     execute: async (item, env) => {
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
-      const payload = item.payload as DescriptionWorkPayload;
+      const payload = item.payload;
       return withPrRepositoryView(
         {
           cfg,
@@ -101,7 +101,7 @@ export async function executeDescriptionJob(
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
-      const payload = item.payload as DescriptionWorkPayload;
+      const payload = item.payload;
       const octokit = installationOctokit(installation.token, installation.expiresAtTs);
       if (payload.source !== "slash") {
         const { data: pr } = await octokit.rest.pulls.get({

@@ -30,6 +30,7 @@ const baseTestConfig: Config = {
   descriptionConcurrency: 1,
   triageConcurrency: 1,
   verificationConcurrency: 1,
+  threadReplyClassifyConcurrency: 2,
   maxToolRoundsDescribe: 16,
   maxToolRoundsTriage: 32,
   maxToolRoundsVerification: 32,

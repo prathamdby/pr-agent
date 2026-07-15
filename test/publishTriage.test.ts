@@ -37,7 +37,8 @@ vi.mock("../src/agentWork/triageAnalytics.js", () => ({
   captureTriageFailure: vi.fn(),
 }));
 
-import { publishTriage } from "../src/agent/triage/publishTriage.js";
+import { publishTriage, publishTriageReportOnly } from "../src/agent/triage/publishTriage.js";
+import { TRIAGE_SUMMARY_SENTINEL } from "../src/settings/index.js";
 
 const thread = {
   rootCommentId: 1,
@@ -319,5 +320,97 @@ describe("publishTriage", () => {
     expect(mocks.createReply).not.toHaveBeenCalled();
     expect(mocks.resolve).not.toHaveBeenCalled();
     expect(mocks.upsert.mock.calls[0]?.[4]).toContain("could not be matched");
+  });
+
+  it("redacts secret-shaped substrings in the triage report body before upsert", async () => {
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      resourceKey: "o/r#1",
+      installationId: 42,
+      token: "tok",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "dismissed",
+            threadRootCommentId: 1,
+            evidence:
+              "False positive; leaked Bearer ghp_1234567890123456789012345678901234 in prior run",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    const body = mocks.upsert.mock.calls[0]?.[4] as string;
+    expect(body).toContain("Policy suggestions for dismissed findings");
+    expect(body).toContain("[redacted]");
+    expect(body).not.toContain("ghp_");
+    expect(body).not.toContain("Bearer ghp_");
+  });
+
+  it("preserves clean triage report formatting through the upsert chokepoint", async () => {
+    await publishTriage({
+      pool: pool(),
+      workItemId: "wi",
+      resourceKey: "o/r#1",
+      installationId: 42,
+      token: "tok",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(async () => undefined),
+      inventory: [thread],
+      resolutionByRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      payload: {
+        verdicts: [
+          {
+            verdict: "already-resolved",
+            threadRootCommentId: 1,
+            evidence: "current code already handles this",
+          },
+        ],
+      },
+      previouslyResolvedCount: 0,
+    });
+
+    const body = mocks.upsert.mock.calls[0]?.[4] as string;
+    expect(body.startsWith(TRIAGE_SUMMARY_SENTINEL)).toBe(true);
+    expect(body).toContain("| Severity | Finding | Location | Verdict | Thread |");
+    expect(body).toContain("already resolved");
+    expect(body).toContain(
+      "0 fixed · 1 already resolved · 0 skipped · 0 dismissed · 0 previously resolved",
+    );
+  });
+
+  it("redacts report-only bodies at the same upsert chokepoint", async () => {
+    await publishTriageReportOnly({
+      pool: pool(),
+      workItemId: "wi",
+      resourceKey: "o/r#1",
+      installationId: 42,
+      token: "tok",
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      inventory: [thread],
+      previouslyResolvedCount: 0,
+      body: `${TRIAGE_SUMMARY_SENTINEL}\n\nInventory leaked OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz\n`,
+    });
+
+    const body = mocks.upsert.mock.calls[0]?.[4] as string;
+    expect(body.startsWith(TRIAGE_SUMMARY_SENTINEL)).toBe(true);
+    expect(body).toContain("[redacted]");
+    expect(body).not.toContain("sk-");
+    expect(body).toContain("Inventory leaked");
   });
 });

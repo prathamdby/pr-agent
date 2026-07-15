@@ -9,6 +9,8 @@ import {
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
+import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { coreOf } from "./helpers/executorDurableHarness.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
@@ -16,6 +18,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItemPayload: vi.fn(),
   shouldSkipWork: vi.fn(),
   markWorkCancelled: vi.fn(),
+  markQueuedWorkCancelled: vi.fn(),
   claimQueuedWorkItem: vi.fn(),
   claimWorkForExecution: vi.fn(),
   markWorkCompleted: vi.fn(),
@@ -26,48 +29,40 @@ vi.mock("../src/agentWork/repository.js", () => ({
   updateRunningWorkHeadSha: vi.fn(),
 }));
 
+vi.mock("../src/agentWork/reviewReschedule.js", () => ({
+  cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
+}));
+
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
 }));
 
+vi.mock("../src/evlog.js", () => ({
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+  logError: vi.fn(),
+}));
+
 import * as repo from "../src/agentWork/repository.js";
+import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
+import * as evlog from "../src/evlog.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
-  return {
-    id: "wi-1",
-    webhookEventId: "ev-1",
-    type: "review",
-    source: "auto",
-    status: "queued",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
-    headSha: "deadbeef",
-    reviewLens: "review",
-    resourceKey: "o/r#1",
-    attemptCount: 0,
-    payload: { mode: "review", source: "auto" },
-    cancelRequestedAt: null,
-    ...overrides,
-  };
-}
-
-function coreOf(item: AgentWorkItem): Omit<AgentWorkItem, "payload"> {
-  const { payload: _payload, ...core } = item;
-  return core;
+function makeItem(
+  overrides: Parameters<typeof makeReviewWorkItem>[0] & { status?: AgentWorkItem["status"] } = {},
+): AgentWorkItem {
+  return makeReviewWorkItem({ status: "queued", ...overrides });
 }
 
 function mockFetchedItem(item: AgentWorkItem | null): void {
   vi.mocked(repo.getWorkItem).mockResolvedValue(item);
   vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
-  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload ?? null);
+  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
 }
 
 function mockFetchedItems(...items: AgentWorkItem[]): void {
@@ -91,7 +86,7 @@ function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: 
 }
 
 function runReviewWorkItem(
-  overrides: Partial<DurableJobSpec> & Pick<DurableJobSpec, "execute">,
+  overrides: Partial<DurableJobSpec<"review">> & Pick<DurableJobSpec<"review">, "execute">,
 ): Promise<void> {
   return runDurableWorkItem({
     cfg,
@@ -116,6 +111,7 @@ function defaultMocks() {
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
   vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
   vi.mocked(repo.markWorkCancelled).mockResolvedValue();
+  vi.mocked(repo.markQueuedWorkCancelled).mockResolvedValue(true);
   vi.mocked(repo.markWorkPublishDegraded).mockResolvedValue();
   vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
     type: "token",
@@ -184,6 +180,29 @@ describe("runDurableWorkItem", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it("terminalizes running work when payload is malformed after claim", async () => {
+    const item = makeItem();
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue({ question: "not-a-review-payload" });
+    vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
+    const execute = vi.fn();
+
+    await expect(
+      runReviewWorkItem({
+        acceptItem: (it) => it.reviewLens != null,
+        execute,
+      }),
+    ).rejects.toThrow(/Invalid review work item payload/);
+
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("passes resolved pull payload into execution context", async () => {
     const item = makeItem();
     mockFetchedItem(item);
@@ -204,10 +223,10 @@ describe("runDurableWorkItem", () => {
     expect(execute.mock.calls[0]?.[1].pullRequest).toBe(pullRequest);
   });
 
-  it("returns without executing when payload is missing after claim", async () => {
+  it("returns without executing when payload row is missing after claim", async () => {
     const item = makeItem();
     vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(null);
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(undefined);
     const execute = vi.fn();
 
     await runReviewWorkItem({ execute });
@@ -215,6 +234,26 @@ describe("runDurableWorkItem", () => {
     expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes running work when payload is JSON null after claim", async () => {
+    const item = makeItem();
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(null);
+    vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
+    const execute = vi.fn();
+
+    await expect(runReviewWorkItem({ execute })).rejects.toThrow(
+      /Invalid review work item payload/,
+    );
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
+    );
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("returns without executing when item is null", async () => {
@@ -226,17 +265,17 @@ describe("runDurableWorkItem", () => {
   });
 
   it("returns without executing when item type mismatches", async () => {
-    mockFetchedItem(makeItem({ type: "ask" }));
+    mockFetchedItem(makeAskWorkItem({ status: "queued" }));
     const execute = vi.fn();
     await runReviewWorkItem({ execute });
     expect(execute).not.toHaveBeenCalled();
   });
 
   it("returns without executing when acceptItem rejects", async () => {
-    mockFetchedItem(makeItem({ reviewLens: null }));
+    mockFetchedItem(makeItem());
     const execute = vi.fn();
     await runReviewWorkItem({
-      acceptItem: (it) => it.reviewLens != null,
+      acceptItem: () => false,
       execute,
     });
     expect(execute).not.toHaveBeenCalled();
@@ -510,5 +549,210 @@ describe("runDurableWorkItem", () => {
     );
 
     expect(repo.markWorkRetrying).toHaveBeenCalled();
+  });
+
+  it("leaves queued replacement intact after transient afterComplete failure", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    const boom = new Error("enqueue failed");
+    const onRescheduleAbort = vi.fn();
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn().mockRejectedValue(boom),
+      onRescheduleAbort,
+    });
+
+    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
+
+    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("invokes onRescheduleAbort on terminal afterComplete failure", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    const boom = new Error("enqueue failed");
+    const onRescheduleAbort = vi.fn().mockResolvedValue(undefined);
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn().mockRejectedValue(boom),
+      onRescheduleAbort,
+    });
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(
+      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+    ).not.toHaveBeenCalled();
+  });
+
+  it("does not invoke onRescheduleAbort when execute fails without a reschedule result", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacementEnqueued: true,
+        },
+      }),
+    );
+    const boom = new Error("dead");
+    const onRescheduleAbort = vi.fn();
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(
+      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+    ).toHaveBeenCalledWith(pool, boss, expect.objectContaining({ id: "wi-1" }), boom);
+  });
+
+  it("cancels orphaned replacement via payload marker on terminal failure without abort hook", async () => {
+    const item = makeItem({
+      status: "running",
+      payload: {
+        mode: "review",
+        source: "slash",
+        staleHeadReplacementWorkItemId: "replacement-wi",
+      },
+    });
+    mockFetchedItem(item);
+    const boom = new Error("github head sha failed");
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(
+      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+    ).toHaveBeenCalledWith(pool, boss, item, boom);
+  });
+
+  it("clears pending onRescheduleAbort after successful afterComplete", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    vi.mocked(repo.markWorkCompleted).mockResolvedValue(false);
+    vi.mocked(repo.forceMarkRescheduledParentCompleted).mockResolvedValue(false);
+    const onRescheduleAbort = vi.fn();
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn().mockResolvedValue(undefined),
+      onRescheduleAbort,
+    });
+
+    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toThrow(
+      /Failed to complete rescheduled parent/,
+    );
+
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).toHaveBeenCalled();
+  });
+
+  it("warns and continues terminal failure when onRescheduleAbort throws", async () => {
+    mockFetchedItem(
+      makeItem({
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+        },
+      }),
+    );
+    const boom = new Error("enqueue failed");
+    const onTerminalFailure = vi.fn().mockResolvedValue(undefined);
+    const onRescheduleAbort = vi.fn().mockRejectedValue(new Error("cancel blew up"));
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete: vi.fn().mockRejectedValue(boom),
+      onRescheduleAbort,
+    });
+
+    await expect(
+      runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure }),
+    ).resolves.toBeUndefined();
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
+    expect(evlog.logWarn).toHaveBeenCalledWith(
+      "agent_work_replacement_cancel_failed",
+      expect.objectContaining({
+        type: "review",
+        workItemId: "wi-1",
+        message: expect.stringMatching(/cancel blew up/),
+      }),
+    );
+    expect(onTerminalFailure).toHaveBeenCalledTimes(1);
+    expect(evlog.logError).toHaveBeenCalledWith(
+      "agent_work_failed",
+      expect.objectContaining({ type: "review", workItemId: "wi-1" }),
+    );
+  });
+
+  it("recovers replacement on retry after transient afterComplete failure", async () => {
+    const item = makeItem({
+      status: "running",
+      payload: {
+        mode: "review",
+        source: "slash",
+        staleHeadReplacementWorkItemId: "replacement-wi",
+      },
+    });
+    mockFetchedItem(item);
+    const boom = new Error("enqueue failed");
+    const afterComplete = vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(undefined);
+    const onRescheduleAbort = vi.fn();
+    const execute = vi.fn().mockResolvedValue({
+      rescheduled: true,
+      replacementWorkItemId: "replacement-wi",
+      afterComplete,
+      onRescheduleAbort,
+    });
+
+    await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
+
+    await runReviewWorkItem({ job: makeJob(1, 3), execute });
+
+    expect(afterComplete).toHaveBeenCalledTimes(2);
+    expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1");
+    expect(onRescheduleAbort).not.toHaveBeenCalled();
   });
 });

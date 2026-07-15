@@ -31,7 +31,11 @@ import {
   updateRunningWorkHeadSha,
 } from "./repository.js";
 import { getPullRequestHead } from "./githubPrSurface.js";
-import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload } from "./types.js";
+import { isTerminalPgBossAttempt } from "./pgBossJob.js";
+import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
+import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
+import { isWorkItemType } from "./types.js";
+import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 
 type DurableExecutionContext = {
   installation: InstallationToken;
@@ -66,6 +70,8 @@ type DurableExecutionResult = {
   readonly rescheduled?: boolean;
   readonly replacementWorkItemId?: string;
   readonly afterComplete?: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+  /** Review-owned: cancel a persisted-but-not-enqueued replacement on terminal parent failure. */
+  readonly onRescheduleAbort?: (boss: PgBoss, error: unknown) => Promise<void>;
 };
 
 export type DurableHeadResolution = {
@@ -73,29 +79,29 @@ export type DurableHeadResolution = {
   readonly pullRequest?: PullRequestForFileList;
 };
 
-export type DurableJobSpec = {
+export type DurableJobSpec<T extends WorkType = WorkType> = {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly boss: PgBoss;
   readonly job: JobWithMetadata<{ workItemId: string }>;
-  readonly type: "review" | "ask" | "description" | "triage" | "verification";
-  readonly acceptItem?: (item: AgentWorkItemCore) => boolean;
+  readonly type: T;
+  readonly acceptItem?: (item: Extract<AgentWorkItemCore, { type: T }>) => boolean;
   readonly resolveHeadSha: (
     token: string,
     expiresAtTs: number,
-    item: AgentWorkItem,
+    item: Extract<AgentWorkItem, { type: T }>,
   ) => Promise<DurableHeadResolution>;
   readonly execute: (
-    item: AgentWorkItem,
+    item: Extract<AgentWorkItem, { type: T }>,
     env: DurableExecutionContext,
   ) => Promise<DurableExecutionResult>;
   readonly onTerminalFailure?: (
-    item: AgentWorkItem,
+    item: Extract<AgentWorkItem, { type: T }>,
     installation: InstallationToken | undefined,
     error: unknown,
   ) => Promise<void>;
   readonly onCancelled?: (
-    item: AgentWorkItemCore,
+    item: Extract<AgentWorkItemCore, { type: T }>,
     installation: InstallationToken,
     reason: string,
   ) => Promise<void>;
@@ -161,14 +167,11 @@ async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolea
   return bot.userId === commenterId;
 }
 
-function isTerminalPgBossAttempt(job: JobWithMetadata<unknown>): boolean {
-  return job.retryCount >= job.retryLimit;
-}
-
 async function finishRescheduledParentWorkItem(
   pool: Pool,
   itemId: string,
-  type: DurableJobSpec["type"],
+  type: WorkType,
+  replacementWorkItemId: string | undefined,
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId)) {
     logInfo("agent_work_completed", {
@@ -187,8 +190,7 @@ async function finishRescheduledParentWorkItem(
     });
     return;
   }
-  const payload = refreshed?.payload as ReviewWorkPayload | undefined;
-  if (payload?.staleHeadReplacementWorkItemId) {
+  if (replacementWorkItemId) {
     if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
       logInfo("agent_work_completed", {
         type,
@@ -201,16 +203,32 @@ async function finishRescheduledParentWorkItem(
       `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
     );
   }
-  if (await shouldSkipWork(pool, refreshed ?? ({ id: itemId } as AgentWorkItem))) {
+  if (await shouldSkipWork(pool, refreshed ?? { id: itemId })) {
     await markWorkCancelled(pool, itemId);
   }
 }
 
-function workItemAccepted(
+function workItemCommenterId(item: AgentWorkItem): number | undefined {
+  switch (item.type) {
+    case "review":
+    case "ask":
+    case "description":
+    case "triage":
+      return item.payload.commenterId;
+    case "verification":
+      return undefined;
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
+}
+
+function workItemAccepted<T extends WorkType>(
   item: AgentWorkItemCore | null,
-  spec: DurableJobSpec,
-): item is AgentWorkItemCore {
-  if (!item || item.type !== spec.type) return false;
+  spec: DurableJobSpec<T>,
+): item is Extract<AgentWorkItemCore, { type: T }> {
+  if (!item || !isWorkItemType(item, spec.type)) return false;
   return !spec.acceptItem || spec.acceptItem(item);
 }
 
@@ -218,13 +236,20 @@ function workItemAccepted(
  * Shared scaffolding for durable work items: skip/claim/mint-token/bot-skip/head-SHA/transition/retry.
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
  */
-export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
-  let workItem: AgentWorkItem | undefined;
+export async function runDurableWorkItem<T extends WorkType>(
+  spec: DurableJobSpec<T>,
+): Promise<void> {
+  type TypedItem = Extract<AgentWorkItem, { type: T }>;
+  type TypedCore = Extract<AgentWorkItemCore, { type: T }>;
+
+  let workItem: TypedItem | undefined;
   let midScaffoldSkipChecksDisabled = false;
   let installation: InstallationToken | undefined;
+  /** Set while a reschedule afterComplete may still need abort on terminal failure. */
+  let pendingRescheduleAbort: ((boss: PgBoss, error: unknown) => Promise<void>) | undefined;
 
   async function invokeCancelledHook(
-    item: AgentWorkItemCore,
+    item: TypedCore,
     currentInstallation: InstallationToken | undefined,
     reason: string,
   ): Promise<void> {
@@ -244,7 +269,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function markCancelledAndInvokeHook(
-    item: AgentWorkItemCore,
+    item: TypedCore,
     currentInstallation: InstallationToken | undefined,
     reason: string,
   ): Promise<void> {
@@ -272,9 +297,14 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
     if (await cancelBeforeClaim()) return;
     if (!(await claimWorkForExecution(spec.pool, core.id))) return;
     midScaffoldSkipChecksDisabled = true;
-    const payload = await getWorkItemPayload(spec.pool, core.id);
-    if (!payload) return;
-    workItem = { ...core, payload };
+    const rawPayload = await getWorkItemPayload(spec.pool, core.id);
+    if (rawPayload === undefined) return;
+    try {
+      workItem = attachWorkItemPayload(core, rawPayload);
+    } catch (error) {
+      await markWorkFailed(spec.pool, core.id, error);
+      throw error;
+    }
   }
 
   const item = workItem;
@@ -298,8 +328,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   async function prepareDurableExecution(
     installationToken: InstallationToken,
   ): Promise<DurableExecutionContext | undefined> {
-    const commenterId = (item.payload as { commenterId?: number }).commenterId;
-    if (await isBotCommenter(spec.cfg, commenterId)) {
+    if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
       await markCancelledAndInvokeHook(item, installationToken, "bot_commenter");
       return undefined;
     }
@@ -323,17 +352,44 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
   }
 
   async function completeRescheduledResult(result: DurableExecutionResult): Promise<void> {
-    try {
-      if (result.afterComplete) {
-        await result.afterComplete(spec.boss, spec.job.id);
-      }
-    } catch (e) {
-      if (result.replacementWorkItemId) {
-        await markWorkFailed(spec.pool, result.replacementWorkItemId, e);
-      }
-      throw e;
+    pendingRescheduleAbort = result.onRescheduleAbort;
+    if (result.afterComplete) {
+      await result.afterComplete(spec.boss, spec.job.id);
     }
-    await finishRescheduledParentWorkItem(spec.pool, item.id, spec.type);
+    // Enqueue finished (or was already done); do not cancel the replacement if parent complete fails.
+    pendingRescheduleAbort = undefined;
+    await finishRescheduledParentWorkItem(
+      spec.pool,
+      item.id,
+      spec.type,
+      result.replacementWorkItemId,
+    );
+  }
+
+  async function invokeRescheduleAbort(error: unknown): Promise<void> {
+    try {
+      if (pendingRescheduleAbort) {
+        await pendingRescheduleAbort(spec.boss, error);
+        return;
+      }
+      // Earlier attempt may have persisted a replacement without registering an abort hook.
+      if (isWorkItemType(item, "review")) {
+        await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+          spec.pool,
+          spec.boss,
+          item,
+          error,
+        );
+      }
+    } catch (abortError) {
+      logWarn("agent_work_replacement_cancel_failed", {
+        type: spec.type,
+        workItemId: item.id,
+        message: sanitizeLogMessage(
+          abortError instanceof Error ? abortError.message : String(abortError),
+        ),
+      });
+    }
   }
 
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
@@ -391,6 +447,7 @@ export async function runDurableWorkItem(spec: DurableJobSpec): Promise<void> {
       await recheckSkippableAndCancel("failure_race");
       return;
     }
+    await invokeRescheduleAbort(error);
     await invokeTerminalFailureHook(error);
     logError("agent_work_failed", {
       type: spec.type,

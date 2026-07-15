@@ -9,11 +9,14 @@ import { queryOne } from "../src/db/postgres.js";
 import {
   listTriageEligibleInlineReviews,
   loadReviewExecutorPublishContext,
+  claimQueuedWorkItem,
   claimSummaryCommentCreation,
+  getWorkItem,
   recordReviewCheckRun,
   recordPublishStep,
   reserveReviewCheckRun,
 } from "../src/agentWork/repository.js";
+import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
 
 const pool = {} as Pool;
 
@@ -158,6 +161,67 @@ describe("review check run publish records", () => {
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("ON CONFLICT (work_item_id, review_lens, step)"),
       expect.arrayContaining(["wi-1", "o/r#1", "review", "123"]),
+    );
+  });
+});
+
+function reviewRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "wi-1",
+    webhook_event_id: "ev-1",
+    type: "review",
+    source: "auto",
+    status: "running",
+    owner: "o",
+    repo: "r",
+    pr_number: 1,
+    installation_id: "42",
+    head_sha: "deadbeef",
+    review_lens: "review",
+    resource_key: "o/r#1",
+    attempt_count: 1,
+    payload: { mode: "review", source: "auto", legacyFlag: true },
+    cancel_requested_at: null,
+    ...overrides,
+  };
+}
+
+describe("mapWorkItem payload boundary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("parses payload and preserves unknown keys via getWorkItem", async () => {
+    vi.mocked(queryOne).mockResolvedValue(reviewRow());
+
+    const item = await getWorkItem(pool, "wi-1");
+    expect(item).toMatchObject({
+      type: "review",
+      reviewLens: "review",
+      payload: { mode: "review", source: "auto", legacyFlag: true },
+    });
+  });
+
+  it("rejects malformed payloads at getWorkItem", async () => {
+    vi.mocked(queryOne).mockResolvedValue(reviewRow({ payload: { question: "wrong type shape" } }));
+
+    await expect(getWorkItem(pool, "wi-1")).rejects.toBeInstanceOf(WorkItemPayloadValidationError);
+  });
+
+  it("marks claimed work failed when RETURNING payload is malformed", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    vi.mocked(queryOne).mockResolvedValueOnce(
+      reviewRow({ status: "running", payload: { mode: "review" } }),
+    );
+    const scopedPool = { query } as unknown as Pool;
+
+    await expect(claimQueuedWorkItem(scopedPool, "wi-1", "review")).rejects.toBeInstanceOf(
+      WorkItemPayloadValidationError,
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("SET status = 'failed'"),
+      expect.arrayContaining(["wi-1"]),
     );
   });
 });

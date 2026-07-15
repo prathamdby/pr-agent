@@ -1,14 +1,8 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import {
-  parseAskQuestionResult,
-  ASK_QUESTION_TOO_LONG_HINT,
-} from "../../commands/parseAskQuestion.js";
-import {
-  ASK_USAGE_HINT,
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
-  MAX_ASK_QUESTION_CHARS,
   MAX_STORED_COMMENT_TEXT_LEN,
   SLASH_HELP_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
@@ -32,19 +26,17 @@ import { insertWebhookEvent } from "./webhookEvents.js";
 import { captureTriageEvent } from "../triageAnalytics.js";
 import {
   enqueueAck,
-  enqueueAsk,
   enqueueDescription,
   enqueueReview,
   enqueueTriage,
   jobCorrelation,
 } from "./queueing.js";
+import { promoteAskFromWebhookEvent } from "./askIntake.js";
 import {
-  createAskWorkItem,
   createDescriptionWorkItem,
   createReviewWorkItem,
   createTriageWorkItem,
   fetchActiveTriageWorkItem,
-  fetchActiveWorkItem,
 } from "./workItemRepository.js";
 
 export type SlashCommandInput = {
@@ -100,59 +92,56 @@ async function handleSlashHelp(ctx: SlashIntakeContext): Promise<void> {
 }
 
 async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
-  let askParse = parseAskQuestionResult(ctx.input.body);
-  if (askParse.kind === "not_ask" && ctx.input.replyTarget.kind === "inlineReviewThread") {
-    const question = ctx.input.body.trim();
-    if (question.length === 0) {
-      askParse = { kind: "missing" };
-    } else if (question.length > MAX_ASK_QUESTION_CHARS) {
-      askParse = { kind: "too_long" };
-    } else {
-      askParse = { kind: "ok", question };
+  const outcome = await promoteAskFromWebhookEvent(
+    ctx.boss,
+    ctx.client,
+    {
+      webhookEventId: ctx.eventId,
+      correlation: ctx.correlation,
+      installationId: ctx.input.installationId,
+      owner: ctx.input.owner,
+      repo: ctx.input.repo,
+      repositorySizeKb: ctx.input.repositorySizeKb,
+      prNumber: ctx.input.prNumber,
+      body: ctx.input.body,
+      replyTarget: ctx.input.replyTarget,
+      commentId: ctx.input.commentId,
+      commenterId: ctx.input.commenterId,
+      codeAnchor: ctx.input.codeAnchor,
+      ackTargets: ctx.baseAck.targets,
+    },
+    "skip",
+  );
+
+  switch (outcome.kind) {
+    case "hint_acked":
+    case "already_exists_skipped":
+      return;
+    case "promoted":
+      recordEvent(ctx.intakeLog, "agent_work_enqueued", {
+        type: "ask",
+        source: "slash",
+        workItemId: outcome.workItemId,
+        ...ctx.correlation,
+      });
+      return;
+    default: {
+      const exhaustive: never = outcome;
+      return exhaustive;
     }
   }
-  if (askParse.kind === "too_long") {
-    await enqueueSlashAck(ctx, {
-      reply: {
-        target: ctx.input.replyTarget,
-        body: ASK_QUESTION_TOO_LONG_HINT,
-      },
-    });
-    return;
-  }
-  if (askParse.kind !== "ok") {
-    await enqueueSlashAck(ctx, {
-      reply: { target: ctx.input.replyTarget, body: ASK_USAGE_HINT },
-    });
-    return;
-  }
-  const askRef = { ...ctx.ref, headSha: DEFERRED_HEAD_SHA };
-  const workItemId = await createAskWorkItem(ctx.client, {
-    webhookEventId: ctx.eventId,
-    ref: askRef,
-    question: askParse.question,
-    replyTarget: ctx.input.replyTarget,
-    commentId: ctx.input.commentId,
-    commenterId: ctx.input.commenterId,
-    codeAnchor: ctx.input.codeAnchor,
-  });
-  await enqueueSlashAck(ctx, { workItemId });
-  await enqueueAsk(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
-  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
-    type: "ask",
-    source: "slash",
-    workItemId,
-    ...ctx.correlation,
-  });
 }
 
 async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  const existing = await fetchActiveWorkItem(ctx.client, {
-    kind: "description",
-    resourceKey,
+  const insert = await createDescriptionWorkItem(ctx.client, {
+    webhookEventId: ctx.eventId,
+    ref: ctx.ref,
+    source: "slash",
+    userSupplement: clampStoredCommentText(`User invoked /describe with:\n${ctx.input.body}`),
+    commenterId: ctx.input.commenterId,
   });
-  if (existing) {
+  if (!insert.created) {
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
@@ -161,13 +150,7 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
     });
     return;
   }
-  const workItemId = await createDescriptionWorkItem(ctx.client, {
-    webhookEventId: ctx.eventId,
-    ref: ctx.ref,
-    source: "slash",
-    userSupplement: clampStoredCommentText(`User invoked /describe with:\n${ctx.input.body}`),
-    commenterId: ctx.input.commenterId,
-  });
+  const workItemId = insert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueDescription(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   recordEvent(ctx.intakeLog, "agent_work_enqueued", {
@@ -203,8 +186,10 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const triageScope = scope ?? "all";
-  const existing = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
-  if (existing) {
+  const rejectActiveTriage = async (existing: {
+    id: string;
+    payload: { scope?: "all" | "thread" };
+  }): Promise<void> => {
     const activeScope = existing.payload.scope ?? "all";
     const body =
       triageScope === "thread" && activeScope === "all"
@@ -232,9 +217,8 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
         body,
       },
     });
-    return;
-  }
-  const workItemId = await createTriageWorkItem(ctx.client, {
+  };
+  const insert = await createTriageWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     commentId: ctx.input.commentId,
@@ -244,6 +228,15 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     needsThreadRootResolution: ctx.input.needsThreadRootResolution,
     replyTarget: ctx.input.replyTarget,
   });
+  if (!insert.created) {
+    const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
+    if (!winner) {
+      throw new Error(`slash triage uniqueness conflict without winner for ${resourceKey}`);
+    }
+    await rejectActiveTriage(winner);
+    return;
+  }
+  const workItemId = insert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueTriage(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   captureTriageEvent(
@@ -273,21 +266,8 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  const existing = await fetchActiveWorkItem(ctx.client, {
-    kind: "review",
-    resourceKey,
-    lens: command,
-  });
-  if (existing) {
-    await enqueueSlashAck(ctx, {
-      reply: {
-        target: ctx.input.replyTarget,
-        body: `A \`/${command}\` run is already queued or in progress for this pull request.`,
-      },
-    });
-    return;
-  }
-  const workItemId = await createReviewWorkItem(ctx.client, {
+  const alreadyInProgressBody = `A \`/${command}\` run is already queued or in progress for this pull request.`;
+  const insert = await createReviewWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     source: "slash",
@@ -295,6 +275,16 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
     userSupplement: clampStoredCommentText(`User invoked /${command} with:\n${ctx.input.body}`),
     commenterId: ctx.input.commenterId,
   });
+  if (!insert.created) {
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body: alreadyInProgressBody,
+      },
+    });
+    return;
+  }
+  const workItemId = insert.id;
   await enqueueSlashAck(ctx, {
     workItemId,
     progress: { lens: command, headSha: ctx.ref.headSha, source: "slash" },

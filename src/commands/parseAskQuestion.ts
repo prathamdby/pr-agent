@@ -1,4 +1,5 @@
 import { MAX_ASK_QUESTION_CHARS, askQuestionTooLongHint } from "../settings/index.js";
+import type { ReplyTarget } from "./replyTarget.js";
 import { firstNonEmptyLine } from "./firstNonEmptyLine.js";
 
 export const ASK_QUESTION_TOO_LONG_HINT = askQuestionTooLongHint();
@@ -36,6 +37,25 @@ export function parseAskQuestionResult(body: string): AskQuestionParseResult {
   if (rest.length === 0) return { kind: "missing" };
   if (rest.length > MAX_ASK_QUESTION_CHARS) return { kind: "too_long" };
   return { kind: "ok", question: rest };
+}
+
+/**
+ * Parse an ask question, including the implicit inline-thread body path:
+ * when `/ask` is absent on an inline review thread reply, treat the trimmed
+ * comment body as the question (same product rule for slash and classify).
+ */
+export function parseAskQuestionForReplyTarget(
+  body: string,
+  replyTarget: ReplyTarget,
+): AskQuestionParseResult {
+  const result = parseAskQuestionResult(body);
+  if (result.kind !== "not_ask") return result;
+  if (replyTarget.kind !== "inlineReviewThread") return result;
+
+  const question = body.trim();
+  if (question.length === 0) return { kind: "missing" };
+  if (question.length > MAX_ASK_QUESTION_CHARS) return { kind: "too_long" };
+  return { kind: "ok", question };
 }
 
 export function parseAskQuestion(body: string): string | null {

@@ -191,7 +191,7 @@ export async function executeTriageJob(
     type: "triage",
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
-      const payload = item.payload as TriageWorkPayload;
+      const payload = item.payload;
       const scope = payload.scope ?? "all";
       const analytics = triageAnalyticsRef(item, scope);
       captureTriageEvent(analytics, "triage started");
@@ -466,7 +466,7 @@ export async function executeTriageJob(
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
-      const payload = item.payload as TriageWorkPayload;
+      const payload = item.payload;
       const analytics = triageAnalyticsRef(item, payload.scope ?? "all");
       if (
         await hasCompletedPublishStep(pool, item.id, item.resourceKey, "triage", "triage_report")

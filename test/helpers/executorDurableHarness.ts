@@ -1,18 +1,42 @@
 import { vi } from "vitest";
 import type { JobWithMetadata } from "pg-boss";
-import type { AgentWorkItem } from "../../src/agentWork/types.js";
+import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
 import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
 import * as appAuth from "../../src/github/appAuth.js";
 import * as repo from "../../src/agentWork/repository.js";
 
-export function coreOf(item: AgentWorkItem): Omit<AgentWorkItem, "payload"> {
-  const { payload: _payload, ...core } = item;
-  return core;
+export function coreOf(item: AgentWorkItem): AgentWorkItemCore {
+  switch (item.type) {
+    case "review": {
+      const { payload: _payload, ...core } = item;
+      return core;
+    }
+    case "ask": {
+      const { payload: _payload, ...core } = item;
+      return core;
+    }
+    case "description": {
+      const { payload: _payload, ...core } = item;
+      return core;
+    }
+    case "triage": {
+      const { payload: _payload, ...core } = item;
+      return core;
+    }
+    case "verification": {
+      const { payload: _payload, ...core } = item;
+      return core;
+    }
+    default: {
+      const exhaustive: never = item;
+      return exhaustive;
+    }
+  }
 }
 
 export function mockFetchedWorkItem(item: AgentWorkItem | null): void {
   vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
-  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload ?? null);
+  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
 }
 
 export function setupDefaultDurableRepositoryMocks(): void {
@@ -46,10 +70,38 @@ export function makeDurableJobMetadata(
   retryCount = 0,
   retryLimit = 3,
 ): JobWithMetadata<{ workItemId: string }> {
+  const now = new Date();
   return {
     id: "job-1",
+    name: "agent-work",
     data: { workItemId },
-    retryCount,
+    expireInSeconds: 3600,
+    heartbeatSeconds: null,
+    signal: new AbortController().signal,
+    priority: 0,
+    state: "active",
     retryLimit,
-  } as unknown as JobWithMetadata<{ workItemId: string }>;
+    retryCount,
+    retryDelay: 0,
+    retryBackoff: false,
+    startAfter: now,
+    startedOn: now,
+    singletonKey: null,
+    singletonOn: null,
+    deleteAfterSeconds: 0,
+    createdOn: now,
+    completedOn: null,
+    keepUntil: now,
+    policy: "standard",
+    heartbeatOn: null,
+    blocked: false,
+    blocking: false,
+    pendingDependencies: 0,
+    deadLetter: "",
+    output: {},
+    sourceName: null,
+    sourceId: null,
+    sourceCreatedOn: null,
+    sourceRetryCount: null,
+  };
 }

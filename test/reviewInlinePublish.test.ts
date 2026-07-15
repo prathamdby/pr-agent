@@ -171,4 +171,34 @@ describe("publishInlineReviewComments", () => {
     expect(result.postedPlacements).toHaveLength(0);
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
+
+  it("forwards expiresAtTs to createPullRequestReviewWithComments", async () => {
+    vi.mocked(createPullRequestReviewWithComments).mockResolvedValueOnce({
+      id: 9,
+      url: "https://example.com/review/9",
+    });
+    const expiresAtTs = 1_700_000_000_000;
+
+    await publishInlineReviewComments("token", "o", "r", 1, {
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      commitId: "sha",
+      inlinePlacements: [placement(finding("P1", "src/a.ts", 1))],
+      renderCommentBody: (f) => f.title,
+      expiresAtTs,
+    });
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+      "token",
+      "o",
+      "r",
+      1,
+      expect.objectContaining({
+        body: "pointer",
+        event: "COMMENT",
+        commitId: "sha",
+      }),
+      expiresAtTs,
+    );
+  });
 });

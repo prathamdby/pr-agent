@@ -78,15 +78,21 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       maxToolRounds: () => activeMaxToolRounds,
       toolRoundCounter,
     });
-    const agent = await Agent.create({
-      apiKey,
-      model: sdkModelSelection,
-      local: {
-        cwd: cwd ?? process.cwd(),
-        settingSources: [],
-      },
-      mcpServers: bridge.mcpServers,
-    });
+    let agent: Awaited<ReturnType<typeof Agent.create>>;
+    try {
+      agent = await Agent.create({
+        apiKey,
+        model: sdkModelSelection,
+        local: {
+          cwd: cwd ?? process.cwd(),
+          settingSources: [],
+        },
+        mcpServers: bridge.mcpServers,
+      });
+    } catch (error) {
+      await bridge.dispose();
+      throw error;
+    }
     let disposed = false;
 
     const syncRunContext = (maxToolRounds?: number) => {
@@ -132,23 +138,17 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         };
       },
       restrictToTools(nextTools, nextExecutors) {
-        savedTools = [...(context.tools ?? [])];
-        savedExecutors = { ...activeExecutors };
-        if (!context.tools) {
-          context.tools = [...nextTools];
-        } else {
-          context.tools.splice(0, context.tools.length, ...nextTools);
+        if (savedTools === null) {
+          savedTools = [...(context.tools ?? [])];
+          savedExecutors = { ...activeExecutors };
         }
+        context.tools = [...nextTools];
         activeExecutors = nextExecutors;
         syncRunContext();
       },
       restoreTools() {
         if (!savedTools) return;
-        if (!context.tools) {
-          context.tools = [...savedTools];
-        } else {
-          context.tools.splice(0, context.tools.length, ...savedTools);
-        }
+        context.tools = [...savedTools];
         activeExecutors = savedExecutors ?? executors;
         syncRunContext();
         savedTools = null;

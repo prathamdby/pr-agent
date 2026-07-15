@@ -1,6 +1,11 @@
 import { installationOctokit } from "./appAuth.js";
 import { httpStatus } from "./httpStatus.js";
-import { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
+import { paginateOctokitPages } from "./paginateOctokit.js";
+import {
+  COMMENTS_PAGE_SIZE,
+  COMMENT_PAGINATION_MAX_PAGES,
+  REVIEW_SUMMARY_SENTINEL,
+} from "../settings/index.js";
 
 export type InlineReviewComment = {
   path: string;
@@ -92,9 +97,6 @@ export async function updateReviewCheckRun(
   });
 }
 
-import { COMMENTS_PAGE_SIZE, COMMENT_PAGINATION_MAX_PAGES } from "../settings/index.js";
-import { paginateOctokitPages } from "./paginateOctokit.js";
-
 export async function createPullRequestReviewWithComments(
   token: string,
   owner: string,
@@ -106,8 +108,9 @@ export async function createPullRequestReviewWithComments(
     comments?: InlineReviewComment[];
     commitId?: string;
   },
+  expiresAtTs?: number,
 ): Promise<{ id: number; url: string }> {
-  const octokit = installationOctokit(token);
+  const octokit = installationOctokit(token, expiresAtTs);
   const { data } = await octokit.rest.pulls.createReview({
     owner,
     repo,
@@ -324,12 +327,21 @@ export async function listPullRequestLabels(
   expiresAtTs?: number,
 ): Promise<string[]> {
   const octokit = installationOctokit(token, expiresAtTs);
-  const { data } = await octokit.rest.issues.listLabelsOnIssue({
-    owner,
-    repo,
-    issue_number: pullNumber,
+  const labels = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.issues.listLabelsOnIssue({
+        owner,
+        repo,
+        issue_number: pullNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
   });
-  return data.map((l) => l.name);
+  return labels.map((l) => l.name);
 }
 
 export async function getPullRequestReviewComment(

@@ -10,6 +10,7 @@ import {
   DEFAULT_REVIEW_AUTO_ACTIONS,
   DEFAULT_VERIFICATION_AUTO_ACTIONS,
   DEFAULT_VERIFICATION_CONCURRENCY,
+  DEFAULT_THREAD_REPLY_CLASSIFY_CONCURRENCY,
   DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
@@ -304,6 +305,10 @@ export function loadConfig() {
     ENV.VERIFICATION_CONCURRENCY,
     DEFAULT_VERIFICATION_CONCURRENCY,
   );
+  const threadReplyClassifyConcurrency = readPositiveNumber(
+    ENV.THREAD_REPLY_CLASSIFY_CONCURRENCY,
+    DEFAULT_THREAD_REPLY_CLASSIFY_CONCURRENCY,
+  );
   const maxToolRoundsDescribe = readPositiveNumber(
     ENV.MAX_TOOL_ROUNDS_DESCRIBE,
     DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
@@ -552,6 +557,7 @@ export function loadConfig() {
     descriptionConcurrency,
     triageConcurrency,
     verificationConcurrency,
+    threadReplyClassifyConcurrency,
     maxToolRoundsDescribe,
     maxToolRoundsTriage,
     maxToolRoundsVerification,

@@ -1,15 +1,17 @@
 import crypto from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { logInfo } from "../evlog.js";
+import { inTransaction, pgBossDb } from "../db/postgres.js";
+import { logInfo, logWarn } from "../evlog.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
 import { getPullRequestHeadSha } from "./githubPrSurface.js";
-import { getWorkItem } from "./repository.js";
+import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
   installationGroupId,
   reviewSingletonKey,
-  type AgentWorkItem,
+  type ReviewWorkItem,
   type AckJobData,
   type ReviewJobData,
   type ReviewWorkPayload,
@@ -19,6 +21,8 @@ export type StaleSlashReviewRescheduleResult = {
   readonly rescheduled: true;
   readonly replacementWorkItemId: string;
   readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
+  /** Cancel a persisted-but-not-enqueued replacement when the parent fails terminally. */
+  readonly onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
 };
 
 type SlashReviewRescheduleWorkItem = {
@@ -26,9 +30,69 @@ type SlashReviewRescheduleWorkItem = {
   readonly headSha: string;
 };
 
+/**
+ * Cancel a queued stale-head replacement that was persisted but never enqueued.
+ * Uses the known replacement id from the reschedule result — no payload re-fetch/re-parse.
+ * No-ops when enqueue succeeded in this attempt or a replacement review job is live.
+ */
+export async function cancelUnenqueuedStaleHeadReplacement(
+  pool: Pool,
+  boss: PgBoss,
+  parent: ReviewWorkItem,
+  replacementWorkItemId: string,
+  error: unknown,
+  replacementEnqueued: boolean,
+): Promise<void> {
+  if (replacementEnqueued) return;
+  try {
+    const reviewKey = reviewSingletonKey(parent.resourceKey, parent.reviewLens);
+    if (await replacementReviewJobExists(boss, reviewKey, replacementWorkItemId)) return;
+    if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
+      logWarn("agent_work_replacement_cancel_failed", {
+        type: "review",
+        workItemId: parent.id,
+        replacementWorkItemId,
+      });
+    }
+  } catch (cancelError) {
+    logWarn("agent_work_replacement_cancel_failed", {
+      type: "review",
+      workItemId: parent.id,
+      replacementWorkItemId,
+      message: sanitizeLogMessage(
+        cancelError instanceof Error ? cancelError.message : String(cancelError),
+      ),
+    });
+  }
+}
+
+/**
+ * Terminal-failure fallback when no in-attempt `onRescheduleAbort` was registered.
+ * An earlier attempt may have stamped `staleHeadReplacementWorkItemId` and inserted a
+ * queued replacement, then crashed before enqueue — the next terminal attempt throws
+ * before `execute` returns a reschedule result, so the abort hook never attaches.
+ */
+export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+  pool: Pool,
+  boss: PgBoss,
+  parent: ReviewWorkItem,
+  error: unknown,
+): Promise<void> {
+  const replacementWorkItemId = parent.payload.staleHeadReplacementWorkItemId;
+  if (!replacementWorkItemId) return;
+  await cancelUnenqueuedStaleHeadReplacement(
+    pool,
+    boss,
+    parent,
+    replacementWorkItemId,
+    error,
+    Boolean(parent.payload.staleHeadReplacementEnqueued),
+  );
+}
+
 export async function buildStaleSlashReviewRescheduleResult(
   pool: Pool,
-  item: AgentWorkItem,
+  item: ReviewWorkItem,
   token: string,
   expiresAtTs?: number,
 ): Promise<StaleSlashReviewRescheduleResult> {
@@ -40,6 +104,8 @@ export async function buildStaleSlashReviewRescheduleResult(
     expiresAtTs,
   );
   const replacement = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
+  // Closed over by afterComplete / onRescheduleAbort so terminal abort does not re-read payload.
+  let replacementEnqueued = false;
   return {
     rescheduled: true,
     replacementWorkItemId: replacement.replacementWorkItemId,
@@ -52,17 +118,28 @@ export async function buildStaleSlashReviewRescheduleResult(
         replacement.headSha,
         activePgBossJobId,
       );
+      replacementEnqueued = true;
+    },
+    onRescheduleAbort: async (boss, error) => {
+      await cancelUnenqueuedStaleHeadReplacement(
+        pool,
+        boss,
+        item,
+        replacement.replacementWorkItemId,
+        error,
+        replacementEnqueued,
+      );
     },
   };
 }
 
 export async function createSlashReviewRescheduleWorkItem(
   pool: Pool,
-  item: AgentWorkItem,
+  item: ReviewWorkItem,
   latestHeadSha: string,
 ): Promise<SlashReviewRescheduleWorkItem> {
-  const payload = item.payload as ReviewWorkPayload;
-  const reviewLens = item.reviewLens!;
+  const payload = item.payload;
+  const reviewLens = item.reviewLens;
   let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
 
   if (!replacementWorkItemId) {
@@ -81,11 +158,10 @@ export async function createSlashReviewRescheduleWorkItem(
     );
     if ((updateResult.rowCount ?? 0) === 0) {
       const refreshed = await getWorkItem(pool, item.id);
-      replacementWorkItemId = (refreshed?.payload as ReviewWorkPayload)
-        ?.staleHeadReplacementWorkItemId;
-      if (!replacementWorkItemId) {
+      if (refreshed?.type !== "review" || !refreshed.payload.staleHeadReplacementWorkItemId) {
         throw new Error(`Failed to persist stale-head replacement marker for work item ${item.id}`);
       }
+      replacementWorkItemId = refreshed.payload.staleHeadReplacementWorkItemId;
     } else {
       replacementWorkItemId = updateResult.rows[0].replacement_id;
     }
@@ -127,75 +203,54 @@ export async function createSlashReviewRescheduleWorkItem(
   };
 }
 
-async function claimStaleHeadReplacementEnqueue(pool: Pool, parentId: string): Promise<boolean> {
-  const result = await pool.query(
-    `UPDATE agent_work_items
-       SET payload = payload || '{"staleHeadReplacementEnqueued": true}'::jsonb,
-           updated_at = now()
-     WHERE id = $1
-       AND (payload->>'staleHeadReplacementEnqueued') IS NULL`,
-    [parentId],
-  );
-  return (result.rowCount ?? 0) > 0;
-}
-
-async function releaseStaleHeadReplacementEnqueueClaim(
-  pool: Pool,
+async function markStaleHeadReplacementEnqueued(
+  client: PoolClient,
   parentId: string,
 ): Promise<void> {
-  await pool.query(
+  await client.query(
     `UPDATE agent_work_items
-       SET payload = payload - 'staleHeadReplacementEnqueued',
+       SET payload = payload || '{"staleHeadReplacementEnqueued": true}'::jsonb,
            updated_at = now()
      WHERE id = $1`,
     [parentId],
   );
 }
 
+async function replacementReviewJobExists(
+  boss: PgBoss,
+  singletonKey: string,
+  workItemId: string,
+): Promise<boolean> {
+  const jobs = await boss.findJobs<ReviewJobData>(REVIEW_QUEUE, { key: singletonKey });
+  return jobs.some((job) => {
+    const state = job.state as string;
+    return (
+      job.data.workItemId === workItemId &&
+      state !== "cancelled" &&
+      state !== "completed" &&
+      state !== "failed"
+    );
+  });
+}
+
 export async function enqueueSlashReviewReschedule(
   pool: Pool,
   boss: PgBoss,
-  item: AgentWorkItem,
+  item: ReviewWorkItem,
   workItemId: string,
   replacementHeadSha: string,
   activePgBossJobId?: string,
 ): Promise<void> {
-  const reviewLens = item.reviewLens!;
+  const reviewLens = item.reviewLens;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
-  const parentPayload = item.payload as ReviewWorkPayload;
+  const reviewKey = reviewSingletonKey(item.resourceKey, reviewLens);
 
-  if (parentPayload.staleHeadReplacementEnqueued) {
-    logInfo("review_stale_head_reschedule_enqueue_skipped", {
-      owner: item.owner,
-      repo: item.repo,
-      pr: item.prNumber,
-      reviewLens,
-      previousWorkItemId: item.id,
-      replacementWorkItemId: workItemId,
-    });
-    return;
-  }
-
-  const claimed = await claimStaleHeadReplacementEnqueue(pool, item.id);
-  if (!claimed) {
-    const refreshed = await getWorkItem(pool, item.id);
-    if ((refreshed?.payload as ReviewWorkPayload)?.staleHeadReplacementEnqueued) {
-      logInfo("review_stale_head_reschedule_enqueue_skipped", {
-        owner: item.owner,
-        repo: item.repo,
-        pr: item.prNumber,
-        reviewLens,
-        previousWorkItemId: item.id,
-        replacementWorkItemId: workItemId,
-      });
-      return;
-    }
-    throw new Error(`Failed to claim stale-head replacement enqueue for work item ${item.id}`);
-  }
-
-  try {
+  await inTransaction(pool, async (client) => {
+    const db = pgBossDb(client);
     await releaseReviewSingletonSlot(boss, item.resourceKey, reviewLens, {
+      db,
       skipJobId: activePgBossJobId,
+      skipWorkItemId: workItemId,
     });
 
     const reviewData: ReviewJobData = {
@@ -203,13 +258,12 @@ export async function enqueueSlashReviewReschedule(
       workItemId,
       ...correlation,
     };
-    const reviewJobId = await boss.send(REVIEW_QUEUE, reviewData, {
-      singletonKey: reviewSingletonKey(item.resourceKey, reviewLens),
+    await boss.send(REVIEW_QUEUE, reviewData, {
+      db,
+      id: workItemId,
+      singletonKey: reviewKey,
       group: { id: installationGroupId(item.installationId) },
     });
-    if (reviewJobId == null) {
-      throw new Error("pg-boss did not enqueue replacement review job");
-    }
 
     const ackData: AckJobData = {
       kind: "ack",
@@ -222,26 +276,23 @@ export async function enqueueSlashReviewReschedule(
       progress: { lens: reviewLens, headSha: replacementHeadSha, source: "slash" },
       ...correlation,
     };
-    const ackJobId = await boss.send(ACK_QUEUE, ackData, {
+    await boss.send(ACK_QUEUE, ackData, {
+      db,
+      id: workItemId,
       priority: 100,
       group: { id: installationGroupId(item.installationId) },
     });
-    if (ackJobId == null) {
-      throw new Error("pg-boss did not enqueue replacement review ack job");
-    }
+    await markStaleHeadReplacementEnqueued(client, item.id);
+  });
 
-    logInfo("review_stale_head_rescheduled", {
-      owner: item.owner,
-      repo: item.repo,
-      pr: item.prNumber,
-      reviewLens,
-      previousWorkItemId: item.id,
-      replacementWorkItemId: workItemId,
-      previousHeadSha: item.headSha,
-      latestHeadSha: replacementHeadSha,
-    });
-  } catch (e) {
-    await releaseStaleHeadReplacementEnqueueClaim(pool, item.id);
-    throw e;
-  }
+  logInfo("review_stale_head_rescheduled", {
+    owner: item.owner,
+    repo: item.repo,
+    pr: item.prNumber,
+    reviewLens,
+    previousWorkItemId: item.id,
+    replacementWorkItemId: workItemId,
+    previousHeadSha: item.headSha,
+    latestHeadSha: replacementHeadSha,
+  });
 }

@@ -7,6 +7,7 @@ import {
   ASK_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
+  THREAD_REPLY_CLASSIFY_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
@@ -23,12 +24,16 @@ import {
   type JobCorrelation,
   type PrRef,
   type ReviewJobData,
+  type ThreadReplyClassifyJobData,
   type TriageJobData,
   type VerificationJobData,
   type WebhookHeaders,
 } from "../types.js";
 
-export function jobCorrelation(eventId: string, headers: WebhookHeaders): JobCorrelation {
+export function jobCorrelation(
+  eventId: string,
+  headers: Pick<WebhookHeaders, "delivery">,
+): JobCorrelation {
   return {
     webhookEventId: eventId,
     delivery: headers.delivery,
@@ -47,6 +52,20 @@ async function requireBossJobSend(
   }
 }
 
+/**
+ * Send a job with a deterministic id.
+ * `null` from pg-boss means the job already exists — treat as success.
+ */
+async function sendBossJobIdempotent(
+  boss: PgBoss,
+  queue: string,
+  data: object,
+  options: Parameters<PgBoss["send"]>[2],
+): Promise<"enqueued" | "already_present"> {
+  const jobId = await boss.send(queue, data, options);
+  return jobId == null ? "already_present" : "enqueued";
+}
+
 export async function enqueueAck(
   boss: PgBoss,
   client: PoolClient,
@@ -55,6 +74,24 @@ export async function enqueueAck(
 ): Promise<void> {
   await requireBossJobSend(boss, ACK_QUEUE, data, {
     db: pgBossDb(client),
+    priority,
+    group: { id: installationGroupId(data.installationId) },
+  });
+}
+
+/**
+ * Idempotent ack for ask promotion: same webhook event reuses one pg-boss job id.
+ */
+export async function enqueueAskAckIdempotent(
+  boss: PgBoss,
+  client: PoolClient,
+  data: AckJobData,
+  webhookEventId: string,
+  priority = 100,
+): Promise<"enqueued" | "already_present"> {
+  return sendBossJobIdempotent(boss, ACK_QUEUE, data, {
+    db: pgBossDb(client),
+    id: webhookEventId,
     priority,
     group: { id: installationGroupId(data.installationId) },
   });
@@ -83,10 +120,11 @@ export async function enqueueAsk(
   ref: PrRef,
   workItemId: string,
   correlation: JobCorrelation,
-): Promise<void> {
+): Promise<"enqueued" | "already_present"> {
   const data: AskJobData = { kind: "ask", workItemId, ...correlation };
-  await requireBossJobSend(boss, ASK_QUEUE, data, {
+  return sendBossJobIdempotent(boss, ASK_QUEUE, data, {
     db: pgBossDb(client),
+    id: workItemId,
     priority: 50,
     group: { id: installationGroupId(ref.installationId) },
   });
@@ -149,5 +187,16 @@ export async function enqueueVerification(
     db: pgBossDb(client),
     singletonKey: verificationSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
+export async function enqueueThreadReplyClassify(
+  boss: PgBoss,
+  client: PoolClient,
+  data: ThreadReplyClassifyJobData,
+): Promise<void> {
+  await requireBossJobSend(boss, THREAD_REPLY_CLASSIFY_QUEUE, data, {
+    db: pgBossDb(client),
+    group: { id: installationGroupId(data.installationId) },
   });
 }
