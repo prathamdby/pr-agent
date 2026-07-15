@@ -32,6 +32,7 @@ import {
 } from "./repository.js";
 import { getPullRequestHead } from "./githubPrSurface.js";
 import { isTerminalPgBossAttempt } from "./pgBossJob.js";
+import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
@@ -366,9 +367,20 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function invokeRescheduleAbort(error: unknown): Promise<void> {
-    if (!pendingRescheduleAbort) return;
     try {
-      await pendingRescheduleAbort(spec.boss, error);
+      if (pendingRescheduleAbort) {
+        await pendingRescheduleAbort(spec.boss, error);
+        return;
+      }
+      // Earlier attempt may have persisted a replacement without registering an abort hook.
+      if (isWorkItemType(item, "review")) {
+        await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+          spec.pool,
+          spec.boss,
+          item,
+          error,
+        );
+      }
     } catch (abortError) {
       logWarn("agent_work_replacement_cancel_failed", {
         type: spec.type,

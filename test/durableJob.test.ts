@@ -29,6 +29,10 @@ vi.mock("../src/agentWork/repository.js", () => ({
   updateRunningWorkHeadSha: vi.fn(),
 }));
 
+vi.mock("../src/agentWork/reviewReschedule.js", () => ({
+  cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
+}));
+
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
@@ -41,6 +45,7 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import * as repo from "../src/agentWork/repository.js";
+import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
 import * as evlog from "../src/evlog.js";
 
@@ -598,6 +603,9 @@ describe("runDurableWorkItem", () => {
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
     expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(
+      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+    ).not.toHaveBeenCalled();
   });
 
   it("does not invoke onRescheduleAbort when execute fails without a reschedule result", async () => {
@@ -620,6 +628,30 @@ describe("runDurableWorkItem", () => {
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
+    expect(
+      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+    ).toHaveBeenCalledWith(pool, boss, expect.objectContaining({ id: "wi-1" }), boom);
+  });
+
+  it("cancels orphaned replacement via payload marker on terminal failure without abort hook", async () => {
+    const item = makeItem({
+      status: "running",
+      payload: {
+        mode: "review",
+        source: "slash",
+        staleHeadReplacementWorkItemId: "replacement-wi",
+      },
+    });
+    mockFetchedItem(item);
+    const boom = new Error("github head sha failed");
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(
+      reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
+    ).toHaveBeenCalledWith(pool, boss, item, boom);
   });
 
   it("clears pending onRescheduleAbort after successful afterComplete", async () => {

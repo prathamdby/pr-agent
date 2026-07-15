@@ -66,6 +66,30 @@ export async function cancelUnenqueuedStaleHeadReplacement(
   }
 }
 
+/**
+ * Terminal-failure fallback when no in-attempt `onRescheduleAbort` was registered.
+ * An earlier attempt may have stamped `staleHeadReplacementWorkItemId` and inserted a
+ * queued replacement, then crashed before enqueue — the next terminal attempt throws
+ * before `execute` returns a reschedule result, so the abort hook never attaches.
+ */
+export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+  pool: Pool,
+  boss: PgBoss,
+  parent: ReviewWorkItem,
+  error: unknown,
+): Promise<void> {
+  const replacementWorkItemId = parent.payload.staleHeadReplacementWorkItemId;
+  if (!replacementWorkItemId) return;
+  await cancelUnenqueuedStaleHeadReplacement(
+    pool,
+    boss,
+    parent,
+    replacementWorkItemId,
+    error,
+    Boolean(parent.payload.staleHeadReplacementEnqueued),
+  );
+}
+
 export async function buildStaleSlashReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,

@@ -4,6 +4,7 @@ import type { PgBoss } from "pg-boss";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
 import {
   buildStaleSlashReviewRescheduleResult,
+  cancelOrphanedStaleHeadReplacementOnTerminalFailure,
   cancelUnenqueuedStaleHeadReplacement,
   createSlashReviewRescheduleWorkItem,
   enqueueSlashReviewReschedule,
@@ -487,5 +488,60 @@ describe("buildStaleSlashReviewRescheduleResult onRescheduleAbort", () => {
     await result.onRescheduleAbort(boss, error);
 
     expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "existing-replacement", error);
+  });
+});
+
+describe("cancelOrphanedStaleHeadReplacementOnTerminalFailure", () => {
+  it("cancels via the parent payload marker when replacement was never enqueued", async () => {
+    vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
+    const boom = new Error("terminal before reschedule result");
+    const pool = {} as Pool;
+    const boss = bossWithReviewJobs();
+    const parent = makeItem({
+      payload: {
+        mode: "review",
+        source: "slash",
+        staleHeadReplacementWorkItemId: "replacement-wi",
+      },
+    });
+
+    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(pool, boss, parent, boom);
+
+    expect(markQueuedWorkCancelled).toHaveBeenCalledWith(pool, "replacement-wi", boom);
+  });
+
+  it("no-ops when the parent payload has no replacement marker", async () => {
+    const pool = {} as Pool;
+    const boss = bossWithReviewJobs();
+
+    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+      pool,
+      boss,
+      makeItem({ payload: { mode: "review", source: "slash" } }),
+      new Error("dead"),
+    );
+
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
+  });
+
+  it("no-ops when the payload marks the replacement as already enqueued", async () => {
+    const pool = {} as Pool;
+    const boss = bossWithReviewJobs();
+
+    await cancelOrphanedStaleHeadReplacementOnTerminalFailure(
+      pool,
+      boss,
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "slash",
+          staleHeadReplacementWorkItemId: "replacement-wi",
+          staleHeadReplacementEnqueued: true,
+        },
+      }),
+      new Error("dead"),
+    );
+
+    expect(markQueuedWorkCancelled).not.toHaveBeenCalled();
   });
 });

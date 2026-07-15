@@ -372,4 +372,22 @@ describe("piAgentRunnerProvider.send", () => {
     expect(dispose).toHaveBeenCalledTimes(1);
     await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
   });
+
+  it("removes agentDir with credentials when createSession setup fails", async () => {
+    vi.mocked(createAgentSession).mockRejectedValue(new Error("session setup failed"));
+
+    await expect(
+      piAgentRunnerProvider.createSession({
+        cfg,
+        systemPrompt: "test",
+        tools: [],
+        executors: {},
+      }),
+    ).rejects.toThrow("session setup failed");
+
+    const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
+    expect(typeof agentDir).toBe("string");
+    if (typeof agentDir !== "string") throw new Error("expected agentDir");
+    await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });
