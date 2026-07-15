@@ -17,6 +17,9 @@ import {
   DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
+  DEFAULT_CURSOR_RIPGREP_PATH,
+  DEFAULT_POSTHOG_PROJECT_TOKEN,
+  DEFAULT_POSTHOG_HOST,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   DEFAULT_ENABLE_REVIEW_CHECK_RUN,
@@ -268,6 +271,12 @@ export function loadConfig() {
     throw new Error(`Missing required environment variable: ${ENV.CURSOR_API_KEY}`);
   }
   const cursorApiKey = agentProvider === "cursor" ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
+  const cursorRipgrepPath = optionalEnv(
+    ENV.CURSOR_RIPGREP_PATH,
+    DEFAULT_CURSOR_RIPGREP_PATH,
+  ).trim();
+  const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
+  const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
   const modelProviderKeys = {
     openai: optionalEnv(EXTERNAL_ENV.OPENAI_API_KEY, ""),
     anthropic: optionalEnv(EXTERNAL_ENV.ANTHROPIC_API_KEY, ""),
@@ -585,6 +594,9 @@ export function loadConfig() {
     context7ApiKey,
     context7ResponseBytes,
     cursorApiKey,
+    cursorRipgrepPath,
+    posthogProjectToken,
+    posthogHost,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
     enableThreadReplies,

@@ -18,9 +18,10 @@ import {
   assertCursorRipgrepConfigured,
   configureCursorRipgrepPath,
 } from "../src/agent/providers/cursor/ripgrepBoot.js";
+import { ENV } from "../src/settings/index.js";
 
 describe("configureCursorRipgrepPath", () => {
-  const previous = process.env.CURSOR_RIPGREP_PATH;
+  const previous = process.env[ENV.CURSOR_RIPGREP_PATH];
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -28,19 +29,19 @@ describe("configureCursorRipgrepPath", () => {
 
   afterEach(() => {
     if (previous === undefined) {
-      delete process.env.CURSOR_RIPGREP_PATH;
+      delete process.env[ENV.CURSOR_RIPGREP_PATH];
     } else {
-      process.env.CURSOR_RIPGREP_PATH = previous;
+      process.env[ENV.CURSOR_RIPGREP_PATH] = previous;
     }
   });
 
   it("resolves bundled rg from the cursor platform optional package", () => {
-    delete process.env.CURSOR_RIPGREP_PATH;
+    delete process.env[ENV.CURSOR_RIPGREP_PATH];
 
     const rgPath = configureCursorRipgrepPath();
 
     expect(rgPath).toBeTruthy();
-    expect(process.env.CURSOR_RIPGREP_PATH).toBe(rgPath);
+    expect(process.env[ENV.CURSOR_RIPGREP_PATH]).toBe(rgPath);
     fs.accessSync(rgPath!, constants.X_OK);
     expect(mocks.capture).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -50,23 +51,23 @@ describe("configureCursorRipgrepPath", () => {
   });
 
   it("keeps an explicit CURSOR_RIPGREP_PATH", () => {
-    process.env.CURSOR_RIPGREP_PATH = "/custom/rg";
+    process.env[ENV.CURSOR_RIPGREP_PATH] = "/custom/rg";
 
     expect(configureCursorRipgrepPath()).toBe("/custom/rg");
     expect(mocks.capture).not.toHaveBeenCalled();
   });
 
   it("configures ripgrep on demand when assert runs without prior boot", () => {
-    delete process.env.CURSOR_RIPGREP_PATH;
+    delete process.env[ENV.CURSOR_RIPGREP_PATH];
 
     const rgPath = assertCursorRipgrepConfigured();
 
     expect(rgPath).toBeTruthy();
-    expect(process.env.CURSOR_RIPGREP_PATH).toBe(rgPath);
+    expect(process.env[ENV.CURSOR_RIPGREP_PATH]).toBe(rgPath);
   });
 
   it("throws and reports to posthog when ripgrep is required but missing", () => {
-    delete process.env.CURSOR_RIPGREP_PATH;
+    delete process.env[ENV.CURSOR_RIPGREP_PATH];
     const arch = process.arch;
     Object.defineProperty(process, "arch", { value: "fakearch", configurable: true });
 

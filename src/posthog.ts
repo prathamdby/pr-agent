@@ -1,8 +1,9 @@
 import { PostHog } from "posthog-node";
+import { DEFAULT_POSTHOG_HOST, DEFAULT_POSTHOG_PROJECT_TOKEN, ENV } from "./settings/index.js";
 import { sanitizePostHogEvent } from "./security/sanitizePostHogEvent.js";
 
-const apiKey = process.env.POSTHOG_PROJECT_TOKEN ?? "";
-const host = process.env.POSTHOG_HOST;
+const apiKey = process.env[ENV.POSTHOG_PROJECT_TOKEN] ?? DEFAULT_POSTHOG_PROJECT_TOKEN;
+const host = (process.env[ENV.POSTHOG_HOST] ?? DEFAULT_POSTHOG_HOST).trim();
 
 export const posthog = new PostHog(apiKey, {
   ...(host ? { host } : {}),

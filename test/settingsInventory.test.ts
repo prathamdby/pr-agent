@@ -28,6 +28,9 @@ describe("settings inventory", () => {
     const envValues = Object.values(ENV);
     expect(envValues).toContain("PORT");
     expect(envValues).toContain("DATABASE_URL");
+    expect(envValues).toContain("CURSOR_RIPGREP_PATH");
+    expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
+    expect(envValues).toContain("POSTHOG_HOST");
     expect(new Set(envValues).size).toBe(envValues.length);
   });
 

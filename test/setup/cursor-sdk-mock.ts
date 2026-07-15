@@ -1,4 +1,5 @@
 import { vi } from "vitest";
+import { ENV } from "../../src/settings/index.js";
 
 class MockCursorAgentError extends Error {
   readonly isRetryable: boolean;
@@ -19,4 +20,4 @@ vi.mock("@cursor/sdk", () => ({
   CursorAgentError: MockCursorAgentError,
 }));
 
-process.env.CURSOR_RIPGREP_PATH ??= "/test/rg";
+process.env[ENV.CURSOR_RIPGREP_PATH] ??= "/test/rg";
