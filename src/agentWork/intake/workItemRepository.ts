@@ -15,194 +15,199 @@ import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import { prResourceKey, type PrRef } from "../types.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
-/** Partial unique index predicate from migrations/014_slash_active_uniqueness.sql */
-const SLASH_ACTIVE_UNIQUENESS_CONFLICT_TARGET = `(resource_key, type, review_lens)
-     WHERE source = 'slash'
+/**
+ * Partial unique index predicate from migrations/014_slash_active_uniqueness.sql.
+ * Keep ON CONFLICT inference and winner SELECT in lockstep with that index.
+ */
+const SLASH_ACTIVE_INDEX_PREDICATE = `source = 'slash'
        AND type IN ('review', 'description', 'triage')
        AND status IN ('queued', 'running')
        AND (payload->>'staleHeadRescheduled') IS DISTINCT FROM 'true'`;
 
-export type SlashActiveWorkInsertResult =
+const SLASH_ACTIVE_CONFLICT_TARGET = `(resource_key, type, review_lens)
+     WHERE ${SLASH_ACTIVE_INDEX_PREDICATE}`;
+
+/** Partial unique index from migrations/015_thread_reply_classification.sql */
+const ASK_WEBHOOK_CONFLICT_TARGET = `(webhook_event_id)
+		   WHERE type = 'ask' AND webhook_event_id IS NOT NULL`;
+
+const AGENT_WORK_INSERT_COLUMNS = `id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+		   head_sha, review_lens, resource_key, priority, payload`;
+
+const AGENT_WORK_INSERT_VALUES = `$1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb`;
+
+export type ConflictAwareInsertResult =
   | { readonly created: true; readonly id: string }
   | { readonly created: false; readonly id: string };
 
-type QueuedAgentWorkInsert =
-  | {
-      id: string;
-      webhookEventId: string;
-      type: "review";
-      source: WorkSource;
-      ref: PrRef;
-      reviewLens: ReviewMode;
-      resourceKey: string;
-      priority: number;
-      payload: ReviewWorkPayload;
-    }
-  | {
-      id: string;
-      webhookEventId: string;
-      type: "description";
-      source: WorkSource;
-      ref: PrRef;
-      reviewLens: null;
-      resourceKey: string;
-      priority: number;
-      payload: DescriptionWorkPayload;
-    }
-  | {
-      id: string;
-      webhookEventId: string;
-      type: "verification";
-      source: "auto";
-      ref: PrRef;
-      reviewLens: null;
-      resourceKey: string;
-      priority: number;
-      payload: VerificationWorkPayload;
-    };
+export type SlashActiveWorkInsertResult = ConflictAwareInsertResult;
 
-type SlashActiveQueuedWorkInsert =
-  | {
-      id: string;
-      webhookEventId: string;
-      type: "review";
-      ref: PrRef;
-      reviewLens: ReviewMode;
-      resourceKey: string;
-      priority: number;
-      payload: ReviewWorkPayload;
-    }
-  | {
-      id: string;
-      webhookEventId: string;
-      type: "description";
-      ref: PrRef;
-      reviewLens: null;
-      resourceKey: string;
-      priority: number;
-      payload: DescriptionWorkPayload;
-    }
-  | {
-      id: string;
-      webhookEventId: string;
-      type: "triage";
-      ref: PrRef;
-      reviewLens: null;
-      resourceKey: string;
-      priority: number;
-      payload: TriageWorkPayload;
-    };
+type AgentWorkInsertCommon = {
+  readonly id: string;
+  readonly webhookEventId: string;
+  readonly ref: PrRef;
+  readonly resourceKey: string;
+  readonly priority: number;
+};
 
-async function insertQueuedAgentWorkItem(
-  client: PoolClient,
-  params: QueuedAgentWorkInsert,
-): Promise<void> {
-  await client.query(
-    `INSERT INTO agent_work_items (
-		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
-		   head_sha, review_lens, resource_key, priority, payload
-		 )
-		 VALUES ($1, $2, $3, $4, 'queued', $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)`,
-    [
-      params.id,
-      params.webhookEventId,
-      params.type,
-      params.source,
-      params.ref.owner,
-      params.ref.repo,
-      params.ref.prNumber,
-      params.ref.installationId,
-      params.ref.headSha,
-      params.reviewLens,
-      params.resourceKey,
-      params.priority,
-      JSON.stringify(params.payload),
-    ],
-  );
+type AgentWorkInsert =
+  | (AgentWorkInsertCommon & {
+      readonly type: "review";
+      readonly source: WorkSource;
+      readonly reviewLens: ReviewMode;
+      readonly payload: ReviewWorkPayload;
+      readonly conflict: "none" | "slash_active";
+    })
+  | (AgentWorkInsertCommon & {
+      readonly type: "description";
+      readonly source: WorkSource;
+      readonly reviewLens: null;
+      readonly payload: DescriptionWorkPayload;
+      readonly conflict: "none" | "slash_active";
+    })
+  | (AgentWorkInsertCommon & {
+      readonly type: "triage";
+      readonly source: "slash";
+      readonly reviewLens: null;
+      readonly payload: TriageWorkPayload;
+      readonly conflict: "slash_active";
+    })
+  | (AgentWorkInsertCommon & {
+      readonly type: "verification";
+      readonly source: "auto";
+      readonly reviewLens: null;
+      readonly payload: VerificationWorkPayload;
+      readonly conflict: "none";
+    })
+  | (AgentWorkInsertCommon & {
+      readonly type: "ask";
+      readonly source: "slash";
+      readonly reviewLens: null;
+      readonly payload: AskWorkPayload;
+      readonly conflict: "ask_webhook";
+    });
+
+function insertParams(params: AgentWorkInsert): unknown[] {
+  return [
+    params.id,
+    params.webhookEventId,
+    params.type,
+    params.source,
+    params.ref.owner,
+    params.ref.repo,
+    params.ref.prNumber,
+    params.ref.installationId,
+    params.ref.headSha,
+    params.reviewLens,
+    params.resourceKey,
+    params.priority,
+    JSON.stringify(params.payload),
+  ];
 }
 
-async function insertSlashActiveQueuedWorkItem(
+/** Insert with optional uniqueness conflict; winner SELECT is a separate query for READ COMMITTED races. */
+async function insertAgentWorkItem(
   client: PoolClient,
-  params: SlashActiveQueuedWorkInsert,
-): Promise<SlashActiveWorkInsertResult> {
-  const result = await client.query<{ id: string }>(
-    `INSERT INTO agent_work_items (
-		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
-		   head_sha, review_lens, resource_key, priority, payload
+  params: AgentWorkInsert,
+): Promise<ConflictAwareInsertResult> {
+  const values = insertParams(params);
+  switch (params.conflict) {
+    case "none": {
+      await client.query(
+        `INSERT INTO agent_work_items (
+		   ${AGENT_WORK_INSERT_COLUMNS}
 		 )
-		 VALUES ($1, $2, $3, 'slash', 'queued', $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
-		 ON CONFLICT ${SLASH_ACTIVE_UNIQUENESS_CONFLICT_TARGET}
+		 VALUES (${AGENT_WORK_INSERT_VALUES})`,
+        values,
+      );
+      return { created: true, id: params.id };
+    }
+    case "slash_active": {
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO agent_work_items (
+		   ${AGENT_WORK_INSERT_COLUMNS}
+		 )
+		 VALUES (${AGENT_WORK_INSERT_VALUES})
+		 ON CONFLICT ${SLASH_ACTIVE_CONFLICT_TARGET}
 		 DO NOTHING
 		 RETURNING id`,
-    [
-      params.id,
-      params.webhookEventId,
-      params.type,
-      params.ref.owner,
-      params.ref.repo,
-      params.ref.prNumber,
-      params.ref.installationId,
-      params.ref.headSha,
-      params.reviewLens,
-      params.resourceKey,
-      params.priority,
-      JSON.stringify(params.payload),
-    ],
-  );
-  const createdId = result.rows[0]?.id;
-  if (createdId) {
-    return { created: true, id: createdId };
-  }
-
-  const existingId = await fetchActiveSlashUniquePeerId(client, {
-    resourceKey: params.resourceKey,
-    type: params.type,
-    reviewLens: params.reviewLens,
-  });
-  if (!existingId) {
-    throw new Error(
-      `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
-    );
-  }
-  return { created: false, id: existingId };
-}
-
-async function fetchActiveSlashUniquePeerId(
-  client: PoolClient,
-  params: {
-    resourceKey: string;
-    type: "review" | "description" | "triage";
-    reviewLens: ReviewMode | null;
-  },
-): Promise<string | null> {
-  if (params.type === "review") {
-    const result = await client.query<{ id: string }>(
-      `SELECT id
-			   FROM agent_work_items
-			  WHERE resource_key = $1
-			    AND type = 'review'
-			    AND review_lens = $2
-			    AND source = 'slash'
-			    AND status IN ('queued', 'running')
-			    AND (payload->>'staleHeadRescheduled') IS DISTINCT FROM 'true'
-			  LIMIT 1`,
-      [params.resourceKey, params.reviewLens],
-    );
-    return result.rows[0]?.id ?? null;
-  }
-
-  const result = await client.query<{ id: string }>(
-    `SELECT id
+        values,
+      );
+      const createdId = inserted.rows[0]?.id;
+      if (createdId) {
+        return { created: true, id: createdId };
+      }
+      const existing = await client.query<{ id: string }>(
+        `SELECT id
 			   FROM agent_work_items
 			  WHERE resource_key = $1
 			    AND type = $2
-			    AND source = 'slash'
-			    AND status IN ('queued', 'running')
-			    AND (payload->>'staleHeadRescheduled') IS DISTINCT FROM 'true'
+			    AND review_lens IS NOT DISTINCT FROM $3
+			    AND ${SLASH_ACTIVE_INDEX_PREDICATE}
 			  LIMIT 1`,
-    [params.resourceKey, params.type],
+        [params.resourceKey, params.type, params.reviewLens],
+      );
+      const existingId = existing.rows[0]?.id;
+      if (!existingId) {
+        throw new Error(
+          `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
+        );
+      }
+      return { created: false, id: existingId };
+    }
+    case "ask_webhook": {
+      const inserted = await client.query<{ id: string }>(
+        `INSERT INTO agent_work_items (
+		   ${AGENT_WORK_INSERT_COLUMNS}
+		 )
+		 VALUES (${AGENT_WORK_INSERT_VALUES})
+		 ON CONFLICT ${ASK_WEBHOOK_CONFLICT_TARGET}
+		 DO NOTHING
+		 RETURNING id`,
+        values,
+      );
+      const createdId = inserted.rows[0]?.id;
+      if (createdId) {
+        return { created: true, id: createdId };
+      }
+      const existing = await client.query<{ id: string }>(
+        `SELECT id
+			   FROM agent_work_items
+			  WHERE webhook_event_id = $1
+			    AND type = 'ask'
+			  LIMIT 1`,
+        [params.webhookEventId],
+      );
+      const existingId = existing.rows[0]?.id;
+      if (!existingId) {
+        throw new Error("ask work item conflict without existing row");
+      }
+      return { created: false, id: existingId };
+    }
+    default: {
+      const exhaustive: never = params;
+      throw new Error(`unreachable agent work insert: ${JSON.stringify(exhaustive)}`);
+    }
+  }
+}
+
+async function ensureProgressCommentRecord(
+  client: PoolClient,
+  params: {
+    readonly workItemId: string;
+    readonly resourceKey: string;
+    readonly reviewLens: ReviewMode;
+  },
+): Promise<void> {
+  await client.query(
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status)
+			 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending')
+				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
+			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
+			               status = 'pending',
+			               updated_at = now()`,
+    [crypto.randomUUID(), params.workItemId, params.resourceKey, params.reviewLens],
   );
-  return result.rows[0]?.id ?? null;
 }
 
 type ReviewWorkItemParams = {
@@ -237,32 +242,30 @@ export async function createReviewWorkItem(
   } satisfies ReviewWorkPayload;
 
   if (params.source === "slash") {
-    const insert = await insertSlashActiveQueuedWorkItem(client, {
+    const insert = await insertAgentWorkItem(client, {
       id,
       webhookEventId: params.webhookEventId,
       type: "review",
+      source: "slash",
       ref: params.ref,
       reviewLens: params.lens,
       resourceKey,
       priority: params.priority ?? 0,
       payload,
+      conflict: "slash_active",
     });
     if (!insert.created) {
       return insert;
     }
-    await client.query(
-      `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status)
-			 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending')
-				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
-			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
-			               status = 'pending',
-			               updated_at = now()`,
-      [crypto.randomUUID(), insert.id, resourceKey, params.lens],
-    );
+    await ensureProgressCommentRecord(client, {
+      workItemId: insert.id,
+      resourceKey,
+      reviewLens: params.lens,
+    });
     return insert;
   }
 
-  await insertQueuedAgentWorkItem(client, {
+  const insert = await insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
     type: "review",
@@ -272,17 +275,14 @@ export async function createReviewWorkItem(
     resourceKey,
     priority: params.priority ?? 0,
     payload,
+    conflict: "none",
   });
-  await client.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status)
-			 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending')
-				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
-			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
-			               status = 'pending',
-			               updated_at = now()`,
-    [crypto.randomUUID(), id, resourceKey, params.lens],
-  );
-  return id;
+  await ensureProgressCommentRecord(client, {
+    workItemId: insert.id,
+    resourceKey,
+    reviewLens: params.lens,
+  });
+  return insert.id;
 }
 
 type DescriptionWorkItemParams = {
@@ -314,19 +314,21 @@ export async function createDescriptionWorkItem(
   } satisfies DescriptionWorkPayload;
 
   if (params.source === "slash") {
-    return insertSlashActiveQueuedWorkItem(client, {
+    return insertAgentWorkItem(client, {
       id,
       webhookEventId: params.webhookEventId,
       type: "description",
+      source: "slash",
       ref: params.ref,
       reviewLens: null,
       resourceKey,
       priority: 50,
       payload,
+      conflict: "slash_active",
     });
   }
 
-  await insertQueuedAgentWorkItem(client, {
+  const insert = await insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
     type: "description",
@@ -336,8 +338,9 @@ export async function createDescriptionWorkItem(
     resourceKey,
     priority: 0,
     payload,
+    conflict: "none",
   });
-  return id;
+  return insert.id;
 }
 
 export async function createTriageWorkItem(
@@ -355,10 +358,11 @@ export async function createTriageWorkItem(
 ): Promise<SlashActiveWorkInsertResult> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  return insertSlashActiveQueuedWorkItem(client, {
+  return insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
     type: "triage",
+    source: "slash",
     ref: params.ref,
     reviewLens: null,
     resourceKey,
@@ -373,6 +377,7 @@ export async function createTriageWorkItem(
       needsThreadRootResolution: params.needsThreadRootResolution,
       replyTarget: params.replyTarget,
     } satisfies TriageWorkPayload,
+    conflict: "slash_active",
   });
 }
 
@@ -385,7 +390,7 @@ export async function createVerificationWorkItem(
 ): Promise<string> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  await insertQueuedAgentWorkItem(client, {
+  const insert = await insertAgentWorkItem(client, {
     id,
     webhookEventId: params.webhookEventId,
     type: "verification",
@@ -398,8 +403,9 @@ export async function createVerificationWorkItem(
       source: "auto",
       repositorySizeKb: params.ref.repositorySizeKb,
     } satisfies VerificationWorkPayload,
+    conflict: "none",
   });
-  return id;
+  return insert.id;
 }
 
 export async function fetchActiveTriageWorkItem(
@@ -431,9 +437,7 @@ export async function createAskWorkItem(
     commenterId: number;
     codeAnchor?: CodeAnchor;
   },
-): Promise<
-  { readonly created: true; readonly id: string } | { readonly created: false; readonly id: string }
-> {
+): Promise<ConflictAwareInsertResult> {
   const id = crypto.randomUUID();
   const payload = {
     question: params.question,
@@ -443,95 +447,76 @@ export async function createAskWorkItem(
     commenterId: params.commenterId,
     codeAnchor: params.codeAnchor,
   } satisfies AskWorkPayload;
-  const result = await client.query<{ id: string }>(
-    `INSERT INTO agent_work_items (
-		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
-		   head_sha, resource_key, priority, payload
-		 )
-		 VALUES ($1, $2, 'ask', 'slash', 'queued', $3, $4, $5, $6, $7, $8, 50, $9::jsonb)
-		 ON CONFLICT (webhook_event_id)
-		   WHERE type = 'ask' AND webhook_event_id IS NOT NULL
-		 DO NOTHING
-		 RETURNING id`,
-    [
-      id,
-      params.webhookEventId,
-      params.ref.owner,
-      params.ref.repo,
-      params.ref.prNumber,
-      params.ref.installationId,
-      params.ref.headSha,
-      prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
-      JSON.stringify(payload),
-    ],
-  );
-  const createdId = result.rows[0]?.id;
-  if (createdId) {
-    return { created: true, id: createdId };
-  }
-  const existing = await client.query<{ id: string }>(
-    `SELECT id
-       FROM agent_work_items
-      WHERE webhook_event_id = $1
-        AND type = 'ask'
-      LIMIT 1`,
-    [params.webhookEventId],
-  );
-  const existingId = existing.rows[0]?.id;
-  if (!existingId) {
-    throw new Error("ask work item conflict without existing row");
-  }
-  return { created: false, id: existingId };
+  return insertAgentWorkItem(client, {
+    id,
+    webhookEventId: params.webhookEventId,
+    type: "ask",
+    source: "slash",
+    ref: params.ref,
+    reviewLens: null,
+    resourceKey: prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber),
+    priority: 50,
+    payload,
+    conflict: "ask_webhook",
+  });
 }
 
 export async function fetchActiveWorkItem(
   client: PoolClient,
   target: AutoWorkSupersedeTarget,
 ): Promise<string | null> {
-  if (target.kind === "description") {
-    const result = await client.query<{ id: string }>(
-      `SELECT id
+  switch (target.kind) {
+    case "description": {
+      const result = await client.query<{ id: string }>(
+        `SELECT id
 			   FROM agent_work_items
 			  WHERE resource_key = $1
 			    AND type = 'description'
 			    AND status IN ('queued', 'running')
 			  LIMIT 1`,
-      [target.resourceKey],
-    );
-    return result.rows[0]?.id ?? null;
-  }
-  if (target.kind === "triage") {
-    const result = await client.query<{ id: string }>(
-      `SELECT id
+        [target.resourceKey],
+      );
+      return result.rows[0]?.id ?? null;
+    }
+    case "triage": {
+      const result = await client.query<{ id: string }>(
+        `SELECT id
 			   FROM agent_work_items
 			  WHERE resource_key = $1
 			    AND type = 'triage'
 			    AND status IN ('queued', 'running')
 			  LIMIT 1`,
-      [target.resourceKey],
-    );
-    return result.rows[0]?.id ?? null;
-  }
-  if (target.kind === "verification") {
-    const result = await client.query<{ id: string }>(
-      `SELECT id
+        [target.resourceKey],
+      );
+      return result.rows[0]?.id ?? null;
+    }
+    case "verification": {
+      const result = await client.query<{ id: string }>(
+        `SELECT id
 		   FROM agent_work_items
 		  WHERE resource_key = $1
 		    AND type = 'verification'
 		    AND status IN ('queued', 'running')
 		  LIMIT 1`,
-      [target.resourceKey],
-    );
-    return result.rows[0]?.id ?? null;
-  }
-  const result = await client.query<{ id: string }>(
-    `SELECT id
+        [target.resourceKey],
+      );
+      return result.rows[0]?.id ?? null;
+    }
+    case "review": {
+      const result = await client.query<{ id: string }>(
+        `SELECT id
 		   FROM agent_work_items
 		  WHERE resource_key = $1
 		    AND review_lens = $2
 		    AND status IN ('queued', 'running')
 		  LIMIT 1`,
-    [target.resourceKey, target.lens],
-  );
-  return result.rows[0]?.id ?? null;
+        [target.resourceKey, target.lens],
+      );
+      return result.rows[0]?.id ?? null;
+    }
+    default: {
+      const exhaustive: never = target;
+      return exhaustive;
+    }
+  }
 }
