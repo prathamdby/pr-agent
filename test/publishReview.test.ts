@@ -471,6 +471,91 @@ describe("publishReview", () => {
     ]);
   });
 
+  it("preserves unmanaged labels beyond the first GitHub page on replace-all sync", async () => {
+    const pageOneExtras = Array.from({ length: 30 }, (_, i) => `extra-${i + 1}`);
+    const pageTwoExtras = ["must-preserve-page-two", "also-preserve-page-two"];
+    vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
+      "Review effort 1/5",
+      ...pageOneExtras,
+      ...pageTwoExtras,
+    ]);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cfg: {
+        enableReviewLabelsEffort: true,
+        enableReviewLabelsSecurity: false,
+        enableReviewCommitStatus: false,
+        enableReviewCheckRun: false,
+      },
+      payload: { ...payload, estimatedEffort: 2 },
+    });
+
+    expect(setPullRequestLabels).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.arrayContaining([...pageOneExtras, ...pageTwoExtras, "Review effort 2/5"]),
+    );
+    const nextLabels = vi.mocked(setPullRequestLabels).mock.calls[0]?.[4] ?? [];
+    expect(nextLabels).toHaveLength(pageOneExtras.length + pageTwoExtras.length + 1);
+    expect(nextLabels).not.toContain("Review effort 1/5");
+  });
+
+  it("forwards tokenExpiresAtTs to inline review creation", async () => {
+    const tokenExpiresAtTs = 1_700_000_000_000;
+
+    await publishReviewForTest({
+      ...baseParams,
+      tokenExpiresAtTs,
+      publishState: testPublishState(),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.objectContaining({
+        event: "REQUEST_CHANGES",
+        commitId: "sha",
+      }),
+      tokenExpiresAtTs,
+    );
+  });
+
+  it("forwards tokenExpiresAtTs on repeat no-bugs review creation", async () => {
+    const tokenExpiresAtTs = 1_700_000_000_000;
+    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+      id: 99,
+      url: "https://github.com/o/r/pull/1#issuecomment-99",
+      source: "hint",
+    });
+
+    await publishReviewForTest({
+      ...baseParams,
+      tokenExpiresAtTs,
+      shouldLinkToSummary: true,
+      summaryCommentIdHint: 99,
+      publishState: testPublishState(),
+      payload: { ...payload, findings: [] },
+    });
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.objectContaining({
+        event: "COMMENT",
+      }),
+      tokenExpiresAtTs,
+    );
+  });
+
   it("links pointer when shouldLinkToSummary and comment verifies", async () => {
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
       id: 99,

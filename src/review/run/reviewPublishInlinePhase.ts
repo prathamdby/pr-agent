@@ -57,6 +57,7 @@ export async function runInlinePublishPhase(params: {
   publishState: SubmitReviewState;
   publishMetaBase: Record<string, unknown>;
   inlineReviewFingerprints: (placements: readonly FingerprintedInlinePlacement[]) => string[];
+  tokenExpiresAtTs?: number;
   recordPublishStep?: (
     step: "inline_review",
     detail?: { githubId?: string | number; meta?: Record<string, unknown> },
@@ -73,6 +74,7 @@ export async function runInlinePublishPhase(params: {
     publishState,
     publishMetaBase,
     inlineReviewFingerprints,
+    tokenExpiresAtTs,
     recordPublishStep,
   } = params;
   let summaryPlacements: InlinePlacement[] = [...params.placements];
@@ -106,6 +108,7 @@ export async function runInlinePublishPhase(params: {
           commitId: ctx.headSha,
           inlinePlacements: params.inlineFindings,
           renderCommentBody: (finding) => renderInlineThreadBody(finding, ctx),
+          expiresAtTs: tokenExpiresAtTs,
         },
       );
 
@@ -227,12 +230,28 @@ export async function runInlinePublishPhase(params: {
   } else if (params.shouldLinkToSummary && payload.findings.length === 0) {
     const body = renderRepeatNoBugsReviewBody(mode, summaryCommentUrl);
     try {
+      const reviewParams = {
+        body,
+        event: "COMMENT" as const,
+        commitId: ctx.headSha,
+      };
       const review = await withTransientReviewRetry(() =>
-        createPullRequestReviewWithComments(token, ctx.owner, ctx.repo, ctx.prNumber, {
-          body,
-          event: "COMMENT",
-          commitId: ctx.headSha,
-        }),
+        tokenExpiresAtTs == null
+          ? createPullRequestReviewWithComments(
+              token,
+              ctx.owner,
+              ctx.repo,
+              ctx.prNumber,
+              reviewParams,
+            )
+          : createPullRequestReviewWithComments(
+              token,
+              ctx.owner,
+              ctx.repo,
+              ctx.prNumber,
+              reviewParams,
+              tokenExpiresAtTs,
+            ),
       );
       inlineReviewId = review.id;
       publishState.inlineReviewId = review.id;

@@ -1,32 +1,64 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
+import { COMMENTS_PAGE_SIZE } from "../src/settings/index.js";
+import { syncReviewLabels } from "../src/review/run/reviewLabels.js";
 
-const listComments = vi.fn();
-const updateComment = vi.fn();
-const createCheckRun = vi.fn();
-const updateCheckRun = vi.fn();
-const listCheckRunsForRef = vi.fn();
-
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: () => ({
+const {
+  listComments,
+  updateComment,
+  createCheckRun,
+  updateCheckRun,
+  listCheckRunsForRef,
+  listLabelsOnIssue,
+  createReview,
+  installationOctokit,
+} = vi.hoisted(() => {
+  const listComments = vi.fn();
+  const updateComment = vi.fn();
+  const createCheckRun = vi.fn();
+  const updateCheckRun = vi.fn();
+  const listCheckRunsForRef = vi.fn();
+  const listLabelsOnIssue = vi.fn();
+  const createReview = vi.fn();
+  const installationOctokit = vi.fn(() => ({
     rest: {
       issues: {
         listComments,
         updateComment,
+        listLabelsOnIssue,
       },
       checks: {
         create: createCheckRun,
         update: updateCheckRun,
         listForRef: listCheckRunsForRef,
       },
+      pulls: {
+        createReview,
+      },
     },
-  }),
+  }));
+  return {
+    listComments,
+    updateComment,
+    createCheckRun,
+    updateCheckRun,
+    listCheckRunsForRef,
+    listLabelsOnIssue,
+    createReview,
+    installationOctokit,
+  };
+});
+
+vi.mock("../src/github/appAuth.js", () => ({
+  installationOctokit,
 }));
 
 import {
+  createPullRequestReviewWithComments,
   createReviewCheckRun,
   findIssueCommentBySentinel,
   findReviewCheckRunByName,
+  listPullRequestLabels,
   updateReviewCheckRun,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
@@ -37,6 +69,9 @@ describe("findIssueCommentBySentinel", () => {
     updateComment.mockReset();
     createCheckRun.mockReset();
     updateCheckRun.mockReset();
+    listLabelsOnIssue.mockReset();
+    createReview.mockReset();
+    installationOctokit.mockClear();
   });
 
   it("paginates and returns the last matching comment across pages", async () => {
@@ -87,6 +122,107 @@ describe("findIssueCommentBySentinel", () => {
       expect.objectContaining({
         comment_id: 102,
         body: `${REVIEW_SUMMARY_SENTINEL}\n\nupdated`,
+      }),
+    );
+  });
+});
+
+describe("listPullRequestLabels", () => {
+  beforeEach(() => {
+    listLabelsOnIssue.mockReset();
+    installationOctokit.mockClear();
+  });
+
+  it("paginates and returns labels beyond the first page", async () => {
+    const pageOne = Array.from({ length: COMMENTS_PAGE_SIZE }, (_, i) => ({
+      name: `label-${i + 1}`,
+    }));
+    const pageTwo = [{ name: "label-beyond-page-one" }, { name: "team-owned" }];
+    listLabelsOnIssue.mockResolvedValueOnce({ data: pageOne }).mockResolvedValueOnce({
+      data: pageTwo,
+    });
+
+    const labels = await listPullRequestLabels("tok", "o", "r", 42, 1_700_000_000_000);
+
+    expect(installationOctokit).toHaveBeenCalledWith("tok", 1_700_000_000_000);
+    expect(listLabelsOnIssue).toHaveBeenCalledTimes(2);
+    expect(listLabelsOnIssue).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        issue_number: 42,
+        per_page: COMMENTS_PAGE_SIZE,
+        page: 1,
+      }),
+    );
+    expect(listLabelsOnIssue).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        per_page: COMMENTS_PAGE_SIZE,
+        page: 2,
+      }),
+    );
+    expect(labels).toHaveLength(COMMENTS_PAGE_SIZE + 2);
+    expect(labels).toContain("label-beyond-page-one");
+    expect(labels).toContain("team-owned");
+  });
+
+  it("keeps later-page labels when computing replace-all setLabels payload", async () => {
+    const pageOne = Array.from({ length: COMMENTS_PAGE_SIZE }, (_, i) => ({
+      name: i === 0 ? "Review effort 1/5" : `custom-${i}`,
+    }));
+    const pageTwo = [{ name: "must-preserve" }, { name: "also-preserve" }];
+    listLabelsOnIssue.mockResolvedValueOnce({ data: pageOne }).mockResolvedValueOnce({
+      data: pageTwo,
+    });
+
+    const current = await listPullRequestLabels("tok", "o", "r", 7);
+    const next = syncReviewLabels(current, ["Review effort 2/5"], "review");
+
+    expect(current).toHaveLength(COMMENTS_PAGE_SIZE + 2);
+    expect(next).toContain("must-preserve");
+    expect(next).toContain("also-preserve");
+    expect(next).toContain("custom-1");
+    expect(next).toContain("Review effort 2/5");
+    expect(next).not.toContain("Review effort 1/5");
+  });
+});
+
+describe("createPullRequestReviewWithComments", () => {
+  beforeEach(() => {
+    createReview.mockReset();
+    installationOctokit.mockClear();
+  });
+
+  it("forwards expiresAtTs to installationOctokit", async () => {
+    createReview.mockResolvedValueOnce({
+      data: { id: 9, html_url: "https://example.com/review/9" },
+    });
+    const expiresAtTs = 1_700_000_000_000;
+
+    await createPullRequestReviewWithComments(
+      "tok",
+      "o",
+      "r",
+      1,
+      {
+        body: "pointer",
+        event: "COMMENT",
+        commitId: "sha",
+      },
+      expiresAtTs,
+    );
+
+    expect(installationOctokit).toHaveBeenCalledWith("tok", expiresAtTs);
+    expect(createReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        owner: "o",
+        repo: "r",
+        pull_number: 1,
+        body: "pointer",
+        event: "COMMENT",
+        commit_id: "sha",
       }),
     );
   });

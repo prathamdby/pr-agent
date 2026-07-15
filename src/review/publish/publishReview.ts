@@ -346,6 +346,7 @@ export async function publishReview(
       publishState,
       publishMetaBase,
       inlineReviewFingerprints,
+      tokenExpiresAtTs,
       recordPublishStep: params.recordPublishStep,
     });
     summaryPlacements = inlinePhase.summaryPlacements;
