@@ -1,3 +1,4 @@
+import { access, constants } from "node:fs/promises";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -51,6 +52,7 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
     },
     abort: vi.fn(),
     setActiveToolsByName: vi.fn(),
+    dispose: vi.fn(),
   };
 }
 
@@ -319,5 +321,55 @@ describe("piAgentRunnerProvider.send", () => {
       setIntervalSpy.mockRestore();
       vi.useRealTimers();
     }
+  });
+
+  it("calls SDK session.dispose before removing the agent directory", async () => {
+    const dispose = vi.fn();
+    const session = buildMockSession(() => undefined);
+    session.dispose = dispose;
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
+    expect(typeof agentDir).toBe("string");
+    if (typeof agentDir !== "string") throw new Error("expected agentDir");
+    await expect(access(agentDir, constants.F_OK)).resolves.toBeUndefined();
+
+    await runnerSession.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+    await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes the agent directory even when SDK dispose throws", async () => {
+    const dispose = vi.fn(() => {
+      throw new Error("sdk dispose failed");
+    });
+    const session = {
+      subscribe: () => () => {},
+      prompt: async () => undefined,
+      abort: vi.fn(),
+      setActiveToolsByName: vi.fn(),
+      dispose,
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    const agentDir = vi.mocked(createAgentSession).mock.calls.at(-1)?.[0]?.agentDir;
+    expect(typeof agentDir).toBe("string");
+    if (typeof agentDir !== "string") throw new Error("expected agentDir");
+
+    await expect(runnerSession.dispose()).rejects.toThrow("sdk dispose failed");
+    expect(dispose).toHaveBeenCalledTimes(1);
+    await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

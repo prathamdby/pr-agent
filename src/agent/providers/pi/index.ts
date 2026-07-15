@@ -229,7 +229,11 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         session.setActiveToolsByName(allToolNames);
       },
       async dispose() {
-        await rm(agentDir, { recursive: true, force: true });
+        try {
+          session.dispose();
+        } finally {
+          await rm(agentDir, { recursive: true, force: true });
+        }
       },
     };
   },
