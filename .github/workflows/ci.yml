@@ -15,6 +15,7 @@ concurrency:
 jobs:
   changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       site: ${{ steps.filter.outputs.site }}
@@ -30,6 +31,8 @@ jobs:
               - ".env.example"
               - ".node-version"
               - ".npmrc"
+              - ".oxfmtrc.json"
+              - ".oxlintrc.json"
               - "Dockerfile"
               - "migrations/**"
               - "package.json"
@@ -51,18 +54,17 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: nubjs/setup-nub@v0
         with:
           cache: true
           node-version-file: .node-version
-      - run: nub ci --filter pr-agent...
+      - run: nub ci --filter pr-agent... --filter pr-agent-landing...
       - run: nub run check:effect-versions
       - run: nub run check:prod-deps
-      - run: nub run typecheck
-      - run: nub run lint:backend
-      - run: nub run fmt:check
+      - run: nub run check:code
       - run: nub run test
       - run: nub run build
 
@@ -70,6 +72,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16-alpine
@@ -99,6 +102,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -113,11 +117,14 @@ jobs:
     needs: changes
     if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: nubjs/setup-nub@v0
         with:
           cache: true
           node-version-file: .node-version
-      - run: nub ci --filter pr-agent-landing...
+      - run: nub ci --filter pr-agent... --filter pr-agent-landing...
+      - run: nub run lint
+      - run: nub run fmt:check
       - run: nub run --node site:build
