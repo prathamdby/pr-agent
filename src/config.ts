@@ -275,10 +275,7 @@ export function loadConfig() {
     ENV.CURSOR_RIPGREP_PATH,
     DEFAULT_CURSOR_RIPGREP_PATH,
   ).trim();
-  const posthogProjectToken = optionalEnv(
-    ENV.POSTHOG_PROJECT_TOKEN,
-    DEFAULT_POSTHOG_PROJECT_TOKEN,
-  );
+  const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
   const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
   const modelProviderKeys = {
     openai: optionalEnv(EXTERNAL_ENV.OPENAI_API_KEY, ""),
