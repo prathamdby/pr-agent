@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import type { EventMessage } from "posthog-node";
+import { sanitizePostHogEvent } from "../src/security/sanitizePostHogEvent.js";
 
 type PostHogOptions = {
   readonly host?: string;
   readonly enableExceptionAutocapture?: boolean;
+  readonly before_send?: (event: EventMessage | null) => EventMessage | null;
 };
 
 const mockPostHog = vi.hoisted(() => {
@@ -33,7 +36,7 @@ describe("posthog client", () => {
     delete process.env.POSTHOG_HOST;
   });
 
-  it("constructs the client with exception autocapture enabled", async () => {
+  it("constructs the client with exception autocapture and before_send sanitizer", async () => {
     process.env.POSTHOG_PROJECT_TOKEN = "token";
     process.env.POSTHOG_HOST = "https://posthog.example";
 
@@ -42,6 +45,7 @@ describe("posthog client", () => {
     expect(mockPostHog.PostHog).toHaveBeenCalledWith("token", {
       host: "https://posthog.example",
       enableExceptionAutocapture: true,
+      before_send: sanitizePostHogEvent,
     });
   });
 
