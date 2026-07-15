@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { EventMessage } from "posthog-node";
+import { ENV } from "../src/settings/index.js";
 import { sanitizePostHogEvent } from "../src/security/sanitizePostHogEvent.js";
 
 type PostHogOptions = {
@@ -32,13 +33,13 @@ describe("posthog client", () => {
     vi.restoreAllMocks();
     vi.resetModules();
     mockPostHog.instances.length = 0;
-    delete process.env.POSTHOG_PROJECT_TOKEN;
-    delete process.env.POSTHOG_HOST;
+    delete process.env[ENV.POSTHOG_PROJECT_TOKEN];
+    delete process.env[ENV.POSTHOG_HOST];
   });
 
   it("constructs the client with exception autocapture and before_send sanitizer", async () => {
-    process.env.POSTHOG_PROJECT_TOKEN = "token";
-    process.env.POSTHOG_HOST = "https://posthog.example";
+    process.env[ENV.POSTHOG_PROJECT_TOKEN] = "token";
+    process.env[ENV.POSTHOG_HOST] = "https://posthog.example";
 
     await import("../src/posthog.js");
 

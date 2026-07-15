@@ -2,12 +2,21 @@ import { accessSync, constants } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_CURSOR_RIPGREP_PATH, ENV } from "../../../settings/index.js";
 import { captureCursorWorkerEvent, captureCursorWorkerFailure } from "./cursorAnalytics.js";
 
+function readCursorRipgrepPath(): string {
+  return (process.env[ENV.CURSOR_RIPGREP_PATH] ?? DEFAULT_CURSOR_RIPGREP_PATH).trim();
+}
+
+function writeCursorRipgrepPath(value: string): void {
+  process.env[ENV.CURSOR_RIPGREP_PATH] = value;
+}
+
 export function configureCursorRipgrepPath(): string | undefined {
-  const configured = process.env.CURSOR_RIPGREP_PATH?.trim();
+  const configured = readCursorRipgrepPath();
   if (configured) {
-    process.env.CURSOR_RIPGREP_PATH = configured;
+    writeCursorRipgrepPath(configured);
     return configured;
   }
 
@@ -21,7 +30,7 @@ export function configureCursorRipgrepPath(): string | undefined {
     );
     const rgPath = path.join(path.dirname(platformPkgJson), "bin", rgName);
     accessSync(rgPath, constants.X_OK);
-    process.env.CURSOR_RIPGREP_PATH = rgPath;
+    writeCursorRipgrepPath(rgPath);
     captureCursorWorkerEvent("cursor ripgrep configured", {
       source: "platform_package",
     });
@@ -35,9 +44,9 @@ export function configureCursorRipgrepPath(): string | undefined {
 }
 
 export function assertCursorRipgrepConfigured(): string {
-  const configured = process.env.CURSOR_RIPGREP_PATH?.trim() || configureCursorRipgrepPath();
+  const configured = readCursorRipgrepPath() || configureCursorRipgrepPath();
   if (configured) {
-    process.env.CURSOR_RIPGREP_PATH = configured;
+    writeCursorRipgrepPath(configured);
     return configured;
   }
 
