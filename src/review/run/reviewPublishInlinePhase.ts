@@ -236,22 +236,14 @@ export async function runInlinePublishPhase(params: {
         commitId: ctx.headSha,
       };
       const review = await withTransientReviewRetry(() =>
-        tokenExpiresAtTs == null
-          ? createPullRequestReviewWithComments(
-              token,
-              ctx.owner,
-              ctx.repo,
-              ctx.prNumber,
-              reviewParams,
-            )
-          : createPullRequestReviewWithComments(
-              token,
-              ctx.owner,
-              ctx.repo,
-              ctx.prNumber,
-              reviewParams,
-              tokenExpiresAtTs,
-            ),
+        createPullRequestReviewWithComments(
+          token,
+          ctx.owner,
+          ctx.repo,
+          ctx.prNumber,
+          reviewParams,
+          tokenExpiresAtTs,
+        ),
       );
       inlineReviewId = review.id;
       publishState.inlineReviewId = review.id;

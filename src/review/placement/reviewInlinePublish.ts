@@ -112,16 +112,14 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
         commitId: params.commitId,
       };
       const review = await withTransientReviewRetry(() =>
-        params.expiresAtTs == null
-          ? createPullRequestReviewWithComments(token, owner, repo, pullNumber, reviewParams)
-          : createPullRequestReviewWithComments(
-              token,
-              owner,
-              repo,
-              pullNumber,
-              reviewParams,
-              params.expiresAtTs,
-            ),
+        createPullRequestReviewWithComments(
+          token,
+          owner,
+          repo,
+          pullNumber,
+          reviewParams,
+          params.expiresAtTs,
+        ),
       );
       return {
         review,
