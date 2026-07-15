@@ -54,7 +54,7 @@ import {
   runDurableWorkItem,
 } from "../durableJob.js";
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
-import { type ReviewJobData, type ReviewWorkPayload } from "../types.js";
+import { type ReviewJobData } from "../types.js";
 
 type SettledPriorInlineFeedback =
   | { readonly ok: true; readonly value: string | undefined }
@@ -75,8 +75,8 @@ export async function executeReviewJob(
     acceptItem: (item) => item.reviewLens != null,
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
-      const reviewLens = item.reviewLens!;
-      const payload = item.payload as ReviewWorkPayload;
+      const reviewLens = item.reviewLens;
+      const payload = item.payload;
       initReviewRunMetrics({
         provider: cfg.agentProvider,
         model: cfg.piModel,
@@ -445,7 +445,7 @@ export async function executeReviewJob(
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
-      const reviewLens = item.reviewLens!;
+      const reviewLens = item.reviewLens;
       const summary = await upsertReviewSummaryComment(
         installation.token,
         item.owner,

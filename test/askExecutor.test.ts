@@ -2,8 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
-import type { AgentWorkItem, AskJobData } from "../src/agentWork/types.js";
+import type { AskJobData } from "../src/agentWork/types.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 const mocks = vi.hoisted(() => ({
@@ -61,28 +62,8 @@ const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function askItem(): AgentWorkItem {
-  return {
-    id: "wi-1",
-    webhookEventId: "ev-1",
-    type: "ask",
-    source: "slash",
-    status: "running",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
-    headSha: "head",
-    reviewLens: null,
-    resourceKey: "o/r#1",
-    attemptCount: 0,
-    payload: {
-      question: "what changed?",
-      replyTarget: { kind: "prConversation", prNumber: 1 },
-      commentId: 99,
-    },
-    cancelRequestedAt: null,
-  };
+function askItem() {
+  return makeAskWorkItem({ headSha: "head" });
 }
 
 function askJob(): JobWithMetadata<AskJobData> {
@@ -115,11 +96,15 @@ function askJob(): JobWithMetadata<AskJobData> {
     pendingDependencies: 0,
     deadLetter: "",
     output: {},
+    sourceName: null,
+    sourceId: null,
+    sourceCreatedOn: null,
+    sourceRetryCount: null,
   };
 }
 
 function mockDurableExecution(): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
     await spec.execute(askItem(), {
       installation: {
         token: "tok",
@@ -187,7 +172,7 @@ describe("executeAskJob", () => {
   it("returns degraded when the publish record fails after answer delivery", async () => {
     let result: unknown;
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       result = await spec.execute(askItem(), {
         installation: {
           token: "tok",
@@ -208,7 +193,7 @@ describe("executeAskJob", () => {
 
   it("skips terminal failure reply after the answer was delivered", async () => {
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
       const installation = {
         token: "tok",
@@ -229,8 +214,8 @@ describe("executeAskJob", () => {
   });
 
   it("falls back to a PR comment when inline thread reply fails", async () => {
-    const item: AgentWorkItem = {
-      ...askItem(),
+    const item = makeAskWorkItem({
+      headSha: "head",
       payload: {
         question: "why this line?",
         replyTarget: {
@@ -240,10 +225,10 @@ describe("executeAskJob", () => {
         },
         commentId: 99,
       },
-    };
+    });
     mocks.postSlashReply.mockRejectedValueOnce(new Error("thread unavailable"));
     mocks.createComment.mockResolvedValue(undefined);
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       await spec.execute(item, {
         installation: {
           token: "tok",
@@ -268,7 +253,7 @@ describe("executeAskJob", () => {
 
   it("posts terminal failure reply when the ask never delivered an answer", async () => {
     mocks.runAskRun.mockRejectedValue(new Error("agent failed"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
       const installation = {
         token: "tok",
@@ -295,7 +280,7 @@ describe("executeAskJob", () => {
 
   it("does not post terminal failure reply on non-terminal retry", async () => {
     mocks.runAskRun.mockRejectedValue(new Error("transient"));
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
       const installation = {
         token: "tok",

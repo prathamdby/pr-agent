@@ -13,7 +13,7 @@ import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { COMMENT_PAGINATION_MAX_PAGES, COMMENTS_PAGE_SIZE } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
-import { type VerificationJobData, type VerificationWorkPayload } from "../types.js";
+import { type VerificationJobData } from "../types.js";
 
 type PushedCommit = {
   readonly sha: string;
@@ -62,7 +62,7 @@ export async function executeVerificationJob(
     type: "verification",
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
-      const payload = item.payload as VerificationWorkPayload;
+      const payload = item.payload;
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
       const botIdentity = await getAppBotIdentity(cfg);

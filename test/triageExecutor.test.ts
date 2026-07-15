@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
-import type { AgentWorkItem, TriageJobData } from "../src/agentWork/types.js";
+import type { TriageJobData } from "../src/agentWork/types.js";
 import {
   TRIAGE_ALL_PRIOR_FINDINGS_RESOLVED,
   TRIAGE_FAILURE_MESSAGE,
@@ -80,35 +80,14 @@ vi.mock("../src/agentWork/repository.js", () => ({
 }));
 
 import { executeTriageJob } from "../src/agentWork/executors/triageExecutor.js";
+import { makeTriageWorkItem } from "./helpers/agentWorkItems.js";
 
 const cfg = makeTestConfig();
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function item(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
-  return {
-    id: "wi-1",
-    webhookEventId: "ev-1",
-    type: "triage",
-    source: "slash",
-    status: "running",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
-    headSha: "head",
-    reviewLens: null,
-    resourceKey: "o/r#1",
-    attemptCount: 0,
-    payload: {
-      source: "slash",
-      commentId: 5,
-      scope: "all",
-      replyTarget: { kind: "prConversation", prNumber: 1 },
-    },
-    cancelRequestedAt: null,
-    ...overrides,
-  };
+function item(overrides: Parameters<typeof makeTriageWorkItem>[0] = {}) {
+  return makeTriageWorkItem({ headSha: "head", ...overrides });
 }
 
 function job(): JobWithMetadata<TriageJobData> {
@@ -118,7 +97,7 @@ function job(): JobWithMetadata<TriageJobData> {
 }
 
 function mockDurableExecution(workItem = item()): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) =>
+  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) =>
     spec.execute(workItem, {
       installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
       headSha: "a".repeat(40),
@@ -602,7 +581,7 @@ describe("executeTriageJob", () => {
   });
 
   it("posts terminal failure comment when no report exists", async () => {
-    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
       await spec.onTerminalFailure?.(
         item(),
         {

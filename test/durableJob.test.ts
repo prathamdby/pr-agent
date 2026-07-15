@@ -9,6 +9,8 @@ import {
   type DurableJobSpec,
 } from "../src/agentWork/durableJob.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
+import { makeAskWorkItem, makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { coreOf } from "./helpers/executorDurableHarness.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
@@ -46,36 +48,16 @@ const cfg = {} as Config;
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
-  return {
-    id: "wi-1",
-    webhookEventId: "ev-1",
-    type: "review",
-    source: "auto",
-    status: "queued",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
-    headSha: "deadbeef",
-    reviewLens: "review",
-    resourceKey: "o/r#1",
-    attemptCount: 0,
-    payload: { mode: "review", source: "auto" },
-    cancelRequestedAt: null,
-    ...overrides,
-  };
-}
-
-function coreOf(item: AgentWorkItem): Omit<AgentWorkItem, "payload"> {
-  const { payload: _payload, ...core } = item;
-  return core;
+function makeItem(
+  overrides: Parameters<typeof makeReviewWorkItem>[0] & { status?: AgentWorkItem["status"] } = {},
+): AgentWorkItem {
+  return makeReviewWorkItem({ status: "queued", ...overrides });
 }
 
 function mockFetchedItem(item: AgentWorkItem | null): void {
   vi.mocked(repo.getWorkItem).mockResolvedValue(item);
   vi.mocked(repo.getWorkItemCore).mockResolvedValue(item ? coreOf(item) : null);
-  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload ?? null);
+  vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item?.payload);
 }
 
 function mockFetchedItems(...items: AgentWorkItem[]): void {
@@ -99,7 +81,7 @@ function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: 
 }
 
 function runReviewWorkItem(
-  overrides: Partial<DurableJobSpec> & Pick<DurableJobSpec, "execute">,
+  overrides: Partial<DurableJobSpec<"review">> & Pick<DurableJobSpec<"review">, "execute">,
 ): Promise<void> {
   return runDurableWorkItem({
     cfg,
@@ -193,6 +175,29 @@ describe("runDurableWorkItem", () => {
     expect(execute).toHaveBeenCalledTimes(1);
   });
 
+  it("terminalizes running work when payload is malformed after claim", async () => {
+    const item = makeItem();
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue({ question: "not-a-review-payload" });
+    vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
+    const execute = vi.fn();
+
+    await expect(
+      runReviewWorkItem({
+        acceptItem: (it) => it.reviewLens != null,
+        execute,
+      }),
+    ).rejects.toThrow(/Invalid review work item payload/);
+
+    expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
+    );
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("passes resolved pull payload into execution context", async () => {
     const item = makeItem();
     mockFetchedItem(item);
@@ -213,10 +218,10 @@ describe("runDurableWorkItem", () => {
     expect(execute.mock.calls[0]?.[1].pullRequest).toBe(pullRequest);
   });
 
-  it("returns without executing when payload is missing after claim", async () => {
+  it("returns without executing when payload row is missing after claim", async () => {
     const item = makeItem();
     vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
-    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(null);
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(undefined);
     const execute = vi.fn();
 
     await runReviewWorkItem({ execute });
@@ -224,6 +229,26 @@ describe("runDurableWorkItem", () => {
     expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
     expect(execute).not.toHaveBeenCalled();
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+  });
+
+  it("terminalizes running work when payload is JSON null after claim", async () => {
+    const item = makeItem();
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(null);
+    vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
+    const execute = vi.fn();
+
+    await expect(runReviewWorkItem({ execute })).rejects.toThrow(
+      /Invalid review work item payload/,
+    );
+
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(
+      pool,
+      "wi-1",
+      expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
+    );
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("returns without executing when item is null", async () => {
@@ -235,17 +260,17 @@ describe("runDurableWorkItem", () => {
   });
 
   it("returns without executing when item type mismatches", async () => {
-    mockFetchedItem(makeItem({ type: "ask" }));
+    mockFetchedItem(makeAskWorkItem({ status: "queued" }));
     const execute = vi.fn();
     await runReviewWorkItem({ execute });
     expect(execute).not.toHaveBeenCalled();
   });
 
   it("returns without executing when acceptItem rejects", async () => {
-    mockFetchedItem(makeItem({ reviewLens: null }));
+    mockFetchedItem(makeItem());
     const execute = vi.fn();
     await runReviewWorkItem({
-      acceptItem: (it) => it.reviewLens != null,
+      acceptItem: () => false,
       execute,
     });
     expect(execute).not.toHaveBeenCalled();
@@ -634,10 +659,7 @@ describe("runDurableWorkItem", () => {
     });
     mockFetchedItem(item);
     const boom = new Error("enqueue failed");
-    const afterComplete = vi
-      .fn()
-      .mockRejectedValueOnce(boom)
-      .mockResolvedValueOnce(undefined);
+    const afterComplete = vi.fn().mockRejectedValueOnce(boom).mockResolvedValueOnce(undefined);
     const execute = vi.fn().mockResolvedValue({
       rescheduled: true,
       replacementWorkItemId: "replacement-wi",

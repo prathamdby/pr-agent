@@ -4,7 +4,7 @@ import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 
-type WorkType = "review" | "ask" | "description" | "triage" | "verification";
+export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
 
 export type WebhookHeaders = {
@@ -148,25 +148,69 @@ export type VerificationWorkPayload = {
   readonly repositorySizeKb?: number;
 };
 
-export type AgentWorkItem = PrRef & {
+type WorkItemBase = PrRef & {
   readonly id: string;
   readonly webhookEventId: string | null;
-  readonly type: WorkType;
-  readonly source: WorkSource;
   readonly status: WorkStatus;
-  readonly reviewLens: ReviewMode | null;
   readonly resourceKey: string;
   readonly attemptCount: number;
-  readonly payload:
-    | ReviewWorkPayload
-    | AskWorkPayload
-    | DescriptionWorkPayload
-    | TriageWorkPayload
-    | VerificationWorkPayload;
   readonly cancelRequestedAt: Date | null;
 };
 
-export type AgentWorkItemCore = Omit<AgentWorkItem, "payload">;
+export type ReviewWorkItem = WorkItemBase & {
+  readonly type: "review";
+  readonly source: WorkSource;
+  readonly reviewLens: ReviewMode;
+  readonly payload: ReviewWorkPayload;
+};
+
+export type AskWorkItem = WorkItemBase & {
+  readonly type: "ask";
+  readonly source: "slash";
+  readonly reviewLens: null;
+  readonly payload: AskWorkPayload;
+};
+
+export type DescriptionWorkItem = WorkItemBase & {
+  readonly type: "description";
+  readonly source: WorkSource;
+  readonly reviewLens: null;
+  readonly payload: DescriptionWorkPayload;
+};
+
+export type TriageWorkItem = WorkItemBase & {
+  readonly type: "triage";
+  readonly source: "slash";
+  readonly reviewLens: null;
+  readonly payload: TriageWorkPayload;
+};
+
+export type VerificationWorkItem = WorkItemBase & {
+  readonly type: "verification";
+  readonly source: "auto";
+  readonly reviewLens: null;
+  readonly payload: VerificationWorkPayload;
+};
+
+export type AgentWorkItem =
+  | ReviewWorkItem
+  | AskWorkItem
+  | DescriptionWorkItem
+  | TriageWorkItem
+  | VerificationWorkItem;
+
+type ReviewWorkItemCore = Omit<ReviewWorkItem, "payload">;
+type AskWorkItemCore = Omit<AskWorkItem, "payload">;
+type DescriptionWorkItemCore = Omit<DescriptionWorkItem, "payload">;
+type TriageWorkItemCore = Omit<TriageWorkItem, "payload">;
+type VerificationWorkItemCore = Omit<VerificationWorkItem, "payload">;
+
+export type AgentWorkItemCore =
+  | ReviewWorkItemCore
+  | AskWorkItemCore
+  | DescriptionWorkItemCore
+  | TriageWorkItemCore
+  | VerificationWorkItemCore;
 
 export type QueueConfig = Pick<
   Config,

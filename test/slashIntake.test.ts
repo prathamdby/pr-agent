@@ -211,7 +211,19 @@ describe("applySlashCommandIntake", () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SELECT id, payload")) {
-          return { rows: [{ id: "active", payload: { scope: "all" } }] };
+          return {
+            rows: [
+              {
+                id: "active",
+                payload: {
+                  source: "slash",
+                  commentId: 99,
+                  scope: "all",
+                  replyTarget: { kind: "prConversation", prNumber: 7 },
+                },
+              },
+            ],
+          };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
@@ -245,7 +257,19 @@ describe("applySlashCommandIntake", () => {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
         if (sql.includes("SELECT id, payload")) {
-          return { rows: [{ id: "active", payload: { scope: "all" } }] };
+          return {
+            rows: [
+              {
+                id: "active",
+                payload: {
+                  source: "slash",
+                  commentId: 99,
+                  scope: "all",
+                  replyTarget: { kind: "prConversation", prNumber: 7 },
+                },
+              },
+            ],
+          };
         }
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),

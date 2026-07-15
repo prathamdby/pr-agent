@@ -11,17 +11,17 @@ import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
-import type { AgentWorkItem, AskJobData, AskWorkPayload } from "../types.js";
+import type { AskJobData, AskWorkItem } from "../types.js";
 
 async function publishAskAnswer(
   token: string,
   tokenExpiresAtTs: number,
-  item: AgentWorkItem,
+  item: AskWorkItem,
   answer: string,
   alreadySanitized = false,
 ): Promise<void> {
   const body = alreadySanitized ? answer : sanitizeAskAnswerText(answer);
-  const replyTarget = (item.payload as AskWorkPayload).replyTarget;
+  const replyTarget = item.payload.replyTarget;
   if (replyTarget.kind === "inlineReviewThread") {
     try {
       await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
@@ -66,7 +66,7 @@ export async function executeAskJob(
     execute: async (item, env) => {
       const tokenState = { installation: env.installation };
       const headSha = env.headSha;
-      const payload = item.payload as AskWorkPayload;
+      const payload = item.payload;
       const askReplyPublished = () =>
         hasCompletedPublishStep(pool, item.id, item.resourceKey, ASK_PUBLISH_LENS, "ask_reply");
       if (await askReplyPublished()) {
@@ -152,7 +152,7 @@ export async function executeAskJob(
     },
     onTerminalFailure: async (item, installation) => {
       if (!installation || answerDelivered) return;
-      const payload = item.payload as AskWorkPayload;
+      const payload = item.payload;
       await publishAskAnswer(
         installation.token,
         installation.expiresAtTs,

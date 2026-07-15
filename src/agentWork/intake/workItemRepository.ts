@@ -2,10 +2,18 @@ import crypto from "node:crypto";
 import type { PoolClient } from "pg";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
-import type { TriageScope, TriageWorkPayload, VerificationWorkPayload } from "../types.js";
+import type {
+  AskWorkPayload,
+  DescriptionWorkPayload,
+  ReviewWorkPayload,
+  TriageScope,
+  TriageWorkPayload,
+  VerificationWorkPayload,
+} from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
 import type { AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import { prResourceKey, type PrRef } from "../types.js";
+import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
 /** Partial unique index predicate from migrations/014_slash_active_uniqueness.sql */
 const SLASH_ACTIVE_UNIQUENESS_CONFLICT_TARGET = `(resource_key, type, review_lens)
@@ -18,19 +26,76 @@ export type SlashActiveWorkInsertResult =
   | { readonly created: true; readonly id: string }
   | { readonly created: false; readonly id: string };
 
+type QueuedAgentWorkInsert =
+  | {
+      id: string;
+      webhookEventId: string;
+      type: "review";
+      source: WorkSource;
+      ref: PrRef;
+      reviewLens: ReviewMode;
+      resourceKey: string;
+      priority: number;
+      payload: ReviewWorkPayload;
+    }
+  | {
+      id: string;
+      webhookEventId: string;
+      type: "description";
+      source: WorkSource;
+      ref: PrRef;
+      reviewLens: null;
+      resourceKey: string;
+      priority: number;
+      payload: DescriptionWorkPayload;
+    }
+  | {
+      id: string;
+      webhookEventId: string;
+      type: "verification";
+      source: "auto";
+      ref: PrRef;
+      reviewLens: null;
+      resourceKey: string;
+      priority: number;
+      payload: VerificationWorkPayload;
+    };
+
+type SlashActiveQueuedWorkInsert =
+  | {
+      id: string;
+      webhookEventId: string;
+      type: "review";
+      ref: PrRef;
+      reviewLens: ReviewMode;
+      resourceKey: string;
+      priority: number;
+      payload: ReviewWorkPayload;
+    }
+  | {
+      id: string;
+      webhookEventId: string;
+      type: "description";
+      ref: PrRef;
+      reviewLens: null;
+      resourceKey: string;
+      priority: number;
+      payload: DescriptionWorkPayload;
+    }
+  | {
+      id: string;
+      webhookEventId: string;
+      type: "triage";
+      ref: PrRef;
+      reviewLens: null;
+      resourceKey: string;
+      priority: number;
+      payload: TriageWorkPayload;
+    };
+
 async function insertQueuedAgentWorkItem(
   client: PoolClient,
-  params: {
-    id: string;
-    webhookEventId: string;
-    type: "review" | "description" | "triage" | "verification";
-    source: WorkSource;
-    ref: PrRef;
-    reviewLens: ReviewMode | null;
-    resourceKey: string;
-    priority: number;
-    payload: unknown;
-  },
+  params: QueuedAgentWorkInsert,
 ): Promise<void> {
   await client.query(
     `INSERT INTO agent_work_items (
@@ -58,16 +123,7 @@ async function insertQueuedAgentWorkItem(
 
 async function insertSlashActiveQueuedWorkItem(
   client: PoolClient,
-  params: {
-    id: string;
-    webhookEventId: string;
-    type: "review" | "description" | "triage";
-    ref: PrRef;
-    reviewLens: ReviewMode | null;
-    resourceKey: string;
-    priority: number;
-    payload: unknown;
-  },
+  params: SlashActiveQueuedWorkInsert,
 ): Promise<SlashActiveWorkInsertResult> {
   const result = await client.query<{ id: string }>(
     `INSERT INTO agent_work_items (
@@ -178,7 +234,7 @@ export async function createReviewWorkItem(
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
     commenterId: params.commenterId,
-  };
+  } satisfies ReviewWorkPayload;
 
   if (params.source === "slash") {
     const insert = await insertSlashActiveQueuedWorkItem(client, {
@@ -255,7 +311,7 @@ export async function createDescriptionWorkItem(
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
     commenterId: params.commenterId,
-  };
+  } satisfies DescriptionWorkPayload;
 
   if (params.source === "slash") {
     return insertSlashActiveQueuedWorkItem(client, {
@@ -350,7 +406,7 @@ export async function fetchActiveTriageWorkItem(
   client: PoolClient,
   resourceKey: string,
 ): Promise<{ id: string; payload: TriageWorkPayload } | null> {
-  const result = await client.query<{ id: string; payload: TriageWorkPayload }>(
+  const result = await client.query<{ id: string; payload: unknown }>(
     `SELECT id, payload
 			   FROM agent_work_items
 			  WHERE resource_key = $1
@@ -361,7 +417,7 @@ export async function fetchActiveTriageWorkItem(
   );
   const row = result.rows[0];
   if (!row) return null;
-  return { id: row.id, payload: row.payload };
+  return { id: row.id, payload: parseWorkItemPayload("triage", row.payload) };
 }
 
 export async function createAskWorkItem(
@@ -386,7 +442,7 @@ export async function createAskWorkItem(
     commentId: params.commentId,
     commenterId: params.commenterId,
     codeAnchor: params.codeAnchor,
-  };
+  } satisfies AskWorkPayload;
   const result = await client.query<{ id: string }>(
     `INSERT INTO agent_work_items (
 		   id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,

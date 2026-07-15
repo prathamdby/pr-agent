@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
-import type { AgentWorkItem, VerificationJobData } from "../src/agentWork/types.js";
+import type { VerificationJobData } from "../src/agentWork/types.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
@@ -70,30 +70,18 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
 });
 
 import { executeVerificationJob } from "../src/agentWork/executors/verificationExecutor.js";
+import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
 
 const cfg = makeTestConfig();
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function item(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
-  return {
-    id: "wi-1",
-    webhookEventId: "ev-1",
-    type: "verification",
-    source: "auto",
-    status: "running",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
+function item(overrides: Parameters<typeof makeVerificationWorkItem>[0] = {}) {
+  return makeVerificationWorkItem({
     headSha: "a".repeat(40),
-    reviewLens: null,
-    resourceKey: "o/r#1",
-    attemptCount: 0,
-    payload: { source: "auto", repositorySizeKb: 100 },
-    cancelRequestedAt: null,
+    payload: { repositorySizeKb: 100 },
     ...overrides,
-  };
+  });
 }
 
 function job(): JobWithMetadata<VerificationJobData> {
@@ -103,7 +91,7 @@ function job(): JobWithMetadata<VerificationJobData> {
 }
 
 function mockDurableExecution(workItem = item()): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) =>
+  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) =>
     spec.execute(workItem, {
       installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
       headSha: "a".repeat(40),

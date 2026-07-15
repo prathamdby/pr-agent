@@ -2,9 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
-import type { AgentWorkItem, DescriptionJobData } from "../src/agentWork/types.js";
+import type { DescriptionJobData } from "../src/agentWork/types.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_FAILURE_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { makeDescriptionWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import * as repo from "../src/agentWork/repository.js";
 import {
@@ -74,24 +75,8 @@ const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
 const boss = {} as PgBoss;
 
-function descriptionItem(source: "slash" | "auto" = "slash"): AgentWorkItem {
-  return {
-    id: "wi-1",
-    webhookEventId: "ev-1",
-    type: "description",
-    source,
-    status: "running",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
-    headSha: "head",
-    reviewLens: null,
-    resourceKey: "o/r#1",
-    attemptCount: 0,
-    payload: { source },
-    cancelRequestedAt: null,
-  };
+function descriptionItem(source: "slash" | "auto" = "slash") {
+  return makeDescriptionWorkItem({ source, headSha: "head" });
 }
 
 function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<DescriptionJobData> {
@@ -124,11 +109,15 @@ function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<Descrip
     pendingDependencies: 0,
     deadLetter: "",
     output: {},
+    sourceName: null,
+    sourceId: null,
+    sourceCreatedOn: null,
+    sourceRetryCount: null,
   };
 }
 
 function mockDurableExecution(item = descriptionItem()): void {
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
     const installation = {
       token: "tok",
       expiresAtTs: Date.now() + 60_000,
@@ -150,7 +139,7 @@ async function runTerminalFailure(
 ): Promise<void> {
   mocks.pullsGet.mockResolvedValue({ data: { body: prBody } });
   const item = descriptionItem(source);
-  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec) => {
+  mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
     const installation = {
       token: "tok",
       expiresAtTs: Date.now() + 60_000,

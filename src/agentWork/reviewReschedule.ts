@@ -9,7 +9,7 @@ import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
   installationGroupId,
   reviewSingletonKey,
-  type AgentWorkItem,
+  type ReviewWorkItem,
   type AckJobData,
   type ReviewJobData,
   type ReviewWorkPayload,
@@ -28,7 +28,7 @@ type SlashReviewRescheduleWorkItem = {
 
 export async function buildStaleSlashReviewRescheduleResult(
   pool: Pool,
-  item: AgentWorkItem,
+  item: ReviewWorkItem,
   token: string,
   expiresAtTs?: number,
 ): Promise<StaleSlashReviewRescheduleResult> {
@@ -58,11 +58,11 @@ export async function buildStaleSlashReviewRescheduleResult(
 
 export async function createSlashReviewRescheduleWorkItem(
   pool: Pool,
-  item: AgentWorkItem,
+  item: ReviewWorkItem,
   latestHeadSha: string,
 ): Promise<SlashReviewRescheduleWorkItem> {
-  const payload = item.payload as ReviewWorkPayload;
-  const reviewLens = item.reviewLens!;
+  const payload = item.payload;
+  const reviewLens = item.reviewLens;
   let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
 
   if (!replacementWorkItemId) {
@@ -81,11 +81,10 @@ export async function createSlashReviewRescheduleWorkItem(
     );
     if ((updateResult.rowCount ?? 0) === 0) {
       const refreshed = await getWorkItem(pool, item.id);
-      replacementWorkItemId = (refreshed?.payload as ReviewWorkPayload)
-        ?.staleHeadReplacementWorkItemId;
-      if (!replacementWorkItemId) {
+      if (refreshed?.type !== "review" || !refreshed.payload.staleHeadReplacementWorkItemId) {
         throw new Error(`Failed to persist stale-head replacement marker for work item ${item.id}`);
       }
+      replacementWorkItemId = refreshed.payload.staleHeadReplacementWorkItemId;
     } else {
       replacementWorkItemId = updateResult.rows[0].replacement_id;
     }
@@ -155,14 +154,14 @@ async function releaseStaleHeadReplacementEnqueueClaim(
 export async function enqueueSlashReviewReschedule(
   pool: Pool,
   boss: PgBoss,
-  item: AgentWorkItem,
+  item: ReviewWorkItem,
   workItemId: string,
   replacementHeadSha: string,
   activePgBossJobId?: string,
 ): Promise<void> {
-  const reviewLens = item.reviewLens!;
+  const reviewLens = item.reviewLens;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
-  const parentPayload = item.payload as ReviewWorkPayload;
+  const parentPayload = item.payload;
 
   if (parentPayload.staleHeadReplacementEnqueued) {
     logInfo("review_stale_head_reschedule_enqueue_skipped", {
@@ -179,7 +178,7 @@ export async function enqueueSlashReviewReschedule(
   const claimed = await claimStaleHeadReplacementEnqueue(pool, item.id);
   if (!claimed) {
     const refreshed = await getWorkItem(pool, item.id);
-    if ((refreshed?.payload as ReviewWorkPayload)?.staleHeadReplacementEnqueued) {
+    if (refreshed?.type === "review" && refreshed.payload.staleHeadReplacementEnqueued) {
       logInfo("review_stale_head_reschedule_enqueue_skipped", {
         owner: item.owner,
         repo: item.repo,

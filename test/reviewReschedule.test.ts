@@ -7,7 +7,8 @@ import {
   createSlashReviewRescheduleWorkItem,
   enqueueSlashReviewReschedule,
 } from "../src/agentWork/reviewReschedule.js";
-import type { AgentWorkItem } from "../src/agentWork/types.js";
+import type { ReviewWorkItem } from "../src/agentWork/types.js";
+import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
@@ -19,25 +20,15 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 import { getWorkItem } from "../src/agentWork/repository.js";
 import { getPullRequestHeadSha } from "../src/agentWork/githubPrSurface.js";
 
-function makeItem(overrides: Partial<AgentWorkItem> = {}): AgentWorkItem {
-  return {
+function makeItem(
+  overrides: Parameters<typeof makeReviewWorkItem>[0] & { attemptCount?: number } = {},
+): ReviewWorkItem {
+  return makeReviewWorkItem({
     id: "parent-wi",
-    webhookEventId: "ev-1",
-    type: "review",
     source: "slash",
-    status: "running",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
-    headSha: "deadbeef",
-    reviewLens: "review",
-    resourceKey: "o/r#1",
     attemptCount: 1,
-    payload: { mode: "review", source: "slash" },
-    cancelRequestedAt: null,
     ...overrides,
-  };
+  });
 }
 
 beforeEach(() => {

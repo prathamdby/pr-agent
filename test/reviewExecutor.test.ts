@@ -4,7 +4,8 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
-import type { AgentWorkItem, ReviewJobData } from "../src/agentWork/types.js";
+import type { ReviewJobData } from "../src/agentWork/types.js";
+import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
@@ -87,24 +88,8 @@ const pullRequest = {
   head: { sha: "head" },
 };
 
-function makeItem(source: "auto" | "slash"): AgentWorkItem {
-  return {
-    id: "wi-1",
-    webhookEventId: "ev-1",
-    type: "review",
-    source,
-    status: "running",
-    owner: "o",
-    repo: "r",
-    prNumber: 1,
-    installationId: 42,
-    headSha: "head",
-    reviewLens: "review",
-    resourceKey: "o/r#1",
-    attemptCount: 0,
-    payload: { mode: "review", source },
-    cancelRequestedAt: null,
-  };
+function makeItem(source: "auto" | "slash") {
+  return makeReviewWorkItem({ source, headSha: "head" });
 }
 
 function mockRepositoryView() {
@@ -147,6 +132,10 @@ function reviewJob(): JobWithMetadata<ReviewJobData> {
     pendingDependencies: 0,
     deadLetter: "",
     output: {},
+    sourceName: null,
+    sourceId: null,
+    sourceCreatedOn: null,
+    sourceRetryCount: null,
   };
 }
 

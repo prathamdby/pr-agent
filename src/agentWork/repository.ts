@@ -9,7 +9,14 @@ import {
   TRIAGE_PUBLISH_LENS,
   VERIFICATION_PUBLISH_LENS,
 } from "../settings/index.js";
-import type { AgentWorkItem, AgentWorkItemCore, ReviewWorkPayload, WorkStatus } from "./types.js";
+import type {
+  AgentWorkItem,
+  AgentWorkItemCore,
+  ReviewWorkPayload,
+  WorkStatus,
+  WorkType,
+} from "./types.js";
+import { attachWorkItemPayload, WorkItemPayloadValidationError } from "./workItemPayloadSchema.js";
 
 export type PublishLens =
   | ReviewWorkPayload["mode"]
@@ -37,7 +44,7 @@ type AskPublishStep = Extract<PublishStep, "ask_reply">;
 type AgentWorkRow = {
   id: string;
   webhook_event_id: string | null;
-  type: "review" | "ask" | "description" | "triage" | "verification";
+  type: WorkType;
   source: "auto" | "slash";
   status: WorkStatus;
   owner: string;
@@ -48,31 +55,109 @@ type AgentWorkRow = {
   review_lens: "review" | "review-security" | "review-quality" | "review-tests" | null;
   resource_key: string;
   attempt_count: number;
-  payload: AgentWorkItem["payload"];
+  payload: unknown;
   cancel_requested_at: Date | null;
 };
 
-function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
-  return { ...mapWorkItemCore(row), payload: row.payload };
-}
-
-function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore {
+function workItemRowBase(row: Omit<AgentWorkRow, "payload" | "type" | "source" | "review_lens">) {
   return {
     id: row.id,
     webhookEventId: row.webhook_event_id,
-    type: row.type,
-    source: row.source,
     status: row.status,
     owner: row.owner,
     repo: row.repo,
     prNumber: row.pr_number,
     installationId: Number(row.installation_id),
     headSha: row.head_sha,
-    reviewLens: row.review_lens,
     resourceKey: row.resource_key,
     attemptCount: row.attempt_count,
     cancelRequestedAt: row.cancel_requested_at,
   };
+}
+
+function invalidWorkItemRow(row: Omit<AgentWorkRow, "payload">, detail: string): never {
+  throw new WorkItemPayloadValidationError(
+    row.type,
+    `Invalid ${row.type} work item ${row.id}: ${detail}`,
+  );
+}
+
+function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore {
+  const base = workItemRowBase(row);
+  switch (row.type) {
+    case "review": {
+      if (row.review_lens == null) {
+        invalidWorkItemRow(row, "missing review_lens");
+      }
+      return {
+        ...base,
+        type: "review",
+        source: row.source,
+        reviewLens: row.review_lens,
+      };
+    }
+    case "ask": {
+      if (row.source !== "slash") {
+        invalidWorkItemRow(row, `expected source "slash", got "${row.source}"`);
+      }
+      return {
+        ...base,
+        type: "ask",
+        source: "slash",
+        reviewLens: null,
+      };
+    }
+    case "description": {
+      return {
+        ...base,
+        type: "description",
+        source: row.source,
+        reviewLens: null,
+      };
+    }
+    case "triage": {
+      if (row.source !== "slash") {
+        invalidWorkItemRow(row, `expected source "slash", got "${row.source}"`);
+      }
+      return {
+        ...base,
+        type: "triage",
+        source: "slash",
+        reviewLens: null,
+      };
+    }
+    case "verification": {
+      if (row.source !== "auto") {
+        invalidWorkItemRow(row, `expected source "auto", got "${row.source}"`);
+      }
+      return {
+        ...base,
+        type: "verification",
+        source: "auto",
+        reviewLens: null,
+      };
+    }
+    default: {
+      const exhaustive: never = row.type;
+      throw new WorkItemPayloadValidationError(
+        "review",
+        `Unknown work item type: ${String(exhaustive)}`,
+      );
+    }
+  }
+}
+
+function mapWorkItem(row: AgentWorkRow): AgentWorkItem {
+  return attachWorkItemPayload(mapWorkItemCore(row), row.payload);
+}
+
+async function terminalizeInvalidClaimedWorkItem(
+  pool: Pool,
+  id: string,
+  error: unknown,
+): Promise<never> {
+  await markWorkFailed(pool, id, error);
+  throw error;
 }
 
 export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem | null> {
@@ -99,16 +184,13 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   return row ? mapWorkItemCore(row) : null;
 }
 
-export async function getWorkItemPayload(
-  pool: Pool,
-  id: string,
-): Promise<AgentWorkItem["payload"] | null> {
-  const row = await queryOne<{ payload: AgentWorkItem["payload"] }>(
+export async function getWorkItemPayload(pool: Pool, id: string): Promise<unknown> {
+  const row = await queryOne<{ payload: unknown }>(
     pool,
     "SELECT payload FROM agent_work_items WHERE id = $1",
     [id],
   );
-  return row?.payload ?? null;
+  return row == null ? undefined : row.payload;
 }
 
 function sanitizeWorkError(error: unknown): string {
@@ -134,11 +216,11 @@ async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
 }
 
 /** One-query claim: UPDATE queued→running and return the full item; null = not claimable this way. */
-export async function claimQueuedWorkItem(
+export async function claimQueuedWorkItem<T extends WorkType>(
   pool: Pool,
   id: string,
-  type: AgentWorkItem["type"],
-): Promise<AgentWorkItem | null> {
+  type: T,
+): Promise<Extract<AgentWorkItem, { type: T }> | null> {
   const row = await queryOne<AgentWorkRow>(
     pool,
     `UPDATE agent_work_items
@@ -153,7 +235,12 @@ export async function claimQueuedWorkItem(
 		  RETURNING ${CLAIM_QUEUED_WORK_ITEM_RETURNING}`,
     [id, type],
   );
-  return row ? mapWorkItem(row) : null;
+  if (!row) return null;
+  try {
+    return mapWorkItem(row) as Extract<AgentWorkItem, { type: T }>;
+  } catch (error) {
+    return await terminalizeInvalidClaimedWorkItem(pool, id, error);
+  }
 }
 
 /** Claim queued work or resume a pg-boss retry while the row is still running. */
