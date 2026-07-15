@@ -161,13 +161,23 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
     });
     return;
   }
-  const workItemId = await createDescriptionWorkItem(ctx.client, {
+  const insert = await createDescriptionWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     source: "slash",
     userSupplement: clampStoredCommentText(`User invoked /describe with:\n${ctx.input.body}`),
     commenterId: ctx.input.commenterId,
   });
+  if (!insert.created) {
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body: DESCRIPTION_ALREADY_IN_PROGRESS,
+      },
+    });
+    return;
+  }
+  const workItemId = insert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueDescription(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   recordEvent(ctx.intakeLog, "agent_work_enqueued", {
@@ -203,8 +213,10 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const triageScope = scope ?? "all";
-  const existing = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
-  if (existing) {
+  const rejectActiveTriage = async (existing: {
+    id: string;
+    payload: { scope?: "all" | "thread" };
+  }): Promise<void> => {
     const activeScope = existing.payload.scope ?? "all";
     const body =
       triageScope === "thread" && activeScope === "all"
@@ -232,9 +244,13 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
         body,
       },
     });
+  };
+  const existing = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
+  if (existing) {
+    await rejectActiveTriage(existing);
     return;
   }
-  const workItemId = await createTriageWorkItem(ctx.client, {
+  const insert = await createTriageWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     commentId: ctx.input.commentId,
@@ -244,6 +260,15 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     needsThreadRootResolution: ctx.input.needsThreadRootResolution,
     replyTarget: ctx.input.replyTarget,
   });
+  if (!insert.created) {
+    const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
+    if (!winner) {
+      throw new Error(`slash triage uniqueness conflict without winner for ${resourceKey}`);
+    }
+    await rejectActiveTriage(winner);
+    return;
+  }
+  const workItemId = insert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueTriage(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
   captureTriageEvent(
@@ -273,6 +298,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  const alreadyInProgressBody = `A \`/${command}\` run is already queued or in progress for this pull request.`;
   const existing = await fetchActiveWorkItem(ctx.client, {
     kind: "review",
     resourceKey,
@@ -282,12 +308,12 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
     await enqueueSlashAck(ctx, {
       reply: {
         target: ctx.input.replyTarget,
-        body: `A \`/${command}\` run is already queued or in progress for this pull request.`,
+        body: alreadyInProgressBody,
       },
     });
     return;
   }
-  const workItemId = await createReviewWorkItem(ctx.client, {
+  const insert = await createReviewWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     source: "slash",
@@ -295,6 +321,16 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
     userSupplement: clampStoredCommentText(`User invoked /${command} with:\n${ctx.input.body}`),
     commenterId: ctx.input.commenterId,
   });
+  if (!insert.created) {
+    await enqueueSlashAck(ctx, {
+      reply: {
+        target: ctx.input.replyTarget,
+        body: alreadyInProgressBody,
+      },
+    });
+    return;
+  }
+  const workItemId = insert.id;
   await enqueueSlashAck(ctx, {
     workItemId,
     progress: { lens: command, headSha: ctx.ref.headSha, source: "slash" },
