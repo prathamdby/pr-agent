@@ -3,7 +3,7 @@ import { PRODUCT_NAME } from "@/lib/seo";
 
 export function Footer() {
   return (
-    <footer className="relative overflow-hidden px-4 pt-20 pb-0 sm:px-6 sm:pt-28">
+    <footer className="relative overflow-hidden px-4 pt-16 pb-0 sm:px-6 sm:pt-20 md:pt-24">
       <div className="relative z-10 mx-auto max-w-6xl">
         <p className="max-w-md text-lg leading-snug text-ink-soft sm:text-xl">
           Stop renting your code review. Own it.

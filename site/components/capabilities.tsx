@@ -10,7 +10,7 @@ export function Capabilities() {
     <section
       id="capabilities"
       aria-labelledby="capabilities-heading"
-      className="bg-navy-raised px-4 py-20 sm:px-6 sm:py-28"
+      className="bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
         <div className="max-w-2xl">
@@ -26,7 +26,7 @@ export function Capabilities() {
           </p>
         </div>
 
-        <ul className="mt-12 max-w-2xl space-y-9">
+        <ul className="mt-12 grid gap-x-12 gap-y-9 md:grid-cols-2">
           {CAPABILITIES.map((cap) => {
             const command = commandHint(cap.trigger);
             return (

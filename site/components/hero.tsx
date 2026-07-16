@@ -4,26 +4,35 @@ import { ReviewArtifact } from "@/components/review-artifact";
 import { DOCS_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
 
+/**
+ * Hero owns the fold as ONE composed block (brand + artifact + band),
+ * vertically centered as a unit. Never stretch pieces apart with flex-1 —
+ * that leaves a dead middle on tall tablets (iPad Air).
+ */
 export function Hero() {
   return (
     <section
       aria-labelledby="hero-heading"
-      className="grain relative flex min-h-[100svh] flex-col overflow-hidden px-4 pt-28 sm:px-6 sm:pt-32"
+      className="grain relative flex min-h-[100svh] flex-col justify-center overflow-hidden px-4 pb-12 pt-28 sm:px-6 sm:pb-16 sm:pt-32"
     >
       <DiffField />
 
-      <div className="relative z-10 mx-auto flex w-full min-w-0 max-w-6xl flex-1 flex-col pb-12 sm:pb-16">
-        <div className="relative min-h-[16rem] flex-1 sm:min-h-[20rem]">
-          <p className="relative z-20 max-w-[10ch] font-display text-[clamp(4.25rem,14vw,9rem)] leading-[0.85] tracking-[-0.03em] text-ink">
+      <div className="relative z-10 mx-auto w-full min-w-0 max-w-6xl">
+        {/*
+          md+ min-height reserves space for the absolutely placed artifact so the
+          copy band below cannot slide up underneath it.
+        */}
+        <div className="relative md:min-h-[19rem] lg:min-h-[21rem]">
+          <p className="relative z-20 max-w-[10ch] font-display text-[clamp(3.75rem,11vw,8.5rem)] leading-[0.85] tracking-[-0.03em] text-ink md:max-w-[9ch] md:text-[clamp(4.25rem,9.5vw,8rem)]">
             {PRODUCT_NAME}
           </p>
 
-          <div className="relative z-10 mt-6 w-full max-w-[20rem] sm:absolute sm:bottom-2 sm:right-0 sm:mt-0 sm:max-w-[22rem] lg:max-w-[24rem]">
+          <div className="relative z-10 mt-6 w-full max-w-sm md:absolute md:bottom-0 md:right-0 md:mt-0 md:w-[min(48%,22rem)] lg:w-[min(44%,24rem)]">
             <div
-              className="[mask-image:linear-gradient(to_bottom,black_0%,black_70%,transparent_100%)]"
+              className="[mask-image:linear-gradient(to_bottom,black_0%,black_72%,transparent_100%)]"
               style={{
                 WebkitMaskImage:
-                  "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)",
+                  "linear-gradient(to bottom, black 0%, black 72%, transparent 100%)",
               }}
             >
               <ReviewArtifact />
@@ -31,11 +40,11 @@ export function Hero() {
           </div>
         </div>
 
-        <div className="relative z-20 mt-10 grid min-w-0 gap-6 border-t border-edge pt-8 sm:mt-auto sm:grid-cols-[minmax(0,1.4fr)_auto] sm:items-end">
-          <div className="min-w-0">
+        <div className="relative z-20 mt-10 grid min-w-0 gap-6 border-t border-edge pt-8 md:mt-12 md:grid-cols-[minmax(0,1.35fr)_auto] md:items-end md:gap-10">
+          <div className="min-w-0 md:max-w-xl">
             <h1
               id="hero-heading"
-              className="max-w-[28ch] font-display text-[clamp(1.45rem,2.8vw,2rem)] leading-[1.2] text-ink-soft"
+              className="max-w-[28ch] font-display text-[clamp(1.4rem,2.6vw,2rem)] leading-[1.2] text-ink-soft"
             >
               AI reviews your pull requests on{" "}
               <span className="text-bolt">your own servers</span>
@@ -46,7 +55,7 @@ export function Hero() {
             </p>
           </div>
 
-          <div className="min-w-0 sm:justify-self-end sm:text-right">
+          <div className="min-w-0 md:justify-self-end md:text-right">
             <a
               href={DOCS_URL}
               target="_blank"

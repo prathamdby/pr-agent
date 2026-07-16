@@ -66,40 +66,40 @@ export function Gallery() {
     <section
       id="examples"
       aria-labelledby="examples-heading"
-      className="px-4 py-20 sm:px-6 sm:py-28"
+      className="px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
-        <div className="max-w-xl">
+        <div className="max-w-2xl">
           <h2
             id="examples-heading"
             className="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
           >
             What lands on the pull request
           </h2>
-          <p className="mt-3 text-sm leading-relaxed text-ink-mute">
+          <p className="mt-3 text-sm leading-relaxed text-ink-mute md:text-base">
             Built from the same summary, description, and ask formats the worker publishes to
             GitHub.
           </p>
         </div>
 
-        <ul className="mt-14 space-y-14 lg:space-y-20">
+        <ul className="mt-12 space-y-12 md:mt-16 md:space-y-16">
           {EXAMPLES.map((example, index) => {
             const flip = index % 2 === 1;
             return (
               <li
                 key={example.command}
-                className="grid min-w-0 gap-5 lg:grid-cols-2 lg:items-center lg:gap-12"
+                className="grid min-w-0 gap-5 md:grid-cols-2 md:items-center md:gap-8 lg:gap-12"
               >
-                <div className={`min-w-0 ${flip ? "lg:order-2" : ""}`}>
+                <div className={`min-w-0 ${flip ? "md:order-2" : ""}`}>
                   <p className="font-mono text-sm text-bolt">{example.command}</p>
-                  <h3 className="mt-2 font-display text-2xl text-ink">{example.label}</h3>
-                  <p className="mt-2 max-w-sm text-sm leading-relaxed text-ink-mute">
+                  <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">{example.label}</h3>
+                  <p className="mt-2 max-w-md text-sm leading-relaxed text-ink-mute">
                     {example.detail}
                   </p>
                 </div>
                 <div
-                  className={`min-w-0 w-full max-w-md ${
-                    flip ? "lg:order-1 lg:justify-self-start" : "lg:justify-self-end"
+                  className={`min-w-0 w-full ${
+                    flip ? "md:order-1 md:justify-self-stretch" : "md:justify-self-stretch"
                   }`}
                 >
                   <ExampleBody example={example} />

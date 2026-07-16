@@ -5,7 +5,7 @@ export function Alternatives() {
     <section
       id="alternatives"
       aria-labelledby="alternatives-heading"
-      className="bg-navy-raised px-4 py-20 sm:px-6 sm:py-28"
+      className="bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
         <h2

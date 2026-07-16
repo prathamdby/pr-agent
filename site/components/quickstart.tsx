@@ -72,7 +72,7 @@ export function Quickstart() {
     <section
       id="usage"
       aria-labelledby="usage-heading"
-      className="bg-navy-raised px-4 py-20 sm:px-6 sm:py-28"
+      className="bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
         <h2
@@ -82,15 +82,15 @@ export function Quickstart() {
           Deploy it with Docker Compose
         </h2>
 
-        <ol className="mt-14 list-none space-y-12 p-0 lg:space-y-16">
+        <ol className="mt-12 list-none space-y-10 p-0 md:mt-16 md:space-y-14">
           {STEPS.map((step, index) => {
             const flip = index % 2 === 1;
             return (
               <li
                 key={step.title}
-                className={`flex min-w-0 ${flip ? "lg:justify-end" : "lg:justify-start"}`}
+                className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
               >
-                <div className="w-full min-w-0 max-w-xl">
+                <div className="w-full min-w-0 md:max-w-[min(100%,34rem)]">
                   <h3 className="text-sm font-medium text-ink">{step.title}</h3>
                   {step.body}
                 </div>

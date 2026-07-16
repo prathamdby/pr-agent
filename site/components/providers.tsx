@@ -5,7 +5,7 @@ export function Providers() {
     <section
       id="providers"
       aria-labelledby="providers-heading"
-      className="px-4 py-20 sm:px-6 sm:py-28"
+      className="px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
         <h2
@@ -17,7 +17,7 @@ export function Providers() {
 
         <ul className="mt-12 grid gap-10 sm:grid-cols-2">
           {PROVIDERS.map((provider) => (
-            <li key={provider.name} className="max-w-md">
+            <li key={provider.name} className="min-w-0">
               <h3 className="font-display text-2xl text-ink">{provider.name}</h3>
               <p className="mt-3 text-sm leading-relaxed text-ink-mute">{provider.detail}</p>
             </li>

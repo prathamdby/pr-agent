@@ -5,7 +5,7 @@ export function Pricing() {
     <section
       id="pricing"
       aria-labelledby="pricing-heading"
-      className="bg-navy-raised px-4 py-20 sm:px-6 sm:py-28"
+      className="bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
         <p className="font-display text-[clamp(3.5rem,10vw,6.5rem)] leading-none tracking-[-0.03em] text-ink">
