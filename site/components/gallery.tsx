@@ -82,21 +82,31 @@ export function Gallery() {
           </p>
         </div>
 
-        <ul className="mt-12 grid auto-rows-fr gap-8 sm:grid-cols-2 xl:grid-cols-3">
-          {EXAMPLES.map((example) => (
-            <li key={example.command} className="flex min-w-0 flex-col">
-              <div className="mb-3 h-[4.5rem] shrink-0">
-                <p className="font-mono text-xs text-bolt">{example.command}</p>
-                <h3 className="mt-1 text-sm font-medium text-ink">{example.label}</h3>
-                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-mute">
-                  {example.detail}
-                </p>
-              </div>
-              <div className="min-h-0 min-w-0 flex-1">
-                <ExampleBody example={example} />
-              </div>
-            </li>
-          ))}
+        <ul className="mt-14 space-y-14 lg:space-y-20">
+          {EXAMPLES.map((example, index) => {
+            const flip = index % 2 === 1;
+            return (
+              <li
+                key={example.command}
+                className="grid min-w-0 gap-5 lg:grid-cols-2 lg:items-center lg:gap-12"
+              >
+                <div className={`min-w-0 ${flip ? "lg:order-2" : ""}`}>
+                  <p className="font-mono text-sm text-bolt">{example.command}</p>
+                  <h3 className="mt-2 font-display text-2xl text-ink">{example.label}</h3>
+                  <p className="mt-2 max-w-sm text-sm leading-relaxed text-ink-mute">
+                    {example.detail}
+                  </p>
+                </div>
+                <div
+                  className={`min-w-0 w-full max-w-md ${
+                    flip ? "lg:order-1 lg:justify-self-start" : "lg:justify-self-end"
+                  }`}
+                >
+                  <ExampleBody example={example} />
+                </div>
+              </li>
+            );
+          })}
         </ul>
       </div>
     </section>

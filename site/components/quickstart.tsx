@@ -82,13 +82,21 @@ export function Quickstart() {
           Deploy it with Docker Compose
         </h2>
 
-        <ol className="mt-12 grid list-none gap-8 p-0 sm:grid-cols-2 sm:gap-x-12 sm:gap-y-10">
-          {STEPS.map((step) => (
-            <li key={step.title} className="min-w-0">
-              <h3 className="text-sm font-medium text-ink">{step.title}</h3>
-              {step.body}
-            </li>
-          ))}
+        <ol className="mt-14 list-none space-y-12 p-0 lg:space-y-16">
+          {STEPS.map((step, index) => {
+            const flip = index % 2 === 1;
+            return (
+              <li
+                key={step.title}
+                className={`flex min-w-0 ${flip ? "lg:justify-end" : "lg:justify-start"}`}
+              >
+                <div className="w-full min-w-0 max-w-xl">
+                  <h3 className="text-sm font-medium text-ink">{step.title}</h3>
+                  {step.body}
+                </div>
+              </li>
+            );
+          })}
         </ol>
       </div>
     </section>
