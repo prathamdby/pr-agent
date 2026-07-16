@@ -61,6 +61,10 @@ function ExampleBody({ example }: { readonly example: OutputExample }) {
   }
 }
 
+/**
+ * Desktop/tablet zig-zag moves the WHOLE block (caption + mock), not a
+ * caption|mock split that leaves a dead column beside a tall card.
+ */
 export function Gallery() {
   return (
     <section
@@ -88,21 +92,15 @@ export function Gallery() {
             return (
               <li
                 key={example.command}
-                className="grid min-w-0 gap-5 md:grid-cols-2 md:items-center md:gap-8 lg:gap-12"
+                className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
               >
-                <div className={`min-w-0 ${flip ? "md:order-2" : ""}`}>
+                <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
                   <p className="font-mono text-sm text-bolt">{example.command}</p>
                   <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">{example.label}</h3>
-                  <p className="mt-2 max-w-md text-sm leading-relaxed text-ink-mute">
-                    {example.detail}
-                  </p>
-                </div>
-                <div
-                  className={`min-w-0 w-full ${
-                    flip ? "md:order-1 md:justify-self-stretch" : "md:justify-self-stretch"
-                  }`}
-                >
-                  <ExampleBody example={example} />
+                  <p className="mt-2 text-sm leading-relaxed text-ink-mute">{example.detail}</p>
+                  <div className="mt-5 min-w-0">
+                    <ExampleBody example={example} />
+                  </div>
                 </div>
               </li>
             );

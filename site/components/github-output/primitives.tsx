@@ -74,8 +74,8 @@ export function OutputFrame({
   readonly children: ReactNode;
 }) {
   return (
-    <article className="chamfer surface-panel edge-self flex h-[24rem] w-full flex-col overflow-hidden">
-      <header className="flex shrink-0 items-center gap-2.5 border-b border-edge px-3 py-2.5">
+    <article className="chamfer surface-panel edge-self flex h-[18rem] w-full flex-col overflow-hidden sm:h-[20rem] lg:h-[24rem]">
+      <header className="flex shrink-0 items-center gap-2.5 border-b border-edge px-4 py-3">
         <img
           src="/logo.png"
           alt=""
@@ -88,7 +88,7 @@ export function OutputFrame({
           <p className="truncate font-mono text-[10px] text-ink-faint">{surface}</p>
         </div>
       </header>
-      <div className="relative min-h-0 flex-1 overflow-hidden px-3 py-3">
+      <div className="relative min-h-0 flex-1 overflow-hidden px-4 py-3">
         <div className="space-y-2.5">
           {title ? (
             <h3 className="font-display text-base leading-tight text-ink sm:text-lg">{title}</h3>

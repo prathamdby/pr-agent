@@ -8,7 +8,7 @@ export function Features() {
       className="px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
-        <div className="grid gap-10 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] md:gap-12 lg:gap-16">
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-16">
           <h2
             id="features-heading"
             className="max-w-[16ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"

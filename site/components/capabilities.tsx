@@ -31,14 +31,11 @@ export function Capabilities() {
             const command = commandHint(cap.trigger);
             return (
               <li key={cap.title} className="min-w-0">
-                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                  {command ? (
-                    <span className="font-mono text-sm text-bolt">{command}</span>
-                  ) : (
-                    <span className="font-mono text-sm text-sky">automatic</span>
-                  )}
-                  <span className="text-xs text-ink-faint">{cap.trigger}</span>
-                </div>
+                {command ? (
+                  <p className="font-mono text-sm text-bolt">{command}</p>
+                ) : (
+                  <p className="font-mono text-sm text-sky">automatic</p>
+                )}
                 <h3 className="mt-2 text-base font-medium leading-snug text-ink sm:text-lg">
                   {cap.title}
                 </h3>

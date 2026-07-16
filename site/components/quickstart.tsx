@@ -90,7 +90,7 @@ export function Quickstart() {
                 key={step.title}
                 className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
               >
-                <div className="w-full min-w-0 md:max-w-[min(100%,34rem)]">
+                <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
                   <h3 className="text-sm font-medium text-ink">{step.title}</h3>
                   {step.body}
                 </div>

@@ -15,7 +15,7 @@ export function Faq() {
           Questions teams ask before they deploy
         </h2>
 
-        <dl className="mt-12 grid gap-x-12 gap-y-10 md:grid-cols-2">
+        <dl className="mt-12 grid gap-x-12 gap-y-10 lg:grid-cols-2">
           {FAQ_ITEMS.map((item) => (
             <div key={item.question} className="min-w-0">
               <dt className="text-base font-medium text-ink">{item.question}</dt>
