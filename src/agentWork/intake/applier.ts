@@ -13,12 +13,17 @@ import {
   releaseSingletonIfSuperseded,
   type AutoWorkSupersedeTarget,
 } from "../autoWorkEnqueue.js";
-import { releaseSingletonSlot, reviewSingletonSlotDb } from "../singletonQueue.js";
+import {
+  releaseSingletonSlot,
+  reviewSingletonSlotDb,
+  type SingletonSlotDb,
+} from "../singletonQueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
   type AckJobData,
   type AckTarget,
+  type JobCorrelation,
   type PrRef,
   type WebhookHeaders,
   prResourceKey,
@@ -45,6 +50,58 @@ import {
 
 export type { SlashCommandInput };
 export { applySlashCommandIntake };
+
+type AutomatedKindDispatchDescriptor = {
+  readonly target: AutoWorkSupersedeTarget;
+  readonly createWorkItem: () => Promise<string>;
+  readonly enqueue: (workItemId: string) => Promise<void>;
+  readonly queueName: string;
+  readonly singletonKey: string;
+  readonly eventType: "review" | "description" | "verification";
+  readonly enqueueAck?: (workItemId: string) => Promise<void>;
+};
+
+async function dispatchAutomatedKind(
+  boss: PgBoss,
+  client: PoolClient,
+  slotDb: SingletonSlotDb,
+  resourceKey: string,
+  correlation: JobCorrelation,
+  descriptor: AutomatedKindDispatchDescriptor,
+): Promise<DeferredIntakeEvent[]> {
+  const { workItemId, supersededIds } = await replaceAutoWorkItem({
+    client,
+    target: descriptor.target,
+    createWorkItem: descriptor.createWorkItem,
+  });
+  await releaseSingletonIfSuperseded({
+    boss,
+    db: slotDb,
+    supersededIds,
+    release: () =>
+      releaseSingletonSlot(boss, {
+        queue: descriptor.queueName,
+        singletonKey: descriptor.singletonKey,
+        db: slotDb,
+      }),
+  });
+  if (descriptor.enqueueAck) {
+    await descriptor.enqueueAck(workItemId);
+  }
+  await descriptor.enqueue(workItemId);
+  return [
+    {
+      name: "agent_work_enqueued",
+      fields: {
+        type: descriptor.eventType,
+        source: "auto",
+        workItemId,
+        resourceKey,
+        ...correlation,
+      },
+    },
+  ];
+}
 
 export async function recordIgnoredWebhook(
   client: Pool | PoolClient,
@@ -87,141 +144,88 @@ async function applyPlannedAutomatedPullRequestIntake(
   const slotDb = reviewSingletonSlotDb(client);
 
   if (plan.kinds.includes("review")) {
-    const reviewTarget: AutoWorkSupersedeTarget = {
-      kind: "review",
-      resourceKey,
-      lens: AUTOMATED_REVIEW_LENS,
-    };
-    const { workItemId, supersededIds: reviewSuperseded } = await replaceAutoWorkItem({
-      client,
-      target: reviewTarget,
-      createWorkItem: () =>
-        createReviewWorkItem(client, {
-          webhookEventId: event.id,
-          ref,
-          source: "auto",
-          lens: AUTOMATED_REVIEW_LENS,
-        }),
-    });
-    await releaseSingletonIfSuperseded({
-      boss,
-      db: slotDb,
-      supersededIds: reviewSuperseded,
-      release: () =>
-        releaseSingletonSlot(boss, {
-          queue: REVIEW_QUEUE,
-          singletonKey: reviewSingletonKey(resourceKey, AUTOMATED_REVIEW_LENS),
-          db: slotDb,
-        }),
-    });
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
-    const ackData: AckJobData = {
-      kind: "ack",
-      workItemId,
-      installationId: ref.installationId,
-      owner: ref.owner,
-      repo: ref.repo,
-      prNumber: ref.prNumber,
-      targets: ackTargets,
-      progress: {
-        lens: AUTOMATED_REVIEW_LENS,
-        headSha: ref.headSha,
-        source: "auto",
-      },
-      ...correlation,
-    };
-    await enqueueAck(boss, client, ackData);
-    await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation);
-    events.push({
-      name: "agent_work_enqueued",
-      fields: {
-        type: "review",
-        source: "auto",
-        workItemId,
-        resourceKey,
-        ...correlation,
-      },
-    });
+    events.push(
+      ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
+        target: {
+          kind: "review",
+          resourceKey,
+          lens: AUTOMATED_REVIEW_LENS,
+        },
+        createWorkItem: () =>
+          createReviewWorkItem(client, {
+            webhookEventId: event.id,
+            ref,
+            source: "auto",
+            lens: AUTOMATED_REVIEW_LENS,
+          }),
+        enqueue: (workItemId) =>
+          enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation),
+        queueName: REVIEW_QUEUE,
+        singletonKey: reviewSingletonKey(resourceKey, AUTOMATED_REVIEW_LENS),
+        eventType: "review",
+        enqueueAck: async (workItemId) => {
+          const ackData: AckJobData = {
+            kind: "ack",
+            workItemId,
+            installationId: ref.installationId,
+            owner: ref.owner,
+            repo: ref.repo,
+            prNumber: ref.prNumber,
+            targets: ackTargets,
+            progress: {
+              lens: AUTOMATED_REVIEW_LENS,
+              headSha: ref.headSha,
+              source: "auto",
+            },
+            ...correlation,
+          };
+          await enqueueAck(boss, client, ackData);
+        },
+      })),
+    );
   }
 
   if (plan.kinds.includes("description")) {
-    const descriptionTarget: AutoWorkSupersedeTarget = {
-      kind: "description",
-      resourceKey,
-    };
-    const { workItemId: descriptionWorkItemId, supersededIds: descriptionSuperseded } =
-      await replaceAutoWorkItem({
-        client,
-        target: descriptionTarget,
+    events.push(
+      ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
+        target: {
+          kind: "description",
+          resourceKey,
+        },
         createWorkItem: () =>
           createDescriptionWorkItem(client, {
             webhookEventId: event.id,
             ref,
             source: "auto",
           }),
-      });
-    await releaseSingletonIfSuperseded({
-      boss,
-      db: slotDb,
-      supersededIds: descriptionSuperseded,
-      release: () =>
-        releaseSingletonSlot(boss, {
-          queue: DESCRIPTION_QUEUE,
-          singletonKey: descriptionSingletonKey(resourceKey),
-          db: slotDb,
-        }),
-    });
-    await enqueueDescription(boss, client, ref, descriptionWorkItemId, correlation);
-    events.push({
-      name: "agent_work_enqueued",
-      fields: {
-        type: "description",
-        source: "auto",
-        workItemId: descriptionWorkItemId,
-        resourceKey,
-        ...correlation,
-      },
-    });
+        enqueue: (workItemId) => enqueueDescription(boss, client, ref, workItemId, correlation),
+        queueName: DESCRIPTION_QUEUE,
+        singletonKey: descriptionSingletonKey(resourceKey),
+        eventType: "description",
+      })),
+    );
   }
 
   if (plan.kinds.includes("verification")) {
-    const verificationTarget: AutoWorkSupersedeTarget = {
-      kind: "verification",
-      resourceKey,
-    };
-    const { workItemId: verificationWorkItemId, supersededIds: verificationSuperseded } =
-      await replaceAutoWorkItem({
-        client,
-        target: verificationTarget,
+    events.push(
+      ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
+        target: {
+          kind: "verification",
+          resourceKey,
+        },
         createWorkItem: () =>
           createVerificationWorkItem(client, {
             webhookEventId: event.id,
             ref,
             pushBeforeSha,
           }),
-      });
-    await releaseSingletonIfSuperseded({
-      boss,
-      db: slotDb,
-      supersededIds: verificationSuperseded,
-      release: () =>
-        releaseSingletonSlot(boss, {
-          queue: VERIFICATION_QUEUE,
-          singletonKey: verificationSingletonKey(resourceKey),
-          db: slotDb,
-        }),
-    });
-    await enqueueVerification(boss, client, ref, verificationWorkItemId, correlation);
-    events.push({
-      name: "agent_work_enqueued",
-      fields: {
-        type: "verification",
-        source: "auto",
-        workItemId: verificationWorkItemId,
-        resourceKey,
-        ...correlation,
-      },
-    });
+        enqueue: (workItemId) => enqueueVerification(boss, client, ref, workItemId, correlation),
+        queueName: VERIFICATION_QUEUE,
+        singletonKey: verificationSingletonKey(resourceKey),
+        eventType: "verification",
+      })),
+    );
   }
 
   return events;
