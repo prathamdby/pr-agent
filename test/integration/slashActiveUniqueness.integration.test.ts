@@ -117,11 +117,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     await Promise.all(
       deliveries.map((delivery, index) =>
         inTransaction(pool, (client) =>
-          applySlashCommandIntake(
-            boss,
-            client,
-            makeDescribeInput(repo, delivery, 1000 + index),
-          ),
+          applySlashCommandIntake(boss, client, makeDescribeInput(repo, delivery, 1000 + index)),
         ),
       ),
     );
@@ -168,26 +164,22 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     await Promise.all(
       lenses.map((lens, index) =>
         inTransaction(pool, (client) =>
-          applySlashCommandIntake(
-            boss,
-            client,
-            {
-              headers: {
-                event: EVENT,
-                delivery: `lens-${lens}`,
-                rawBody: Buffer.from("{}"),
-              },
-              installationId: 4242,
-              owner: OWNER,
-              repo,
-              prNumber: 88,
-              commentId: 2000 + index,
-              commenterId: 11,
-              body: `/${lens}`,
-              command: lens,
-              replyTarget: { kind: "prConversation" as const, prNumber: 88 },
+          applySlashCommandIntake(boss, client, {
+            headers: {
+              event: EVENT,
+              delivery: `lens-${lens}`,
+              rawBody: Buffer.from("{}"),
             },
-          ),
+            installationId: 4242,
+            owner: OWNER,
+            repo,
+            prNumber: 88,
+            commentId: 2000 + index,
+            commenterId: 11,
+            body: `/${lens}`,
+            command: lens,
+            replyTarget: { kind: "prConversation" as const, prNumber: 88 },
+          }),
         ),
       ),
     );

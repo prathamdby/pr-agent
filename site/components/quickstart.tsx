@@ -13,8 +13,7 @@ const APP_FIELDS = [
   },
   {
     label: "Permissions",
-    value:
-      "Issues and Pull requests: read/write · Contents: read/write · Metadata: read",
+    value: "Issues and Pull requests: read/write · Contents: read/write · Metadata: read",
     mono: false,
   },
 ] as const;
