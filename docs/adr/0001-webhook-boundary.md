@@ -17,7 +17,7 @@ GitHub App webhooks are untyped JSON at the HTTP boundary. The service must vali
 ## Consequences
 
 - Adding a new webhook field requires updating the relevant Zod schema; this is intentional visibility into contract changes.
-- **Durable dedupe** uses `webhook_events.dedupe_key` (`delivery:` header or `body:` SHA-256). Duplicate deliveries return **`200`** without creating duplicate work items. Intake failure returns **`503`** so GitHub may redeliver.
+- **Durable dedupe** uses `webhook_events.dedupe_key` (`delivery:` header or `body:` SHA-256). Duplicate deliveries return **`200`** without creating duplicate work items. Intake failure returns **`503`** so GitHub may redeliver. Parse failures (`WebhookParseError`) return **`422`** and still do not insert a `webhook_events` row, so a corrected redelivery is not dropped as a duplicate.
 - Worker execution remains **at-least-once**; `publish_records` and work-item status guard publish side effects under retries.
 
 ## Current implementation (2025-05)
