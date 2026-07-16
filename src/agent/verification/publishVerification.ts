@@ -9,7 +9,10 @@ import { renderPolicySuggestionForDismissed } from "../../review/repoPolicy.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
 import { VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
-import { recordPublishStep } from "../../agentWork/repository.js";
+import {
+  loadActedThreadIds,
+  recordActedThreadIds,
+} from "../../agentWork/threadActionCheckpoint.js";
 
 type PublishVerificationParams = {
   readonly pool: Pool;
@@ -26,47 +29,6 @@ type PublishVerificationParams = {
   readonly payload: VerificationPayload;
   readonly changedFilePaths: readonly string[];
 };
-
-function actedThreadIdsFromDetail(detail: unknown): number[] {
-  if (!detail || typeof detail !== "object" || !("actedThreadIds" in detail)) return [];
-  const value = detail.actedThreadIds;
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is number => Number.isInteger(item));
-}
-
-async function loadActedThreadIds(
-  pool: Pool,
-  workItemId: string,
-  resourceKey: string,
-): Promise<number[]> {
-  const row = await pool.query<{ detail: unknown }>(
-    `SELECT detail
-       FROM publish_records
-      WHERE work_item_id = $1
-        AND resource_key = $2
-        AND review_lens = $3
-        AND step = 'verification_thread_actions'
-        AND status = 'completed'
-      LIMIT 1`,
-    [workItemId, resourceKey, VERIFICATION_PUBLISH_LENS],
-  );
-  return actedThreadIdsFromDetail(row.rows[0]?.detail);
-}
-
-async function recordActedThreadIds(
-  pool: Pool,
-  params: Pick<PublishVerificationParams, "workItemId" | "resourceKey"> & {
-    readonly actedThreadIds: readonly number[];
-  },
-): Promise<void> {
-  await recordPublishStep(pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    reviewLens: VERIFICATION_PUBLISH_LENS,
-    step: "verification_thread_actions",
-    detail: { actedThreadIds: params.actedThreadIds },
-  });
-}
 
 function skippedReplyBody(verdict: Extract<VerificationVerdict, { verdict: "skipped" }>): string {
   return redactReviewText(`**Verification**: still open - ${verdict.reason}`);
@@ -108,7 +70,12 @@ export async function publishVerification(
 ): Promise<{ degraded: boolean }> {
   let degraded = false;
   const actedThreadIds = new Set(
-    await loadActedThreadIds(params.pool, params.workItemId, params.resourceKey),
+    await loadActedThreadIds(params.pool, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: VERIFICATION_PUBLISH_LENS,
+      step: "verification_thread_actions",
+    }),
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   const changedFiles = new Set(params.changedFilePaths);
@@ -132,6 +99,8 @@ export async function publishVerification(
         await recordActedThreadIds(params.pool, {
           workItemId: params.workItemId,
           resourceKey: params.resourceKey,
+          reviewLens: VERIFICATION_PUBLISH_LENS,
+          step: "verification_thread_actions",
           actedThreadIds: [...actedThreadIds],
         });
       }
@@ -144,6 +113,8 @@ export async function publishVerification(
       await recordActedThreadIds(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
+        reviewLens: VERIFICATION_PUBLISH_LENS,
+        step: "verification_thread_actions",
         actedThreadIds: [...actedThreadIds],
       });
       await replyToThread({ ...params, thread, body });
@@ -154,6 +125,8 @@ export async function publishVerification(
       await recordActedThreadIds(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
+        reviewLens: VERIFICATION_PUBLISH_LENS,
+        step: "verification_thread_actions",
         actedThreadIds: [...actedThreadIds],
       });
       await replyToThread({ ...params, thread, body });
