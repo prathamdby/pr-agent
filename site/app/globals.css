@@ -1,29 +1,156 @@
 @import "tailwindcss";
 
+@font-face {
+  font-family: "Gambarino";
+  src: url("/fonts/Gambarino-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 @theme {
+  --font-display: "Gambarino", ui-serif, Georgia, serif;
   --font-sans:
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --font-serif: Georgia, Cambria, "Times New Roman", Times, serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  --color-forge: #0d110f;
+  --color-forge-raised: #151a17;
+  --color-forge-panel: #1a211c;
+  --color-forge-inset: #121714;
+  --color-ink: #e8ebe4;
+  --color-ink-soft: #b4bbae;
+  --color-ink-mute: #7d8678;
+  --color-ink-faint: #5a6256;
+  --color-moss: #8a9478;
+  --color-moss-deep: #5e6652;
+  --color-moss-glow: #a8b492;
+  --color-edge: color-mix(in srgb, var(--color-ink) 10%, transparent);
+  --color-edge-strong: color-mix(in srgb, var(--color-ink) 18%, transparent);
 }
 
-html {
-  font-family: var(--font-sans);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background: var(--color-forge);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+
+  body {
+    min-height: 100vh;
+    background: var(--color-forge);
+    color: var(--color-ink);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-moss) 40%, transparent);
+    color: var(--color-ink);
+  }
+
+  a {
+    text-underline-offset: 3px;
+  }
+
+  code,
+  pre,
+  kbd {
+    font-family: var(--font-mono);
+  }
 }
 
-h1,
-h2,
-h3 {
-  font-family: var(--font-serif);
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+  }
+
+  .surface-panel {
+    background: var(--color-forge-panel);
+    box-shadow:
+      inset 0 1px 0 color-mix(in srgb, var(--color-ink) 8%, transparent),
+      0 1px 0 color-mix(in srgb, #000 35%, transparent);
+  }
+
+  .surface-inset {
+    background: var(--color-forge-inset);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #000 45%, transparent);
+  }
+
+  .edge-self {
+    border: 1px solid var(--color-edge);
+  }
+
+  .chamfer {
+    clip-path: polygon(
+      0 12px,
+      12px 0,
+      calc(100% - 12px) 0,
+      100% 12px,
+      100% calc(100% - 12px),
+      calc(100% - 12px) 100%,
+      12px 100%,
+      0 calc(100% - 12px)
+    );
+  }
+
+  .grain::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.045;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    z-index: 0;
+  }
 }
 
-code,
-pre {
-  font-family: var(--font-mono);
+@keyframes diff-drift {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(-48px, -64px, 0);
+  }
 }
 
-a {
-  text-underline-offset: 2px;
+@keyframes artifact-breathe {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -6px, 0);
+  }
+}
+
+@keyframes nav-settle {
+  from {
+    transform: translate3d(0, -8px, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .animate-diff-drift {
+    animation: diff-drift 48s linear infinite;
+  }
+
+  .animate-artifact-breathe {
+    animation: artifact-breathe 7s ease-in-out infinite;
+  }
+
+  .animate-nav-settle {
+    animation: nav-settle 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
 }

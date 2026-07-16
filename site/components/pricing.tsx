@@ -5,25 +5,33 @@ export function Pricing() {
     <section
       id="pricing"
       aria-labelledby="pricing-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="bg-forge-raised px-4 py-20 sm:px-6 sm:py-28"
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="pricing-heading" className="text-xl mb-2">
+      <div className="mx-auto max-w-6xl">
+        <p className="font-display text-[clamp(3.5rem,10vw,6.5rem)] leading-none tracking-[-0.03em] text-ink">
+          $0
+        </p>
+        <h2
+          id="pricing-heading"
+          className="mt-4 max-w-[20ch] font-display text-[clamp(1.75rem,3.5vw,2.5rem)] leading-[1.15] text-ink-soft"
+        >
           No per-seat fee, ever
         </h2>
-        <p className="text-sm text-neutral-500 mb-4">
+        <p className="mt-3 max-w-md text-sm leading-relaxed text-ink-mute">
           Know the cost before you connect GitHub or add an AI provider.
         </p>
 
-        <ul className="space-y-4">
+        <dl className="mt-14 grid gap-8 border-t border-edge pt-10 md:grid-cols-3 md:gap-10">
           {PRICING_PLANS.map((plan) => (
-            <li key={plan.title} className="text-sm">
-              <h3 className="font-medium text-neutral-800">{plan.title}</h3>
-              <p className="text-neutral-500">{plan.price}</p>
-              <p className="text-neutral-600 mt-0.5">{plan.detail}</p>
-            </li>
+            <div key={plan.title}>
+              <dt className="text-base font-medium text-ink">{plan.title}</dt>
+              <dd className="mt-2">
+                <p className="font-mono text-sm text-moss">{plan.price}</p>
+                <p className="mt-2 text-sm leading-relaxed text-ink-mute">{plan.detail}</p>
+              </dd>
+            </div>
           ))}
-        </ul>
+        </dl>
       </div>
     </section>
   );

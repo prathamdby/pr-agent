@@ -1,60 +1,67 @@
 import { Link } from "@tanstack/react-router";
+import { OutboundArrow } from "@/components/icons";
 import { DOCS_URL, REPO_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
 
+const NAV = [
+  { href: "#examples", label: "examples", external: false },
+  { href: "#pricing", label: "pricing", external: false },
+  { href: DOCS_URL, label: "docs", external: true },
+  { href: REPO_URL, label: "github", external: true },
+] as const;
+
 export function Header() {
   return (
-    <header className="py-4 px-4">
-      <div className="mx-auto max-w-xl flex items-center justify-between">
+    <header className="animate-nav-settle absolute inset-x-0 top-0 z-40 px-4 pt-5 sm:px-6">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
         <Link
           to="/"
-          className="flex items-center gap-2 text-neutral-800"
+          className="group flex items-center gap-2.5 text-ink"
           aria-label={`${PRODUCT_NAME} home`}
         >
           <img
             src="/logo.png"
-            alt={`${PRODUCT_NAME} logo`}
-            width={32}
-            height={32}
-            className="rounded"
+            alt=""
+            width={28}
+            height={28}
+            className="h-7 w-7"
           />
-          <span className="font-medium">{PRODUCT_NAME}</span>
+          <span className="font-display text-lg tracking-wide text-ink transition-colors group-hover:text-moss-glow">
+            {PRODUCT_NAME}
+          </span>
         </Link>
 
-        <nav className="flex items-center gap-3 text-sm" aria-label="Primary navigation">
-          <a
-            href="#examples"
-            className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"
-          >
-            examples
-          </a>
-          <a
-            href="#pricing"
-            className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"
-          >
-            pricing
-          </a>
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
-          >
-            docs
-          </a>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
-          >
-            github
-          </a>
+        <nav
+          className="surface-panel edge-self flex items-center gap-1 rounded-full px-2 py-1.5 text-sm sm:gap-0.5 sm:px-2.5"
+          aria-label="Primary navigation"
+        >
+          {NAV.map((item) =>
+            item.external ? (
+              <a
+                key={item.label}
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hidden rounded-full px-2.5 py-1.5 text-ink-mute transition-colors hover:text-ink sm:inline"
+              >
+                {item.label}
+              </a>
+            ) : (
+              <a
+                key={item.label}
+                href={item.href}
+                className="hidden rounded-full px-2.5 py-1.5 text-ink-mute transition-colors hover:text-ink sm:inline"
+              >
+                {item.label}
+              </a>
+            ),
+          )}
           <a
             href="#usage"
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
+            className="group inline-flex items-center gap-1.5 rounded-full bg-ink px-3 py-1.5 text-sm text-forge transition-colors hover:bg-moss-glow"
           >
             deploy
+            <OutboundArrow className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </a>
         </nav>
       </div>

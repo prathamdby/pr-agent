@@ -5,21 +5,34 @@ export function Features() {
     <section
       id="features"
       aria-labelledby="features-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="px-4 py-20 sm:px-6 sm:py-28"
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="features-heading" className="text-xl mb-4">
-          Stop burning reviewer time on repeat checks
-        </h2>
+      <div className="mx-auto max-w-6xl">
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-16">
+          <h2
+            id="features-heading"
+            className="max-w-[16ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
+          >
+            Stop burning reviewer time on repeat checks
+          </h2>
 
-        <ul className="space-y-4">
-          {FEATURES.map((feature) => (
-            <li key={feature.title} className="text-sm">
-              <h3 className="font-medium text-neutral-800">{feature.title}</h3>
-              <p className="text-neutral-600 mt-0.5">{feature.detail}</p>
-            </li>
-          ))}
-        </ul>
+          <ol className="space-y-0">
+            {FEATURES.map((feature, index) => (
+              <li
+                key={feature.title}
+                className="grid grid-cols-[3rem_minmax(0,1fr)] gap-4 border-t border-edge py-6 first:border-t-0 first:pt-0"
+              >
+                <span className="font-mono text-sm text-ink-faint">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
+                <div>
+                  <h3 className="text-base font-medium text-ink">{feature.title}</h3>
+                  <p className="mt-1.5 text-sm leading-relaxed text-ink-mute">{feature.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
       </div>
     </section>
   );
