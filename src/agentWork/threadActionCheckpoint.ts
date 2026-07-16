@@ -6,7 +6,7 @@ export type ThreadActionPublishLens = typeof TRIAGE_PUBLISH_LENS | typeof VERIFI
 
 export type ThreadActionPublishStep = "triage_thread_actions" | "verification_thread_actions";
 
-export function actedThreadIdsFromDetail(detail: unknown): number[] {
+function actedThreadIdsFromDetail(detail: unknown): number[] {
   if (!detail || typeof detail !== "object" || !("actedThreadIds" in detail)) return [];
   const value = detail.actedThreadIds;
   if (!Array.isArray(value)) return [];

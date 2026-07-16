@@ -130,7 +130,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ---
 
-## Code constants (`src/settings/constants.ts`)
+## Code constants (`src/settings/*Constants.ts`, re-exported via `constants.ts`)
 
 ### Agent work (queues)
 

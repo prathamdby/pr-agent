@@ -1,0 +1,177 @@
+/** Review output sentinels and labels. */
+export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
+export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
+export const QUALITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Quality Review";
+export const TESTS_REVIEW_SUMMARY_SENTINEL = "## PR Agent Tests Review";
+export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
+export const LABEL_SECURITY_EFFORT_PREFIX = "Security effort ";
+export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
+export const LABEL_TESTS_EFFORT_PREFIX = "Tests effort ";
+export const LABEL_SECURITY_CONCERN = "Possible security concern";
+export const LABEL_CATEGORY_PREFIX = "Category: ";
+export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
+
+export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
+export const SECURITY_REVIEW_POINTER_BODY =
+  "See the security review summary in the PR conversation.";
+export const QUALITY_REVIEW_POINTER_BODY =
+  "See the code-quality review summary in the PR conversation.";
+export const TESTS_REVIEW_POINTER_BODY =
+  "See the proposed test cases summary in the PR conversation.";
+export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
+export const AGENT_FIX_PROMPT_PREAMBLE =
+  "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";
+export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Fix all findings (agent prompt)";
+export const REVIEW_POINTER_BODY_MAX_CHARS = 60_000;
+export const AGENT_FIX_PROMPT_TRUNCATION_SUFFIX =
+  "\n...[truncated; see inline threads and PR summary]";
+
+/** Review comment formatting (GitHub markdown). */
+/** Effort 2–3 both map to "Moderate" on the 1–5 scale. */
+export const REVIEW_EFFORT_WORDS = [
+  "Light",
+  "Moderate",
+  "Moderate",
+  "Substantial",
+  "Heavy",
+] as const;
+export const REVIEW_OVERVIEW_ALERT = "NOTE";
+export const REVIEW_FAILURE_ALERT = "CAUTION";
+export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
+export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
+export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
+export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
+export const REVIEW_POINTER_NOTE_LEAD =
+  "Full review is in the PR conversation. Expand below to copy fixes for your coding agent.";
+export const REVIEW_SECURITY_DEFAULT = "None found on this pass";
+export const REVIEW_PROGRESS_SOURCE_AUTO = "Pull request update";
+export const REVIEW_PROGRESS_SOURCE_SLASH = "slash command";
+
+/** Lightweight review completion (docs-only auto-review skip). */
+export const LIGHTWEIGHT_REVIEW_COMPLETION_LEAD =
+  "No deep review run: this automated review was skipped because the change set is documentation-only.";
+export const LIGHTWEIGHT_REVIEW_COMPLETION_REASON = "Documentation-only change set";
+export const LIGHTWEIGHT_REVIEW_COMPLETION_HINT = "Use /review for a full review.";
+
+/** Review budget tier thresholds (advisory hints only). */
+export const REVIEW_SIZE_TIER_SMALL_MAX_FILES = 10;
+export const REVIEW_SIZE_TIER_MEDIUM_MAX_FILES = 50;
+export const REVIEW_SIZE_TIER_LARGE_MIN_CHANGES = 2000;
+
+/** Per-repo review policy file at checkout root. */
+export const REPO_POLICY_FILENAME = ".pr-agent.yml";
+export const MAX_REPO_POLICY_BYTES = 32 * 1024;
+export const MAX_REPO_POLICY_TONE_CHARS = 500;
+export const MAX_REPO_POLICY_PATH_PATTERN_CHARS = 200;
+export const MAX_REPO_POLICY_INSTRUCTION_CHARS = 1000;
+export const MAX_REPO_POLICY_PATH_INSTRUCTIONS = 20;
+
+/** Risk path hints for trusted review context (prompt guidance). */
+export const REVIEW_RISK_PATH_PATTERNS: Readonly<
+  Record<"auth" | "migration" | "config" | "security" | "test", readonly RegExp[]>
+> = {
+  auth: [/(^|\/)auth(?:\/|$)/i, /(^|\/)login(?:\/|$)/i, /(^|\/)session(?:\/|$)/i],
+  migration: [/(^|\/)migrations?\//i, /\.sql$/i],
+  config: [
+    /(^|\/)\.env/i,
+    /(^|\/)config(?:\/|\.)/i,
+    /(^|\/)settings(?:\/|\.)/i,
+    /\.ya?ml$/i,
+    /\.json$/i,
+  ],
+  security: [/(^|\/)security(?:\/|$)/i, /(^|\/)crypto(?:\/|$)/i, /(^|\/)secrets?\//i],
+  test: [/(^|\/)test(?:s)?\//i, /\.test\.[a-z]+$/i, /\.spec\.[a-z]+$/i],
+};
+
+export const MAX_REVIEW_FOLLOW_UPS = 5;
+export const REVIEW_EFFORT_MIN = 1;
+export const REVIEW_EFFORT_MAX = 5;
+
+/** ReviewPayload public field size limits (unlimited finding count; bounded text). */
+export const REVIEW_FINDING_TITLE_MAX_CHARS = 80;
+export const REVIEW_FINDING_DETAIL_MAX_CHARS = 4000;
+export const REVIEW_FINDING_FIX_PROMPT_MAX_CHARS = 2000;
+export const REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS = 2000;
+export const REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS = 10;
+export const REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+export const MAX_PRIOR_INLINE_FEEDBACK_THREADS = 20;
+export const MAX_PRIOR_INLINE_REPLY_CHARS = 500;
+export const REVIEW_OVERVIEW_MAX_CHARS = 8000;
+export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
+export const REVIEW_SECURITY_CONCERNS_MAX_CHARS = 4000;
+export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
+
+/** Merge verdict (ADR 0019): model-authored readiness assessment, consistency-clamped. */
+export const REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS = 300;
+export const MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS: readonly RegExp[] = [
+  /safe to merge/i,
+  /ready to merge/i,
+  /good to merge/i,
+];
+export const REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK = "No blocking findings on this pass";
+export const REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX =
+  "blocking finding(s) open on this pass";
+export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
+export const REVIEW_SUMMARY_COMPACTION_NOTE =
+  "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";
+export const REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX =
+  "finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.";
+export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
+/** Max wait for a peer (e.g. ack job) to persist a started check run id. */
+export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
+export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
+/** Soft sanity ceiling on findings count (not a review-quality cap). */
+export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
+/** Max inline review threads attempted in one GitHub review submission. */
+export const MAX_INLINE_REVIEW_COMMENTS = 50;
+
+export const REVIEW_SEVERITY_RANK = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+} as const;
+
+export const PROSE_ONLY_NUDGE =
+  "You replied with text only. Call submitReview now with a complete ReviewPayload.";
+
+export const PUBLISH_RECOVERY_ROUNDS = 4;
+export const PUBLISH_RECOVERY_PROMPTS = [
+  "You ended with a text reply but never called submitReview. Call submitReview exactly once now with a complete ReviewPayload based on your analysis above. Do not continue investigating unless required to fix payload validation.",
+  "The structured review was still not published. You must call submitReview now with a valid ReviewPayload. No prose-only replies.",
+  "Final publish attempt: call submitReview immediately with your ReviewPayload.",
+] as const;
+
+export const VALIDATION_REPAIR_ROUNDS = 3;
+
+export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
+  "Review publish budget exhausted for this run. Do not call submitReview again.";
+
+/** Review harness: step enforcement when diff cache is empty at submitReview. */
+export const REVIEW_DIFF_CACHE_REQUIRED_MESSAGE =
+  "Call listChangedFiles and getWorkspaceDiff first; diff index is empty so inline anchors cannot be validated.";
+
+/** Review harness: anchor menu block header (untrusted user content). */
+export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";
+
+/**
+ * ReviewValidationFailureKind — taxonomy for Zod validation failures on ReviewPayload.
+ * Used by review harness metrics and repair prompts.
+ */
+export type ReviewValidationFailureKind =
+  | "missing_field"
+  | "wrong_type"
+  | "enum_mismatch"
+  | "string_too_short"
+  | "array_too_long"
+  | "out_of_range"
+  | "custom_predicate"
+  | "other";
+
+/** Review phase names for harness metrics (see CONTEXT.md). */
+export type ReviewPhase =
+  | "investigation"
+  | "pre_submit"
+  | "validation_repair"
+  | "publish_recovery"
+  | "plaintext_fallback";
