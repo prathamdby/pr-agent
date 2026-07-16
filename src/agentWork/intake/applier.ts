@@ -26,6 +26,7 @@ import {
   descriptionSingletonKey,
   verificationSingletonKey,
 } from "../types.js";
+import { flushDeferredEvents, type DeferredIntakeEvent } from "./deferredEvents.js";
 import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
 import {
   enqueueAck,
@@ -66,17 +67,20 @@ async function applyPlannedAutomatedPullRequestIntake(
   headers: WebhookHeaders,
   ref: PrRef,
   action: string,
-  intakeLog: RequestLogger,
   plan: AutomatedPrIntakePlan,
   pushBeforeSha?: string,
-): Promise<void> {
+): Promise<DeferredIntakeEvent[]> {
+  const events: DeferredIntakeEvent[] = [];
   const event = await insertWebhookEvent(client, headers, "automated_review_enqueued");
   if (event.duplicate) {
-    recordEvent(intakeLog, "deduped_delivery", {
-      dedupeKey: event.dedupeKey,
-      event: headers.event,
+    events.push({
+      name: "deduped_delivery",
+      fields: {
+        dedupeKey: event.dedupeKey,
+        event: headers.event,
+      },
     });
-    return;
+    return events;
   }
   const correlation = jobCorrelation(event.id, headers);
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
@@ -128,12 +132,15 @@ async function applyPlannedAutomatedPullRequestIntake(
     };
     await enqueueAck(boss, client, ackData);
     await enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation);
-    recordEvent(intakeLog, "agent_work_enqueued", {
-      type: "review",
-      source: "auto",
-      workItemId,
-      resourceKey,
-      ...correlation,
+    events.push({
+      name: "agent_work_enqueued",
+      fields: {
+        type: "review",
+        source: "auto",
+        workItemId,
+        resourceKey,
+        ...correlation,
+      },
     });
   }
 
@@ -165,12 +172,15 @@ async function applyPlannedAutomatedPullRequestIntake(
         }),
     });
     await enqueueDescription(boss, client, ref, descriptionWorkItemId, correlation);
-    recordEvent(intakeLog, "agent_work_enqueued", {
-      type: "description",
-      source: "auto",
-      workItemId: descriptionWorkItemId,
-      resourceKey,
-      ...correlation,
+    events.push({
+      name: "agent_work_enqueued",
+      fields: {
+        type: "description",
+        source: "auto",
+        workItemId: descriptionWorkItemId,
+        resourceKey,
+        ...correlation,
+      },
     });
   }
 
@@ -202,14 +212,19 @@ async function applyPlannedAutomatedPullRequestIntake(
         }),
     });
     await enqueueVerification(boss, client, ref, verificationWorkItemId, correlation);
-    recordEvent(intakeLog, "agent_work_enqueued", {
-      type: "verification",
-      source: "auto",
-      workItemId: verificationWorkItemId,
-      resourceKey,
-      ...correlation,
+    events.push({
+      name: "agent_work_enqueued",
+      fields: {
+        type: "verification",
+        source: "auto",
+        workItemId: verificationWorkItemId,
+        resourceKey,
+        ...correlation,
+      },
     });
   }
+
+  return events;
 }
 
 export async function applyAutomatedPullRequestIntake(
@@ -233,16 +248,8 @@ export async function applyAutomatedPullRequestIntake(
     return;
   }
 
-  await inTransaction(pool, (client) =>
-    applyPlannedAutomatedPullRequestIntake(
-      boss,
-      client,
-      headers,
-      ref,
-      action,
-      intakeLog,
-      plan,
-      pushBeforeSha,
-    ),
+  const events = await inTransaction(pool, (client) =>
+    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, action, plan, pushBeforeSha),
   );
+  flushDeferredEvents(intakeLog, events);
 }

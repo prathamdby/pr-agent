@@ -11,6 +11,7 @@ import {
   recordIgnoredWebhook,
   type SlashCommandInput,
 } from "./intake/applier.js";
+import { flushDeferredEvents } from "./intake/deferredEvents.js";
 import {
   applyThreadReplyClassifyIntake,
   type ThreadReplyClassifyInput,
@@ -83,8 +84,12 @@ export function makeAgentWorkScheduler(
 
     submitSlashCommand: (input, intakeLog) =>
       Effect.tryPromise({
-        try: () =>
-          inTransaction(pool, (client) => applySlashCommandIntake(boss, client, input, intakeLog)),
+        try: async () => {
+          const events = await inTransaction(pool, (client) =>
+            applySlashCommandIntake(boss, client, input),
+          );
+          flushDeferredEvents(intakeLog, events);
+        },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

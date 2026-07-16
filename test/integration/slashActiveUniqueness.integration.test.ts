@@ -9,7 +9,6 @@ import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentW
 import { enqueueSlashReviewReschedule } from "../../src/agentWork/reviewReschedule.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { runMigrations } from "../../src/db/migrations.js";
-import { createOperationLogger } from "../../src/evlog.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
@@ -54,10 +53,6 @@ const queueConfig: QueueConfig = {
   queueDeleteAfterSeconds: DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   installationGroupConcurrency: DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
 };
-
-function intakeLog() {
-  return createOperationLogger({ method: "POST", path: "/webhooks" });
-}
 
 async function deleteQueueJobs(boss: PgBoss): Promise<void> {
   for (const queue of CLEANUP_QUEUES) {
@@ -126,7 +121,6 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
             boss,
             client,
             makeDescribeInput(repo, delivery, 1000 + index),
-            intakeLog(),
           ),
         ),
       ),
@@ -193,7 +187,6 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
               command: lens,
               replyTarget: { kind: "prConversation" as const, prNumber: 88 },
             },
-            intakeLog(),
           ),
         ),
       ),
