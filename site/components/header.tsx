@@ -33,7 +33,7 @@ export function Header() {
           aria-label={`${PRODUCT_NAME} home`}
         >
           <img src="/logo.png" alt="" width={28} height={28} className="h-7 w-7 shrink-0" />
-          <span className="truncate font-display text-lg tracking-wide text-ink transition-colors group-hover:text-moss-glow">
+          <span className="truncate font-display text-lg tracking-wide text-ink transition-colors group-hover:text-bolt">
             {PRODUCT_NAME}
           </span>
         </Link>
@@ -62,7 +62,7 @@ export function Header() {
           })}
           <a
             href="#usage"
-            className="group inline-flex items-center gap-1.5 rounded-full bg-ink px-3 py-1.5 text-sm text-forge transition-colors hover:bg-moss-glow"
+            className="group inline-flex items-center gap-1.5 rounded-full bg-ink px-3 py-1.5 text-sm text-navy transition-colors hover:bg-bolt"
           >
             deploy
             <OutboundArrow className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />

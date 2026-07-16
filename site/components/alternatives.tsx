@@ -5,7 +5,7 @@ export function Alternatives() {
     <section
       id="alternatives"
       aria-labelledby="alternatives-heading"
-      className="bg-forge-raised px-4 py-20 sm:px-6 sm:py-28"
+      className="bg-navy-raised px-4 py-20 sm:px-6 sm:py-28"
     >
       <div className="mx-auto max-w-6xl">
         <h2
@@ -42,7 +42,7 @@ export function Alternatives() {
                   <tr key={row.name} className="border-b border-edge align-top">
                     <th
                       scope="row"
-                      className={`py-4 pr-4 font-medium ${isSelf ? "text-moss-glow" : "text-ink"}`}
+                      className={`py-4 pr-4 font-medium ${isSelf ? "text-bolt" : "text-ink"}`}
                     >
                       {row.name}
                     </th>

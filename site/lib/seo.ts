@@ -1,5 +1,5 @@
 import { ALTERNATIVE_ROWS, FAQ_ITEMS, FEATURES } from "@/lib/content";
-import { REPO_URL } from "@/lib/site";
+import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
 
 export const PRODUCT_NAME = "PR Agent";
 
@@ -55,7 +55,7 @@ export function softwareApplicationJsonLd() {
       name: "prathamdby",
       url: "https://github.com/prathamdby",
     },
-    screenshot: "/screenshots/review.example.webp",
+    screenshot: `${SITE_ORIGIN}/og-image.png`,
   };
 }
 

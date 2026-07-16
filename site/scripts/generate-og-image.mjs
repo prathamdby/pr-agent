@@ -16,13 +16,13 @@ const background = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <radialGradient id="wash" cx="78%" cy="18%" r="55%">
-        <stop offset="0%" stop-color="#222b24"/>
-        <stop offset="100%" stop-color="#101612"/>
+        <stop offset="0%" stop-color="#162850"/>
+        <stop offset="100%" stop-color="#0a1630"/>
       </radialGradient>
     </defs>
-    <rect width="${width}" height="${height}" fill="#101612"/>
+    <rect width="${width}" height="${height}" fill="#0a1630"/>
     <rect width="${width}" height="${height}" fill="url(#wash)"/>
-    <g fill="#727b6c" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" opacity="0.45">
+    <g fill="#5e7399" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" opacity="0.45">
       <text x="72" y="72">+</text><text x="140" y="96">/</text><text x="210" y="64">-</text>
       <text x="980" y="540">#</text><text x="1040" y="568">{</text><text x="1100" y="520">}</text>
       <text x="860" y="88">*</text><text x="920" y="120">~</text><text x="80" y="560">&gt;</text>
@@ -43,12 +43,12 @@ const textLeft = logoLeft + logoWidth + textGap;
 
 const textOverlay = Buffer.from(
   `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <text x="${textLeft}" y="236" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="400" fill="#eef1e8">PR Agent</text>
-    <text x="${textLeft}" y="310" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="34" font-weight="500" fill="#c5ccbc">AI reviews pull requests</text>
-    <text x="${textLeft}" y="358" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="34" font-weight="500" fill="#b4c09a">on your own servers</text>
-    <rect x="${textLeft}" y="410" width="248" height="52" fill="#eef1e8"/>
-    <text x="${textLeft + 28}" y="444" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#101612">No per-seat fee</text>
-    <text x="${textLeft}" y="512" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="500" fill="#9aa392">MIT licensed · Docker Compose · BYO model keys</text>
+    <text x="${textLeft}" y="236" font-family="Georgia, 'Times New Roman', serif" font-size="64" font-weight="400" fill="#f2f6fc">PR Agent</text>
+    <text x="${textLeft}" y="310" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="34" font-weight="500" fill="#c8d5ec">AI reviews pull requests</text>
+    <text x="${textLeft}" y="358" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="34" font-weight="500" fill="#fdb631">on your own servers</text>
+    <rect x="${textLeft}" y="410" width="248" height="52" fill="#f2f6fc"/>
+    <text x="${textLeft + 28}" y="444" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="600" fill="#0a1630">No per-seat fee</text>
+    <text x="${textLeft}" y="512" font-family="ui-sans-serif, system-ui, -apple-system, sans-serif" font-size="22" font-weight="500" fill="#8fa3c4">MIT licensed · Docker Compose · BYO model keys</text>
   </svg>`,
 );
 

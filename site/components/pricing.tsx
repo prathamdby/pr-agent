@@ -5,7 +5,7 @@ export function Pricing() {
     <section
       id="pricing"
       aria-labelledby="pricing-heading"
-      className="bg-forge-raised px-4 py-20 sm:px-6 sm:py-28"
+      className="bg-navy-raised px-4 py-20 sm:px-6 sm:py-28"
     >
       <div className="mx-auto max-w-6xl">
         <p className="font-display text-[clamp(3.5rem,10vw,6.5rem)] leading-none tracking-[-0.03em] text-ink">
@@ -26,7 +26,7 @@ export function Pricing() {
             <div key={plan.title}>
               <dt className="text-base font-medium text-ink">{plan.title}</dt>
               <dd className="mt-2">
-                <p className="font-mono text-sm text-moss">{plan.price}</p>
+                <p className="font-mono text-sm text-sky">{plan.price}</p>
                 <p className="mt-2 text-sm leading-relaxed text-ink-mute">{plan.detail}</p>
               </dd>
             </div>

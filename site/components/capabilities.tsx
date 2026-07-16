@@ -5,7 +5,7 @@ export function Capabilities() {
     <section
       id="capabilities"
       aria-labelledby="capabilities-heading"
-      className="bg-forge-raised px-4 py-20 sm:px-6 sm:py-28"
+      className="bg-navy-raised px-4 py-20 sm:px-6 sm:py-28"
     >
       <div className="mx-auto max-w-6xl">
         <h2
@@ -26,7 +26,7 @@ export function Capabilities() {
               className="grid gap-3 py-7 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)] md:gap-8 md:py-8"
             >
               <h3 className="text-base font-medium leading-snug text-ink md:text-lg">{cap.title}</h3>
-              <p className="font-mono text-[12px] leading-relaxed text-moss md:pt-1">{cap.trigger}</p>
+              <p className="font-mono text-[12px] leading-relaxed text-sky md:pt-1">{cap.trigger}</p>
               <p className="text-sm leading-relaxed text-ink-mute md:pt-1">{cap.detail}</p>
             </li>
           ))}

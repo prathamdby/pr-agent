@@ -20,7 +20,7 @@ function Home() {
   return (
     <>
       <JsonLd />
-      <main id="main-content">
+      <main id="main-content" className="overflow-x-hidden">
         <Header />
         <Hero />
         <Features />
