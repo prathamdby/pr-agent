@@ -21,9 +21,9 @@ export function Pricing() {
           Know the cost before you connect GitHub or add an AI provider.
         </p>
 
-        <dl className="mt-14 grid gap-8 border-t border-edge pt-10 sm:grid-cols-2 lg:grid-cols-3 lg:gap-10">
+        <dl className="mt-14 grid gap-8 border-t border-edge pt-10 md:grid-cols-3 md:gap-8 lg:gap-10">
           {PRICING_PLANS.map((plan) => (
-            <div key={plan.title}>
+            <div key={plan.title} className="min-w-0">
               <dt className="text-base font-medium text-ink">{plan.title}</dt>
               <dd className="mt-2">
                 <p className="font-mono text-sm text-sky">{plan.price}</p>

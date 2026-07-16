@@ -5,9 +5,8 @@ import { DOCS_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
 
 /**
- * One composed fold: brand + artifact in-flow (no absolute overlap), then a
- * copy/CTA band. Top-anchored on phone/tablet so tall viewports do not open a
- * dead middle; gentle vertical centering only on large desktops.
+ * One composed fold: brand + artifact in-flow, then a copy/CTA band.
+ * Top-anchored until large desktop so tall tablets do not open a dead middle.
  */
 export function Hero() {
   return (
@@ -18,17 +17,17 @@ export function Hero() {
       <DiffField />
 
       <div className="relative z-10 mx-auto w-full min-w-0 max-w-6xl">
-        <div className="grid min-w-0 items-end gap-8 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] md:gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
-          <p className="min-w-0 font-display text-[clamp(3.5rem,12vw,7.5rem)] leading-[0.85] tracking-[-0.03em] text-ink lg:text-[clamp(4.5rem,9vw,8rem)]">
+        <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] md:gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+          <p className="min-w-0 font-display text-[clamp(3.25rem,14vw,5.5rem)] leading-[0.85] tracking-[-0.03em] text-ink md:text-[clamp(3.5rem,7vw,5.5rem)] lg:text-[clamp(4.5rem,9vw,8rem)]">
             {PRODUCT_NAME}
           </p>
 
-          <div className="min-w-0 w-full max-w-sm md:max-w-none">
+          <div className="min-w-0 w-full max-w-sm max-h-[14rem] overflow-hidden md:max-h-none md:max-w-none">
             <div
-              className="[mask-image:linear-gradient(to_bottom,black_0%,black_78%,transparent_100%)]"
+              className="[mask-image:linear-gradient(to_bottom,black_0%,black_70%,transparent_100%)] md:[mask-image:linear-gradient(to_bottom,black_0%,black_78%,transparent_100%)]"
               style={{
                 WebkitMaskImage:
-                  "linear-gradient(to bottom, black 0%, black 78%, transparent 100%)",
+                  "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)",
               }}
             >
               <ReviewArtifact />
@@ -36,10 +35,10 @@ export function Hero() {
           </div>
         </div>
 
-        <div className="relative z-20 mt-10 border-t border-edge pt-8 md:mt-12">
+        <div className="relative z-20 mt-8 max-w-xl border-t border-edge pt-7 md:mt-10 md:pt-8">
           <h1
             id="hero-heading"
-            className="max-w-[28ch] font-display text-[clamp(1.4rem,2.6vw,2rem)] leading-[1.2] text-ink-soft"
+            className="max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft"
           >
             AI reviews your pull requests on{" "}
             <span className="text-bolt">your own servers</span>
@@ -48,7 +47,7 @@ export function Hero() {
             Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model
             keys, your code never leaves.
           </p>
-          <div className="mt-7">
+          <div className="mt-6">
             <a
               href={DOCS_URL}
               target="_blank"
