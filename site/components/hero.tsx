@@ -8,24 +8,27 @@ export function Hero() {
   return (
     <section
       aria-labelledby="hero-heading"
-      className="grain relative min-h-[100svh] overflow-hidden px-4 pt-28 sm:px-6 sm:pt-32"
+      className="grain relative flex min-h-[100svh] flex-col overflow-hidden px-4 pt-28 sm:px-6 sm:pt-32"
     >
       <DiffField />
 
-      <div className="relative z-10 mx-auto flex min-h-[calc(100svh-7rem)] w-full max-w-6xl flex-col">
-        <div className="relative flex-1">
-          <p className="relative z-20 max-w-[10ch] font-display text-[clamp(4.5rem,16vw,9.5rem)] leading-[0.85] tracking-[-0.03em] text-ink">
+      <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col pb-12 sm:pb-16">
+        <div className="relative min-h-[18rem] flex-1 sm:min-h-[22rem]">
+          <p className="relative z-20 max-w-[10ch] font-display text-[clamp(4.25rem,14vw,9rem)] leading-[0.85] tracking-[-0.03em] text-ink">
             {PRODUCT_NAME}
           </p>
 
-          <div className="pointer-events-none absolute bottom-0 right-0 z-10 w-[min(100%,28rem)] translate-y-6 sm:w-[min(92%,34rem)] sm:translate-y-10 lg:w-[38rem] lg:translate-x-6">
-            <div className="pointer-events-auto [mask-image:linear-gradient(to_bottom,black_0%,black_58%,transparent_100%)]">
+          <div className="relative z-10 mt-8 w-full max-w-md sm:absolute sm:bottom-2 sm:right-0 sm:mt-0 sm:w-[min(92%,34rem)] lg:w-[36rem] lg:translate-x-4">
+            <div
+              className="[mask-image:linear-gradient(to_bottom,black_0%,black_72%,transparent_100%)]"
+              style={{ WebkitMaskImage: "linear-gradient(to bottom, black 0%, black 72%, transparent 100%)" }}
+            >
               <ReviewArtifact />
             </div>
           </div>
         </div>
 
-        <div className="relative z-20 mt-auto grid gap-6 border-t border-edge pb-10 pt-8 sm:grid-cols-[minmax(0,1.4fr)_auto] sm:items-end sm:pb-12">
+        <div className="relative z-20 mt-10 grid gap-6 border-t border-edge pt-8 sm:mt-auto sm:grid-cols-[minmax(0,1.4fr)_auto] sm:items-end">
           <div>
             <h1
               id="hero-heading"

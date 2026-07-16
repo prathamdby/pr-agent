@@ -14,17 +14,17 @@
     ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  --color-forge: #0d110f;
-  --color-forge-raised: #151a17;
-  --color-forge-panel: #1a211c;
-  --color-forge-inset: #121714;
-  --color-ink: #e8ebe4;
-  --color-ink-soft: #b4bbae;
-  --color-ink-mute: #7d8678;
-  --color-ink-faint: #5a6256;
-  --color-moss: #8a9478;
-  --color-moss-deep: #5e6652;
-  --color-moss-glow: #a8b492;
+  --color-forge: #101612;
+  --color-forge-raised: #181f1a;
+  --color-forge-panel: #222b24;
+  --color-forge-inset: #151b17;
+  --color-ink: #eef1e8;
+  --color-ink-soft: #c5ccbc;
+  --color-ink-mute: #9aa392;
+  --color-ink-faint: #727b6c;
+  --color-moss: #97a184;
+  --color-moss-deep: #667055;
+  --color-moss-glow: #b4c09a;
   --color-edge: color-mix(in srgb, var(--color-ink) 10%, transparent);
   --color-edge-strong: color-mix(in srgb, var(--color-ink) 18%, transparent);
 }
