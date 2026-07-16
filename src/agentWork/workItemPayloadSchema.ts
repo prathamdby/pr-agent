@@ -76,6 +76,7 @@ const TriageWorkPayloadSchema = z.looseObject({
 const VerificationWorkPayloadSchema = z.looseObject({
   source: z.literal("auto"),
   repositorySizeKb: z.number().optional(),
+  pushBeforeSha: z.string().min(1).optional(),
 });
 
 export class WorkItemPayloadValidationError extends Error {

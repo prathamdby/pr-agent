@@ -68,6 +68,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   action: string,
   intakeLog: RequestLogger,
   plan: AutomatedPrIntakePlan,
+  pushBeforeSha?: string,
 ): Promise<void> {
   const event = await insertWebhookEvent(client, headers, "automated_review_enqueued");
   if (event.duplicate) {
@@ -186,6 +187,7 @@ async function applyPlannedAutomatedPullRequestIntake(
           createVerificationWorkItem(client, {
             webhookEventId: event.id,
             ref,
+            pushBeforeSha,
           }),
       });
     await releaseSingletonIfSuperseded({
@@ -218,6 +220,7 @@ export async function applyAutomatedPullRequestIntake(
   action: string,
   intakeLog: RequestLogger,
   cfg: Pick<Config, "reviewAutoActions" | "descriptionAutoActions" | "verificationAutoActions">,
+  pushBeforeSha?: string,
 ): Promise<void> {
   const plan = planAutomatedPullRequestIntake(action, {
     reviewAutoActions: cfg.reviewAutoActions,
@@ -231,6 +234,15 @@ export async function applyAutomatedPullRequestIntake(
   }
 
   await inTransaction(pool, (client) =>
-    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, action, intakeLog, plan),
+    applyPlannedAutomatedPullRequestIntake(
+      boss,
+      client,
+      headers,
+      ref,
+      action,
+      intakeLog,
+      plan,
+      pushBeforeSha,
+    ),
   );
 }

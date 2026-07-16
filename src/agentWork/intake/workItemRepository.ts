@@ -385,6 +385,7 @@ export async function createVerificationWorkItem(
   params: {
     webhookEventId: string;
     ref: PrRef;
+    pushBeforeSha?: string;
   },
 ): Promise<string> {
   const id = crypto.randomUUID();
@@ -401,6 +402,7 @@ export async function createVerificationWorkItem(
     payload: {
       source: "auto",
       repositorySizeKb: params.ref.repositorySizeKb,
+      ...(params.pushBeforeSha != null ? { pushBeforeSha: params.pushBeforeSha } : {}),
     } satisfies VerificationWorkPayload,
     conflict: "none",
   });

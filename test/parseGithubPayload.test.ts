@@ -24,6 +24,21 @@ describe("parseGithubPayload", () => {
     expect(p.data.installation.id).toBe(42);
     expect(p.data.repository.size).toBe(1234);
     expect(p.data.pull_request.head.sha).toBe("abc");
+    expect(p.data.before).toBeUndefined();
+  });
+
+  it("parses optional top-level before on pull_request synchronize", () => {
+    const raw = {
+      action: "synchronize",
+      before: "d".repeat(40),
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r", size: 1234 },
+      pull_request: { number: 3, head: { sha: "abc" } },
+    };
+    const p = parseGithubPayload("pull_request", raw);
+    expect(p.name).toBe("pull_request");
+    if (p.name !== "pull_request") throw new Error("expected pull_request payload");
+    expect(p.data.before).toBe("d".repeat(40));
   });
 
   it("parses real-shaped pull_request payloads with extra GitHub fields", () => {

@@ -146,6 +146,7 @@ export type TriageWorkPayload = {
 export type VerificationWorkPayload = {
   readonly source: "auto";
   readonly repositorySizeKb?: number;
+  readonly pushBeforeSha?: string;
 };
 
 type WorkItemBase = PrRef & {

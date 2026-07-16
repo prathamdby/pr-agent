@@ -32,6 +32,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       ref: PrRef,
       action: string,
       intakeLog: RequestLogger,
+      pushBeforeSha?: string,
     ) => Effect.Effect<void, Error>;
     readonly submitSlashCommand: (
       input: SlashCommandInput,
@@ -64,10 +65,19 @@ export function makeAgentWorkScheduler(
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 
-    submitAutomatedReview: (headers, ref, action, intakeLog) =>
+    submitAutomatedReview: (headers, ref, action, intakeLog, pushBeforeSha) =>
       Effect.tryPromise({
         try: () =>
-          applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog, cfg),
+          applyAutomatedPullRequestIntake(
+            boss,
+            pool,
+            headers,
+            ref,
+            action,
+            intakeLog,
+            cfg,
+            pushBeforeSha,
+          ),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

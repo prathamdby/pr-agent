@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   runVerification: vi.fn(),
   publishVerification: vi.fn(),
   fetchPullRequestFiles: vi.fn(),
+  listCommitCompareFiles: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   listCommits: vi.fn(),
   createReplyForReviewComment: vi.fn(),
@@ -62,6 +63,10 @@ vi.mock("../src/agent/verification/publishVerification.js", () => ({
 
 vi.mock("../src/github/listPullRequestFiles.js", () => ({
   fetchPullRequestFiles: mocks.fetchPullRequestFiles,
+}));
+
+vi.mock("../src/github/compareCommitFiles.js", () => ({
+  listCommitCompareFiles: mocks.listCommitCompareFiles,
 }));
 
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
@@ -146,6 +151,10 @@ describe("executeVerificationJob", () => {
       totalChanges: 10,
       headSha: "a".repeat(40),
     });
+    mocks.listCommitCompareFiles.mockResolvedValue({
+      files: ["src/delta.ts"],
+      truncated: false,
+    });
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.listCommits.mockResolvedValue({
       data: [{ sha: "b".repeat(40), commit: { message: "fix: guard user" } }],
@@ -208,12 +217,74 @@ describe("executeVerificationJob", () => {
         payload: expect.objectContaining({
           verdicts: expect.arrayContaining([expect.objectContaining({ verdict: "fixed" })]),
         }),
-        changedFilePaths: ["src/app.ts"],
+        changedFilePaths: [],
+      }),
+    );
+    expect(mocks.listCommitCompareFiles).not.toHaveBeenCalled();
+  });
+
+  it("gates skipped-reply paths on the push-delta compare when pushBeforeSha is present", async () => {
+    const beforeSha = "c".repeat(40);
+    mockDurableExecution(
+      item({
+        payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
+      }),
+    );
+    mocks.fetchBotFindingThreads.mockResolvedValue([
+      findingThread(1, { path: "src/app.ts" }),
+      findingThread(2, { path: "src/other.ts" }),
+    ]);
+    mocks.listReviewThreadResolution.mockResolvedValue(
+      new Map([
+        [1, { threadNodeId: "node-1", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+    );
+    mocks.fetchPullRequestFiles.mockResolvedValue({
+      files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
+      truncated: false,
+      omittedCountLowerBound: 0,
+      totalChanges: 20,
+      headSha: "a".repeat(40),
+    });
+    mocks.listCommitCompareFiles.mockResolvedValue({
+      files: ["src/delta.ts", "src/app.ts"],
+      truncated: false,
+    });
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: {
+        verdicts: [
+          {
+            verdict: "skipped",
+            threadRootCommentId: 1,
+            reason: "still open",
+          },
+          {
+            verdict: "skipped",
+            threadRootCommentId: 2,
+            reason: "still open",
+          },
+        ],
+      },
+    });
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    expect(mocks.listCommitCompareFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        base: beforeSha,
+        head: "a".repeat(40),
+      }),
+    );
+    expect(mocks.publishVerification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changedFilePaths: ["src/delta.ts", "src/app.ts"],
       }),
     );
   });
 
-  it("passes changed file paths for the skipped-reply noise bound", async () => {
+  it("uses an empty changedFilePaths set when pushBeforeSha is absent", async () => {
     mocks.fetchBotFindingThreads.mockResolvedValue([
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
@@ -251,9 +322,10 @@ describe("executeVerificationJob", () => {
 
     await executeVerificationJob(cfg, pool, boss, job());
 
+    expect(mocks.listCommitCompareFiles).not.toHaveBeenCalled();
     expect(mocks.publishVerification).toHaveBeenCalledWith(
       expect.objectContaining({
-        changedFilePaths: ["src/app.ts", "README.md"],
+        changedFilePaths: [],
       }),
     );
   });

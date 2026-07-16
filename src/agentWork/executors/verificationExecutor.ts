@@ -4,6 +4,7 @@ import type { Config } from "../../config.js";
 import { logInfo } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
+import { listCommitCompareFiles } from "../../github/compareCommitFiles.js";
 import { fetchPullRequestFiles } from "../../github/listPullRequestFiles.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
@@ -100,7 +101,7 @@ export async function executeVerificationJob(
         return {};
       }
 
-      const [prFiles, pushedCommits] = await Promise.all([
+      const [prFiles, pushedCommits, pushDeltaFiles] = await Promise.all([
         fetchPullRequestFiles(
           tokenState.installation.token,
           item.owner,
@@ -120,9 +121,20 @@ export async function executeVerificationJob(
           repo: item.repo,
           prNumber: item.prNumber,
         }),
+        payload.pushBeforeSha != null
+          ? listCommitCompareFiles({
+              token: tokenState.installation.token,
+              tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+              owner: item.owner,
+              repo: item.repo,
+              base: payload.pushBeforeSha,
+              head: headSha,
+            })
+          : Promise.resolve(null),
       ]);
 
-      const changedFilePaths = prFiles.files.map((file) => file.filename);
+      const changedFilePaths =
+        pushDeltaFiles != null ? pushDeltaFiles.files : ([] as readonly string[]);
 
       const result = await withPrRepositoryView(
         {

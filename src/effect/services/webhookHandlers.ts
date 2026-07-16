@@ -103,6 +103,7 @@ export const WebhookHandlersCore = Layer.effect(
             },
             data.action ?? "",
             intakeLog,
+            data.before,
           );
         }),
 
