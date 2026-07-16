@@ -82,15 +82,19 @@ export function Gallery() {
           </p>
         </div>
 
-        <ul className="mt-12 grid gap-8 sm:grid-cols-2 xl:grid-cols-3">
+        <ul className="mt-12 grid auto-rows-fr gap-8 sm:grid-cols-2 xl:grid-cols-3">
           {EXAMPLES.map((example) => (
-            <li key={example.command} className="min-w-0">
-              <div className="mb-3">
+            <li key={example.command} className="flex min-w-0 flex-col">
+              <div className="mb-3 h-[4.5rem] shrink-0">
                 <p className="font-mono text-xs text-bolt">{example.command}</p>
                 <h3 className="mt-1 text-sm font-medium text-ink">{example.label}</h3>
-                <p className="mt-1 text-xs leading-relaxed text-ink-mute">{example.detail}</p>
+                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-ink-mute">
+                  {example.detail}
+                </p>
               </div>
-              <ExampleBody example={example} />
+              <div className="min-h-0 min-w-0 flex-1">
+                <ExampleBody example={example} />
+              </div>
             </li>
           ))}
         </ul>

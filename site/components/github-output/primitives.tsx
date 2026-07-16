@@ -74,7 +74,7 @@ export function OutputFrame({
   readonly children: ReactNode;
 }) {
   return (
-    <article className="chamfer surface-panel edge-self flex h-[22rem] flex-col overflow-hidden sm:h-[24rem]">
+    <article className="chamfer surface-panel edge-self flex h-[24rem] w-full flex-col overflow-hidden">
       <header className="flex shrink-0 items-center gap-2.5 border-b border-edge px-3 py-2.5">
         <img src="/logo.png" alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0" />
         <div className="min-w-0">

@@ -17,10 +17,6 @@ export function AskReplyMock() {
             acknowledgement reaction to finish, then the worker picks up the agent work item.
           </p>
         </div>
-        <p className="text-ink-mute">
-          On an inline review thread the same answer posts as plain text with no Question/Answer
-          chrome.
-        </p>
       </div>
     </OutputFrame>
   );
