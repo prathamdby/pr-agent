@@ -1,5 +1,6 @@
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
+import { logDebug } from "../evlog.js";
 import { GITHUB_REACTION_EYES } from "../settings/index.js";
 import type { AckJobData, AckTarget } from "./types.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
@@ -69,7 +70,17 @@ export async function safeReaction(
     }
   } catch (e: unknown) {
     const status = httpStatus(e);
-    if (status === 422 || status === 403) return;
+    if (status === 403) {
+      logDebug("reaction_suppressed_forbidden", {
+        owner,
+        repo,
+        target,
+        reaction: GITHUB_REACTION_EYES,
+        status,
+      });
+      return;
+    }
+    if (status === 422) return;
     throw e;
   }
 }
