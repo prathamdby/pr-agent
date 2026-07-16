@@ -96,7 +96,9 @@ export function Gallery() {
               >
                 <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
                   <p className="font-mono text-sm text-bolt">{example.command}</p>
-                  <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">{example.label}</h3>
+                  <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">
+                    {example.label}
+                  </h3>
                   <p className="mt-2 text-sm leading-relaxed text-ink-mute">{example.detail}</p>
                   <div className="mt-5 min-w-0">
                     <ExampleBody example={example} />

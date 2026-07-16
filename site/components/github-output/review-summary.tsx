@@ -1,4 +1,10 @@
-import { GhCode, GhDetails, GhKvTable, GhNote, OutputFrame } from "@/components/github-output/primitives";
+import {
+  GhCode,
+  GhDetails,
+  GhKvTable,
+  GhNote,
+  OutputFrame,
+} from "@/components/github-output/primitives";
 
 export type ReviewLens = "review" | "review-security" | "review-quality";
 
@@ -9,8 +15,10 @@ const SENTINEL: Record<ReviewLens, string> = {
 };
 
 const OVERVIEW: Record<ReviewLens, string> = {
-  review: "Adds a retry wrapper around the webhook dispatcher so transient GitHub failures do not drop deliveries.",
-  "review-security": "Security pass on webhook intake and publish paths for auth and secret-handling risks.",
+  review:
+    "Adds a retry wrapper around the webhook dispatcher so transient GitHub failures do not drop deliveries.",
+  "review-security":
+    "Security pass on webhook intake and publish paths for auth and secret-handling risks.",
   "review-quality": "Maintainability pass on settings routing and publish helpers.",
 };
 

@@ -27,7 +27,10 @@ export function Providers() {
         <p className="mt-10 max-w-xl text-sm text-ink-faint">
           Switch from GPT to Claude to DeepSeek by changing a setting. Your GitHub workflow stays
           the same. See{" "}
-          <a href="#usage" className="text-ink-soft underline decoration-edge-strong hover:text-ink">
+          <a
+            href="#usage"
+            className="text-ink-soft underline decoration-edge-strong hover:text-ink"
+          >
             Docker Compose setup
           </a>{" "}
           or the repo README.
