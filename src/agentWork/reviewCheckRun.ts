@@ -150,7 +150,11 @@ async function recoverStaleReservationOrWaitForPeer(
     staleBefore: new Date(Date.now() - REVIEW_CHECK_RUN_RESERVATION_STALE_MS),
   });
   if (!released) {
-    const githubId = await waitForReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+    const githubId = await waitForReviewCheckRunGithubId(
+      pool,
+      params.workItemId,
+      params.reviewLens,
+    );
     return { kind: "resolved", githubId };
   }
 
