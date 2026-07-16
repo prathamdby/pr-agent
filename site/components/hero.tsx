@@ -4,11 +4,11 @@ import { ReviewArtifact } from "@/components/review-artifact";
 import { DOCS_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
 
-function HeroCopy() {
+function HeroCopy({ headingId }: { readonly headingId?: string }) {
   return (
     <>
       <h1
-        id="hero-heading"
+        id={headingId}
         className="max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft"
       >
         AI reviews your pull requests on <span className="text-bolt">your own servers</span>
@@ -67,9 +67,12 @@ export function Hero() {
           </div>
         </div>
 
-        <div className="mt-8 border-t border-edge pt-7 md:mt-10 md:pt-8">
-          <HeroCopy />
-          <div className="mt-6">
+        {/* md+ (iPad): headline | CTA like desktop. Mobile stays stacked. */}
+        <div className="mt-8 border-t border-edge pt-7 md:mt-10 md:grid md:grid-cols-[minmax(0,1.4fr)_auto] md:items-end md:gap-8 md:pt-8">
+          <div className="min-w-0">
+            <HeroCopy headingId="hero-heading" />
+          </div>
+          <div className="mt-6 min-w-0 md:mt-0 md:justify-self-end md:text-right">
             <HeroCta />
           </div>
         </div>

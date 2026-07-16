@@ -1,5 +1,9 @@
 import { FEATURES } from "@/lib/content";
 
+/**
+ * How a review runs - full-width walkthrough, readable at every breakpoint.
+ * No side-by-side sticky intro (that cramped the steps on tablet).
+ */
 export function Features() {
   return (
     <section
@@ -8,31 +12,53 @@ export function Features() {
       className="px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
-        <div className="grid gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-16">
+        <header className="max-w-2xl border-b border-edge pb-10">
           <h2
             id="features-heading"
-            className="max-w-[16ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
+            className="font-display text-[clamp(2.1rem,4.2vw,3.25rem)] leading-[1.05] tracking-[-0.02em] text-ink"
           >
-            Stop burning reviewer time on repeat checks
+            How a pull request gets its first pass
           </h2>
+          <p className="mt-4 text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
+            One deploy. After that, every PR follows the same path inside GitHub - no extra
+            dashboard, no per-seat bill from PR Agent.
+          </p>
+        </header>
 
-          <ol className="space-y-0">
-            {FEATURES.map((feature, index) => (
+        <ol className="mt-2">
+          {FEATURES.map((feature, index) => {
+            const step = String(index + 1).padStart(2, "0");
+            const isLast = index === FEATURES.length - 1;
+            return (
               <li
                 key={feature.title}
-                className="grid grid-cols-[3rem_minmax(0,1fr)] gap-4 border-t border-edge py-6 first:border-t-0 first:pt-0"
+                className={
+                  isLast
+                    ? "grid gap-3 py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]"
+                    : "grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]"
+                }
               >
-                <span className="font-mono text-sm text-ink-faint">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
-                <div>
-                  <h3 className="text-base font-medium text-ink">{feature.title}</h3>
-                  <p className="mt-1.5 text-sm leading-relaxed text-ink-mute">{feature.detail}</p>
+                <p
+                  aria-hidden="true"
+                  className="font-display text-[clamp(2.5rem,5vw,3.5rem)] leading-none tracking-[-0.03em] text-sky/45"
+                >
+                  {step}
+                </p>
+                <div className="min-w-0 max-w-2xl">
+                  <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
+                    {feature.title}
+                  </h3>
+                  <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
+                    {feature.detail}
+                  </p>
+                  <p className="mt-4 font-mono text-[0.8rem] leading-snug text-bolt sm:text-[0.85rem]">
+                    {feature.cue}
+                  </p>
                 </div>
               </li>
-            ))}
-          </ol>
-        </div>
+            );
+          })}
+        </ol>
       </div>
     </section>
   );

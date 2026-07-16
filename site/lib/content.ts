@@ -1,39 +1,49 @@
 export type FeatureItem = {
   title: string;
   detail: string;
+  /** Short phrase shown under the step (command, event, or outcome). */
+  cue: string;
   /** Short phrase for schema.org SoftwareApplication.featureList */
   summary: string;
 };
 
+/**
+ * Walkthrough of what happens after deploy - instructional, not a feature laundry list.
+ */
 export const FEATURES: FeatureItem[] = [
   {
-    title: "Works where your team already is",
+    title: "Deploy once on infrastructure you control",
     detail:
-      "PR Agent watches pull requests and comments, then picks up review work without extra tabs or tools.",
-    summary: "Automated AI pull request reviews",
-  },
-  {
-    title: "Runs on infrastructure you control",
-    detail:
-      "Deploy on your servers. Your GitHub credentials and AI keys stay in your environment, not a vendor's.",
+      "Stand up the GitHub App, Postgres, and workers. Your installation credentials and model keys stay in your environment - not a vendor account.",
+    cue: "Your servers · your keys",
     summary: "Self-hosted GitHub App",
   },
   {
-    title: "Keeps results in the pull request",
+    title: "A pull request opens or updates",
     detail:
-      "Reviews, descriptions, security notes, quality notes, and answers show up in the PR thread your team already reads.",
+      "GitHub delivers a signed webhook. PR Agent records it, reacts with eyes so the team knows work started, and queues a review for that head.",
+    cue: "pull_request opened / synchronize",
+    summary: "Automated AI pull request reviews",
+  },
+  {
+    title: "A worker inspects the change set",
+    detail:
+      "The agent checks out the PR head, reads the diff, and looks for bugs and correctness issues. When the diff touches dangerous APIs, it also hunts for security tripwires.",
+    cue: "Local PR workspace on the worker",
+    summary: "Reviews run on your workers",
+  },
+  {
+    title: "Results land in the pull request",
+    detail:
+      "Inline threads show up on Files changed. A review summary lands in the conversation. Need more? Comment /describe, /review-security, /review-quality, or /ask - answers stay in the same thread.",
+    cue: "/review · /describe · /ask",
     summary: "Reviews and replies posted in the pull request",
   },
   {
-    title: "Simple commands from PR comments",
+    title: "Honest limits when the change is huge",
     detail:
-      "Type /review, /describe, /review-security, /review-quality, or /ask in a comment when you want a specific pass.",
-    summary: "Slash-command review triggers and Q&A",
-  },
-  {
-    title: "Honest limits on large changes",
-    detail:
-      "Very large pull requests may get a partial review. When that happens, PR Agent tells you what it could not cover.",
+      "Docs-only pull requests can take a lighter path. Very large changes may get a partial review - and PR Agent says what it could not cover instead of faking completeness.",
+    cue: "Partial review notice when needed",
     summary: "Honest coverage limits on large pull requests",
   },
 ];
