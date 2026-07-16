@@ -232,6 +232,23 @@ function workItemAccepted<T extends WorkType>(
   return !spec.acceptItem || spec.acceptItem(item);
 }
 
+/** Durable lifecycle phase. Skip checks run only in claiming and completing. */
+type WorkItemPhase = "claiming" | "executing" | "completing";
+
+type WorkItemPhaseState = { phase: WorkItemPhase };
+
+function enterExecutingPhase(state: WorkItemPhaseState): void {
+  state.phase = "executing";
+}
+
+function enterCompletingPhase(state: WorkItemPhaseState): void {
+  state.phase = "completing";
+}
+
+function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
+  return state.phase === "executing";
+}
+
 /**
  * Shared scaffolding for durable work items: skip/claim/mint-token/bot-skip/head-SHA/transition/retry.
  * Callers supply only the agent-specific execute() and an optional terminal-failure publish hook.
@@ -243,7 +260,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   type TypedCore = Extract<AgentWorkItemCore, { type: T }>;
 
   let workItem: TypedItem | undefined;
-  let midScaffoldSkipChecksDisabled = false;
+  const phaseState: WorkItemPhaseState = { phase: "claiming" };
   let installation: InstallationToken | undefined;
   /** Set while a reschedule afterComplete may still need abort on terminal failure. */
   let pendingRescheduleAbort: ((boss: PgBoss, error: unknown) => Promise<void>) | undefined;
@@ -280,7 +297,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   if (spec.acceptItem == null) {
     workItem =
       (await claimQueuedWorkItem(spec.pool, spec.job.data.workItemId, spec.type)) ?? undefined;
-    if (workItem) midScaffoldSkipChecksDisabled = true;
+    if (workItem) enterExecutingPhase(phaseState);
   }
 
   if (workItem === undefined) {
@@ -288,7 +305,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     if (!workItemAccepted(core, spec)) return;
 
     const cancelBeforeClaim = async () => {
-      if (midScaffoldSkipChecksDisabled) return false;
+      if (isSkipCheckSuppressed(phaseState)) return false;
       if (!(await shouldSkipWork(spec.pool, core))) return false;
       await markCancelledAndInvokeHook(core, installation, "skipped_before_claim");
       return true;
@@ -296,7 +313,7 @@ export async function runDurableWorkItem<T extends WorkType>(
 
     if (await cancelBeforeClaim()) return;
     if (!(await claimWorkForExecution(spec.pool, core.id))) return;
-    midScaffoldSkipChecksDisabled = true;
+    enterExecutingPhase(phaseState);
     const rawPayload = await getWorkItemPayload(spec.pool, core.id);
     if (rawPayload === undefined) return;
     try {
@@ -310,7 +327,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   const item = workItem;
 
   const cancelIfSkippable = async (reason: string, notifyHook = true) => {
-    if (midScaffoldSkipChecksDisabled) return false;
+    if (isSkipCheckSuppressed(phaseState)) return false;
     if (!(await shouldSkipWork(spec.pool, item))) return false;
     if (notifyHook) {
       await markCancelledAndInvokeHook(item, installation, reason);
@@ -321,7 +338,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   };
 
   const recheckSkippableAndCancel = async (reason: string, notifyHook = true) => {
-    midScaffoldSkipChecksDisabled = false;
+    enterCompletingPhase(phaseState);
     return cancelIfSkippable(reason, notifyHook);
   };
 
