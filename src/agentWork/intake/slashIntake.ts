@@ -10,8 +10,7 @@ import {
   TRIAGE_INLINE_USAGE_HINT,
 } from "../../settings/index.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
-import type { RequestLogger } from "../../evlog.js";
-import { recordEvent } from "../../evlog.js";
+import type { DeferredIntakeEvent } from "./deferredEvents.js";
 import {
   type AckJobData,
   type AckTarget,
@@ -71,7 +70,7 @@ type SlashIntakeContext = {
   readonly baseAck: Omit<AckJobData, "workItemId" | "progress" | "reply"> & {
     kind: "ack";
   };
-  readonly intakeLog: RequestLogger;
+  readonly events: DeferredIntakeEvent[];
 };
 
 async function enqueueSlashAck(
@@ -118,11 +117,14 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
     case "already_exists_skipped":
       return;
     case "promoted":
-      recordEvent(ctx.intakeLog, "agent_work_enqueued", {
-        type: "ask",
-        source: "slash",
-        workItemId: outcome.workItemId,
-        ...ctx.correlation,
+      ctx.events.push({
+        name: "agent_work_enqueued",
+        fields: {
+          type: "ask",
+          source: "slash",
+          workItemId: outcome.workItemId,
+          ...ctx.correlation,
+        },
       });
       return;
     default: {
@@ -153,12 +155,15 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
   const workItemId = insert.id;
   await enqueueSlashAck(ctx, { workItemId });
   await enqueueDescription(ctx.boss, ctx.client, ctx.ref, workItemId, ctx.correlation);
-  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
-    type: "description",
-    source: "slash",
-    workItemId,
-    resourceKey,
-    ...ctx.correlation,
+  ctx.events.push({
+    name: "agent_work_enqueued",
+    fields: {
+      type: "description",
+      source: "slash",
+      workItemId,
+      resourceKey,
+      ...ctx.correlation,
+    },
   });
 }
 
@@ -255,12 +260,15 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
       reply_target_kind: ctx.input.replyTarget.kind,
     },
   );
-  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
-    type: "triage",
-    source: "slash",
-    workItemId,
-    resourceKey,
-    ...ctx.correlation,
+  ctx.events.push({
+    name: "agent_work_enqueued",
+    fields: {
+      type: "triage",
+      source: "slash",
+      workItemId,
+      resourceKey,
+      ...ctx.correlation,
+    },
   });
 }
 
@@ -290,19 +298,25 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
     progress: { lens: command, headSha: ctx.ref.headSha, source: "slash" },
   });
   await enqueueReview(ctx.boss, ctx.client, ctx.ref, workItemId, command, ctx.correlation);
-  recordEvent(ctx.intakeLog, "agent_work_enqueued", {
-    type: "review",
-    source: "slash",
-    workItemId,
-    resourceKey,
-    lens: command,
-    ...ctx.correlation,
+  ctx.events.push({
+    name: "agent_work_enqueued",
+    fields: {
+      type: "review",
+      source: "slash",
+      workItemId,
+      resourceKey,
+      lens: command,
+      ...ctx.correlation,
+    },
   });
 }
 
 async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
-  recordEvent(ctx.intakeLog, "ignored_unknown_slash_command", {
-    command,
+  ctx.events.push({
+    name: "ignored_unknown_slash_command",
+    fields: {
+      command,
+    },
   });
 }
 
@@ -324,16 +338,19 @@ export async function applySlashCommandIntake(
   boss: PgBoss,
   client: PoolClient,
   input: SlashCommandInput,
-  intakeLog: RequestLogger,
-): Promise<void> {
+): Promise<DeferredIntakeEvent[]> {
+  const events: DeferredIntakeEvent[] = [];
   const command = input.command;
   const event = await insertWebhookEvent(client, input.headers, `slash_${command}`);
   if (event.duplicate) {
-    recordEvent(intakeLog, "deduped_delivery", {
-      dedupeKey: event.dedupeKey,
-      event: input.headers.event,
+    events.push({
+      name: "deduped_delivery",
+      fields: {
+        dedupeKey: event.dedupeKey,
+        event: input.headers.event,
+      },
     });
-    return;
+    return events;
   }
 
   const correlation = jobCorrelation(event.id, input.headers);
@@ -367,13 +384,14 @@ export async function applySlashCommandIntake(
       targets,
       commenterId: input.commenterId,
     },
-    intakeLog,
+    events,
   };
 
   const handler = SLASH_INTAKE_HANDLERS[command];
   if (handler) {
     await handler(ctx, command);
-    return;
+    return events;
   }
   await handleSlashUnknown(ctx, command);
+  return events;
 }

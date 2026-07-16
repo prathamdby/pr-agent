@@ -29,6 +29,16 @@ describe("parseWorkItemPayload", () => {
     }
   });
 
+  it("accepts optional pushBeforeSha on verification payloads", () => {
+    const pushBeforeSha = "f".repeat(40);
+    expect(
+      parseWorkItemPayload("verification", {
+        source: "auto",
+        pushBeforeSha,
+      }),
+    ).toEqual({ source: "auto", pushBeforeSha });
+  });
+
   it("rejects cross-type payloads", () => {
     expect(() => parseWorkItemPayload("review", validByType.ask())).toThrow(
       WorkItemPayloadValidationError,

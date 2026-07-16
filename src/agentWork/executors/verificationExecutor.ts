@@ -4,13 +4,14 @@ import type { Config } from "../../config.js";
 import { logInfo } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
+import { listCommitCompareFiles } from "../../github/compareCommitFiles.js";
 import { fetchPullRequestFiles } from "../../github/listPullRequestFiles.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { COMMENT_PAGINATION_MAX_PAGES, COMMENTS_PAGE_SIZE } from "../../settings/index.js";
+import { PR_COMMITS_MAX_PAGES, PR_COMMITS_PAGE_SIZE } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type VerificationJobData } from "../types.js";
@@ -29,8 +30,8 @@ async function listPushedCommits(params: {
 }): Promise<PushedCommit[]> {
   const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
   const commits = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    perPage: PR_COMMITS_PAGE_SIZE,
+    maxPages: PR_COMMITS_MAX_PAGES,
     fetchPage: async (page, perPage) => {
       const { data } = await octokit.rest.pulls.listCommits({
         owner: params.owner,
@@ -100,7 +101,7 @@ export async function executeVerificationJob(
         return {};
       }
 
-      const [prFiles, pushedCommits] = await Promise.all([
+      const [prFiles, pushedCommits, pushDeltaFiles] = await Promise.all([
         fetchPullRequestFiles(
           tokenState.installation.token,
           item.owner,
@@ -120,9 +121,20 @@ export async function executeVerificationJob(
           repo: item.repo,
           prNumber: item.prNumber,
         }),
+        payload.pushBeforeSha != null
+          ? listCommitCompareFiles({
+              token: tokenState.installation.token,
+              tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+              owner: item.owner,
+              repo: item.repo,
+              base: payload.pushBeforeSha,
+              head: headSha,
+            })
+          : Promise.resolve(null),
       ]);
 
-      const changedFilePaths = prFiles.files.map((file) => file.filename);
+      const changedFilePaths =
+        pushDeltaFiles != null ? pushDeltaFiles.files : ([] as readonly string[]);
 
       const result = await withPrRepositoryView(
         {
@@ -159,7 +171,7 @@ export async function executeVerificationJob(
         throw new Error("Verification run ended without submitVerification");
       }
 
-      await publishVerification({
+      const publish = await publishVerification({
         pool,
         workItemId: item.id,
         resourceKey: item.resourceKey,
@@ -175,7 +187,7 @@ export async function executeVerificationJob(
         changedFilePaths,
       });
 
-      return {};
+      return publish.degraded ? { degraded: true } : {};
     },
   });
 }

@@ -21,6 +21,10 @@ import {
 } from "../../settings/index.js";
 import { recordPublishStep } from "../../agentWork/repository.js";
 import {
+  loadActedThreadIds,
+  recordActedThreadIds,
+} from "../../agentWork/threadActionCheckpoint.js";
+import {
   captureTriageEvent,
   captureTriageFailure,
   type TriageAnalyticsRef,
@@ -107,47 +111,6 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
 
 function shortSha(sha: string): string {
   return sha.slice(0, 7);
-}
-
-function actedThreadIdsFromDetail(detail: unknown): number[] {
-  if (!detail || typeof detail !== "object" || !("actedThreadIds" in detail)) return [];
-  const value = detail.actedThreadIds;
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is number => Number.isInteger(item));
-}
-
-async function loadActedThreadIds(
-  pool: Pool,
-  workItemId: string,
-  resourceKey: string,
-): Promise<number[]> {
-  const row = await pool.query<{ detail: unknown }>(
-    `SELECT detail
-       FROM publish_records
-      WHERE work_item_id = $1
-        AND resource_key = $2
-        AND review_lens = $3
-        AND step = 'triage_thread_actions'
-        AND status = 'completed'
-      LIMIT 1`,
-    [workItemId, resourceKey, TRIAGE_PUBLISH_LENS],
-  );
-  return actedThreadIdsFromDetail(row.rows[0]?.detail);
-}
-
-async function recordActedThreadIds(
-  pool: Pool,
-  params: Pick<PublishTriageParams, "workItemId" | "resourceKey"> & {
-    readonly actedThreadIds: readonly number[];
-  },
-): Promise<void> {
-  await recordPublishStep(pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    reviewLens: TRIAGE_PUBLISH_LENS,
-    step: "triage_thread_actions",
-    detail: { actedThreadIds: params.actedThreadIds },
-  });
 }
 
 function replyBody(
@@ -305,7 +268,12 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   }
 
   const actedThreadIds = new Set(
-    await loadActedThreadIds(params.pool, params.workItemId, params.resourceKey),
+    await loadActedThreadIds(params.pool, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: TRIAGE_PUBLISH_LENS,
+      step: "triage_thread_actions",
+    }),
   );
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   for (const verdict of params.payload.verdicts) {
@@ -337,6 +305,8 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       await recordActedThreadIds(params.pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
+        reviewLens: TRIAGE_PUBLISH_LENS,
+        step: "triage_thread_actions",
         actedThreadIds: [...actedThreadIds],
       });
     }

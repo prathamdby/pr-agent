@@ -1,6 +1,10 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { Config } from "../../config.js";
 import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
+import {
+  runStructuredAgentLoop,
+  runValidationRepairLoop,
+} from "../../agentRun/structuredAgentLoop.js";
 import { logInfo } from "../../evlog.js";
 import { resolveAgentRunnerProvider } from "../providers/index.js";
 import type { TriageRunResult } from "./triageRun.js";
@@ -47,37 +51,56 @@ export async function runTriageHarness(params: {
     runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt);
 
   const runValidationRepair = async () => {
-    for (
-      let repair = 0;
-      repair < TRIAGE_VALIDATION_REPAIR_ROUNDS && shouldContinueTriageRun(setup);
-      repair++
-    ) {
-      const validationError = setup.submitState.lastValidationError;
-      if (!validationError) break;
-      setup.submitState.lastValidationError = null;
-      lastText = await sendSubmitOnlyRepair(
-        [validationError, "Fix the payload and call submitTriage again."].join("\n\n"),
-      );
-    }
+    await runValidationRepairLoop({
+      rounds: TRIAGE_VALIDATION_REPAIR_ROUNDS,
+      shouldContinue: () => shouldContinueTriageRun(setup),
+      getValidationError: () => setup.submitState.lastValidationError,
+      clearValidationError: () => {
+        setup.submitState.lastValidationError = null;
+      },
+      repair: async (validationError) => {
+        lastText = await sendSubmitOnlyRepair(
+          [validationError, "Fix the payload and call submitTriage again."].join("\n\n"),
+        );
+      },
+    });
   };
 
   try {
-    lastText = (
-      await session.send(setup.userContent, {
-        maxToolRounds: cfg.maxToolRoundsTriage,
-      })
-    ).text;
-
-    for (
-      let nudge = 0;
-      nudge < TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueTriageRun(setup);
-      nudge++
-    ) {
-      lastText = await sendSubmitOnlyRepair(TRIAGE_SUBMIT_ONLY_NUDGE);
-      await runValidationRepair();
-    }
-
-    await runValidationRepair();
+    await runStructuredAgentLoop({
+      shouldContinue: () => shouldContinueTriageRun(setup),
+      phases: [
+        {
+          name: "investigation",
+          run: async () => {
+            lastText = (
+              await session.send(setup.userContent, {
+                maxToolRounds: cfg.maxToolRoundsTriage,
+              })
+            ).text;
+          },
+        },
+        {
+          name: "pre_submit",
+          run: async () => {
+            for (
+              let nudge = 0;
+              nudge < TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueTriageRun(setup);
+              nudge++
+            ) {
+              lastText = await sendSubmitOnlyRepair(TRIAGE_SUBMIT_ONLY_NUDGE);
+              await runValidationRepair();
+            }
+          },
+        },
+        {
+          name: "validation_repair",
+          run: async () => {
+            await runValidationRepair();
+          },
+        },
+      ],
+    });
 
     if (setup.submitState.submitted) {
       logInfo("triage_run_completed", { owner, repo, pr: prNumber });

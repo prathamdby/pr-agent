@@ -148,6 +148,32 @@ describe("processWebhookPostRequestEffect", () => {
     expect(out).toEqual({ status: 200, body: "ok" });
   });
 
+  it("returns 422 for webhook parse errors", async () => {
+    const body = Buffer.from(
+      JSON.stringify({
+        action: "opened",
+        installation: { id: 1 },
+        repository: { owner: { login: "o" }, name: "r", size: 10 },
+        pull_request: { number: "not-a-number", head: { sha: "abc" } },
+      }),
+    );
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "pull_request",
+            "x-github-delivery": "d-parse-error",
+          },
+          rawBody: body,
+        },
+        stubLayer,
+      ),
+    );
+
+    expect(out).toEqual({ status: 422, body: "unprocessable entity" });
+  });
+
   it("silently ignores unauthorized slash commands", async () => {
     const payload = {
       action: "created",

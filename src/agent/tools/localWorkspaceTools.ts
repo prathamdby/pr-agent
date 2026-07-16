@@ -12,6 +12,7 @@ import {
   sanitizeToolResultForAsk,
   type AskPathGate,
 } from "../ask/askSafety.js";
+import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
 import { capTextOutput, readTextWithOutputBudget } from "./toolOutputBudget.js";
 
 export type LocalWorkspaceToolLimits = {
@@ -30,26 +31,6 @@ export function workspaceToolLimitsFromConfig(cfg: Config): LocalWorkspaceToolLi
     searchMaxFiles: cfg.localWorkspaceSearchMaxFiles,
     searchMaxTotalBytes: cfg.localWorkspaceSearchMaxTotalBytes,
   };
-}
-
-type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
-  readonly description: string;
-  readonly schema: TSchema;
-  readonly run: (parsed: any) => Promise<unknown>;
-};
-
-function toPiTool(name: string, t: LocalTool): PiTool {
-  return {
-    name,
-    description: t.description,
-    parameters: z.toJSONSchema(t.schema, {
-      unrepresentable: "any",
-    }) as PiTool["parameters"],
-  };
-}
-
-function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(t.schema.parse(args));
 }
 
 const BINARY_SAMPLE_BYTES = 8192;

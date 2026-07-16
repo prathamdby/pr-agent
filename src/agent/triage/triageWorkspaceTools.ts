@@ -9,36 +9,13 @@ import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import { SENSITIVE_PATH_PATTERNS, TRIAGE_NEW_FILE_MAX_BYTES } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
 
 const exec = promisify(execFile);
-
-type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
-  readonly description: string;
-  readonly schema: TSchema;
-  readonly run: (parsed: z.infer<TSchema>) => Promise<unknown>;
-};
 
 export type TriageWorkspaceToolState = {
   readonly commitByThreadRootCommentId: Map<number, string>;
 };
-
-function toPiTool(name: string, t: LocalTool): PiTool {
-  return {
-    name,
-    description: t.description,
-    parameters: z.toJSONSchema(t.schema, {
-      unrepresentable: "any",
-    }) as PiTool["parameters"],
-  };
-}
-
-function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(t.schema.parse(args));
-}
-
-function defineLocalTool<TSchema extends z.ZodType>(tool: LocalTool<TSchema>): LocalTool<TSchema> {
-  return tool;
-}
 
 function isSensitivePath(path: string): boolean {
   return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));

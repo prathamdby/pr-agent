@@ -7,32 +7,9 @@ import { z } from "zod";
 import type { Config } from "../../config.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import { SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
+import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
 
 const exec = promisify(execFile);
-
-type LocalTool<TSchema extends z.ZodType = z.ZodType> = {
-  readonly description: string;
-  readonly schema: TSchema;
-  readonly run: (parsed: z.infer<TSchema>) => Promise<unknown>;
-};
-
-function toPiTool(name: string, t: LocalTool): PiTool {
-  return {
-    name,
-    description: t.description,
-    parameters: z.toJSONSchema(t.schema, {
-      unrepresentable: "any",
-    }) as PiTool["parameters"],
-  };
-}
-
-function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(t.schema.parse(args));
-}
-
-function defineLocalTool<TSchema extends z.ZodType>(tool: LocalTool<TSchema>): LocalTool<TSchema> {
-  return tool;
-}
 
 function isSensitivePath(path: string): boolean {
   return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));

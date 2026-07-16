@@ -5,6 +5,7 @@ export const pullRequestWebhookSchema = z.object({
   action: z.string(),
   installation: installationSchema,
   repository: repositorySchema,
+  before: z.string().optional(),
   pull_request: z.object({
     number: z.number(),
     head: z.object({

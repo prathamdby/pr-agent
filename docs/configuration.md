@@ -130,7 +130,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ---
 
-## Code constants (`src/settings/constants.ts`)
+## Code constants (`src/settings/*Constants.ts`, re-exported via `constants.ts`)
 
 ### Agent work (queues)
 
@@ -301,6 +301,8 @@ lensOverrides:
 | `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000    |
 | `COMMENTS_PAGE_SIZE`                      | 100     |
 | `COMMENT_PAGINATION_MAX_PAGES`            | 20      |
+| `PR_COMMITS_PAGE_SIZE`                    | 100     |
+| `PR_COMMITS_MAX_PAGES`                    | 20      |
 | `GITHUB_REACTION_EYES`                    | eyes    |
 
 ### Local PR workspace

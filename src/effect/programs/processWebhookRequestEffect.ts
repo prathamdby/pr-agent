@@ -12,7 +12,8 @@ import { WebhookHandlers } from "../services/webhookHandlers.js";
 type DispatchResult =
   | { readonly kind: "ok" }
   | { readonly kind: "failed" }
-  | { readonly kind: "timeout" };
+  | { readonly kind: "timeout" }
+  | { readonly kind: "parse_error"; readonly message: string };
 
 export type WebhookPostRequest = {
   headers: Record<string, string | undefined>;
@@ -34,7 +35,7 @@ type DispatchInput = {
 
 function dispatchGithubEventEffect(
   input: DispatchInput,
-): Effect.Effect<void, Error, AgentWorkScheduler | WebhookHandlers> {
+): Effect.Effect<DispatchResult, Error, AgentWorkScheduler | WebhookHandlers> {
   return Effect.gen(function* () {
     const { cfg, headers, intakeLog, payload } = input;
     const event = headers.event ?? "";
@@ -49,30 +50,30 @@ function dispatchGithubEventEffect(
     } catch (e) {
       if (e instanceof WebhookParseError) {
         recordEvent(intakeLog, "webhook_parse_error", { event, message: e.message }, "warn");
-        return;
+        return { kind: "parse_error" as const, message: e.message };
       }
       yield* Effect.fail(e instanceof Error ? e : new Error(String(e)));
-      return;
+      return { kind: "failed" as const };
     }
 
     const scheduler = yield* AgentWorkScheduler;
     if (parsed.name === "ignored") {
       recordEvent(intakeLog, "ignored_event", { event }, "debug");
       yield* scheduler.recordIgnored(headers, `ignored_event_${event || "missing"}`, intakeLog);
-      return;
+      return { kind: "ok" as const };
     }
 
     const handlers = yield* WebhookHandlers;
     switch (parsed.name) {
       case "pull_request":
         yield* handlers.pullRequest(cfg, headers, parsed.data, intakeLog);
-        return;
+        return { kind: "ok" as const };
       case "issue_comment":
         yield* handlers.issueComment(cfg, headers, parsed.data, intakeLog);
-        return;
+        return { kind: "ok" as const };
       case "pull_request_review_comment":
         yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data, intakeLog);
-        return;
+        return { kind: "ok" as const };
       default:
         parsed satisfies never;
         recordEvent(intakeLog, "unhandled_parsed_event", { event }, "warn");
@@ -81,6 +82,7 @@ function dispatchGithubEventEffect(
           `ignored_unhandled_${event || "missing"}`,
           intakeLog,
         );
+        return { kind: "ok" as const };
     }
   });
 }
@@ -144,7 +146,6 @@ export function processWebhookPostRequestEffect(
     });
     const result: DispatchResult = yield* dispatch.pipe(
       Effect.timeout(Duration.millis(responseBudgetMs)),
-      Effect.map(() => ({ kind: "ok" as const })),
       Effect.catchTag("TimeoutException", () =>
         Effect.sync(() => {
           recordEvent(
@@ -180,27 +181,56 @@ export function processWebhookPostRequestEffect(
     );
     const elapsedMs = Date.now() - t0;
 
-    if (result.kind !== "ok") {
-      const response = {
-        status: 503,
-        body: "service unavailable",
-      } satisfies WebhookResponseLike;
-      intakeLog.set({
-        webhook: {
-          status: response.status,
-          elapsedMs,
-          handlerFailed: result.kind === "failed",
-          timeout: result.kind === "timeout",
-          responseBudgetMs,
-        },
-      });
-      yield* Effect.promise(() =>
-        emitOperationLogger(intakeLog, {
-          event:
-            result.kind === "timeout" ? "webhook_timeout_budget_exceeded" : "webhook_handler_error",
-        }),
-      );
-      return response;
+    switch (result.kind) {
+      case "ok":
+        break;
+      case "parse_error": {
+        const response = {
+          status: 422,
+          body: "unprocessable entity",
+        } satisfies WebhookResponseLike;
+        intakeLog.set({
+          webhook: {
+            status: response.status,
+            elapsedMs,
+            parseError: true,
+            responseBudgetMs,
+          },
+        });
+        yield* Effect.promise(() =>
+          emitOperationLogger(intakeLog, { event: "webhook_parse_error" }),
+        );
+        return response;
+      }
+      case "failed":
+      case "timeout": {
+        const response = {
+          status: 503,
+          body: "service unavailable",
+        } satisfies WebhookResponseLike;
+        intakeLog.set({
+          webhook: {
+            status: response.status,
+            elapsedMs,
+            handlerFailed: result.kind === "failed",
+            timeout: result.kind === "timeout",
+            responseBudgetMs,
+          },
+        });
+        yield* Effect.promise(() =>
+          emitOperationLogger(intakeLog, {
+            event:
+              result.kind === "timeout"
+                ? "webhook_timeout_budget_exceeded"
+                : "webhook_handler_error",
+          }),
+        );
+        return response;
+      }
+      default: {
+        const _exhaustive: never = result;
+        return _exhaustive;
+      }
     }
 
     recordEvent(

@@ -1,17 +1,10 @@
-import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { normalizeGithubAppPrivateKey } from "../src/config.js";
-
-function testPrivateKeyPem(): string {
-  const { privateKey } = crypto.generateKeyPairSync("rsa", {
-    modulusLength: 2048,
-  });
-  return privateKey.export({ type: "pkcs1", format: "pem" }).toString();
-}
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 describe("normalizeGithubAppPrivateKey", () => {
   it("accepts escaped newlines wrapped in quotes", () => {
-    const pem = testPrivateKeyPem();
+    const pem = TEST_PRIVATE_KEY_PEM;
     const escaped = `"${pem.trimEnd().replace(/\n/g, "\\n")}"`;
 
     const normalized = normalizeGithubAppPrivateKey(escaped);
@@ -22,7 +15,7 @@ describe("normalizeGithubAppPrivateKey", () => {
   });
 
   it("accepts base64-encoded PEM", () => {
-    const pem = testPrivateKeyPem();
+    const pem = TEST_PRIVATE_KEY_PEM;
     const encoded = Buffer.from(pem).toString("base64");
 
     const normalized = normalizeGithubAppPrivateKey(encoded);

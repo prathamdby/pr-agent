@@ -11,6 +11,7 @@ import {
   recordIgnoredWebhook,
   type SlashCommandInput,
 } from "./intake/applier.js";
+import { flushDeferredEvents } from "./intake/deferredEvents.js";
 import {
   applyThreadReplyClassifyIntake,
   type ThreadReplyClassifyInput,
@@ -32,6 +33,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       ref: PrRef,
       action: string,
       intakeLog: RequestLogger,
+      pushBeforeSha?: string,
     ) => Effect.Effect<void, Error>;
     readonly submitSlashCommand: (
       input: SlashCommandInput,
@@ -64,17 +66,30 @@ export function makeAgentWorkScheduler(
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 
-    submitAutomatedReview: (headers, ref, action, intakeLog) =>
+    submitAutomatedReview: (headers, ref, action, intakeLog, pushBeforeSha) =>
       Effect.tryPromise({
         try: () =>
-          applyAutomatedPullRequestIntake(boss, pool, headers, ref, action, intakeLog, cfg),
+          applyAutomatedPullRequestIntake(
+            boss,
+            pool,
+            headers,
+            ref,
+            action,
+            intakeLog,
+            cfg,
+            pushBeforeSha,
+          ),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 
     submitSlashCommand: (input, intakeLog) =>
       Effect.tryPromise({
-        try: () =>
-          inTransaction(pool, (client) => applySlashCommandIntake(boss, client, input, intakeLog)),
+        try: async () => {
+          const events = await inTransaction(pool, (client) =>
+            applySlashCommandIntake(boss, client, input),
+          );
+          flushDeferredEvents(intakeLog, events);
+        },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

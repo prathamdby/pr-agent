@@ -88,6 +88,78 @@ export const WebhookHandlersCore = Layer.effect(
         return true;
       });
 
+    /** Slash-command path: bot identity, then association. Returns true when intake should stop. */
+    const gateSlashCommand = (
+      cfg: Config,
+      headers: WebhookHeaders,
+      commenterId: number,
+      association: string | null | undefined,
+      intakeLog: RequestLogger,
+    ) =>
+      Effect.gen(function* () {
+        if (yield* ignoreBotSlash(cfg, headers, commenterId, intakeLog)) return true;
+        return yield* ignoreUnauthorizedSlash(cfg, headers, association, intakeLog);
+      });
+
+    /**
+     * No-slash review-comment path. Association gate only (no bot check).
+     * Returns true when the comment was handled (ignored or thread-reply submitted).
+     */
+    const handleThreadReplyIfNeeded = (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: PullRequestReviewCommentData,
+      body: string,
+      intakeLog: RequestLogger,
+    ) =>
+      Effect.gen(function* () {
+        if (!cfg.enableThreadReplies) {
+          yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+          return true;
+        }
+        if (data.comment.in_reply_to_id == null) {
+          yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+          return true;
+        }
+        if (
+          yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association, intakeLog)
+        ) {
+          return true;
+        }
+        const threadRootCommentId = data.comment.in_reply_to_id;
+        const storedReviewMatchHint = yield* scheduler.lookupStoredInlineReviewHint(
+          data.repository.owner.login,
+          data.repository.name,
+          data.pull_request.number,
+          data.comment.pull_request_review_id,
+        );
+        yield* scheduler.submitThreadReplyClassification(
+          {
+            headers,
+            installationId: data.installation.id,
+            owner: data.repository.owner.login,
+            repo: data.repository.name,
+            repositorySizeKb: data.repository.size,
+            prNumber: data.pull_request.number,
+            commenterId: data.comment.user.id,
+            commentId: data.comment.id,
+            authorAssociation: data.comment.author_association ?? null,
+            body,
+            replyTarget: {
+              kind: "inlineReviewThread",
+              prNumber: data.pull_request.number,
+              inReplyToCommentId: threadRootCommentId,
+            },
+            codeAnchor: codeAnchorFromReviewComment(data.comment),
+            inReplyToCommentId: threadRootCommentId,
+            pullRequestReviewId: data.comment.pull_request_review_id ?? null,
+            storedReviewMatchHint,
+          },
+          intakeLog,
+        );
+        return true;
+      });
+
     return WebhookHandlers.of({
       pullRequest: (_cfg, headers, data, intakeLog) =>
         Effect.gen(function* () {
@@ -103,6 +175,7 @@ export const WebhookHandlersCore = Layer.effect(
             },
             data.action ?? "",
             intakeLog,
+            data.before,
           );
         }),
 
@@ -122,9 +195,14 @@ export const WebhookHandlersCore = Layer.effect(
             yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
             return;
           }
-          if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id, intakeLog)) return;
           if (
-            yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association, intakeLog)
+            yield* gateSlashCommand(
+              cfg,
+              headers,
+              data.comment.user.id,
+              data.comment.author_association,
+              intakeLog,
+            )
           ) {
             return;
           }
@@ -164,60 +242,17 @@ export const WebhookHandlersCore = Layer.effect(
           const body = data.comment.body ?? "";
           const command = parseSlashCommand(body);
           if (!command) {
-            if (!cfg.enableThreadReplies) {
-              yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
-              return;
-            }
-            if (data.comment.in_reply_to_id == null) {
-              yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
-              return;
-            }
-            if (
-              yield* ignoreUnauthorizedSlash(
-                cfg,
-                headers,
-                data.comment.author_association,
-                intakeLog,
-              )
-            ) {
-              return;
-            }
-            const threadRootCommentId = data.comment.in_reply_to_id;
-            const storedReviewMatchHint = yield* scheduler.lookupStoredInlineReviewHint(
-              data.repository.owner.login,
-              data.repository.name,
-              data.pull_request.number,
-              data.comment.pull_request_review_id,
-            );
-            yield* scheduler.submitThreadReplyClassification(
-              {
-                headers,
-                installationId: data.installation.id,
-                owner: data.repository.owner.login,
-                repo: data.repository.name,
-                repositorySizeKb: data.repository.size,
-                prNumber: data.pull_request.number,
-                commenterId: data.comment.user.id,
-                commentId: data.comment.id,
-                authorAssociation: data.comment.author_association ?? null,
-                body,
-                replyTarget: {
-                  kind: "inlineReviewThread",
-                  prNumber: data.pull_request.number,
-                  inReplyToCommentId: threadRootCommentId,
-                },
-                codeAnchor: codeAnchorFromReviewComment(data.comment),
-                inReplyToCommentId: threadRootCommentId,
-                pullRequestReviewId: data.comment.pull_request_review_id ?? null,
-                storedReviewMatchHint,
-              },
-              intakeLog,
-            );
+            yield* handleThreadReplyIfNeeded(cfg, headers, data, body, intakeLog);
             return;
           }
-          if (yield* ignoreBotSlash(cfg, headers, data.comment.user.id, intakeLog)) return;
           if (
-            yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association, intakeLog)
+            yield* gateSlashCommand(
+              cfg,
+              headers,
+              data.comment.user.id,
+              data.comment.author_association,
+              intakeLog,
+            )
           ) {
             return;
           }

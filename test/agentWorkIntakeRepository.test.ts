@@ -236,4 +236,22 @@ describe("createVerificationWorkItem", () => {
     expect(typeof result).toBe("string");
     expect(String(query.mock.calls[0]?.[0])).not.toContain("ON CONFLICT");
   });
+
+  it("persists pushBeforeSha on the verification payload when provided", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const client = { query } as unknown as PoolClient;
+    const pushBeforeSha = "e".repeat(40);
+
+    await createVerificationWorkItem(client, {
+      webhookEventId: "00000000-0000-0000-0000-000000000006",
+      ref,
+      pushBeforeSha,
+    });
+
+    const params = query.mock.calls[0]?.[1] as unknown[];
+    const payloadJson = params?.[params.length - 1];
+    expect(typeof payloadJson).toBe("string");
+    const payload = JSON.parse(String(payloadJson)) as { pushBeforeSha?: string };
+    expect(payload.pushBeforeSha).toBe(pushBeforeSha);
+  });
 });

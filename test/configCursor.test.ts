@@ -1,12 +1,5 @@
-import crypto from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-
-function testPrivateKeyPem(): string {
-  const { privateKey } = crypto.generateKeyPairSync("rsa", {
-    modulusLength: 2048,
-  });
-  return privateKey.export({ type: "pkcs1", format: "pem" }).toString();
-}
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 const BASE_ENV = {
   GITHUB_APP_ID: "1",
@@ -25,7 +18,7 @@ describe("loadConfig agent provider", () => {
   it("accepts AGENT_PROVIDER=cursor when CURSOR_API_KEY is set", async () => {
     process.env = {
       ...BASE_ENV,
-      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       AGENT_PROVIDER: "cursor",
       PI_MODEL: "composer-2.5",
       CURSOR_API_KEY: "cursor_test_key",
@@ -39,7 +32,7 @@ describe("loadConfig agent provider", () => {
   it("defers PI_MODEL validation until worker boot", async () => {
     process.env = {
       ...BASE_ENV,
-      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       AGENT_PROVIDER: "cursor",
       PI_MODEL: "not-a-real-model",
       CURSOR_API_KEY: "cursor_test_key",
@@ -51,7 +44,7 @@ describe("loadConfig agent provider", () => {
   it("rejects AGENT_PROVIDER=cursor without CURSOR_API_KEY", async () => {
     process.env = {
       ...BASE_ENV,
-      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       AGENT_PROVIDER: "cursor",
       CURSOR_API_KEY: "",
     };
@@ -62,7 +55,7 @@ describe("loadConfig agent provider", () => {
   it("rejects legacy PI_PROVIDER=cursor", async () => {
     process.env = {
       ...BASE_ENV,
-      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       PI_PROVIDER: "cursor",
       CURSOR_API_KEY: "cursor_test_key",
     };
@@ -73,7 +66,7 @@ describe("loadConfig agent provider", () => {
   it("loads model provider keys without requiring them", async () => {
     process.env = {
       ...BASE_ENV,
-      GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       OPENAI_API_KEY: "openai_test_key",
     };
     const { loadConfig } = await import("../src/config.js");

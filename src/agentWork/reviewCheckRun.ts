@@ -92,27 +92,32 @@ export function reviewCheckDetailsUrl(
   return `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`;
 }
 
-export async function ensureReviewCheckRunStarted(
-  pool: Pool,
-  params: {
-    cfg: CheckRunConfig;
-    token: string;
-    tokenExpiresAtTs?: number;
-    owner: string;
-    repo: string;
-    prNumber: number;
-    headSha: string;
-    workItemId: string;
-    resourceKey: string;
-    reviewLens: ReviewMode;
-  },
-): Promise<number | null> {
-  if (!params.cfg.enableReviewCheckRun) return null;
-  const existing = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-  if (existing != null) return existing;
+type EnsureReviewCheckRunParams = {
+  cfg: CheckRunConfig;
+  token: string;
+  tokenExpiresAtTs?: number;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  headSha: string;
+  workItemId: string;
+  resourceKey: string;
+  reviewLens: ReviewMode;
+};
 
-  const name = reviewCheckRunName(params.reviewLens);
-  let reserved = await reserveReviewCheckRun(pool, {
+type GithubCheckRunRef = { id: number; url: string | null };
+
+type CheckRunReservationOutcome =
+  | { readonly kind: "existing"; readonly githubId: number }
+  | { readonly kind: "reserved" }
+  | { readonly kind: "resolved"; readonly githubId: number | null };
+
+async function reserveReviewCheckRunSlot(
+  pool: Pool,
+  params: EnsureReviewCheckRunParams,
+  name: string,
+): Promise<CheckRunReservationOutcome> {
+  const reserved = await reserveReviewCheckRun(pool, {
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
     reviewLens: params.reviewLens,
@@ -122,43 +127,61 @@ export async function ensureReviewCheckRunStarted(
       name,
     },
   });
-  if (!reserved) {
-    const existingAfterReserve = await getReviewCheckRunGithubId(
+  if (reserved) return { kind: "reserved" };
+  return recoverStaleReservationOrWaitForPeer(pool, params, name);
+}
+
+async function recoverStaleReservationOrWaitForPeer(
+  pool: Pool,
+  params: EnsureReviewCheckRunParams,
+  name: string,
+): Promise<CheckRunReservationOutcome> {
+  const existingAfterReserve = await getReviewCheckRunGithubId(
+    pool,
+    params.workItemId,
+    params.reviewLens,
+  );
+  if (existingAfterReserve != null) return { kind: "existing", githubId: existingAfterReserve };
+
+  const released = await releaseUnstartedReviewCheckRunReservation(pool, {
+    workItemId: params.workItemId,
+    resourceKey: params.resourceKey,
+    reviewLens: params.reviewLens,
+    staleBefore: new Date(Date.now() - REVIEW_CHECK_RUN_RESERVATION_STALE_MS),
+  });
+  if (!released) {
+    const githubId = await waitForReviewCheckRunGithubId(
       pool,
       params.workItemId,
       params.reviewLens,
     );
-    if (existingAfterReserve != null) return existingAfterReserve;
-
-    const released = await releaseUnstartedReviewCheckRunReservation(pool, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      staleBefore: new Date(Date.now() - REVIEW_CHECK_RUN_RESERVATION_STALE_MS),
-    });
-    if (!released) {
-      return waitForReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-    }
-
-    reserved = await reserveReviewCheckRun(pool, {
-      workItemId: params.workItemId,
-      resourceKey: params.resourceKey,
-      reviewLens: params.reviewLens,
-      detail: {
-        status: "starting",
-        headSha: params.headSha,
-        name,
-        recoveredStaleReservation: true,
-      },
-    });
-    if (!reserved) {
-      return getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
-    }
+    return { kind: "resolved", githubId };
   }
 
-  let check: { id: number; url: string | null };
+  const reservedAfterRecovery = await reserveReviewCheckRun(pool, {
+    workItemId: params.workItemId,
+    resourceKey: params.resourceKey,
+    reviewLens: params.reviewLens,
+    detail: {
+      status: "starting",
+      headSha: params.headSha,
+      name,
+      recoveredStaleReservation: true,
+    },
+  });
+  if (reservedAfterRecovery) return { kind: "reserved" };
+
+  const githubId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+  return { kind: "resolved", githubId };
+}
+
+async function createGithubCheckRunOrRecoverDuplicate(
+  pool: Pool,
+  params: EnsureReviewCheckRunParams,
+  name: string,
+): Promise<GithubCheckRunRef | null> {
   try {
-    check = await createReviewCheckRun(
+    return await createReviewCheckRun(
       params.token,
       params.owner,
       params.repo,
@@ -171,39 +194,35 @@ export async function ensureReviewCheckRunStarted(
       params.tokenExpiresAtTs,
     );
   } catch (e) {
-    let duplicate: { id: number; url: string | null } | null = null;
-    if (httpStatus(e) === 422) {
-      try {
-        duplicate = await findReviewCheckRunByName(
-          params.token,
-          params.owner,
-          params.repo,
-          params.headSha,
-          name,
-          params.tokenExpiresAtTs,
-        );
-      } catch (lookupError) {
-        await releaseUnstartedReviewCheckRunReservation(pool, {
-          workItemId: params.workItemId,
-          resourceKey: params.resourceKey,
-          reviewLens: params.reviewLens,
-        });
-        logCheckRunWarning("review_check_run_duplicate_lookup_failed", lookupError, {
-          owner: params.owner,
-          repo: params.repo,
-          pr: params.prNumber,
-          reviewLens: params.reviewLens,
-        });
-        return null;
-      }
-    }
-    if (duplicate == null) {
+    return recoverDuplicateCheckRunAfter422(pool, params, name, e);
+  }
+}
+
+/** GitHub rejects duplicate check-run names with a 422; look up the existing run instead of failing. */
+async function recoverDuplicateCheckRunAfter422(
+  pool: Pool,
+  params: EnsureReviewCheckRunParams,
+  name: string,
+  createError: unknown,
+): Promise<GithubCheckRunRef | null> {
+  let duplicate: GithubCheckRunRef | null = null;
+  if (httpStatus(createError) === 422) {
+    try {
+      duplicate = await findReviewCheckRunByName(
+        params.token,
+        params.owner,
+        params.repo,
+        params.headSha,
+        name,
+        params.tokenExpiresAtTs,
+      );
+    } catch (lookupError) {
       await releaseUnstartedReviewCheckRunReservation(pool, {
         workItemId: params.workItemId,
         resourceKey: params.resourceKey,
         reviewLens: params.reviewLens,
       });
-      logCheckRunWarning("review_check_run_start_failed", e, {
+      logCheckRunWarning("review_check_run_duplicate_lookup_failed", lookupError, {
         owner: params.owner,
         repo: params.repo,
         pr: params.prNumber,
@@ -211,9 +230,69 @@ export async function ensureReviewCheckRunStarted(
       });
       return null;
     }
-    check = duplicate;
   }
+  if (duplicate == null) {
+    await releaseUnstartedReviewCheckRunReservation(pool, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: params.reviewLens,
+    });
+    logCheckRunWarning("review_check_run_start_failed", createError, {
+      owner: params.owner,
+      repo: params.repo,
+      pr: params.prNumber,
+      reviewLens: params.reviewLens,
+    });
+    return null;
+  }
+  return duplicate;
+}
 
+async function cancelOrphanedCheckRunAfterRecordFailure(
+  params: EnsureReviewCheckRunParams,
+  name: string,
+  check: GithubCheckRunRef,
+  recordError: unknown,
+): Promise<void> {
+  try {
+    await updateReviewCheckRun(
+      params.token,
+      params.owner,
+      params.repo,
+      check.id,
+      {
+        name,
+        conclusion: "cancelled",
+        completedAt: new Date().toISOString(),
+        summary: "PR Agent could not persist this check run.",
+      },
+      params.tokenExpiresAtTs,
+    );
+  } catch (cancelError) {
+    logCheckRunWarning("review_check_run_orphan_cancel_failed", cancelError, {
+      owner: params.owner,
+      repo: params.repo,
+      pr: params.prNumber,
+      reviewLens: params.reviewLens,
+      checkRunId: check.id,
+    });
+  }
+  logWarn("review_check_run_record_failed", {
+    owner: params.owner,
+    repo: params.repo,
+    pr: params.prNumber,
+    reviewLens: params.reviewLens,
+    checkRunId: check.id,
+    message: recordError instanceof Error ? recordError.message : String(recordError),
+  });
+}
+
+async function recordCreatedCheckRunOrCleanup(
+  pool: Pool,
+  params: EnsureReviewCheckRunParams,
+  name: string,
+  check: GithubCheckRunRef,
+): Promise<number | null> {
   try {
     await recordReviewCheckRun(pool, {
       workItemId: params.workItemId,
@@ -228,45 +307,34 @@ export async function ensureReviewCheckRunStarted(
       },
     });
   } catch (e) {
-    try {
-      await updateReviewCheckRun(
-        params.token,
-        params.owner,
-        params.repo,
-        check.id,
-        {
-          name,
-          conclusion: "cancelled",
-          completedAt: new Date().toISOString(),
-          summary: "PR Agent could not persist this check run.",
-        },
-        params.tokenExpiresAtTs,
-      );
-    } catch (cancelError) {
-      logCheckRunWarning("review_check_run_orphan_cancel_failed", cancelError, {
-        owner: params.owner,
-        repo: params.repo,
-        pr: params.prNumber,
-        reviewLens: params.reviewLens,
-        checkRunId: check.id,
-      });
-    }
+    await cancelOrphanedCheckRunAfterRecordFailure(params, name, check, e);
     await releaseUnstartedReviewCheckRunReservation(pool, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
     });
-    logWarn("review_check_run_record_failed", {
-      owner: params.owner,
-      repo: params.repo,
-      pr: params.prNumber,
-      reviewLens: params.reviewLens,
-      checkRunId: check.id,
-      message: e instanceof Error ? e.message : String(e),
-    });
     return null;
   }
   return check.id;
+}
+
+export async function ensureReviewCheckRunStarted(
+  pool: Pool,
+  params: EnsureReviewCheckRunParams,
+): Promise<number | null> {
+  if (!params.cfg.enableReviewCheckRun) return null;
+  const existing = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+  if (existing != null) return existing;
+
+  const name = reviewCheckRunName(params.reviewLens);
+  const reservation = await reserveReviewCheckRunSlot(pool, params, name);
+  if (reservation.kind === "existing") return reservation.githubId;
+  if (reservation.kind === "resolved") return reservation.githubId;
+
+  const check = await createGithubCheckRunOrRecoverDuplicate(pool, params, name);
+  if (check == null) return null;
+
+  return recordCreatedCheckRunOrCleanup(pool, params, name, check);
 }
 
 export async function completeReviewCheckRun(

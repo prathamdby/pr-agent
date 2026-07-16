@@ -144,7 +144,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Is PR Agent a self-hosted alternative to CodeRabbit?",
     answer:
-      "Yes. PR Agent covers GitHub reviews on PR open and sync, inline comments, PR summaries, descriptions, and slash-command triggers. Unlike CodeRabbit's hosted SaaS, PR Agent runs on your servers, uses your GitHub App credentials, and lets you bring your own LLM provider.",
+      "Yes. PR Agent covers GitHub reviews on PR open, verification on sync, inline comments, PR summaries, descriptions, and slash-command triggers. Unlike CodeRabbit's hosted SaaS, PR Agent runs on your servers, uses your GitHub App credentials, and lets you bring your own LLM provider.",
   },
   {
     question: "How does PR Agent compare to Greptile?",
