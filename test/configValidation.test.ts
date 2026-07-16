@@ -1,13 +1,6 @@
-import crypto from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../src/settings/index.js";
-
-function testPrivateKeyPem(): string {
-  const { privateKey } = crypto.generateKeyPairSync("rsa", {
-    modulusLength: 2048,
-  });
-  return privateKey.export({ type: "pkcs1", format: "pem" }).toString();
-}
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 const BASE_ENV = {
   GITHUB_APP_ID: "1",
@@ -18,7 +11,7 @@ const BASE_ENV = {
 async function load(extra: Record<string, string>) {
   process.env = {
     ...BASE_ENV,
-    GITHUB_APP_PRIVATE_KEY: testPrivateKeyPem(),
+    GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
     ...extra,
   } as NodeJS.ProcessEnv;
   const { loadConfig } = await import("../src/config.js");
