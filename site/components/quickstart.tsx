@@ -8,12 +8,13 @@ const APP_FIELDS = [
   },
   {
     label: "Subscribe to",
-    value: "Pull requests, and Issue comment + Pull request review comment",
+    value: "pull_request · issue_comment · pull_request_review_comment",
     mono: false,
   },
   {
     label: "Permissions",
-    value: "Issues and Pull requests: read/write · Contents: read",
+    value:
+      "Issues and Pull requests: read/write · Contents: read/write · Metadata: read",
     mono: false,
   },
 ] as const;
