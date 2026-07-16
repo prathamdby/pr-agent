@@ -1,60 +1,110 @@
+import { DiffField } from "@/components/diff-field";
+import { OutboundArrow } from "@/components/icons";
+import { ReviewArtifact } from "@/components/review-artifact";
 import { DOCS_URL } from "@/lib/site";
+import { PRODUCT_NAME } from "@/lib/seo";
 
-function ChevronRightIcon({ className }: { readonly className: string }) {
+function HeroCopy({ headingId }: { readonly headingId?: string }) {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="m9 18 6-6-6-6" />
-    </svg>
+    <>
+      <h1
+        id={headingId}
+        className="max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft"
+      >
+        AI reviews your pull requests on <span className="text-bolt">your own servers</span>
+      </h1>
+      <p className="mt-3 max-w-[42ch] text-sm leading-relaxed text-ink-mute sm:text-base">
+        Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model
+        keys, your code never leaves.
+      </p>
+    </>
   );
 }
 
+function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
+  return (
+    <div className={align === "end" ? "text-right" : undefined}>
+      <a
+        href={DOCS_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group inline-flex items-center gap-2 rounded-md bg-ink px-5 py-3 text-sm font-medium text-navy transition-colors hover:bg-bolt hover:text-navy"
+      >
+        Deploy from the README
+        <OutboundArrow className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+      </a>
+      <p className="mt-3 text-xs text-ink-faint">MIT licensed. Hosting and AI usage on you.</p>
+    </div>
+  );
+}
+
+/**
+ * Explicitly scoped layouts — do not merge these into one class fight:
+ * - < lg : mobile + iPad (in-flow, no min-h 100svh)
+ * - lg+  : restored desktop fold (absolute artifact, two-column band)
+ */
 export function Hero() {
   return (
-    <section aria-labelledby="hero-heading" className="px-4 pt-12 pb-8">
-      <div className="mx-auto max-w-xl">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-sm text-neutral-600">
-          <span>Your code stays on your servers</span>
-          <ChevronRightIcon className="h-3 w-3" />
+    <section aria-labelledby="hero-heading" className="grain relative overflow-x-hidden">
+      <DiffField />
+
+      {/* Mobile + tablet (< lg) */}
+      <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-10 pt-28 sm:px-6 sm:pb-12 sm:pt-32 md:pb-14 lg:hidden">
+        <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] md:gap-8">
+          <p className="min-w-0 font-display text-[clamp(3.25rem,14vw,5.5rem)] leading-[0.85] tracking-[-0.03em] text-ink md:text-[clamp(3.5rem,7vw,5.5rem)]">
+            {PRODUCT_NAME}
+          </p>
+          <div className="min-w-0 w-full max-w-sm max-h-[14rem] overflow-hidden md:max-h-none md:max-w-none">
+            <div
+              className="[mask-image:linear-gradient(to_bottom,black_0%,black_70%,transparent_100%)]"
+              style={{
+                WebkitMaskImage:
+                  "linear-gradient(to bottom, black 0%, black 70%, transparent 100%)",
+              }}
+            >
+              <ReviewArtifact />
+            </div>
+          </div>
         </div>
 
-        <h1 id="hero-heading" className="text-2xl leading-tight mb-4">
-          AI reviews your pull requests on your own servers
-        </h1>
+        {/* md+ (iPad): headline | CTA like desktop. Mobile stays stacked. */}
+        <div className="mt-8 border-t border-edge pt-7 md:mt-10 md:grid md:grid-cols-[minmax(0,1.4fr)_auto] md:items-end md:gap-8 md:pt-8">
+          <div className="min-w-0">
+            <HeroCopy headingId="hero-heading" />
+          </div>
+          <div className="mt-6 min-w-0 md:mt-0 md:justify-self-end md:text-right">
+            <HeroCta />
+          </div>
+        </div>
+      </div>
 
-        <p className="text-neutral-600 mb-3">
-          Your reviewers are stuck checking the same basics on every PR. PR Agent does that first
-          pass in GitHub, then leaves the hard calls to humans.
-        </p>
-
-        <p className="text-neutral-600 mb-6">
-          Same review every PR gets, minus the per-seat bill. Your servers, your API keys, your code
-          never leaves.
-        </p>
-
-        <div>
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2.5 text-white hover:bg-blue-700 transition-colors"
-          >
-            Deploy right now
-            <ChevronRightIcon className="h-4 w-4" />
-          </a>
+      {/* Desktop (lg+) — previous fold composition */}
+      <div className="relative z-10 mx-auto hidden min-h-[100svh] w-full max-w-6xl flex-col px-6 pb-16 pt-32 lg:flex">
+        <div className="relative min-h-[22rem] flex-1">
+          <p className="relative z-20 max-w-[10ch] font-display text-[clamp(4.5rem,10vw,9rem)] leading-[0.85] tracking-[-0.03em] text-ink">
+            {PRODUCT_NAME}
+          </p>
+          <div className="absolute bottom-2 right-0 z-10 w-[min(44%,24rem)]">
+            <div
+              className="[mask-image:linear-gradient(to_bottom,black_0%,black_72%,transparent_100%)]"
+              style={{
+                WebkitMaskImage:
+                  "linear-gradient(to bottom, black 0%, black 72%, transparent 100%)",
+              }}
+            >
+              <ReviewArtifact />
+            </div>
+          </div>
         </div>
 
-        <p className="mt-3 text-xs text-neutral-500">
-          Open source under MIT. You pay only for your own hosting and AI usage.
-        </p>
+        <div className="mt-auto grid grid-cols-[minmax(0,1.4fr)_auto] items-end gap-8 border-t border-edge pt-8">
+          <div className="min-w-0">
+            <HeroCopy />
+          </div>
+          <div className="min-w-0 justify-self-end">
+            <HeroCta align="end" />
+          </div>
+        </div>
       </div>
     </section>
   );

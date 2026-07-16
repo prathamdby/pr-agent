@@ -112,7 +112,7 @@ function RootLayout() {
         />
         <script defer src="/_vercel/insights/script.js" />
       </head>
-      <body className="bg-white text-neutral-800 min-h-screen">
+      <body className="bg-navy text-ink min-h-screen overflow-x-hidden">
         <Outlet />
         <Scripts />
       </body>

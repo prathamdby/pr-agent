@@ -5,43 +5,52 @@ export function Alternatives() {
     <section
       id="alternatives"
       aria-labelledby="alternatives-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="alternatives-heading" className="text-xl mb-2">
+      <div className="mx-auto max-w-6xl">
+        <h2
+          id="alternatives-heading"
+          className="max-w-[22ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
+        >
           Pick PR Agent when hosted review is the problem
         </h2>
-        <p className="text-sm text-neutral-500 mb-4">
+        <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-mute">
           CodeRabbit, Greptile, Cursor Bugbot, and Macroscope sell a hosted review layer. PR Agent
           is for teams that want the reviewer, the AI keys, and the review data in their own
           account.
         </p>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left border-collapse">
+        <div className="mt-12 overflow-x-auto">
+          <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-neutral-200 text-neutral-500">
-                <th scope="col" className="py-2 pr-3 font-medium">
+              <tr className="border-b border-edge-strong text-ink-faint">
+                <th scope="col" className="py-3 pr-4 font-medium">
                   Tool
                 </th>
-                <th scope="col" className="py-2 pr-3 font-medium">
+                <th scope="col" className="py-3 pr-4 font-medium">
                   Deployment
                 </th>
-                <th scope="col" className="py-2 font-medium">
+                <th scope="col" className="py-3 font-medium">
                   Notes
                 </th>
               </tr>
             </thead>
-            <tbody className="text-neutral-600">
-              {ALTERNATIVE_ROWS.map((row) => (
-                <tr key={row.name} className="border-b border-neutral-100 align-top">
-                  <th scope="row" className="py-3 pr-3 font-medium text-neutral-800">
-                    {row.name}
-                  </th>
-                  <td className="py-3 pr-3">{row.deployment}</td>
-                  <td className="py-3">{row.differentiator}</td>
-                </tr>
-              ))}
+            <tbody className="text-ink-mute">
+              {ALTERNATIVE_ROWS.map((row) => {
+                const isSelf = row.name === "PR Agent";
+                return (
+                  <tr key={row.name} className="border-b border-edge align-top">
+                    <th
+                      scope="row"
+                      className={`py-4 pr-4 font-medium ${isSelf ? "text-bolt" : "text-ink"}`}
+                    >
+                      {row.name}
+                    </th>
+                    <td className="py-4 pr-4">{row.deployment}</td>
+                    <td className="py-4">{row.differentiator}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

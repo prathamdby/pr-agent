@@ -1,60 +1,77 @@
 import { Link } from "@tanstack/react-router";
+import { OutboundArrow } from "@/components/icons";
 import { DOCS_URL, REPO_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
 
+const NAV = [
+  { href: "#examples", label: "examples", external: false, hideBelow: "lg" as const },
+  { href: "#pricing", label: "pricing", external: false, hideBelow: "lg" as const },
+  { href: DOCS_URL, label: "docs", external: true, hideBelow: "md" as const },
+  { href: REPO_URL, label: "github", external: true, hideBelow: "md" as const },
+] as const;
+
+function navVisibility(hideBelow: "md" | "lg"): string {
+  switch (hideBelow) {
+    case "md":
+      return "hidden md:inline";
+    case "lg":
+      return "hidden lg:inline";
+    default: {
+      const _exhaustive: never = hideBelow;
+      return _exhaustive;
+    }
+  }
+}
+
 export function Header() {
   return (
-    <header className="py-4 px-4">
-      <div className="mx-auto max-w-xl flex items-center justify-between">
+    <header className="animate-nav-settle absolute inset-x-0 top-0 z-40 px-4 pt-5 sm:px-6">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-3">
         <Link
           to="/"
-          className="flex items-center gap-2 text-neutral-800"
+          className="group flex min-w-0 items-center gap-2.5 text-ink"
           aria-label={`${PRODUCT_NAME} home`}
         >
           <img
             src="/logo.png"
-            alt={`${PRODUCT_NAME} logo`}
-            width={32}
-            height={32}
-            className="rounded"
+            alt=""
+            width={28}
+            height={28}
+            className="h-7 w-7 shrink-0 rounded-md"
           />
-          <span className="font-medium">{PRODUCT_NAME}</span>
+          <span className="truncate font-display text-lg tracking-wide text-ink transition-colors group-hover:text-bolt">
+            {PRODUCT_NAME}
+          </span>
         </Link>
 
-        <nav className="flex items-center gap-3 text-sm" aria-label="Primary navigation">
-          <a
-            href="#examples"
-            className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"
-          >
-            examples
-          </a>
-          <a
-            href="#pricing"
-            className="hidden sm:inline text-neutral-500 hover:text-neutral-800 underline"
-          >
-            pricing
-          </a>
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
-          >
-            docs
-          </a>
-          <a
-            href={REPO_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-neutral-500 hover:text-neutral-800 underline"
-          >
-            github
-          </a>
+        <nav
+          className="surface-panel edge-self flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-sm"
+          aria-label="Primary navigation"
+        >
+          {NAV.map((item) => {
+            const className = `${navVisibility(item.hideBelow)} rounded-md px-2 py-1.5 text-ink-mute transition-colors hover:text-ink`;
+            return item.external ? (
+              <a
+                key={item.label}
+                href={item.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={className}
+              >
+                {item.label}
+              </a>
+            ) : (
+              <a key={item.label} href={item.href} className={className}>
+                {item.label}
+              </a>
+            );
+          })}
           <a
             href="#usage"
-            className="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white hover:bg-blue-700"
+            className="group inline-flex items-center gap-1.5 rounded-md bg-ink px-3 py-1.5 text-sm text-navy transition-colors hover:bg-bolt"
           >
             deploy
+            <OutboundArrow className="h-3 w-3 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </a>
         </nav>
       </div>

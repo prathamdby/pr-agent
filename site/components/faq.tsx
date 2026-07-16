@@ -5,18 +5,21 @@ export function Faq() {
     <section
       id="faq"
       aria-labelledby="faq-heading"
-      className="px-4 py-8 border-t border-neutral-100"
+      className="px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
-      <div className="mx-auto max-w-xl">
-        <h2 id="faq-heading" className="text-xl mb-4">
-          Frequently asked questions
+      <div className="mx-auto max-w-6xl">
+        <h2
+          id="faq-heading"
+          className="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
+        >
+          Questions teams ask before they deploy
         </h2>
 
-        <dl className="space-y-5">
+        <dl className="mt-12 grid gap-x-12 gap-y-10 lg:grid-cols-2">
           {FAQ_ITEMS.map((item) => (
-            <div key={item.question}>
-              <dt className="text-sm font-medium text-neutral-800">{item.question}</dt>
-              <dd className="mt-1 text-sm text-neutral-600">{item.answer}</dd>
+            <div key={item.question} className="min-w-0">
+              <dt className="text-base font-medium text-ink">{item.question}</dt>
+              <dd className="mt-2 text-sm leading-relaxed text-ink-mute">{item.answer}</dd>
             </div>
           ))}
         </dl>
