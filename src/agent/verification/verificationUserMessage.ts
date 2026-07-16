@@ -1,20 +1,10 @@
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { wrapUntrustedBlock } from "../prompts/promptBlocks.js";
+import { formatHumanReplies } from "../prompts/promptBlocks.js";
 
 type PushedCommit = {
   readonly sha: string;
   readonly subject: string;
 };
-
-function formatHumanReplies(thread: BotFindingThread): string[] {
-  return thread.humanReplies.flatMap((reply, index) => [
-    `  Maintainer reply ${index + 1}:`,
-    wrapUntrustedBlock("maintainer_reply", reply)
-      .split("\n")
-      .map((line) => `  ${line}`)
-      .join("\n"),
-  ]);
-}
 
 export function buildVerificationUserContent(params: {
   readonly owner: string;

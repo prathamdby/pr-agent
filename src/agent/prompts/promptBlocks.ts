@@ -23,3 +23,13 @@ export function wrapUntrustedBlock(label: string, text: string): string {
 export function wrapTrustedContext(lines: string[]): string {
   return ['<context trusted="server">', ...lines, "</context>"].join("\n");
 }
+
+export function formatHumanReplies(thread: { readonly humanReplies: readonly string[] }): string[] {
+  return thread.humanReplies.flatMap((reply, index) => [
+    `  Maintainer reply ${index + 1}:`,
+    wrapUntrustedBlock("maintainer_reply", reply)
+      .split("\n")
+      .map((line) => `  ${line}`)
+      .join("\n"),
+  ]);
+}

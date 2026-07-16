@@ -1,16 +1,6 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
-import { wrapUntrustedBlock } from "../prompts/promptBlocks.js";
-
-function formatHumanReplies(thread: BotFindingThread): string[] {
-  return thread.humanReplies.flatMap((reply, index) => [
-    `  Maintainer reply ${index + 1}:`,
-    wrapUntrustedBlock("maintainer_reply", reply)
-      .split("\n")
-      .map((line) => `  ${line}`)
-      .join("\n"),
-  ]);
-}
+import { formatHumanReplies } from "../prompts/promptBlocks.js";
 
 export function buildTriageUserContent(params: {
   readonly owner: string;
