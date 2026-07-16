@@ -1,4 +1,3 @@
-import { OutboundArrow } from "@/components/icons";
 import { DOCS_URL } from "@/lib/site";
 
 const APP_FIELDS = [
@@ -163,19 +162,6 @@ export function Quickstart() {
             </div>
           </li>
         </ol>
-
-        <div className="mt-10 border-t border-edge pt-8">
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group inline-flex items-center gap-2 rounded-md bg-ink px-5 py-3 text-sm font-medium text-navy transition-colors hover:bg-bolt hover:text-navy"
-          >
-            Full deploy guide in the README
-            <OutboundArrow className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
-          </a>
-          <p className="mt-3 text-xs text-ink-faint">Includes GitHub App screenshots and env reference.</p>
-        </div>
       </div>
     </section>
   );
