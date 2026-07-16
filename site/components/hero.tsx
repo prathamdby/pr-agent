@@ -28,7 +28,7 @@ function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
         href={DOCS_URL}
         target="_blank"
         rel="noopener noreferrer"
-        className="group inline-flex items-center gap-2 bg-ink px-5 py-3 text-sm font-medium text-navy transition-colors hover:bg-bolt hover:text-navy"
+        className="group inline-flex items-center gap-2 rounded-md bg-ink px-5 py-3 text-sm font-medium text-navy transition-colors hover:bg-bolt hover:text-navy"
       >
         Deploy from the README
         <OutboundArrow className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />

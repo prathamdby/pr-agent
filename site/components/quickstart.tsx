@@ -1,71 +1,64 @@
+import { OutboundArrow } from "@/components/icons";
 import { DOCS_URL } from "@/lib/site";
 
-const STEPS = [
+const APP_FIELDS = [
   {
-    title: "1. Create a GitHub App",
-    body: (
-      <>
-        <ul className="mt-3 space-y-2 text-sm leading-relaxed text-ink-mute">
-          <li>
-            Webhook URL: <code className="text-bolt">https://&lt;host&gt;/webhooks</code>
-          </li>
-          <li>Events: pull requests and pull request comments</li>
-          <li>Permissions: Issues and Pull requests read/write, Contents read</li>
-        </ul>
-        <p className="mt-3 text-sm text-ink-faint">
-          Full deploy steps in the{" "}
-          <a
-            href={DOCS_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-ink-soft underline decoration-edge-strong hover:text-ink"
-          >
-            README Getting Started
-          </a>
-          .
-        </p>
-      </>
-    ),
+    label: "Webhook URL",
+    value: "https://<host>/webhooks",
+    mono: true,
   },
   {
-    title: "2. Start the stack",
-    body: (
-      <pre className="surface-inset edge-self mt-3 overflow-x-auto p-4 text-sm leading-relaxed text-ink-soft">
-        <code>{`cp .env.example .env
-# Set GITHUB_*, WEBHOOK_SECRET, and provider API keys
+    label: "Subscribe to",
+    value: "Pull requests, and Issue comment + Pull request review comment",
+    mono: false,
+  },
+  {
+    label: "Permissions",
+    value: "Issues and Pull requests: read/write · Contents: read",
+    mono: false,
+  },
+] as const;
+
+const SLASH_COMMANDS = [
+  { cmd: "/review", tip: "General bug-and-correctness pass on the diff" },
+  { cmd: "/describe", tip: "Write a readable summary into the PR body" },
+  { cmd: "/review-security", tip: "Security lens when the change touches risk" },
+  { cmd: "/review-quality", tip: "Maintainability notes before you merge" },
+  { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
+] as const;
+
+const COMPOSE_SNIPPET = `cp .env.example .env
+# Fill GITHUB_*, WEBHOOK_SECRET, and your provider key
 docker compose build
-docker compose up`}</code>
-      </pre>
-    ),
-  },
-  {
-    title: "3. Ask in the PR thread",
-    body: (
-      <pre className="surface-inset edge-self mt-3 overflow-x-auto p-4 text-sm leading-relaxed text-ink-soft">
-        <code>{`/review
-/describe
-/review-security
-/review-quality
-/ask Why is this function async?`}</code>
-      </pre>
-    ),
-  },
-  {
-    title: "Minimal env",
-    body: (
-      <pre className="surface-inset edge-self mt-3 overflow-x-auto p-4 text-sm leading-relaxed text-ink-soft">
-        <code>{`DATABASE_URL=...
+docker compose up`;
+
+const ENV_SNIPPET = `DATABASE_URL=postgres://...
 GITHUB_APP_ID=...
 GITHUB_APP_PRIVATE_KEY=...
 WEBHOOK_SECRET=...
 AGENT_PROVIDER=pi
 PI_PROVIDER=openai
 PI_MODEL=gpt-4o-mini
-OPENAI_API_KEY=sk-...`}</code>
-      </pre>
-    ),
-  },
-] as const;
+OPENAI_API_KEY=sk-...`;
+
+function StepNumber({ n }: { readonly n: string }) {
+  return (
+    <p
+      aria-hidden="true"
+      className="font-display text-[clamp(2.5rem,5vw,3.5rem)] leading-none tracking-[-0.03em] text-sky/45"
+    >
+      {n}
+    </p>
+  );
+}
+
+function CodeBlock({ children }: { readonly children: string }) {
+  return (
+    <pre className="surface-inset edge-self mt-5 overflow-x-auto rounded-md p-4 text-sm leading-relaxed text-ink-soft sm:p-5">
+      <code>{children}</code>
+    </pre>
+  );
+}
 
 export function Quickstart() {
   return (
@@ -75,29 +68,114 @@ export function Quickstart() {
       className="bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
     >
       <div className="mx-auto max-w-6xl">
-        <h2
-          id="usage-heading"
-          className="max-w-[18ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
-        >
-          Deploy it with Docker Compose
-        </h2>
+        <header className="max-w-2xl">
+          <h2
+            id="usage-heading"
+            className="font-display text-[clamp(2.1rem,4.2vw,3.25rem)] leading-[1.05] tracking-[-0.02em] text-ink"
+          >
+            Deploy it with Docker Compose
+          </h2>
+          <p className="mt-4 text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
+            Three steps from an empty machine to a review on a real pull request. You need Docker, a
+            GitHub App, and one AI provider key.
+          </p>
+        </header>
 
-        <ol className="mt-12 list-none space-y-10 p-0 md:mt-16 md:space-y-14">
-          {STEPS.map((step, index) => {
-            const flip = index % 2 === 1;
-            return (
-              <li
-                key={step.title}
-                className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
-              >
-                <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
-                  <h3 className="text-sm font-medium text-ink">{step.title}</h3>
-                  {step.body}
-                </div>
-              </li>
-            );
-          })}
+        <ol className="mt-12 border-t border-edge">
+          <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <StepNumber n="01" />
+            <div className="min-w-0 max-w-2xl">
+              <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
+                Create a GitHub App
+              </h3>
+              <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
+                Register the app on your account or org, then point the webhook at the host where
+                you will run PR Agent.
+              </p>
+              <dl className="mt-6 space-y-4">
+                {APP_FIELDS.map((field) => (
+                  <div key={field.label}>
+                    <dt className="text-xs font-medium text-ink-faint">{field.label}</dt>
+                    <dd
+                      className={
+                        field.mono
+                          ? "mt-1 font-mono text-sm text-bolt"
+                          : "mt-1 text-sm leading-relaxed text-ink-soft"
+                      }
+                    >
+                      {field.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <p className="mt-5 text-sm leading-relaxed text-ink-faint">
+                Need the click-by-click path? See{" "}
+                <a
+                  href={DOCS_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-ink-soft underline decoration-edge-strong hover:text-ink"
+                >
+                  README Getting Started
+                </a>
+                .
+              </p>
+            </div>
+          </li>
+
+          <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <StepNumber n="02" />
+            <div className="min-w-0 max-w-2xl">
+              <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
+                Fill .env and start the stack
+              </h3>
+              <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
+                Copy the example env, drop in your GitHub App values and provider key, then bring
+                the web + worker services up with Compose.
+              </p>
+              <CodeBlock>{COMPOSE_SNIPPET}</CodeBlock>
+              <p className="mt-6 text-xs font-medium text-ink-faint">Minimum keys to set</p>
+              <CodeBlock>{ENV_SNIPPET}</CodeBlock>
+            </div>
+          </li>
+
+          <li className="grid gap-3 py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
+            <StepNumber n="03" />
+            <div className="min-w-0 max-w-2xl">
+              <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
+                Open a PR and talk to it
+              </h3>
+              <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
+                Install the app on a repo, open a pull request, and wait for the automatic pass - or
+                type a slash command in the conversation when you want a specific lens.
+              </p>
+              <ul className="surface-inset edge-self mt-5 divide-y divide-edge rounded-md">
+                {SLASH_COMMANDS.map((item) => (
+                  <li
+                    key={item.cmd}
+                    className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-4 sm:px-5"
+                  >
+                    <code className="shrink-0 font-mono text-sm text-bolt">{item.cmd}</code>
+                    <span className="text-sm leading-relaxed text-ink-mute">{item.tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </li>
         </ol>
+
+        <div className="mt-10 border-t border-edge pt-8">
+          <a
+            href={DOCS_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group inline-flex items-center gap-2 rounded-md bg-ink px-5 py-3 text-sm font-medium text-navy transition-colors hover:bg-bolt hover:text-navy"
+          >
+            Full deploy guide in the README
+            <OutboundArrow className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+          </a>
+          <p className="mt-3 text-xs text-ink-faint">Includes GitHub App screenshots and env reference.</p>
+        </div>
       </div>
     </section>
   );
