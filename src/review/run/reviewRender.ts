@@ -81,51 +81,42 @@ function formatEffortLabelHtml(effort: number): string {
   return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
 }
 
+type ReviewModeRenderStrategy = {
+  readonly pointerBody: string;
+  readonly updatedNoun: string;
+};
+
+const REVIEW_MODE_RENDER: Record<ReviewMode, ReviewModeRenderStrategy> = {
+  "review-security": {
+    pointerBody: SECURITY_REVIEW_POINTER_BODY,
+    updatedNoun: "security review",
+  },
+  "review-quality": {
+    pointerBody: QUALITY_REVIEW_POINTER_BODY,
+    updatedNoun: "code-quality review",
+  },
+  "review-tests": {
+    pointerBody: TESTS_REVIEW_POINTER_BODY,
+    updatedNoun: "test-case proposals",
+  },
+  review: {
+    pointerBody: REVIEW_POINTER_BODY,
+    updatedNoun: "review",
+  },
+};
+
 function reviewPointerBodyForMode(mode: ReviewMode): string {
-  switch (mode) {
-    case "review-security":
-      return SECURITY_REVIEW_POINTER_BODY;
-    case "review-quality":
-      return QUALITY_REVIEW_POINTER_BODY;
-    case "review-tests":
-      return TESTS_REVIEW_POINTER_BODY;
-    case "review":
-      return REVIEW_POINTER_BODY;
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
+  return REVIEW_MODE_RENDER[mode].pointerBody;
 }
 
 function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
   if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
-  switch (mode) {
-    case "review-security":
-      return `[View the updated security review.](${summaryCommentUrl})`;
-    case "review-quality":
-      return `[View the updated code-quality review.](${summaryCommentUrl})`;
-    case "review-tests":
-      return `[View the updated test-case proposals.](${summaryCommentUrl})`;
-    case "review":
-      return `[View the updated review.](${summaryCommentUrl})`;
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
+  return `[View the updated ${REVIEW_MODE_RENDER[mode].updatedNoun}.](${summaryCommentUrl})`;
 }
 
 export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
-    switch (mode) {
-      case "review-security":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${summaryCommentUrl}).`;
-      case "review-quality":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${summaryCommentUrl}).`;
-      case "review-tests":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated test-case proposals](${summaryCommentUrl}).`;
-      case "review":
-        return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
-    }
-    const exhaustive: never = mode;
-    return exhaustive;
+    return `${REPEAT_NO_BUGS_PREFIX}, [see the updated ${REVIEW_MODE_RENDER[mode].updatedNoun}](${summaryCommentUrl}).`;
   }
   return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
 }
