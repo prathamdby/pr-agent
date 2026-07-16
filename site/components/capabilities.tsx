@@ -8,13 +8,16 @@ export function Capabilities() {
       className="bg-forge-raised px-4 py-20 sm:px-6 sm:py-28"
     >
       <div className="mx-auto max-w-6xl">
-        <p className="font-mono text-sm text-moss">/review · /describe · /ask · /triage</p>
         <h2
           id="capabilities-heading"
-          className="mt-4 max-w-[22ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
+          className="max-w-[22ch] font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
         >
           What your team gets back in GitHub
         </h2>
+        <p className="mt-4 max-w-xl text-sm leading-relaxed text-ink-mute">
+          Trigger a pass from a pull request comment, or let the automatic path run when a PR opens
+          or updates.
+        </p>
 
         <ul className="mt-12 divide-y divide-edge border-y border-edge">
           {CAPABILITIES.map((cap) => (

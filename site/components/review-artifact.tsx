@@ -15,10 +15,7 @@ const FINDINGS = [
 
 export function ReviewArtifact() {
   return (
-    <div
-      className="animate-artifact-breathe relative w-full origin-bottom-right"
-      aria-hidden="true"
-    >
+    <div className="relative w-full origin-bottom-right" aria-hidden="true">
       <div className="chamfer surface-panel edge-self relative overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-edge px-4 py-3">
           <div className="min-w-0">

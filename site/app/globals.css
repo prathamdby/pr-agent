@@ -122,16 +122,6 @@
   }
 }
 
-@keyframes artifact-breathe {
-  0%,
-  100% {
-    transform: translate3d(0, 0, 0);
-  }
-  50% {
-    transform: translate3d(0, -6px, 0);
-  }
-}
-
 @keyframes nav-settle {
   from {
     transform: translate3d(0, -8px, 0);
@@ -144,10 +134,6 @@
 @media (prefers-reduced-motion: no-preference) {
   .animate-diff-drift {
     animation: diff-drift 48s linear infinite;
-  }
-
-  .animate-artifact-breathe {
-    animation: artifact-breathe 7s ease-in-out infinite;
   }
 
   .animate-nav-settle {
