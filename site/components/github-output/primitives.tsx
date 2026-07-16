@@ -76,7 +76,13 @@ export function OutputFrame({
   return (
     <article className="chamfer surface-panel edge-self flex h-[24rem] w-full flex-col overflow-hidden">
       <header className="flex shrink-0 items-center gap-2.5 border-b border-edge px-3 py-2.5">
-        <img src="/logo.png" alt="" width={22} height={22} className="h-[22px] w-[22px] shrink-0" />
+        <img
+          src="/logo.png"
+          alt=""
+          width={22}
+          height={22}
+          className="h-[22px] w-[22px] shrink-0 rounded-md"
+        />
         <div className="min-w-0">
           <p className="truncate text-xs font-medium text-ink">PR Agent</p>
           <p className="truncate font-mono text-[10px] text-ink-faint">{surface}</p>

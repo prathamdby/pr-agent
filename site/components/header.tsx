@@ -32,7 +32,7 @@ export function Header() {
           className="group flex min-w-0 items-center gap-2.5 text-ink"
           aria-label={`${PRODUCT_NAME} home`}
         >
-          <img src="/logo.png" alt="" width={28} height={28} className="h-7 w-7 shrink-0" />
+          <img src="/logo.png" alt="" width={28} height={28} className="h-7 w-7 shrink-0 rounded-md" />
           <span className="truncate font-display text-lg tracking-wide text-ink transition-colors group-hover:text-bolt">
             {PRODUCT_NAME}
           </span>
