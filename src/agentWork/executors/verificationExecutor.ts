@@ -10,7 +10,7 @@ import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js"
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { COMMENT_PAGINATION_MAX_PAGES, COMMENTS_PAGE_SIZE } from "../../settings/index.js";
+import { PR_COMMITS_MAX_PAGES, PR_COMMITS_PAGE_SIZE } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type VerificationJobData } from "../types.js";
@@ -29,8 +29,8 @@ async function listPushedCommits(params: {
 }): Promise<PushedCommit[]> {
   const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
   const commits = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    perPage: PR_COMMITS_PAGE_SIZE,
+    maxPages: PR_COMMITS_MAX_PAGES,
     fetchPage: async (page, perPage) => {
       const { data } = await octokit.rest.pulls.listCommits({
         owner: params.owner,
