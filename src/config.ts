@@ -152,29 +152,18 @@ function readSlashAllowedAssociations(name: string, defaultValue: string): Reado
   return new Set(values);
 }
 
-function readAutoActions(name: string, defaultValue: string): ReadonlySet<string> {
+function readAutoActions(
+  name: string,
+  defaultValue: string,
+  opts?: { readonly allowEmpty?: boolean },
+): ReadonlySet<string> {
   const values = optionalEnv(name, defaultValue)
     .split(",")
     .map((value) => value.trim().toLowerCase())
     .filter((value) => value.length > 0);
-  if (values.length === 0) {
+  if (!opts?.allowEmpty && values.length === 0) {
     throw new Error(`${name} must list at least one pull_request action`);
   }
-  for (const value of values) {
-    if (!AUTOMATED_PR_ACTIONS.has(value)) {
-      throw new Error(
-        `${name} contains unknown action "${value}"; allowed: ${[...AUTOMATED_PR_ACTIONS].join(", ")}`,
-      );
-    }
-  }
-  return new Set(values);
-}
-
-function readAutoActionsAllowEmpty(name: string, defaultValue: string): ReadonlySet<string> {
-  const values = optionalEnv(name, defaultValue)
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length > 0);
   for (const value of values) {
     if (!AUTOMATED_PR_ACTIONS.has(value)) {
       throw new Error(
@@ -443,9 +432,10 @@ export function loadConfig() {
     DEFAULT_DESCRIPTION_AUTO_ACTIONS,
   );
   const reviewAutoActions = readAutoActions(ENV.REVIEW_AUTO_ACTIONS, DEFAULT_REVIEW_AUTO_ACTIONS);
-  const verificationAutoActions = readAutoActionsAllowEmpty(
+  const verificationAutoActions = readAutoActions(
     ENV.VERIFICATION_AUTO_ACTIONS,
     DEFAULT_VERIFICATION_AUTO_ACTIONS,
+    { allowEmpty: true },
   );
 
   const configuredMaxPrFilesListed = readPositiveNumber(
