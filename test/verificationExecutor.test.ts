@@ -273,4 +273,37 @@ describe("executeVerificationJob", () => {
     );
     expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
+
+  it("propagates degraded when publishVerification reports degraded", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    mocks.listReviewThreadResolution.mockResolvedValue(
+      new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+    );
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "b".repeat(40),
+            evidence: "fixed",
+          },
+        ],
+      },
+    });
+    mocks.publishVerification.mockResolvedValue({ degraded: true });
+
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+      executeResult = await spec.execute(item(), {
+        installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+        headSha: "a".repeat(40),
+      });
+    });
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    expect(executeResult).toEqual({ degraded: true });
+  });
 });

@@ -159,7 +159,7 @@ export async function executeVerificationJob(
         throw new Error("Verification run ended without submitVerification");
       }
 
-      await publishVerification({
+      const publish = await publishVerification({
         pool,
         workItemId: item.id,
         resourceKey: item.resourceKey,
@@ -175,7 +175,7 @@ export async function executeVerificationJob(
         changedFilePaths,
       });
 
-      return {};
+      return publish.degraded ? { degraded: true } : {};
     },
   });
 }
