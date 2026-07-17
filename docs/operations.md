@@ -118,7 +118,7 @@ Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.ya
 
 `nub run test` runs this gate before Vitest (`pretest`).
 
-Maintainer rules: [AGENTS.md](../AGENTS.md).
+Agent index: [AGENTS.md](../AGENTS.md).
 
 ## Security
 

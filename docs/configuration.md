@@ -2,7 +2,7 @@
 
 Single place to find tunables for **pr-agent**. Code defaults live in [`src/settings/`](../src/settings/); env vars are loaded in [`src/config.ts`](../src/config.ts).
 
-For behaviour, deployment, and developer scripts see [operations.md](operations.md). Maintenance rules: [AGENTS.md](../AGENTS.md).
+For behaviour, deployment, and developer scripts see [operations.md](operations.md). Agent index: [AGENTS.md](../AGENTS.md).
 
 ## How to change something
 
