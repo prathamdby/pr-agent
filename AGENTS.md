@@ -2,6 +2,14 @@
 
 **pr-agent** is a GitHub PR agent: automated reviews on `pull_request` events plus `/review`, `/describe`, `/ask`, and `/triage` slash commands. It runs as two roles over Postgres + pg-boss: **web** (webhook intake, durable dedupe, job enqueue) and **worker** (ack, review, ask, description, triage, retention queues).
 
+## Philosophy
+
+This file is an **indexer / navigation tool**, not a dump of every rule.
+
+- Keep only what is absolutely necessary in context here — especially the product's language and design — with pointers and references to other rules, skills, and docs.
+- Prefer progressive disclosure: surface the entry point and the must-follow constraints; send detail to the linked source of truth.
+- If a rule already lives elsewhere, link it; do not restate it.
+
 ## Always apply
 
 - Use the domain vocabulary from [CONTEXT.md](CONTEXT.md); it is the canonical product language — do not invent synonyms.
