@@ -54,6 +54,7 @@ Skip doc updates when none of the above apply.
 ### Gotchas
 
 - **Install Nub once** — `npm install -g --ignore-scripts=false @nubjs/nub`, then `nub install` in the repo. Node 22.22.0 is pinned in [`.node-version`](.node-version); Nub provisions it on demand.
+- **`PATH` before global npm** — if `/exec-daemon` (or another Node) precedes the nvm Node on `PATH`, `npm install -g` may target `/usr/lib/node_modules` and fail with `EACCES`. Put the pinned Node first (`export PATH="$HOME/.nvm/versions/node/$(cat .node-version)/bin:$PATH"` after `nvm install`/`nvm use`), then install Nub.
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key** — `loadConfig()` calls `crypto.createPrivateKey()` and throws on placeholders. For local-only dev, generate a throwaway key: `openssl genrsa 2048 > key.pem` and set the `.env` value to the escaped content.
 - **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`.
 - **Tests (`nub run test`)** are pure unit/integration tests and do not need Postgres or any running service. Use `nub run --node test` if Vitest shows augmentation-related flakiness.
