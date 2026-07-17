@@ -1,6 +1,6 @@
 # Development guide
 
-Module layout, import rules, Cursor Cloud setup, and the runtime topology diagram rubric for **pr-agent**. Index and always-apply rules: [AGENTS.md](../AGENTS.md).
+Module layout, import rules, Cursor Cloud setup, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md).
 
 ## Module layout (production)
 
