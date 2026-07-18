@@ -121,6 +121,9 @@ function RootLayout() {
         <script defer src="/_vercel/insights/script.js" />
       </head>
       <body className="bg-navy text-ink min-h-screen overflow-x-hidden">
+        <a href="#main-content" className="skip-link">
+          Skip to content
+        </a>
         <Outlet />
         <Scripts />
       </body>
