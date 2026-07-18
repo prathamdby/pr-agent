@@ -123,7 +123,6 @@ async function applyPlannedAutomatedPullRequestIntake(
   client: PoolClient,
   headers: WebhookHeaders,
   ref: PrRef,
-  action: string,
   plan: AutomatedPrIntakePlan,
   pushBeforeSha?: string,
 ): Promise<DeferredIntakeEvent[]> {
@@ -253,7 +252,7 @@ export async function applyAutomatedPullRequestIntake(
   }
 
   const events = await inTransaction(pool, (client) =>
-    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, action, plan, pushBeforeSha),
+    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, plan, pushBeforeSha),
   );
   flushDeferredEvents(intakeLog, events);
 }
