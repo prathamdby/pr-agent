@@ -45,6 +45,24 @@
     scroll-behavior: smooth;
   }
 
+  .skip-link {
+    position: absolute;
+    left: 1rem;
+    top: 1rem;
+    z-index: 100;
+    padding: 0.5rem 0.75rem;
+    background: var(--color-navy-raised);
+    color: var(--color-ink);
+    border: 1px solid var(--color-edge-strong);
+    border-radius: 0.25rem;
+    transform: translateY(-200%);
+    transition: transform 0.15s ease;
+  }
+
+  .skip-link:focus {
+    transform: translateY(0);
+  }
+
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;

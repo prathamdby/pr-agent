@@ -19,10 +19,10 @@ export const FEATURES: FeatureItem[] = [
     summary: "Self-hosted GitHub App",
   },
   {
-    title: "A pull request opens or updates",
+    title: "A pull request opens",
     detail:
       "GitHub delivers a signed webhook. PR Agent records it, reacts with eyes so the team knows work started, and queues a review for that head.",
-    cue: "pull_request opened / synchronize",
+    cue: "pull_request opened",
     summary: "Automated AI pull request reviews",
   },
   {
@@ -57,7 +57,7 @@ export type CapabilityItem = {
 export const CAPABILITIES: CapabilityItem[] = [
   {
     title: "Catch review basics before a human opens the diff",
-    trigger: "Runs when a PR opens or updates, or when you comment /review",
+    trigger: "Runs when a PR opens, or when you comment /review",
     detail: "Inline comments appear on the Files changed tab.",
   },
   {

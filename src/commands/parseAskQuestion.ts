@@ -57,14 +57,3 @@ export function parseAskQuestionForReplyTarget(
   if (question.length > MAX_ASK_QUESTION_CHARS) return { kind: "too_long" };
   return { kind: "ok", question };
 }
-
-export function parseAskQuestion(body: string): string | null {
-  const result = parseAskQuestionResult(body);
-  return result.kind === "ok" ? result.question : null;
-}
-
-export function askQuestionParseFailure(body: string): "missing" | "too_long" | null {
-  const result = parseAskQuestionResult(body);
-  if (result.kind === "missing" || result.kind === "too_long") return result.kind;
-  return null;
-}

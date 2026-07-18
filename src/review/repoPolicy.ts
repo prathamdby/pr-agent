@@ -58,6 +58,10 @@ function sanitizeRenderedPolicyText(value: string): string {
   return value.split(/\r?\n/).join(" ").trim();
 }
 
+function escapeYamlDoubleQuoted(value: string): string {
+  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+}
+
 export async function loadRepoPolicy(
   agentCwd: string,
   maxBytes: number,
@@ -155,13 +159,14 @@ export function renderPolicySuggestionForDismissed(params: {
   readonly filePath: string;
   readonly dismissalEvidence: string;
 }): string {
-  const path = sanitizeRenderedPolicyText(params.filePath).slice(
-    0,
-    MAX_REPO_POLICY_PATH_PATTERN_CHARS,
+  const path = escapeYamlDoubleQuoted(
+    sanitizeRenderedPolicyText(params.filePath).slice(0, MAX_REPO_POLICY_PATH_PATTERN_CHARS),
   );
-  const instruction = sanitizeRenderedPolicyText(params.dismissalEvidence).slice(
-    0,
-    MAX_REPO_POLICY_INSTRUCTION_CHARS,
+  const instruction = escapeYamlDoubleQuoted(
+    sanitizeRenderedPolicyText(params.dismissalEvidence).slice(
+      0,
+      MAX_REPO_POLICY_INSTRUCTION_CHARS,
+    ),
   );
   return [
     "```yaml",

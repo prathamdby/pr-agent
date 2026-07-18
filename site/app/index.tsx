@@ -20,8 +20,8 @@ function Home() {
   return (
     <>
       <JsonLd />
+      <Header />
       <main id="main-content" className="overflow-x-hidden">
-        <Header />
         <Hero />
         <Features />
         <Capabilities />
@@ -31,8 +31,8 @@ function Home() {
         <Alternatives />
         <Faq />
         <Quickstart />
-        <Footer />
       </main>
+      <Footer />
     </>
   );
 }

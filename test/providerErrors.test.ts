@@ -10,6 +10,18 @@ describe("classifyProviderError", () => {
     expect(classifyProviderError(new Error("429 rate limit exceeded"))).toBe("rate_limit");
   });
 
+  it("classifies quota failures", () => {
+    expect(classifyProviderError(new Error("quota exceeded"))).toBe("quota");
+  });
+
+  it("classifies billing failures", () => {
+    expect(classifyProviderError(new Error("payment required"))).toBe("billing");
+  });
+
+  it("classifies timeouts", () => {
+    expect(classifyProviderError(new Error("request timed out"))).toBe("timeout");
+  });
+
   it("returns unknown for unclassified errors", () => {
     expect(classifyProviderError(new Error("something else"))).toBe("unknown");
   });

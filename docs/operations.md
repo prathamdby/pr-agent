@@ -63,7 +63,7 @@ Compose sets `environment.PORT=7224` and **`7224:7224`** publishing. For a host 
 
 **Requires Docker Engine with Compose v2.** `env_file` defaults to **`.env`**; use host env **`PR_AGENT_ENV_FILE`** for an alternate path.
 
-The Compose `postgres` service sets `shm_size: 128mb` and conservative server tuning flags (`shared_buffers`, `effective_cache_size`, `maintenance_work_mem`, `wal_compression`, `random_page_cost`). Override them with the `POSTGRES_SHARED_BUFFERS`, `POSTGRES_EFFECTIVE_CACHE_SIZE`, `POSTGRES_MAINTENANCE_WORK_MEM`, `POSTGRES_WAL_COMPRESSION`, and `POSTGRES_RANDOM_PAGE_COST` Compose env vars; the production override mirrors the same flags.
+The Compose `postgres` service sets `shm_size: 128mb` and conservative server tuning flags (`shared_buffers`, `effective_cache_size`, `maintenance_work_mem`, `wal_compression`, `random_page_cost`). Override them with the `POSTGRES_SHARED_BUFFERS`, `POSTGRES_EFFECTIVE_CACHE_SIZE`, `POSTGRES_MAINTENANCE_WORK_MEM`, `POSTGRES_WAL_COMPRESSION`, and `POSTGRES_RANDOM_PAGE_COST` Compose env vars. The base Compose file owns `shm_size` and those tuning flags; the production overlay only requires credentials via `:?` env vars.
 
 ```bash
 PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up

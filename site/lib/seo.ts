@@ -39,7 +39,7 @@ export function softwareApplicationJsonLd() {
     applicationSubCategory: "AI Code Review",
     operatingSystem: "Linux, Docker",
     description: SEO_DESCRIPTION,
-    url: REPO_URL,
+    url: SITE_ORIGIN,
     downloadUrl: REPO_URL,
     softwareVersion: "0.1.0",
     license: "https://opensource.org/licenses/MIT",
@@ -65,7 +65,7 @@ export function webSiteJsonLd() {
     "@type": "WebSite",
     name: PRODUCT_NAME,
     description: SEO_DESCRIPTION,
-    url: REPO_URL,
+    url: SITE_ORIGIN,
   };
 }
 

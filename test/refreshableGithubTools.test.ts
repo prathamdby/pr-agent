@@ -34,24 +34,30 @@ describe("createRefreshableToolExecutors", () => {
     expect(build).toHaveBeenLastCalledWith("fresh-token", freshExpiresAtTs);
   });
 
-  it("keeps static tool parameter schemas identical across token rebuilds", () => {
+  it("keeps static tool parameter schemas identical across token rebuilds", async () => {
     const sharedSchema = { type: "object", properties: {} };
-    const build = () => ({
+    const refresh = vi.fn(async () => ({
+      token: "fresh-token",
+      expiresAtTs: Date.now() + 3_600_000,
+    }));
+    const build = vi.fn(() => ({
       piTools: [{ name: "getPullRequest", description: "d", parameters: sharedSchema }],
       executors: { getPullRequest: vi.fn() },
-    });
+    }));
     const refreshable = createRefreshableToolExecutors({
       initialToken: "old-token",
-      tokenExpiresAtTs: Date.now() + 3_600_000,
+      tokenExpiresAtTs: Date.now() + TOKEN_FRESHNESS_BUFFER_MS - 1_000,
       tokenTtlMs: 3_600_000,
+      refreshInstallationToken: refresh,
       build,
       githubToolNames: new Set(["getPullRequest"]),
     });
 
     const first = refreshable.bundle.piTools[0]?.parameters;
-    refreshable.refreshBeforeTool("getPullRequest");
+    await refreshable.refreshBeforeTool("getPullRequest");
     const second = refreshable.bundle.piTools[0]?.parameters;
 
+    expect(build).toHaveBeenCalledTimes(2);
     expect(second).toBe(first);
   });
 });
