@@ -320,18 +320,21 @@ async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Pro
   });
 }
 
-const SLASH_INTAKE_HANDLERS: Record<
-  string,
-  (ctx: SlashIntakeContext, command: string) => Promise<void>
-> = {
+type SlashIntakeHandler = (ctx: SlashIntakeContext) => Promise<void>;
+
+const REVIEW_SLASH_HANDLERS = {
+  review: (ctx) => handleSlashReview(ctx, "review"),
+  "review-security": (ctx) => handleSlashReview(ctx, "review-security"),
+  "review-quality": (ctx) => handleSlashReview(ctx, "review-quality"),
+  "review-tests": (ctx) => handleSlashReview(ctx, "review-tests"),
+} satisfies Record<ReviewMode, SlashIntakeHandler>;
+
+const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
   help: (ctx) => handleSlashHelp(ctx),
   ask: (ctx) => handleSlashAsk(ctx),
   describe: (ctx) => handleSlashDescribe(ctx),
   triage: (ctx) => handleSlashTriage(ctx),
-  review: (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
-  "review-security": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
-  "review-quality": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
-  "review-tests": (ctx, command) => handleSlashReview(ctx, command as ReviewMode),
+  ...REVIEW_SLASH_HANDLERS,
 };
 
 export async function applySlashCommandIntake(
@@ -389,7 +392,7 @@ export async function applySlashCommandIntake(
 
   const handler = SLASH_INTAKE_HANDLERS[command];
   if (handler) {
-    await handler(ctx, command);
+    await handler(ctx);
     return events;
   }
   await handleSlashUnknown(ctx, command);
