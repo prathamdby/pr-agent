@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { descriptionSystemPrompt } from "../src/agent/description/descriptionSystemPrompt.js";
 import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
+import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 
@@ -15,6 +16,7 @@ describe("user supplement prompt contracts", () => {
     expect(buildAutomatedSystemPrompt()).toContain(reviewSupplementContract);
     expect(automatedSecuritySystemPrompt).toContain(reviewSupplementContract);
     expect(automatedQualitySystemPrompt).toContain(reviewSupplementContract);
+    expect(automatedReviewTestsSystemPrompt).toContain(reviewSupplementContract);
   });
 
   it("documents user supplements as untrusted in the description prompt", () => {
