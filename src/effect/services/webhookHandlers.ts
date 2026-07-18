@@ -1,13 +1,13 @@
 import { Context, Effect, Layer } from "effect";
 import type { Config } from "../../config.js";
 import type { RequestLogger } from "../../evlog.js";
-import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
 import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
+import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
@@ -15,19 +15,6 @@ type PullRequestReviewCommentData = Extract<
   ParsedGithubEvent,
   { name: "pull_request_review_comment" }
 >["data"];
-
-function codeAnchorFromReviewComment(
-  comment: PullRequestReviewCommentData["comment"],
-): CodeAnchor | undefined {
-  if (comment.path == null || comment.line == null) return undefined;
-  return {
-    path: comment.path,
-    line: comment.line,
-    startLine: comment.start_line ?? undefined,
-    side: comment.side,
-    diffHunk: comment.diff_hunk,
-  };
-}
 
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
   WebhookHandlers,
