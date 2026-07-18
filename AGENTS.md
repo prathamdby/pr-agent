@@ -16,28 +16,28 @@ Indexer for agents working on **pr-agent**. Open the linked source; do not treat
 
 ## Open when
 
-| Need | Source |
-| ---- | ------ |
-| Naming, product concepts | [CONTEXT.md](CONTEXT.md) |
-| Runtime topology | [README.md](README.md) "How It Works" |
-| Env, constants, knob checklist | [docs/configuration.md](docs/configuration.md) · CI: [`test/settingsInventory.test.ts`](test/settingsInventory.test.ts) |
-| Modules, imports, prompts, topology rubric | [docs/development.md](docs/development.md) |
-| Behaviour, deploy, scripts | [docs/operations.md](docs/operations.md) |
-| Queue health / recovery | [docs/agent-work-ops.md](docs/agent-work-ops.md) |
-| Architecture decisions | [docs/adr/](docs/adr/) |
-| Cursor Cloud services / gotchas | [Cursor Cloud specific instructions](#cursor-cloud-specific-instructions) (this file) |
+| Need                                       | Source                                                                                                                  |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Naming, product concepts                   | [CONTEXT.md](CONTEXT.md)                                                                                                |
+| Runtime topology                           | [README.md](README.md) "How It Works"                                                                                   |
+| Env, constants, knob checklist             | [docs/configuration.md](docs/configuration.md) · CI: [`test/settingsInventory.test.ts`](test/settingsInventory.test.ts) |
+| Modules, imports, prompts, topology rubric | [docs/development.md](docs/development.md)                                                                              |
+| Behaviour, deploy, scripts                 | [docs/operations.md](docs/operations.md)                                                                                |
+| Queue health / recovery                    | [docs/agent-work-ops.md](docs/agent-work-ops.md)                                                                        |
+| Architecture decisions                     | [docs/adr/](docs/adr/)                                                                                                  |
+| Cursor Cloud services / gotchas            | [Cursor Cloud specific instructions](#cursor-cloud-specific-instructions) (this file)                                   |
 
 ## Same-PR doc updates
 
-| Change | Update |
-| ------ | ------ |
-| Domain vocabulary or product concept | [CONTEXT.md](CONTEXT.md) |
-| Env, default, or code constant | [docs/configuration.md](docs/configuration.md) |
-| Module layout, entry points, or import rules | [docs/development.md](docs/development.md) |
-| Runtime topology | [README.md](README.md) "How It Works" |
-| Behaviour, deploy, or scripts | [docs/operations.md](docs/operations.md) |
-| Significant architecture decision | new ADR under [docs/adr/](docs/adr/) |
-| Cursor Cloud setup | this file |
+| Change                                       | Update                                         |
+| -------------------------------------------- | ---------------------------------------------- |
+| Domain vocabulary or product concept         | [CONTEXT.md](CONTEXT.md)                       |
+| Env, default, or code constant               | [docs/configuration.md](docs/configuration.md) |
+| Module layout, entry points, or import rules | [docs/development.md](docs/development.md)     |
+| Runtime topology                             | [README.md](README.md) "How It Works"          |
+| Behaviour, deploy, or scripts                | [docs/operations.md](docs/operations.md)       |
+| Significant architecture decision            | new ADR under [docs/adr/](docs/adr/)           |
+| Cursor Cloud setup                           | this file                                      |
 
 Skip doc updates when none of the above apply.
 
