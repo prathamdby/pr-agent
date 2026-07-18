@@ -22,7 +22,7 @@ export function Capabilities() {
           </h2>
           <p className="mt-4 text-sm leading-relaxed text-ink-mute">
             Trigger a pass from a pull request comment, or let the automatic path run when a PR
-            opens or updates.
+            opens.
           </p>
         </div>
 
