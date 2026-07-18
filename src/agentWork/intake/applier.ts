@@ -8,11 +8,7 @@ import {
   REVIEW_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
-import {
-  replaceAutoWorkItem,
-  releaseSingletonIfSuperseded,
-  type AutoWorkSupersedeTarget,
-} from "../autoWorkEnqueue.js";
+import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import {
   releaseSingletonSlot,
   reviewSingletonSlotDb,
@@ -74,17 +70,13 @@ async function dispatchAutomatedKind(
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
-  await releaseSingletonIfSuperseded({
-    boss,
-    db: slotDb,
-    supersededIds,
-    release: () =>
-      releaseSingletonSlot(boss, {
-        queue: descriptor.queueName,
-        singletonKey: descriptor.singletonKey,
-        db: slotDb,
-      }),
-  });
+  if (supersededIds.length > 0) {
+    await releaseSingletonSlot(boss, {
+      queue: descriptor.queueName,
+      singletonKey: descriptor.singletonKey,
+      db: slotDb,
+    });
+  }
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);
   }

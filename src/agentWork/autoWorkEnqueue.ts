@@ -1,7 +1,5 @@
 import type { PoolClient } from "pg";
-import type { PgBoss } from "pg-boss";
 import type { ReviewMode } from "../review/reviewSchema.js";
-import type { SingletonSlotDb } from "./singletonQueue.js";
 
 export type AutoWorkSupersedeTarget =
   | {
@@ -91,14 +89,4 @@ export async function replaceAutoWorkItem(params: {
     );
   }
   return { workItemId, supersededIds };
-}
-
-export async function releaseSingletonIfSuperseded(params: {
-  readonly boss: PgBoss;
-  readonly db: SingletonSlotDb;
-  readonly supersededIds: readonly string[];
-  readonly release: () => Promise<void>;
-}): Promise<void> {
-  if (params.supersededIds.length === 0) return;
-  await params.release();
 }
