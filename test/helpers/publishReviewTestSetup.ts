@@ -1,8 +1,9 @@
 import { vi } from "vitest";
 import type { ReviewPayload } from "../../src/review/reviewSchema.js";
 import type * as reviewPublish from "../../src/github/reviewPublish.js";
+import { makeReviewPayload } from "./reviewPayloadFactory.js";
 
-export const publishReviewTestPayload: ReviewPayload = {
+export const publishReviewTestPayload: ReviewPayload = makeReviewPayload({
   prCharacter: "Test PR.",
   findings: [
     {
@@ -15,11 +16,7 @@ export const publishReviewTestPayload: ReviewPayload = {
       fixPrompt: "Fix src/x.ts line 4.",
     },
   ],
-  estimatedEffort: 2,
-  relevantTests: "no",
-  securityConcerns: null,
-  followUps: [],
-};
+});
 
 export const publishReviewTestBaseParams = {
   token: "t",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 import {
   dominantReviewCategory,
   hasManagedCategoryLabel,
@@ -8,14 +9,7 @@ import {
   syncReviewLabels,
 } from "../src/review/run/reviewLabels.js";
 
-const basePayload: ReviewPayload = {
-  prCharacter: "Test.",
-  findings: [],
-  estimatedEffort: 2,
-  relevantTests: "no",
-  securityConcerns: null,
-  followUps: [],
-};
+const basePayload = makeReviewPayload();
 
 describe("labelsAlreadySynced", () => {
   it("returns false when effort matches but security label is stale", () => {
