@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
+import {
+  MAX_REPO_POLICY_INSTRUCTION_CHARS,
+  MAX_REPO_POLICY_PATH_PATTERN_CHARS,
+} from "../src/settings/reviewConstants.js";
 import { renderPolicySuggestionForDismissed } from "../src/review/repoPolicy.js";
+
+function quotedScalar(result: string, key: "path" | "instructions"): string {
+  const match = result.match(new RegExp(`${key}: "((?:\\\\.|[^"\\\\])*)"`));
+  expect(match).not.toBeNull();
+  return match?.[1] ?? "";
+}
 
 describe("renderPolicySuggestionForDismissed", () => {
   it("renders a paste-ready yaml snippet with file path and dismissal evidence", () => {
@@ -36,10 +46,23 @@ describe("renderPolicySuggestionForDismissed", () => {
       dismissalEvidence: longEvidence,
     });
 
-    expect(result).toContain('path: "');
-    expect(result).toContain('instructions: "');
-    // The yaml block should still be well-formed
+    const path = quotedScalar(result, "path");
+    const instructions = quotedScalar(result, "instructions");
+    expect(path.length).toBe(MAX_REPO_POLICY_PATH_PATTERN_CHARS);
+    expect(instructions.length).toBe(MAX_REPO_POLICY_INSTRUCTION_CHARS);
     expect(result).toContain("```yaml");
     expect(result).toContain("```");
+  });
+
+  it("escapes embedded double quotes in path and instructions", () => {
+    const result = renderPolicySuggestionForDismissed({
+      filePath: 'src/"weird".ts',
+      dismissalEvidence: 'contains "quotes"',
+    });
+
+    expect(result).toContain('path: "src/\\"weird\\".ts"');
+    expect(result).toContain('instructions: "contains \\"quotes\\""');
+    expect(quotedScalar(result, "path")).toBe('src/\\"weird\\".ts');
+    expect(quotedScalar(result, "instructions")).toBe('contains \\"quotes\\"');
   });
 });
