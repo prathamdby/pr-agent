@@ -4,7 +4,6 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
 } from "../src/review/placement/reviewDiffIndex.js";
-import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 describe("validateReviewPayload", () => {

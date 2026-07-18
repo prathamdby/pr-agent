@@ -19,7 +19,6 @@ function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   };
 }
 
-
 const secretDetail = "Found DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent";
 
 describe("prepareReviewPayloadForPublish", () => {

@@ -39,7 +39,11 @@ describe("logAgentQueueStats", () => {
     ];
     type Deferred = {
       readonly queue: string;
-      readonly resolve: (stats: { queuedCount: number; activeCount: number; totalCount: number }) => void;
+      readonly resolve: (stats: {
+        queuedCount: number;
+        activeCount: number;
+        totalCount: number;
+      }) => void;
     };
     const started: Deferred[] = [];
     const getQueueStats = vi.fn((queue: string) => {
@@ -67,7 +71,12 @@ describe("logAgentQueueStats", () => {
       totalCount: 200 + index,
     }));
     for (let i = queues.length - 1; i >= 0; i -= 1) {
-      started[i]!.resolve(reverseCounts[i]!);
+      const entry = started[i];
+      const counts = reverseCounts[i];
+      if (entry == null || counts == null) {
+        throw new Error(`missing deferred stats for index ${i}`);
+      }
+      entry.resolve(counts);
     }
 
     await statsPromise;
@@ -76,12 +85,18 @@ describe("logAgentQueueStats", () => {
       queues.map(() => "agent_queue_stats"),
     );
     expect(logDebug.mock.calls.map((call) => call[1])).toEqual(
-      queues.map((queue, index) => ({
-        queue,
-        queued: reverseCounts[index]!.queuedCount,
-        active: reverseCounts[index]!.activeCount,
-        total: reverseCounts[index]!.totalCount,
-      })),
+      queues.map((queue, index) => {
+        const counts = reverseCounts[index];
+        if (counts == null) {
+          throw new Error(`missing expected counts for index ${index}`);
+        }
+        return {
+          queue,
+          queued: counts.queuedCount,
+          active: counts.activeCount,
+          total: counts.totalCount,
+        };
+      }),
     );
   });
 });

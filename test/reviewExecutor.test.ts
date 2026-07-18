@@ -461,7 +461,9 @@ describe("executeReviewJob", () => {
   it("rethrows unexpected prior feedback helper rejections", async () => {
     mocks.fetchPriorFeedback.mockRejectedValueOnce(new Error("feedback blew up"));
 
-    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow("feedback blew up");
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
+      "feedback blew up",
+    );
 
     expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
       owner: "o",

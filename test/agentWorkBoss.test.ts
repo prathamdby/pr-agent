@@ -81,11 +81,13 @@ describe("ensureAgentQueues", () => {
     expect(started.map((entry) => entry.name)).toEqual(deadLetterQueues);
     expect(started.some((entry) => parentQueues.includes(entry.name))).toBe(false);
 
-    for (const entry of [...started]) {
+    for (const entry of started) {
       entry.resolve();
     }
 
-    await vi.waitFor(() => expect(started).toHaveLength(deadLetterQueues.length + parentQueues.length));
+    await vi.waitFor(() =>
+      expect(started).toHaveLength(deadLetterQueues.length + parentQueues.length),
+    );
     const parentStarted = started.slice(deadLetterQueues.length);
     expect(parentStarted.map((entry) => entry.name)).toEqual(parentQueues);
     expect(parentStarted.map((entry) => entry.options)).toEqual([

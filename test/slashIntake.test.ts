@@ -84,12 +84,10 @@ describe("applySlashCommandIntake", () => {
   it("still replies to help", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown>; options?: unknown }[] = [];
     const boss = {
-      send: vi.fn(
-        async (queue: string, data: Record<string, unknown>, options?: unknown) => {
-          sentJobs.push({ queue, data, options });
-          return "job-1";
-        },
-      ),
+      send: vi.fn(async (queue: string, data: Record<string, unknown>, options?: unknown) => {
+        sentJobs.push({ queue, data, options });
+        return "job-1";
+      }),
     } as unknown as PgBoss;
     const client = makeClient();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));

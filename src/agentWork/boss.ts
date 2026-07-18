@@ -77,14 +77,22 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
 
   const workQueues = [
     { name: ACK_QUEUE, policy: "standard" as const, deadLetter: ACK_DEAD_LETTER_QUEUE },
-    { name: REVIEW_QUEUE, policy: "key_strict_fifo" as const, deadLetter: REVIEW_DEAD_LETTER_QUEUE },
+    {
+      name: REVIEW_QUEUE,
+      policy: "key_strict_fifo" as const,
+      deadLetter: REVIEW_DEAD_LETTER_QUEUE,
+    },
     { name: ASK_QUEUE, policy: "standard" as const, deadLetter: ASK_DEAD_LETTER_QUEUE },
     {
       name: DESCRIPTION_QUEUE,
       policy: "key_strict_fifo" as const,
       deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE,
     },
-    { name: TRIAGE_QUEUE, policy: "key_strict_fifo" as const, deadLetter: TRIAGE_DEAD_LETTER_QUEUE },
+    {
+      name: TRIAGE_QUEUE,
+      policy: "key_strict_fifo" as const,
+      deadLetter: TRIAGE_DEAD_LETTER_QUEUE,
+    },
     {
       name: VERIFICATION_QUEUE,
       policy: "key_strict_fifo" as const,
