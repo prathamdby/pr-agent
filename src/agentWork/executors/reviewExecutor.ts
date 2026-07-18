@@ -65,9 +65,23 @@ import {
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 
-type SettledPriorInlineFeedback =
-  | { readonly ok: true; readonly value: string | undefined }
+type Result<T> =
+  | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly error: unknown };
+
+type SettledPriorInlineFeedback = Result<string | undefined>;
+
+async function tryCatchAsync<T>(
+  fn: () => Promise<T>,
+  onError?: (error: unknown) => void,
+): Promise<Result<T>> {
+  try {
+    return { ok: true, value: await fn() };
+  } catch (error: unknown) {
+    onError?.(error);
+    return { ok: false, error };
+  }
+}
 
 type TokenState = { installation: InstallationToken };
 
@@ -233,26 +247,18 @@ function buildPriorInlineFeedbackPromise(args: {
       message: error instanceof Error ? error.message : String(error),
     });
   };
-  return getAppBotIdentity(cfg)
-    .catch((error: unknown) => {
-      logPriorFeedbackError(error);
-      throw error;
-    })
-    .then((bot) =>
-      fetchPriorInlineFeedbackBlockForReview({
-        token: tokenState.installation.token,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        reviewLens,
-        botUserId: bot.userId,
-        onPriorFeedbackError: logPriorFeedbackError,
-      }),
-    )
-    .then(
-      (value) => ({ ok: true, value }),
-      (error: unknown) => ({ ok: false, error }),
-    );
+  return tryCatchAsync(async () => {
+    const bot = await getAppBotIdentity(cfg);
+    return fetchPriorInlineFeedbackBlockForReview({
+      token: tokenState.installation.token,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
+      reviewLens,
+      botUserId: bot.userId,
+      onPriorFeedbackError: logPriorFeedbackError,
+    });
+  }, logPriorFeedbackError);
 }
 
 async function loadRepoPolicyBlocks(args: {
