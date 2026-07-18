@@ -181,14 +181,6 @@ export const WebhookHandlersCore = Layer.effect(
 
       issueComment: (cfg, headers, data, intakeLog) =>
         Effect.gen(function* () {
-          if (data.action !== "created") {
-            yield* scheduler.recordIgnored(
-              headers,
-              `ignored_issue_comment_${data.action}`,
-              intakeLog,
-            );
-            return;
-          }
           const body = data.comment.body ?? "";
           const command = parseSlashCommand(body);
           if (!command) {
@@ -231,14 +223,6 @@ export const WebhookHandlersCore = Layer.effect(
 
       pullRequestReviewComment: (cfg, headers, data, intakeLog) =>
         Effect.gen(function* () {
-          if (data.action !== "created") {
-            yield* scheduler.recordIgnored(
-              headers,
-              `ignored_review_comment_${data.action}`,
-              intakeLog,
-            );
-            return;
-          }
           const body = data.comment.body ?? "";
           const command = parseSlashCommand(body);
           if (!command) {
