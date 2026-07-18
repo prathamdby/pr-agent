@@ -64,48 +64,47 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
   const defaults = queueDefaults(cfg);
   const dlq = deadLetterQueueOptions(cfg);
   // DLQ rows are archival only; no workers subscribe to these queue names.
-  await boss.createQueue(ACK_DEAD_LETTER_QUEUE, dlq);
-  await boss.createQueue(REVIEW_DEAD_LETTER_QUEUE, dlq);
-  await boss.createQueue(ASK_DEAD_LETTER_QUEUE, dlq);
-  await boss.createQueue(DESCRIPTION_DEAD_LETTER_QUEUE, dlq);
-  await boss.createQueue(TRIAGE_DEAD_LETTER_QUEUE, dlq);
-  await boss.createQueue(VERIFICATION_DEAD_LETTER_QUEUE, dlq);
-  await boss.createQueue(THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE, dlq);
-  await boss.createQueue(ACK_QUEUE, {
-    ...defaults,
-    policy: "standard",
-    deadLetter: ACK_DEAD_LETTER_QUEUE,
-  });
-  await boss.createQueue(REVIEW_QUEUE, {
-    ...defaults,
-    policy: "key_strict_fifo",
-    deadLetter: REVIEW_DEAD_LETTER_QUEUE,
-  });
-  await boss.createQueue(ASK_QUEUE, {
-    ...defaults,
-    policy: "standard",
-    deadLetter: ASK_DEAD_LETTER_QUEUE,
-  });
-  await boss.createQueue(DESCRIPTION_QUEUE, {
-    ...defaults,
-    policy: "key_strict_fifo",
-    deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE,
-  });
-  await boss.createQueue(TRIAGE_QUEUE, {
-    ...defaults,
-    policy: "key_strict_fifo",
-    deadLetter: TRIAGE_DEAD_LETTER_QUEUE,
-  });
-  await boss.createQueue(VERIFICATION_QUEUE, {
-    ...defaults,
-    policy: "key_strict_fifo",
-    deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
-  });
-  await boss.createQueue(THREAD_REPLY_CLASSIFY_QUEUE, {
-    ...defaults,
-    policy: "standard",
-    deadLetter: THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
-  });
+  const deadLetterQueues = [
+    ACK_DEAD_LETTER_QUEUE,
+    REVIEW_DEAD_LETTER_QUEUE,
+    ASK_DEAD_LETTER_QUEUE,
+    DESCRIPTION_DEAD_LETTER_QUEUE,
+    TRIAGE_DEAD_LETTER_QUEUE,
+    VERIFICATION_DEAD_LETTER_QUEUE,
+    THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
+  ] as const;
+  await Promise.all(deadLetterQueues.map((name) => boss.createQueue(name, dlq)));
+
+  const workQueues = [
+    { name: ACK_QUEUE, policy: "standard" as const, deadLetter: ACK_DEAD_LETTER_QUEUE },
+    { name: REVIEW_QUEUE, policy: "key_strict_fifo" as const, deadLetter: REVIEW_DEAD_LETTER_QUEUE },
+    { name: ASK_QUEUE, policy: "standard" as const, deadLetter: ASK_DEAD_LETTER_QUEUE },
+    {
+      name: DESCRIPTION_QUEUE,
+      policy: "key_strict_fifo" as const,
+      deadLetter: DESCRIPTION_DEAD_LETTER_QUEUE,
+    },
+    { name: TRIAGE_QUEUE, policy: "key_strict_fifo" as const, deadLetter: TRIAGE_DEAD_LETTER_QUEUE },
+    {
+      name: VERIFICATION_QUEUE,
+      policy: "key_strict_fifo" as const,
+      deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
+    },
+    {
+      name: THREAD_REPLY_CLASSIFY_QUEUE,
+      policy: "standard" as const,
+      deadLetter: THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
+    },
+  ] as const;
+  await Promise.all(
+    workQueues.map(({ name, policy, deadLetter }) =>
+      boss.createQueue(name, {
+        ...defaults,
+        policy,
+        deadLetter,
+      }),
+    ),
+  );
 }
 
 export async function stopBoss(boss: PgBoss, drainTimeoutMs: number): Promise<void> {
