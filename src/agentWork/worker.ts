@@ -35,6 +35,33 @@ import {
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
 
+const AGENT_QUEUE_STATS_QUEUES = [
+  ACK_QUEUE,
+  REVIEW_QUEUE,
+  ASK_QUEUE,
+  DESCRIPTION_QUEUE,
+  TRIAGE_QUEUE,
+  VERIFICATION_QUEUE,
+  THREAD_REPLY_CLASSIFY_QUEUE,
+] as const;
+
+export async function logAgentQueueStats(boss: PgBoss): Promise<void> {
+  const results = await Promise.all(
+    AGENT_QUEUE_STATS_QUEUES.map(async (queue) => {
+      const [stats] = await boss.getQueueStats(queue);
+      return { queue, stats };
+    }),
+  );
+  for (const { queue, stats } of results) {
+    logDebug("agent_queue_stats", {
+      queue,
+      queued: stats?.queuedCount,
+      active: stats?.activeCount,
+      total: stats?.totalCount,
+    });
+  }
+}
+
 function workerJobMeta(
   queue: string,
   data: { workItemId?: string; webhookEventId?: string; delivery?: string },
@@ -196,23 +223,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             verificationConcurrency: cfg.verificationConcurrency,
             threadReplyClassifyConcurrency: cfg.threadReplyClassifyConcurrency,
           });
-          for (const queue of [
-            ACK_QUEUE,
-            REVIEW_QUEUE,
-            ASK_QUEUE,
-            DESCRIPTION_QUEUE,
-            TRIAGE_QUEUE,
-            VERIFICATION_QUEUE,
-            THREAD_REPLY_CLASSIFY_QUEUE,
-          ]) {
-            const [stats] = await boss.getQueueStats(queue);
-            logDebug("agent_queue_stats", {
-              queue,
-              queued: stats?.queuedCount,
-              active: stats?.activeCount,
-              total: stats?.totalCount,
-            });
-          }
+          await logAgentQueueStats(boss);
           const blockedReviewKeys = await boss.getBlockedKeys(REVIEW_QUEUE);
           if (blockedReviewKeys.length > 0) {
             logWarn("agent_review_queue_blocked_keys", {
