@@ -41,6 +41,10 @@ export const Route = createRootRoute({
         content: "website",
       },
       {
+        property: "og:url",
+        content: SITE_ORIGIN,
+      },
+      {
         property: "og:site_name",
         content: PRODUCT_NAME,
       },
@@ -85,6 +89,10 @@ export const Route = createRootRoute({
       {
         rel: "stylesheet",
         href: appCss,
+      },
+      {
+        rel: "canonical",
+        href: SITE_ORIGIN,
       },
       {
         rel: "icon",
