@@ -3,55 +3,65 @@ import { MAX_ASK_QUESTION_CHARS } from "../src/agent/ask/askSafety.js";
 import { ASK_USAGE_HINT } from "../src/settings/index.js";
 import {
   ASK_QUESTION_TOO_LONG_HINT,
-  askQuestionParseFailure,
-  parseAskQuestion,
   parseAskQuestionForReplyTarget,
   parseAskQuestionResult,
 } from "../src/commands/parseAskQuestion.js";
 
-describe("parseAskQuestion", () => {
+describe("parseAskQuestionResult", () => {
   it("extracts unquoted question from first line", () => {
-    expect(parseAskQuestion("/ask what is this for?")).toBe("what is this for?");
+    expect(parseAskQuestionResult("/ask what is this for?")).toEqual({
+      kind: "ok",
+      question: "what is this for?",
+    });
   });
 
   it("extracts double-quoted question", () => {
-    expect(parseAskQuestion('/ask "what is useHydrationSafeDistance?"')).toBe(
-      "what is useHydrationSafeDistance?",
-    );
+    expect(parseAskQuestionResult('/ask "what is useHydrationSafeDistance?"')).toEqual({
+      kind: "ok",
+      question: "what is useHydrationSafeDistance?",
+    });
   });
 
   it("extracts single-quoted question", () => {
-    expect(parseAskQuestion("/ask 'why this change?'")).toBe("why this change?");
+    expect(parseAskQuestionResult("/ask 'why this change?'")).toEqual({
+      kind: "ok",
+      question: "why this change?",
+    });
   });
 
-  it("returns null for bare /ask", () => {
-    expect(parseAskQuestion("/ask")).toBe(null);
-    expect(parseAskQuestion("/ask   ")).toBe(null);
+  it("returns missing for bare /ask", () => {
+    expect(parseAskQuestionResult("/ask")).toEqual({ kind: "missing" });
+    expect(parseAskQuestionResult("/ask   ")).toEqual({ kind: "missing" });
   });
 
-  it("returns null when not an ask command", () => {
-    expect(parseAskQuestion("/review")).toBe(null);
-    expect(parseAskQuestion("hello")).toBe(null);
+  it("returns not_ask when not an ask command", () => {
+    expect(parseAskQuestionResult("/review")).toEqual({ kind: "not_ask" });
+    expect(parseAskQuestionResult("hello")).toEqual({ kind: "not_ask" });
   });
 
   it("uses first non-empty line only", () => {
-    expect(parseAskQuestion(" \n/ask what is this?")).toBe("what is this?");
-    expect(parseAskQuestion(" \r\n/ask what is this?\n/ask ignored")).toBe("what is this?");
-    expect(parseAskQuestion("hello\n/ask ignored")).toBe(null);
+    expect(parseAskQuestionResult(" \n/ask what is this?")).toEqual({
+      kind: "ok",
+      question: "what is this?",
+    });
+    expect(parseAskQuestionResult(" \r\n/ask what is this?\n/ask ignored")).toEqual({
+      kind: "ok",
+      question: "what is this?",
+    });
+    expect(parseAskQuestionResult("hello\n/ask ignored")).toEqual({ kind: "not_ask" });
   });
 
   it("is case-sensitive on /ask token", () => {
-    expect(parseAskQuestion("/Ask what?")).toBe(null);
+    expect(parseAskQuestionResult("/Ask what?")).toEqual({ kind: "not_ask" });
   });
 
   it("exports usage hint", () => {
     expect(ASK_USAGE_HINT).toContain("/ask");
   });
 
-  it("returns null when question is too long", () => {
+  it("returns too_long when question is too long", () => {
     const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
-    expect(parseAskQuestion(`/ask ${long}`)).toBe(null);
-    expect(askQuestionParseFailure(`/ask ${long}`)).toBe("too_long");
+    expect(parseAskQuestionResult(`/ask ${long}`)).toEqual({ kind: "too_long" });
   });
 
   it("exports too-long hint", () => {
