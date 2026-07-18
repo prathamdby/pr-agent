@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { installationSchema, repositorySchema } from "./common.js";
 
 export const pullRequestReviewCommentWebhookSchema = z.object({
@@ -28,3 +29,16 @@ export const pullRequestReviewCommentWebhookSchema = z.object({
 export type PullRequestReviewCommentWebhookPayload = z.infer<
   typeof pullRequestReviewCommentWebhookSchema
 >;
+
+export function codeAnchorFromReviewComment(
+  comment: PullRequestReviewCommentWebhookPayload["comment"],
+): CodeAnchor | undefined {
+  if (comment.path == null || comment.line == null) return undefined;
+  return {
+    path: comment.path,
+    line: comment.line,
+    startLine: comment.start_line ?? undefined,
+    side: comment.side,
+    diffHunk: comment.diff_hunk,
+  };
+}

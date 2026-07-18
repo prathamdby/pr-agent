@@ -4,24 +4,12 @@ import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
 } from "../src/review/placement/reviewDiffIndex.js";
-import type { ReviewPayload } from "../src/review/reviewSchema.js";
-
-function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
-  return {
-    prCharacter: "Updates docs.",
-    findings: [],
-    estimatedEffort: 2,
-    relevantTests: "no",
-    securityConcerns: null,
-    followUps: [],
-    ...overrides,
-  };
-}
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 describe("validateReviewPayload", () => {
   it("rejects internal failure phrasing on overview fields", () => {
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         prCharacter: "Structured publish failed after 3/3 attempt(s). Check server logs.",
       }),
     });
@@ -35,7 +23,7 @@ describe("validateReviewPayload", () => {
   it("accepts overview mentioning structured publish without failure wording", () => {
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           prCharacter: "This PR improves structured publish reliability and adds metrics.",
         }),
       }).ok,
@@ -44,7 +32,7 @@ describe("validateReviewPayload", () => {
 
   it("rejects followUps with internal failure phrasing", () => {
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         followUps: ["Structured publish failed after 2/3 attempt(s)."],
       }),
     });
@@ -57,7 +45,7 @@ describe("validateReviewPayload", () => {
   it("accepts findings that mention repository symbols matching banned patterns", () => {
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P1",
@@ -78,7 +66,7 @@ describe("validateReviewPayload", () => {
   it("accepts clean payloads without diff cache", () => {
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P3",
@@ -106,7 +94,7 @@ describe("validateReviewPayload", () => {
     });
 
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         findings: [
           {
             severity: "P1",
@@ -137,7 +125,7 @@ describe("validateReviewPayload", () => {
 
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P1",
@@ -168,7 +156,7 @@ describe("validateReviewPayload", () => {
 
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P1",
@@ -192,7 +180,7 @@ describe("validateReviewPayload", () => {
 
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P1",
@@ -219,7 +207,7 @@ describe("validateReviewPayload", () => {
 
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P1",
@@ -244,7 +232,7 @@ describe("validateReviewPayload", () => {
     });
 
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         findings: [
           {
             severity: "P1",
@@ -282,7 +270,7 @@ describe("validateReviewPayload", () => {
     });
 
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         findings: [
           {
             severity: "P1",
@@ -329,7 +317,7 @@ describe("validateReviewPayload", () => {
     });
 
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         findings: [
           {
             severity: "P1",
@@ -362,7 +350,7 @@ describe("validateReviewPayload", () => {
 
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P1",
@@ -391,7 +379,7 @@ describe("validateReviewPayload", () => {
 
   it("rejects mergeVerdict score > 3 when P1 findings are present", () => {
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         findings: [
           {
             severity: "P1",
@@ -415,7 +403,7 @@ describe("validateReviewPayload", () => {
 
   it("rejects mergeVerdict rationale with safe-to-merge wording when P1 present", () => {
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         findings: [
           {
             severity: "P1",
@@ -440,7 +428,7 @@ describe("validateReviewPayload", () => {
   it("accepts mergeVerdict score 5 when no P0/P1 findings", () => {
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P2",
@@ -461,7 +449,7 @@ describe("validateReviewPayload", () => {
   it("accepts absent mergeVerdict", () => {
     expect(
       validateReviewPayload({
-        payload: basePayload({
+        payload: makeReviewPayload({
           findings: [
             {
               severity: "P1",
@@ -480,7 +468,7 @@ describe("validateReviewPayload", () => {
 
   it("rejects internal failure phrasing in mergeVerdict.rationale", () => {
     const result = validateReviewPayload({
-      payload: basePayload({
+      payload: makeReviewPayload({
         mergeVerdict: {
           score: 3,
           rationale: "Structured publish failed after 2/3 attempt(s).",

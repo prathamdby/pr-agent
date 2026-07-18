@@ -436,6 +436,45 @@ describe("executeReviewJob", () => {
     expect(mocks.runFullPrReview).not.toHaveBeenCalled();
   });
 
+  it("continues the review when prior feedback fetch logs and returns undefined", async () => {
+    mocks.fetchPriorFeedback.mockImplementationOnce(async (args) => {
+      args.onPriorFeedbackError?.(new Error("feedback unavailable"));
+      return undefined;
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
+      owner: "o",
+      repo: "r",
+      pr: 1,
+      reviewLens: "review",
+      message: "feedback unavailable",
+    });
+    expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
+      preflight: { preflight: true },
+      priorInlineFeedback: undefined,
+    });
+    expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
+  });
+
+  it("rethrows unexpected prior feedback helper rejections", async () => {
+    mocks.fetchPriorFeedback.mockRejectedValueOnce(new Error("feedback blew up"));
+
+    await expect(executeReviewJob(cfg, pool, boss, reviewJob())).rejects.toThrow(
+      "feedback blew up",
+    );
+
+    expect(mocks.logWarn).toHaveBeenCalledWith("prior_inline_feedback_fetch_failed", {
+      owner: "o",
+      repo: "r",
+      pr: 1,
+      reviewLens: "review",
+      message: "feedback blew up",
+    });
+    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+  });
+
   it("appends rendered repo policy to trusted context when policy file is present", async () => {
     const policyDir = await mkdtemp(join(tmpdir(), "repo-policy-exec-"));
     await writeFile(

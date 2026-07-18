@@ -15,6 +15,7 @@ import { PR_COMMITS_MAX_PAGES, PR_COMMITS_PAGE_SIZE } from "../../settings/index
 import { listTriageEligibleInlineReviews } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type VerificationJobData } from "../types.js";
+import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 type PushedCommit = {
   readonly sha: string;
@@ -137,18 +138,13 @@ export async function executeVerificationJob(
         pushDeltaFiles != null ? pushDeltaFiles.files : ([] as readonly string[]);
 
       const result = await withPrRepositoryView(
-        {
+        buildRepositoryViewParams(
           cfg,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha,
-          installationToken: tokenState.installation.token,
-          installationExpiresAtTs: tokenState.installation.expiresAtTs,
-          prFiles,
-          pullRequest: env.pullRequest,
-          repositorySizeKb: payload.repositorySizeKb,
-        },
+          item,
+          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+          payload,
+          { prFiles },
+        ),
         async (view) => {
           const runResult = await runVerification({
             cfg,

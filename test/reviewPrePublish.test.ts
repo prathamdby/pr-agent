@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { prepareReviewPayloadForPublish } from "../src/review/findings/findingPipeline.js";
 import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 
 type ReviewFinding = ReviewPayload["findings"][number];
 
@@ -18,23 +19,11 @@ function makeFinding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   };
 }
 
-function makePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
-  return {
-    prCharacter: "Test.",
-    findings: [],
-    estimatedEffort: 2,
-    relevantTests: "no",
-    securityConcerns: null,
-    followUps: [],
-    ...overrides,
-  };
-}
-
 const secretDetail = "Found DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent";
 
 describe("prepareReviewPayloadForPublish", () => {
   it("dedupes overlapping findings before publish", () => {
-    const payload = makePayload({
+    const payload = makeReviewPayload({
       findings: [
         makeFinding({
           severity: "P1",
@@ -65,7 +54,7 @@ describe("prepareReviewPayloadForPublish", () => {
 
   it("passes finding detail with internal failure phrasing through after secret scrub", () => {
     const detail = "Structured publish failed after 1/3 attempt(s).";
-    const payload = makePayload({
+    const payload = makeReviewPayload({
       findings: [makeFinding({ severity: "P2", detail, fixPrompt: "Fix the handler." })],
     });
 
@@ -76,7 +65,7 @@ describe("prepareReviewPayloadForPublish", () => {
   });
 
   it("rejects overview with internal failure phrasing instead of redacting", () => {
-    const payload = makePayload({
+    const payload = makeReviewPayload({
       prCharacter: "Structured publish failed after 3/3 attempt(s). Check server logs.",
     });
 
@@ -87,7 +76,7 @@ describe("prepareReviewPayloadForPublish", () => {
   });
 
   it("scrubs secret assignments in prepared payload", () => {
-    const payload = makePayload({
+    const payload = makeReviewPayload({
       findings: [
         makeFinding({
           title: "Secret in detail",
@@ -105,7 +94,7 @@ describe("prepareReviewPayloadForPublish", () => {
   });
 
   it("threads placements aligned to the redacted findings", () => {
-    const payload = makePayload({
+    const payload = makeReviewPayload({
       findings: [
         makeFinding({
           title: "Secret in detail",
@@ -125,7 +114,7 @@ describe("prepareReviewPayloadForPublish", () => {
   });
 
   it("drops scored findings below the configured confidence threshold", () => {
-    const payload = makePayload({
+    const payload = makeReviewPayload({
       findings: [
         makeFinding({ title: "Low confidence", confidence: 2 }),
         makeFinding({ title: "Meets threshold", confidence: 3 }),

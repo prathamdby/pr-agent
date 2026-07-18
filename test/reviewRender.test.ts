@@ -26,6 +26,7 @@ import {
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
 } from "../src/settings/index.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
+import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 import {
   REVIEW_SUMMARY_SENTINEL,
   SECURITY_REVIEW_SUMMARY_SENTINEL,
@@ -48,15 +49,12 @@ const ctx = {
 };
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
-  return {
+  return makeReviewPayload({
     prCharacter: "Adds a retry wrapper around the webhook dispatcher.",
-    findings: [],
     estimatedEffort: 3,
     relevantTests: "partial",
-    securityConcerns: null,
-    followUps: [],
     ...overrides,
-  };
+  });
 }
 
 describe("renderReviewSummaryComment", () => {

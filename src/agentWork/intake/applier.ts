@@ -8,11 +8,7 @@ import {
   REVIEW_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
-import {
-  replaceAutoWorkItem,
-  releaseSingletonIfSuperseded,
-  type AutoWorkSupersedeTarget,
-} from "../autoWorkEnqueue.js";
+import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import {
   releaseSingletonSlot,
   reviewSingletonSlotDb,
@@ -74,17 +70,13 @@ async function dispatchAutomatedKind(
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
-  await releaseSingletonIfSuperseded({
-    boss,
-    db: slotDb,
-    supersededIds,
-    release: () =>
-      releaseSingletonSlot(boss, {
-        queue: descriptor.queueName,
-        singletonKey: descriptor.singletonKey,
-        db: slotDb,
-      }),
-  });
+  if (supersededIds.length > 0) {
+    await releaseSingletonSlot(boss, {
+      queue: descriptor.queueName,
+      singletonKey: descriptor.singletonKey,
+      db: slotDb,
+    });
+  }
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);
   }
@@ -123,7 +115,6 @@ async function applyPlannedAutomatedPullRequestIntake(
   client: PoolClient,
   headers: WebhookHeaders,
   ref: PrRef,
-  action: string,
   plan: AutomatedPrIntakePlan,
   pushBeforeSha?: string,
 ): Promise<DeferredIntakeEvent[]> {
@@ -253,7 +244,7 @@ export async function applyAutomatedPullRequestIntake(
   }
 
   const events = await inTransaction(pool, (client) =>
-    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, action, plan, pushBeforeSha),
+    applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, plan, pushBeforeSha),
   );
   flushDeferredEvents(intakeLog, events);
 }

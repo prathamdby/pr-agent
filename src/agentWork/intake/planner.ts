@@ -2,7 +2,6 @@
 type AutomatedPrIntakeKind = "review" | "description" | "verification";
 
 export type AutomatedPrIntakePlan = {
-  readonly action: string;
   readonly kinds: readonly AutomatedPrIntakeKind[];
 };
 
@@ -23,5 +22,5 @@ export function planAutomatedPullRequestIntake(
   if (opts.reviewAutoActions.has(action)) kinds.push("review");
   if (opts.descriptionAutoActions.has(action)) kinds.push("description");
   if (opts.verificationAutoActions.has(action)) kinds.push("verification");
-  return { action, kinds };
+  return { kinds };
 }

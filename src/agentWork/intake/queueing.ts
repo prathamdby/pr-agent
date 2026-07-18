@@ -70,11 +70,10 @@ export async function enqueueAck(
   boss: PgBoss,
   client: PoolClient,
   data: AckJobData,
-  priority = 100,
 ): Promise<void> {
   await requireBossJobSend(boss, ACK_QUEUE, data, {
     db: pgBossDb(client),
-    priority,
+    priority: 100,
     group: { id: installationGroupId(data.installationId) },
   });
 }
@@ -87,12 +86,11 @@ export async function enqueueAskAckIdempotent(
   client: PoolClient,
   data: AckJobData,
   webhookEventId: string,
-  priority = 100,
 ): Promise<"enqueued" | "already_present"> {
   return sendBossJobIdempotent(boss, ACK_QUEUE, data, {
     db: pgBossDb(client),
     id: webhookEventId,
-    priority,
+    priority: 100,
     group: { id: installationGroupId(data.installationId) },
   });
 }

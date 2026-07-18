@@ -1,6 +1,7 @@
 import { AskReplyMock } from "@/components/github-output/ask-reply";
 import { DescriptionBlockMock } from "@/components/github-output/description-block";
 import { ReviewSummaryMock, type ReviewLens } from "@/components/github-output/review-summary";
+import { Section } from "@/components/section";
 
 type OutputExample = {
   readonly command: string;
@@ -67,48 +68,39 @@ function ExampleBody({ example }: { readonly example: OutputExample }) {
  */
 export function Gallery() {
   return (
-    <section
-      id="examples"
-      aria-labelledby="examples-heading"
-      className="px-4 py-16 sm:px-6 sm:py-20 md:py-24"
-    >
-      <div className="mx-auto max-w-6xl">
-        <div className="max-w-2xl">
-          <h2
-            id="examples-heading"
-            className="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
-          >
-            What lands on the pull request
-          </h2>
-          <p className="mt-3 text-sm leading-relaxed text-ink-mute md:text-base">
-            Built from the same summary, description, and ask formats the worker publishes to
-            GitHub.
-          </p>
-        </div>
-
-        <ul className="mt-12 space-y-12 md:mt-16 md:space-y-16">
-          {EXAMPLES.map((example, index) => {
-            const flip = index % 2 === 1;
-            return (
-              <li
-                key={example.command}
-                className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
-              >
-                <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
-                  <p className="font-mono text-sm text-bolt">{example.command}</p>
-                  <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">
-                    {example.label}
-                  </h3>
-                  <p className="mt-2 text-sm leading-relaxed text-ink-mute">{example.detail}</p>
-                  <div className="mt-5 min-w-0">
-                    <ExampleBody example={example} />
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+    <Section id="examples" labelledBy="examples-heading">
+      <div className="max-w-2xl">
+        <h2
+          id="examples-heading"
+          className="font-display text-[clamp(2rem,4vw,3rem)] leading-[1.1] text-ink"
+        >
+          What lands on the pull request
+        </h2>
+        <p className="mt-3 text-sm leading-relaxed text-ink-mute md:text-base">
+          Built from the same summary, description, and ask formats the worker publishes to GitHub.
+        </p>
       </div>
-    </section>
+
+      <ul className="mt-12 space-y-12 md:mt-16 md:space-y-16">
+        {EXAMPLES.map((example, index) => {
+          const flip = index % 2 === 1;
+          return (
+            <li
+              key={example.command}
+              className={`flex min-w-0 ${flip ? "md:justify-end" : "md:justify-start"}`}
+            >
+              <div className="w-full min-w-0 md:max-w-[min(100%,36rem)]">
+                <p className="font-mono text-sm text-bolt">{example.command}</p>
+                <h3 className="mt-2 font-display text-xl text-ink sm:text-2xl">{example.label}</h3>
+                <p className="mt-2 text-sm leading-relaxed text-ink-mute">{example.detail}</p>
+                <div className="mt-5 min-w-0">
+                  <ExampleBody example={example} />
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
   );
 }

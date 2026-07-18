@@ -1,3 +1,4 @@
+import { Section } from "@/components/section";
 import { DOCS_URL } from "@/lib/site";
 
 const APP_FIELDS = [
@@ -61,108 +62,102 @@ function CodeBlock({ children }: { readonly children: string }) {
 
 export function Quickstart() {
   return (
-    <section
-      id="usage"
-      aria-labelledby="usage-heading"
-      className="bg-navy-raised px-4 py-16 sm:px-6 sm:py-20 md:py-24"
-    >
-      <div className="mx-auto max-w-6xl">
-        <header className="max-w-2xl">
-          <h2
-            id="usage-heading"
-            className="font-display text-[clamp(2.1rem,4.2vw,3.25rem)] leading-[1.05] tracking-[-0.02em] text-ink"
-          >
-            Deploy it with Docker Compose
-          </h2>
-          <p className="mt-4 text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
-            Three steps from an empty machine to a review on a real pull request. You need Docker, a
-            GitHub App, and one AI provider key.
-          </p>
-        </header>
+    <Section id="usage" labelledBy="usage-heading" raised>
+      <header className="max-w-2xl">
+        <h2
+          id="usage-heading"
+          className="font-display text-[clamp(2.1rem,4.2vw,3.25rem)] leading-[1.05] tracking-[-0.02em] text-ink"
+        >
+          Deploy it with Docker Compose
+        </h2>
+        <p className="mt-4 text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
+          Three steps from an empty machine to a review on a real pull request. You need Docker, a
+          GitHub App, and one AI provider key.
+        </p>
+      </header>
 
-        <ol className="mt-12 border-t border-edge">
-          <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
-            <StepNumber n="01" />
-            <div className="min-w-0 max-w-2xl">
-              <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
-                Create a GitHub App
-              </h3>
-              <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-                Register the app on your account or org, then point the webhook at the host where
-                you will run PR Agent.
-              </p>
-              <dl className="mt-6 space-y-4">
-                {APP_FIELDS.map((field) => (
-                  <div key={field.label}>
-                    <dt className="text-xs font-medium text-ink-faint">{field.label}</dt>
-                    <dd
-                      className={
-                        field.mono
-                          ? "mt-1 font-mono text-sm text-bolt"
-                          : "mt-1 text-sm leading-relaxed text-ink-soft"
-                      }
-                    >
-                      {field.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="mt-5 text-sm leading-relaxed text-ink-faint">
-                Need the click-by-click path? See{" "}
-                <a
-                  href={DOCS_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-ink-soft underline decoration-edge-strong hover:text-ink"
-                >
-                  README Getting Started
-                </a>
-                .
-              </p>
-            </div>
-          </li>
-
-          <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
-            <StepNumber n="02" />
-            <div className="min-w-0 max-w-2xl">
-              <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
-                Fill .env and start the stack
-              </h3>
-              <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-                Copy the example env, drop in your GitHub App values and provider key, then bring
-                the web + worker services up with Compose.
-              </p>
-              <CodeBlock>{COMPOSE_SNIPPET}</CodeBlock>
-              <p className="mt-6 text-xs font-medium text-ink-faint">Minimum keys to set</p>
-              <CodeBlock>{ENV_SNIPPET}</CodeBlock>
-            </div>
-          </li>
-
-          <li className="grid gap-3 py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
-            <StepNumber n="03" />
-            <div className="min-w-0 max-w-2xl">
-              <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
-                Open a PR and talk to it
-              </h3>
-              <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-                Install the app on a repo, open a pull request, and wait for the automatic pass - or
-                type a slash command in the conversation when you want a specific lens.
-              </p>
-              <ul className="surface-inset edge-self mt-5 divide-y divide-edge rounded-md">
-                {SLASH_COMMANDS.map((item) => (
-                  <li
-                    key={item.cmd}
-                    className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-4 sm:px-5"
+      <ol className="mt-12 border-t border-edge">
+        <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
+          <StepNumber n="01" />
+          <div className="min-w-0 max-w-2xl">
+            <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
+              Create a GitHub App
+            </h3>
+            <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
+              Register the app on your account or org, then point the webhook at the host where you
+              will run PR Agent.
+            </p>
+            <dl className="mt-6 space-y-4">
+              {APP_FIELDS.map((field) => (
+                <div key={field.label}>
+                  <dt className="text-xs font-medium text-ink-faint">{field.label}</dt>
+                  <dd
+                    className={
+                      field.mono
+                        ? "mt-1 font-mono text-sm text-bolt"
+                        : "mt-1 text-sm leading-relaxed text-ink-soft"
+                    }
                   >
-                    <code className="shrink-0 font-mono text-sm text-bolt">{item.cmd}</code>
-                    <span className="text-sm leading-relaxed text-ink-mute">{item.tip}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </li>
-        </ol>
-      </div>
-    </section>
+                    {field.value}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-5 text-sm leading-relaxed text-ink-faint">
+              Need the click-by-click path? See{" "}
+              <a
+                href={DOCS_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-ink-soft underline decoration-edge-strong hover:text-ink"
+              >
+                README Getting Started
+              </a>
+              .
+            </p>
+          </div>
+        </li>
+
+        <li className="grid gap-3 border-b border-edge py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
+          <StepNumber n="02" />
+          <div className="min-w-0 max-w-2xl">
+            <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
+              Fill .env and start the stack
+            </h3>
+            <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
+              Copy the example env, drop in your GitHub App values and provider key, then bring the
+              web + worker services up with Compose.
+            </p>
+            <CodeBlock>{COMPOSE_SNIPPET}</CodeBlock>
+            <p className="mt-6 text-xs font-medium text-ink-faint">Minimum keys to set</p>
+            <CodeBlock>{ENV_SNIPPET}</CodeBlock>
+          </div>
+        </li>
+
+        <li className="grid gap-3 py-10 sm:grid-cols-[4.5rem_minmax(0,1fr)] sm:gap-8 sm:py-12 md:grid-cols-[5.5rem_minmax(0,1fr)]">
+          <StepNumber n="03" />
+          <div className="min-w-0 max-w-2xl">
+            <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
+              Open a PR and talk to it
+            </h3>
+            <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
+              Install the app on a repo, open a pull request, and wait for the automatic pass - or
+              type a slash command in the conversation when you want a specific lens.
+            </p>
+            <ul className="surface-inset edge-self mt-5 divide-y divide-edge rounded-md">
+              {SLASH_COMMANDS.map((item) => (
+                <li
+                  key={item.cmd}
+                  className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-4 sm:px-5"
+                >
+                  <code className="shrink-0 font-mono text-sm text-bolt">{item.cmd}</code>
+                  <span className="text-sm leading-relaxed text-ink-mute">{item.tip}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </li>
+      </ol>
+    </Section>
   );
 }
