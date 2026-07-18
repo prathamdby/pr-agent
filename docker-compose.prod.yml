@@ -2,19 +2,6 @@
 # Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up
 services:
   postgres:
-    shm_size: 128mb
-    command:
-      - postgres
-      - -c
-      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
-      - -c
-      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-768MB}
-      - -c
-      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-128MB}
-      - -c
-      - wal_compression=${POSTGRES_WAL_COMPRESSION:-on}
-      - -c
-      - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
