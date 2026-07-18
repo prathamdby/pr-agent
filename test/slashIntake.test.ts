@@ -82,12 +82,14 @@ describe("applySlashCommandIntake", () => {
   });
 
   it("still replies to help", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const sentJobs: { queue: string; data: Record<string, unknown>; options?: unknown }[] = [];
     const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
+      send: vi.fn(
+        async (queue: string, data: Record<string, unknown>, options?: unknown) => {
+          sentJobs.push({ queue, data, options });
+          return "job-1";
+        },
+      ),
     } as unknown as PgBoss;
     const client = makeClient();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
@@ -102,6 +104,7 @@ describe("applySlashCommandIntake", () => {
 
     expect(sentJobs).toHaveLength(1);
     expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
+    expect(sentJobs[0]?.options).toEqual(expect.objectContaining({ priority: 100 }));
     expect(sentJobs[0]?.data.reply).toEqual({
       target: { kind: "prConversation", prNumber: 7 },
       body: SLASH_HELP_BODY,
