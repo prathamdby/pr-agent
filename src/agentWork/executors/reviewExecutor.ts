@@ -64,6 +64,7 @@ import {
 } from "../durableJob.js";
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
+import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -578,18 +579,13 @@ export async function executeReviewJob(
       });
 
       return withPrRepositoryView(
-        {
+        buildRepositoryViewParams(
           cfg,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha,
-          installationToken: tokenState.installation.token,
-          installationExpiresAtTs: tokenState.installation.expiresAtTs,
-          prFiles: lightweight.prefetchedPrFiles,
-          pullRequest: env.pullRequest,
-          repositorySizeKb: payload.repositorySizeKb,
-        },
+          item,
+          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+          payload,
+          { prFiles: lightweight.prefetchedPrFiles },
+        ),
         async (repositoryView) =>
           runFullReviewAgainstRepositoryView({
             cfg,

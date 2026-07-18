@@ -12,6 +12,7 @@ import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJo
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
+import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 async function publishAskAnswer(
   token: string,
@@ -75,17 +76,12 @@ export async function executeAskJob(
       }
 
       return withPrRepositoryView(
-        {
+        buildRepositoryViewParams(
           cfg,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha,
-          installationToken: tokenState.installation.token,
-          installationExpiresAtTs: tokenState.installation.expiresAtTs,
-          pullRequest: env.pullRequest,
-          repositorySizeKb: payload.repositorySizeKb,
-        },
+          item,
+          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+          payload,
+        ),
         async (repositoryView) => {
           const result = await runAskRun({
             cfg,

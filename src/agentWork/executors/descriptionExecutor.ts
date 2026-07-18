@@ -18,6 +18,7 @@ import {
   runDurableWorkItem,
 } from "../durableJob.js";
 import { type DescriptionJobData } from "../types.js";
+import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 export async function executeDescriptionJob(
   cfg: Config,
   pool: Pool,
@@ -36,17 +37,12 @@ export async function executeDescriptionJob(
       const headSha = env.headSha;
       const payload = item.payload;
       return withPrRepositoryView(
-        {
+        buildRepositoryViewParams(
           cfg,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          headSha,
-          installationToken: tokenState.installation.token,
-          installationExpiresAtTs: tokenState.installation.expiresAtTs,
-          pullRequest: env.pullRequest,
-          repositorySizeKb: payload.repositorySizeKb,
-        },
+          item,
+          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+          payload,
+        ),
         async (repositoryView) => {
           const result = await runFullPrDescription({
             cfg,
