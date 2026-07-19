@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -474,13 +474,10 @@ describe("executeReviewJob", () => {
     expect(mocks.runFullPrReview).not.toHaveBeenCalled();
   });
 
-  it("appends rendered repo policy to trusted context when policy file is present", async () => {
+  it("appends rendered repo policy to trusted context when .mdc rules are present", async () => {
     const policyDir = await mkdtemp(join(tmpdir(), "repo-policy-exec-"));
-    await writeFile(
-      join(policyDir, ".pr-agent.yml"),
-      "version: 1\ntone: Be terse\nseverityFloor: 2\n",
-      "utf8",
-    );
+    await mkdir(join(policyDir, ".pr-agent"));
+    await writeFile(join(policyDir, ".pr-agent", "tone.mdc"), "Be terse.\n", "utf8");
     const preflight = {
       files: [{ filename: "src/a.ts" }],
       truncated: false,
@@ -500,14 +497,11 @@ describe("executeReviewJob", () => {
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight,
       priorInlineFeedback: undefined,
-      repoPolicyBlock: expect.stringContaining("Tone: Be terse"),
+      repoPolicyBlock: expect.stringContaining("Be terse."),
     });
-    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
-      expect.objectContaining({ severityFloor: 2 }),
-    );
   });
 
-  it("leaves trusted context unchanged when repo policy file is absent", async () => {
+  it("leaves trusted context unchanged when repo policy directory is absent", async () => {
     const policyDir = await mkdtemp(join(tmpdir(), "repo-policy-absent-"));
     const preflight = {
       files: [{ filename: "src/a.ts" }],
@@ -530,9 +524,6 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
     });
-    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
-      expect.objectContaining({ severityFloor: undefined }),
-    );
   });
 
   it("threads hasDescriptionAgentBlock false when PR body lacks the description header", async () => {

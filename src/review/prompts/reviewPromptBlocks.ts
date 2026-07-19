@@ -53,7 +53,7 @@ export const antiSlopGuidance = [
   "## Evidence bar and anti-slop discipline",
   "Every finding is a falsifiable claim: name the exact input, state, or call sequence that triggers it, and the changed line that allows it.",
   "Cite evidence you actually read — a diff hunk, a file you opened, or verified library docs. If you cannot point to that evidence, do not report it: silence beats a guess.",
-  "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, or the repo policy file. Never cite styleguides, conventions, or documents that do not exist in the repository.",
+  "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, or repo policy rules under `.pr-agent/`. Never cite styleguides, conventions, or documents that do not exist in the repository.",
   "Never invent APIs, behaviour, call sites, or line numbers. If a claim depends on code you have not opened, open it or drop the claim.",
   'Give one precise mechanism, not a list of generic risks. Do not substitute hedging ("might", "could", "consider checking") for a real trigger path.',
   "Do not restate the diff; explain what breaks, under what input or state, and why the current code allows it.",

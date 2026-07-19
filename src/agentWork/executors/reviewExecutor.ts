@@ -258,29 +258,22 @@ function buildPriorInlineFeedbackPromise(args: {
   }, logPriorFeedbackError);
 }
 
-async function loadRepoPolicyBlocks(args: {
-  readonly repositoryView: PrRepositoryView;
-  readonly reviewLens: ReviewMode;
-}): Promise<{
+async function loadRepoPolicyBlocks(args: { readonly repositoryView: PrRepositoryView }): Promise<{
   readonly repoPolicyBlock: string | undefined;
-  readonly severityFloor: number | undefined;
 }> {
-  const { repositoryView, reviewLens } = args;
+  const { repositoryView } = args;
   const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
   let repoPolicyBlock: string | undefined;
-  let severityFloor: number | undefined;
   if (policyResult.kind === "invalid") {
     logInvalidRepoPolicy(repositoryView.agentCwd, policyResult.reason);
   } else if (policyResult.kind === "ok") {
-    severityFloor = policyResult.policy.severityFloor;
     const rendered = renderRepoPolicyBlock({
       policy: policyResult.policy,
-      mode: reviewLens,
       changedFiles: repositoryView.preflight.files.map((file) => file.filename),
     });
     repoPolicyBlock = rendered || undefined;
   }
-  return { repoPolicyBlock, severityFloor };
+  return { repoPolicyBlock };
 }
 
 async function handleReviewPublishResult(args: {
@@ -400,9 +393,8 @@ async function runFullReviewAgainstRepositoryView(args: {
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
 
-  const { repoPolicyBlock, severityFloor } = await loadRepoPolicyBlocks({
+  const { repoPolicyBlock } = await loadRepoPolicyBlocks({
     repositoryView,
-    reviewLens,
   });
 
   const trustedContext = buildTrustedReviewContextForReview({
@@ -423,7 +415,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     mode: reviewLens,
     userSupplement: payload.userSupplement,
     trustedContext,
-    severityFloor,
     storedInlineFingerprints,
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,

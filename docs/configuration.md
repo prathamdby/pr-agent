@@ -228,39 +228,36 @@ Review check runs are always on: the worker posts GitHub check run `PR Agent Rev
 | `REVIEW_SEVERITY_RANK`                                                                                               | P0–P3 ordering                                                                                                                                                              |
 | Label prefixes                                                                                                       | `LABEL_REVIEW_EFFORT_PREFIX`, `LABEL_SECURITY_EFFORT_PREFIX`, `LABEL_QUALITY_EFFORT_PREFIX`, `LABEL_TESTS_EFFORT_PREFIX`, `LABEL_SECURITY_CONCERN`, `LABEL_CATEGORY_PREFIX` |
 | `REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE`                                                                        | 50                                                                                                                                                                          |
-| `REPO_POLICY_FILENAME`                                                                                               | `.pr-agent.yml` at checkout root                                                                                                                                            |
-| `MAX_REPO_POLICY_BYTES`                                                                                              | 32768                                                                                                                                                                       |
-| `MAX_REPO_POLICY_TONE_CHARS`                                                                                         | 500                                                                                                                                                                         |
+| `REPO_POLICY_DIRNAME`                                                                                                | `.pr-agent` directory at checkout root                                                                                                                                      |
+| `REPO_POLICY_EXTENSION`                                                                                              | `.mdc`                                                                                                                                                                      |
+| `MAX_REPO_POLICY_BYTES`                                                                                              | 32768 (aggregate content across accepted rules)                                                                                                                             |
+| `MAX_REPO_POLICY_FILE_BYTES`                                                                                         | 8192                                                                                                                                                                        |
+| `MAX_REPO_POLICY_FILES`                                                                                              | 20                                                                                                                                                                          |
 | `MAX_REPO_POLICY_PATH_PATTERN_CHARS`                                                                                 | 200                                                                                                                                                                         |
 | `MAX_REPO_POLICY_INSTRUCTION_CHARS`                                                                                  | 1000                                                                                                                                                                        |
-| `MAX_REPO_POLICY_PATH_INSTRUCTIONS`                                                                                  | 20                                                                                                                                                                          |
 
-#### Per-repo policy file (`.pr-agent.yml`)
+#### Per-repo policy rules (`.pr-agent/*.mdc`)
 
-Schema version 1. Read from the PR head checkout at review preflight. Invalid or oversized files are ignored (warn logged); review proceeds without policy.
+Flat directory of Cursor-style `.mdc` rule files, read from the PR head checkout at review preflight. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
 
-| Field              | Type    | Cap                                  | Role                                                                              |
-| ------------------ | ------- | ------------------------------------ | --------------------------------------------------------------------------------- |
-| `version`          | `1`     | required                             | Schema gate                                                                       |
-| `tone`             | string  | 500 chars                            | Review tone hint in trusted context                                               |
-| `severityFloor`    | int 0–3 | optional                             | Publish gate: drop findings below P{floor} (0=P0 … 3=P3)                          |
-| `pathInstructions` | array   | ≤20 entries                          | Glob `path` (200 chars) + `instructions` (1000 chars); matched changed files only |
-| `lensOverrides`    | map     | per-lens `instructions` (1000 chars) | Extra prompt for `review`, `review-security`, `review-quality`, `review-tests`    |
+| Frontmatter / body | Type               | Cap                   | Role                                                                                              |
+| ------------------ | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------- |
+| `globs`            | string or string[] | 200 chars per pattern | Include rule when a changed file matches; omit with no `alwaysApply` to always apply              |
+| `alwaysApply`      | boolean            | optional              | `true` always includes the rule; omit both keys to always apply; `false` requires a matching glob |
+| body               | markdown           | 1000 chars            | Instruction prose injected into trusted context when the rule applies                             |
 
-Rules augment prompts and publish gates only. They never replace the structured `submitReview` path or change output schemas.
+Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured `submitReview` path or change output schemas.
 
 Example:
 
-```yaml
-version: 1
-tone: Be direct; skip style nits on generated code.
-severityFloor: 2
-pathInstructions:
-  - path: "src/auth/**"
-    instructions: Treat missing session checks as P1 minimum.
-lensOverrides:
-  review-security:
-    instructions: Flag any new outbound HTTP without timeout.
+```mdc
+---
+globs:
+  - "src/auth/**"
+alwaysApply: false
+---
+
+Treat missing session checks as P1 minimum. Flag any new outbound HTTP without timeout.
 ```
 
 ### Review / ask agent loops
