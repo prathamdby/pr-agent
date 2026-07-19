@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import {
   REPO_POLICY_DIRNAME,
   REPO_POLICY_EXTENSION,
 } from "../settings/index.js";
+
 const frontmatterSchema = z
   .object({
     globs: z.union([z.string(), z.array(z.string())]).optional(),
@@ -150,94 +151,96 @@ function defaultGlobsForPath(filePath: string): string[] {
   return [sanitized];
 }
 
+function errnoCode(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
+}
+
 export async function loadRepoPolicy(
   agentCwd: string,
   maxBytes: number = MAX_REPO_POLICY_BYTES,
 ): Promise<RepoPolicyResult> {
   const policyDir = join(agentCwd, REPO_POLICY_DIRNAME);
+  let entries;
   try {
-    const dirStat = await stat(policyDir);
-    if (!dirStat.isDirectory()) {
-      return { kind: "invalid", reason: "not a directory" };
-    }
-
-    const entries = await readdir(policyDir, { withFileTypes: true });
-    const candidates = entries
-      .filter(
-        (entry) =>
-          entry.isFile() &&
-          entry.name.endsWith(REPO_POLICY_EXTENSION) &&
-          !entry.name.startsWith("."),
-      )
-      .map((entry) => entry.name)
-      .toSorted();
-
-    if (candidates.length === 0) {
-      return { kind: "absent" };
-    }
-
-    const rules: RepoPolicyRule[] = [];
-    let aggregateBytes = 0;
-
-    for (const filename of candidates.slice(0, MAX_REPO_POLICY_FILES)) {
-      const absolutePath = join(policyDir, filename);
-      let raw: string;
-      try {
-        raw = await readFile(absolutePath, "utf8");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: message });
-        continue;
-      }
-
-      const byteLength = Buffer.byteLength(raw, "utf8");
-      if (byteLength > MAX_REPO_POLICY_FILE_BYTES) {
-        logWarn("repo_policy_rule_skipped", {
-          path: absolutePath,
-          reason: "file exceeds size cap",
-        });
-        continue;
-      }
-      if (aggregateBytes + byteLength > maxBytes) {
-        logWarn("repo_policy_rule_skipped", {
-          path: absolutePath,
-          reason: "aggregate size cap exceeded",
-        });
-        continue;
-      }
-
-      const parsed = parseMdcContent(raw);
-      if (parsed.kind === "invalid") {
-        logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: parsed.reason });
-        continue;
-      }
-
-      aggregateBytes += byteLength;
-      rules.push({
-        filename,
-        relativePath: `${REPO_POLICY_DIRNAME}/${filename}`,
-        alwaysApply: parsed.alwaysApply,
-        globs: parsed.globs,
-        body: parsed.body,
-      });
-    }
-
-    if (rules.length === 0) {
-      return { kind: "invalid", reason: "no usable .mdc rules" };
-    }
-    return { kind: "ok", policy: { rules } };
+    entries = await readdir(policyDir, { withFileTypes: true });
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
+    const code = errnoCode(error);
+    if (code === "ENOENT") {
       return { kind: "absent" };
+    }
+    if (code === "ENOTDIR") {
+      return { kind: "invalid", reason: "not a directory" };
     }
     const message = error instanceof Error ? error.message : String(error);
     return { kind: "invalid", reason: message };
   }
+
+  const candidates = entries
+    .filter(
+      (entry) =>
+        entry.isFile() && entry.name.endsWith(REPO_POLICY_EXTENSION) && !entry.name.startsWith("."),
+    )
+    .map((entry) => entry.name)
+    .toSorted();
+
+  if (candidates.length === 0) {
+    return { kind: "absent" };
+  }
+
+  const rules: RepoPolicyRule[] = [];
+  let aggregateBytes = 0;
+
+  for (const filename of candidates.slice(0, MAX_REPO_POLICY_FILES)) {
+    const absolutePath = join(policyDir, filename);
+    let raw: string;
+    try {
+      raw = await readFile(absolutePath, "utf8");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: message });
+      continue;
+    }
+
+    const byteLength = Buffer.byteLength(raw, "utf8");
+    if (byteLength > MAX_REPO_POLICY_FILE_BYTES) {
+      logWarn("repo_policy_rule_skipped", {
+        path: absolutePath,
+        reason: "file exceeds size cap",
+      });
+      continue;
+    }
+    if (aggregateBytes + byteLength > maxBytes) {
+      logWarn("repo_policy_rule_skipped", {
+        path: absolutePath,
+        reason: "aggregate size cap exceeded",
+      });
+      continue;
+    }
+
+    const parsed = parseMdcContent(raw);
+    if (parsed.kind === "invalid") {
+      logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: parsed.reason });
+      continue;
+    }
+
+    aggregateBytes += byteLength;
+    rules.push({
+      filename,
+      relativePath: `${REPO_POLICY_DIRNAME}/${filename}`,
+      alwaysApply: parsed.alwaysApply,
+      globs: parsed.globs,
+      body: parsed.body,
+    });
+  }
+
+  if (rules.length === 0) {
+    return { kind: "invalid", reason: "no usable .mdc rules" };
+  }
+  return { kind: "ok", policy: { rules } };
 }
 
 export function renderRepoPolicyBlock(params: {
@@ -256,13 +259,6 @@ export function renderRepoPolicyBlock(params: {
     return "";
   }
   return lines.join("\n");
-}
-
-export function logInvalidRepoPolicy(agentCwd: string, reason: string): void {
-  logWarn("repo_policy_invalid", {
-    path: join(agentCwd, REPO_POLICY_DIRNAME),
-    reason,
-  });
 }
 
 function renderNewMdcSuggestion(params: {

@@ -156,6 +156,15 @@ Always enforce this rule.
     expect(result.policy.rules[0].filename).toBe("a.mdc");
   });
 
+  it("returns invalid when .pr-agent exists but is not a directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "repo-policy-notdir-"));
+    await writeFile(join(root, ".pr-agent"), "not a directory", "utf8");
+    await expect(loadRepoPolicy(root, MAX_REPO_POLICY_BYTES)).resolves.toEqual({
+      kind: "invalid",
+      reason: "not a directory",
+    });
+  });
+
   it("ignores legacy .pr-agent.yml at checkout root", async () => {
     const root = await mkdtemp(join(tmpdir(), "repo-policy-yaml-ignored-"));
     await writeFile(join(root, ".pr-agent.yml"), "version: 1\ntone: ignored\n", "utf8");
