@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
-import { getProviders, type KnownProvider } from "@earendil-works/pi-ai";
+import { getProviders } from "@earendil-works/pi-ai/compat";
+import type { KnownProvider } from "@earendil-works/pi-ai";
 import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,

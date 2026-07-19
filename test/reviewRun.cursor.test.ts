@@ -34,7 +34,7 @@ vi.mock("../src/review/publish/submitReviewTool.js", async (importOriginal) => {
   };
 });
 
-vi.mock("@earendil-works/pi-ai", () => ({
+vi.mock("@earendil-works/pi-ai/compat", () => ({
   getModel: vi.fn(),
   complete: vi.fn(async () => ({
     role: "assistant" as const,
@@ -55,7 +55,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
   })),
 }));
 
-import { complete } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai/compat";
 import { buildSubmitReviewTool } from "../src/review/publish/submitReviewTool.js";
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 

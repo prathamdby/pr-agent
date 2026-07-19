@@ -56,14 +56,14 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
   };
 }
 
-vi.mock("@earendil-works/pi-ai", () => ({
+vi.mock("@earendil-works/pi-ai/compat", () => ({
   getModel: vi.fn(() => ({ id: "test-model" })),
 }));
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
-  AuthStorage: {
-    create: vi.fn(() => ({
-      setRuntimeApiKey: vi.fn(),
+  ModelRuntime: {
+    create: vi.fn(async () => ({
+      setRuntimeApiKey: vi.fn(async () => undefined),
     })),
   },
   createAgentSession: vi.fn(),
@@ -72,10 +72,6 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
     return { reload: vi.fn(async () => undefined) };
   }),
-  ModelRegistry: {
-    inMemory: vi.fn(() => ({})),
-    create: vi.fn(() => ({})),
-  },
   SessionManager: { inMemory: vi.fn(() => ({})) },
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));

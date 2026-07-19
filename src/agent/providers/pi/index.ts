@@ -1,11 +1,10 @@
-import { getModel } from "@earendil-works/pi-ai";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import {
-  AuthStorage,
   createAgentSession,
   createExtensionRuntime,
   defineTool,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -103,18 +102,14 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
     try {
       const authPath = join(agentDir, "auth.json");
-      const authStorage = AuthStorage.create(authPath);
+      const modelRuntime = await ModelRuntime.create({
+        authPath,
+        modelsPath: join(agentDir, "models.json"),
+      });
       for (const [provider, key] of Object.entries(cfg.modelProviderKeys)) {
-        if (key.trim()) authStorage.setRuntimeApiKey(provider, key.trim());
+        if (key.trim()) await modelRuntime.setRuntimeApiKey(provider, key.trim());
       }
       await chmod(authPath, 0o600).catch(() => undefined);
-      const modelRegistryFactory = ModelRegistry as unknown as {
-        inMemory?: typeof ModelRegistry.create;
-        create: typeof ModelRegistry.create;
-      };
-      const modelRegistry = modelRegistryFactory.inMemory
-        ? modelRegistryFactory.inMemory(authStorage)
-        : modelRegistryFactory.create(authStorage, join(agentDir, "models.json"));
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },
       });
@@ -133,15 +128,14 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         }),
       });
       await resourceLoader.reload();
-      const model = getModel(cfg.piProvider, cfg.piModel as never);
+      const model = getModel(cfg.piProvider as never, cfg.piModel as never);
       const allToolNames = tools.map((tool) => tool.name);
       const { session } = await createAgentSession({
         cwd: cwd ?? process.cwd(),
         agentDir,
         model,
         thinkingLevel: "off",
-        authStorage,
-        modelRegistry,
+        modelRuntime,
         resourceLoader,
         settingsManager,
         sessionManager: SessionManager.inMemory(cwd ?? process.cwd()),

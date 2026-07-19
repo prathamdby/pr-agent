@@ -44,7 +44,7 @@ const createMcpBridgeMock = vi.hoisted(() =>
   })),
 );
 
-vi.mock("@earendil-works/pi-ai", () => ({
+vi.mock("@earendil-works/pi-ai/compat", () => ({
   complete: completeMock,
 }));
 

@@ -1,4 +1,4 @@
-import type { Api, AssistantMessage, KnownProvider, Provider } from "@earendil-works/pi-ai";
+import type { Api, AssistantMessage, KnownProvider, ProviderId } from "@earendil-works/pi-ai";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { AgentRunnerSession, AgentRunnerTurn } from "../agent/providers/interface.js";
@@ -8,7 +8,7 @@ function sessionAssistantApi(runProvider: string, piProvider: KnownProvider): Ap
   return runProvider === CURSOR_PROVIDER ? CURSOR_API : (piProvider as Api);
 }
 
-function sessionAssistantProvider(runProvider: string, piProvider: KnownProvider): Provider {
+function sessionAssistantProvider(runProvider: string, piProvider: KnownProvider): ProviderId {
   return runProvider === CURSOR_PROVIDER ? CURSOR_PROVIDER : piProvider;
 }
 
