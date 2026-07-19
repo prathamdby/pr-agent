@@ -1,9 +1,9 @@
 import fs from "node:fs";
 
 const REQUIRED = {
-  effect: "3.21.2",
-  "@effect/platform": "0.96.1",
-  "@effect/platform-node": "0.106.0",
+  effect: "3.22.0",
+  "@effect/platform": "0.97.0",
+  "@effect/platform-node": "0.108.0",
 };
 
 const pkg = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8"));

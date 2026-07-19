@@ -115,7 +115,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts`. `docs/configurat
 
 ### Project `models.json` (optional Pi catalog)
 
-When `AGENT_PROVIDER=pi`, `loadConfig()` looks for **`models.json` at `process.cwd()`** (Docker image workdir: `/app/models.json`). If present, pr-agent loads it with Pi’s native `ModelRegistry` format (same shape as `~/.pi/agent/models.json`) and validates that `PI_PROVIDER` / `PI_MODEL` resolve against built-ins ∪ that file. Selection stays in env; the file is only the catalog.
+When `AGENT_PROVIDER=pi`, `loadConfig()` looks for **`models.json` at `process.cwd()`** (Docker image workdir: `/app/models.json`). If present, pr-agent loads it with Pi’s native `ModelRuntime` / `models.json` format (same shape as `~/.pi/agent/models.json`) and validates that `PI_PROVIDER` / `PI_MODEL` resolve against built-ins ∪ that file. Selection stays in env; the file is only the catalog.
 
 - Missing file → today’s env + built-in provider path (`modelsJsonPath: null`).
 - Present but invalid, or selection not found → `loadConfig()` throws.

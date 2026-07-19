@@ -11,7 +11,7 @@ vi.mock("../src/agent/tools/context7Tools.js", () => ({
   buildContext7Tools: vi.fn(() => ({ piTools: [], executors: {} })),
 }));
 
-vi.mock("@earendil-works/pi-ai", () => ({
+vi.mock("@earendil-works/pi-ai/compat", () => ({
   getModel: vi.fn(),
   complete: vi.fn(async () => ({
     role: "assistant" as const,
@@ -37,7 +37,7 @@ vi.mock("@earendil-works/pi-ai", () => ({
   })),
 }));
 
-import { complete } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai/compat";
 import { runAskRun } from "../src/agent/ask/askRun.js";
 
 const cursorCfg = makeTestConfig({

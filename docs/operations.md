@@ -112,9 +112,9 @@ Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.ya
 
 `nub run check:effect-versions` enforces pinned versions:
 
-- `effect@3.21.2`
-- `@effect/platform@0.96.1`
-- `@effect/platform-node@0.106.0`
+- `effect@3.22.0`
+- `@effect/platform@0.97.0`
+- `@effect/platform-node@0.108.0`
 
 `nub run test` runs this gate before Vitest (`pretest`).
 

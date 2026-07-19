@@ -1,8 +1,8 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { getModel, getModels, getProviders, type KnownProvider } from "@earendil-works/pi-ai";
-import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 /** Fixed project-root catalog filename (Pi native `models.json` format). */
 export const MODELS_JSON_FILENAME = "models.json";
@@ -21,9 +21,9 @@ function assertNotCursorPiProvider(piProvider: string): void {
 }
 
 function builtinPiApi(piProvider: string, piModel: string): string {
-  const model = getModel(piProvider as KnownProvider, piModel as never);
+  const model = getModel(piProvider as never, piModel as never);
   if (model?.api) return model.api;
-  const fallback = getModels(piProvider as KnownProvider)[0];
+  const fallback = getModels(piProvider as never)[0];
   if (fallback?.api) return fallback.api;
   throw new Error(`PI_PROVIDER "${piProvider}" has no resolvable API type`);
 }
@@ -42,11 +42,11 @@ export function assertBuiltinPiProvider(piProvider: string): void {
  * Validate PI_PROVIDER / PI_MODEL against built-ins, or built-ins ∪ models.json when present.
  * Returns the resolved Pi `api` type for AssistantMessage stubs.
  */
-export function assertPiModelSelection(options: {
+export async function assertPiModelSelection(options: {
   readonly modelsJsonPath: string | null;
   readonly piProvider: string;
   readonly piModel: string;
-}): string {
+}): Promise<string> {
   const { modelsJsonPath, piProvider, piModel } = options;
   assertNotCursorPiProvider(piProvider);
 
@@ -57,13 +57,16 @@ export function assertPiModelSelection(options: {
 
   const authDir = mkdtempSync(join(tmpdir(), "pr-agent-models-json-"));
   try {
-    const authStorage = AuthStorage.create(join(authDir, "auth.json"));
-    const modelRegistry = ModelRegistry.create(authStorage, modelsJsonPath);
-    const loadError = modelRegistry.getError();
+    const modelRuntime = await ModelRuntime.create({
+      authPath: join(authDir, "auth.json"),
+      modelsPath: modelsJsonPath,
+      allowModelNetwork: false,
+    });
+    const loadError = modelRuntime.getError();
     if (loadError) {
       throw new Error(loadError);
     }
-    const model = modelRegistry.find(piProvider, piModel);
+    const model = modelRuntime.getModel(piProvider, piModel);
     if (!model) {
       throw new Error(
         `PI_PROVIDER/PI_MODEL "${piProvider}/${piModel}" not found in ${MODELS_JSON_FILENAME} or the built-in catalog`,

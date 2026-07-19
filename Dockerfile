@@ -15,8 +15,12 @@ FROM deps AS prod-deps
 # Nub's virtual store uses absolute symlinks into the PM cache; copying node_modules
 # alone breaks between stages. pnpm deploy materializes a self-contained prod tree.
 RUN corepack enable && corepack prepare pnpm@10.34.1 --activate
+# Deploy re-resolves optional platform bindings (oxfmt/oxlint) from the lockfile.
+# Those packages already passed nub install's age gate; disable the check here so
+# unused host bindings (e.g. darwin) do not fail the linux prod image build.
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-  pnpm deploy --filter=pr-agent --prod --legacy /app/prod
+  pnpm deploy --filter=pr-agent --prod --legacy /app/prod \
+  --config.minimum-release-age=0
 
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.build.json ./
