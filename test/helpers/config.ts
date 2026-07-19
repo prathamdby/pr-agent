@@ -14,6 +14,7 @@ const baseTestConfig: Config = {
   agentProvider: "pi",
   piProvider: "openai",
   piModel: "gpt-4o-mini",
+  piApi: "openai-responses",
   modelsJsonPath: null,
   modelProviderKeys: {
     openai: "",

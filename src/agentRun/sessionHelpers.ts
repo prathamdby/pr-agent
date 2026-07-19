@@ -4,19 +4,19 @@ import type { Config } from "../config.js";
 import type { AgentRunnerSession, AgentRunnerTurn } from "../agent/providers/interface.js";
 import { CURSOR_API, CURSOR_PROVIDER } from "../agent/providers/cursor/models.js";
 
-function sessionAssistantApi(runProvider: string, piProvider: string): Api {
-  return runProvider === CURSOR_PROVIDER ? CURSOR_API : (piProvider as Api);
+function sessionAssistantApi(runProvider: string, piApi: string): Api {
+  return runProvider === CURSOR_PROVIDER ? CURSOR_API : (piApi as Api);
 }
 
 function sessionAssistantProvider(runProvider: string, piProvider: string): Provider {
-  return runProvider === CURSOR_PROVIDER ? CURSOR_PROVIDER : (piProvider as Provider);
+  return runProvider === CURSOR_PROVIDER ? CURSOR_PROVIDER : piProvider;
 }
 
 export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
     role: "assistant",
     content: text ? [{ type: "text", text }] : [],
-    api: sessionAssistantApi(provider, cfg.piProvider),
+    api: sessionAssistantApi(provider, cfg.piApi),
     provider: sessionAssistantProvider(provider, cfg.piProvider),
     model: cfg.piModel,
     usage: {
