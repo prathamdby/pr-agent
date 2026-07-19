@@ -12,12 +12,13 @@ function quotedScalar(result: string, key: "path" | "instructions"): string {
 }
 
 describe("renderPolicySuggestionForDismissed", () => {
-  it("renders a paste-ready yaml snippet with file path and dismissal evidence", () => {
+  it("renders a full starter file when policy is absent", () => {
     const result = renderPolicySuggestionForDismissed({
       filePath: "src/auth/login.ts",
       dismissalEvidence: "False positive: the input is already sanitized upstream.",
     });
 
+    expect(result).toContain("Create `.pr-agent.yml` with:");
     expect(result).toContain("```yaml");
     expect(result).toContain("version: 1");
     expect(result).toContain("pathInstructions:");
@@ -26,6 +27,37 @@ describe("renderPolicySuggestionForDismissed", () => {
       'instructions: "False positive: the input is already sanitized upstream."',
     );
     expect(result).toContain("```");
+  });
+
+  it("renders an append fragment when a valid policy already exists", () => {
+    const result = renderPolicySuggestionForDismissed({
+      filePath: "src/auth/login.ts",
+      dismissalEvidence: "False positive",
+      policyResult: {
+        kind: "ok",
+        policy: {
+          version: 1,
+          pathInstructions: [{ path: "src/**", instructions: "keep quiet" }],
+        },
+      },
+    });
+
+    expect(result).toContain("Append this entry under `pathInstructions`");
+    expect(result).toContain('path: "src/auth/login.ts"');
+    expect(result).not.toContain("version: 1");
+    expect(result).not.toContain("pathInstructions:");
+  });
+
+  it("renders a full starter with reason when existing policy is invalid", () => {
+    const result = renderPolicySuggestionForDismissed({
+      filePath: "src/app.ts",
+      dismissalEvidence: "intentional",
+      policyResult: { kind: "invalid", reason: "malformed yaml" },
+    });
+
+    expect(result).toContain("could not be used (malformed yaml)");
+    expect(result).toContain("version: 1");
+    expect(result).toContain("pathInstructions:");
   });
 
   it("collapses multiline evidence into a single line", () => {

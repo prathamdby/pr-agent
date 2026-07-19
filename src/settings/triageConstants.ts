@@ -27,6 +27,8 @@ export const TRIAGE_VALIDATION_REPAIR_ROUNDS = 3;
 export const TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 export const VERIFICATION_VALIDATION_REPAIR_ROUNDS = 3;
 export const VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
+/** HTML marker in the single verification stub reply owned per finding thread. */
+export const VERIFICATION_STUB_MARKER = "<!-- pr-agent:verification-stub -->";
 export const MAX_TRIAGE_FINDINGS = 128;
 export const TRIAGE_VERDICT_EVIDENCE_MAX_CHARS = 500;
 export const TRIAGE_SKIP_REASON_MAX_CHARS = 300;

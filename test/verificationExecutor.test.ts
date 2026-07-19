@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   withPrRepositoryView: vi.fn(),
   runVerification: vi.fn(),
   publishVerification: vi.fn(),
+  loadRepoPolicy: vi.fn(),
   fetchPullRequestFiles: vi.fn(),
   listCommitCompareFiles: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
@@ -59,6 +60,10 @@ vi.mock("../src/agent/verification/verificationRun.js", () => ({
 
 vi.mock("../src/agent/verification/publishVerification.js", () => ({
   publishVerification: mocks.publishVerification,
+}));
+
+vi.mock("../src/review/repoPolicy.js", () => ({
+  loadRepoPolicy: mocks.loadRepoPolicy,
 }));
 
 vi.mock("../src/github/listPullRequestFiles.js", () => ({
@@ -144,6 +149,7 @@ describe("executeVerificationJob", () => {
       payload: { verdicts: [] },
     });
     mocks.publishVerification.mockResolvedValue({ degraded: false });
+    mocks.loadRepoPolicy.mockResolvedValue({ kind: "absent" });
     mocks.fetchPullRequestFiles.mockResolvedValue({
       files: [{ filename: "src/app.ts" }],
       truncated: false,
@@ -212,12 +218,14 @@ describe("executeVerificationJob", () => {
         pushedCommits: expect.arrayContaining([expect.objectContaining({ sha: "b".repeat(40) })]),
       }),
     );
+    expect(mocks.loadRepoPolicy).toHaveBeenCalledWith("/tmp/view", expect.any(Number));
     expect(mocks.publishVerification).toHaveBeenCalledWith(
       expect.objectContaining({
         payload: expect.objectContaining({
           verdicts: expect.arrayContaining([expect.objectContaining({ verdict: "fixed" })]),
         }),
         changedFilePaths: [],
+        policyResult: { kind: "absent" },
       }),
     );
     expect(mocks.listCommitCompareFiles).not.toHaveBeenCalled();

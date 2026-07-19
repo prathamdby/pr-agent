@@ -8,10 +8,15 @@ import { listCommitCompareFiles } from "../../github/compareCommitFiles.js";
 import { fetchPullRequestFiles } from "../../github/listPullRequestFiles.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
+import { loadRepoPolicy } from "../../review/repoPolicy.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { PR_COMMITS_MAX_PAGES, PR_COMMITS_PAGE_SIZE } from "../../settings/index.js";
+import {
+  MAX_REPO_POLICY_BYTES,
+  PR_COMMITS_MAX_PAGES,
+  PR_COMMITS_PAGE_SIZE,
+} from "../../settings/index.js";
 import { listTriageEligibleInlineReviews } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type VerificationJobData } from "../types.js";
@@ -146,6 +151,8 @@ export async function executeVerificationJob(
           { prFiles },
         ),
         async (view) => {
+          // Load policy while the checkout still exists; publish runs after the view closes.
+          const policyResult = await loadRepoPolicy(view.agentCwd, MAX_REPO_POLICY_BYTES);
           const runResult = await runVerification({
             cfg,
             owner: item.owner,
@@ -159,11 +166,11 @@ export async function executeVerificationJob(
           if (!runResult.submitted || !runResult.payload) {
             throw new Error("Verification run ended without submitVerification");
           }
-          return runResult;
+          return { runResult, policyResult };
         },
       );
 
-      if (!result.payload) {
+      if (!result.runResult.payload) {
         throw new Error("Verification run ended without submitVerification");
       }
 
@@ -179,8 +186,9 @@ export async function executeVerificationJob(
         headSha,
         inventory: unresolvedThreads,
         resolutionByRootCommentId,
-        payload: result.payload,
+        payload: result.runResult.payload,
         changedFilePaths,
+        policyResult: result.policyResult,
       });
 
       return publish.degraded ? { degraded: true } : {};

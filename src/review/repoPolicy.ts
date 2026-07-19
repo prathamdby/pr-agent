@@ -150,15 +150,10 @@ export function logInvalidRepoPolicy(agentCwd: string, reason: string): void {
   });
 }
 
-/**
- * Render a short paste-ready `.pr-agent.yml` snippet for a dismissed finding.
- * Produces a pathInstructions entry with the finding's file pattern and a
- * one-line instruction distilled from the dismissal evidence.
- */
-export function renderPolicySuggestionForDismissed(params: {
+function policyEntryYaml(params: {
   readonly filePath: string;
   readonly dismissalEvidence: string;
-}): string {
+}): { readonly path: string; readonly instruction: string; readonly entryLines: string[] } {
   const path = escapeYamlDoubleQuoted(
     sanitizeRenderedPolicyText(params.filePath).slice(0, MAX_REPO_POLICY_PATH_PATTERN_CHARS),
   );
@@ -168,12 +163,56 @@ export function renderPolicySuggestionForDismissed(params: {
       MAX_REPO_POLICY_INSTRUCTION_CHARS,
     ),
   );
+  return {
+    path,
+    instruction,
+    entryLines: [`  - path: "${path}"`, `    instructions: "${instruction}"`],
+  };
+}
+
+/**
+ * Render a paste-ready `.pr-agent.yml` suggestion for a dismissed finding.
+ * When an existing valid policy is provided, emit only the append fragment;
+ * otherwise emit a full starter file so new repos know the shape.
+ */
+export function renderPolicySuggestionForDismissed(params: {
+  readonly filePath: string;
+  readonly dismissalEvidence: string;
+  readonly policyResult?: RepoPolicyResult;
+}): string {
+  const { entryLines } = policyEntryYaml(params);
+  const policyResult = params.policyResult ?? { kind: "absent" as const };
+
+  if (policyResult.kind === "ok") {
+    return [
+      `Append this entry under \`pathInstructions\` in \`${REPO_POLICY_FILENAME}\`:`,
+      "",
+      "```yaml",
+      ...entryLines,
+      "```",
+    ].join("\n");
+  }
+
+  if (policyResult.kind === "invalid") {
+    return [
+      `\`${REPO_POLICY_FILENAME}\` exists but could not be used (${policyResult.reason}).`,
+      "Replace or fix it using this starter:",
+      "",
+      "```yaml",
+      "version: 1",
+      "pathInstructions:",
+      ...entryLines,
+      "```",
+    ].join("\n");
+  }
+
   return [
+    `Create \`${REPO_POLICY_FILENAME}\` with:`,
+    "",
     "```yaml",
     "version: 1",
     "pathInstructions:",
-    `  - path: "${path}"`,
-    `    instructions: "${instruction}"`,
+    ...entryLines,
     "```",
   ].join("\n");
 }
