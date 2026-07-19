@@ -64,6 +64,10 @@ describe("review check run lifecycle", () => {
   });
 
   it("fails the check when P0–P2 findings exist and passes otherwise", () => {
+    expect(reviewCheckRunOutcome([{ severity: "P0" }])).toEqual({
+      conclusion: "failure",
+      summary: "1 finding",
+    });
     expect(reviewCheckRunOutcome([{ severity: "P1" }])).toEqual({
       conclusion: "failure",
       summary: "1 finding",

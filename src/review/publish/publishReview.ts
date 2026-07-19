@@ -419,13 +419,6 @@ export async function publishReview(
     updated: summary.updated,
   });
 
-  const blockingCount = payload.findings.filter(
-    (f) => f.severity === "P0" || f.severity === "P1",
-  ).length;
-  const statusDescription =
-    blockingCount > 0
-      ? `${blockingCount} P0/P1 finding${blockingCount === 1 ? "" : "s"}`
-      : "no blocking findings";
   const checkOutcome = reviewCheckRunOutcome(payload.findings);
   const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
 
@@ -446,7 +439,6 @@ export async function publishReview(
   }
 
   if (cfg.enableReviewCommitStatus) {
-    const statusState = blockingCount > 0 ? "failure" : "success";
     try {
       await setReviewCommitStatus(
         token,
@@ -454,8 +446,8 @@ export async function publishReview(
         repo,
         headSha,
         {
-          state: statusState,
-          description: statusDescription,
+          state: checkOutcome.conclusion === "failure" ? "failure" : "success",
+          description: checkOutcome.summary,
           targetUrl,
         },
         tokenExpiresAtTs,

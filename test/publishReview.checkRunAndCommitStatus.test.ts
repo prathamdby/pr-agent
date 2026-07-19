@@ -152,14 +152,14 @@ describe("publishReview commit status", () => {
       "sha",
       {
         state: "failure",
-        description: "1 P0/P1 finding",
+        description: "1 finding",
         targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       },
       undefined,
     );
   });
 
-  it("posts success when findings are P2-only", async () => {
+  it("posts failure when findings are P2-only", async () => {
     const p2Payload: ReviewPayload = {
       ...payload,
       findings: [
@@ -189,8 +189,8 @@ describe("publishReview commit status", () => {
       "r",
       "sha",
       {
-        state: "success",
-        description: "no blocking findings",
+        state: "failure",
+        description: "1 finding",
         targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       },
       undefined,
