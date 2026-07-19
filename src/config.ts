@@ -1,5 +1,4 @@
 import crypto from "node:crypto";
-import { getProviders, type KnownProvider } from "@earendil-works/pi-ai";
 import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,
@@ -82,6 +81,11 @@ import {
   GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
   AUTOMATED_PR_ACTIONS,
 } from "./settings/index.js";
+import {
+  assertBuiltinPiProvider,
+  assertPiModelSelection,
+  resolveModelsJsonPath,
+} from "./settings/modelsJson.js";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -240,20 +244,15 @@ export function loadConfig() {
     DEFAULT_AGENT_PROVIDER,
   );
 
-  const piProviderRaw = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
+  const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
-  const providers = getProviders() as readonly string[];
-  if (piProviderRaw === "cursor") {
-    throw new Error(
-      "PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.",
-    );
+  const modelsJsonPath = resolveModelsJsonPath();
+  if (agentProvider === "pi") {
+    assertPiModelSelection({ modelsJsonPath, piProvider, piModel });
+  } else {
+    // Cursor ignores models.json for selection; PI_PROVIDER must still be a built-in slug.
+    assertBuiltinPiProvider(piProvider);
   }
-  if (!providers.includes(piProviderRaw)) {
-    throw new Error(
-      `PI_PROVIDER "${piProviderRaw}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
-    );
-  }
-  const piProvider = piProviderRaw as KnownProvider;
 
   const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
   if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
@@ -544,6 +543,7 @@ export function loadConfig() {
     agentProvider,
     piProvider,
     piModel,
+    modelsJsonPath,
     modelProviderKeys,
     maxToolRounds,
     providerPromptTimeoutMs,

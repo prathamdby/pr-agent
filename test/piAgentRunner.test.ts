@@ -73,14 +73,25 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
     return { reload: vi.fn(async () => undefined) };
   }),
   ModelRegistry: {
-    inMemory: vi.fn(() => ({})),
-    create: vi.fn(() => ({})),
+    inMemory: vi.fn(() => ({
+      getError: vi.fn(() => undefined),
+      find: vi.fn(() => undefined),
+    })),
+    create: vi.fn(() => ({
+      getError: vi.fn(() => undefined),
+      find: vi.fn(() => ({ id: "custom-model", provider: "ollama" })),
+    })),
   },
   SessionManager: { inMemory: vi.fn(() => ({})) },
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));
 
-import { createAgentSession, defineTool } from "@earendil-works/pi-coding-agent";
+import { getModel } from "@earendil-works/pi-ai";
+import {
+  createAgentSession,
+  defineTool,
+  ModelRegistry,
+} from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
@@ -90,6 +101,60 @@ const cfg = makeTestConfig({
   reviewConcurrency: 1,
   askConcurrency: 3,
   enableReviewLabelsEffort: false,
+});
+
+describe("piAgentRunnerProvider.createSession models.json", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses ModelRegistry.create and find when modelsJsonPath is set", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    const find = vi.fn(() => ({ id: "llama3.1:8b", provider: "ollama" }));
+    vi.mocked(ModelRegistry.create).mockReturnValue({
+      getError: () => undefined,
+      find,
+    } as never);
+
+    await piAgentRunnerProvider.createSession({
+      cfg: makeTestConfig({
+        modelsJsonPath: "/app/models.json",
+        piProvider: "ollama",
+        piModel: "llama3.1:8b",
+        modelProviderKeys: { openai: "test-key" },
+      }),
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    expect(ModelRegistry.create).toHaveBeenCalledWith(expect.anything(), "/app/models.json");
+    expect(ModelRegistry.inMemory).not.toHaveBeenCalled();
+    expect(find).toHaveBeenCalledWith("ollama", "llama3.1:8b");
+    expect(getModel).not.toHaveBeenCalled();
+    expect(createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: { id: "llama3.1:8b", provider: "ollama" },
+      }),
+    );
+  });
+
+  it("uses inMemory registry and getModel when modelsJsonPath is null", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    expect(ModelRegistry.inMemory).toHaveBeenCalled();
+    expect(ModelRegistry.create).not.toHaveBeenCalled();
+    expect(getModel).toHaveBeenCalledWith("openai", "gpt-4o-mini");
+  });
 });
 
 describe("piAgentRunnerProvider.send", () => {

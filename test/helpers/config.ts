@@ -14,6 +14,7 @@ const baseTestConfig: Config = {
   agentProvider: "pi",
   piProvider: "openai",
   piModel: "gpt-4o-mini",
+  modelsJsonPath: null,
   modelProviderKeys: {
     openai: "",
     anthropic: "",

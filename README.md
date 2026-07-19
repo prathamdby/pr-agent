@@ -113,9 +113,10 @@ PI_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-...
 ```
 
-- **`PI_PROVIDER`**: pi-ai provider slug (for example `openai`, `anthropic`, `google`, `deepseek`, `openrouter`, `amazon-bedrock`, `groq`). Startup validates against the installed pi-ai provider list.
+- **`PI_PROVIDER`**: pi-ai provider slug (for example `openai`, `anthropic`, `google`, `deepseek`, `openrouter`, `amazon-bedrock`, `groq`). Startup validates against the installed pi-ai provider list, or against project-root **`models.json`** when that file is present.
 - **`PI_MODEL`**: model id for that provider (for example `gpt-4o`, `claude-sonnet-4-5`).
 - **API keys**: set the env var for your provider. pr-agent loads **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, and **`GOOGLE_GENERATIVE_AI_API_KEY`** into the worker at startup. Other Pi providers use their standard env vars in the worker process (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). See the [Pi providers reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md) for the full key table, cloud setup (Azure, Bedrock, Vertex), and custom endpoints.
+- **Custom providers**: optional project-root [`models.json`](models.json.example) in [Pi’s native format](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md). If the file exists, the worker loads it as the model catalog and still selects with `PI_PROVIDER` / `PI_MODEL`. If it is absent, behavior falls back to env + built-ins. Mount or copy the file into the process cwd (Docker: `/app/models.json`) before deploy.
 
 Do **not** set `PI_PROVIDER=cursor`. Use `AGENT_PROVIDER=cursor` for Cursor models instead.
 

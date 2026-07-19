@@ -108,13 +108,22 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         if (key.trim()) authStorage.setRuntimeApiKey(provider, key.trim());
       }
       await chmod(authPath, 0o600).catch(() => undefined);
-      const modelRegistryFactory = ModelRegistry as unknown as {
-        inMemory?: typeof ModelRegistry.create;
-        create: typeof ModelRegistry.create;
-      };
-      const modelRegistry = modelRegistryFactory.inMemory
-        ? modelRegistryFactory.inMemory(authStorage)
-        : modelRegistryFactory.create(authStorage, join(agentDir, "models.json"));
+      let modelRegistry: ModelRegistry;
+      let model;
+      if (cfg.modelsJsonPath) {
+        modelRegistry = ModelRegistry.create(authStorage, cfg.modelsJsonPath);
+        const loadError = modelRegistry.getError();
+        if (loadError) throw new Error(loadError);
+        model = modelRegistry.find(cfg.piProvider, cfg.piModel);
+        if (!model) {
+          throw new Error(
+            `Model not found: ${cfg.piProvider}/${cfg.piModel} (models.json: ${cfg.modelsJsonPath})`,
+          );
+        }
+      } else {
+        modelRegistry = ModelRegistry.inMemory(authStorage);
+        model = getModel(cfg.piProvider as never, cfg.piModel as never);
+      }
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },
       });
@@ -133,7 +142,6 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         }),
       });
       await resourceLoader.reload();
-      const model = getModel(cfg.piProvider, cfg.piModel as never);
       const allToolNames = tools.map((tool) => tool.name);
       const { session } = await createAgentSession({
         cwd: cwd ?? process.cwd(),
