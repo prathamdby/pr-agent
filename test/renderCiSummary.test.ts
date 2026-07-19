@@ -40,4 +40,20 @@ describe("renderCiSummary", () => {
     expect(html).toContain("<em>");
     expect(html).toContain("re-push");
   });
+
+  it("renders failure names with strong tags when url is missing", () => {
+    const html = renderCiSummaryCell({
+      status: "failing",
+      headline: "❌ CI failing — lint",
+      failures: [
+        {
+          name: "lint",
+          reason: "src/foo.ts:12 — Unexpected any",
+          fixHint: "Fix the reported lint/format findings locally, then re-push.",
+        },
+      ],
+    });
+    expect(html).toContain("<strong>lint</strong>");
+    expect(html).not.toContain("href=");
+  });
 });

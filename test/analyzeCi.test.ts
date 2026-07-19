@@ -161,6 +161,214 @@ describe("analyzeCi", () => {
     expect(listCheckRunAnnotations).not.toHaveBeenCalled();
   });
 
+  it("lightweight mode still lists failing check names in headline", async () => {
+    listCheckRunsForHead.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "build",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: null,
+        outputText: null,
+      },
+      {
+        id: 2,
+        name: "lint",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: null,
+        outputText: null,
+      },
+    ]);
+    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      lightweight: true,
+      waitMs: 0,
+    });
+
+    expect(summary.status).toBe("failing");
+    expect(summary.headline).toContain("build");
+    expect(summary.headline).toContain("lint");
+    expect(summary.failures).toHaveLength(0);
+  });
+
+  it("caps total failures to maxFailures across checks and legacy statuses", async () => {
+    listCheckRunsForHead.mockResolvedValueOnce([
+      {
+        id: 1,
+        name: "build",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: "build broke",
+        outputText: null,
+      },
+      {
+        id: 2,
+        name: "lint",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: "lint broke",
+        outputText: null,
+      },
+    ]);
+    listLegacyCommitStatusesForHead.mockResolvedValueOnce([
+      {
+        context: "ci/ext",
+        state: "failure",
+        description: "ext failed",
+        targetUrl: null,
+      },
+    ]);
+    listCheckRunAnnotations.mockResolvedValue([]);
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      waitMs: 0,
+      maxFailures: 1,
+    });
+
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.name).toBe("build");
+  });
+
+  it("digests check outputText when annotations are empty", async () => {
+    listCheckRunsForHead.mockResolvedValueOnce([
+      {
+        id: 11,
+        name: "unit",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: null,
+        outputText: "Error: AssertionError: expected 2 to equal 1\n    at Object.<anonymous>",
+      },
+    ]);
+    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    listCheckRunAnnotations.mockResolvedValueOnce([]);
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      waitMs: 0,
+    });
+
+    expect(summary.status).toBe("failing");
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.reason).toContain("AssertionError");
+  });
+
+  it("polls until CI transitions from pending to passing", async () => {
+    listCheckRunsForHead
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          name: "ci",
+          status: "in_progress",
+          conclusion: null,
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: 1,
+          name: "ci",
+          status: "completed",
+          conclusion: "success",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ]);
+    listLegacyCommitStatusesForHead.mockResolvedValue([]);
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      waitMs: 500,
+      waitPollMs: 50,
+    });
+
+    expect(summary.status).toBe("passing");
+    expect(listCheckRunsForHead).toHaveBeenCalledTimes(2);
+  });
+
+  it("truncates failing headline after three check names", () => {
+    const summary = summarizeCiSnapshot({
+      checks: [
+        {
+          id: 1,
+          name: "a",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+        {
+          id: 2,
+          name: "b",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+        {
+          id: 3,
+          name: "c",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+        {
+          id: 4,
+          name: "d",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: null,
+          outputText: null,
+        },
+      ],
+      statuses: [],
+    });
+
+    expect(summary.headline).toContain("a, b, c");
+    expect(summary.headline).toContain("(+1 more)");
+    expect(summary.headline).not.toContain("d");
+  });
+
   it("returns unavailable when Checks permission is missing", async () => {
     listCheckRunsForHead.mockRejectedValueOnce(
       Object.assign(new Error("Not Found"), { status: 404 }),

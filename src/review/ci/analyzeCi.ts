@@ -282,52 +282,68 @@ export function summarizeCiSnapshot(params: {
   }
 }
 
+const UNAVAILABLE_CI_SUMMARY: CiSummary = {
+  status: "unavailable",
+  headline: "CI status unavailable",
+  failures: [],
+};
+
 /**
  * Builds a CI summary for the review progress stub or completed review summary.
- * Soft-fails to `unavailable` when Checks permission is missing or the fetch errors.
+ * Soft-fails to `unavailable` when Checks permission is missing, the fetch errors,
+ * or any unexpected exception escapes the helpers below.
  */
 export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
-  const snapshot = await waitForTerminalCi(options);
-  if (snapshot == null) {
-    return { status: "unavailable", headline: "CI status unavailable", failures: [] };
-  }
-
-  const state = classifySnapshot(snapshot.checks, snapshot.statuses);
-  if (state !== "failing" || options.lightweight) {
-    return summarizeCiSnapshot(snapshot);
-  }
-
-  const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
-  const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
-  const failures: CiFailureDetail[] = [];
-
-  for (const run of failingChecks) {
-    let annotations: CiCheckAnnotation[] = [];
-    try {
-      annotations = await listCheckRunAnnotations(
-        options.token,
-        options.owner,
-        options.repo,
-        run.id,
-        options.expiresAtTs,
-      );
-    } catch (error) {
-      if (!isMissingChecksPermissionError(error)) {
-        logDebug("review_ci_annotations_failed", {
-          owner: options.owner,
-          repo: options.repo,
-          checkRunId: run.id,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+  try {
+    const snapshot = await waitForTerminalCi(options);
+    if (snapshot == null) {
+      return UNAVAILABLE_CI_SUMMARY;
     }
-    failures.push(digestCheckFailure(run, annotations));
-  }
 
-  const remainingSlots = Math.max(0, maxFailures - failures.length);
-  for (const status of snapshot.statuses.filter(isLegacyFailing).slice(0, remainingSlots)) {
-    failures.push(digestLegacyFailure(status));
-  }
+    const state = classifySnapshot(snapshot.checks, snapshot.statuses);
+    if (state !== "failing" || options.lightweight) {
+      return summarizeCiSnapshot(snapshot);
+    }
 
-  return summarizeCiSnapshot({ ...snapshot, failures });
+    const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
+    const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
+    const failures = await Promise.all(
+      failingChecks.map(async (run) => {
+        let annotations: CiCheckAnnotation[] = [];
+        try {
+          annotations = await listCheckRunAnnotations(
+            options.token,
+            options.owner,
+            options.repo,
+            run.id,
+            options.expiresAtTs,
+          );
+        } catch (error) {
+          if (!isMissingChecksPermissionError(error)) {
+            logDebug("review_ci_annotations_failed", {
+              owner: options.owner,
+              repo: options.repo,
+              checkRunId: run.id,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        return digestCheckFailure(run, annotations);
+      }),
+    );
+
+    const remainingSlots = Math.max(0, maxFailures - failures.length);
+    for (const status of snapshot.statuses.filter(isLegacyFailing).slice(0, remainingSlots)) {
+      failures.push(digestLegacyFailure(status));
+    }
+
+    return summarizeCiSnapshot({ ...snapshot, failures });
+  } catch (error) {
+    logWarn("review_ci_summary_build_failed", {
+      owner: options.owner,
+      repo: options.repo,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return UNAVAILABLE_CI_SUMMARY;
+  }
 }

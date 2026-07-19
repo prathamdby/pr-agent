@@ -25,7 +25,9 @@ export function renderCiSummaryCell(summary: CiSummary): string {
 }
 
 /** Whether the CI row should appear in the summary / stub table. */
-export function shouldRenderCiSummaryRow(summary: CiSummary | null | undefined): boolean {
+export function shouldRenderCiSummaryRow(
+  summary: CiSummary | null | undefined,
+): summary is CiSummary {
   if (summary == null) return false;
   return (
     summary.status === "passing" || summary.status === "failing" || summary.status === "pending"

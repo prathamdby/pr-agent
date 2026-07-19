@@ -29,7 +29,6 @@ import {
 import { logWarn, logDebug } from "../../evlog.js";
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
 import { buildCiSummary } from "../ci/analyzeCi.js";
-import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import {
@@ -366,27 +365,16 @@ export async function publishReview(
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
-  let ciSummary: CiSummary | null = null;
-  try {
-    ciSummary = await buildCiSummary({
-      token,
-      owner,
-      repo,
-      headSha,
-      expiresAtTs: tokenExpiresAtTs,
-      waitMs: cfg.reviewCiSummaryWaitMs,
-      waitPollMs: cfg.reviewCiSummaryWaitPollMs,
-      maxFailures: cfg.reviewCiSummaryMaxFailures,
-    });
-  } catch (e) {
-    logWarn("review_ci_summary_build_failed", {
-      mode,
-      owner,
-      repo,
-      pr: prNumber,
-      message: e instanceof Error ? e.message : String(e),
-    });
-  }
+  const ciSummary = await buildCiSummary({
+    token,
+    owner,
+    repo,
+    headSha,
+    expiresAtTs: tokenExpiresAtTs,
+    waitMs: cfg.reviewCiSummaryWaitMs,
+    waitPollMs: cfg.reviewCiSummaryWaitPollMs,
+    maxFailures: cfg.reviewCiSummaryMaxFailures,
+  });
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
     summarySentinel,

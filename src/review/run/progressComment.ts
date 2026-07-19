@@ -29,9 +29,8 @@ export function renderReviewProgressComment(params: {
     [renderTableStrong("Head"), renderTableCode(params.headSha)],
     [renderTableStrong("Source"), escapeTableHtml(sourceLabel)],
   ];
-  const ciSummary = params.ciSummary;
-  if (shouldRenderCiSummaryRow(ciSummary) && ciSummary != null) {
-    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ciSummary)]);
+  if (shouldRenderCiSummaryRow(params.ciSummary)) {
+    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(params.ciSummary)]);
   }
   return [
     reviewSummarySentinelForMode(params.mode),

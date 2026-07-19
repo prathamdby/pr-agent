@@ -530,9 +530,8 @@ function buildReviewSummaryBody(
       : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
   ]);
 
-  const ciSummary = ctx.ciSummary;
-  if (shouldRenderCiSummaryRow(ciSummary) && ciSummary != null) {
-    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ciSummary)]);
+  if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
+    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary)]);
   }
 
   const blockingCount = payload.findings.filter(
