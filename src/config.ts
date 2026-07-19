@@ -23,7 +23,6 @@ import {
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   DEFAULT_ENABLE_THREAD_REPLIES,
   DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
-  DEFAULT_ENABLE_REVIEW_CI_SUMMARY,
   DEFAULT_REVIEW_CI_SUMMARY_WAIT_MS,
   DEFAULT_REVIEW_CI_SUMMARY_WAIT_POLL_MS,
   DEFAULT_REVIEW_CI_SUMMARY_MAX_FAILURES,
@@ -437,10 +436,6 @@ export async function loadConfig() {
     ENV.ENABLE_REVIEW_COMMIT_STATUS,
     DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   );
-  const enableReviewCiSummary = readBooleanEnv(
-    ENV.ENABLE_REVIEW_CI_SUMMARY,
-    DEFAULT_ENABLE_REVIEW_CI_SUMMARY,
-  );
   const reviewCiSummaryWaitMs = readNonNegativeNumber(
     ENV.REVIEW_CI_SUMMARY_WAIT_MS,
     DEFAULT_REVIEW_CI_SUMMARY_WAIT_MS,
@@ -619,7 +614,6 @@ export async function loadConfig() {
     enableReviewLabelsSecurity,
     enableThreadReplies,
     enableReviewCommitStatus,
-    enableReviewCiSummary,
     reviewCiSummaryWaitMs,
     reviewCiSummaryWaitPollMs,
     reviewCiSummaryMaxFailures,

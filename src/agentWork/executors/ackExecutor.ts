@@ -69,25 +69,23 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
           )
         : data.progress.headSha;
     let ciSummary: CiSummary | null = null;
-    if (cfg.enableReviewCiSummary) {
-      try {
-        ciSummary = await buildCiSummary({
-          token: installation.token,
-          owner: data.owner,
-          repo: data.repo,
-          headSha,
-          expiresAtTs: installation.expiresAtTs,
-          lightweight: true,
-          waitMs: 0,
-        });
-      } catch (e) {
-        logWarn("ack_ci_summary_failed", {
-          owner: data.owner,
-          repo: data.repo,
-          pr: data.prNumber,
-          message: e instanceof Error ? e.message : String(e),
-        });
-      }
+    try {
+      ciSummary = await buildCiSummary({
+        token: installation.token,
+        owner: data.owner,
+        repo: data.repo,
+        headSha,
+        expiresAtTs: installation.expiresAtTs,
+        lightweight: true,
+        waitMs: 0,
+      });
+    } catch (e) {
+      logWarn("ack_ci_summary_failed", {
+        owner: data.owner,
+        repo: data.repo,
+        pr: data.prNumber,
+        message: e instanceof Error ? e.message : String(e),
+      });
     }
     const body = renderReviewProgressComment({
       mode: data.progress.lens,

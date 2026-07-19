@@ -67,7 +67,6 @@ const baseTestConfig: Config = {
   enableReviewLabelsSecurity: false,
   enableThreadReplies: false,
   enableReviewCommitStatus: false,
-  enableReviewCiSummary: false,
   reviewCiSummaryWaitMs: 0,
   reviewCiSummaryWaitPollMs: 2_000,
   reviewCiSummaryMaxFailures: 3,

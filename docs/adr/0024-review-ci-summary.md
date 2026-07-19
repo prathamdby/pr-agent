@@ -16,8 +16,8 @@ Alternatives considered:
 
 ## Decision
 
-1. **Optional flag** `ENABLE_REVIEW_CI_SUMMARY` (default `false`) gates the feature.
-2. **Server-derived `CiSummary`** is computed outside `ReviewPayload` and passed into the summary / progress stub renderers as a **CI** table row (after Security, before Merge verdict).
+1. **Always on.** Ack and publish always attempt a **CI** table row (after Security, before Merge verdict).
+2. **Server-derived `CiSummary`** is computed outside `ReviewPayload` and passed into the summary / progress stub renderers.
 3. **Ack path** uses a lightweight snapshot (no annotation digests, no wait). **Publish path** may briefly wait/poll for terminal external checks (`REVIEW_CI_SUMMARY_WAIT_MS`), then digests failing check annotations and check output into reason + fix-hint lines (capped by `REVIEW_CI_SUMMARY_MAX_FAILURES`).
 4. **Exclude PR Agent’s own check runs** (and the optional `pr-agent/review` commit status) so the feature never waits on itself.
 5. Soft-fail / omit the row when Checks permission is missing, the fetch errors, or no external checks exist.
@@ -26,8 +26,8 @@ Alternatives considered:
 
 - Reviews that finish before CI may still show “CI still running” unless wait/poll covers the remaining time; a later webhook-driven refresh remains a follow-up.
 - Failure digests depend on check annotations / output quality; Actions job-log download is not required for v1 (no new Actions permission).
-- Operators enabling the flag should keep Checks read (already required for review check runs).
+- Operators should keep Checks read (already required for review check runs). Tune wait/poll/max-failures via `REVIEW_CI_SUMMARY_*` env vars.
 
 ## Reversal
 
-Set `ENABLE_REVIEW_CI_SUMMARY=false` or remove the CI row wiring in `publishReview`, `ackExecutor`, and the renderers.
+Remove the CI row wiring in `publishReview`, `ackExecutor`, and the renderers.
