@@ -48,6 +48,7 @@ import type {
 import { reviewSummarySentinelForMode } from "../reviewSchema.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
+import { renderReviewRunFooter, type ReviewRunFooterMeta } from "./reviewRunFooter.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -121,7 +122,10 @@ export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl
   return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
 }
 
-export function renderLightweightReviewCompletion(mode: ReviewMode): string {
+export function renderLightweightReviewCompletion(
+  mode: ReviewMode,
+  footer: { readonly headSha: string } & ReviewRunFooterMeta,
+): string {
   const summarySentinel = reviewSummarySentinelForMode(mode);
   const rows: string[] = [];
   rows.push(summarySentinel);
@@ -134,6 +138,15 @@ export function renderLightweightReviewCompletion(mode: ReviewMode): string {
       [renderTableStrong("Reason"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_REASON)],
       [renderTableStrong("Next step"), escapeTablePlainCell(LIGHTWEIGHT_REVIEW_COMPLETION_HINT)],
     ]),
+  );
+  rows.push("");
+  rows.push(
+    renderReviewRunFooter({
+      headSha: footer.headSha,
+      mode,
+      durationMs: footer.durationMs,
+      model: footer.model,
+    }),
   );
   return rows.join("\n").trimEnd();
 }
@@ -436,16 +449,19 @@ export function renderReviewPointerBody(
   return { body, truncated };
 }
 
+type ReviewSummaryRenderCtx = RenderContext & {
+  summarySentinel: string;
+  placements: readonly InlinePlacement[];
+  mode: ReviewMode;
+  runFooter: ReviewRunFooterMeta;
+  staleReview?: boolean;
+  cachedDiffIndex?: CachedPrDiffIndex;
+};
+
 /** Expects `ctx.placements` pre-sorted by severity, file, and line (`sortPlacements`). */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
-  ctx: RenderContext & {
-    summarySentinel: string;
-    placements: readonly InlinePlacement[];
-    mode?: ReviewMode;
-    staleReview?: boolean;
-    cachedDiffIndex?: CachedPrDiffIndex;
-  },
+  ctx: ReviewSummaryRenderCtx,
   options: SummaryRenderOptions,
 ): string {
   let visiblePlacements = [...ctx.placements];
@@ -547,16 +563,14 @@ function buildReviewSummaryBody(
     );
   }
 
-  if (ctx.mode != null) {
-    rows.push("");
-    rows.push(
-      renderStaleReviewMetadataComment({
-        headSha: ctx.headSha,
-        mode: ctx.mode,
-        stale: ctx.staleReview ?? false,
-      }),
-    );
-  }
+  rows.push("");
+  rows.push(
+    renderStaleReviewMetadataComment({
+      headSha: ctx.headSha,
+      mode: ctx.mode,
+      stale: ctx.staleReview ?? false,
+    }),
+  );
 
   if (ctx.hasDescriptionAgentBlock) {
     rows.push("");
@@ -565,18 +579,22 @@ function buildReviewSummaryBody(
     );
   }
 
+  rows.push("");
+  rows.push(
+    renderReviewRunFooter({
+      headSha: ctx.headSha,
+      mode: ctx.mode,
+      durationMs: ctx.runFooter.durationMs,
+      model: ctx.runFooter.model,
+    }),
+  );
+
   return rows.join("\n").trimEnd();
 }
 
 export function fitReviewSummaryBody(
   payload: ReviewPayload,
-  ctx: RenderContext & {
-    summarySentinel: string;
-    placements: readonly InlinePlacement[];
-    mode?: ReviewMode;
-    staleReview?: boolean;
-    cachedDiffIndex?: CachedPrDiffIndex;
-  },
+  ctx: ReviewSummaryRenderCtx,
   maxBodyChars: number,
 ): string {
   const sortedPlacements = sortPlacements(ctx.placements);
@@ -633,13 +651,7 @@ export function fitReviewSummaryBody(
 
 export function renderReviewSummaryComment(
   payload: ReviewPayload,
-  ctx: RenderContext & {
-    summarySentinel: string;
-    placements: readonly InlinePlacement[];
-    mode?: ReviewMode;
-    staleReview?: boolean;
-    cachedDiffIndex?: CachedPrDiffIndex;
-  },
+  ctx: ReviewSummaryRenderCtx,
 ): string {
   return fitReviewSummaryBody(payload, ctx, REVIEW_SUMMARY_BODY_MAX_CHARS);
 }

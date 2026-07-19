@@ -46,6 +46,8 @@ const ctx = {
   headSha: "abc123def456",
   hasDescriptionAgentBlock: false,
   summarySentinel: REVIEW_SUMMARY_SENTINEL,
+  mode: "review" as const,
+  runFooter: { durationMs: 680_000, model: "grok-4.5" },
 };
 
 function basePayload(overrides: Partial<ReviewPayload> = {}): ReviewPayload {
@@ -70,6 +72,7 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain(REVIEW_FINDINGS_NONE);
     expect(body).not.toContain("_No findings._");
     expect(body).not.toContain("### Findings");
+    expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
   });
 
   it("links inline findings to review comment URLs when provided", () => {
@@ -326,11 +329,13 @@ describe("renderReviewSummaryComment", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
+      mode: "review-security",
       summarySentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
       placements: testPlacementsFromPayload(payload),
     });
     expect(body).toContain("## PR Agent Security Review");
     expect(body).not.toContain("## PR Agent Review\n");
+    expect(body).toContain("<sub>abc123d ⋅ security ⋅ 11m 20s ⋅ grok-4.5</sub>");
   });
 
   it("escapes pipes in security and follow-ups table cells", () => {
@@ -991,19 +996,27 @@ describe("renderRepeatNoBugsReviewBody", () => {
 });
 
 describe("renderLightweightReviewCompletion", () => {
+  const lightweightFooter = {
+    headSha: "abc123def456",
+    durationMs: 12_000,
+    model: "grok-4.5",
+  };
+
   it("preserves sentinel, alert, and table structure", () => {
-    const body = renderLightweightReviewCompletion("review");
+    const body = renderLightweightReviewCompletion("review", lightweightFooter);
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain("[!NOTE]");
     expect(body).toContain("<table>");
     expect(body).not.toContain("| | |");
     expect(body).not.toContain("—");
     expect(body).toContain("Use /review for a full review.");
+    expect(body).toContain("<sub>abc123d ⋅ general ⋅ 12s ⋅ grok-4.5</sub>");
   });
 
   it("uses security sentinel for security lens", () => {
-    const body = renderLightweightReviewCompletion("review-security");
+    const body = renderLightweightReviewCompletion("review-security", lightweightFooter);
     expect(body).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
+    expect(body).toContain("<sub>abc123d ⋅ security ⋅ 12s ⋅ grok-4.5</sub>");
   });
 });
 

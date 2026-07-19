@@ -130,7 +130,6 @@ exports[`renderReviewSummaryComment > drops finding rows from the tail when comp
 <tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f11.ts#L12">Bug 11</a></strong><br><em>Summary only · <code>src/f11.ts</code> · line 12</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
 <tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f2.ts#L3">Bug 2</a></strong><br><em>Summary only · <code>src/f2.ts</code> · line 3</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
 <tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f3.ts#L4">Bug 3</a></strong><br><em>Summary only · <code>src/f3.ts</code> · line 4</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
-<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f4.ts#L5">Bug 4</a></strong><br><em>Summary only · <code>src/f4.ts</code> · line 5</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
 <tr><td><strong>Relevant tests</strong></td><td>partial</td></tr>
 <tr><td><strong>Security</strong></td><td>None found on this pass</td></tr>
 <tr><td><strong>Merge verdict</strong></td><td>No blocking findings on this pass</td></tr>
@@ -141,5 +140,9 @@ exports[`renderReviewSummaryComment > drops finding rows from the tail when comp
 > Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.
 
 > [!NOTE]
-> 5 finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted."
+> 6 finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.
+
+<!-- pr-agent:review-meta headSha=abc123def456 lens=review stale=false -->
+
+<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>"
 `;
