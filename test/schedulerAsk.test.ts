@@ -109,7 +109,7 @@ describe("makeAgentWorkScheduler /ask slash", () => {
     });
   });
 
-  it("enqueues ask work for raw thread-reply body on inline review threads", async () => {
+  it("enqueues ask work for @mention on inline review threads", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
     const boss = {
       send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
@@ -155,8 +155,9 @@ describe("makeAgentWorkScheduler /ask slash", () => {
           prNumber: 7,
           commentId: 101,
           commenterId: 1,
-          body: "why is this P1?",
+          body: "@pr-agent[bot] why is this P1?",
           command: "ask",
+          botLogin: "pr-agent[bot]",
           replyTarget: {
             kind: "inlineReviewThread",
             prNumber: 7,

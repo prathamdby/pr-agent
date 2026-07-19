@@ -1,13 +1,22 @@
 import { Context, Effect, Layer } from "effect";
+import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { Config } from "../../config.js";
 import type { RequestLogger } from "../../evlog.js";
 import { parseSlashCommand } from "../../commands/parseSlashCommand.js";
+import { commentMentionsBot } from "../../commands/parseBotMention.js";
+import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
+
+const resolveBotIdentityEffect = (cfg: Config) =>
+  Effect.tryPromise({
+    try: async () => getAppBotIdentity(cfg),
+    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+  });
 
 type PullRequestData = Extract<ParsedGithubEvent, { name: "pull_request" }>["data"];
 type IssueCommentData = Extract<ParsedGithubEvent, { name: "issue_comment" }>["data"];
@@ -52,11 +61,8 @@ export const WebhookHandlersCore = Layer.effect(
       intakeLog: RequestLogger,
     ) =>
       Effect.gen(function* () {
-        const botUserId = yield* Effect.tryPromise({
-          try: async () => (await getAppBotIdentity(cfg)).userId,
-          catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-        });
-        if (commenterId !== botUserId) return false;
+        const bot = yield* resolveBotIdentityEffect(cfg);
+        if (commenterId !== bot.userId) return false;
         yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
         return true;
       });
@@ -89,58 +95,55 @@ export const WebhookHandlersCore = Layer.effect(
       });
 
     /**
-     * No-slash review-comment path. Association gate only (no bot check).
-     * Returns true when the comment was handled (ignored or thread-reply submitted).
+     * No-slash path: `@bot` mention → ask intake (same allowlist as slash).
+     * Returns true when the comment was handled (ignored or ask submitted).
      */
-    const handleThreadReplyIfNeeded = (
+    const handleMentionAskIfNeeded = (
       cfg: Config,
       headers: WebhookHeaders,
-      data: PullRequestReviewCommentData,
-      body: string,
+      input: {
+        readonly commenterId: number;
+        readonly association: string | null | undefined;
+        readonly body: string;
+        readonly installationId: number;
+        readonly owner: string;
+        readonly repo: string;
+        readonly repositorySizeKb?: number;
+        readonly prNumber: number;
+        readonly commentId: number;
+        readonly replyTarget: ReplyTarget;
+        readonly codeAnchor?: CodeAnchor;
+      },
       intakeLog: RequestLogger,
     ) =>
       Effect.gen(function* () {
-        if (!cfg.enableThreadReplies) {
+        const bot = yield* resolveBotIdentityEffect(cfg);
+        if (input.commenterId === bot.userId) {
+          yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
+          return true;
+        }
+        if (yield* ignoreUnauthorizedSlash(cfg, headers, input.association, intakeLog)) {
+          return true;
+        }
+        if (!commentMentionsBot(input.body, bot.login)) {
           yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
           return true;
         }
-        if (data.comment.in_reply_to_id == null) {
-          yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
-          return true;
-        }
-        if (
-          yield* ignoreUnauthorizedSlash(cfg, headers, data.comment.author_association, intakeLog)
-        ) {
-          return true;
-        }
-        const threadRootCommentId = data.comment.in_reply_to_id;
-        const storedReviewMatchHint = yield* scheduler.lookupStoredInlineReviewHint(
-          data.repository.owner.login,
-          data.repository.name,
-          data.pull_request.number,
-          data.comment.pull_request_review_id,
-        );
-        yield* scheduler.submitThreadReplyClassification(
+        yield* scheduler.submitSlashCommand(
           {
             headers,
-            installationId: data.installation.id,
-            owner: data.repository.owner.login,
-            repo: data.repository.name,
-            repositorySizeKb: data.repository.size,
-            prNumber: data.pull_request.number,
-            commenterId: data.comment.user.id,
-            commentId: data.comment.id,
-            authorAssociation: data.comment.author_association ?? null,
-            body,
-            replyTarget: {
-              kind: "inlineReviewThread",
-              prNumber: data.pull_request.number,
-              inReplyToCommentId: threadRootCommentId,
-            },
-            codeAnchor: codeAnchorFromReviewComment(data.comment),
-            inReplyToCommentId: threadRootCommentId,
-            pullRequestReviewId: data.comment.pull_request_review_id ?? null,
-            storedReviewMatchHint,
+            installationId: input.installationId,
+            owner: input.owner,
+            repo: input.repo,
+            repositorySizeKb: input.repositorySizeKb,
+            prNumber: input.prNumber,
+            commenterId: input.commenterId,
+            commentId: input.commentId,
+            body: input.body,
+            command: "ask",
+            replyTarget: input.replyTarget,
+            codeAnchor: input.codeAnchor,
+            botLogin: bot.login,
           },
           intakeLog,
         );
@@ -171,7 +174,26 @@ export const WebhookHandlersCore = Layer.effect(
           const body = data.comment.body ?? "";
           const command = parseSlashCommand(body);
           if (!command) {
-            yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
+            yield* handleMentionAskIfNeeded(
+              cfg,
+              headers,
+              {
+                commenterId: data.comment.user.id,
+                association: data.comment.author_association,
+                body,
+                installationId: data.installation.id,
+                owner: data.repository.owner.login,
+                repo: data.repository.name,
+                repositorySizeKb: data.repository.size,
+                prNumber: data.issue.number,
+                commentId: data.comment.id,
+                replyTarget: {
+                  kind: "prConversation",
+                  prNumber: data.issue.number,
+                },
+              },
+              intakeLog,
+            );
             return;
           }
           if (
@@ -186,6 +208,7 @@ export const WebhookHandlersCore = Layer.effect(
             return;
           }
 
+          const bot = yield* resolveBotIdentityEffect(cfg);
           yield* scheduler.submitSlashCommand(
             {
               headers,
@@ -203,6 +226,7 @@ export const WebhookHandlersCore = Layer.effect(
                 prNumber: data.issue.number,
               },
               ...(command === "triage" ? { triageScope: "all" as const } : {}),
+              ...(command === "ask" ? { botLogin: bot.login } : {}),
             },
             intakeLog,
           );
@@ -212,8 +236,33 @@ export const WebhookHandlersCore = Layer.effect(
         Effect.gen(function* () {
           const body = data.comment.body ?? "";
           const command = parseSlashCommand(body);
+          const inlineReplyImmediateParentId = data.comment.in_reply_to_id ?? data.comment.id;
+          const replyTarget = {
+            kind: "inlineReviewThread" as const,
+            prNumber: data.pull_request.number,
+            inReplyToCommentId: inlineReplyImmediateParentId,
+          };
+          const codeAnchor = codeAnchorFromReviewComment(data.comment);
+
           if (!command) {
-            yield* handleThreadReplyIfNeeded(cfg, headers, data, body, intakeLog);
+            yield* handleMentionAskIfNeeded(
+              cfg,
+              headers,
+              {
+                commenterId: data.comment.user.id,
+                association: data.comment.author_association,
+                body,
+                installationId: data.installation.id,
+                owner: data.repository.owner.login,
+                repo: data.repository.name,
+                repositorySizeKb: data.repository.size,
+                prNumber: data.pull_request.number,
+                commentId: data.comment.id,
+                replyTarget,
+                codeAnchor,
+              },
+              intakeLog,
+            );
             return;
           }
           if (
@@ -228,8 +277,7 @@ export const WebhookHandlersCore = Layer.effect(
             return;
           }
 
-          const inlineReplyImmediateParentId = data.comment.in_reply_to_id ?? data.comment.id;
-
+          const bot = yield* resolveBotIdentityEffect(cfg);
           yield* scheduler.submitSlashCommand(
             {
               headers,
@@ -242,12 +290,8 @@ export const WebhookHandlersCore = Layer.effect(
               commentId: data.comment.id,
               body,
               command,
-              replyTarget: {
-                kind: "inlineReviewThread",
-                prNumber: data.pull_request.number,
-                inReplyToCommentId: inlineReplyImmediateParentId,
-              },
-              codeAnchor: codeAnchorFromReviewComment(data.comment),
+              replyTarget,
+              codeAnchor,
               ...(command === "triage"
                 ? {
                     triageScope:
@@ -256,6 +300,7 @@ export const WebhookHandlersCore = Layer.effect(
                     needsThreadRootResolution: data.comment.in_reply_to_id != null,
                   }
                 : {}),
+              ...(command === "ask" ? { botLogin: bot.login } : {}),
             },
             intakeLog,
           );

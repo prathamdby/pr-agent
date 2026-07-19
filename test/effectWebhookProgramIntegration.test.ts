@@ -20,8 +20,6 @@ const webhookLayer = Layer.mergeAll(
       recordIgnored: () => Effect.void,
       submitAutomatedReview: () => Effect.void,
       submitSlashCommand: () => Effect.void,
-      lookupStoredInlineReviewHint: () => Effect.succeed(false),
-      submitThreadReplyClassification: () => Effect.void,
       ping: () => Effect.succeed(true),
     }),
   ),

@@ -25,12 +25,14 @@ export type AskIntakeInput = {
   readonly commenterId: number;
   readonly codeAnchor?: CodeAnchor;
   readonly ackTargets: readonly AckTarget[];
+  /** App bot login for `@mention` ask parsing (optional; slash `/ask` does not need it). */
+  readonly botLogin?: string;
 };
 
 /**
  * Policy when `createAskWorkItem` finds an existing ask for this webhook event:
- * - `skip` — slash webhook path: work was already ensured; do not re-enqueue
- * - `recover` — classify retry path: re-enqueue ack/ask idempotently for the existing id
+ * - `skip` — slash/mention webhook path: work was already ensured; do not re-enqueue
+ * - `recover` — retry path: re-enqueue ack/ask idempotently for the existing id
  */
 export type ExistingAskWorkItemPolicy = "skip" | "recover";
 
@@ -64,9 +66,9 @@ function baseAck(input: AskIntakeInput): AckJobData {
 }
 
 /**
- * Canonical ask intake shared by slash commands and thread-reply classification.
- * Owns implicit inline-thread body parsing, usage/too-long acknowledgement,
- * idempotent ask work-item ensure, ack enqueue, and ask enqueue.
+ * Canonical ask intake shared by `/ask` slash commands and `@bot` mentions.
+ * Owns question parsing, usage/too-long acknowledgement, idempotent ask
+ * work-item ensure, ack enqueue, and ask enqueue.
  */
 export async function promoteAskFromWebhookEvent(
   boss: PgBoss,
@@ -74,7 +76,7 @@ export async function promoteAskFromWebhookEvent(
   input: AskIntakeInput,
   existingWorkItemPolicy: ExistingAskWorkItemPolicy,
 ): Promise<AskIntakeOutcome> {
-  const askParse = parseAskQuestionForReplyTarget(input.body, input.replyTarget);
+  const askParse = parseAskQuestionForReplyTarget(input.body, input.replyTarget, input.botLogin);
   const ack = baseAck(input);
 
   switch (askParse.kind) {

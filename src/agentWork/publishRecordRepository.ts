@@ -279,25 +279,6 @@ export async function listTriageEligibleInlineReviews(
   return reviewLenses;
 }
 
-export async function hasStoredInlineReviewId(
-  pool: Pool,
-  resourceKey: string,
-  pullRequestReviewId: number,
-): Promise<boolean> {
-  const row = await queryOne<{ exists: number }>(
-    pool,
-    `SELECT 1 AS exists
-       FROM publish_records
-      WHERE resource_key = $1
-        AND step = 'inline_review'
-        AND status = 'completed'
-        AND github_id = $2
-      LIMIT 1`,
-    [resourceKey, String(pullRequestReviewId)],
-  );
-  return row != null;
-}
-
 function mergeStoredInlineFingerprints(
   rows: readonly { detail: Record<string, unknown> }[],
 ): string[] {

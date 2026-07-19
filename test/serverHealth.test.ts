@@ -200,8 +200,6 @@ function startEffectServer({
         recordIgnored,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
-        lookupStoredInlineReviewHint: () => Effect.succeed(false),
-        submitThreadReplyClassification: () => Effect.void,
         ping: () => Effect.succeed(pingResult),
       }),
     );

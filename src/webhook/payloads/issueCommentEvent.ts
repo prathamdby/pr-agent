@@ -20,6 +20,8 @@ export const issueCommentWebhookSchema = z.object({
     }),
     author_association: z.string().nullish(),
     body: z.string().nullish(),
+    /** Present when the comment is a reply in a PR conversation thread. */
+    in_reply_to_id: z.number().nullish(),
   }),
 });
 

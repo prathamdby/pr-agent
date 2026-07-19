@@ -79,24 +79,6 @@ export type VerificationJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
-export type ThreadReplyClassifyJobData = JobCorrelation & {
-  readonly kind: "thread_reply_classify";
-  readonly installationId: number;
-  readonly owner: string;
-  readonly repo: string;
-  readonly repositorySizeKb?: number;
-  readonly prNumber: number;
-  readonly commentId: number;
-  readonly commenterId: number;
-  readonly authorAssociation: string | null;
-  readonly body: string;
-  readonly replyTarget: ReplyTarget;
-  readonly codeAnchor?: CodeAnchor;
-  readonly inReplyToCommentId: number;
-  readonly pullRequestReviewId: number | null;
-  readonly storedReviewMatchHint?: boolean;
-};
-
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;

@@ -104,8 +104,6 @@ function slashTraceLayers(
             needsThreadRootResolution: input.needsThreadRootResolution,
           });
         }),
-      lookupStoredInlineReviewHint: () => Effect.succeed(false),
-      submitThreadReplyClassification: () => Effect.void,
       ping: () => Effect.succeed(true),
     }),
   );
@@ -188,8 +186,6 @@ describe("WebhookHandlers Effect resolution", () => {
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.fail(new Error("scheduler failed")),
-        lookupStoredInlineReviewHint: () => Effect.succeed(false),
-        submitThreadReplyClassification: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -241,8 +237,6 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
-        lookupStoredInlineReviewHint: () => Effect.succeed(false),
-        submitThreadReplyClassification: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -293,8 +287,6 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
-        lookupStoredInlineReviewHint: () => Effect.succeed(false),
-        submitThreadReplyClassification: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );

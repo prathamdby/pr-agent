@@ -11,7 +11,6 @@ import {
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
-  THREAD_REPLY_CLASSIFY_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../settings/index.js";
@@ -20,7 +19,6 @@ import {
   executeAskJob,
   executeDescriptionJob,
   executeReviewJob,
-  executeThreadReplyClassifyJob,
   executeTriageJob,
   executeVerificationJob,
 } from "./executors/index.js";
@@ -29,7 +27,6 @@ import {
   type AskJobData,
   type DescriptionJobData,
   type ReviewJobData,
-  type ThreadReplyClassifyJobData,
   type TriageJobData,
   type VerificationJobData,
 } from "./types.js";
@@ -42,7 +39,6 @@ const AGENT_QUEUE_STATS_QUEUES = [
   DESCRIPTION_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
-  THREAD_REPLY_CLASSIFY_QUEUE,
 ] as const;
 
 export async function logAgentQueueStats(boss: PgBoss): Promise<void> {
@@ -183,15 +179,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               },
               (job) => executeVerificationJob(cfg, pool, boss, job),
             ),
-            registerMetadataQueue<ThreadReplyClassifyJobData>(
-              boss,
-              THREAD_REPLY_CLASSIFY_QUEUE,
-              {
-                localConcurrency: cfg.threadReplyClassifyConcurrency,
-                ...durableQueueOptions,
-              },
-              (job) => executeThreadReplyClassifyJob(cfg, pool, boss, job),
-            ),
             registerPlainQueue(boss, RETENTION_QUEUE, retentionQueueWorkOptions(), async () => {
               try {
                 const result = await runRetention(pool, cfg);
@@ -212,7 +199,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               DESCRIPTION_QUEUE,
               TRIAGE_QUEUE,
               VERIFICATION_QUEUE,
-              THREAD_REPLY_CLASSIFY_QUEUE,
               RETENTION_QUEUE,
             ],
             reviewConcurrency: cfg.reviewConcurrency,
@@ -221,7 +207,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             descriptionConcurrency: cfg.descriptionConcurrency,
             triageConcurrency: cfg.triageConcurrency,
             verificationConcurrency: cfg.verificationConcurrency,
-            threadReplyClassifyConcurrency: cfg.threadReplyClassifyConcurrency,
           });
           await logAgentQueueStats(boss);
           const blockedReviewKeys = await boss.getBlockedKeys(REVIEW_QUEUE);
@@ -244,7 +229,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 DESCRIPTION_QUEUE,
                 TRIAGE_QUEUE,
                 VERIFICATION_QUEUE,
-                THREAD_REPLY_CLASSIFY_QUEUE,
                 RETENTION_QUEUE,
               ].map((q) => boss.offWork(q)),
             );

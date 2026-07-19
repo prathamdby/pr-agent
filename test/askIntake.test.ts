@@ -55,7 +55,7 @@ describe("promoteAskFromWebhookEvent", () => {
     expect(client.query).not.toHaveBeenCalled();
   });
 
-  it("acks too-long hint for implicit inline-thread body", async () => {
+  it("acks too-long hint for @mention inline-thread body", async () => {
     const sent: { queue: string; data: Record<string, unknown> }[] = [];
     const boss = {
       send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
@@ -70,7 +70,8 @@ describe("promoteAskFromWebhookEvent", () => {
       boss,
       client,
       baseInput({
-        body: long,
+        body: `@pr-agent[bot] ${long}`,
+        botLogin: "pr-agent[bot]",
         replyTarget: {
           kind: "inlineReviewThread",
           prNumber: 7,
@@ -156,7 +157,8 @@ describe("promoteAskFromWebhookEvent", () => {
       boss,
       client,
       baseInput({
-        body: "why is this P1?",
+        body: "@pr-agent[bot] why is this P1?",
+        botLogin: "pr-agent[bot]",
         replyTarget: {
           kind: "inlineReviewThread",
           prNumber: 7,

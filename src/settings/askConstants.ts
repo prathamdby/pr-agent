@@ -9,9 +9,11 @@ export const ASK_META_REFUSAL =
   "I can only answer questions about this PR's code. I can't share bot configuration, credentials, or internal instructions.";
 
 export const MAX_ASK_QUESTION_CHARS = 8192;
+/** Soft cap for injected thread transcript in ask prompts (root + newest tail if exceeded). */
+export const MAX_ASK_THREAD_TRANSCRIPT_CHARS = 24_000;
 
 export const ASK_USAGE_HINT =
-  "Usage: `/ask <your question>` — ask about this PR or a specific line of code.";
+  "Usage: `/ask <your question>` or `@`-mention the bot with your question — ask about this PR, a finding thread, or a specific line of code.";
 
 export function askQuestionTooLongHint(maxChars: number = MAX_ASK_QUESTION_CHARS): string {
   return `Your question exceeds the ${maxChars} character limit. Shorten it or reference files by path instead of pasting large blocks.`;

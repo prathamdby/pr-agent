@@ -35,8 +35,8 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "Results land in the pull request",
     detail:
-      "Inline threads show up on Files changed. A review summary lands in the conversation. Need more? Comment /describe, /review-security, /review-quality, or /ask - answers stay in the same thread.",
-    cue: "/review · /describe · /ask",
+      "Inline threads show up on Files changed. A review summary lands in the conversation. Need more? Comment /describe, /review-security, /review-quality, /ask, or @-mention the bot - answers stay in the same thread.",
+    cue: "/review · /describe · /ask · @bot",
     summary: "Reviews and replies posted in the pull request",
   },
   {
@@ -77,7 +77,7 @@ export const CAPABILITIES: CapabilityItem[] = [
   },
   {
     title: "Ask code questions without leaving GitHub",
-    trigger: "Comment /ask followed by your question",
+    trigger: "Comment /ask … or @-mention the bot with your question",
     detail: "Get an answer in the same thread, right where the code lives.",
   },
   {
