@@ -451,6 +451,90 @@ describe("publishVerification", () => {
     );
   });
 
+  it("falls back to create when updating a deleted stub returns 404", async () => {
+    mocks.updateComment.mockRejectedValueOnce({ status: 404 });
+    mocks.createReply.mockResolvedValueOnce({ data: { id: 9900 } });
+
+    await publishVerification(
+      baseParams({
+        pool: pool({
+          threads: {
+            "1": { stubCommentId: 555, lastVerdict: "skipped" },
+          },
+        }),
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "stub was deleted",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(mocks.updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 555 }));
+    expect(mocks.createReply).toHaveBeenCalledTimes(1);
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        detail: {
+          threads: {
+            "1": {
+              stubCommentId: 9900,
+              lastVerdict: "skipped",
+              lastHeadSha: "a".repeat(40),
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  it("preserves stubCommentId when a later fixed verdict has no stub id", async () => {
+    await publishVerification(
+      baseParams({
+        pool: pool({
+          threads: {
+            "1": { stubCommentId: 555, lastVerdict: "skipped" },
+          },
+        }),
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "fixed",
+              threadRootCommentId: 1,
+              commitSha: "abcdef1",
+              evidence: "fixed",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.updateComment).not.toHaveBeenCalled();
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        detail: {
+          threads: {
+            "1": {
+              stubCommentId: 555,
+              lastVerdict: "fixed",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+          },
+        },
+      }),
+    );
+  });
+
   it("loads ledger by resource key so prior stubs survive a new work item", async () => {
     const query = vi.fn(async () => ({
       rows: [

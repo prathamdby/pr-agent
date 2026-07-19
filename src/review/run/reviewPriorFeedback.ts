@@ -86,12 +86,14 @@ function findVerificationStubCommentId(
   const botReplies = threadComments
     .filter((comment) => comment.id !== threadRootCommentId && comment.userId === botUserId)
     .toSorted((a, b) => a.id - b.id);
-  const marked = botReplies.find((comment) => comment.body.includes(VERIFICATION_STUB_MARKER));
+  // Prefer the newest marked stub (and newest legacy reply) so updates target the latest comment.
+  const newestFirst = botReplies.toReversed();
+  const marked = newestFirst.find((comment) => comment.body.includes(VERIFICATION_STUB_MARKER));
   if (marked) return marked.id;
   // Legacy verification replies lacked the marker; adopt the latest **Verification**: reply.
-  const legacy = botReplies
-    .toReversed()
-    .find((comment) => comment.body.trimStart().startsWith("**Verification**:"));
+  const legacy = newestFirst.find((comment) =>
+    comment.body.trimStart().startsWith("**Verification**:"),
+  );
   return legacy?.id;
 }
 

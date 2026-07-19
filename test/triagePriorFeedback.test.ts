@@ -4,6 +4,7 @@ import {
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
   TESTS_REVIEW_POINTER_BODY,
+  VERIFICATION_STUB_MARKER,
 } from "../src/settings/index.js";
 import { renderReviewPointerLensMarker } from "../src/review/run/reviewRender.js";
 
@@ -171,5 +172,146 @@ describe("fetchBotFindingThreads", () => {
     });
 
     await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([]);
+  });
+
+  it("prefers the newest marked verification stub over older marked stubs", async () => {
+    mocks.listReviews.mockResolvedValue({
+      data: [{ id: 10, user: { id: 99 }, body: REVIEW_POINTER_BODY }],
+    });
+    mocks.listReviewComments.mockResolvedValue({
+      data: [
+        {
+          id: 1,
+          in_reply_to_id: null,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "**P1** · **Null user**\nbody",
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/1",
+        },
+        {
+          id: 11,
+          in_reply_to_id: 1,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: `${VERIFICATION_STUB_MARKER}\n**Verification**: still open - old`,
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/11",
+        },
+        {
+          id: 22,
+          in_reply_to_id: 1,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: `${VERIFICATION_STUB_MARKER}\n**Verification**: still open - new`,
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/22",
+        },
+      ],
+    });
+
+    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([
+      expect.objectContaining({
+        rootCommentId: 1,
+        verificationStubCommentId: 22,
+      }),
+    ]);
+  });
+
+  it("falls back to the newest legacy **Verification**: reply when no marker exists", async () => {
+    mocks.listReviews.mockResolvedValue({
+      data: [{ id: 10, user: { id: 99 }, body: REVIEW_POINTER_BODY }],
+    });
+    mocks.listReviewComments.mockResolvedValue({
+      data: [
+        {
+          id: 1,
+          in_reply_to_id: null,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "**P1** · **Null user**\nbody",
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/1",
+        },
+        {
+          id: 11,
+          in_reply_to_id: 1,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "**Verification**: still open - old",
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/11",
+        },
+        {
+          id: 22,
+          in_reply_to_id: 1,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "**Verification**: dismissed - intentional",
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/22",
+        },
+      ],
+    });
+
+    await expect(fetchBotFindingThreads("tok", "o", "r", 1, 99)).resolves.toEqual([
+      expect.objectContaining({
+        rootCommentId: 1,
+        verificationStubCommentId: 22,
+      }),
+    ]);
+  });
+
+  it("omits verificationStubCommentId when the thread has no bot verification replies", async () => {
+    mocks.listReviews.mockResolvedValue({
+      data: [{ id: 10, user: { id: 99 }, body: REVIEW_POINTER_BODY }],
+    });
+    mocks.listReviewComments.mockResolvedValue({
+      data: [
+        {
+          id: 1,
+          in_reply_to_id: null,
+          pull_request_review_id: 10,
+          user: { id: 99 },
+          body: "**P1** · **Null user**\nbody",
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/1",
+        },
+        {
+          id: 2,
+          in_reply_to_id: 1,
+          pull_request_review_id: 10,
+          user: { id: 7 },
+          body: "please fix",
+          path: "src/app.ts",
+          line: 5,
+          original_line: 5,
+          html_url: "https://github.test/2",
+        },
+      ],
+    });
+
+    const threads = await fetchBotFindingThreads("tok", "o", "r", 1, 99);
+    expect(threads).toEqual([
+      expect.objectContaining({
+        rootCommentId: 1,
+        humanReplies: ["please fix"],
+      }),
+    ]);
+    expect(threads[0]).not.toHaveProperty("verificationStubCommentId");
   });
 });
