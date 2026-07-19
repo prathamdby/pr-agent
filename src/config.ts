@@ -1,6 +1,4 @@
 import crypto from "node:crypto";
-import { getProviders } from "@earendil-works/pi-ai/compat";
-import type { KnownProvider } from "@earendil-works/pi-ai";
 import {
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,
@@ -83,6 +81,7 @@ import {
   GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
   AUTOMATED_PR_ACTIONS,
 } from "./settings/index.js";
+import { assertPiModelSelection, resolveModelsJsonPath } from "./settings/modelsJson.js";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -226,7 +225,7 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
   return key;
 }
 
-export function loadConfig() {
+export async function loadConfig() {
   const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
 
   const githubAppId = requireEnv(ENV.GITHUB_APP_ID);
@@ -241,20 +240,14 @@ export function loadConfig() {
     DEFAULT_AGENT_PROVIDER,
   );
 
-  const piProviderRaw = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
+  const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
-  const providers = getProviders() as readonly string[];
-  if (piProviderRaw === "cursor") {
-    throw new Error(
-      "PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.",
-    );
-  }
-  if (!providers.includes(piProviderRaw)) {
-    throw new Error(
-      `PI_PROVIDER "${piProviderRaw}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
-    );
-  }
-  const piProvider = piProviderRaw as KnownProvider;
+  const modelsJsonPath = resolveModelsJsonPath();
+  // Cursor ignores models.json for PI_MODEL selection; still require a built-in PI_PROVIDER slug.
+  const piApi =
+    agentProvider === "pi"
+      ? await assertPiModelSelection({ modelsJsonPath, piProvider, piModel })
+      : await assertPiModelSelection({ modelsJsonPath: null, piProvider, piModel });
 
   const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
   if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
@@ -545,6 +538,8 @@ export function loadConfig() {
     agentProvider,
     piProvider,
     piModel,
+    piApi,
+    modelsJsonPath,
     modelProviderKeys,
     maxToolRounds,
     providerPromptTimeoutMs,
@@ -621,4 +616,4 @@ export function loadConfig() {
   };
 }
 
-export type Config = ReturnType<typeof loadConfig>;
+export type Config = Awaited<ReturnType<typeof loadConfig>>;

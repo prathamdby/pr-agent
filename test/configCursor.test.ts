@@ -24,7 +24,7 @@ describe("loadConfig agent provider", () => {
       CURSOR_API_KEY: "cursor_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     expect(cfg.agentProvider).toBe("cursor");
     expect(cfg.cursorApiKey).toBe("cursor_test_key");
   });
@@ -38,7 +38,7 @@ describe("loadConfig agent provider", () => {
       CURSOR_API_KEY: "cursor_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
-    expect(() => loadConfig()).not.toThrow();
+    await expect(loadConfig()).resolves.toBeDefined();
   });
 
   it("rejects AGENT_PROVIDER=cursor without CURSOR_API_KEY", async () => {
@@ -49,7 +49,7 @@ describe("loadConfig agent provider", () => {
       CURSOR_API_KEY: "",
     };
     const { loadConfig } = await import("../src/config.js");
-    expect(() => loadConfig()).toThrow(/CURSOR_API_KEY/);
+    await expect(loadConfig()).rejects.toThrow(/CURSOR_API_KEY/);
   });
 
   it("rejects legacy PI_PROVIDER=cursor", async () => {
@@ -60,7 +60,7 @@ describe("loadConfig agent provider", () => {
       CURSOR_API_KEY: "cursor_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
-    expect(() => loadConfig()).toThrow(/AGENT_PROVIDER=cursor/);
+    await expect(loadConfig()).rejects.toThrow(/AGENT_PROVIDER=cursor/);
   });
 
   it("loads model provider keys without requiring them", async () => {
@@ -70,7 +70,7 @@ describe("loadConfig agent provider", () => {
       OPENAI_API_KEY: "openai_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
-    const cfg = loadConfig();
+    const cfg = await loadConfig();
     expect(cfg.agentProvider).toBe("pi");
     expect(cfg.modelProviderKeys.openai).toBe("openai_test_key");
     expect(cfg.modelProviderKeys.anthropic).toBe("");

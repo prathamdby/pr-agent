@@ -56,15 +56,21 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
   };
 }
 
-vi.mock("@earendil-works/pi-ai/compat", () => ({
-  getModel: vi.fn(() => ({ id: "test-model" })),
-}));
+const createDefaultModelRuntimeMock = vi.hoisted(() => {
+  return () => ({
+    setRuntimeApiKey: vi.fn(async () => undefined),
+    getError: vi.fn(() => undefined),
+    getModel: vi.fn(() => ({
+      id: "gpt-4o-mini",
+      provider: "openai",
+      api: "openai-responses",
+    })),
+  });
+});
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   ModelRuntime: {
-    create: vi.fn(async () => ({
-      setRuntimeApiKey: vi.fn(async () => undefined),
-    })),
+    create: vi.fn(async () => createDefaultModelRuntimeMock()),
   },
   createAgentSession: vi.fn(),
   createExtensionRuntime: vi.fn(),
@@ -76,7 +82,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));
 
-import { createAgentSession, defineTool } from "@earendil-works/pi-coding-agent";
+import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
@@ -88,9 +94,100 @@ const cfg = makeTestConfig({
   enableReviewLabelsEffort: false,
 });
 
+describe("piAgentRunnerProvider.createSession models.json", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(ModelRuntime.create).mockImplementation(
+      async () => createDefaultModelRuntimeMock() as never,
+    );
+  });
+
+  it("uses ModelRuntime with modelsJsonPath when set", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+    const getModel = vi.fn(() => ({
+      id: "llama3.1:8b",
+      provider: "ollama",
+      api: "openai-completions",
+    }));
+    vi.mocked(ModelRuntime.create).mockResolvedValue({
+      setRuntimeApiKey: vi.fn(async () => undefined),
+      getError: () => undefined,
+      getModel,
+    } as never);
+
+    await piAgentRunnerProvider.createSession({
+      cfg: makeTestConfig({
+        modelsJsonPath: "/app/models.json",
+        piProvider: "ollama",
+        piModel: "llama3.1:8b",
+        piApi: "openai-completions",
+        modelProviderKeys: { openai: "test-key" },
+      }),
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    expect(ModelRuntime.create).toHaveBeenCalledWith(
+      expect.objectContaining({ modelsPath: "/app/models.json" }),
+    );
+    expect(getModel).toHaveBeenCalledWith("ollama", "llama3.1:8b");
+    expect(createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: { id: "llama3.1:8b", provider: "ollama", api: "openai-completions" },
+      }),
+    );
+  });
+
+  it("uses ModelRuntime with null modelsPath when modelsJsonPath is null", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    expect(ModelRuntime.create).toHaveBeenCalledWith(expect.objectContaining({ modelsPath: null }));
+    expect(createAgentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: { id: "gpt-4o-mini", provider: "openai", api: "openai-responses" },
+      }),
+    );
+  });
+
+  it("throws when models.json runtime reports a load error", async () => {
+    vi.mocked(ModelRuntime.create).mockResolvedValue({
+      setRuntimeApiKey: vi.fn(async () => undefined),
+      getError: () => "Invalid models.json schema",
+      getModel: vi.fn(),
+    } as never);
+
+    await expect(
+      piAgentRunnerProvider.createSession({
+        cfg: makeTestConfig({
+          modelsJsonPath: "/app/models.json",
+          piProvider: "ollama",
+          piModel: "llama3.1:8b",
+          modelProviderKeys: { openai: "test-key" },
+        }),
+        systemPrompt: "test",
+        tools: [],
+        executors: {},
+      }),
+    ).rejects.toThrow(/Invalid models\.json schema/);
+  });
+});
+
 describe("piAgentRunnerProvider.send", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ModelRuntime.create).mockImplementation(
+      async () => createDefaultModelRuntimeMock() as never,
+    );
   });
 
   it("returns terminal answer-turn text and ignores commentary from tool-using turns", async () => {

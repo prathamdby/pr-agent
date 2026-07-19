@@ -1,4 +1,3 @@
-import { getModel } from "@earendil-works/pi-ai/compat";
 import {
   createAgentSession,
   createExtensionRuntime,
@@ -104,12 +103,25 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       const authPath = join(agentDir, "auth.json");
       const modelRuntime = await ModelRuntime.create({
         authPath,
-        modelsPath: join(agentDir, "models.json"),
+        modelsPath: cfg.modelsJsonPath,
+        allowModelNetwork: false,
       });
       for (const [provider, key] of Object.entries(cfg.modelProviderKeys)) {
         if (key.trim()) await modelRuntime.setRuntimeApiKey(provider, key.trim());
       }
       await chmod(authPath, 0o600).catch(() => undefined);
+      if (cfg.modelsJsonPath) {
+        const loadError = modelRuntime.getError();
+        if (loadError) throw new Error(loadError);
+      }
+      const model = modelRuntime.getModel(cfg.piProvider, cfg.piModel);
+      if (!model) {
+        throw new Error(
+          cfg.modelsJsonPath
+            ? `Model not found: ${cfg.piProvider}/${cfg.piModel} (models.json: ${cfg.modelsJsonPath})`
+            : `Model not found: ${cfg.piProvider}/${cfg.piModel}`,
+        );
+      }
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },
       });
@@ -128,7 +140,6 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         }),
       });
       await resourceLoader.reload();
-      const model = getModel(cfg.piProvider as never, cfg.piModel as never);
       const allToolNames = tools.map((tool) => tool.name);
       const { session } = await createAgentSession({
         cwd: cwd ?? process.cwd(),
