@@ -237,7 +237,6 @@ describe("executeReviewJob", () => {
     expect(mocks.ensureCheckRunStarted).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        cfg,
         token: "tok",
         owner: "o",
         repo: "r",

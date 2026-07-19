@@ -14,7 +14,11 @@ import {
   claimSummaryCommentCreation,
   getSummaryCommentGithubId,
 } from "../../agentWork/repository.js";
-import { completeReviewCheckRun, reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
+import {
+  completeReviewCheckRun,
+  reviewCheckDetailsUrl,
+  reviewCheckRunOutcome,
+} from "../../agentWork/reviewCheckRun.js";
 import {
   labelsAlreadySynced,
   reviewLabelsFromPayload,
@@ -223,10 +227,7 @@ export async function publishReview(
     mode?: ReviewMode;
     cfg: Pick<
       Config,
-      | "enableReviewLabelsEffort"
-      | "enableReviewLabelsSecurity"
-      | "enableReviewCommitStatus"
-      | "enableReviewCheckRun"
+      "enableReviewLabelsEffort" | "enableReviewLabelsSecurity" | "enableReviewCommitStatus"
     >;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
@@ -416,11 +417,11 @@ export async function publishReview(
     blockingCount > 0
       ? `${blockingCount} P0/P1 finding${blockingCount === 1 ? "" : "s"}`
       : "no blocking findings";
+  const checkOutcome = reviewCheckRunOutcome(payload.findings);
   const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
 
-  if (cfg.enableReviewCheckRun && summaryCoordination) {
+  if (summaryCoordination) {
     await completeReviewCheckRun(summaryCoordination.pool, {
-      cfg,
       token,
       tokenExpiresAtTs,
       owner,
@@ -429,8 +430,8 @@ export async function publishReview(
       workItemId: summaryCoordination.workItemId,
       resourceKey: summaryCoordination.resourceKey,
       reviewLens: mode,
-      conclusion: blockingCount > 0 ? "failure" : "success",
-      summary: statusDescription,
+      conclusion: checkOutcome.conclusion,
+      summary: checkOutcome.summary,
       detailsUrl: targetUrl,
     });
   }

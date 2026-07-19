@@ -22,7 +22,6 @@ import {
   DEFAULT_POSTHOG_HOST,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
-  DEFAULT_ENABLE_REVIEW_CHECK_RUN,
   DEFAULT_ENABLE_THREAD_REPLIES,
   DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
@@ -423,10 +422,6 @@ export function loadConfig() {
     ENV.ENABLE_REVIEW_COMMIT_STATUS,
     DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   );
-  const enableReviewCheckRun = readBooleanEnv(
-    ENV.ENABLE_REVIEW_CHECK_RUN,
-    DEFAULT_ENABLE_REVIEW_CHECK_RUN,
-  );
   const descriptionAutoActions = readAutoActions(
     ENV.DESCRIPTION_AUTO_ACTIONS,
     DEFAULT_DESCRIPTION_AUTO_ACTIONS,
@@ -591,7 +586,6 @@ export function loadConfig() {
     enableReviewLabelsSecurity,
     enableThreadReplies,
     enableReviewCommitStatus,
-    enableReviewCheckRun,
     descriptionAutoActions,
     reviewAutoActions,
     verificationAutoActions,

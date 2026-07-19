@@ -49,7 +49,6 @@ describe("publishReview labels and token expiry", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
-        enableReviewCheckRun: false,
       },
     });
 
@@ -69,7 +68,6 @@ describe("publishReview labels and token expiry", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: true,
         enableReviewCommitStatus: false,
-        enableReviewCheckRun: false,
       },
       payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
     });
@@ -94,7 +92,6 @@ describe("publishReview labels and token expiry", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
-        enableReviewCheckRun: false,
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -124,7 +121,6 @@ describe("publishReview labels and token expiry", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
-        enableReviewCheckRun: false,
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -155,7 +151,6 @@ describe("publishReview labels and token expiry", () => {
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
-        enableReviewCheckRun: false,
       },
       payload: { ...payload, estimatedEffort: 2 },
     });
@@ -236,7 +231,6 @@ describe("publishReview labels and token expiry", () => {
           enableReviewLabelsEffort: true,
           enableReviewLabelsSecurity: false,
           enableReviewCommitStatus: false,
-          enableReviewCheckRun: false,
         },
       }),
     ).resolves.toBeUndefined();
@@ -269,7 +263,6 @@ describe("publishReview labels and token expiry", () => {
             enableReviewLabelsEffort: true,
             enableReviewLabelsSecurity: false,
             enableReviewCommitStatus: false,
-            enableReviewCheckRun: false,
           },
         }),
       ).resolves.toBeUndefined();

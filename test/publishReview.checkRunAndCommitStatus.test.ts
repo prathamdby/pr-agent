@@ -48,7 +48,6 @@ describe("publishReview check run completion", () => {
   it("completes the review check as failure when published findings include P1", async () => {
     await publishReviewForTest({
       ...baseParams,
-      cfg: { ...baseParams.cfg, enableReviewCheckRun: true },
       publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: coordinatedRecordPublishStep(),
@@ -65,16 +64,15 @@ describe("publishReview check run completion", () => {
         resourceKey: "o/r#1",
         reviewLens: "review",
         conclusion: "failure",
-        summary: "1 P0/P1 finding",
+        summary: "1 finding",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       }),
     );
   });
 
-  it("completes the review check as success when findings are P2-only", async () => {
+  it("completes the review check as failure when findings are P2-only", async () => {
     await publishReviewForTest({
       ...baseParams,
-      cfg: { ...baseParams.cfg, enableReviewCheckRun: true },
       payload: {
         ...payload,
         findings: [{ ...payload.findings[0], severity: "P2" }],
@@ -87,21 +85,49 @@ describe("publishReview check run completion", () => {
     expect(completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "success",
-        summary: "no blocking findings",
+        conclusion: "failure",
+        summary: "1 finding",
       }),
     );
   });
 
-  it("does not complete a check when the flag is disabled", async () => {
+  it("completes the review check as success when findings are empty", async () => {
     await publishReviewForTest({
       ...baseParams,
+      payload: { ...payload, findings: [] },
       publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: coordinatedRecordPublishStep(),
     });
 
-    expect(completeReviewCheckRun).not.toHaveBeenCalled();
+    expect(completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "success",
+        summary: "no findings",
+      }),
+    );
+  });
+
+  it("completes the review check as success when findings are P3-only", async () => {
+    await publishReviewForTest({
+      ...baseParams,
+      payload: {
+        ...payload,
+        findings: [{ ...payload.findings[0], severity: "P3", fixPrompt: undefined }],
+      },
+      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+
+    expect(completeReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "success",
+        summary: "no findings",
+      }),
+    );
   });
 });
 
