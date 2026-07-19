@@ -46,6 +46,7 @@ describe("publishReview labels and token expiry", () => {
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
+        piModel: "gpt-4o-mini",
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
@@ -65,6 +66,7 @@ describe("publishReview labels and token expiry", () => {
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
+        piModel: "gpt-4o-mini",
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: true,
         enableReviewCommitStatus: false,
@@ -89,6 +91,7 @@ describe("publishReview labels and token expiry", () => {
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
+        piModel: "gpt-4o-mini",
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
@@ -118,6 +121,7 @@ describe("publishReview labels and token expiry", () => {
       mode: "review-quality",
       publishState: testPublishState(),
       cfg: {
+        piModel: "gpt-4o-mini",
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
@@ -148,6 +152,7 @@ describe("publishReview labels and token expiry", () => {
       ...baseParams,
       publishState: testPublishState(),
       cfg: {
+        piModel: "gpt-4o-mini",
         enableReviewLabelsEffort: true,
         enableReviewLabelsSecurity: false,
         enableReviewCommitStatus: false,
@@ -228,6 +233,7 @@ describe("publishReview labels and token expiry", () => {
         ...baseParams,
         publishState: testPublishState(),
         cfg: {
+          piModel: "gpt-4o-mini",
           enableReviewLabelsEffort: true,
           enableReviewLabelsSecurity: false,
           enableReviewCommitStatus: false,
@@ -260,6 +266,7 @@ describe("publishReview labels and token expiry", () => {
           ...baseParams,
           publishState: testPublishState(),
           cfg: {
+            piModel: "gpt-4o-mini",
             enableReviewLabelsEffort: true,
             enableReviewLabelsSecurity: false,
             enableReviewCommitStatus: false,

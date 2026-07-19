@@ -26,6 +26,7 @@ export const publishReviewTestBaseParams = {
   headSha: "sha",
   hasDescriptionAgentBlock: false,
   cfg: {
+    piModel: "gpt-4o-mini",
     enableReviewLabelsEffort: false,
     enableReviewLabelsSecurity: false,
     enableReviewCommitStatus: false,

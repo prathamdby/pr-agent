@@ -1,4 +1,3 @@
-import { getModel } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   createAgentSession,
@@ -108,13 +107,21 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         if (key.trim()) authStorage.setRuntimeApiKey(provider, key.trim());
       }
       await chmod(authPath, 0o600).catch(() => undefined);
-      const modelRegistryFactory = ModelRegistry as unknown as {
-        inMemory?: typeof ModelRegistry.create;
-        create: typeof ModelRegistry.create;
-      };
-      const modelRegistry = modelRegistryFactory.inMemory
-        ? modelRegistryFactory.inMemory(authStorage)
-        : modelRegistryFactory.create(authStorage, join(agentDir, "models.json"));
+      const modelRegistry = cfg.modelsJsonPath
+        ? ModelRegistry.create(authStorage, cfg.modelsJsonPath)
+        : ModelRegistry.inMemory(authStorage);
+      if (cfg.modelsJsonPath) {
+        const loadError = modelRegistry.getError();
+        if (loadError) throw new Error(loadError);
+      }
+      const model = modelRegistry.find(cfg.piProvider, cfg.piModel);
+      if (!model) {
+        throw new Error(
+          cfg.modelsJsonPath
+            ? `Model not found: ${cfg.piProvider}/${cfg.piModel} (models.json: ${cfg.modelsJsonPath})`
+            : `Model not found: ${cfg.piProvider}/${cfg.piModel}`,
+        );
+      }
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },
       });
@@ -133,7 +140,6 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         }),
       });
       await resourceLoader.reload();
-      const model = getModel(cfg.piProvider, cfg.piModel as never);
       const allToolNames = tools.map((tool) => tool.name);
       const { session } = await createAgentSession({
         cwd: cwd ?? process.cwd(),

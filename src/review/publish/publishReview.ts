@@ -29,6 +29,7 @@ import {
 import { logWarn, logDebug } from "../../evlog.js";
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
+import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import {
   type FingerprintedInlinePlacement,
   type InlinePlacement,
@@ -227,7 +228,10 @@ export async function publishReview(
     mode?: ReviewMode;
     cfg: Pick<
       Config,
-      "enableReviewLabelsEffort" | "enableReviewLabelsSecurity" | "enableReviewCommitStatus"
+      | "piModel"
+      | "enableReviewLabelsEffort"
+      | "enableReviewLabelsSecurity"
+      | "enableReviewCommitStatus"
     >;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
@@ -356,6 +360,7 @@ export async function publishReview(
     }
   }
 
+  const metricsSnapshot = snapshotReviewRunMetrics();
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
     summarySentinel,
@@ -363,6 +368,10 @@ export async function publishReview(
     mode,
     staleReview: params.staleReview ?? false,
     cachedDiffIndex: params.cachedDiffIndex,
+    runFooter: {
+      durationMs: metricsSnapshot?.wallClockMs ?? 0,
+      model: cfg.piModel,
+    },
   });
 
   const labelsPromise = listPullRequestLabels(token, owner, repo, prNumber, tokenExpiresAtTs).catch(
