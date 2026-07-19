@@ -258,24 +258,6 @@ function buildPriorInlineFeedbackPromise(args: {
   }, logPriorFeedbackError);
 }
 
-async function loadRepoPolicyBlocks(args: { readonly repositoryView: PrRepositoryView }): Promise<{
-  readonly repoPolicyBlock: string | undefined;
-}> {
-  const { repositoryView } = args;
-  const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
-  let repoPolicyBlock: string | undefined;
-  if (policyResult.kind === "invalid") {
-    logInvalidRepoPolicy(repositoryView.agentCwd, policyResult.reason);
-  } else if (policyResult.kind === "ok") {
-    const rendered = renderRepoPolicyBlock({
-      policy: policyResult.policy,
-      changedFiles: repositoryView.preflight.files.map((file) => file.filename),
-    });
-    repoPolicyBlock = rendered || undefined;
-  }
-  return { repoPolicyBlock };
-}
-
 async function handleReviewPublishResult(args: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -393,9 +375,17 @@ async function runFullReviewAgainstRepositoryView(args: {
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
 
-  const { repoPolicyBlock } = await loadRepoPolicyBlocks({
-    repositoryView,
-  });
+  const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
+  let repoPolicyBlock: string | undefined;
+  if (policyResult.kind === "invalid") {
+    logInvalidRepoPolicy(repositoryView.agentCwd, policyResult.reason);
+  } else if (policyResult.kind === "ok") {
+    const rendered = renderRepoPolicyBlock({
+      policy: policyResult.policy,
+      changedFiles: repositoryView.preflight.files.map((file) => file.filename),
+    });
+    repoPolicyBlock = rendered || undefined;
+  }
 
   const trustedContext = buildTrustedReviewContextForReview({
     preflight: repositoryView.preflight,

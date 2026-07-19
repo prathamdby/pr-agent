@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   MAX_REPO_POLICY_BYTES,
+  MAX_REPO_POLICY_FILE_BYTES,
   MAX_REPO_POLICY_INSTRUCTION_CHARS,
 } from "../src/settings/reviewConstants.js";
 import {
@@ -77,6 +78,84 @@ Treat missing session checks as P1.
     });
   });
 
+  it("parses a scalar string globs value into a single-element array", async () => {
+    const root = await policyFixture({
+      "utils.mdc": `---
+globs: "src/utils/**"
+alwaysApply: false
+---
+
+Check for side effects.
+`,
+    });
+    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.policy.rules[0].globs).toEqual(["src/utils/**"]);
+    expect(result.policy.rules[0].alwaysApply).toBe(false);
+  });
+
+  it("defaults to alwaysApply=true when frontmatter has neither globs nor alwaysApply", async () => {
+    const root = await policyFixture({
+      "custom.mdc": `---
+description: team convention
+---
+
+Always enforce this rule.
+`,
+    });
+    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.policy.rules[0].alwaysApply).toBe(true);
+    expect(result.policy.rules[0].globs).toEqual([]);
+  });
+
+  it("skips .mdc file with unclosed frontmatter and loads remaining rules", async () => {
+    const root = await policyFixture({
+      "broken.mdc": '---\nglobs:\n  - "**"\nNo closing fence here.',
+      "valid.mdc": "This rule applies always.",
+    });
+    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.policy.rules).toHaveLength(1);
+    expect(result.policy.rules[0].filename).toBe("valid.mdc");
+  });
+
+  it("returns invalid when .mdc files exist but all have empty bodies", async () => {
+    const root = await policyFixture({
+      "empty.mdc": "   \n  ",
+      "also-empty.mdc": '---\nglobs: "**"\n---\n\n   ',
+    });
+    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    expect(result).toEqual({ kind: "invalid", reason: "no usable .mdc rules" });
+  });
+
+  it("skips individual .mdc files exceeding per-file size cap", async () => {
+    const root = await policyFixture({
+      "big.mdc": "X".repeat(MAX_REPO_POLICY_FILE_BYTES + 1),
+      "small.mdc": "Valid rule body.",
+    });
+    const result = await loadRepoPolicy(root, MAX_REPO_POLICY_BYTES);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.policy.rules).toHaveLength(1);
+    expect(result.policy.rules[0].filename).toBe("small.mdc");
+  });
+
+  it("skips files that would exceed the aggregate byte cap", async () => {
+    const root = await policyFixture({
+      "a.mdc": "A".repeat(30),
+      "b.mdc": "B".repeat(30),
+    });
+    const result = await loadRepoPolicy(root, 50);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.policy.rules).toHaveLength(1);
+    expect(result.policy.rules[0].filename).toBe("a.mdc");
+  });
+
   it("ignores legacy .pr-agent.yml at checkout root", async () => {
     const root = await mkdtemp(join(tmpdir(), "repo-policy-yaml-ignored-"));
     await writeFile(join(root, ".pr-agent.yml"), "version: 1\ntone: ignored\n", "utf8");
@@ -122,6 +201,24 @@ describe("renderRepoPolicyBlock", () => {
     expect(block).toContain("Rule `.pr-agent/auth.mdc`: Check sessions.");
     expect(block).not.toContain("db.mdc");
   });
+
+  it("returns empty string when no rules apply to changed files", () => {
+    const block = renderRepoPolicyBlock({
+      changedFiles: ["docs/readme.md"],
+      policy: {
+        rules: [
+          {
+            filename: "auth.mdc",
+            relativePath: ".pr-agent/auth.mdc",
+            alwaysApply: false,
+            globs: ["src/auth/**"],
+            body: "Check sessions.",
+          },
+        ],
+      },
+    });
+    expect(block).toBe("");
+  });
 });
 
 describe("renderPolicySuggestionForDismissed", () => {
@@ -131,7 +228,7 @@ describe("renderPolicySuggestionForDismissed", () => {
       dismissalEvidence: "False positive: the input is already sanitized upstream.",
     });
 
-    expect(result).toContain("Create `.pr-agent/login.mdc` with:");
+    expect(result).toContain("Create `.pr-agent/src-auth-login.mdc` with:");
     expect(result).toContain("```mdc");
     expect(result).toContain("globs:");
     expect(result).toContain('- "src/auth/login.ts"');
@@ -140,6 +237,19 @@ describe("renderPolicySuggestionForDismissed", () => {
     expect(result).not.toContain(".pr-agent.yml");
     expect(result).not.toContain("pathInstructions");
     expect(result).not.toContain("```yaml");
+  });
+
+  it("uses path segments in slug to avoid basename collisions", () => {
+    const a = renderPolicySuggestionForDismissed({
+      filePath: "src/auth/index.ts",
+      dismissalEvidence: "auth note",
+    });
+    const b = renderPolicySuggestionForDismissed({
+      filePath: "lib/auth/index.ts",
+      dismissalEvidence: "lib note",
+    });
+    expect(a).toContain("Create `.pr-agent/src-auth-index.mdc` with:");
+    expect(b).toContain("Create `.pr-agent/lib-auth-index.mdc` with:");
   });
 
   it("renders an append fragment when exactly one rule matches", () => {
@@ -196,7 +306,7 @@ describe("renderPolicySuggestionForDismissed", () => {
       },
     });
 
-    expect(result).toContain("Create `.pr-agent/login.mdc` with:");
+    expect(result).toContain("Create `.pr-agent/src-auth-login.mdc` with:");
     expect(result).toContain("```mdc");
   });
 
@@ -208,7 +318,7 @@ describe("renderPolicySuggestionForDismissed", () => {
     });
 
     expect(result).toContain("could not be used (no usable .mdc rules)");
-    expect(result).toContain("Create `.pr-agent/app.mdc` with:");
+    expect(result).toContain("Create `.pr-agent/src-app.mdc` with:");
     expect(result).toContain("```mdc");
   });
 

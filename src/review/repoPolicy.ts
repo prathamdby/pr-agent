@@ -129,9 +129,12 @@ function parseMdcContent(
 }
 
 function policySlugFromPath(filePath: string): string {
-  const base = filePath.split("/").pop() ?? "policy";
-  const withoutExt = base.replace(/\.[^.]+$/, "");
-  const slug = withoutExt
+  const parts = filePath.split("/").filter((part) => part.length > 0);
+  if (parts.length === 0) return "policy";
+  const raw = parts
+    .map((part, index) => (index === parts.length - 1 ? part.replace(/\.[^.]+$/, "") : part))
+    .join("-");
+  const slug = raw
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
@@ -178,26 +181,6 @@ export async function loadRepoPolicy(
 
     for (const filename of candidates.slice(0, MAX_REPO_POLICY_FILES)) {
       const absolutePath = join(policyDir, filename);
-      let fileStat;
-      try {
-        fileStat = await stat(absolutePath);
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: message });
-        continue;
-      }
-      if (!fileStat.isFile()) {
-        logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: "not a file" });
-        continue;
-      }
-      if (fileStat.size > MAX_REPO_POLICY_FILE_BYTES) {
-        logWarn("repo_policy_rule_skipped", {
-          path: absolutePath,
-          reason: "file exceeds size cap",
-        });
-        continue;
-      }
-
       let raw: string;
       try {
         raw = await readFile(absolutePath, "utf8");
