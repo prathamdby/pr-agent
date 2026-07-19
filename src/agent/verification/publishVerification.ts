@@ -47,6 +47,13 @@ function skippedReplyBody(verdict: Extract<VerificationVerdict, { verdict: "skip
   return withStubMarker(redactReviewText(`**Verification**: still open - ${verdict.reason}`));
 }
 
+function terminalSuccessStubBody(
+  verdict: Extract<VerificationVerdict, { verdict: "fixed" | "already-resolved" }>,
+): string {
+  const label = verdict.verdict === "fixed" ? "fixed" : "already resolved";
+  return withStubMarker(redactReviewText(`**Verification**: ${label}`));
+}
+
 function dismissedReplyBody(
   verdict: Extract<VerificationVerdict, { verdict: "dismissed" }>,
   thread: BotFindingThread,
@@ -194,6 +201,20 @@ export async function publishVerification(
           degraded = true;
           break;
         }
+        // Clear a prior still-open stub so resolved threads do not keep a stale signal.
+        const priorStubId = resolveStubCommentId(thread, prior);
+        let stubCommentId = priorStubId;
+        if (priorStubId != null) {
+          const updated = await updateStubReply({
+            token: params.token,
+            tokenExpiresAtTs: params.tokenExpiresAtTs,
+            owner: params.owner,
+            repo: params.repo,
+            stubCommentId: priorStubId,
+            body: terminalSuccessStubBody(verdict),
+          });
+          if (!updated) stubCommentId = undefined;
+        }
         if (!resolution.isResolved) {
           await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
         }
@@ -203,7 +224,7 @@ export async function publishVerification(
           resourceKey: params.resourceKey,
           ledger,
           rootCommentId: verdict.threadRootCommentId,
-          state: terminalThreadState(prior, verdict.verdict, params.headSha),
+          state: terminalThreadState(prior, verdict.verdict, params.headSha, stubCommentId),
         });
         break;
       }
