@@ -7,6 +7,7 @@ import {
   QUALITY_REVIEW_POINTER_BODY,
   SECURITY_REVIEW_POINTER_BODY,
   TESTS_REVIEW_POINTER_BODY,
+  VERIFICATION_STUB_MARKER,
 } from "../../settings/index.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
@@ -31,6 +32,8 @@ export type BotFindingThread = {
   titleSnippet: string;
   humanReplies: string[];
   hasTriageReply?: boolean;
+  /** Bot reply id for the verification stub when one already exists on the thread. */
+  verificationStubCommentId?: number;
   threadUrl: string;
 };
 
@@ -74,6 +77,25 @@ function isTriageEligibleLens(lens: ReviewMode): boolean {
 }
 
 const REVIEW_POINTER_LENS_MARKER_RE = /<!--\s*pr-agent:review-pointer\s+lens=([^\s>]+)\s*-->/;
+
+function findVerificationStubCommentId(
+  threadComments: readonly ReviewCommentRow[],
+  botUserId: number,
+  threadRootCommentId: number,
+): number | undefined {
+  const botReplies = threadComments
+    .filter((comment) => comment.id !== threadRootCommentId && comment.userId === botUserId)
+    .toSorted((a, b) => a.id - b.id);
+  // Prefer the newest marked stub (and newest legacy reply) so updates target the latest comment.
+  const newestFirst = botReplies.toReversed();
+  const marked = newestFirst.find((comment) => comment.body.includes(VERIFICATION_STUB_MARKER));
+  if (marked) return marked.id;
+  // Legacy verification replies lacked the marker; adopt the latest **Verification**: reply.
+  const legacy = newestFirst.find((comment) =>
+    comment.body.trimStart().startsWith("**Verification**:"),
+  );
+  return legacy?.id;
+}
 
 export function parseReviewPointerLensMarker(body: string): ReviewMode | null {
   const match = REVIEW_POINTER_LENS_MARKER_RE.exec(body);
@@ -368,6 +390,11 @@ export async function fetchBotFindingThreads(
         comment.userId === botUserId &&
         comment.body.trimStart().startsWith("**Triage**:"),
     );
+    const verificationStubCommentId = findVerificationStubCommentId(
+      threadComments,
+      botUserId,
+      root.id,
+    );
     const line = root.line ?? root.originalLine ?? 1;
     results.push({
       rootCommentId: root.id,
@@ -378,6 +405,7 @@ export async function fetchBotFindingThreads(
       titleSnippet: extractBotTitleSnippet(root.body),
       humanReplies,
       hasTriageReply,
+      ...(verificationStubCommentId != null ? { verificationStubCommentId } : {}),
       threadUrl: root.htmlUrl,
     });
   }

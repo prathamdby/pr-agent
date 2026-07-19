@@ -3,9 +3,11 @@ import type { Pool } from "pg";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.js";
 import type { VerificationPayload } from "../src/review/triageSchema.js";
+import { VERIFICATION_STUB_MARKER } from "../src/settings/index.js";
 
 const mocks = vi.hoisted(() => ({
   createReply: vi.fn(),
+  updateComment: vi.fn(),
   resolve: vi.fn(),
   recordPublishStep: vi.fn(),
 }));
@@ -13,7 +15,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(() => ({
     rest: {
-      pulls: { createReplyForReviewComment: mocks.createReply },
+      pulls: {
+        createReplyForReviewComment: mocks.createReply,
+        updateReviewComment: mocks.updateComment,
+      },
     },
   })),
 }));
@@ -70,10 +75,12 @@ function baseParams(overrides: {
   readonly resolutionByRootCommentId?: ReadonlyMap<number, ReviewThreadResolution>;
   readonly changedFilePaths?: readonly string[];
   readonly pool?: Pool;
+  readonly workItemId?: string;
+  readonly policyResult?: Parameters<typeof publishVerification>[0]["policyResult"];
 }) {
   return {
     pool: overrides.pool ?? pool(),
-    workItemId: "wi",
+    workItemId: overrides.workItemId ?? "wi",
     resourceKey: "o/r#1",
     token: "tok",
     owner: "o",
@@ -90,6 +97,7 @@ function baseParams(overrides: {
       ]),
     payload: overrides.payload,
     changedFilePaths: overrides.changedFilePaths ?? ["src/app.ts"],
+    policyResult: overrides.policyResult ?? ({ kind: "absent" } as const),
   };
 }
 
@@ -97,7 +105,8 @@ describe("publishVerification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.recordPublishStep.mockResolvedValue(undefined);
-    mocks.createReply.mockResolvedValue(undefined);
+    mocks.createReply.mockResolvedValue({ data: { id: 9001 } });
+    mocks.updateComment.mockResolvedValue({ data: { id: 9001 } });
     mocks.resolve.mockResolvedValue(undefined);
   });
 
@@ -124,21 +133,41 @@ describe("publishVerification", () => {
 
     expect(result).toEqual({ degraded: false });
     expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.updateComment).not.toHaveBeenCalled();
     expect(mocks.resolve).toHaveBeenCalledTimes(2);
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_2", undefined);
     expect(mocks.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         step: "verification_thread_actions",
-        detail: { actedThreadIds: [1] },
+        detail: {
+          threads: {
+            "1": {
+              lastVerdict: "fixed",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+          },
+        },
       }),
     );
     expect(mocks.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         step: "verification_thread_actions",
-        detail: { actedThreadIds: [1, 2] },
+        detail: {
+          threads: {
+            "1": {
+              lastVerdict: "fixed",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+            "2": {
+              lastVerdict: "already-resolved",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+          },
+        },
       }),
     );
   });
@@ -165,10 +194,23 @@ describe("publishVerification", () => {
 
     expect(mocks.createReply).not.toHaveBeenCalled();
     expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.recordPublishStep).not.toHaveBeenCalled();
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        detail: {
+          threads: {
+            "1": {
+              lastVerdict: "fixed",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+          },
+        },
+      }),
+    );
   });
 
-  it("replies only for still-open findings on changed files", async () => {
+  it("creates a marked still-open stub only for findings on changed files", async () => {
     await publishVerification(
       baseParams({
         payload: {
@@ -193,15 +235,76 @@ describe("publishVerification", () => {
     expect(mocks.createReply).toHaveBeenCalledWith(
       expect.objectContaining({
         comment_id: 1,
-        body: expect.stringContaining("still open"),
+        body: expect.stringContaining(VERIFICATION_STUB_MARKER),
+      }),
+    );
+    expect(mocks.createReply.mock.calls[0]?.[0]?.body).toContain("still open");
+  });
+
+  it("edits an existing stub in place on later still-open publishes", async () => {
+    await publishVerification(
+      baseParams({
+        pool: pool({
+          threads: {
+            "1": { stubCommentId: 555, lastVerdict: "skipped", lastHeadSha: "b".repeat(40) },
+          },
+        }),
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "still open after push",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.updateComment).toHaveBeenCalledTimes(1);
+    expect(mocks.updateComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        comment_id: 555,
+        body: expect.stringContaining("still open after push"),
       }),
     );
   });
 
-  it("replies for dismissed findings with a policy suggestion", async () => {
+  it("recovers stub id from inventory marker when ledger lacks stubCommentId", async () => {
     await publishVerification(
       baseParams({
-        inventory: [{ ...thread, humanReplies: ["false positive"] }],
+        inventory: [{ ...thread, verificationStubCommentId: 777 }],
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "recovered",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 777 }));
+  });
+
+  it("dismisses by editing stub, grounding policy, and resolving the thread", async () => {
+    await publishVerification(
+      baseParams({
+        inventory: [
+          { ...thread, humanReplies: ["false positive"], verificationStubCommentId: 555 },
+        ],
+        policyResult: {
+          kind: "ok",
+          policy: {
+            version: 1,
+            pathInstructions: [{ path: "src/**", instructions: "existing" }],
+          },
+        },
         payload: {
           verdicts: [
             {
@@ -214,35 +317,63 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.createReply).toHaveBeenCalledTimes(1);
-    expect(mocks.createReply).toHaveBeenCalledWith(
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.updateComment).toHaveBeenCalledTimes(1);
+    const body = mocks.updateComment.mock.calls[0]?.[0]?.body as string;
+    expect(body).toContain("dismissed");
+    expect(body).toContain("Append this entry under `pathInstructions`");
+    expect(body).not.toContain("version: 1");
+    expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        comment_id: 1,
-        body: expect.stringMatching(/dismissed[\s\S]*Suggested policy entry/),
+        detail: {
+          threads: {
+            "1": {
+              stubCommentId: 555,
+              lastVerdict: "dismissed",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+          },
+        },
       }),
     );
   });
 
-  it("does not re-reply or re-record when thread was already acted", async () => {
+  it("creates then resolves when dismissing without an existing stub", async () => {
     await publishVerification(
       baseParams({
-        pool: pool({ actedThreadIds: [1] }),
-        inventory: [thread],
+        inventory: [{ ...thread, humanReplies: ["intentional"] }],
         payload: {
           verdicts: [
             {
-              verdict: "skipped",
+              verdict: "dismissed",
               threadRootCommentId: 1,
-              reason: "still open",
+              evidence: "intentional",
             },
           ],
         },
       }),
     );
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.recordPublishStep).not.toHaveBeenCalled();
+    expect(mocks.createReply).toHaveBeenCalledTimes(1);
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        detail: {
+          threads: {
+            "1": {
+              stubCommentId: 9001,
+              lastVerdict: "dismissed",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+          },
+        },
+      }),
+    );
   });
 
   it("marks degraded when inventory mapping is missing", async () => {
@@ -288,7 +419,7 @@ describe("publishVerification", () => {
     expect(mocks.createReply).not.toHaveBeenCalled();
   });
 
-  it("mixes silent resolve with still-open replies in one payload", async () => {
+  it("mixes silent resolve with still-open stub creates in one payload", async () => {
     await publishVerification(
       baseParams({
         payload: {
@@ -318,5 +449,126 @@ describe("publishVerification", () => {
         body: expect.stringContaining("still open"),
       }),
     );
+  });
+
+  it("falls back to create when updating a deleted stub returns 404", async () => {
+    mocks.updateComment.mockRejectedValueOnce({ status: 404 });
+    mocks.createReply.mockResolvedValueOnce({ data: { id: 9900 } });
+
+    await publishVerification(
+      baseParams({
+        pool: pool({
+          threads: {
+            "1": { stubCommentId: 555, lastVerdict: "skipped" },
+          },
+        }),
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "stub was deleted",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(mocks.updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 555 }));
+    expect(mocks.createReply).toHaveBeenCalledTimes(1);
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        detail: {
+          threads: {
+            "1": {
+              stubCommentId: 9900,
+              lastVerdict: "skipped",
+              lastHeadSha: "a".repeat(40),
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  it("preserves stubCommentId when a later fixed verdict has no stub id", async () => {
+    await publishVerification(
+      baseParams({
+        pool: pool({
+          threads: {
+            "1": { stubCommentId: 555, lastVerdict: "skipped" },
+          },
+        }),
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "fixed",
+              threadRootCommentId: 1,
+              commitSha: "abcdef1",
+              evidence: "fixed",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.updateComment).not.toHaveBeenCalled();
+    expect(mocks.resolve).toHaveBeenCalledTimes(1);
+    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        detail: {
+          threads: {
+            "1": {
+              stubCommentId: 555,
+              lastVerdict: "fixed",
+              lastHeadSha: "a".repeat(40),
+              terminal: true,
+            },
+          },
+        },
+      }),
+    );
+  });
+
+  it("loads ledger by resource key so prior stubs survive a new work item", async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          detail: {
+            threads: {
+              "1": { stubCommentId: 4242, lastVerdict: "skipped" },
+            },
+          },
+        },
+      ],
+    }));
+    await publishVerification(
+      baseParams({
+        pool: { query } as unknown as Pool,
+        workItemId: "wi-new",
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "cross work item",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("resource_key"),
+      expect.arrayContaining(["o/r#1"]),
+    );
+    expect(mocks.updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 4242 }));
+    expect(mocks.createReply).not.toHaveBeenCalled();
   });
 });

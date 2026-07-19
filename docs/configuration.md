@@ -154,6 +154,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                                                       |
 | `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                                                    |
 | `VERIFICATION_PUBLISH_LENS`                | `verification`                                                                                                                                                              |
+| `VERIFICATION_STUB_MARKER`                 | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                                  |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                                       |
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                                             |
 
