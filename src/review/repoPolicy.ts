@@ -1,43 +1,36 @@
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { logWarn } from "../evlog.js";
 import {
+  MAX_REPO_POLICY_BYTES,
+  MAX_REPO_POLICY_FILE_BYTES,
+  MAX_REPO_POLICY_FILES,
   MAX_REPO_POLICY_INSTRUCTION_CHARS,
-  MAX_REPO_POLICY_PATH_INSTRUCTIONS,
   MAX_REPO_POLICY_PATH_PATTERN_CHARS,
-  MAX_REPO_POLICY_TONE_CHARS,
-  REPO_POLICY_FILENAME,
+  REPO_POLICY_DIRNAME,
+  REPO_POLICY_EXTENSION,
 } from "../settings/index.js";
-import type { ReviewMode } from "./reviewSchema.js";
 
-const repoPolicySchema = z
+const frontmatterSchema = z
   .object({
-    version: z.literal(1),
-    tone: z.string().max(MAX_REPO_POLICY_TONE_CHARS).optional(),
-    severityFloor: z.number().int().min(0).max(3).optional(),
-    pathInstructions: z
-      .array(
-        z.object({
-          path: z.string().max(MAX_REPO_POLICY_PATH_PATTERN_CHARS),
-          instructions: z.string().max(MAX_REPO_POLICY_INSTRUCTION_CHARS),
-        }),
-      )
-      .max(MAX_REPO_POLICY_PATH_INSTRUCTIONS)
-      .optional(),
-    lensOverrides: z
-      .record(
-        z.string(),
-        z.object({
-          instructions: z.string().max(MAX_REPO_POLICY_INSTRUCTION_CHARS).optional(),
-        }),
-      )
-      .optional(),
+    globs: z.union([z.string(), z.array(z.string())]).optional(),
+    alwaysApply: z.boolean().optional(),
   })
-  .strict();
+  .passthrough();
 
-export type RepoPolicy = z.infer<typeof repoPolicySchema>;
+export type RepoPolicyRule = {
+  readonly filename: string;
+  readonly relativePath: string;
+  readonly alwaysApply: boolean;
+  readonly globs: readonly string[];
+  readonly body: string;
+};
+
+export type RepoPolicy = {
+  readonly rules: readonly RepoPolicyRule[];
+};
 
 export type RepoPolicyResult =
   | { kind: "absent" }
@@ -58,83 +51,208 @@ function sanitizeRenderedPolicyText(value: string): string {
   return value.split(/\r?\n/).join(" ").trim();
 }
 
-function escapeYamlDoubleQuoted(value: string): string {
-  return value.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+function normalizeGlobs(value: string | string[] | undefined): string[] {
+  if (value == null) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  return raw
+    .map((glob) => glob.trim().slice(0, MAX_REPO_POLICY_PATH_PATTERN_CHARS))
+    .filter((glob) => glob.length > 0);
+}
+
+function effectiveAlwaysApply(params: {
+  readonly alwaysApply: boolean | undefined;
+  readonly globs: readonly string[];
+}): boolean {
+  if (params.alwaysApply === true) return true;
+  if (params.alwaysApply === false) return false;
+  return params.globs.length === 0;
+}
+
+function ruleApplies(rule: RepoPolicyRule, changedFiles?: readonly string[]): boolean {
+  if (rule.alwaysApply) return true;
+  if (!changedFiles) return true;
+  return rule.globs.some((pattern) =>
+    changedFiles.some((filename) => matchesPathGlob(filename, pattern)),
+  );
+}
+
+function parseMdcContent(
+  raw: string,
+):
+  | { kind: "ok"; alwaysApply: boolean; globs: string[]; body: string }
+  | { kind: "invalid"; reason: string } {
+  const trimmed = raw.replace(/^\uFEFF/, "");
+  let frontmatterRaw: string | undefined;
+  let bodyRaw: string;
+
+  if (trimmed.startsWith("---")) {
+    const end = trimmed.indexOf("\n---", 3);
+    if (end === -1) {
+      return { kind: "invalid", reason: "unclosed frontmatter" };
+    }
+    frontmatterRaw = trimmed.slice(3, end).replace(/^\r?\n/, "");
+    bodyRaw = trimmed.slice(end + 4).replace(/^\r?\n/, "");
+  } else {
+    bodyRaw = trimmed;
+  }
+
+  let alwaysApply: boolean | undefined;
+  let globs: string[] = [];
+  if (frontmatterRaw != null && frontmatterRaw.trim().length > 0) {
+    let parsed: unknown;
+    try {
+      parsed = parseYaml(frontmatterRaw);
+    } catch {
+      return { kind: "invalid", reason: "malformed frontmatter yaml" };
+    }
+    if (parsed != null && (typeof parsed !== "object" || Array.isArray(parsed))) {
+      return { kind: "invalid", reason: "frontmatter must be a mapping" };
+    }
+    const validated = frontmatterSchema.safeParse(parsed ?? {});
+    if (!validated.success) {
+      return { kind: "invalid", reason: "frontmatter schema validation failed" };
+    }
+    alwaysApply = validated.data.alwaysApply;
+    globs = normalizeGlobs(validated.data.globs);
+  }
+
+  const body = bodyRaw.trim().slice(0, MAX_REPO_POLICY_INSTRUCTION_CHARS);
+  if (!body) {
+    return { kind: "invalid", reason: "empty body" };
+  }
+
+  return {
+    kind: "ok",
+    alwaysApply: effectiveAlwaysApply({ alwaysApply, globs }),
+    globs,
+    body,
+  };
+}
+
+function policySlugFromPath(filePath: string): string {
+  const parts = filePath.split("/").filter((part) => part.length > 0);
+  if (parts.length === 0) return "policy";
+  const raw = parts
+    .map((part, index) => (index === parts.length - 1 ? part.replace(/\.[^.]+$/, "") : part))
+    .join("-");
+  const slug = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "policy";
+}
+
+function defaultGlobsForPath(filePath: string): string[] {
+  const sanitized = sanitizeRenderedPolicyText(filePath).slice(
+    0,
+    MAX_REPO_POLICY_PATH_PATTERN_CHARS,
+  );
+  if (!sanitized) return ["**/*"];
+  return [sanitized];
+}
+
+function errnoCode(error: unknown): string | undefined {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
 }
 
 export async function loadRepoPolicy(
   agentCwd: string,
-  maxBytes: number,
+  maxBytes: number = MAX_REPO_POLICY_BYTES,
 ): Promise<RepoPolicyResult> {
-  const policyPath = join(agentCwd, REPO_POLICY_FILENAME);
+  const policyDir = join(agentCwd, REPO_POLICY_DIRNAME);
+  let entries;
   try {
-    const fileStat = await stat(policyPath);
-    if (!fileStat.isFile()) {
-      return { kind: "invalid", reason: "not a file" };
-    }
-    if (fileStat.size > maxBytes) {
-      return { kind: "invalid", reason: "file exceeds size cap" };
-    }
-    const raw = await readFile(policyPath, "utf8");
-    if (Buffer.byteLength(raw, "utf8") > maxBytes) {
-      return { kind: "invalid", reason: "file exceeds size cap" };
-    }
-    let parsed: unknown;
-    try {
-      parsed = parseYaml(raw);
-    } catch {
-      return { kind: "invalid", reason: "malformed yaml" };
-    }
-    if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { kind: "invalid", reason: "root must be a mapping" };
-    }
-    const validated = repoPolicySchema.safeParse(parsed);
-    if (!validated.success) {
-      return { kind: "invalid", reason: "schema validation failed" };
-    }
-    return { kind: "ok", policy: validated.data };
+    entries = await readdir(policyDir, { withFileTypes: true });
   } catch (error) {
-    if (
-      error &&
-      typeof error === "object" &&
-      "code" in error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT"
-    ) {
+    const code = errnoCode(error);
+    if (code === "ENOENT") {
       return { kind: "absent" };
+    }
+    if (code === "ENOTDIR") {
+      return { kind: "invalid", reason: "not a directory" };
     }
     const message = error instanceof Error ? error.message : String(error);
     return { kind: "invalid", reason: message };
   }
+
+  const candidates = entries
+    .filter(
+      (entry) =>
+        entry.isFile() && entry.name.endsWith(REPO_POLICY_EXTENSION) && !entry.name.startsWith("."),
+    )
+    .map((entry) => entry.name)
+    .toSorted();
+
+  if (candidates.length === 0) {
+    return { kind: "absent" };
+  }
+
+  const rules: RepoPolicyRule[] = [];
+  let aggregateBytes = 0;
+
+  for (const filename of candidates.slice(0, MAX_REPO_POLICY_FILES)) {
+    const absolutePath = join(policyDir, filename);
+    let raw: string;
+    try {
+      raw = await readFile(absolutePath, "utf8");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: message });
+      continue;
+    }
+
+    const byteLength = Buffer.byteLength(raw, "utf8");
+    if (byteLength > MAX_REPO_POLICY_FILE_BYTES) {
+      logWarn("repo_policy_rule_skipped", {
+        path: absolutePath,
+        reason: "file exceeds size cap",
+      });
+      continue;
+    }
+    if (aggregateBytes + byteLength > maxBytes) {
+      logWarn("repo_policy_rule_skipped", {
+        path: absolutePath,
+        reason: "aggregate size cap exceeded",
+      });
+      continue;
+    }
+
+    const parsed = parseMdcContent(raw);
+    if (parsed.kind === "invalid") {
+      logWarn("repo_policy_rule_skipped", { path: absolutePath, reason: parsed.reason });
+      continue;
+    }
+
+    aggregateBytes += byteLength;
+    rules.push({
+      filename,
+      relativePath: `${REPO_POLICY_DIRNAME}/${filename}`,
+      alwaysApply: parsed.alwaysApply,
+      globs: parsed.globs,
+      body: parsed.body,
+    });
+  }
+
+  if (rules.length === 0) {
+    return { kind: "invalid", reason: "no usable .mdc rules" };
+  }
+  return { kind: "ok", policy: { rules } };
 }
 
 export function renderRepoPolicyBlock(params: {
   policy: RepoPolicy;
-  mode: ReviewMode;
   changedFiles?: readonly string[];
 }): string {
-  const { policy, mode, changedFiles } = params;
+  const { policy, changedFiles } = params;
   const lines = ["Trusted context (repo policy):"];
 
-  if (policy.tone) {
-    lines.push(`- Tone: ${sanitizeRenderedPolicyText(policy.tone)}`);
-  }
-  if (policy.severityFloor != null) {
-    lines.push(`- Severity floor: P${policy.severityFloor} and above`);
-  }
-
-  const lensInstructions = policy.lensOverrides?.[mode]?.instructions;
-  if (lensInstructions) {
-    lines.push(`- Lens instructions: ${sanitizeRenderedPolicyText(lensInstructions)}`);
-  }
-
-  const pathEntries = policy.pathInstructions ?? [];
-  const matchingPaths = changedFiles
-    ? pathEntries.filter((entry) =>
-        changedFiles.some((filename) => matchesPathGlob(filename, entry.path)),
-      )
-    : pathEntries;
-  for (const entry of matchingPaths) {
-    lines.push(`- Path ${entry.path}: ${sanitizeRenderedPolicyText(entry.instructions)}`);
+  for (const rule of policy.rules) {
+    if (!ruleApplies(rule, changedFiles)) continue;
+    lines.push(`- Rule \`${rule.relativePath}\`: ${sanitizeRenderedPolicyText(rule.body)}`);
   }
 
   if (lines.length === 1) {
@@ -143,76 +261,66 @@ export function renderRepoPolicyBlock(params: {
   return lines.join("\n");
 }
 
-export function logInvalidRepoPolicy(agentCwd: string, reason: string): void {
-  logWarn("repo_policy_invalid", {
-    path: join(agentCwd, REPO_POLICY_FILENAME),
-    reason,
-  });
-}
-
-function policyEntryYaml(params: {
-  readonly filePath: string;
-  readonly dismissalEvidence: string;
-}): { readonly path: string; readonly instruction: string; readonly entryLines: string[] } {
-  const path = escapeYamlDoubleQuoted(
-    sanitizeRenderedPolicyText(params.filePath).slice(0, MAX_REPO_POLICY_PATH_PATTERN_CHARS),
-  );
-  const instruction = escapeYamlDoubleQuoted(
-    sanitizeRenderedPolicyText(params.dismissalEvidence).slice(
-      0,
-      MAX_REPO_POLICY_INSTRUCTION_CHARS,
-    ),
-  );
-  return {
-    path,
-    instruction,
-    entryLines: [`  - path: "${path}"`, `    instructions: "${instruction}"`],
-  };
+function renderNewMdcSuggestion(params: {
+  readonly relativePath: string;
+  readonly globs: readonly string[];
+  readonly instruction: string;
+  readonly preamble?: string;
+}): string {
+  const lines = [
+    ...(params.preamble ? [params.preamble] : []),
+    `Create \`${params.relativePath}\` with:`,
+    "",
+    "```mdc",
+    "---",
+    "globs:",
+    ...params.globs.map((glob) => `  - "${glob}"`),
+    "alwaysApply: false",
+    "---",
+    "",
+    params.instruction,
+    "```",
+  ];
+  return lines.join("\n");
 }
 
 /**
- * Render a paste-ready `.pr-agent.yml` suggestion for a dismissed finding.
- * When an existing valid policy is provided, emit only the append fragment;
- * otherwise emit a full starter file so new repos know the shape.
+ * Render a paste-ready `.pr-agent/*.mdc` suggestion for a dismissed finding.
+ * When exactly one existing rule matches the finding path, emit an append
+ * fragment; otherwise emit a full starter `.mdc` file.
  */
 export function renderPolicySuggestionForDismissed(params: {
   readonly filePath: string;
   readonly dismissalEvidence: string;
   readonly policyResult?: RepoPolicyResult;
 }): string {
-  const { entryLines } = policyEntryYaml(params);
   const policyResult = params.policyResult ?? { kind: "absent" as const };
+  const instruction = sanitizeRenderedPolicyText(params.dismissalEvidence).slice(
+    0,
+    MAX_REPO_POLICY_INSTRUCTION_CHARS,
+  );
+  const globs = defaultGlobsForPath(params.filePath);
+  const newRelativePath = `${REPO_POLICY_DIRNAME}/${policySlugFromPath(params.filePath)}${REPO_POLICY_EXTENSION}`;
 
   if (policyResult.kind === "ok") {
-    return [
-      `Append this entry under \`pathInstructions\` in \`${REPO_POLICY_FILENAME}\`:`,
-      "",
-      "```yaml",
-      ...entryLines,
-      "```",
-    ].join("\n");
+    const matches = policyResult.policy.rules.filter((rule) =>
+      ruleApplies(rule, [params.filePath]),
+    );
+    if (matches.length === 1) {
+      const target = matches[0];
+      return [`Append this to \`${target.relativePath}\`:`, "", "```md", instruction, "```"].join(
+        "\n",
+      );
+    }
   }
 
-  if (policyResult.kind === "invalid") {
-    return [
-      `\`${REPO_POLICY_FILENAME}\` exists but could not be used (${policyResult.reason}).`,
-      "Replace or fix it using this starter:",
-      "",
-      "```yaml",
-      "version: 1",
-      "pathInstructions:",
-      ...entryLines,
-      "```",
-    ].join("\n");
-  }
-
-  return [
-    `Create \`${REPO_POLICY_FILENAME}\` with:`,
-    "",
-    "```yaml",
-    "version: 1",
-    "pathInstructions:",
-    ...entryLines,
-    "```",
-  ].join("\n");
+  return renderNewMdcSuggestion({
+    relativePath: newRelativePath,
+    globs,
+    instruction,
+    preamble:
+      policyResult.kind === "invalid"
+        ? `\`${REPO_POLICY_DIRNAME}/\` exists but could not be used (${policyResult.reason}).`
+        : undefined,
+  });
 }

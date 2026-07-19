@@ -125,7 +125,7 @@ export function renderTriageReport(params: {
   if (dismissedSuggestions.length > 0) {
     const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
     lines.push("", "### Policy suggestions for dismissed findings", "");
-    lines.push("Commit these to `.pr-agent.yml` to steer future reviews:", "");
+    lines.push("Commit these to `.pr-agent/*.mdc` to steer future reviews:", "");
     for (const verdict of dismissedSuggestions) {
       const thread = threadById.get(verdict.threadRootCommentId);
       if (!thread) continue;

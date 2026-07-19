@@ -61,8 +61,10 @@ describe("renderTriageReport policy suggestion footer", () => {
     });
 
     expect(result).toContain("Policy suggestions for dismissed findings");
-    expect(result).toContain('path: "src/auth/login.ts"');
+    expect(result).toContain("Commit these to `.pr-agent/*.mdc` to steer future reviews:");
+    expect(result).toContain("Create `.pr-agent/src-auth-login.mdc` with:");
     expect(result).toContain("False positive: input is sanitized upstream.");
+    expect(result).not.toContain(".pr-agent.yml");
     // The non-dismissed thread should not appear in the suggestions
     const suggestionSection = result.split("Policy suggestions")[1];
     expect(suggestionSection).not.toContain("src/other.ts");

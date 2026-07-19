@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
@@ -11,11 +12,7 @@ import {
 } from "../../github/listPullRequestFiles.js";
 import { runFullPrReview } from "../../review/run/reviewRun.js";
 import type { ReviewRunResult } from "../../review/run/reviewRunTypes.js";
-import {
-  loadRepoPolicy,
-  logInvalidRepoPolicy,
-  renderRepoPolicyBlock,
-} from "../../review/repoPolicy.js";
+import { loadRepoPolicy, renderRepoPolicyBlock } from "../../review/repoPolicy.js";
 import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
@@ -38,7 +35,11 @@ import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
-import { DESCRIPTION_AGENT_HEADER, MAX_REPO_POLICY_BYTES } from "../../settings/index.js";
+import {
+  DESCRIPTION_AGENT_HEADER,
+  MAX_REPO_POLICY_BYTES,
+  REPO_POLICY_DIRNAME,
+} from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
   completeReviewCheckRun,
@@ -258,31 +259,6 @@ function buildPriorInlineFeedbackPromise(args: {
   }, logPriorFeedbackError);
 }
 
-async function loadRepoPolicyBlocks(args: {
-  readonly repositoryView: PrRepositoryView;
-  readonly reviewLens: ReviewMode;
-}): Promise<{
-  readonly repoPolicyBlock: string | undefined;
-  readonly severityFloor: number | undefined;
-}> {
-  const { repositoryView, reviewLens } = args;
-  const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
-  let repoPolicyBlock: string | undefined;
-  let severityFloor: number | undefined;
-  if (policyResult.kind === "invalid") {
-    logInvalidRepoPolicy(repositoryView.agentCwd, policyResult.reason);
-  } else if (policyResult.kind === "ok") {
-    severityFloor = policyResult.policy.severityFloor;
-    const rendered = renderRepoPolicyBlock({
-      policy: policyResult.policy,
-      mode: reviewLens,
-      changedFiles: repositoryView.preflight.files.map((file) => file.filename),
-    });
-    repoPolicyBlock = rendered || undefined;
-  }
-  return { repoPolicyBlock, severityFloor };
-}
-
 async function handleReviewPublishResult(args: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -400,10 +376,20 @@ async function runFullReviewAgainstRepositoryView(args: {
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
 
-  const { repoPolicyBlock, severityFloor } = await loadRepoPolicyBlocks({
-    repositoryView,
-    reviewLens,
-  });
+  const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
+  let repoPolicyBlock: string | undefined;
+  if (policyResult.kind === "invalid") {
+    logWarn("repo_policy_invalid", {
+      path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
+      reason: policyResult.reason,
+    });
+  } else if (policyResult.kind === "ok") {
+    const rendered = renderRepoPolicyBlock({
+      policy: policyResult.policy,
+      changedFiles: repositoryView.preflight.files.map((file) => file.filename),
+    });
+    repoPolicyBlock = rendered || undefined;
+  }
 
   const trustedContext = buildTrustedReviewContextForReview({
     preflight: repositoryView.preflight,
@@ -423,7 +409,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     mode: reviewLens,
     userSupplement: payload.userSupplement,
     trustedContext,
-    severityFloor,
     storedInlineFingerprints,
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,

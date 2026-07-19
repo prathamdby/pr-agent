@@ -337,8 +337,15 @@ describe("publishVerification", () => {
         policyResult: {
           kind: "ok",
           policy: {
-            version: 1,
-            pathInstructions: [{ path: "src/**", instructions: "existing" }],
+            rules: [
+              {
+                filename: "src.mdc",
+                relativePath: ".pr-agent/src.mdc",
+                alwaysApply: false,
+                globs: ["src/**"],
+                body: "existing",
+              },
+            ],
           },
         },
         payload: {
@@ -357,8 +364,9 @@ describe("publishVerification", () => {
     expect(mocks.updateComment).toHaveBeenCalledTimes(1);
     const body = mocks.updateComment.mock.calls[0]?.[0]?.body as string;
     expect(body).toContain("dismissed");
-    expect(body).toContain("Append this entry under `pathInstructions`");
-    expect(body).not.toContain("version: 1");
+    expect(body).toContain("Append this to `.pr-agent/src.mdc`:");
+    expect(body).not.toContain("pathInstructions");
+    expect(body).not.toContain(".pr-agent.yml");
     expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
     expect(mocks.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),
