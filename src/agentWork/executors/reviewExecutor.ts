@@ -191,6 +191,7 @@ async function runLightweightCompletionOrSkip(args: {
     token: tokenState.installation.token,
     tokenExpiresAtTs: tokenState.installation.expiresAtTs,
     preflight,
+    model: cfg.piModel,
   });
   if (!lightweightResult.handled) {
     return { done: false, prefetchedPrFiles };
