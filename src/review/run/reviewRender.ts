@@ -53,6 +53,8 @@ import {
   renderReviewRunFooter,
   type ReviewRunFooterMeta,
 } from "./reviewRunFooter.js";
+import type { CiSummary } from "../ci/ciSummaryTypes.js";
+import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -459,6 +461,8 @@ type ReviewSummaryRenderCtx = RenderContext & {
   runFooter: ReviewRunFooterMeta;
   staleReview?: boolean;
   cachedDiffIndex?: CachedPrDiffIndex;
+  /** Server-derived CI gate; omitted when disabled, unavailable, or no checks. */
+  ciSummary?: CiSummary | null;
 };
 
 /** Expects `ctx.placements` pre-sorted by severity, file, and line (`sortPlacements`). */
@@ -525,6 +529,11 @@ function buildReviewSummaryBody(
       ? escapeTablePlainCell(payload.securityConcerns)
       : escapeTableHtml(REVIEW_SECURITY_DEFAULT),
   ]);
+
+  const ciSummary = ctx.ciSummary;
+  if (shouldRenderCiSummaryRow(ciSummary) && ciSummary != null) {
+    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ciSummary)]);
+  }
 
   const blockingCount = payload.findings.filter(
     (f) => f.severity === "P0" || f.severity === "P1",

@@ -28,6 +28,8 @@ import {
 } from "../run/reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
+import { buildCiSummary } from "../ci/analyzeCi.js";
+import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import {
@@ -232,6 +234,10 @@ export async function publishReview(
       | "enableReviewLabelsEffort"
       | "enableReviewLabelsSecurity"
       | "enableReviewCommitStatus"
+      | "enableReviewCiSummary"
+      | "reviewCiSummaryWaitMs"
+      | "reviewCiSummaryWaitPollMs"
+      | "reviewCiSummaryMaxFailures"
     >;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
@@ -361,6 +367,29 @@ export async function publishReview(
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
+  let ciSummary: CiSummary | null = null;
+  if (cfg.enableReviewCiSummary) {
+    try {
+      ciSummary = await buildCiSummary({
+        token,
+        owner,
+        repo,
+        headSha,
+        expiresAtTs: tokenExpiresAtTs,
+        waitMs: cfg.reviewCiSummaryWaitMs,
+        waitPollMs: cfg.reviewCiSummaryWaitPollMs,
+        maxFailures: cfg.reviewCiSummaryMaxFailures,
+      });
+    } catch (e) {
+      logWarn("review_ci_summary_build_failed", {
+        mode,
+        owner,
+        repo,
+        pr: prNumber,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
     summarySentinel,
@@ -368,6 +397,7 @@ export async function publishReview(
     mode,
     staleReview: params.staleReview ?? false,
     cachedDiffIndex: params.cachedDiffIndex,
+    ciSummary,
     runFooter: {
       durationMs: metricsSnapshot?.wallClockMs ?? 0,
       model: cfg.piModel,

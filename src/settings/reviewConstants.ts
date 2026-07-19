@@ -120,6 +120,10 @@ export const REVIEW_CHECK_RUN_RESERVATION_STALE_MS = 5 * 60 * 1000;
 /** Max wait for a peer (e.g. ack job) to persist a started check run id. */
 export const REVIEW_CHECK_RUN_WAIT_FOR_ID_MS = 15_000;
 export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
+
+/** Review CI summary (optional gate row): fallbacks when call sites omit wait/cap options. */
+export const REVIEW_CI_SUMMARY_WAIT_POLL_MS = 2_000;
+export const REVIEW_CI_SUMMARY_MAX_FAILURES = 3;
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */

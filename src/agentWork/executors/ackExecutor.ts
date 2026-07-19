@@ -11,6 +11,8 @@ import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
+import { buildCiSummary } from "../../review/ci/analyzeCi.js";
+import type { CiSummary } from "../../review/ci/ciSummaryTypes.js";
 import { renderReviewProgressComment } from "../../review/run/progressComment.js";
 import {
   getAppBotIdentity,
@@ -66,10 +68,32 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
             installation.expiresAtTs,
           )
         : data.progress.headSha;
+    let ciSummary: CiSummary | null = null;
+    if (cfg.enableReviewCiSummary) {
+      try {
+        ciSummary = await buildCiSummary({
+          token: installation.token,
+          owner: data.owner,
+          repo: data.repo,
+          headSha,
+          expiresAtTs: installation.expiresAtTs,
+          lightweight: true,
+          waitMs: 0,
+        });
+      } catch (e) {
+        logWarn("ack_ci_summary_failed", {
+          owner: data.owner,
+          repo: data.repo,
+          pr: data.prNumber,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
     const body = renderReviewProgressComment({
       mode: data.progress.lens,
       headSha,
       source: data.progress.source,
+      ciSummary,
     });
     const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
     const sentinel = reviewSummarySentinelForMode(data.progress.lens);
