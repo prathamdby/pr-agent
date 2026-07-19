@@ -51,6 +51,18 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 - **Webhook URL** (default Compose ports): `http://<host>:7224/webhooks`.
 - **`DATABASE_URL`** in Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`.
 - **Provider API keys** (for example **`OPENAI_API_KEY`** or **`CURSOR_API_KEY`** when using the Cursor provider) are not fully read by [`src/config.ts`](../src/config.ts) except `CURSOR_API_KEY` when selected; other Pi AI secrets load from the environment. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.
+- **Custom Pi providers (`models.json`):** the runtime image does not include a catalog. Copy [`models.json.example`](../models.json.example) to a host file, then mount it into **both** web and worker at `/app/models.json` (process cwd), or mount elsewhere and set **`MODELS_JSON_PATH`**. Create the host file before mounting — Docker turns a missing host path into a directory. Example Compose fragment:
+
+  ```yaml
+  services:
+    pr-agent-web:
+      volumes:
+        - ./models.json:/app/models.json:ro
+    pr-agent-worker:
+      volumes:
+        - ./models.json:/app/models.json:ro
+  ```
+
 - **Secrets:** never commit `.env`; keep Compose files off public pastebins.
 
 ```bash

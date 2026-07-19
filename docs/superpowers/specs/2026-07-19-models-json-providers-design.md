@@ -10,13 +10,13 @@ Allow optional project-root `models.json` in Pi’s native format as a provider/
 
 ## Decisions
 
-| Topic         | Choice                                                                   |
-| ------------- | ------------------------------------------------------------------------ |
-| Path          | Fixed: `models.json` at `process.cwd()` (Docker: `/app/models.json`)     |
-| Selection     | Catalog only; env still picks provider/model                             |
-| Missing file  | Optional; fall back to env + built-ins                                   |
-| Config timing | Resolve + validate in `loadConfig()`; stash `modelsJsonPath` on `Config` |
-| Cursor runner | Ignore `models.json` for selection validation and session setup          |
+| Topic         | Choice                                                                                          |
+| ------------- | ----------------------------------------------------------------------------------------------- |
+| Path          | `MODELS_JSON_PATH` when set; else `models.json` at `process.cwd()` (Docker: `/app/models.json`) |
+| Selection     | Catalog only; env still picks provider/model                                                    |
+| Missing file  | Optional; fall back to env + built-ins                                                          |
+| Config timing | Resolve + validate in `loadConfig()`; stash `modelsJsonPath` on `Config`                        |
+| Cursor runner | Ignore `models.json` for selection validation and session setup                                 |
 
 ## Critical risk (peer review) and mitigation
 

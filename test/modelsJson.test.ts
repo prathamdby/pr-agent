@@ -41,6 +41,28 @@ describe("modelsJson helpers", () => {
     expect(resolveModelsJsonPath(dir)).toBe(path);
   });
 
+  it("resolveModelsJsonPath prefers MODELS_JSON_PATH when the file exists", () => {
+    const dir = tempDir();
+    const explicit = join(dir, "custom-catalog.json");
+    writeFileSync(explicit, JSON.stringify({ providers: {} }));
+    expect(
+      resolveModelsJsonPath({
+        cwd: tempDir(),
+        explicitPath: explicit,
+      }),
+    ).toBe(explicit);
+  });
+
+  it("resolveModelsJsonPath throws when MODELS_JSON_PATH is set but missing", () => {
+    const missing = join(tempDir(), "missing-models.json");
+    expect(() =>
+      resolveModelsJsonPath({
+        cwd: tempDir(),
+        explicitPath: missing,
+      }),
+    ).toThrow(/MODELS_JSON_PATH/);
+  });
+
   it("assertBuiltinPiProvider rejects unknown slugs", () => {
     expect(() => assertBuiltinPiProvider("not-a-real-provider")).toThrow(/unknown/);
   });
@@ -149,6 +171,45 @@ describe("modelsJson helpers", () => {
       }),
     ).rejects.toThrow(/Invalid models\.json/);
   });
+
+  it("assertPiModelSelection mentions missing catalog when custom provider has no models.json", async () => {
+    await expect(
+      assertPiModelSelection({
+        modelsJsonPath: null,
+        piProvider: "agent-router",
+        piModel: "claude-opus-4-6",
+        catalogCandidatePath: "/app/models.json",
+      }),
+    ).rejects.toThrow(/no models\.json catalog was loaded.*\/app\/models\.json.*MODELS_JSON_PATH/s);
+  });
+
+  it("assertPiModelSelection accepts anthropic-messages custom provider from models.json", async () => {
+    const dir = tempDir();
+    const path = join(dir, "models.json");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        providers: {
+          "agent-router": {
+            baseUrl: "https://agentrouter.org",
+            api: "anthropic-messages",
+            apiKey: "test-key",
+            models: [
+              { id: "claude-opus-4-6", name: "Claude Opus 4.6" },
+              { id: "claude-opus-4-7", name: "Claude Opus 4.7" },
+            ],
+          },
+        },
+      }),
+    );
+    await expect(
+      assertPiModelSelection({
+        modelsJsonPath: path,
+        piProvider: "agent-router",
+        piModel: "claude-opus-4-6",
+      }),
+    ).resolves.toBe("anthropic-messages");
+  });
 });
 
 describe("loadConfig models.json", () => {
@@ -213,6 +274,45 @@ describe("loadConfig models.json", () => {
     expect(cfg.piProvider).toBe("ollama");
     expect(cfg.piModel).toBe("llama3.1:8b");
     expect(cfg.piApi).toBe("openai-completions");
+  });
+
+  it("loads custom provider via MODELS_JSON_PATH outside cwd", async () => {
+    const cwd = tempDir();
+    const catalogDir = tempDir();
+    const catalogPath = join(catalogDir, "providers.json");
+    writeFileSync(
+      catalogPath,
+      JSON.stringify({
+        providers: {
+          "agent-router": {
+            baseUrl: "https://agentrouter.org",
+            api: "anthropic-messages",
+            apiKey: "test-key",
+            models: [{ id: "claude-opus-4-6", name: "Claude Opus 4.6" }],
+          },
+        },
+      }),
+    );
+    const cfg = await loadWithCwd(cwd, {
+      AGENT_PROVIDER: "pi",
+      PI_PROVIDER: "agent-router",
+      PI_MODEL: "claude-opus-4-6",
+      MODELS_JSON_PATH: catalogPath,
+    });
+    expect(cfg.modelsJsonPath).toBe(catalogPath);
+    expect(cfg.piProvider).toBe("agent-router");
+    expect(cfg.piApi).toBe("anthropic-messages");
+  });
+
+  it("rejects unknown custom PI_PROVIDER with a missing-catalog hint", async () => {
+    const dir = tempDir();
+    await expect(
+      loadWithCwd(dir, {
+        AGENT_PROVIDER: "pi",
+        PI_PROVIDER: "agent-router",
+        PI_MODEL: "claude-opus-4-6",
+      }),
+    ).rejects.toThrow(/no models\.json catalog was loaded/);
   });
 
   it("rejects invalid selection when models.json is present", async () => {

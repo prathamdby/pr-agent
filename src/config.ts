@@ -80,7 +80,11 @@ import {
   GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
   AUTOMATED_PR_ACTIONS,
 } from "./settings/index.js";
-import { assertPiModelSelection, resolveModelsJsonPath } from "./settings/modelsJson.js";
+import {
+  assertPiModelSelection,
+  defaultModelsJsonCandidatePath,
+  resolveModelsJsonPath,
+} from "./settings/modelsJson.js";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -241,12 +245,25 @@ export async function loadConfig() {
 
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
-  const modelsJsonPath = resolveModelsJsonPath();
+  const modelsJsonPath = resolveModelsJsonPath({
+    explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
+  });
+  const catalogCandidatePath = modelsJsonPath ?? defaultModelsJsonCandidatePath();
   // Cursor ignores models.json for PI_MODEL selection; still require a built-in PI_PROVIDER slug.
   const piApi =
     agentProvider === "pi"
-      ? await assertPiModelSelection({ modelsJsonPath, piProvider, piModel })
-      : await assertPiModelSelection({ modelsJsonPath: null, piProvider, piModel });
+      ? await assertPiModelSelection({
+          modelsJsonPath,
+          piProvider,
+          piModel,
+          catalogCandidatePath,
+        })
+      : await assertPiModelSelection({
+          modelsJsonPath: null,
+          piProvider,
+          piModel,
+          catalogCandidatePath,
+        });
 
   const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
   if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {

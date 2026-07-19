@@ -1,15 +1,39 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 
 /** Fixed project-root catalog filename (Pi native `models.json` format). */
 export const MODELS_JSON_FILENAME = "models.json";
 
-export function resolveModelsJsonPath(cwd: string = process.cwd()): string | null {
+export type ResolveModelsJsonPathOptions = {
+  readonly cwd?: string;
+  /** Absolute or cwd-relative path from `MODELS_JSON_PATH`. When set, the file must exist. */
+  readonly explicitPath?: string | null;
+};
+
+/** `MODELS_JSON_PATH` when set (must exist); else optional `models.json` under cwd. */
+export function resolveModelsJsonPath(
+  cwdOrOptions: string | ResolveModelsJsonPathOptions = process.cwd(),
+): string | null {
+  const options: ResolveModelsJsonPathOptions =
+    typeof cwdOrOptions === "string" ? { cwd: cwdOrOptions } : cwdOrOptions;
+  const cwd = options.cwd ?? process.cwd();
+  const explicit = options.explicitPath?.trim();
+  if (explicit) {
+    const path = isAbsolute(explicit) ? explicit : join(cwd, explicit);
+    if (!existsSync(path)) {
+      throw new Error(`MODELS_JSON_PATH "${path}" does not exist`);
+    }
+    return path;
+  }
   const path = join(cwd, MODELS_JSON_FILENAME);
   return existsSync(path) ? path : null;
+}
+
+export function defaultModelsJsonCandidatePath(cwd: string = process.cwd()): string {
+  return join(cwd, MODELS_JSON_FILENAME);
 }
 
 function assertNotCursorPiProvider(piProvider: string): void {
@@ -46,12 +70,20 @@ export async function assertPiModelSelection(options: {
   readonly modelsJsonPath: string | null;
   readonly piProvider: string;
   readonly piModel: string;
+  /** Path shown in the missing-catalog error (cwd `models.json` or MODELS_JSON_PATH). */
+  readonly catalogCandidatePath?: string;
 }): Promise<string> {
   const { modelsJsonPath, piProvider, piModel } = options;
   assertNotCursorPiProvider(piProvider);
 
   if (!modelsJsonPath) {
-    assertBuiltinPiProvider(piProvider);
+    const providers = getProviders() as readonly string[];
+    if (!providers.includes(piProvider)) {
+      const lookedFor = options.catalogCandidatePath ?? defaultModelsJsonCandidatePath();
+      throw new Error(
+        `PI_PROVIDER "${piProvider}" is unknown and no models.json catalog was loaded (looked for ${lookedFor}). Mount or copy ${MODELS_JSON_FILENAME} into the process cwd, or set MODELS_JSON_PATH. Built-ins: ${providers.slice(0, 12).join(", ")}…`,
+      );
+    }
     return builtinPiApi(piProvider, piModel);
   }
 
