@@ -93,14 +93,13 @@ type LightweightPhaseResult =
   | { readonly done: false; readonly prefetchedPrFiles: ListPullRequestFilesResult | undefined };
 
 async function handleStaleHeadReschedule(args: {
-  readonly cfg: Config;
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
   readonly installation: InstallationToken;
 }): Promise<StaleSlashReviewRescheduleResult | undefined> {
-  const { cfg, pool, item, reviewLens, payload, installation } = args;
+  const { pool, item, reviewLens, payload, installation } = args;
   if (
     payload.source !== "slash" ||
     payload.staleHeadRescheduled ||
@@ -109,7 +108,6 @@ async function handleStaleHeadReschedule(args: {
     return undefined;
   }
   await completeReviewCheckRun(pool, {
-    cfg,
     token: installation.token,
     tokenExpiresAtTs: installation.expiresAtTs,
     owner: item.owner,
@@ -130,7 +128,6 @@ async function handleStaleHeadReschedule(args: {
 }
 
 async function completeCheckFromStoredSummary(args: {
-  readonly cfg: Config;
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
@@ -138,10 +135,9 @@ async function completeCheckFromStoredSummary(args: {
   readonly conclusion: "failure" | "cancelled";
   readonly summary: string;
 }): Promise<void> {
-  const { cfg, pool, item, reviewLens, tokenState, conclusion, summary } = args;
+  const { pool, item, reviewLens, tokenState, conclusion, summary } = args;
   const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
   await completeReviewCheckRun(pool, {
-    cfg,
     token: tokenState.installation.token,
     tokenExpiresAtTs: tokenState.installation.expiresAtTs,
     owner: item.owner,
@@ -210,7 +206,6 @@ async function runLightweightCompletionOrSkip(args: {
   });
   logReviewRunCompleted();
   await completeReviewCheckRun(pool, {
-    cfg,
     token: tokenState.installation.token,
     tokenExpiresAtTs: tokenState.installation.expiresAtTs,
     owner: item.owner,
@@ -307,7 +302,6 @@ async function handleReviewPublishResult(args: {
         publishAttempts: result.publishAttempts,
       });
       await completeCheckFromStoredSummary({
-        cfg,
         pool,
         item,
         reviewLens,
@@ -335,7 +329,6 @@ async function handleReviewPublishResult(args: {
         },
       });
       await completeCheckFromStoredSummary({
-        cfg,
         pool,
         item,
         reviewLens,
@@ -480,7 +473,6 @@ async function runFullReviewAgainstRepositoryView(args: {
 
   if (staleHeadAtPublish.value && payload.source === "slash" && !payload.staleHeadRescheduled) {
     await completeCheckFromStoredSummary({
-      cfg,
       pool,
       item,
       reviewLens,
@@ -531,7 +523,6 @@ export async function executeReviewJob(
       });
 
       const staleHeadResult = await handleStaleHeadReschedule({
-        cfg,
         pool,
         item,
         reviewLens,
@@ -549,7 +540,6 @@ export async function executeReviewJob(
       const publishAbortState: { staleHead?: boolean } = {};
 
       await ensureReviewCheckRunStarted(pool, {
-        cfg,
         token: tokenState.installation.token,
         tokenExpiresAtTs: tokenState.installation.expiresAtTs,
         owner: item.owner,
@@ -610,7 +600,6 @@ export async function executeReviewJob(
       const reviewLens = item.reviewLens;
       const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
       await completeReviewCheckRun(pool, {
-        cfg,
         token: installation.token,
         tokenExpiresAtTs: installation.expiresAtTs,
         owner: item.owner,
@@ -641,7 +630,6 @@ export async function executeReviewJob(
         installation.expiresAtTs,
       );
       await completeReviewCheckRun(pool, {
-        cfg,
         token: installation.token,
         tokenExpiresAtTs: installation.expiresAtTs,
         owner: item.owner,

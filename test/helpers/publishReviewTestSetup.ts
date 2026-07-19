@@ -30,7 +30,6 @@ export const publishReviewTestBaseParams = {
     enableReviewLabelsEffort: false,
     enableReviewLabelsSecurity: false,
     enableReviewCommitStatus: false,
-    enableReviewCheckRun: false,
   },
   payload: publishReviewTestPayload,
 };
@@ -67,14 +66,10 @@ export function createAgentWorkRepositoryMock() {
   };
 }
 
-export function createReviewCheckRunMock() {
+export async function createReviewCheckRunMock() {
+  const actual = await import("../../src/agentWork/reviewCheckRun.js");
   return {
+    ...actual,
     completeReviewCheckRun: vi.fn(async () => true),
-    reviewCheckDetailsUrl: vi.fn(
-      (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
-        summaryCommentId == null
-          ? undefined
-          : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
-    ),
   };
 }

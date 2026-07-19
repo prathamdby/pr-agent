@@ -33,14 +33,13 @@ import {
   completeReviewCheckRun,
   ensureReviewCheckRunStarted,
   reviewCheckRunName,
+  reviewCheckRunOutcome,
   waitForReviewCheckRunGithubId,
 } from "../src/agentWork/reviewCheckRun.js";
 
 const pool = {} as never;
-const cfg = { enableReviewCheckRun: true };
 
 const startParams = {
-  cfg,
   token: "tok",
   tokenExpiresAtTs: 123,
   owner: "o",
@@ -64,15 +63,31 @@ describe("review check run lifecycle", () => {
     expect(reviewCheckRunName("review-tests")).toBe("PR Agent Tests Review");
   });
 
-  it("does nothing when disabled", async () => {
-    await expect(
-      ensureReviewCheckRunStarted(pool, {
-        ...startParams,
-        cfg: { enableReviewCheckRun: false },
-      }),
-    ).resolves.toBeNull();
-
-    expect(createReviewCheckRun).not.toHaveBeenCalled();
+  it("fails the check when P0–P2 findings exist and passes otherwise", () => {
+    expect(reviewCheckRunOutcome([{ severity: "P0" }])).toEqual({
+      conclusion: "failure",
+      summary: "1 finding",
+    });
+    expect(reviewCheckRunOutcome([{ severity: "P1" }])).toEqual({
+      conclusion: "failure",
+      summary: "1 finding",
+    });
+    expect(reviewCheckRunOutcome([{ severity: "P2" }, { severity: "P3" }])).toEqual({
+      conclusion: "failure",
+      summary: "1 finding",
+    });
+    expect(reviewCheckRunOutcome([{ severity: "P0" }, { severity: "P2" }])).toEqual({
+      conclusion: "failure",
+      summary: "2 findings",
+    });
+    expect(reviewCheckRunOutcome([])).toEqual({
+      conclusion: "success",
+      summary: "no findings",
+    });
+    expect(reviewCheckRunOutcome([{ severity: "P3" }])).toEqual({
+      conclusion: "success",
+      summary: "no findings",
+    });
   });
 
   it("creates and records an in-progress check run", async () => {
@@ -267,7 +282,7 @@ describe("review check run lifecycle", () => {
       completeReviewCheckRun(pool, {
         ...startParams,
         conclusion: "failure",
-        summary: "1 P0/P1 finding",
+        summary: "1 finding",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       }),
     ).resolves.toBe(true);
@@ -280,7 +295,7 @@ describe("review check run lifecycle", () => {
       expect.objectContaining({
         name: "PR Agent Review",
         conclusion: "failure",
-        summary: "1 P0/P1 finding",
+        summary: "1 finding",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       }),
       123,
@@ -297,7 +312,7 @@ describe("review check run lifecycle", () => {
     const pending = completeReviewCheckRun(pool, {
       ...startParams,
       conclusion: "success",
-      summary: "no blocking findings",
+      summary: "no findings",
     });
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toBe(true);
@@ -327,7 +342,7 @@ describe("review check run lifecycle", () => {
       completeReviewCheckRun(pool, {
         ...startParams,
         conclusion: "success",
-        summary: "no blocking findings",
+        summary: "no findings",
       }),
     ).resolves.toBe(true);
 
@@ -351,7 +366,7 @@ describe("review check run lifecycle", () => {
       completeReviewCheckRun(pool, {
         ...startParams,
         conclusion: "success",
-        summary: "no blocking findings",
+        summary: "no findings",
       }),
     ).resolves.toBe(false);
 

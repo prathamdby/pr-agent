@@ -123,7 +123,6 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
         detail: { updated: summary.updated },
       });
       await ensureReviewCheckRunStarted(pool, {
-        cfg,
         token: installation.token,
         tokenExpiresAtTs: installation.expiresAtTs,
         owner: data.owner,

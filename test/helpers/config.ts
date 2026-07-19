@@ -67,7 +67,6 @@ const baseTestConfig: Config = {
   enableReviewLabelsSecurity: false,
   enableThreadReplies: false,
   enableReviewCommitStatus: false,
-  enableReviewCheckRun: false,
   descriptionAutoActions: new Set(["opened"]),
   reviewAutoActions: new Set(["opened"]),
   verificationAutoActions: new Set(["synchronize"]),

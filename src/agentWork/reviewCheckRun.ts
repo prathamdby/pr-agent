@@ -1,5 +1,4 @@
 import type { Pool } from "pg";
-import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
 import { httpStatus } from "../github/httpStatus.js";
 import {
@@ -8,7 +7,7 @@ import {
   updateReviewCheckRun,
   type ReviewCheckRunConclusion,
 } from "../github/reviewPublish.js";
-import type { ReviewMode } from "../review/reviewSchema.js";
+import { isInlineSeverity, type ReviewFinding, type ReviewMode } from "../review/reviewSchema.js";
 import {
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
@@ -21,10 +20,23 @@ import {
   reserveReviewCheckRun,
 } from "./repository.js";
 
-type CheckRunConfig = Pick<Config, "enableReviewCheckRun">;
-
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** P0–P2 findings fail the check; empty or P3-only payloads pass. */
+export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
+  conclusion: ReviewCheckRunConclusion;
+  summary: string;
+} {
+  const bugCount = findings.filter((f) => isInlineSeverity(f.severity)).length;
+  if (bugCount > 0) {
+    return {
+      conclusion: "failure",
+      summary: `${bugCount} finding${bugCount === 1 ? "" : "s"}`,
+    };
+  }
+  return { conclusion: "success", summary: "no findings" };
 }
 
 export async function waitForReviewCheckRunGithubId(
@@ -93,7 +105,6 @@ export function reviewCheckDetailsUrl(
 }
 
 type EnsureReviewCheckRunParams = {
-  cfg: CheckRunConfig;
   token: string;
   tokenExpiresAtTs?: number;
   owner: string;
@@ -322,7 +333,6 @@ export async function ensureReviewCheckRunStarted(
   pool: Pool,
   params: EnsureReviewCheckRunParams,
 ): Promise<number | null> {
-  if (!params.cfg.enableReviewCheckRun) return null;
   const existing = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (existing != null) return existing;
 
@@ -340,7 +350,6 @@ export async function ensureReviewCheckRunStarted(
 export async function completeReviewCheckRun(
   pool: Pool,
   params: {
-    cfg: CheckRunConfig;
     token: string;
     tokenExpiresAtTs?: number;
     owner: string;
@@ -354,7 +363,6 @@ export async function completeReviewCheckRun(
     detailsUrl?: string;
   },
 ): Promise<boolean> {
-  if (!params.cfg.enableReviewCheckRun) return false;
   const checkRunId = await waitForReviewCheckRunGithubId(
     pool,
     params.workItemId,
