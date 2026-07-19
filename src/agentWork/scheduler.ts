@@ -12,13 +12,7 @@ import {
   type SlashCommandInput,
 } from "./intake/applier.js";
 import { flushDeferredEvents } from "./intake/deferredEvents.js";
-import {
-  applyThreadReplyClassifyIntake,
-  type ThreadReplyClassifyInput,
-} from "./intake/threadReplyClassifyIntake.js";
-import { hasStoredInlineReviewId } from "./repository.js";
 import type { PrRef, WebhookHeaders } from "./types.js";
-import { prResourceKey } from "./types.js";
 
 export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   AgentWorkScheduler,
@@ -37,17 +31,6 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
     ) => Effect.Effect<void, Error>;
     readonly submitSlashCommand: (
       input: SlashCommandInput,
-      intakeLog: RequestLogger,
-    ) => Effect.Effect<void, Error>;
-    /** DB-only: true when pull_request_review_id is a stored bot inline review. */
-    readonly lookupStoredInlineReviewHint: (
-      owner: string,
-      repo: string,
-      prNumber: number,
-      pullRequestReviewId: number | null | undefined,
-    ) => Effect.Effect<boolean, Error>;
-    readonly submitThreadReplyClassification: (
-      input: ThreadReplyClassifyInput,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly ping: () => Effect.Effect<boolean>;
@@ -90,25 +73,6 @@ export function makeAgentWorkScheduler(
           );
           flushDeferredEvents(intakeLog, events);
         },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
-
-    lookupStoredInlineReviewHint: (owner, repo, prNumber, pullRequestReviewId) =>
-      Effect.tryPromise({
-        try: async () => {
-          if (pullRequestReviewId == null) return false;
-          const resourceKey = prResourceKey(owner, repo, prNumber);
-          return hasStoredInlineReviewId(pool, resourceKey, pullRequestReviewId);
-        },
-        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-      }),
-
-    submitThreadReplyClassification: (input, intakeLog) =>
-      Effect.tryPromise({
-        try: () =>
-          inTransaction(pool, (client) =>
-            applyThreadReplyClassifyIntake(boss, client, input, intakeLog),
-          ),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

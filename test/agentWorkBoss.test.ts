@@ -10,8 +10,6 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
-  THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
-  THREAD_REPLY_CLASSIFY_QUEUE,
   TRIAGE_DEAD_LETTER_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_DEAD_LETTER_QUEUE,
@@ -46,7 +44,6 @@ describe("ensureAgentQueues", () => {
       DESCRIPTION_DEAD_LETTER_QUEUE,
       TRIAGE_DEAD_LETTER_QUEUE,
       VERIFICATION_DEAD_LETTER_QUEUE,
-      THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
     ];
     const parentQueues = [
       ACK_QUEUE,
@@ -55,7 +52,6 @@ describe("ensureAgentQueues", () => {
       DESCRIPTION_QUEUE,
       TRIAGE_QUEUE,
       VERIFICATION_QUEUE,
-      THREAD_REPLY_CLASSIFY_QUEUE,
     ];
 
     type Deferred = {
@@ -102,10 +98,6 @@ describe("ensureAgentQueues", () => {
       expect.objectContaining({
         policy: "key_strict_fifo",
         deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
-      }),
-      expect.objectContaining({
-        policy: "standard",
-        deadLetter: THREAD_REPLY_CLASSIFY_DEAD_LETTER_QUEUE,
       }),
     ]);
 

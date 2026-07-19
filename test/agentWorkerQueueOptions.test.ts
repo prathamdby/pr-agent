@@ -8,7 +8,6 @@ import {
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
   REVIEW_QUEUE,
-  THREAD_REPLY_CLASSIFY_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../src/settings/index.js";
@@ -35,7 +34,6 @@ describe("logAgentQueueStats", () => {
       DESCRIPTION_QUEUE,
       TRIAGE_QUEUE,
       VERIFICATION_QUEUE,
-      THREAD_REPLY_CLASSIFY_QUEUE,
     ];
     type Deferred = {
       readonly queue: string;

@@ -22,6 +22,9 @@ export type AskRunParams = {
   question: string;
   replyTarget: ReplyTarget;
   codeAnchor?: CodeAnchor;
+  /** Full containing-thread transcript for conversational asks (untrusted). */
+  threadTranscript?: string;
+  threadTranscriptTruncated?: boolean;
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;

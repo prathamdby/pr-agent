@@ -11,6 +11,18 @@ export function buildAskUserContent(params: AskRunParams): string {
     wrapUntrustedBlock("user_question", params.question),
   ];
 
+  if (params.threadTranscript?.trim()) {
+    const header = params.threadTranscriptTruncated
+      ? "Prior comments in this thread (truncated for length; oldest root kept, then newest):"
+      : "Prior comments in this thread (chronological):";
+    blocks.push(
+      wrapUntrustedBlock(
+        "thread_transcript",
+        [header, "", params.threadTranscript.trim()].join("\n"),
+      ),
+    );
+  }
+
   if (params.codeAnchor) {
     const { path, line, startLine, side, diffHunk } = params.codeAnchor;
     const range =

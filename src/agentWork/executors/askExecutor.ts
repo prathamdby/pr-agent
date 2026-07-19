@@ -3,6 +3,7 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { posthog } from "../../posthog.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
+import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
@@ -83,6 +84,14 @@ export async function executeAskJob(
           payload,
         ),
         async (repositoryView) => {
+          const transcript = await loadAskThreadTranscript({
+            token: tokenState.installation.token,
+            tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+            owner: item.owner,
+            repo: item.repo,
+            replyTarget: payload.replyTarget,
+            commentId: payload.commentId,
+          });
           const result = await runAskRun({
             cfg,
             token: tokenState.installation.token,
@@ -95,6 +104,8 @@ export async function executeAskJob(
             question: payload.question,
             replyTarget: payload.replyTarget,
             codeAnchor: payload.codeAnchor,
+            threadTranscript: transcript.text,
+            threadTranscriptTruncated: transcript.truncated,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
             refreshInstallationToken: makeInstallationTokenRefresher(

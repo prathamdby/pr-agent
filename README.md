@@ -214,7 +214,6 @@ flowchart LR
   GitHub[GitHub webhooks] --> Web["ROLE=web /webhooks"]
   Web --> Dedupe[Postgres webhook_events dedupe]
   Dedupe --> Items[agent_work_items]
-  Dedupe --> ClassifyQ[thread-classify queue]
   Items --> Boss[pg-boss enqueue]
   Boss --> AckQ[ack queue]
   Boss --> RevQ[review queue]
@@ -223,8 +222,7 @@ flowchart LR
   Boss --> TriageQ[triage queue]
   Boss --> VerifQ[verification queue]
   Boss --> RetQ[retention queue]
-  ClassifyQ --> Worker["ROLE=worker executors"]
-  AckQ --> Worker
+  AckQ --> Worker["ROLE=worker executors"]
   RevQ --> Worker
   AskQ --> Worker
   DescQ --> Worker
@@ -239,15 +237,14 @@ flowchart LR
   Worker --> Push[git push PR branch]
 ```
 
-1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items** (or enqueue **thread-reply classification** for non-slash inline replies).
-2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, triage, verification, thread-classify).
-3. **Thread-classify worker**: resolve bot-thread / bot-commenter on the worker (GitHub parent lookup when needed), then promote to ask intake or a terminal ignore/failure decision. Deploy workers that consume `agent-work-thread-classify` before web instances that enqueue it.
-4. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
-5. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
-6. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**.
-7. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
+1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items** (slash commands, or `@bot` mentions promoted to ask).
+2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, triage, verification).
+3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
+4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
+5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**. Ask workers load the containing comment thread before the LLM turn.
+6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
 
-Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md). Thread-reply classification: [docs/adr/0022-thread-reply-classification-worker.md](docs/adr/0022-thread-reply-classification-worker.md).
+Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md). Conversational ask: [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
 
 ## Data Privacy
 

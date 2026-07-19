@@ -54,6 +54,8 @@ export type SlashCommandInput = {
   readonly triageScope?: "all" | "thread";
   readonly threadAnchorCommentId?: number;
   readonly needsThreadRootResolution?: boolean;
+  /** App bot login for `@mention` ask parsing. */
+  readonly botLogin?: string;
 };
 
 function clampStoredCommentText(text: string): string {
@@ -108,6 +110,7 @@ async function handleSlashAsk(ctx: SlashIntakeContext): Promise<void> {
       commenterId: ctx.input.commenterId,
       codeAnchor: ctx.input.codeAnchor,
       ackTargets: ctx.baseAck.targets,
+      botLogin: ctx.input.botLogin,
     },
     "skip",
   );

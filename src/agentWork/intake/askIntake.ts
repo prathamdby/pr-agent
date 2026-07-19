@@ -1,10 +1,7 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
-import {
-  ASK_QUESTION_TOO_LONG_HINT,
-  parseAskQuestionForReplyTarget,
-} from "../../commands/parseAskQuestion.js";
+import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/parseAskQuestion.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import type { AckJobData, AckTarget, JobCorrelation, PrRef } from "../types.js";
@@ -25,12 +22,14 @@ export type AskIntakeInput = {
   readonly commenterId: number;
   readonly codeAnchor?: CodeAnchor;
   readonly ackTargets: readonly AckTarget[];
+  /** App bot login for `@mention` ask parsing (optional; slash `/ask` does not need it). */
+  readonly botLogin?: string;
 };
 
 /**
  * Policy when `createAskWorkItem` finds an existing ask for this webhook event:
- * - `skip` — slash webhook path: work was already ensured; do not re-enqueue
- * - `recover` — classify retry path: re-enqueue ack/ask idempotently for the existing id
+ * - `skip` — slash/mention webhook path: work was already ensured; do not re-enqueue
+ * - `recover` — retry path: re-enqueue ack/ask idempotently for the existing id
  */
 export type ExistingAskWorkItemPolicy = "skip" | "recover";
 
@@ -64,9 +63,9 @@ function baseAck(input: AskIntakeInput): AckJobData {
 }
 
 /**
- * Canonical ask intake shared by slash commands and thread-reply classification.
- * Owns implicit inline-thread body parsing, usage/too-long acknowledgement,
- * idempotent ask work-item ensure, ack enqueue, and ask enqueue.
+ * Canonical ask intake shared by `/ask` slash commands and `@bot` mentions.
+ * Owns question parsing, usage/too-long acknowledgement, idempotent ask
+ * work-item ensure, ack enqueue, and ask enqueue.
  */
 export async function promoteAskFromWebhookEvent(
   boss: PgBoss,
@@ -74,7 +73,7 @@ export async function promoteAskFromWebhookEvent(
   input: AskIntakeInput,
   existingWorkItemPolicy: ExistingAskWorkItemPolicy,
 ): Promise<AskIntakeOutcome> {
-  const askParse = parseAskQuestionForReplyTarget(input.body, input.replyTarget);
+  const askParse = parseAskQuestion(input.body, input.botLogin);
   const ack = baseAck(input);
 
   switch (askParse.kind) {

@@ -4,7 +4,7 @@ export const SLASH_HELP_BODY = [
   "",
   "Commands (first line of a **new** comment):",
   "- `/help` — show this message",
-  "- `/ask <question>` — ask about this PR or a specific line of code",
+  "- `/ask <question>` — ask about this PR or a specific line of code (or `@`-mention the bot anywhere on the PR for the same conversational Q&A)",
   "- `/describe` — generate or refresh the PR title/body summary (also runs automatically on PR open)",
   "- `/review` — general bug-and-correctness review (also runs automatically on PR open; further reviews need a manual `/review`)",
   "- `/review-security` — deep security review (DeepSec-style; trigger-only, not auto-run)",
@@ -16,7 +16,7 @@ export const SLASH_HELP_BODY = [
   "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on PR actions listed in `REVIEW_AUTO_ACTIONS` (default `opened` only, so follow-up pushes need a manual `/review`).",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
   "- `/review`, `/review-security`, `/review-quality`, and `/review-tests` can each leave summary comments on the same PR (different sentinels).",
-  "- `/ask` answers one question at a time; it does not remember prior `/ask` commands.",
+  "- `/ask` and `@bot` mentions load the containing comment thread so follow-ups stay in conversation; they do not change finding severity or dismiss threads.",
   "- Some security issues may appear in both passes; pick the command that matches your question.",
   "- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");

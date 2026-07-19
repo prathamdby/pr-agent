@@ -9,7 +9,6 @@ import {
   DEFAULT_REVIEW_AUTO_ACTIONS,
   DEFAULT_VERIFICATION_AUTO_ACTIONS,
   DEFAULT_VERIFICATION_CONCURRENCY,
-  DEFAULT_THREAD_REPLY_CLASSIFY_CONCURRENCY,
   DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
   DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
   DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
@@ -21,7 +20,6 @@ import {
   DEFAULT_POSTHOG_HOST,
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
-  DEFAULT_ENABLE_THREAD_REPLIES,
   DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   DEFAULT_REVIEW_CI_SUMMARY_WAIT_MS,
   DEFAULT_REVIEW_CI_SUMMARY_WAIT_POLL_MS,
@@ -316,10 +314,6 @@ export async function loadConfig() {
     ENV.VERIFICATION_CONCURRENCY,
     DEFAULT_VERIFICATION_CONCURRENCY,
   );
-  const threadReplyClassifyConcurrency = readPositiveNumber(
-    ENV.THREAD_REPLY_CLASSIFY_CONCURRENCY,
-    DEFAULT_THREAD_REPLY_CLASSIFY_CONCURRENCY,
-  );
   const maxToolRoundsDescribe = readPositiveNumber(
     ENV.MAX_TOOL_ROUNDS_DESCRIBE,
     DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
@@ -427,10 +421,6 @@ export async function loadConfig() {
   const enableReviewLabelsSecurity = readBooleanEnv(
     ENV.ENABLE_REVIEW_LABELS_SECURITY,
     DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
-  );
-  const enableThreadReplies = readBooleanEnv(
-    ENV.ENABLE_THREAD_REPLIES,
-    DEFAULT_ENABLE_THREAD_REPLIES,
   );
   const enableReviewCommitStatus = readBooleanEnv(
     ENV.ENABLE_REVIEW_COMMIT_STATUS,
@@ -579,7 +569,6 @@ export async function loadConfig() {
     descriptionConcurrency,
     triageConcurrency,
     verificationConcurrency,
-    threadReplyClassifyConcurrency,
     maxToolRoundsDescribe,
     maxToolRoundsTriage,
     maxToolRoundsVerification,
@@ -612,7 +601,6 @@ export async function loadConfig() {
     posthogHost,
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
-    enableThreadReplies,
     enableReviewCommitStatus,
     reviewCiSummaryWaitMs,
     reviewCiSummaryWaitPollMs,

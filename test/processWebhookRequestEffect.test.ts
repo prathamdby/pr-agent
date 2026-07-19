@@ -47,10 +47,8 @@ function slashGateLayer(
     command: string;
     body?: string;
     replyTarget?: unknown;
-    storedReviewMatchHint?: boolean;
-    commenterId?: number;
+    botLogin?: string;
   }>,
-  opts: { botThreadMatch?: boolean } = {},
 ) {
   const schedulerLayer = Layer.succeed(
     AgentWorkScheduler,
@@ -66,17 +64,7 @@ function slashGateLayer(
             command: input.command,
             body: input.body,
             replyTarget: input.replyTarget,
-          });
-        }),
-      lookupStoredInlineReviewHint: () => Effect.succeed(opts.botThreadMatch ?? false),
-      submitThreadReplyClassification: (input) =>
-        Effect.sync(() => {
-          slashCalls.push({
-            command: "thread_classify",
-            body: input.body,
-            replyTarget: input.replyTarget,
-            storedReviewMatchHint: input.storedReviewMatchHint,
-            commenterId: input.commenterId,
+            botLogin: input.botLogin,
           });
         }),
       ping: () => Effect.succeed(true),
@@ -100,8 +88,6 @@ describe("processWebhookPostRequestEffect", () => {
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
-        lookupStoredInlineReviewHint: () => Effect.succeed(false),
-        submitThreadReplyClassification: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     ),
@@ -210,7 +196,7 @@ describe("processWebhookPostRequestEffect", () => {
     expect(slashCalls).toEqual([]);
   });
 
-  it("ignores thread replies when ENABLE_THREAD_REPLIES is false", async () => {
+  it("ignores bare inline thread reply without @mention", async () => {
     const payload = {
       action: "created",
       installation: { id: 1 },
@@ -238,21 +224,21 @@ describe("processWebhookPostRequestEffect", () => {
           headers: {
             "x-hub-signature-256": sign(body),
             "x-github-event": "pull_request_review_comment",
-            "x-github-delivery": "d-thread-off",
+            "x-github-delivery": "d-thread-no-mention",
           },
           rawBody: body,
         },
-        slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
+        slashGateLayer(decisions, slashCalls),
       ),
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(decisions).toEqual(["ignored_no_slash_command"]);
     expect(slashCalls).toEqual([]);
+    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
   });
 
-  it("submits thread-reply classification when ENABLE_THREAD_REPLIES is true", async () => {
-    const threadCfg = makeTestConfig({ enableThreadReplies: true });
+  it("submits ask for inline thread reply with @mention", async () => {
     const payload = {
       action: "created",
       installation: { id: 1 },
@@ -262,7 +248,7 @@ describe("processWebhookPostRequestEffect", () => {
         id: 101,
         user: { id: 7 },
         author_association: "MEMBER",
-        body: "why is this P1?",
+        body: "@pr-agent[bot] why is this P1?",
         in_reply_to_id: 100,
         pull_request_review_id: 55,
         path: "src/x.ts",
@@ -276,25 +262,20 @@ describe("processWebhookPostRequestEffect", () => {
       command: string;
       body?: string;
       replyTarget?: unknown;
-      storedReviewMatchHint?: boolean;
-      commenterId?: number;
+      botLogin?: string;
     }> = [];
 
     const out = await Effect.runPromise(
       runWithIntake(
         {
           headers: {
-            "x-hub-signature-256": `sha256=${crypto
-              .createHmac("sha256", threadCfg.webhookSecret)
-              .update(body)
-              .digest("hex")}`,
+            "x-hub-signature-256": sign(body),
             "x-github-event": "pull_request_review_comment",
-            "x-github-delivery": "d-thread-on",
+            "x-github-delivery": "d-thread-mention",
           },
           rawBody: body,
         },
-        slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
-        threadCfg,
+        slashGateLayer(decisions, slashCalls),
       ),
     );
 
@@ -302,22 +283,20 @@ describe("processWebhookPostRequestEffect", () => {
     expect(decisions).toEqual([]);
     expect(slashCalls).toEqual([
       {
-        command: "thread_classify",
-        body: "why is this P1?",
+        command: "ask",
+        body: "@pr-agent[bot] why is this P1?",
         replyTarget: {
           kind: "inlineReviewThread",
           prNumber: 3,
           inReplyToCommentId: 100,
         },
-        storedReviewMatchHint: true,
-        commenterId: 7,
+        botLogin: "pr-agent[bot]",
       },
     ]);
-    expect(mocks.getAppBotIdentity).not.toHaveBeenCalled();
+    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
   });
 
-  it("enqueues classification for bot-authored thread replies without web GitHub calls", async () => {
-    const threadCfg = makeTestConfig({ enableThreadReplies: true });
+  it("ignores bot-authored mention replies", async () => {
     const payload = {
       action: "created",
       installation: { id: 1 },
@@ -327,7 +306,7 @@ describe("processWebhookPostRequestEffect", () => {
         id: 101,
         user: { id: 42 },
         author_association: "MEMBER",
-        body: "auto reply",
+        body: "@pr-agent[bot] why is this P1?",
         in_reply_to_id: 100,
         pull_request_review_id: 55,
         path: "src/x.ts",
@@ -337,44 +316,29 @@ describe("processWebhookPostRequestEffect", () => {
     };
     const body = Buffer.from(JSON.stringify(payload));
     const decisions: string[] = [];
-    const slashCalls: Array<{
-      command: string;
-      body?: string;
-      replyTarget?: unknown;
-      commenterId?: number;
-    }> = [];
+    const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
       runWithIntake(
         {
           headers: {
-            "x-hub-signature-256": `sha256=${crypto
-              .createHmac("sha256", threadCfg.webhookSecret)
-              .update(body)
-              .digest("hex")}`,
+            "x-hub-signature-256": sign(body),
             "x-github-event": "pull_request_review_comment",
-            "x-github-delivery": "d-thread-bot",
+            "x-github-delivery": "d-thread-bot-mention",
           },
           rawBody: body,
         },
-        slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
-        threadCfg,
+        slashGateLayer(decisions, slashCalls),
       ),
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
-    expect(decisions).toEqual([]);
-    expect(slashCalls).toEqual([
-      expect.objectContaining({
-        command: "thread_classify",
-        commenterId: 42,
-      }),
-    ]);
-    expect(mocks.getAppBotIdentity).not.toHaveBeenCalled();
+    expect(decisions).toEqual(["ignored_bot_slash_command"]);
+    expect(slashCalls).toEqual([]);
+    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
   });
 
-  it("rejects unauthorized thread replies on web without classifier enqueue", async () => {
-    const threadCfg = makeTestConfig({ enableThreadReplies: true });
+  it("rejects unauthorized mention replies", async () => {
     const payload = {
       action: "created",
       installation: { id: 1 },
@@ -384,7 +348,7 @@ describe("processWebhookPostRequestEffect", () => {
         id: 101,
         user: { id: 7 },
         author_association: "NONE",
-        body: "why is this P1?",
+        body: "@pr-agent[bot] why is this P1?",
         in_reply_to_id: 100,
         pull_request_review_id: 55,
         path: "src/x.ts",
@@ -394,139 +358,120 @@ describe("processWebhookPostRequestEffect", () => {
     };
     const body = Buffer.from(JSON.stringify(payload));
     const decisions: string[] = [];
-    const slashCalls: Array<{
-      command: string;
-      body?: string;
-      replyTarget?: unknown;
-      storedReviewMatchHint?: boolean;
-      commenterId?: number;
-    }> = [];
+    const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
 
     const out = await Effect.runPromise(
       runWithIntake(
         {
           headers: {
-            "x-hub-signature-256": `sha256=${crypto
-              .createHmac("sha256", threadCfg.webhookSecret)
-              .update(body)
-              .digest("hex")}`,
+            "x-hub-signature-256": sign(body),
             "x-github-event": "pull_request_review_comment",
-            "x-github-delivery": "d-thread-unauthorized",
+            "x-github-delivery": "d-thread-unauthorized-mention",
           },
           rawBody: body,
         },
-        slashGateLayer(decisions, slashCalls, { botThreadMatch: true }),
-        threadCfg,
+        slashGateLayer(decisions, slashCalls),
       ),
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(decisions).toEqual(["ignored_unauthorized_slash"]);
     expect(slashCalls).toEqual([]);
-    expect(mocks.getAppBotIdentity).not.toHaveBeenCalled();
+    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
   });
 
-  it("enqueues classification for non-bot-thread replies without deciding on web", async () => {
-    const threadCfg = makeTestConfig({ enableThreadReplies: true });
+  it("submits ask for issue comment @mention without slash", async () => {
     const payload = {
       action: "created",
       installation: { id: 1 },
       repository: { owner: { login: "o" }, name: "r", size: 10 },
-      pull_request: { number: 3 },
+      issue: { number: 3, pull_request: {} },
       comment: {
-        id: 101,
+        id: 99,
         user: { id: 7 },
         author_association: "MEMBER",
-        body: "human thread reply",
-        in_reply_to_id: 100,
-        pull_request_review_id: 99,
-        path: "src/x.ts",
-        line: 4,
-        side: "RIGHT",
+        body: "@pr-agent hey",
       },
     };
     const body = Buffer.from(JSON.stringify(payload));
     const decisions: string[] = [];
-    const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
+    const slashCalls: Array<{
+      command: string;
+      body?: string;
+      replyTarget?: unknown;
+      botLogin?: string;
+    }> = [];
 
     const out = await Effect.runPromise(
       runWithIntake(
         {
           headers: {
-            "x-hub-signature-256": `sha256=${crypto
-              .createHmac("sha256", threadCfg.webhookSecret)
-              .update(body)
-              .digest("hex")}`,
-            "x-github-event": "pull_request_review_comment",
-            "x-github-delivery": "d-thread-nonbot",
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "issue_comment",
+            "x-github-delivery": "d-issue-mention",
           },
           rawBody: body,
         },
-        slashGateLayer(decisions, slashCalls, { botThreadMatch: false }),
-        threadCfg,
+        slashGateLayer(decisions, slashCalls),
       ),
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
     expect(decisions).toEqual([]);
     expect(slashCalls).toEqual([
-      expect.objectContaining({
-        command: "thread_classify",
-        body: "human thread reply",
-        storedReviewMatchHint: false,
-      }),
+      {
+        command: "ask",
+        body: "@pr-agent hey",
+        replyTarget: {
+          kind: "prConversation",
+          prNumber: 3,
+        },
+        botLogin: "pr-agent[bot]",
+      },
     ]);
+    expect(mocks.getAppBotIdentity).toHaveBeenCalled();
   });
 
-  it("enqueues classification when pull_request_review_id is null", async () => {
-    const threadCfg = makeTestConfig({ enableThreadReplies: true });
+  it("ignores issue_comment reply without @mention", async () => {
     const payload = {
       action: "created",
       installation: { id: 1 },
       repository: { owner: { login: "o" }, name: "r", size: 10 },
-      pull_request: { number: 3 },
+      issue: { number: 3, pull_request: { url: "x" } },
       comment: {
         id: 101,
         user: { id: 7 },
         author_association: "MEMBER",
-        body: "why is this P1?",
+        body: "just a regular reply",
         in_reply_to_id: 100,
-        pull_request_review_id: null,
-        path: "src/x.ts",
-        line: 4,
-        side: "RIGHT",
       },
     };
     const body = Buffer.from(JSON.stringify(payload));
     const decisions: string[] = [];
-    const slashCalls: Array<{ command: string; body?: string; replyTarget?: unknown }> = [];
+    const slashCalls: Array<{
+      command: string;
+      body?: string;
+      replyTarget?: unknown;
+      botLogin?: string;
+    }> = [];
 
     const out = await Effect.runPromise(
       runWithIntake(
         {
           headers: {
-            "x-hub-signature-256": `sha256=${crypto
-              .createHmac("sha256", threadCfg.webhookSecret)
-              .update(body)
-              .digest("hex")}`,
-            "x-github-event": "pull_request_review_comment",
-            "x-github-delivery": "d-thread-null-review-id",
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "issue_comment",
+            "x-github-delivery": "d-issue-no-mention",
           },
           rawBody: body,
         },
-        slashGateLayer(decisions, slashCalls, { botThreadMatch: false }),
-        threadCfg,
+        slashGateLayer(decisions, slashCalls),
       ),
     );
 
     expect(out).toEqual({ status: 200, body: "ok" });
-    expect(decisions).toEqual([]);
-    expect(slashCalls[0]?.replyTarget).toEqual({
-      kind: "inlineReviewThread",
-      prNumber: 3,
-      inReplyToCommentId: 100,
-    });
-    expect(slashCalls[0]?.command).toBe("thread_classify");
+    expect(decisions).toEqual(["ignored_no_slash_command"]);
+    expect(slashCalls).toEqual([]);
   });
 
   it("returns 503 when handling exceeds the timeout budget", async () => {
@@ -537,8 +482,6 @@ describe("processWebhookPostRequestEffect", () => {
           recordIgnored: () => Effect.sleep("20 millis"),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
-          lookupStoredInlineReviewHint: () => Effect.succeed(false),
-          submitThreadReplyClassification: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),
@@ -590,8 +533,6 @@ describe("processWebhookPostRequestEffect", () => {
           recordIgnored: () => Effect.fail(new Error("boom")),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
-          lookupStoredInlineReviewHint: () => Effect.succeed(false),
-          submitThreadReplyClassification: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),
