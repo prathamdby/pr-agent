@@ -43,6 +43,14 @@ COPY --from=prod-deps /app/prod/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 
+# Optional: if the build context has repo-root models.json (e.g. Dokploy patch),
+# place it at /app/models.json. Absent file must not fail the image build.
+RUN --mount=type=bind,source=.,target=/build-context,ro \
+  if [ -f /build-context/models.json ]; then \
+    cp /build-context/models.json /app/models.json && \
+    chown node:node /app/models.json; \
+  fi
+
 USER node
 
 EXPOSE 7224
