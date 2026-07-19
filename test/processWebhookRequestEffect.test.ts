@@ -432,6 +432,48 @@ describe("processWebhookPostRequestEffect", () => {
     expect(mocks.getAppBotIdentity).toHaveBeenCalled();
   });
 
+  it("ignores issue_comment reply without @mention", async () => {
+    const payload = {
+      action: "created",
+      installation: { id: 1 },
+      repository: { owner: { login: "o" }, name: "r", size: 10 },
+      issue: { number: 3, pull_request: { url: "x" } },
+      comment: {
+        id: 101,
+        user: { id: 7 },
+        author_association: "MEMBER",
+        body: "just a regular reply",
+        in_reply_to_id: 100,
+      },
+    };
+    const body = Buffer.from(JSON.stringify(payload));
+    const decisions: string[] = [];
+    const slashCalls: Array<{
+      command: string;
+      body?: string;
+      replyTarget?: unknown;
+      botLogin?: string;
+    }> = [];
+
+    const out = await Effect.runPromise(
+      runWithIntake(
+        {
+          headers: {
+            "x-hub-signature-256": sign(body),
+            "x-github-event": "issue_comment",
+            "x-github-delivery": "d-issue-no-mention",
+          },
+          rawBody: body,
+        },
+        slashGateLayer(decisions, slashCalls),
+      ),
+    );
+
+    expect(out).toEqual({ status: 200, body: "ok" });
+    expect(decisions).toEqual(["ignored_no_slash_command"]);
+    expect(slashCalls).toEqual([]);
+  });
+
   it("returns 503 when handling exceeds the timeout budget", async () => {
     const slowLayer = Layer.mergeAll(
       Layer.succeed(

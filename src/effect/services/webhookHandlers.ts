@@ -8,7 +8,7 @@ import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
-import { getAppBotIdentity } from "../../github/appAuth.js";
+import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
 
@@ -54,44 +54,27 @@ export const WebhookHandlersCore = Layer.effect(
   Effect.gen(function* () {
     const scheduler = yield* AgentWorkScheduler;
 
-    const ignoreBotSlash = (
-      cfg: Config,
-      headers: WebhookHeaders,
-      commenterId: number,
-      intakeLog: RequestLogger,
-    ) =>
-      Effect.gen(function* () {
-        const bot = yield* resolveBotIdentityEffect(cfg);
-        if (commenterId !== bot.userId) return false;
-        yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
-        return true;
-      });
-
-    const ignoreUnauthorizedSlash = (
-      cfg: Config,
-      headers: WebhookHeaders,
-      association: string | null | undefined,
-      intakeLog: RequestLogger,
-    ) =>
-      Effect.gen(function* () {
-        if (isSlashAssociationAllowed(cfg.slashAllowedAssociations, association)) {
-          return false;
-        }
-        yield* scheduler.recordIgnored(headers, "ignored_unauthorized_slash", intakeLog);
-        return true;
-      });
-
-    /** Slash-command path: bot identity, then association. Returns true when intake should stop. */
+    /**
+     * Bot + association gate. Returns bot identity when intake may proceed, or null when gated.
+     */
     const gateSlashCommand = (
       cfg: Config,
       headers: WebhookHeaders,
       commenterId: number,
       association: string | null | undefined,
       intakeLog: RequestLogger,
-    ) =>
+    ): Effect.Effect<BotIdentity | null, Error> =>
       Effect.gen(function* () {
-        if (yield* ignoreBotSlash(cfg, headers, commenterId, intakeLog)) return true;
-        return yield* ignoreUnauthorizedSlash(cfg, headers, association, intakeLog);
+        const bot = yield* resolveBotIdentityEffect(cfg);
+        if (commenterId === bot.userId) {
+          yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
+          return null;
+        }
+        if (!isSlashAssociationAllowed(cfg.slashAllowedAssociations, association)) {
+          yield* scheduler.recordIgnored(headers, "ignored_unauthorized_slash", intakeLog);
+          return null;
+        }
+        return bot;
       });
 
     /**
@@ -117,14 +100,14 @@ export const WebhookHandlersCore = Layer.effect(
       intakeLog: RequestLogger,
     ) =>
       Effect.gen(function* () {
-        const bot = yield* resolveBotIdentityEffect(cfg);
-        if (input.commenterId === bot.userId) {
-          yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
-          return true;
-        }
-        if (yield* ignoreUnauthorizedSlash(cfg, headers, input.association, intakeLog)) {
-          return true;
-        }
+        const bot = yield* gateSlashCommand(
+          cfg,
+          headers,
+          input.commenterId,
+          input.association,
+          intakeLog,
+        );
+        if (!bot) return true;
         if (!commentMentionsBot(input.body, bot.login)) {
           yield* scheduler.recordIgnored(headers, "ignored_no_slash_command", intakeLog);
           return true;
@@ -196,19 +179,15 @@ export const WebhookHandlersCore = Layer.effect(
             );
             return;
           }
-          if (
-            yield* gateSlashCommand(
-              cfg,
-              headers,
-              data.comment.user.id,
-              data.comment.author_association,
-              intakeLog,
-            )
-          ) {
-            return;
-          }
+          const bot = yield* gateSlashCommand(
+            cfg,
+            headers,
+            data.comment.user.id,
+            data.comment.author_association,
+            intakeLog,
+          );
+          if (!bot) return;
 
-          const bot = yield* resolveBotIdentityEffect(cfg);
           yield* scheduler.submitSlashCommand(
             {
               headers,
@@ -265,19 +244,15 @@ export const WebhookHandlersCore = Layer.effect(
             );
             return;
           }
-          if (
-            yield* gateSlashCommand(
-              cfg,
-              headers,
-              data.comment.user.id,
-              data.comment.author_association,
-              intakeLog,
-            )
-          ) {
-            return;
-          }
+          const bot = yield* gateSlashCommand(
+            cfg,
+            headers,
+            data.comment.user.id,
+            data.comment.author_association,
+            intakeLog,
+          );
+          if (!bot) return;
 
-          const bot = yield* resolveBotIdentityEffect(cfg);
           yield* scheduler.submitSlashCommand(
             {
               headers,

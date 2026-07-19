@@ -29,6 +29,11 @@ describe("commentMentionsBot", () => {
   it("does not match similar but distinct login prefixes", () => {
     expect(commentMentionsBot("@pr-agent-extra hello", BOT_LOGIN)).toBe(false);
   });
+
+  it("returns false when botLogin is empty", () => {
+    expect(commentMentionsBot("@anything hello", "")).toBe(false);
+    expect(commentMentionsBot("@anything hello", "   ")).toBe(false);
+  });
 });
 
 describe("stripBotMentions", () => {
@@ -46,5 +51,9 @@ describe("stripBotMentions", () => {
 
   it("returns body unchanged when no mention is present", () => {
     expect(stripBotMentions("plain question", BOT_LOGIN)).toBe("plain question");
+  });
+
+  it("strips multiple mentions in the same body", () => {
+    expect(stripBotMentions("@pr-agent[bot] hey @pr-agent explain", BOT_LOGIN)).toBe("hey explain");
   });
 });

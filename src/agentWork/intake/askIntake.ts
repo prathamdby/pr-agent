@@ -1,10 +1,7 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
-import {
-  ASK_QUESTION_TOO_LONG_HINT,
-  parseAskQuestionForReplyTarget,
-} from "../../commands/parseAskQuestion.js";
+import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/parseAskQuestion.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import type { AckJobData, AckTarget, JobCorrelation, PrRef } from "../types.js";
@@ -76,7 +73,7 @@ export async function promoteAskFromWebhookEvent(
   input: AskIntakeInput,
   existingWorkItemPolicy: ExistingAskWorkItemPolicy,
 ): Promise<AskIntakeOutcome> {
-  const askParse = parseAskQuestionForReplyTarget(input.body, input.replyTarget, input.botLogin);
+  const askParse = parseAskQuestion(input.body, input.botLogin);
   const ack = baseAck(input);
 
   switch (askParse.kind) {

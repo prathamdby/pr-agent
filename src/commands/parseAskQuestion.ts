@@ -1,5 +1,4 @@
 import { MAX_ASK_QUESTION_CHARS, askQuestionTooLongHint } from "../settings/index.js";
-import type { ReplyTarget } from "./replyTarget.js";
 import { firstNonEmptyLine } from "./firstNonEmptyLine.js";
 import { commentMentionsBot, stripBotMentions } from "./parseBotMention.js";
 
@@ -50,13 +49,9 @@ function parseMentionAskQuestion(body: string, botLogin: string): AskQuestionPar
 
 /**
  * Parse an ask question for slash `/ask` or an `@bot` mention.
- * Bare non-mention bodies are never treated as asks (conversational trigger is mention or `/ask`).
+ * Bare non-mention bodies are never treated as asks.
  */
-export function parseAskQuestionForReplyTarget(
-  body: string,
-  _replyTarget: ReplyTarget,
-  botLogin?: string,
-): AskQuestionParseResult {
+export function parseAskQuestion(body: string, botLogin?: string): AskQuestionParseResult {
   const result = parseAskQuestionResult(body);
   if (result.kind !== "not_ask") return result;
   if (botLogin == null || botLogin.length === 0) return result;

@@ -20,6 +20,8 @@ export type AskThreadTranscript = {
   readonly truncated: boolean;
 };
 
+const TRANSCRIPT_OMISSION_MARKER = "…(earlier thread omitted)…";
+
 function rootCommentId(
   start: ThreadComment,
   byId: Map<number, ThreadComment>,
@@ -28,16 +30,19 @@ function rootCommentId(
   const cached = memo.get(start.id);
   if (cached != null) return cached;
   let current: ThreadComment = start;
-  const seen = new Set<number>();
+  const chain: number[] = [];
   while (current.inReplyToId != null) {
-    if (seen.has(current.id)) break;
-    seen.add(current.id);
+    if (chain.includes(current.id) || current.inReplyToId === current.id) break;
+    chain.push(current.id);
     const parent = byId.get(current.inReplyToId);
     if (!parent) break;
     current = parent;
   }
-  memo.set(start.id, current.id);
-  return current.id;
+  const rootId = current.id;
+  memo.set(start.id, rootId);
+  memo.set(rootId, rootId);
+  for (const id of chain) memo.set(id, rootId);
+  return rootId;
 }
 
 export function commentsInThread(
@@ -68,17 +73,19 @@ export function formatThreadTranscript(
   // Keep root (first) + newest tail that fits.
   const root = lines[0] ?? "";
   const sep = "\n\n";
-  const budget = maxChars - root.length - sep.length - "…(earlier thread omitted)…".length;
+  const budget = maxChars - root.length - 2 * sep.length - TRANSCRIPT_OMISSION_MARKER.length;
   let tail = "";
-  for (let i = lines.length - 1; i >= 1; i--) {
-    const piece = lines[i] ?? "";
-    const next = tail.length === 0 ? piece : `${piece}${sep}${tail}`;
-    if (next.length > budget) break;
-    tail = next;
+  if (budget > 0) {
+    for (let i = lines.length - 1; i >= 1; i--) {
+      const piece = lines[i] ?? "";
+      const next = tail.length === 0 ? piece : `${piece}${sep}${tail}`;
+      if (next.length > budget) break;
+      tail = next;
+    }
   }
   const text =
     tail.length > 0
-      ? `${root}${sep}…(earlier thread omitted)…${sep}${tail}`
+      ? `${root}${sep}${TRANSCRIPT_OMISSION_MARKER}${sep}${tail}`
       : root.slice(0, maxChars);
   return { text, truncated: true };
 }

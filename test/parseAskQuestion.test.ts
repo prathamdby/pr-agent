@@ -3,7 +3,7 @@ import { MAX_ASK_QUESTION_CHARS } from "../src/agent/ask/askSafety.js";
 import { ASK_USAGE_HINT } from "../src/settings/index.js";
 import {
   ASK_QUESTION_TOO_LONG_HINT,
-  parseAskQuestionForReplyTarget,
+  parseAskQuestion,
   parseAskQuestionResult,
 } from "../src/commands/parseAskQuestion.js";
 
@@ -69,56 +69,56 @@ describe("parseAskQuestionResult", () => {
   });
 });
 
-describe("parseAskQuestionForReplyTarget", () => {
-  const prConversation = { kind: "prConversation" as const, prNumber: 7 };
-  const inlineThread = {
-    kind: "inlineReviewThread" as const,
-    prNumber: 7,
-    inReplyToCommentId: 100,
-  };
-
-  it("keeps explicit /ask parse on PR conversation", () => {
-    expect(parseAskQuestionForReplyTarget("/ask why?", prConversation)).toEqual({
+describe("parseAskQuestion", () => {
+  it("keeps explicit /ask parse", () => {
+    expect(parseAskQuestion("/ask why?")).toEqual({
       kind: "ok",
       question: "why?",
     });
-    expect(parseAskQuestionForReplyTarget("why is this P1?", prConversation)).toEqual({
+    expect(parseAskQuestion("why is this P1?")).toEqual({
       kind: "not_ask",
     });
   });
 
-  it("does not treat raw inline-thread body without mention as ask", () => {
-    expect(parseAskQuestionForReplyTarget("why is this P1?", inlineThread)).toEqual({
+  it("does not treat raw body without mention as ask", () => {
+    expect(parseAskQuestion("why is this P1?")).toEqual({
       kind: "not_ask",
     });
   });
 
   it("parses @mention ask with full bot login", () => {
-    expect(
-      parseAskQuestionForReplyTarget("@pr-agent[bot] why?", inlineThread, "pr-agent[bot]"),
-    ).toEqual({
+    expect(parseAskQuestion("@pr-agent[bot] why?", "pr-agent[bot]")).toEqual({
       kind: "ok",
       question: "why?",
     });
   });
 
   it("parses @mention with slug login", () => {
-    expect(
-      parseAskQuestionForReplyTarget("@pr-agent explain", inlineThread, "pr-agent[bot]"),
-    ).toEqual({
+    expect(parseAskQuestion("@pr-agent explain", "pr-agent[bot]")).toEqual({
       kind: "ok",
       question: "explain",
     });
   });
 
   it("returns not_ask when bot mention is absent", () => {
-    expect(parseAskQuestionForReplyTarget("explain", inlineThread, "pr-agent[bot]")).toEqual({
+    expect(parseAskQuestion("explain", "pr-agent[bot]")).toEqual({
       kind: "not_ask",
     });
   });
 
+  it("returns missing when @mention has no question text", () => {
+    expect(parseAskQuestion("@pr-agent[bot]", "pr-agent[bot]")).toEqual({ kind: "missing" });
+  });
+
+  it("returns too_long when @mention question exceeds limit", () => {
+    const long = "a".repeat(MAX_ASK_QUESTION_CHARS + 1);
+    expect(parseAskQuestion(`@pr-agent[bot] ${long}`, "pr-agent[bot]")).toEqual({
+      kind: "too_long",
+    });
+  });
+
   it("prefers explicit /ask over @mention", () => {
-    expect(parseAskQuestionForReplyTarget("/ask explicit", inlineThread)).toEqual({
+    expect(parseAskQuestion("/ask explicit")).toEqual({
       kind: "ok",
       question: "explicit",
     });
