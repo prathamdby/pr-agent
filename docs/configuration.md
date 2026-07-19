@@ -126,8 +126,11 @@ When `AGENT_PROVIDER=pi`, `loadConfig()` loads an optional Pi `models.json` cata
 - Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). A non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
 - Present but invalid, or selection not found → `loadConfig()` throws.
 - `AGENT_PROVIDER=cursor` → file may exist but is ignored for model selection.
-- Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example).
-- The runtime image does **not** bake in `models.json`. Mount or copy it into the container (Compose: `./models.json:/app/models.json:ro`, or any path + `MODELS_JSON_PATH`).
+- Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side.
+- **How the file reaches Docker `/app/models.json`:**
+  - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
+  - **Runtime mount:** Compose `./models.json:/app/models.json:ro` (create the host file first — a missing path becomes a directory).
+  - **Override path:** set `MODELS_JSON_PATH` when the catalog is not at cwd.
 
 ### External model provider secrets
 

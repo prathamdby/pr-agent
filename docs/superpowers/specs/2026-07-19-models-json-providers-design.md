@@ -45,8 +45,14 @@ Stashing a path alone is a no-op: the Pi runner prefers `ModelRegistry.inMemory`
 - Present but `PI_PROVIDER`/`PI_MODEL` not found in built-ins ∪ file → `loadConfig()` throws
 - Cursor agent → do not validate selection against `models.json`
 
+## Docker image inclusion (refined)
+
+Do **not** commit a production catalog or bake API keys into the image by default. Operators still inject the catalog (Dokploy patch, bind mount, or `MODELS_JSON_PATH`).
+
+**Optional build-context copy:** if repo-root `models.json` is present in the Docker build context, the runtime stage copies it to `/app/models.json`. If it is absent, the build succeeds and runtime stays “no catalog” (built-ins only). This lets Dokploy (and similar) create the file after clone and before `docker build` without a manual Dockerfile edit. Compose bind mounts and `MODELS_JSON_PATH` remain valid overrides.
+
 ## Out of scope
 
 - Declaring the active model inside `models.json`
 - Pi TypeScript extension custom providers
-- Baking `models.json` into the Docker image (operators mount/copy it to `/app`)
+- Committing a real production `models.json` or API keys into the repo

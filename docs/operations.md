@@ -51,7 +51,12 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 - **Webhook URL** (default Compose ports): `http://<host>:7224/webhooks`.
 - **`DATABASE_URL`** in Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`.
 - **Provider API keys** (for example **`OPENAI_API_KEY`** or **`CURSOR_API_KEY`** when using the Cursor provider) are not fully read by [`src/config.ts`](../src/config.ts) except `CURSOR_API_KEY` when selected; other Pi AI secrets load from the environment. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.
-- **Custom Pi providers (`models.json`):** the runtime image does not include a catalog. Copy [`models.json.example`](../models.json.example) to a host file, then mount it into **both** web and worker at `/app/models.json` (process cwd), or mount elsewhere and set **`MODELS_JSON_PATH`**. Create the host file before mounting — Docker turns a missing host path into a directory. Example Compose fragment:
+- **Custom Pi providers (`models.json`):** three ways to get a catalog into the container at `/app/models.json` (process cwd), or elsewhere via **`MODELS_JSON_PATH`**:
+  1. **Build-context copy (default image behavior):** if repo-root `models.json` is present when you `docker build`, the runtime stage copies it to `/app/models.json`. If the file is absent, the build still succeeds (built-ins only). Dokploy **Patches** can `create` File Path `models.json` after clone and before build — no `MODELS_JSON_PATH` and no Dockerfile edit required when using the image cwd.
+  2. **Runtime bind mount:** copy [`models.json.example`](../models.json.example) to a host file, then mount it into **both** web and worker. Create the host file **before** mounting — Docker turns a missing host path into a directory.
+  3. **`MODELS_JSON_PATH`:** mount the catalog anywhere and point the env var at that path.
+
+  Example Compose fragment for a host mount:
 
   ```yaml
   services:
