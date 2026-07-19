@@ -39,12 +39,14 @@ export function formatReviewDuration(durationMs: number): string {
   return `${seconds}s`;
 }
 
-export function shortHeadSha(headSha: string): string {
+/** Normalized 7–40 hex SHA, or null when invalid. */
+export function normalizeGitHeadSha(headSha: string): string | null {
   const normalized = headSha.trim().toLowerCase();
-  if (/^[0-9a-f]{7,40}$/.test(normalized)) {
-    return normalized.slice(0, 7);
-  }
-  return "unknown";
+  return /^[0-9a-f]{7,40}$/.test(normalized) ? normalized : null;
+}
+
+export function shortHeadSha(headSha: string): string {
+  return normalizeGitHeadSha(headSha)?.slice(0, 7) ?? "unknown";
 }
 
 /** Muted provenance line: `<sub>a1b2c3d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>`. */

@@ -14,6 +14,10 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: vi.fn(async () => undefined),
 }));
 
+vi.mock("../src/review/run/reviewRunMetrics.js", () => ({
+  snapshotReviewRunMetrics: vi.fn(() => null),
+}));
+
 import {
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
@@ -23,10 +27,11 @@ import {
   recordPublishStep,
   shouldSkipWork,
 } from "../src/agentWork/repository.js";
+import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 
 const pool = {} as Pool;
 
-function autoReviewItem(): AgentWorkItem {
+function autoReviewItem(overrides: { headSha?: string } = {}): AgentWorkItem {
   return {
     id: "wi-1",
     webhookEventId: "ev-1",
@@ -37,7 +42,7 @@ function autoReviewItem(): AgentWorkItem {
     repo: "r",
     prNumber: 1,
     installationId: 42,
-    headSha: "sha",
+    headSha: overrides.headSha ?? "sha",
     reviewLens: "review",
     resourceKey: "o/r#1",
     attemptCount: 1,
@@ -50,6 +55,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(shouldSkipWork).mockResolvedValue(false);
+    vi.mocked(snapshotReviewRunMetrics).mockReturnValue(null);
   });
 
   it("does not publish summary when shouldSkipWork is true", async () => {
@@ -96,6 +102,34 @@ describe("tryLightweightAutoReviewCompletion", () => {
     expect(recordPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ step: "summary_comment", githubId: 42 }),
+    );
+  });
+
+  it("publishes a 0s footer when metrics snapshot is null", async () => {
+    const result = await tryLightweightAutoReviewCompletion(pool, {
+      item: autoReviewItem({ headSha: "abc123def456" }),
+      reviewLens: "review",
+      token: "tok",
+      model: "grok-4.5",
+      preflight: {
+        files: [{ filename: "README.md" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+      },
+    });
+
+    expect(result).toEqual({ handled: true, published: true, summaryId: 42 });
+    expect(snapshotReviewRunMetrics).toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      1,
+      expect.stringContaining("<sub>abc123d ⋅ general ⋅ 0s ⋅ grok-4.5</sub>"),
+      expect.any(String),
+      undefined,
+      undefined,
     );
   });
 

@@ -48,7 +48,11 @@ import type {
 import { reviewSummarySentinelForMode } from "../reviewSchema.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import { renderReviewRunFooter, type ReviewRunFooterMeta } from "./reviewRunFooter.js";
+import {
+  normalizeGitHeadSha,
+  renderReviewRunFooter,
+  type ReviewRunFooterMeta,
+} from "./reviewRunFooter.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -163,8 +167,7 @@ export function renderStaleReviewMetadataComment(params: {
 }
 
 function sanitizeReviewMetaHeadSha(headSha: string): string {
-  const normalized = headSha.trim().toLowerCase();
-  return /^[0-9a-f]{7,40}$/.test(normalized) ? normalized : "invalid";
+  return normalizeGitHeadSha(headSha) ?? "invalid";
 }
 
 function escapeHtmlCommentAttr(value: string): string {

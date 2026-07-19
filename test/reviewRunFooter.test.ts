@@ -25,6 +25,11 @@ describe("formatReviewDuration", () => {
     expect(formatReviewDuration(3_600_000)).toBe("1h");
   });
 
+  it("formats multi-day hour totals without wrapping", () => {
+    expect(formatReviewDuration(360_000_000)).toBe("100h");
+    expect(formatReviewDuration(90_060_000)).toBe("25h 1m");
+  });
+
   it("clamps non-finite and negative values to 0s", () => {
     expect(formatReviewDuration(-5)).toBe("0s");
     expect(formatReviewDuration(Number.NaN)).toBe("0s");
@@ -35,6 +40,12 @@ describe("shortHeadSha", () => {
   it("returns the first 7 hex characters", () => {
     expect(shortHeadSha("abc123def456")).toBe("abc123d");
     expect(shortHeadSha("ABCDEF0123456789")).toBe("abcdef0");
+  });
+
+  it("handles minimum and maximum valid SHA lengths", () => {
+    expect(shortHeadSha("abcdef1")).toBe("abcdef1");
+    expect(shortHeadSha("a".repeat(40))).toBe("aaaaaaa");
+    expect(shortHeadSha("a".repeat(41))).toBe("unknown");
   });
 
   it("returns unknown for non-hex SHAs", () => {
@@ -64,5 +75,24 @@ describe("renderReviewRunFooter", () => {
         model: "evil<script>",
       }),
     ).toBe("<sub>abc1234 ⋅ security ⋅ 1s ⋅ evil&lt;script&gt;</sub>");
+  });
+
+  it("falls back to unknown for empty or whitespace-only model", () => {
+    expect(
+      renderReviewRunFooter({
+        headSha: "abc1234",
+        mode: "review",
+        durationMs: 1_000,
+        model: "",
+      }),
+    ).toBe("<sub>abc1234 ⋅ general ⋅ 1s ⋅ unknown</sub>");
+    expect(
+      renderReviewRunFooter({
+        headSha: "abc1234",
+        mode: "review",
+        durationMs: 1_000,
+        model: "   ",
+      }),
+    ).toBe("<sub>abc1234 ⋅ general ⋅ 1s ⋅ unknown</sub>");
   });
 });
