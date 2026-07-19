@@ -16,11 +16,13 @@ The useful signal from verification is asymmetric:
 
 ## Decision
 
-1. **Silent resolve for success.** On `fixed` and `already-resolved`, verification records the thread action and calls `resolveReviewThread` with **no** `createReplyForReviewComment`.
+1. **Silent resolve for success.** On `fixed` and `already-resolved`, verification records the thread action and calls `resolveReviewThread` with **no new** `createReplyForReviewComment`.
 2. **Reply only when human attention is required.** Keep thread replies for `skipped` (still open, still gated on the finding's file having changed in this push) and `dismissed` (evidence + policy suggestion).
 3. **No change to the agent loop or schema.** Verdict vocabulary, validation, and the verification queue stay as in ADR 0020; only publish behaviour changes.
 
 **Amendment (see [ADR 0023](0023-verification-stub-ledger.md)):** verification now owns one editable stub per thread for still-open updates, and resolves the thread after acknowledging `dismissed`. The original “never auto-resolve dismissed” rule remains true for `/triage` only.
+
+**Amendment (PR #307):** when a prior verification stub exists, `fixed` / `already-resolved` edit that stub in place to a short success line before resolve. This does not create a new reply; it only clears a stale still-open signal left from an earlier skipped publish.
 
 ## Consequences
 

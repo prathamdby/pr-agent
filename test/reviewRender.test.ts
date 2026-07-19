@@ -75,6 +75,45 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
   });
 
+  it("renders a CI gate row when a CI summary is provided", () => {
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacementsFromPayload(basePayload()),
+      ciSummary: {
+        status: "failing",
+        headline: "❌ CI failing — lint",
+        failures: [
+          {
+            name: "lint",
+            reason: "src/foo.ts:12 — Unexpected any",
+            fixHint: "Fix the reported lint/format findings locally, then re-push.",
+            url: "https://example.com/lint",
+          },
+        ],
+      },
+    });
+    expect(body).toContain("<strong>CI</strong>");
+    expect(body).toContain("CI failing");
+    expect(body).toContain("Unexpected any");
+    expect(body).toContain("re-push");
+    // CI sits after Security and before Merge verdict.
+    expect(body.indexOf("<strong>Security</strong>")).toBeLessThan(
+      body.indexOf("<strong>CI</strong>"),
+    );
+    expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(
+      body.indexOf("<strong>Merge verdict</strong>"),
+    );
+  });
+
+  it("omits the CI gate row when CI summary is unavailable", () => {
+    const body = renderReviewSummaryComment(basePayload(), {
+      ...ctx,
+      placements: testPlacementsFromPayload(basePayload()),
+      ciSummary: { status: "unavailable", headline: "CI status unavailable", failures: [] },
+    });
+    expect(body).not.toContain("<strong>CI</strong>");
+  });
+
   it("links inline findings to review comment URLs when provided", () => {
     const payload = basePayload({
       findings: [

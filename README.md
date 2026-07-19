@@ -35,7 +35,7 @@ Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](d
 1. Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
 2. Set **Webhook URL** to `https://<host>/webhooks` and **Webhook secret** to match `WEBHOOK_SECRET`.
 3. Subscribe to events: **`pull_request`**, **`issue_comment`**, **`pull_request_review_comment`** (do not require `pull_request_review`).
-4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read, **Checks** read/write. Contents write is only needed for `/triage`. **Commit statuses** read/write when `ENABLE_REVIEW_COMMIT_STATUS=true`.
+4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read, **Checks** read/write. Contents write is only needed for `/triage`. **Commit statuses** read/write when `ENABLE_REVIEW_COMMIT_STATUS=true`. Checks read also powers the **CI summary** gate on review stubs and summaries.
 5. Install the app on target orgs or repos. Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in `.env` (see [`.env.example`](.env.example)).
 
 ### 2. Docker Compose (recommended)

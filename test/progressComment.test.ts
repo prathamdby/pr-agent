@@ -42,5 +42,21 @@ describe("progressComment fallback wording", () => {
     expect(body).toContain("Pull request update");
     expect(body).not.toContain("| | |");
     expect(body).toContain("<table>");
+    expect(body).not.toContain("<strong>CI</strong>");
+  });
+
+  it("includes a CI row when a renderable CI summary is provided", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "slash",
+      ciSummary: {
+        status: "passing",
+        headline: "✅ All CI is passing",
+        failures: [],
+      },
+    });
+    expect(body).toContain("<strong>CI</strong>");
+    expect(body).toContain("All CI is passing");
   });
 });

@@ -6,7 +6,7 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 
 | Area                 | Path                       | Public entry                                                        |
 | -------------------- | -------------------------- | ------------------------------------------------------------------- |
-| Review run + publish | `src/review/`              | `run/reviewRun.ts`, `publish/publishReview.ts`                      |
+| Review run + publish | `src/review/`              | `run/reviewRun.ts`, `publish/publishReview.ts`, `ci/analyzeCi.ts`   |
 | Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                                 |
 | Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss)              |
 | Agent work execution | `src/agentWork/executors/` | `index.ts`                                                          |

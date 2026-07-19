@@ -28,6 +28,7 @@ import {
 } from "../run/reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
+import { buildCiSummary } from "../ci/analyzeCi.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import {
@@ -232,6 +233,9 @@ export async function publishReview(
       | "enableReviewLabelsEffort"
       | "enableReviewLabelsSecurity"
       | "enableReviewCommitStatus"
+      | "reviewCiSummaryWaitMs"
+      | "reviewCiSummaryWaitPollMs"
+      | "reviewCiSummaryMaxFailures"
     >;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
@@ -361,6 +365,16 @@ export async function publishReview(
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
+  const ciSummary = await buildCiSummary({
+    token,
+    owner,
+    repo,
+    headSha,
+    expiresAtTs: tokenExpiresAtTs,
+    waitMs: cfg.reviewCiSummaryWaitMs,
+    waitPollMs: cfg.reviewCiSummaryWaitPollMs,
+    maxFailures: cfg.reviewCiSummaryMaxFailures,
+  });
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
     summarySentinel,
@@ -368,6 +382,7 @@ export async function publishReview(
     mode,
     staleReview: params.staleReview ?? false,
     cachedDiffIndex: params.cachedDiffIndex,
+    ciSummary,
     runFooter: {
       durationMs: metricsSnapshot?.wallClockMs ?? 0,
       model: cfg.piModel,

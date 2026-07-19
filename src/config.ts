@@ -23,6 +23,9 @@ import {
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   DEFAULT_ENABLE_THREAD_REPLIES,
   DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
+  DEFAULT_REVIEW_CI_SUMMARY_WAIT_MS,
+  DEFAULT_REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+  DEFAULT_REVIEW_CI_SUMMARY_MAX_FAILURES,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_MAX_WIDE_EVENTS,
@@ -433,6 +436,18 @@ export async function loadConfig() {
     ENV.ENABLE_REVIEW_COMMIT_STATUS,
     DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   );
+  const reviewCiSummaryWaitMs = readNonNegativeNumber(
+    ENV.REVIEW_CI_SUMMARY_WAIT_MS,
+    DEFAULT_REVIEW_CI_SUMMARY_WAIT_MS,
+  );
+  const reviewCiSummaryWaitPollMs = readPositiveNumber(
+    ENV.REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+    DEFAULT_REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+  );
+  const reviewCiSummaryMaxFailures = readPositiveNumber(
+    ENV.REVIEW_CI_SUMMARY_MAX_FAILURES,
+    DEFAULT_REVIEW_CI_SUMMARY_MAX_FAILURES,
+  );
   const descriptionAutoActions = readAutoActions(
     ENV.DESCRIPTION_AUTO_ACTIONS,
     DEFAULT_DESCRIPTION_AUTO_ACTIONS,
@@ -599,6 +614,9 @@ export async function loadConfig() {
     enableReviewLabelsSecurity,
     enableThreadReplies,
     enableReviewCommitStatus,
+    reviewCiSummaryWaitMs,
+    reviewCiSummaryWaitPollMs,
+    reviewCiSummaryMaxFailures,
     descriptionAutoActions,
     reviewAutoActions,
     verificationAutoActions,

@@ -210,6 +210,42 @@ describe("publishVerification", () => {
     );
   });
 
+  it("edits a prior still-open stub when later marking fixed", async () => {
+    mocks.updateComment.mockResolvedValueOnce({ data: {} });
+
+    await publishVerification(
+      baseParams({
+        pool: pool({
+          threads: {
+            "1": { stubCommentId: 555, lastVerdict: "skipped", lastHeadSha: "b".repeat(40) },
+          },
+        }),
+        inventory: [thread],
+        payload: {
+          verdicts: [
+            {
+              verdict: "fixed",
+              threadRootCommentId: 1,
+              commitSha: "abcdef1",
+              evidence: "tests cover the case",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(mocks.updateComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        comment_id: 555,
+        body: expect.stringContaining("**Verification**: fixed"),
+      }),
+    );
+    expect(mocks.updateComment.mock.calls[0]?.[0]?.body).toContain(VERIFICATION_STUB_MARKER);
+    expect(mocks.updateComment.mock.calls[0]?.[0]?.body).not.toContain("still open");
+    expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
+  });
+
   it("creates a marked still-open stub only for findings on changed files", async () => {
     await publishVerification(
       baseParams({
@@ -494,6 +530,8 @@ describe("publishVerification", () => {
   });
 
   it("preserves stubCommentId when a later fixed verdict has no stub id", async () => {
+    mocks.updateComment.mockResolvedValueOnce({ data: {} });
+
     await publishVerification(
       baseParams({
         pool: pool({
@@ -516,7 +554,12 @@ describe("publishVerification", () => {
     );
 
     expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.updateComment).not.toHaveBeenCalled();
+    expect(mocks.updateComment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        comment_id: 555,
+        body: expect.stringContaining("**Verification**: fixed"),
+      }),
+    );
     expect(mocks.resolve).toHaveBeenCalledTimes(1);
     expect(mocks.recordPublishStep).toHaveBeenCalledWith(
       expect.anything(),

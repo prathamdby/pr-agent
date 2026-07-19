@@ -14,23 +14,30 @@ import {
 } from "../../settings/index.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
 import type { WorkSource } from "../reviewSchema.js";
+import type { CiSummary } from "../ci/ciSummaryTypes.js";
+import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
 
 export function renderReviewProgressComment(params: {
   mode: ReviewMode;
   headSha: string;
   source: WorkSource;
+  ciSummary?: CiSummary | null;
 }): string {
   const sourceLabel =
     params.source === "auto" ? REVIEW_PROGRESS_SOURCE_AUTO : REVIEW_PROGRESS_SOURCE_SLASH;
+  const tableRows: Array<[string, string]> = [
+    [renderTableStrong("Head"), renderTableCode(params.headSha)],
+    [renderTableStrong("Source"), escapeTableHtml(sourceLabel)],
+  ];
+  if (shouldRenderCiSummaryRow(params.ciSummary)) {
+    tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(params.ciSummary)]);
+  }
   return [
     reviewSummarySentinelForMode(params.mode),
     "",
     renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_PROGRESS_NOTE),
     "",
-    renderKeyValueTable([
-      [renderTableStrong("Head"), renderTableCode(params.headSha)],
-      [renderTableStrong("Source"), escapeTableHtml(sourceLabel)],
-    ]),
+    renderKeyValueTable(tableRows),
   ].join("\n");
 }
 
