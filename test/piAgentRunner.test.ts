@@ -82,11 +82,7 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));
 
-import {
-  createAgentSession,
-  defineTool,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import { createAgentSession, defineTool, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
