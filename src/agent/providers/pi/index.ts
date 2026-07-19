@@ -1,10 +1,9 @@
 import {
-  AuthStorage,
   createAgentSession,
   createExtensionRuntime,
   defineTool,
   DefaultResourceLoader,
-  ModelRegistry,
+  ModelRuntime,
   SessionManager,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
@@ -102,19 +101,20 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
     const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
     try {
       const authPath = join(agentDir, "auth.json");
-      const authStorage = AuthStorage.create(authPath);
+      const modelRuntime = await ModelRuntime.create({
+        authPath,
+        modelsPath: cfg.modelsJsonPath,
+        allowModelNetwork: false,
+      });
       for (const [provider, key] of Object.entries(cfg.modelProviderKeys)) {
-        if (key.trim()) authStorage.setRuntimeApiKey(provider, key.trim());
+        if (key.trim()) await modelRuntime.setRuntimeApiKey(provider, key.trim());
       }
       await chmod(authPath, 0o600).catch(() => undefined);
-      const modelRegistry = cfg.modelsJsonPath
-        ? ModelRegistry.create(authStorage, cfg.modelsJsonPath)
-        : ModelRegistry.inMemory(authStorage);
       if (cfg.modelsJsonPath) {
-        const loadError = modelRegistry.getError();
+        const loadError = modelRuntime.getError();
         if (loadError) throw new Error(loadError);
       }
-      const model = modelRegistry.find(cfg.piProvider, cfg.piModel);
+      const model = modelRuntime.getModel(cfg.piProvider, cfg.piModel);
       if (!model) {
         throw new Error(
           cfg.modelsJsonPath
@@ -146,8 +146,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         agentDir,
         model,
         thinkingLevel: "off",
-        authStorage,
-        modelRegistry,
+        modelRuntime,
         resourceLoader,
         settingsManager,
         sessionManager: SessionManager.inMemory(cwd ?? process.cwd()),

@@ -225,7 +225,7 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
   return key;
 }
 
-export function loadConfig() {
+export async function loadConfig() {
   const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
 
   const githubAppId = requireEnv(ENV.GITHUB_APP_ID);
@@ -246,8 +246,8 @@ export function loadConfig() {
   // Cursor ignores models.json for PI_MODEL selection; still require a built-in PI_PROVIDER slug.
   const piApi =
     agentProvider === "pi"
-      ? assertPiModelSelection({ modelsJsonPath, piProvider, piModel })
-      : assertPiModelSelection({ modelsJsonPath: null, piProvider, piModel });
+      ? await assertPiModelSelection({ modelsJsonPath, piProvider, piModel })
+      : await assertPiModelSelection({ modelsJsonPath: null, piProvider, piModel });
 
   const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
   if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
@@ -616,4 +616,4 @@ export function loadConfig() {
   };
 }
 
-export type Config = ReturnType<typeof loadConfig>;
+export type Config = Awaited<ReturnType<typeof loadConfig>>;

@@ -9,7 +9,7 @@ import { shutdownPostHog } from "./posthog.js";
 async function main() {
   let cfg: Config;
   try {
-    cfg = loadConfig();
+    cfg = await loadConfig();
   } catch (e) {
     console.error(e instanceof Error ? e.message : e);
     process.exit(1);

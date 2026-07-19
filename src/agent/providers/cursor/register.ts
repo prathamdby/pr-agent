@@ -1,4 +1,4 @@
-import { getApiProvider, registerApiProvider } from "@earendil-works/pi-ai";
+import { getApiProvider, registerApiProvider } from "@earendil-works/pi-ai/compat";
 import { streamCursor } from "./streamCursor.js";
 
 let registered = false;

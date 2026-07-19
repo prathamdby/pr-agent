@@ -49,7 +49,7 @@ describe("modelsJson helpers", () => {
     expect(() => assertBuiltinPiProvider("cursor")).toThrow(/AGENT_PROVIDER=cursor/);
   });
 
-  it("assertPiModelSelection accepts a custom provider from models.json", () => {
+  it("assertPiModelSelection accepts a custom provider from models.json", async () => {
     const dir = tempDir();
     const path = join(dir, "models.json");
     writeFileSync(
@@ -65,16 +65,16 @@ describe("modelsJson helpers", () => {
         },
       }),
     );
-    expect(
+    await expect(
       assertPiModelSelection({
         modelsJsonPath: path,
         piProvider: "ollama",
         piModel: "llama3.1:8b",
       }),
-    ).toBe("openai-completions");
+    ).resolves.toBe("openai-completions");
   });
 
-  it("assertPiModelSelection accepts built-in pairs when models.json is present", () => {
+  it("assertPiModelSelection accepts built-in pairs when models.json is present", async () => {
     const dir = tempDir();
     const path = join(dir, "models.json");
     writeFileSync(
@@ -90,29 +90,29 @@ describe("modelsJson helpers", () => {
         },
       }),
     );
-    expect(
+    await expect(
       assertPiModelSelection({
         modelsJsonPath: path,
         piProvider: "openai",
         piModel: "gpt-4o-mini",
       }),
-    ).toBe("openai-responses");
+    ).resolves.toBe("openai-responses");
   });
 
-  it("assertPiModelSelection accepts built-ins when providers is empty", () => {
+  it("assertPiModelSelection accepts built-ins when providers is empty", async () => {
     const dir = tempDir();
     const path = join(dir, "models.json");
     writeFileSync(path, JSON.stringify({ providers: {} }));
-    expect(
+    await expect(
       assertPiModelSelection({
         modelsJsonPath: path,
         piProvider: "openai",
         piModel: "gpt-4o-mini",
       }),
-    ).toBe("openai-responses");
+    ).resolves.toBe("openai-responses");
   });
 
-  it("assertPiModelSelection rejects a missing model in models.json", () => {
+  it("assertPiModelSelection rejects a missing model in models.json", async () => {
     const dir = tempDir();
     const path = join(dir, "models.json");
     writeFileSync(
@@ -128,26 +128,26 @@ describe("modelsJson helpers", () => {
         },
       }),
     );
-    expect(() =>
+    await expect(
       assertPiModelSelection({
         modelsJsonPath: path,
         piProvider: "ollama",
         piModel: "missing-model",
       }),
-    ).toThrow(/not found/);
+    ).rejects.toThrow(/not found/);
   });
 
-  it("assertPiModelSelection fails on invalid models.json schema", () => {
+  it("assertPiModelSelection fails on invalid models.json schema", async () => {
     const dir = tempDir();
     const path = join(dir, "models.json");
     writeFileSync(path, JSON.stringify({ providers: "nope" }));
-    expect(() =>
+    await expect(
       assertPiModelSelection({
         modelsJsonPath: path,
         piProvider: "openai",
         piModel: "gpt-4o-mini",
       }),
-    ).toThrow(/Invalid models\.json/);
+    ).rejects.toThrow(/Invalid models\.json/);
   });
 });
 

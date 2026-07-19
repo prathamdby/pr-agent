@@ -1,4 +1,4 @@
-import { complete } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai/compat";
 import type { Context, Tool as PiTool } from "@earendil-works/pi-ai";
 import { Agent } from "@cursor/sdk";
 import type {

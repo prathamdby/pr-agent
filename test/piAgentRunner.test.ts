@@ -56,11 +56,21 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
   };
 }
 
-vi.mock("@earendil-works/pi-coding-agent", () => ({
-  AuthStorage: {
-    create: vi.fn(() => ({
-      setRuntimeApiKey: vi.fn(),
+const createDefaultModelRuntimeMock = vi.hoisted(() => {
+  return () => ({
+    setRuntimeApiKey: vi.fn(async () => undefined),
+    getError: vi.fn(() => undefined),
+    getModel: vi.fn(() => ({
+      id: "gpt-4o-mini",
+      provider: "openai",
+      api: "openai-responses",
     })),
+  });
+});
+
+vi.mock("@earendil-works/pi-coding-agent", () => ({
+  ModelRuntime: {
+    create: vi.fn(async () => createDefaultModelRuntimeMock()),
   },
   createAgentSession: vi.fn(),
   createExtensionRuntime: vi.fn(),
@@ -68,25 +78,11 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
     return { reload: vi.fn(async () => undefined) };
   }),
-  ModelRegistry: {
-    inMemory: vi.fn(() => ({
-      getError: vi.fn(() => undefined),
-      find: vi.fn(() => ({ id: "gpt-4o-mini", provider: "openai", api: "openai-responses" })),
-    })),
-    create: vi.fn(() => ({
-      getError: vi.fn(() => undefined),
-      find: vi.fn(() => ({ id: "custom-model", provider: "ollama", api: "openai-completions" })),
-    })),
-  },
   SessionManager: { inMemory: vi.fn(() => ({})) },
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));
 
-import {
-  createAgentSession,
-  defineTool,
-  ModelRegistry,
-} from "@earendil-works/pi-coding-agent";
+import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
@@ -101,19 +97,23 @@ const cfg = makeTestConfig({
 describe("piAgentRunnerProvider.createSession models.json", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ModelRuntime.create).mockImplementation(
+      async () => createDefaultModelRuntimeMock() as never,
+    );
   });
 
-  it("uses ModelRegistry.create and find when modelsJsonPath is set", async () => {
+  it("uses ModelRuntime with modelsJsonPath when set", async () => {
     const session = buildMockSession(() => undefined);
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
-    const find = vi.fn(() => ({
+    const getModel = vi.fn(() => ({
       id: "llama3.1:8b",
       provider: "ollama",
       api: "openai-completions",
     }));
-    vi.mocked(ModelRegistry.create).mockReturnValue({
+    vi.mocked(ModelRuntime.create).mockResolvedValue({
+      setRuntimeApiKey: vi.fn(async () => undefined),
       getError: () => undefined,
-      find,
+      getModel,
     } as never);
 
     await piAgentRunnerProvider.createSession({
@@ -129,9 +129,10 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
       executors: {},
     });
 
-    expect(ModelRegistry.create).toHaveBeenCalledWith(expect.anything(), "/app/models.json");
-    expect(ModelRegistry.inMemory).not.toHaveBeenCalled();
-    expect(find).toHaveBeenCalledWith("ollama", "llama3.1:8b");
+    expect(ModelRuntime.create).toHaveBeenCalledWith(
+      expect.objectContaining({ modelsPath: "/app/models.json" }),
+    );
+    expect(getModel).toHaveBeenCalledWith("ollama", "llama3.1:8b");
     expect(createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({
         model: { id: "llama3.1:8b", provider: "ollama", api: "openai-completions" },
@@ -139,7 +140,7 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
     );
   });
 
-  it("uses inMemory registry and find when modelsJsonPath is null", async () => {
+  it("uses ModelRuntime with null modelsPath when modelsJsonPath is null", async () => {
     const session = buildMockSession(() => undefined);
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
@@ -150,8 +151,7 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
       executors: {},
     });
 
-    expect(ModelRegistry.inMemory).toHaveBeenCalled();
-    expect(ModelRegistry.create).not.toHaveBeenCalled();
+    expect(ModelRuntime.create).toHaveBeenCalledWith(expect.objectContaining({ modelsPath: null }));
     expect(createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({
         model: { id: "gpt-4o-mini", provider: "openai", api: "openai-responses" },
@@ -159,10 +159,11 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
     );
   });
 
-  it("throws when models.json registry reports a load error", async () => {
-    vi.mocked(ModelRegistry.create).mockReturnValue({
+  it("throws when models.json runtime reports a load error", async () => {
+    vi.mocked(ModelRuntime.create).mockResolvedValue({
+      setRuntimeApiKey: vi.fn(async () => undefined),
       getError: () => "Invalid models.json schema",
-      find: vi.fn(),
+      getModel: vi.fn(),
     } as never);
 
     await expect(
@@ -184,6 +185,9 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
 describe("piAgentRunnerProvider.send", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(ModelRuntime.create).mockImplementation(
+      async () => createDefaultModelRuntimeMock() as never,
+    );
   });
 
   it("returns terminal answer-turn text and ignores commentary from tool-using turns", async () => {

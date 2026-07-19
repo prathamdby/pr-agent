@@ -8,3 +8,4 @@ minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - pg-cloudflare
   - typescript
+  - cron-parser@5.6.2

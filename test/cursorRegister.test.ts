@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getApiProvider } from "@earendil-works/pi-ai";
+import { getApiProvider } from "@earendil-works/pi-ai/compat";
 import {
   isCursorProviderRegistered,
   registerCursorProvider,
