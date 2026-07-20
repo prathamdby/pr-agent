@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -73,6 +73,56 @@ describe("loadAgentInstructionFiles", () => {
     if (result.kind !== "ok") return;
     expect(result.files).toHaveLength(1);
     expect(result.files[0].filename).toBe("AGENTS.md");
+  });
+
+  it("break on aggregate cap stops all later files even if they would fit", async () => {
+    const root = await checkoutWith({
+      "AGENTS.md": "a".repeat(30),
+      "CLAUDE.md": "b".repeat(30),
+      "GEMINI.md": "tiny",
+    });
+    const result = await loadAgentInstructionFiles(root, 50);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.files).toHaveLength(1);
+    expect(result.files[0].filename).toBe("AGENTS.md");
+  });
+
+  it("skips a directory named AGENTS.md and loads remaining files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-instruction-dir-"));
+    await mkdir(join(root, "AGENTS.md"));
+    await writeFile(join(root, "CLAUDE.md"), "Valid content.", "utf8");
+    const result = await loadAgentInstructionFiles(root);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.files).toEqual([{ filename: "CLAUDE.md", body: "Valid content." }]);
+  });
+
+  it("skips unreadable files and continues to next", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-instruction-perm-"));
+    const agentsPath = join(root, "AGENTS.md");
+    await writeFile(agentsPath, "secret", "utf8");
+    await chmod(agentsPath, 0o000);
+    await writeFile(join(root, "CLAUDE.md"), "Accessible.", "utf8");
+    try {
+      const result = await loadAgentInstructionFiles(root);
+      expect(result.kind).toBe("ok");
+      if (result.kind !== "ok") return;
+      expect(result.files).toEqual([{ filename: "CLAUDE.md", body: "Accessible." }]);
+    } finally {
+      await chmod(agentsPath, 0o644);
+    }
+  });
+
+  it("loads a file whose raw size exceeds the cap only via trailing whitespace", async () => {
+    const body = "fits";
+    const padded = `${body}${" ".repeat(MAX_AGENT_INSTRUCTION_FILE_BYTES)}`;
+    expect(Buffer.byteLength(padded, "utf8")).toBeGreaterThan(MAX_AGENT_INSTRUCTION_FILE_BYTES);
+    const root = await checkoutWith({ "AGENTS.md": padded });
+    const result = await loadAgentInstructionFiles(root);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    expect(result.files).toEqual([{ filename: "AGENTS.md", body }]);
   });
 
   it("ignores nested AGENTS.md outside the checkout root", async () => {

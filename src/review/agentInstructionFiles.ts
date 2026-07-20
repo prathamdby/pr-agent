@@ -18,6 +18,10 @@ export type AgentInstructionFilesResult =
   | { kind: "absent" }
   | { kind: "ok"; files: readonly AgentInstructionFile[] };
 
+type DiscoveredFile =
+  | { readonly filename: AgentInstructionFilename; readonly kind: "loaded"; readonly body: string }
+  | { readonly filename: AgentInstructionFilename; readonly kind: "skip"; readonly reason: string };
+
 function errnoCode(error: unknown): string | undefined {
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as NodeJS.ErrnoException).code;
@@ -26,77 +30,97 @@ function errnoCode(error: unknown): string | undefined {
   return undefined;
 }
 
+async function discoverAgentInstructionFile(
+  checkoutRoot: string,
+  filename: AgentInstructionFilename,
+): Promise<DiscoveredFile | null> {
+  const absolutePath = join(checkoutRoot, filename);
+  let fileStat;
+  try {
+    fileStat = await stat(absolutePath);
+  } catch (error) {
+    if (errnoCode(error) === "ENOENT") return null;
+    const message = error instanceof Error ? error.message : String(error);
+    return { filename, kind: "skip", reason: message };
+  }
+
+  if (!fileStat.isFile()) {
+    return { filename, kind: "skip", reason: "not a regular file" };
+  }
+
+  let raw: string;
+  try {
+    raw = await readFile(absolutePath, "utf8");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { filename, kind: "skip", reason: message };
+  }
+
+  const body = raw.trim();
+  if (body.length === 0) {
+    return { filename, kind: "skip", reason: "empty after trim" };
+  }
+
+  return { filename, kind: "loaded", body };
+}
+
+/**
+ * Statically load well-known root agent instruction files from a PR checkout.
+ * Discovery (stat + read) runs in parallel; budget caps apply in filename order.
+ */
 export async function loadAgentInstructionFiles(
   checkoutRoot: string,
   maxBytes: number = MAX_AGENT_INSTRUCTION_BYTES,
 ): Promise<AgentInstructionFilesResult> {
+  const settled = await Promise.allSettled(
+    AGENT_INSTRUCTION_FILENAMES.map((filename) =>
+      discoverAgentInstructionFile(checkoutRoot, filename),
+    ),
+  );
+
   const files: AgentInstructionFile[] = [];
   let aggregateBytes = 0;
 
-  for (const filename of AGENT_INSTRUCTION_FILENAMES) {
-    const absolutePath = join(checkoutRoot, filename);
-    let fileStat;
-    try {
-      fileStat = await stat(absolutePath);
-    } catch (error) {
-      if (errnoCode(error) === "ENOENT") continue;
-      const message = error instanceof Error ? error.message : String(error);
-      logWarn("agent_instruction_file_skipped", { path: absolutePath, reason: message });
-      continue;
-    }
-
-    if (!fileStat.isFile()) {
+  for (let i = 0; i < AGENT_INSTRUCTION_FILENAMES.length; i++) {
+    const filename = AGENT_INSTRUCTION_FILENAMES[i];
+    const outcome = settled[i];
+    if (outcome.status === "rejected") {
       logWarn("agent_instruction_file_skipped", {
-        path: absolutePath,
-        reason: "not a regular file",
+        path: join(checkoutRoot, filename),
+        reason: outcome.reason instanceof Error ? outcome.reason.message : String(outcome.reason),
       });
       continue;
     }
 
-    if (fileStat.size > MAX_AGENT_INSTRUCTION_FILE_BYTES) {
+    const discovered = outcome.value;
+    if (discovered == null) continue;
+
+    if (discovered.kind === "skip") {
       logWarn("agent_instruction_file_skipped", {
-        path: absolutePath,
-        reason: "file exceeds size cap",
+        path: join(checkoutRoot, discovered.filename),
+        reason: discovered.reason,
       });
       continue;
     }
 
-    let raw: string;
-    try {
-      raw = await readFile(absolutePath, "utf8");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logWarn("agent_instruction_file_skipped", { path: absolutePath, reason: message });
-      continue;
-    }
-
-    const body = raw.trim();
-    if (body.length === 0) {
-      logWarn("agent_instruction_file_skipped", {
-        path: absolutePath,
-        reason: "empty after trim",
-      });
-      continue;
-    }
-
-    const byteLength = Buffer.byteLength(body, "utf8");
+    const byteLength = Buffer.byteLength(discovered.body, "utf8");
     if (byteLength > MAX_AGENT_INSTRUCTION_FILE_BYTES) {
       logWarn("agent_instruction_file_skipped", {
-        path: absolutePath,
+        path: join(checkoutRoot, discovered.filename),
         reason: "file exceeds size cap",
       });
       continue;
     }
     if (aggregateBytes + byteLength > maxBytes) {
       logWarn("agent_instruction_file_skipped", {
-        path: absolutePath,
+        path: join(checkoutRoot, discovered.filename),
         reason: "aggregate size cap exceeded",
       });
       break;
     }
 
     aggregateBytes += byteLength;
-    files.push({ filename, body });
+    files.push({ filename: discovered.filename, body: discovered.body });
   }
 
   if (files.length === 0) {

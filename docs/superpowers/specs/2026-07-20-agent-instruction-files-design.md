@@ -23,8 +23,7 @@ type AgentInstructionFile = {
 };
 
 type AgentInstructionFilesResult =
-  | { kind: "absent" }
-  | { kind: "ok"; files: readonly AgentInstructionFile[] };
+  { kind: "absent" } | { kind: "ok"; files: readonly AgentInstructionFile[] };
 ```
 
 ## Load algorithm

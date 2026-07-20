@@ -92,6 +92,20 @@ async function tryCatchAsync<T>(
   }
 }
 
+/** Load a discriminated result and render the ok branch into a trusted-context block. */
+async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string }>(params: {
+  readonly load: () => Promise<TResult>;
+  readonly renderOk: (result: Extract<TResult, { kind: "ok" }>) => string;
+  readonly onNonOk?: (result: Exclude<TResult, { kind: "ok" }>) => void;
+}): Promise<string | undefined> {
+  const result = await params.load();
+  if (result.kind === "ok") {
+    return params.renderOk(result as Extract<TResult, { kind: "ok" }>) || undefined;
+  }
+  params.onNonOk?.(result as Exclude<TResult, { kind: "ok" }>);
+  return undefined;
+}
+
 type TokenState = { installation: InstallationToken };
 
 type ReviewExecutionResult = StaleSlashReviewRescheduleResult | { readonly degraded: boolean };
@@ -383,32 +397,29 @@ async function runFullReviewAgainstRepositoryView(args: {
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
 
-  const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
-  let repoPolicyBlock: string | undefined;
-  if (policyResult.kind === "invalid") {
-    logWarn("repo_policy_invalid", {
-      path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
-      reason: policyResult.reason,
-    });
-  } else if (policyResult.kind === "ok") {
-    const rendered = renderRepoPolicyBlock({
-      policy: policyResult.policy,
-      changedFiles: repositoryView.preflight.files.map((file) => file.filename),
-    });
-    repoPolicyBlock = rendered || undefined;
-  }
-
-  const agentInstructionResult = await loadAgentInstructionFiles(
-    repositoryView.agentCwd,
-    MAX_AGENT_INSTRUCTION_BYTES,
-  );
-  let agentInstructionFilesBlock: string | undefined;
-  if (agentInstructionResult.kind === "ok") {
-    const rendered = renderAgentInstructionFilesBlock({
-      files: agentInstructionResult.files,
-    });
-    agentInstructionFilesBlock = rendered || undefined;
-  }
+  const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
+  const [repoPolicyBlock, agentInstructionFilesBlock] = await Promise.all([
+    loadAndRenderTrustedBlock({
+      load: () => loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES),
+      renderOk: (result) =>
+        renderRepoPolicyBlock({
+          policy: result.policy,
+          changedFiles,
+        }),
+      onNonOk: (result) => {
+        if (result.kind === "invalid") {
+          logWarn("repo_policy_invalid", {
+            path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
+            reason: result.reason,
+          });
+        }
+      },
+    }),
+    loadAndRenderTrustedBlock({
+      load: () => loadAgentInstructionFiles(repositoryView.agentCwd, MAX_AGENT_INSTRUCTION_BYTES),
+      renderOk: (result) => renderAgentInstructionFilesBlock({ files: result.files }),
+    }),
+  ]);
 
   const trustedContext = buildTrustedReviewContextForReview({
     preflight: repositoryView.preflight,
