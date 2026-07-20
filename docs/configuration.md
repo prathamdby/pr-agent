@@ -142,8 +142,8 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                    |
 | `*_DEAD_LETTER_QUEUE`                      | DLQ names                                                                                                             |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                              |
-| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened                                                                                         |
-| `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize` (see [features.md](features.md)) |
+| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened — `pull_request` actions accepted at webhook intake (not the auto-enqueue map)          |
+| `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize`; `reopened` enqueues nothing (see [features.md](features.md)) |
 | `AUTOMATED_REVIEW_LENS`                    | `review`                                                                                                              |
 | `DESCRIPTION_PUBLISH_LENS`                 | `description`                                                                                                         |
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                 |
