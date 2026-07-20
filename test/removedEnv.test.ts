@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { REMOVED_ENV, assertNoRemovedEnv } from "../src/settings/index.js";
+import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 describe("removed env guard", () => {
   it("passes when no removed vars are set", () => {
@@ -32,5 +33,26 @@ describe("removed env guard", () => {
     ]) {
       expect(REMOVED_ENV[key], `missing ${key}`).toBeTruthy();
     }
+  });
+
+  it("makes loadConfig refuse to start when a removed var is set", async () => {
+    const saved = { ...process.env };
+    process.env = {
+      GITHUB_APP_ID: "1",
+      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
+      WEBHOOK_SECRET: "secret",
+      DATABASE_URL: "postgres://u:p@localhost/db",
+      ENABLE_REVIEW_COMMIT_STATUS: "true",
+    } as NodeJS.ProcessEnv;
+    try {
+      const { loadConfig } = await import("../src/config.js");
+      await expect(loadConfig()).rejects.toThrow(/removed environment variables/);
+    } finally {
+      process.env = { ...saved };
+    }
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 });

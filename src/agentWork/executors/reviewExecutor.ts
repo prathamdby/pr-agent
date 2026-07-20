@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { posthog } from "../../posthog.js";
+import { getPostHog } from "../../posthog.js";
 import type { InstallationToken } from "../../github/appAuth.js";
 import {
   assertPullRequestFilesHeadSha,
@@ -295,7 +295,7 @@ async function handleReviewPublishResult(args: {
         publishAttempts: result.publishAttempts,
         publishDegraded: true,
       });
-      posthog.capture({
+      getPostHog().capture({
         distinctId: `installation:${item.installationId}`,
         event: "review failed",
         properties: {
@@ -317,7 +317,7 @@ async function handleReviewPublishResult(args: {
     }
   } else {
     const snapshot = snapshotReviewRunMetrics();
-    posthog.capture({
+    getPostHog().capture({
       distinctId: `installation:${item.installationId}`,
       event: "review published",
       properties: {

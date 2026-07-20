@@ -38,10 +38,9 @@ describe("posthog client", () => {
   });
 
   it("constructs the client with exception autocapture and before_send sanitizer", async () => {
-    process.env[ENV.POSTHOG_PROJECT_TOKEN] = "token";
-    process.env[ENV.POSTHOG_HOST] = "https://posthog.example";
+    const { initPostHog } = await import("../src/posthog.js");
 
-    await import("../src/posthog.js");
+    initPostHog({ projectToken: "token", host: "https://posthog.example" });
 
     expect(mockPostHog.PostHog).toHaveBeenCalledWith("token", {
       host: "https://posthog.example",
@@ -60,8 +59,9 @@ describe("posthog client", () => {
   });
 
   it("shuts down the singleton client through the exported helper", async () => {
-    const { shutdownPostHog } = await import("../src/posthog.js");
+    const { initPostHog, shutdownPostHog } = await import("../src/posthog.js");
 
+    initPostHog({ projectToken: "", host: "" });
     await shutdownPostHog();
 
     expect(mockPostHog.instances[0]?.shutdown).toHaveBeenCalledTimes(1);

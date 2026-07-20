@@ -1,4 +1,4 @@
-import { posthog } from "../../../posthog.js";
+import { getPostHog } from "../../../posthog.js";
 
 const WORKER_DISTINCT_ID = "worker";
 
@@ -6,7 +6,7 @@ export function captureCursorWorkerEvent(
   event: string,
   properties?: Record<string, unknown>,
 ): void {
-  posthog.capture({
+  getPostHog().capture({
     distinctId: WORKER_DISTINCT_ID,
     event,
     properties: { provider: "cursor", ...properties },
@@ -24,7 +24,7 @@ export function captureCursorWorkerFailure(
     error_message: errorObj.message,
     ...properties,
   });
-  posthog.captureException(errorObj, WORKER_DISTINCT_ID, {
+  getPostHog().captureException(errorObj, WORKER_DISTINCT_ID, {
     type: "cursor",
     step,
     ...properties,

@@ -2,7 +2,7 @@ import { Duration, Effect } from "effect";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import type { Config } from "../../config.js";
-import { posthog } from "../../posthog.js";
+import { getPostHog } from "../../posthog.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
@@ -239,7 +239,7 @@ export function processWebhookPostRequestEffect(
       { event: githubEvent, delivery: logDelivery, ms: elapsedMs },
       "info",
     );
-    posthog.capture({
+    getPostHog().capture({
       distinctId: "server",
       event: "webhook received",
       properties: {

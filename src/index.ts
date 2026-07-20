@@ -5,7 +5,7 @@ import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
 import { captureAgentProviderBootFailure } from "./agent/providers/bootAnalytics.js";
 import { resolveAgentRunnerProvider } from "./agent/providers/index.js";
-import { shutdownPostHog } from "./posthog.js";
+import { shutdownPostHog, initPostHog } from "./posthog.js";
 import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
 async function main() {
@@ -23,6 +23,7 @@ async function main() {
     pretty: cfg.logPretty,
     redact: cfg.logRedact,
   });
+  initPostHog({ projectToken: cfg.posthogProjectToken, host: cfg.posthogHost });
   logInfo("boot", {
     role: cfg.role,
     agentProvider: cfg.agentProvider,

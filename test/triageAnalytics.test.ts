@@ -6,10 +6,10 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/posthog.js", () => ({
-  posthog: {
+  getPostHog: () => ({
     capture: mocks.capture,
     captureException: mocks.captureException,
-  },
+  }),
 }));
 
 import { captureTriageEvent, captureTriageFailure } from "../src/agentWork/triageAnalytics.js";
