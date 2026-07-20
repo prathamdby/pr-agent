@@ -24,8 +24,8 @@ sets are intentionally not supported.
 Notes:
 
 - `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
-- The first five settings gate every LLM call outside the core review run —
-  turn them `off` to stop those surfaces from spending tokens at all.
+- Describe, verification, ask, and triage can be turned `off` to stop those
+  surfaces from spending tokens at all.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
 - Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,

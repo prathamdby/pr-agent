@@ -119,7 +119,7 @@ Loaded by `loadConfig()` into a redaction-safe map and never logged. Set the sec
 
 ---
 
-Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY`, `QUEUE_RETRY_BACKOFF`).
+Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RETRY_DELAY_SECONDS`, `QUEUE_RETRY_DELAY_MAX_SECONDS`; exponential backoff is always enabled).
 
 ---
 
@@ -133,16 +133,19 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `CI_REFRESH_QUEUE`                         | `agent-work-ci-refresh` — LLM CI cell refresh after `workflow_run` completed                                          |
 | `REVIEW_QUEUE`                             | `agent-work-review`                                                                                                   |
 | `ASK_QUEUE`                                | `agent-work-ask`                                                                                                      |
+| `DESCRIPTION_QUEUE`                        | `agent-work-description`                                                                                              |
 | `TRIAGE_QUEUE`                             | `agent-work-triage`                                                                                                   |
 | `VERIFICATION_QUEUE`                       | `agent-work-verification`                                                                                             |
 | `VERIFICATION_DEAD_LETTER_QUEUE`           | `agent-work-verification-dead`                                                                                        |
 | `CI_REFRESH_DEAD_LETTER_QUEUE`             | `agent-work-ci-refresh-dead`                                                                                          |
+| `RETENTION_QUEUE`                          | `agent-work-retention` — scheduled cleanup sweep                                                                      |
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                    |
 | `*_DEAD_LETTER_QUEUE`                      | DLQ names                                                                                                             |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                              |
 | `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened                                                                                         |
 | `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize` (see [features.md](features.md)) |
 | `AUTOMATED_REVIEW_LENS`                    | `review`                                                                                                              |
+| `DESCRIPTION_PUBLISH_LENS`                 | `description`                                                                                                         |
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                 |
 | `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                              |
 | `VERIFICATION_PUBLISH_LENS`                | `verification`                                                                                                        |
@@ -172,6 +175,7 @@ Review check runs are always on: the worker posts GitHub check run `PR Agent Rev
 | `REVIEW_CHECK_RUN_WAIT_FOR_ID_MS` / `REVIEW_CHECK_RUN_WAIT_POLL_MS`                                                  | 15000 / 100 — poll for a peer-started check run id before giving up                                                                                                         |
 | `REVIEW_CI_SUMMARY_WAIT_MS` / `REVIEW_CI_SUMMARY_WAIT_POLL_MS` / `REVIEW_CI_SUMMARY_MAX_FAILURES`                    | 15000 / 2000 / 3 — CI summary gate wait, poll, and max failing checks                                                                                                       |
 | `REVIEW_CI_SUMMARY_LOG_MAX_BYTES` / `REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS` / `REVIEW_CI_SUMMARY_LOG_MAX_JOBS`     | 24000 / 12000 / 3 — condensed Actions log caps for the CI-summary LLM call                                                                                                  |
+| `REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS` / `REVIEW_CI_SUMMARY_REASON_MAX_CHARS` / `REVIEW_CI_SUMMARY_FIX_HINT_MAX_CHARS` | 240 / 400 / 280 — model-authored CI field caps                                                                                                                            |
 | `REVIEW_CI_SUMMARY_GRANT_CHECKS` / `REVIEW_CI_SUMMARY_GRANT_ACTIONS` / `REVIEW_CI_SUMMARY_UNAVAILABLE`               | User-visible CI-row copy when Checks/Actions permission is missing, or status fetch fails                                                                                   |
 | `REVIEW_SIZE_TIER_*`                                                                                                 | Advisory small/medium/large tier thresholds                                                                                                                                 |
 | `REVIEW_RISK_PATH_PATTERNS`                                                                                          | Path categories for trusted review context                                                                                                                                  |

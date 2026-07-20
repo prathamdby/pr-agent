@@ -20,7 +20,7 @@ Policy suggestions always rendered a from-scratch `.pr-agent.yml` snippet, even 
 
 3. **Dismissed is terminal for verification.** Edit the stub into the dismissed body (evidence + grounded policy suggestion), then `resolveReviewThread`. Resolved threads drop out of the next open inventory. Triage publish is unchanged (still never auto-resolves dismissed findings).
 
-4. **Grounded policy suggestions.** While the read-only PR repository view is open, load `.pr-agent.yml` and pass the result into publish. Valid existing policy → append-only `pathInstructions` fragment; absent → full starter file; invalid → full starter plus the parse failure reason.
+4. **Grounded policy suggestions.** While the read-only PR repository view is open, load `.pr-agent/*.mdc` rules and pass the result into publish. Exactly one matching rule → append fragment; absent → new starter `.mdc`; invalid/missing → new starter plus the parse failure reason.
 
 5. **Silent resolve for fixed / already-resolved stays as ADR 0021.**
 

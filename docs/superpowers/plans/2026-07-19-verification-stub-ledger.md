@@ -1,5 +1,7 @@
 # Plan: Verification stub ledger (edit-in-place + resolve-on-dismiss)
 
+**Implementation note:** Policy grounding and dismissal suggestions now use `.pr-agent/*.mdc` per [ADR 0025](../../adr/0025-mdc-repo-policy.md). Requirements and the policy-render section below that mention `.pr-agent.yml` / `pathInstructions` are historical.
+
 ## Requirements (locked)
 
 1. **Dismissed → resolve** after posting/editing the dismissed reply (changes ADR 0021).
