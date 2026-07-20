@@ -13,7 +13,7 @@ export const SLASH_HELP_BODY = [
   "- `/triage` — fix earlier PR Agent findings on this PR: commits and pushes minimal fixes to the PR branch, resolves fixed threads (trigger-only; same-repo PRs). Post on the PR conversation to triage all findings, or reply `/triage` inside a bot inline finding thread to triage that finding only.",
   "",
   "Notes:",
-  "- Automated `/describe` runs on PR actions listed in `DESCRIPTION_AUTO_ACTIONS` (default `opened` only); `/review` runs on PR actions listed in `REVIEW_AUTO_ACTIONS` (default `opened` only, so follow-up pushes need a manual `/review`).",
+  "- Automated runs follow the `FEATURE_*` settings (docs/features.md): review and describe fire when a PR opens in `auto` mode, so follow-up pushes need a manual `/review`.",
   "- `/describe` merges generated content below the PR Agent description header; your text above that header is preserved.",
   "- `/review`, `/review-security`, `/review-quality`, and `/review-tests` can each leave summary comments on the same PR (different sentinels).",
   "- `/ask` and `@bot` mentions load the containing comment thread so follow-ups stay in conversation; they do not change finding severity or dismiss threads.",

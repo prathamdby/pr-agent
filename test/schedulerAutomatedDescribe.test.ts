@@ -124,7 +124,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
         ),
       );
 
-      // Default REVIEW_AUTO_ACTIONS=opened means follow-up pushes schedule no work.
+      // Review auto-triggers only on opened, so follow-up pushes schedule no work.
       expect(sentQueues).not.toContain(REVIEW_QUEUE);
       expect(sentQueues).not.toContain(ACK_QUEUE);
       expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
