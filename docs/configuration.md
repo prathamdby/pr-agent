@@ -208,6 +208,9 @@ Review check runs are always on: the worker posts GitHub check run `PR Agent Rev
 | `MAX_REPO_POLICY_FILES`                                                                                              | 20                                                                                                                                                                          |
 | `MAX_REPO_POLICY_PATH_PATTERN_CHARS`                                                                                 | 200                                                                                                                                                                         |
 | `MAX_REPO_POLICY_INSTRUCTION_CHARS`                                                                                  | 1000                                                                                                                                                                        |
+| `AGENT_INSTRUCTION_FILENAMES`                                                                                        | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` (repo-root load order)                                                                                                                |
+| `MAX_AGENT_INSTRUCTION_BYTES`                                                                                        | 65536 (aggregate content across accepted root files)                                                                                                                        |
+| `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                   | 32768                                                                                                                                                                       |
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
@@ -220,6 +223,10 @@ Flat directory of Cursor-style `.mdc` rule files, read from the PR head checkout
 | body               | markdown           | 1000 chars            | Instruction prose injected into trusted context when the rule applies                             |
 
 Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured `submitReview` path or change output schemas.
+
+#### Root agent instruction files (`AGENTS.md` / `CLAUDE.md` / `GEMINI.md`)
+
+On each review run, the worker statically checks the PR head checkout root for these three filenames (in that order). Present regular files are loaded into a sibling trusted-context block (`Trusted context (agent instruction files):`), with separate caps from repo policy. Missing files are skipped; oversized, unreadable, or empty files are skipped (warn logged). Bodies are injected raw — `@include` / pointer expansion is not performed. Ask, describe, triage, and verification do not load these files.
 
 Example:
 

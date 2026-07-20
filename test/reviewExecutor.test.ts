@@ -414,6 +414,8 @@ describe("executeReviewJob", () => {
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight: { preflight: true },
       priorInlineFeedback: "prior block",
+      repoPolicyBlock: undefined,
+      agentInstructionFilesBlock: undefined,
     });
   });
 
@@ -453,6 +455,8 @@ describe("executeReviewJob", () => {
     expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
       preflight: { preflight: true },
       priorInlineFeedback: undefined,
+      repoPolicyBlock: undefined,
+      agentInstructionFilesBlock: undefined,
     });
     expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
   });
@@ -498,6 +502,7 @@ describe("executeReviewJob", () => {
       preflight,
       priorInlineFeedback: undefined,
       repoPolicyBlock: expect.stringContaining("Be terse."),
+      agentInstructionFilesBlock: undefined,
     });
   });
 
@@ -523,6 +528,34 @@ describe("executeReviewJob", () => {
       preflight,
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
+      agentInstructionFilesBlock: undefined,
+    });
+  });
+
+  it("appends rendered agent instruction files to trusted context when present", async () => {
+    const checkout = await mkdtemp(join(tmpdir(), "agent-instruction-exec-"));
+    await writeFile(join(checkout, "AGENTS.md"), "Prefer nub install.\n", "utf8");
+    const preflight = {
+      files: [{ filename: "src/a.ts" }],
+      truncated: false,
+      fileCount: 1,
+      totalChanges: 2,
+    };
+    mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
+      run({
+        preflight,
+        agentCwd: checkout,
+        workspace: undefined,
+      }),
+    );
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildTrustedContext).toHaveBeenCalledWith({
+      preflight,
+      priorInlineFeedback: undefined,
+      repoPolicyBlock: undefined,
+      agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
     });
   });
 

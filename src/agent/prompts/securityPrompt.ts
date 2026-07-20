@@ -16,6 +16,7 @@ import {
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
+  agentInstructionFilesGuidance,
 } from "../../review/prompts/reviewPromptBlocks.js";
 
 export const githubToolingDiscipline = [
@@ -100,6 +101,8 @@ export const automatedSecuritySystemPrompt = [
   highStakesTrivialTrapGuidance,
   "",
   priorInlineFeedbackGuidance,
+  "",
+  agentInstructionFilesGuidance,
   "",
   "## Subtle auth-bypass patterns",
   "",

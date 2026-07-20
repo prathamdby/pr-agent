@@ -8,6 +8,7 @@ import {
   VALIDATION_REPAIR_ROUND0_SUFFIX,
   securityTripwiresGuidance,
   proseContractGuidance,
+  agentInstructionFilesGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 
@@ -72,6 +73,14 @@ describe("review lens-specific obligations", () => {
         prompt,
         `${name} lens must not carry the general-lens prose contracts block`,
       ).not.toContain(proseContractGuidance);
+    }
+  });
+
+  it("includes agent instruction files guidance in every review lens", () => {
+    for (const [name, prompt] of LENS_PROMPTS) {
+      expect(prompt, `${name} should include agent instruction files guidance`).toContain(
+        agentInstructionFilesGuidance,
+      );
     }
   });
 });

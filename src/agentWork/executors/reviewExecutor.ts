@@ -14,6 +14,10 @@ import { runFullPrReview } from "../../review/run/reviewRun.js";
 import type { ReviewRunResult } from "../../review/run/reviewRunTypes.js";
 import { loadRepoPolicy, renderRepoPolicyBlock } from "../../review/repoPolicy.js";
 import {
+  loadAgentInstructionFiles,
+  renderAgentInstructionFilesBlock,
+} from "../../review/agentInstructionFiles.js";
+import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/prompts/reviewTrustedContext.js";
@@ -38,6 +42,7 @@ import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import {
   DESCRIPTION_AGENT_HEADER,
   MAX_REPO_POLICY_BYTES,
+  MAX_AGENT_INSTRUCTION_BYTES,
   REPO_POLICY_DIRNAME,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
@@ -85,6 +90,20 @@ async function tryCatchAsync<T>(
     onError?.(error);
     return { ok: false, error };
   }
+}
+
+/** Load a discriminated result and render the ok branch into a trusted-context block. */
+async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string }>(params: {
+  readonly load: () => Promise<TResult>;
+  readonly renderOk: (result: Extract<TResult, { kind: "ok" }>) => string;
+  readonly onNonOk?: (result: Exclude<TResult, { kind: "ok" }>) => void;
+}): Promise<string | undefined> {
+  const result = await params.load();
+  if (result.kind === "ok") {
+    return params.renderOk(result as Extract<TResult, { kind: "ok" }>) || undefined;
+  }
+  params.onNonOk?.(result as Exclude<TResult, { kind: "ok" }>);
+  return undefined;
 }
 
 type TokenState = { installation: InstallationToken };
@@ -378,25 +397,35 @@ async function runFullReviewAgainstRepositoryView(args: {
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
 
-  const policyResult = await loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES);
-  let repoPolicyBlock: string | undefined;
-  if (policyResult.kind === "invalid") {
-    logWarn("repo_policy_invalid", {
-      path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
-      reason: policyResult.reason,
-    });
-  } else if (policyResult.kind === "ok") {
-    const rendered = renderRepoPolicyBlock({
-      policy: policyResult.policy,
-      changedFiles: repositoryView.preflight.files.map((file) => file.filename),
-    });
-    repoPolicyBlock = rendered || undefined;
-  }
+  const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
+  const [repoPolicyBlock, agentInstructionFilesBlock] = await Promise.all([
+    loadAndRenderTrustedBlock({
+      load: () => loadRepoPolicy(repositoryView.agentCwd, MAX_REPO_POLICY_BYTES),
+      renderOk: (result) =>
+        renderRepoPolicyBlock({
+          policy: result.policy,
+          changedFiles,
+        }),
+      onNonOk: (result) => {
+        if (result.kind === "invalid") {
+          logWarn("repo_policy_invalid", {
+            path: join(repositoryView.agentCwd, REPO_POLICY_DIRNAME),
+            reason: result.reason,
+          });
+        }
+      },
+    }),
+    loadAndRenderTrustedBlock({
+      load: () => loadAgentInstructionFiles(repositoryView.agentCwd, MAX_AGENT_INSTRUCTION_BYTES),
+      renderOk: (result) => renderAgentInstructionFilesBlock({ files: result.files }),
+    }),
+  ]);
 
   const trustedContext = buildTrustedReviewContextForReview({
     preflight: repositoryView.preflight,
     priorInlineFeedback: priorInlineFeedbackResult.value,
     repoPolicyBlock,
+    agentInstructionFilesBlock,
   });
 
   const result = await runFullPrReview({
