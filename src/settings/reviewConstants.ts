@@ -181,7 +181,7 @@ export type ReviewPhase =
   | "publish_recovery"
   | "plaintext_fallback";
 
-/** Review agent caps (hardcoded by the feature-flags revision; formerly env-tunable). */
+/** Review agent caps. */
 export const MAX_TOOL_ROUNDS = 24;
 export const MAX_REVIEW_PUBLISH_ATTEMPTS = 3;
 export const MAX_REVIEW_PUBLISH_CALLS = 2;

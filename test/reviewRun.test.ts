@@ -51,11 +51,10 @@ import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTes
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
-const baseCfg = makeTestConfig();
 const cfg = makeTestConfig({
   reviewConcurrency: 1,
   askConcurrency: 3,
-  features: { ...baseCfg.features, reviewLabels: "off" },
+  features: { ...makeTestConfig().features, reviewLabels: "off" },
 });
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;

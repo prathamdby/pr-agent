@@ -2,7 +2,7 @@ export const LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY = 32;
 export const LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE = 256;
 export const PR_REPOSITORY_VIEW_RELEASE_GRACE_MS = 60_000;
 
-/** Local PR workspace caps (hardcoded by the feature-flags revision; formerly env-tunable). */
+/** Local PR workspace caps. */
 export const LOCAL_WORKSPACE_CLONE_TIMEOUT_MS = 60_000;
 export const LOCAL_WORKSPACE_FETCH_TIMEOUT_MS = 60_000;
 export const LOCAL_WORKSPACE_SEARCH_MAX_FILES = 500;
