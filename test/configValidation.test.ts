@@ -94,69 +94,6 @@ describe("loadConfig validation", () => {
     );
   });
 
-  it("defaults description auto actions to opened only", async () => {
-    const cfg = await load({});
-    expect([...cfg.descriptionAutoActions]).toEqual(["opened"]);
-  });
-
-  it("parses description auto actions from env", async () => {
-    const cfg = await load({ DESCRIPTION_AUTO_ACTIONS: "opened,synchronize" });
-    expect([...cfg.descriptionAutoActions]).toEqual(["opened", "synchronize"]);
-  });
-
-  it("rejects unknown description auto actions", async () => {
-    await expect(load({ DESCRIPTION_AUTO_ACTIONS: "opened,labeled" })).rejects.toThrow(
-      /DESCRIPTION_AUTO_ACTIONS contains unknown action/,
-    );
-  });
-
-  it("normalizes description auto actions to lowercase", async () => {
-    const cfg = await load({ DESCRIPTION_AUTO_ACTIONS: "Opened, SYNCHRONIZE " });
-    expect([...cfg.descriptionAutoActions]).toEqual(["opened", "synchronize"]);
-  });
-
-  it("defaults review auto actions to opened only", async () => {
-    const cfg = await load({});
-    expect([...cfg.reviewAutoActions]).toEqual(["opened"]);
-  });
-
-  it("parses review auto actions from env", async () => {
-    const cfg = await load({ REVIEW_AUTO_ACTIONS: "opened,synchronize" });
-    expect([...cfg.reviewAutoActions]).toEqual(["opened", "synchronize"]);
-  });
-
-  it("rejects unknown review auto actions", async () => {
-    await expect(load({ REVIEW_AUTO_ACTIONS: "opened,labeled" })).rejects.toThrow(
-      /REVIEW_AUTO_ACTIONS contains unknown action/,
-    );
-  });
-
-  it("normalizes review auto actions to lowercase", async () => {
-    const cfg = await load({ REVIEW_AUTO_ACTIONS: "Opened, REOPENED " });
-    expect([...cfg.reviewAutoActions]).toEqual(["opened", "reopened"]);
-  });
-
-  it("defaults verification auto actions to synchronize", async () => {
-    const cfg = await load({});
-    expect([...cfg.verificationAutoActions]).toEqual(["synchronize"]);
-  });
-
-  it("parses verification auto actions from env", async () => {
-    const cfg = await load({ VERIFICATION_AUTO_ACTIONS: "synchronize,reopened" });
-    expect([...cfg.verificationAutoActions]).toEqual(["synchronize", "reopened"]);
-  });
-
-  it("allows empty string to disable verification auto actions", async () => {
-    const cfg = await load({ VERIFICATION_AUTO_ACTIONS: "" });
-    expect([...cfg.verificationAutoActions]).toEqual([]);
-  });
-
-  it("rejects unknown verification auto actions", async () => {
-    await expect(load({ VERIFICATION_AUTO_ACTIONS: "synchronize,labeled" })).rejects.toThrow(
-      /VERIFICATION_AUTO_ACTIONS contains unknown action/,
-    );
-  });
-
   it("defaults verification concurrency to 1", async () => {
     const cfg = await load({});
     expect(cfg.verificationConcurrency).toBe(1);

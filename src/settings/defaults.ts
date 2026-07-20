@@ -43,11 +43,6 @@ export const DEFAULT_POSTHOG_HOST = "";
 export const DEFAULT_ENABLE_REVIEW_LABELS_EFFORT = true;
 export const DEFAULT_ENABLE_REVIEW_LABELS_SECURITY = false;
 export const DEFAULT_ENABLE_REVIEW_COMMIT_STATUS = false;
-export const DEFAULT_DESCRIPTION_AUTO_ACTIONS = "opened";
-/** Default `pull_request` actions that auto-run `/review`. "opened" only so a PR is reviewed once at the start; follow-up pushes require a manual `/review`. */
-export const DEFAULT_REVIEW_AUTO_ACTIONS = "opened";
-/** Default `pull_request` actions that auto-trigger verification runs. "synchronize" so follow-up pushes re-check open findings; empty string disables. */
-export const DEFAULT_VERIFICATION_AUTO_ACTIONS = "synchronize";
 
 export const DEFAULT_LOG_LEVEL = "info" as const;
 export const DEFAULT_LOG_REDACT = true;

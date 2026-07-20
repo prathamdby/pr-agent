@@ -37,11 +37,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
   }
 >() {}
 
-export function makeAgentWorkScheduler(
-  pool: Pool,
-  boss: PgBoss,
-  cfg: Pick<Config, "reviewAutoActions" | "descriptionAutoActions" | "verificationAutoActions">,
-) {
+export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Config, "features">) {
   return AgentWorkScheduler.of({
     recordIgnored: (headers, decision, intakeLog) =>
       Effect.tryPromise({
@@ -69,7 +65,7 @@ export function makeAgentWorkScheduler(
       Effect.tryPromise({
         try: async () => {
           const events = await inTransaction(pool, (client) =>
-            applySlashCommandIntake(boss, client, input),
+            applySlashCommandIntake(boss, client, input, cfg.features),
           );
           flushDeferredEvents(intakeLog, events);
         },

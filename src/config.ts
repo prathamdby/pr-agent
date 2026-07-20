@@ -19,9 +19,6 @@ import {
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_DESCRIPTION_GENERATE_TITLE,
-  DEFAULT_DESCRIPTION_AUTO_ACTIONS,
-  DEFAULT_REVIEW_AUTO_ACTIONS,
-  DEFAULT_VERIFICATION_AUTO_ACTIONS,
   DEFAULT_VERIFICATION_CONCURRENCY,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
@@ -59,7 +56,6 @@ import {
   DEFAULT_RETENTION_ENABLED,
   ENV,
   EXTERNAL_ENV,
-  AUTOMATED_PR_ACTIONS,
 } from "./settings/index.js";
 import {
   assertPiModelSelection,
@@ -138,28 +134,6 @@ function readSlashAllowedAssociations(name: string, defaultValue: string): Reado
     }
   }
 
-  return new Set(values);
-}
-
-function readAutoActions(
-  name: string,
-  defaultValue: string,
-  opts?: { readonly allowEmpty?: boolean },
-): ReadonlySet<string> {
-  const values = optionalEnv(name, defaultValue)
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter((value) => value.length > 0);
-  if (!opts?.allowEmpty && values.length === 0) {
-    throw new Error(`${name} must list at least one pull_request action`);
-  }
-  for (const value of values) {
-    if (!AUTOMATED_PR_ACTIONS.has(value)) {
-      throw new Error(
-        `${name} contains unknown action "${value}"; allowed: ${[...AUTOMATED_PR_ACTIONS].join(", ")}`,
-      );
-    }
-  }
   return new Set(values);
 }
 
@@ -357,16 +331,6 @@ export async function loadConfig() {
     ENV.ENABLE_REVIEW_COMMIT_STATUS,
     DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   );
-  const descriptionAutoActions = readAutoActions(
-    ENV.DESCRIPTION_AUTO_ACTIONS,
-    DEFAULT_DESCRIPTION_AUTO_ACTIONS,
-  );
-  const reviewAutoActions = readAutoActions(ENV.REVIEW_AUTO_ACTIONS, DEFAULT_REVIEW_AUTO_ACTIONS);
-  const verificationAutoActions = readAutoActions(
-    ENV.VERIFICATION_AUTO_ACTIONS,
-    DEFAULT_VERIFICATION_AUTO_ACTIONS,
-    { allowEmpty: true },
-  );
 
   const logLevel = readEnum(
     ENV.LOG_LEVEL,
@@ -451,9 +415,6 @@ export async function loadConfig() {
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
     enableReviewCommitStatus,
-    descriptionAutoActions,
-    reviewAutoActions,
-    verificationAutoActions,
     logLevel,
     logPretty,
     logRedact,

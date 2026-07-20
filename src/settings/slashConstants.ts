@@ -20,3 +20,7 @@ export const SLASH_HELP_BODY = [
   "- Some security issues may appear in both passes; pick the command that matches your question.",
   "- Edited comments are ignored for slash parsing in v1.",
 ].join("\n");
+
+export function slashDisabledBody(command: string): string {
+  return `\`/${command}\` is disabled on this deployment (\`FEATURE_*\` settings — see docs/features.md).`;
+}

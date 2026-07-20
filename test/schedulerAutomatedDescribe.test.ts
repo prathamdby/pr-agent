@@ -107,8 +107,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     });
 
     const scheduler = makeAgentWorkScheduler(pool, boss, {
-      ...intakeCfg,
-      verificationAutoActions: new Set(),
+      features: { ...intakeCfg.features, verification: "off" },
     });
     const intakeLog = createOperationLogger({
       method: "POST",
@@ -168,7 +167,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
   });
 
-  it("enqueues description on synchronize when DESCRIPTION_AUTO_ACTIONS includes it", async () => {
+  it("skips description on opened when FEATURE_DESCRIBE is manual", async () => {
     const sentQueues: string[] = [];
     const boss = {
       send: vi.fn(async (queue: string) => {
@@ -182,9 +181,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler(pool, boss, {
-      ...intakeCfg,
-      descriptionAutoActions: new Set(["opened", "synchronize"]),
-      verificationAutoActions: new Set(),
+      features: { ...intakeCfg.features, describe: "manual" },
     });
     const intakeLog = createOperationLogger({
       method: "POST",
@@ -192,14 +189,10 @@ describe("makeAgentWorkScheduler automated describe", () => {
     });
 
     await Effect.runPromise(
-      scheduler.submitAutomatedReview(
-        makeAutomatedHeaders(),
-        makePrRef(),
-        "synchronize",
-        intakeLog,
-      ),
+      scheduler.submitAutomatedReview(makeAutomatedHeaders(), makePrRef(), "opened", intakeLog),
     );
 
-    expect(sentQueues).toContain(DESCRIPTION_QUEUE);
+    expect(sentQueues).toContain(REVIEW_QUEUE);
+    expect(sentQueues).not.toContain(DESCRIPTION_QUEUE);
   });
 });
