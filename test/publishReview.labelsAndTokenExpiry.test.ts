@@ -39,6 +39,21 @@ describe("publishReview labels and token expiry", () => {
     vi.clearAllMocks();
   });
 
+  it("skips label sync when reviewLabels mode is off and no category label exists", async () => {
+    vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["bug"]);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cfg: {
+        ...baseParams.cfg,
+        features: { ...baseParams.cfg.features, reviewLabels: "off" as const },
+      },
+    });
+
+    expect(setPullRequestLabels).not.toHaveBeenCalled();
+  });
+
   it("skips setPullRequestLabels when exact effort label already exists", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 

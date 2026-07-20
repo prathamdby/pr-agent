@@ -128,11 +128,13 @@ describe("prompt cost baselines", () => {
 
   it("keeps investigation tool names stable", () => {
     const { piTools: localTools } = buildLocalWorkspaceTools(mockLocalPrWorkspace(), {
-      maxFileBytes: 100_000,
-      readResponseBytes: 128_000,
-      diffResponseBytes: 256_000,
-      searchMaxFiles: 100,
-      searchMaxTotalBytes: 1_000_000,
+      limits: {
+        maxFileBytes: 100_000,
+        readResponseBytes: 128_000,
+        diffResponseBytes: 256_000,
+        searchMaxFiles: 100,
+        searchMaxTotalBytes: 1_000_000,
+      },
     });
     const { piTools: context7Tools } = buildContext7Tools({
       apiKey: "",
@@ -164,11 +166,13 @@ describe("prompt cost baselines", () => {
         isPathInCheckout: (path: string) => path === "src/changed.ts",
       };
       const { executors } = buildLocalWorkspaceTools(workspace, {
-        maxFileBytes: 100_000,
-        readResponseBytes: 32,
-        diffResponseBytes: 32,
-        searchMaxFiles: 100,
-        searchMaxTotalBytes: 1_000_000,
+        limits: {
+          maxFileBytes: 100_000,
+          readResponseBytes: 32,
+          diffResponseBytes: 32,
+          searchMaxFiles: 100,
+          searchMaxTotalBytes: 1_000_000,
+        },
       });
       const out = (await executors.readWorkspaceFile?.({
         path: "src/changed.ts",
@@ -191,11 +195,13 @@ describe("prompt cost baselines", () => {
 
 function promptSurfaces(): PromptSurface[] {
   const localWorkspaceTools = buildLocalWorkspaceTools(mockLocalPrWorkspace(), {
-    maxFileBytes: 100_000,
-    readResponseBytes: 128_000,
-    diffResponseBytes: 256_000,
-    searchMaxFiles: 100,
-    searchMaxTotalBytes: 1_000_000,
+    limits: {
+      maxFileBytes: 100_000,
+      readResponseBytes: 128_000,
+      diffResponseBytes: 256_000,
+      searchMaxFiles: 100,
+      searchMaxTotalBytes: 1_000_000,
+    },
   }).piTools;
   const context7Tools = buildContext7Tools({
     apiKey: "",

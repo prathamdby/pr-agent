@@ -5,7 +5,6 @@ import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import {
   buildLocalWorkspaceTools,
-  workspaceToolLimits,
 } from "../../agent/tools/localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "../../agent/tools/refreshableGithubTools.js";
 import {
@@ -123,7 +122,7 @@ export function buildReviewRunSetup(params: {
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (_activeToken, _activeExpiresAtTs) => {
-      const bundle = buildLocalWorkspaceTools(params.workspace, workspaceToolLimits(), {
+      const bundle = buildLocalWorkspaceTools(params.workspace, {
         pathGate,
       });
       const executors = { ...bundle.executors };

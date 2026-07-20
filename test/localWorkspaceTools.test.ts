@@ -81,7 +81,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "src/small.ts" })) as {
         content: string;
         size: number;
@@ -114,10 +114,9 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/large.ts"]);
-      const { executors } = buildLocalWorkspaceTools(
-        workspace,
-        testLimits({ readResponseBytes: 500 }),
-      );
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ readResponseBytes: 500 }),
+      });
       const out = (await executors.readWorkspaceFile?.({ path: "src/large.ts" })) as {
         truncated: boolean;
         returnedBytes: number;
@@ -145,7 +144,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({
         path: "src/window.ts",
         startLine: 2,
@@ -181,7 +180,7 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/huge.ts"]);
       const { executors } = buildLocalWorkspaceTools(
         workspace,
-        testLimits({ maxFileBytes: 100, readResponseBytes: 50 }),
+        { limits: testLimits({ maxFileBytes: 100, readResponseBytes: 50 }) },
       );
       const out = (await executors.readWorkspaceFile?.({ path: "src/huge.ts" })) as {
         refused?: boolean;
@@ -206,7 +205,7 @@ describe("local workspace tools", () => {
       await writeFile(join(root, "src/binary.bin"), Buffer.from([0, 1, 2, 3]));
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/binary.bin"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.readWorkspaceFile?.({ path: "src/binary.bin" })) as {
         refused?: boolean;
         reason?: string;
@@ -230,7 +229,7 @@ describe("local workspace tools", () => {
       });
       const { executors } = buildLocalWorkspaceTools(
         workspace,
-        testLimits({ diffResponseBytes: 100 }),
+        { limits: testLimits({ diffResponseBytes: 100 }) },
       );
       const out = (await executors.getWorkspaceDiff?.({ path: "src/changed.ts" })) as {
         diff: string;
@@ -257,7 +256,7 @@ describe("local workspace tools", () => {
       });
       const { executors } = buildLocalWorkspaceTools(
         workspace,
-        testLimits({ diffResponseBytes: 100 }),
+        { limits: testLimits({ diffResponseBytes: 100 }) },
       );
       const out = (await executors.getWorkspaceBlame?.({ path: "src/changed.ts" })) as {
         blame: string;
@@ -289,7 +288,7 @@ describe("local workspace tools", () => {
         "src/unchanged.ts",
         "lib/helper.ts",
       ]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; line: number; text: string }>;
         truncated: boolean;
@@ -320,7 +319,8 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, [".env", "src/ok.ts"]);
       const pathGate = createAskPathGate();
       pathGate.addPaths(["src/ok.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits(), {
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
         pathGate,
       });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
@@ -347,8 +347,7 @@ describe("local workspace tools", () => {
       pathGate.addPaths(["zzz/allowed.ts"]);
       const { executors } = buildLocalWorkspaceTools(
         workspace,
-        testLimits({ searchMaxTotalBytes: 500 }),
-        { pathGate },
+        { limits: testLimits({ searchMaxTotalBytes: 500 }), pathGate },
       );
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; text: string }>;
@@ -374,7 +373,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/a.ts", "src/b.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({
         query: "needle",
         maxResults: 2,
@@ -399,7 +398,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/flag.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "--max-count=1" })) as {
         matches: Array<{ path: string; text: string }>;
       };
@@ -421,7 +420,7 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/other.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
 
       await expect(executors.searchWorkspace?.({ query: "needle" })).resolves.toEqual({
         matches: [],
@@ -445,10 +444,9 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, files);
 
       const workspace = mockWorkspace(root, Object.keys(files));
-      const { executors } = buildLocalWorkspaceTools(
-        workspace,
-        testLimits({ searchMaxTotalBytes: 200 }),
-      );
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ searchMaxTotalBytes: 200 }),
+      });
       const out = (await executors.searchWorkspace?.({
         query: "needle",
         maxResults: 20,
@@ -475,7 +473,7 @@ describe("local workspace tools", () => {
       await writeFile(join(root, "src", "worktree.ts"), "const value = 'needle';\n");
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/worktree.ts"]);
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; text: string }>;
       };
@@ -500,7 +498,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, files);
 
       const workspace = mockWorkspace(root, Object.keys(files));
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const startedAt = performance.now();
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
@@ -528,7 +526,7 @@ describe("local workspace tools", () => {
       await writeWorkspaceFiles(root, files);
 
       const workspace = mockWorkspace(root, Object.keys(files));
-      const { executors } = buildLocalWorkspaceTools(workspace, testLimits());
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string }>;
       };

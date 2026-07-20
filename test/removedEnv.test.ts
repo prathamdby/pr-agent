@@ -18,6 +18,10 @@ describe("removed env guard", () => {
     );
   });
 
+  it("treats an empty-string value as set (refuses start)", () => {
+    expect(() => assertNoRemovedEnv({ MAX_TOOL_ROUNDS: "" })).toThrow(/MAX_TOOL_ROUNDS/);
+  });
+
   it("covers all replaced flag and auto-action vars", () => {
     for (const key of [
       "ENABLE_REVIEW_LABELS_EFFORT",

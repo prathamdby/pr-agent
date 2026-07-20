@@ -50,4 +50,14 @@ describe("planAutomatedPullRequestIntake", () => {
       }).kinds,
     ).toEqual([]);
   });
+
+  it("schedules nothing on synchronize when review is manual, describe off, verification off", () => {
+    expect(
+      planAutomatedPullRequestIntake("synchronize", {
+        review: "manual",
+        describe: "off",
+        verification: "off",
+      }).kinds,
+    ).toEqual([]);
+  });
 });

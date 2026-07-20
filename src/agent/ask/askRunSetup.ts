@@ -1,7 +1,7 @@
 import { isLevelEnabled, logDebug } from "../../evlog.js";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
 import { createAskPathGate } from "./askSafety.js";
-import { buildLocalWorkspaceTools, workspaceToolLimits } from "../tools/localWorkspaceTools.js";
+import { buildLocalWorkspaceTools } from "../tools/localWorkspaceTools.js";
 import type { AskRunParams } from "./askRunTypes.js";
 
 export function buildAskRunSetup(params: AskRunParams) {
@@ -13,7 +13,7 @@ export function buildAskRunSetup(params: AskRunParams) {
   }
 
   const refreshableGh = {
-    bundle: buildLocalWorkspaceTools(params.workspace, workspaceToolLimits(), {
+    bundle: buildLocalWorkspaceTools(params.workspace, {
       pathGate,
       extraAllowedPaths,
     }),

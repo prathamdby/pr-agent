@@ -29,15 +29,13 @@ export type LocalWorkspaceToolLimits = {
   readonly searchMaxTotalBytes: number;
 };
 
-export function workspaceToolLimits(): LocalWorkspaceToolLimits {
-  return {
-    maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
-    readResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
-    diffResponseBytes: LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
-    searchMaxFiles: LOCAL_WORKSPACE_SEARCH_MAX_FILES,
-    searchMaxTotalBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
-  };
-}
+const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
+  maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  readResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  diffResponseBytes: LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
+  searchMaxFiles: LOCAL_WORKSPACE_SEARCH_MAX_FILES,
+  searchMaxTotalBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+};
 
 const BINARY_SAMPLE_BYTES = 8192;
 
@@ -90,8 +88,8 @@ async function refuseUnlessReadableFile(
 
 export function buildLocalWorkspaceTools(
   workspace: LocalPrWorkspace,
-  limits: LocalWorkspaceToolLimits,
   opts?: {
+    readonly limits?: LocalWorkspaceToolLimits;
     readonly pathGate?: AskPathGate;
     readonly extraAllowedPaths?: readonly string[];
   },
@@ -99,6 +97,7 @@ export function buildLocalWorkspaceTools(
   piTools: PiTool[];
   executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
+  const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 

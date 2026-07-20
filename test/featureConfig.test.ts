@@ -56,4 +56,13 @@ describe("feature config", () => {
     await expect(load({ FEATURE_REVIEW: "off" })).rejects.toThrow(/FEATURE_REVIEW/);
     await expect(load({ FEATURE_TITLE_REWRITE: "yes" })).rejects.toThrow(/FEATURE_TITLE_REWRITE/);
   });
+
+  it("readStrictBoolean error includes allowed values", async () => {
+    await expect(load({ FEATURE_COMMIT_STATUS: "1" })).rejects.toThrow(
+      /FEATURE_COMMIT_STATUS.*true.*false/,
+    );
+    await expect(load({ FEATURE_TITLE_REWRITE: "yes" })).rejects.toThrow(
+      /FEATURE_TITLE_REWRITE.*true.*false/,
+    );
+  });
 });

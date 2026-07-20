@@ -16,8 +16,15 @@ export function initPostHog(opts: { readonly projectToken: string; readonly host
   client ??= buildClient(opts.projectToken, opts.host.trim());
 }
 
+/** Explicit empty-token client for tests that exercise capture call sites without boot. */
+export function initNoOpPostHog(): void {
+  initPostHog({ projectToken: "", host: "" });
+}
+
 export function getPostHog(): PostHog {
-  client ??= buildClient("", "");
+  if (!client) {
+    throw new Error("PostHog is not initialized; call initPostHog() during process boot");
+  }
   return client;
 }
 
