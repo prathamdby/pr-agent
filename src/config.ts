@@ -14,7 +14,6 @@ import {
   REVIEW_LABELS_MODES,
   VERIFICATION_FEATURE_MODES,
   type Features,
-  assertNoRemovedEnv,
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_ASK_CONCURRENCY,
@@ -176,8 +175,6 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
 }
 
 export async function loadConfig() {
-  assertNoRemovedEnv(process.env);
-
   const port = readPositiveNumber(ENV.PORT, DEFAULT_PORT);
 
   const githubAppId = requireEnv(ENV.GITHUB_APP_ID);

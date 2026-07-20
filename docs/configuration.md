@@ -25,7 +25,6 @@ Import convention: `import { … } from "../settings/index.js"` for constants; `
 | ---------------------------- | --------------------------------------------------------------------------------- |
 | New or changed feature       | `featureModes.ts`, `envKeys.ts`, `config.ts`, `.env.example`, `docs/features.md`  |
 | New or renamed env var       | `envKeys.ts`, `defaults.ts`, `config.ts`, `.env.example`, `docs/configuration.md` |
-| Removed env var              | add to `removedEnv.ts` so stale deployments fail fast with guidance               |
 | New or changed code constant | `constants.ts`, `docs/configuration.md`                                           |
 | Default value only           | `defaults.ts`, `.env.example` (if documented there), `docs/configuration.md`      |
 
@@ -87,8 +86,8 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 Former env tuning knobs (tool-round caps, byte limits, timeouts, anchor-menu
 caps, CI-summary waits, workspace limits) are now code constants in
-`src/settings/*Constants.ts` — see the tables below. Setting their old env
-vars fails startup (`src/settings/removedEnv.ts`).
+`src/settings/*Constants.ts` — see the tables below. Stale env vars for those
+knobs are ignored.
 
 ### Project `models.json` (optional Pi catalog)
 
