@@ -77,6 +77,7 @@ function slashGateLayer(
             botLogin: input.botLogin,
           });
         }),
+      submitCiRefresh: () => Effect.void,
       ping: () => Effect.succeed(true),
     }),
   );
@@ -98,6 +99,7 @@ describe("processWebhookPostRequestEffect", () => {
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
+        submitCiRefresh: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     ),
@@ -107,6 +109,7 @@ describe("processWebhookPostRequestEffect", () => {
         pullRequest: () => Effect.void,
         issueComment: () => Effect.void,
         pullRequestReviewComment: () => Effect.void,
+        workflowRun: () => Effect.void,
       }),
     ),
   );
@@ -492,6 +495,7 @@ describe("processWebhookPostRequestEffect", () => {
           recordIgnored: () => Effect.sleep("20 millis"),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
+          submitCiRefresh: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),
@@ -501,6 +505,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
+          workflowRun: () => Effect.void,
         }),
       ),
     );
@@ -544,6 +549,7 @@ describe("processWebhookPostRequestEffect", () => {
           recordIgnored: () => Effect.fail(new Error("boom")),
           submitAutomatedReview: () => Effect.void,
           submitSlashCommand: () => Effect.void,
+          submitCiRefresh: () => Effect.void,
           ping: () => Effect.succeed(true),
         }),
       ),
@@ -553,6 +559,7 @@ describe("processWebhookPostRequestEffect", () => {
           pullRequest: () => Effect.void,
           issueComment: () => Effect.void,
           pullRequestReviewComment: () => Effect.void,
+          workflowRun: () => Effect.void,
         }),
       ),
     );

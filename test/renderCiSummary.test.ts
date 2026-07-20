@@ -1,24 +1,68 @@
 import { describe, expect, it } from "vitest";
-import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../src/review/ci/renderCiSummary.js";
+import {
+  CI_SUMMARY_CELL_END,
+  CI_SUMMARY_CELL_START,
+  commentBodyHasCiSummaryCell,
+  patchCiSummaryCellInCommentBody,
+  renderCiSummaryCell,
+  shouldRenderCiSummaryRow,
+} from "../src/review/ci/renderCiSummary.js";
 import type { CiSummary } from "../src/review/ci/ciSummaryTypes.js";
 
 describe("renderCiSummary", () => {
-  it("renders a passing headline", () => {
+  it("renders a passing headline with markers", () => {
     const summary: CiSummary = {
       status: "passing",
       headline: "✅ All CI is passing",
       failures: [],
     };
-    expect(renderCiSummaryCell(summary)).toContain("All CI is passing");
+    const html = renderCiSummaryCell(summary);
+    expect(html).toContain("All CI is passing");
+    expect(html.startsWith(CI_SUMMARY_CELL_START)).toBe(true);
+    expect(html.endsWith(CI_SUMMARY_CELL_END)).toBe(true);
     expect(shouldRenderCiSummaryRow(summary)).toBe(true);
   });
 
-  it("omits unavailable and none rows", () => {
-    expect(shouldRenderCiSummaryRow({ status: "unavailable", headline: "x", failures: [] })).toBe(
-      false,
-    );
+  it("renders unavailable permission rows and omits none", () => {
+    expect(
+      shouldRenderCiSummaryRow({
+        status: "unavailable",
+        headline: "Grant Checks to Read",
+        failures: [],
+      }),
+    ).toBe(true);
     expect(shouldRenderCiSummaryRow({ status: "none", headline: "x", failures: [] })).toBe(false);
     expect(shouldRenderCiSummaryRow(null)).toBe(false);
+  });
+
+  it("renders a Checks grant headline for unavailable summaries", () => {
+    const html = renderCiSummaryCell({
+      status: "unavailable",
+      headline:
+        "PR Agent can't see check runs on this head. In the GitHub App settings, set Checks to Read, then run /review again.",
+      failures: [],
+    });
+    expect(html).toContain("Checks to Read");
+    expect(html).toContain("/review");
+  });
+
+  it("renders an Actions permission note under failing digests", () => {
+    const html = renderCiSummaryCell({
+      status: "failing",
+      headline: "❌ CI failing — lint",
+      failures: [
+        {
+          name: "lint",
+          reason: "Format issues found",
+          fixHint: "Run oxfmt and re-push.",
+        },
+      ],
+      permissionNote:
+        "CI failed, but PR Agent can't download the job logs. Set Actions to Read on the GitHub App so the next summary can explain what broke.",
+    });
+    expect(html).toContain("Format issues found");
+    expect(html).toContain("Actions to Read");
+    expect(html).toContain("<em>");
   });
 
   it("renders failure digests with fix hints", () => {
@@ -55,5 +99,48 @@ describe("renderCiSummary", () => {
     });
     expect(html).toContain("<strong>lint</strong>");
     expect(html).not.toContain("href=");
+  });
+
+  it("patches only the marked CI cell in a summary body", () => {
+    const original = [
+      "## PR Agent Review",
+      "",
+      "| Gate | Detail |",
+      `| CI | ${renderCiSummaryCell({ status: "pending", headline: "⏳ CI still running", failures: [] })} |`,
+      "",
+      "<!-- pr-agent:review-meta headSha=abc123 lens=review stale=false -->",
+    ].join("\n");
+    expect(commentBodyHasCiSummaryCell(original)).toBe(true);
+    const patched = patchCiSummaryCellInCommentBody(original, {
+      status: "passing",
+      headline: "✅ All CI is passing",
+      failures: [],
+    });
+    expect(patched).not.toBeNull();
+    expect(patched).toContain("All CI is passing");
+    expect(patched).not.toContain("still running");
+    expect(patched).toContain("headSha=abc123");
+  });
+
+  it("returns null when CI cell markers are missing", () => {
+    const body = "## PR Agent Review\n\nNo CI cell here.\n";
+    expect(commentBodyHasCiSummaryCell(body)).toBe(false);
+    expect(
+      patchCiSummaryCellInCommentBody(body, {
+        status: "passing",
+        headline: "✅ All CI is passing",
+        failures: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("is a no-op when the replacement cell matches the existing cell", () => {
+    const summary: CiSummary = {
+      status: "pending",
+      headline: "⏳ CI still running",
+      failures: [],
+    };
+    const body = `| CI | ${renderCiSummaryCell(summary)} |`;
+    expect(patchCiSummaryCellInCommentBody(body, summary)).toBe(body);
   });
 });

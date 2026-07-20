@@ -34,6 +34,7 @@ import {
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
 } from "../../settings/index.js";
 import { buildCiSummary } from "../ci/analyzeCi.js";
+import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import {
@@ -246,6 +247,8 @@ export async function publishReview(
     storedInlineFingerprints?: readonly string[];
     /** Reuse placements already computed during prepare; recomputed when omitted. */
     inlinePlacements?: readonly InlinePlacement[];
+    /** CI LLM author from the orchestrator; omitted skips model-authored failure digests. */
+    ciSummaryAuthor?: CiSummaryAuthor;
   },
 ): Promise<void> {
   const { token, owner, repo, prNumber, headSha, cfg, payload, publishState } = params;
@@ -370,6 +373,7 @@ export async function publishReview(
     waitMs: REVIEW_CI_SUMMARY_WAIT_MS,
     waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
+    author: params.ciSummaryAuthor,
   });
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,

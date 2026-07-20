@@ -105,13 +105,19 @@ describe("renderReviewSummaryComment", () => {
     );
   });
 
-  it("omits the CI gate row when CI summary is unavailable", () => {
+  it("shows the CI gate row when Checks permission is missing", () => {
     const body = renderReviewSummaryComment(basePayload(), {
       ...ctx,
       placements: testPlacementsFromPayload(basePayload()),
-      ciSummary: { status: "unavailable", headline: "CI status unavailable", failures: [] },
+      ciSummary: {
+        status: "unavailable",
+        headline:
+          "PR Agent can't see check runs on this head. In the GitHub App settings, set Checks to Read, then run /review again.",
+        failures: [],
+      },
     });
-    expect(body).not.toContain("<strong>CI</strong>");
+    expect(body).toContain("<strong>CI</strong>");
+    expect(body).toContain("Checks to Read");
   });
 
   it("links inline findings to review comment URLs when provided", () => {

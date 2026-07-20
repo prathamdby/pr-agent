@@ -74,6 +74,9 @@ function dispatchGithubEventEffect(
       case "pull_request_review_comment":
         yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data, intakeLog);
         return { kind: "ok" as const };
+      case "workflow_run":
+        yield* handlers.workflowRun(cfg, headers, parsed.data, intakeLog);
+        return { kind: "ok" as const };
       default:
         parsed satisfies never;
         recordEvent(intakeLog, "unhandled_parsed_event", { event }, "warn");

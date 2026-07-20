@@ -275,6 +275,39 @@ describe("parseGithubPayload", () => {
     });
     expect(parsed.name).toBe("ignored");
   });
+
+  it("parses completed workflow_run payloads", () => {
+    const parsed = parseGithubPayload("workflow_run", {
+      action: "completed",
+      installation: { id: 9 },
+      repository: {
+        name: "pr-agent",
+        owner: { login: "acme" },
+      },
+      workflow_run: {
+        id: 55,
+        head_sha: "abc123",
+        status: "completed",
+        conclusion: "failure",
+        pull_requests: [{ number: 12, head: { sha: "abc123" } }],
+      },
+    });
+    expect(parsed.name).toBe("workflow_run");
+    if (parsed.name !== "workflow_run") {
+      throw new Error("expected workflow_run payload");
+    }
+    expect(parsed.data.installation.id).toBe(9);
+    expect(parsed.data.workflow_run.head_sha).toBe("abc123");
+    expect(parsed.data.workflow_run.pull_requests).toHaveLength(1);
+  });
+
+  it("ignores workflow_run actions other than completed", () => {
+    const parsed = parseGithubPayload("workflow_run", {
+      action: "requested",
+      installation: { id: 1 },
+    });
+    expect(parsed.name).toBe("ignored");
+  });
 });
 
 describe("parseInstallationId", () => {

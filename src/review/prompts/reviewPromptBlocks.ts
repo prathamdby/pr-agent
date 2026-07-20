@@ -1,5 +1,7 @@
 /** Shared prompt blocks reused across every review lens (general, security, quality, tests). */
 
+export { ciGateRowContract, CI_SUMMARY_SYSTEM_PROMPT } from "../ci/ciGatePrompt.js";
+
 export const singlePassReviewContract = [
   "## Single-pass review contract",
   "This run gets **one** submitReview call. There is no later pass and no follow-up review, so do not defer findings.",

@@ -197,6 +197,9 @@ async function getIssueCommentIfSentinel(
   }
 }
 
+export type IssueCommentWithBody = IssueCommentRef & { readonly body: string };
+
+/** Latest issue comment whose body starts with `sentinel` (includes body text). */
 export async function findIssueCommentBySentinel(
   token: string,
   owner: string,
@@ -204,9 +207,9 @@ export async function findIssueCommentBySentinel(
   issueNumber: number,
   sentinel: string,
   expiresAtTs?: number,
-): Promise<IssueCommentRef | null> {
+): Promise<IssueCommentWithBody | null> {
   const octokit = installationOctokit(token, expiresAtTs);
-  let lastMatch: IssueCommentRef | null = null;
+  let lastMatch: IssueCommentWithBody | null = null;
 
   const pages = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
@@ -224,8 +227,9 @@ export async function findIssueCommentBySentinel(
   });
 
   for (const c of pages) {
-    if ((c.body ?? "").startsWith(sentinel)) {
-      lastMatch = { id: c.id, url: c.html_url };
+    const body = c.body ?? "";
+    if (body.startsWith(sentinel)) {
+      lastMatch = { id: c.id, url: c.html_url, body };
     }
   }
 
@@ -281,7 +285,7 @@ async function createIssueComment(
   return { id: data.id, url: data.html_url };
 }
 
-async function updateIssueComment(
+export async function updateIssueComment(
   token: string,
   owner: string,
   repo: string,

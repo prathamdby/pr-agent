@@ -1,22 +1,29 @@
 import {
   isMissingChecksPermissionError,
-  listCheckRunAnnotations,
   listCheckRunsForHead,
   listLegacyCommitStatusesForHead,
 } from "../../github/ciStatus.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import {
+  REVIEW_CI_SUMMARY_GRANT_ACTIONS,
+  REVIEW_CI_SUMMARY_GRANT_CHECKS,
   REVIEW_CI_SUMMARY_MAX_FAILURES,
+  REVIEW_CI_SUMMARY_UNAVAILABLE,
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
 } from "../../settings/index.js";
-import { redactReviewText } from "../findings/reviewPublicOutput.js";
+import {
+  factsOnlyFailingSummary,
+  mergeCiSummaryWithFacts,
+  type CiAuthorInput,
+  type CiSummaryAuthor,
+} from "./authorCiSummary.js";
 import type {
-  CiCheckAnnotation,
   CiCheckRunSnapshot,
   CiFailureDetail,
   CiLegacyStatus,
   CiSummary,
 } from "./ciSummaryTypes.js";
+import { fetchCiLogContext } from "./fetchCiLogContext.js";
 
 const OWN_CHECK_NAME_PREFIX = "PR Agent";
 const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
@@ -34,22 +41,32 @@ const PENDING_CHECK_STATUSES = new Set([
 const FAILING_LEGACY_STATES = new Set(["failure", "error"]);
 const PENDING_LEGACY_STATES = new Set(["pending"]);
 
-const ERROR_LINE_RE =
-  /\b(error|failed|failure|FAIL|AssertionError|TypeError|ENOENT|ELIFECYCLE|✖|✗|×|format issues)\b/i;
-
 export type BuildCiSummaryOptions = {
   readonly token: string;
   readonly owner: string;
   readonly repo: string;
   readonly headSha: string;
   readonly expiresAtTs?: number;
-  /** Max failing checks to dig into with annotations. */
+  /** Max failing checks to dig into with logs. */
   readonly maxFailures?: number;
-  /** When true, skip annotation fetches (progress stub path). */
+  /** When true, skip log fetch and LLM (progress stub path). */
   readonly lightweight?: boolean;
   readonly waitMs?: number;
   readonly waitPollMs?: number;
+  /**
+   * Optional LLM author for failing CI (publish / refresh). When omitted on a failing
+   * non-lightweight path, returns a facts-only failing row (no static annotation digest).
+   */
+  readonly author?: CiSummaryAuthor;
 };
+
+type ExternalCiLoad =
+  | {
+      readonly ok: true;
+      readonly checks: CiCheckRunSnapshot[];
+      readonly statuses: CiLegacyStatus[];
+    }
+  | { readonly ok: false; readonly reason: "checks_permission" | "fetch_error" };
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -82,106 +99,7 @@ function isLegacyFailing(status: CiLegacyStatus): boolean {
   return FAILING_LEGACY_STATES.has(status.state);
 }
 
-function collapseWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function firstUsefulLine(text: string | null | undefined): string | null {
-  if (text == null) return null;
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => collapseWhitespace(line))
-    .filter((line) => line.length > 0);
-  const errorLine = lines.find((line) => ERROR_LINE_RE.test(line));
-  return errorLine ?? lines[0] ?? null;
-}
-
-function annotationReason(annotation: CiCheckAnnotation): string {
-  const location =
-    annotation.path.length > 0
-      ? annotation.startLine != null
-        ? `${annotation.path}:${annotation.startLine}`
-        : annotation.path
-      : null;
-  const message = collapseWhitespace(annotation.message);
-  const title = annotation.title != null ? collapseWhitespace(annotation.title) : null;
-  const body =
-    title != null && title.length > 0 && !message.includes(title)
-      ? `${title}: ${message}`
-      : message;
-  if (location != null) return `${location} — ${body}`;
-  return body;
-}
-
-function fixHintFromReason(name: string, reason: string): string {
-  const lower = `${name} ${reason}`.toLowerCase();
-  if (/\b(lint|eslint|oxlint|prettier|fmt|format)\b/.test(lower)) {
-    return "Fix the reported lint/format findings locally, then re-push.";
-  }
-  if (/\b(typecheck|tsc|typescript|type error)\b/.test(lower)) {
-    return "Resolve the TypeScript errors and re-run the typecheck job.";
-  }
-  if (/\b(test|spec|vitest|jest|pytest|assertion)\b/.test(lower)) {
-    return "Reproduce the failing test locally, fix the regression, and re-push.";
-  }
-  if (/\b(build|compile|bundle)\b/.test(lower)) {
-    return "Reproduce the build failure locally, fix the compile/bundle error, and re-push.";
-  }
-  return `Inspect the failing “${name}” check, fix the reported error, and re-push.`;
-}
-
-function firstAnnotationReason(
-  annotations: readonly CiCheckAnnotation[],
-  level: CiCheckAnnotation["annotationLevel"],
-): string | null {
-  const match = annotations.find((annotation) => annotation.annotationLevel === level);
-  return match != null ? annotationReason(match) : null;
-}
-
-function digestCheckFailure(
-  run: CiCheckRunSnapshot,
-  annotations: readonly CiCheckAnnotation[],
-): CiFailureDetail {
-  // Prefer real failure signals over runner warning annotations (e.g. Node 20
-  // deprecation on Actions), which otherwise mask the job's actual error.
-  const fromFailureAnnotation = firstAnnotationReason(annotations, "failure");
-  const fromOutput =
-    firstUsefulLine(run.outputText) ??
-    firstUsefulLine(run.outputSummary) ??
-    firstUsefulLine(run.outputTitle);
-  const fromWarningAnnotation = firstAnnotationReason(annotations, "warning");
-  const concluded =
-    run.conclusion != null ? `Check concluded ${run.conclusion.replace(/_/g, " ")}.` : null;
-  const reason =
-    fromFailureAnnotation ??
-    fromOutput ??
-    concluded ??
-    fromWarningAnnotation ??
-    "Check failed without a published summary.";
-  return {
-    name: run.name,
-    reason: redactReviewText(reason),
-    fixHint: redactReviewText(fixHintFromReason(run.name, reason)),
-    url: run.htmlUrl ?? undefined,
-  };
-}
-
-function digestLegacyFailure(status: CiLegacyStatus): CiFailureDetail {
-  const reason =
-    status.description != null && status.description.trim().length > 0
-      ? collapseWhitespace(status.description)
-      : `Commit status “${status.context}” is ${status.state}.`;
-  return {
-    name: status.context,
-    reason: redactReviewText(reason),
-    fixHint: redactReviewText(fixHintFromReason(status.context, reason)),
-    url: status.targetUrl ?? undefined,
-  };
-}
-
-async function loadExternalCi(
-  options: BuildCiSummaryOptions,
-): Promise<{ checks: CiCheckRunSnapshot[]; statuses: CiLegacyStatus[] } | null> {
+async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   try {
     const [checks, statuses] = await Promise.all([
       listCheckRunsForHead(
@@ -200,6 +118,7 @@ async function loadExternalCi(
       ),
     ]);
     return {
+      ok: true,
       checks: checks.filter((run) => !isOwnCiCheckName(run.name)),
       statuses: statuses.filter((status) => !isOwnCommitStatusContext(status.context)),
     };
@@ -211,14 +130,14 @@ async function loadExternalCi(
         prHead: options.headSha,
         reason: "checks_permission",
       });
-      return null;
+      return { ok: false, reason: "checks_permission" };
     }
     logWarn("review_ci_summary_fetch_failed", {
       owner: options.owner,
       repo: options.repo,
       message: error instanceof Error ? error.message : String(error),
     });
-    return null;
+    return { ok: false, reason: "fetch_error" };
   }
 }
 
@@ -234,40 +153,55 @@ function classifySnapshot(
   return "passing";
 }
 
-async function waitForTerminalCi(
-  options: BuildCiSummaryOptions,
-): Promise<{ checks: CiCheckRunSnapshot[]; statuses: CiLegacyStatus[] } | null> {
+async function waitForTerminalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   const waitMs = options.waitMs ?? 0;
   const pollMs = Math.max(options.waitPollMs ?? REVIEW_CI_SUMMARY_WAIT_POLL_MS, 100);
   const deadline = Date.now() + waitMs;
-  let snapshot = await loadExternalCi(options);
-  if (snapshot == null || waitMs <= 0) return snapshot;
+  let loaded = await loadExternalCi(options);
+  if (!loaded.ok || waitMs <= 0) return loaded;
 
   while (Date.now() < deadline) {
-    const state = classifySnapshot(snapshot.checks, snapshot.statuses);
-    if (state !== "pending") return snapshot;
+    const state = classifySnapshot(loaded.checks, loaded.statuses);
+    if (state !== "pending") return loaded;
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     await sleepMs(Math.min(pollMs, remaining));
-    snapshot = await loadExternalCi(options);
-    if (snapshot == null) return null;
+    loaded = await loadExternalCi(options);
+    if (!loaded.ok) return loaded;
   }
-  return snapshot;
+  return loaded;
 }
 
 export function summarizeCiSnapshot(params: {
   readonly checks: readonly CiCheckRunSnapshot[];
   readonly statuses: readonly CiLegacyStatus[];
   readonly failures?: readonly CiFailureDetail[];
+  readonly permissionNote?: string;
 }): CiSummary {
   const state = classifySnapshot(params.checks, params.statuses);
+  const permissionNote = params.permissionNote;
   switch (state) {
     case "none":
-      return { status: "none", headline: "No CI checks on this head", failures: [] };
+      return {
+        status: "none",
+        headline: "No CI checks on this head",
+        failures: [],
+        ...(permissionNote != null ? { permissionNote } : {}),
+      };
     case "pending":
-      return { status: "pending", headline: "⏳ CI still running", failures: [] };
+      return {
+        status: "pending",
+        headline: "⏳ CI still running",
+        failures: [],
+        ...(permissionNote != null ? { permissionNote } : {}),
+      };
     case "passing":
-      return { status: "passing", headline: "✅ All CI is passing", failures: [] };
+      return {
+        status: "passing",
+        headline: "✅ All CI is passing",
+        failures: [],
+        ...(permissionNote != null ? { permissionNote } : {}),
+      };
     case "failing": {
       const failures = params.failures ?? [];
       const failingNames = [
@@ -281,6 +215,7 @@ export function summarizeCiSnapshot(params: {
         status: "failing",
         headline: `❌ CI failing — ${nameList}${more}`,
         failures,
+        ...(permissionNote != null ? { permissionNote } : {}),
       };
     }
     default: {
@@ -290,24 +225,77 @@ export function summarizeCiSnapshot(params: {
   }
 }
 
-const UNAVAILABLE_CI_SUMMARY: CiSummary = {
-  status: "unavailable",
-  headline: "CI status unavailable",
-  failures: [],
-};
+function checksPermissionSummary(): CiSummary {
+  return {
+    status: "unavailable",
+    headline: REVIEW_CI_SUMMARY_GRANT_CHECKS,
+    failures: [],
+  };
+}
+
+function unavailableSummary(): CiSummary {
+  return {
+    status: "unavailable",
+    headline: REVIEW_CI_SUMMARY_UNAVAILABLE,
+    failures: [],
+  };
+}
+
+function withPermissionNote(summary: CiSummary, note: string | undefined): CiSummary {
+  if (note == null) return summary;
+  return { ...summary, permissionNote: note };
+}
+
+function buildAuthorInput(
+  snapshot: { checks: readonly CiCheckRunSnapshot[]; statuses: readonly CiLegacyStatus[] },
+  condensedLogs: string,
+  checkOutputFallback: string,
+): CiAuthorInput {
+  const failingChecks = snapshot.checks.filter(isCheckFailing);
+  const failingStatuses = snapshot.statuses.filter(isLegacyFailing);
+  const failingNames = [
+    ...failingChecks.map((run) => run.name),
+    ...failingStatuses.map((status) => status.context),
+  ];
+  const failingUrls = new Map<string, string | undefined>();
+  for (const run of failingChecks) {
+    failingUrls.set(run.name, run.htmlUrl ?? undefined);
+  }
+  for (const status of failingStatuses) {
+    failingUrls.set(status.context, status.targetUrl ?? undefined);
+  }
+  return {
+    status: "failing",
+    checkNames: [
+      ...snapshot.checks.map((run) => run.name),
+      ...snapshot.statuses.map((status) => status.context),
+    ],
+    failingNames: [...new Set(failingNames)],
+    failingUrls,
+    condensedLogs,
+    checkOutputFallback,
+  };
+}
 
 /**
  * Builds a CI summary for the review progress stub or completed review summary.
- * Soft-fails to `unavailable` when Checks permission is missing, the fetch errors,
- * or any unexpected exception escapes the helpers below.
+ * Missing Checks permission yields a visible grant-Checks row. Missing Actions
+ * permission on a failing head attaches a grant-Actions note. Other fetch errors
+ * soft-fail to a short unavailable headline. The review itself still publishes.
+ *
+ * Failing non-lightweight paths fetch condensed Actions logs and optionally call
+ * `author` for model-authored reason/fixHint fields (ADR 0026).
  */
 export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
   try {
-    const snapshot = await waitForTerminalCi(options);
-    if (snapshot == null) {
-      return UNAVAILABLE_CI_SUMMARY;
+    const loaded = await waitForTerminalCi(options);
+    if (!loaded.ok) {
+      return loaded.reason === "checks_permission"
+        ? checksPermissionSummary()
+        : unavailableSummary();
     }
 
+    const snapshot = { checks: loaded.checks, statuses: loaded.statuses };
     const state = classifySnapshot(snapshot.checks, snapshot.statuses);
     if (state !== "failing" || options.lightweight) {
       return summarizeCiSnapshot(snapshot);
@@ -315,43 +303,35 @@ export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<Ci
 
     const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
     const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
-    const failures = await Promise.all(
-      failingChecks.map(async (run) => {
-        let annotations: CiCheckAnnotation[] = [];
-        try {
-          annotations = await listCheckRunAnnotations(
-            options.token,
-            options.owner,
-            options.repo,
-            run.id,
-            options.expiresAtTs,
-          );
-        } catch (error) {
-          if (!isMissingChecksPermissionError(error)) {
-            logDebug("review_ci_annotations_failed", {
-              owner: options.owner,
-              repo: options.repo,
-              checkRunId: run.id,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-        return digestCheckFailure(run, annotations);
-      }),
-    );
+    const { condensedLogs, checkOutputFallback, actionsPermissionMissing } =
+      await fetchCiLogContext({
+        token: options.token,
+        owner: options.owner,
+        repo: options.repo,
+        headSha: options.headSha,
+        expiresAtTs: options.expiresAtTs,
+        failingChecks,
+        maxFailures,
+      });
 
-    const remainingSlots = Math.max(0, maxFailures - failures.length);
-    for (const status of snapshot.statuses.filter(isLegacyFailing).slice(0, remainingSlots)) {
-      failures.push(digestLegacyFailure(status));
+    const authorInput = buildAuthorInput(snapshot, condensedLogs, checkOutputFallback);
+    const actionsNote = actionsPermissionMissing ? REVIEW_CI_SUMMARY_GRANT_ACTIONS : undefined;
+
+    if (options.author == null) {
+      return withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote);
     }
 
-    return summarizeCiSnapshot({ ...snapshot, failures });
+    const llm = await options.author(authorInput);
+    if (llm == null) {
+      return withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote);
+    }
+    return withPermissionNote(mergeCiSummaryWithFacts(authorInput, llm), actionsNote);
   } catch (error) {
     logWarn("review_ci_summary_build_failed", {
       owner: options.owner,
       repo: options.repo,
       message: error instanceof Error ? error.message : String(error),
     });
-    return UNAVAILABLE_CI_SUMMARY;
+    return unavailableSummary();
   }
 }

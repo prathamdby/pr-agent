@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0026](0026-llm-authored-ci-summary.md).
 
 ## Context
 
@@ -26,8 +26,12 @@ Alternatives considered:
 
 - Reviews that finish before CI may still show “CI still running” unless wait/poll covers the remaining time; a later webhook-driven refresh remains a follow-up.
 - Failure digests depend on check annotations / output quality; Actions job-log download is not required for v1 (no new Actions permission).
-- Operators should keep Checks read (already required for review check runs). Tune wait/poll/max-failures via `REVIEW_CI_SUMMARY_*` env vars.
+- Operators should keep Checks read (already required for review check runs). Tune wait/poll/max-failures via `REVIEW_CI_SUMMARY_*` constants.
 
 ## Reversal
 
 Remove the CI row wiring in `publishReview`, `ackExecutor`, and the renderers.
+
+## Supersession note
+
+ADR 0026 replaces annotation/output digests with LLM-authored fields from condensed Actions job logs, keeps ack non-LLM, and adds `workflow_run` CI-refresh editing of the CI cell only.

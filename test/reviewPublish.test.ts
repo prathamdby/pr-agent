@@ -89,7 +89,11 @@ describe("findIssueCommentBySentinel", () => {
     const hit = await findIssueCommentBySentinel("tok", "o", "r", 42, REVIEW_SUMMARY_SENTINEL);
 
     expect(listComments).toHaveBeenCalledTimes(2);
-    expect(hit).toEqual({ id: 102 });
+    expect(hit).toEqual({
+      id: 102,
+      url: undefined,
+      body: `${REVIEW_SUMMARY_SENTINEL}\n\nnewest`,
+    });
   });
 
   it("returns null when no comment matches", async () => {

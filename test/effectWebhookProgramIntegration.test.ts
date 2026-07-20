@@ -18,6 +18,7 @@ const webhookLayer = Layer.mergeAll(
       recordIgnored: () => Effect.void,
       submitAutomatedReview: () => Effect.void,
       submitSlashCommand: () => Effect.void,
+      submitCiRefresh: () => Effect.void,
       ping: () => Effect.succeed(true),
     }),
   ),
@@ -27,6 +28,7 @@ const webhookLayer = Layer.mergeAll(
       pullRequest: () => Effect.void,
       issueComment: () => Effect.void,
       pullRequestReviewComment: () => Effect.void,
+      workflowRun: () => Effect.void,
     }),
   ),
 );

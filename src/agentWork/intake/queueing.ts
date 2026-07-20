@@ -5,6 +5,7 @@ import { pgBossDb } from "../../db/postgres.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
+  CI_REFRESH_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
@@ -19,6 +20,7 @@ import {
   verificationSingletonKey,
   type AckJobData,
   type AskJobData,
+  type CiRefreshJobData,
   type DescriptionJobData,
   type JobCorrelation,
   type PrRef,
@@ -183,5 +185,20 @@ export async function enqueueVerification(
     db: pgBossDb(client),
     singletonKey: verificationSingletonKey(resourceKey),
     group: { id: installationGroupId(ref.installationId) },
+  });
+}
+
+/** Idempotent CI refresh: one job per webhook delivery + PR. */
+export async function enqueueCiRefreshIdempotent(
+  boss: PgBoss,
+  client: PoolClient,
+  data: CiRefreshJobData,
+  webhookEventId: string,
+): Promise<"enqueued" | "already_present"> {
+  return sendBossJobIdempotent(boss, CI_REFRESH_QUEUE, data, {
+    db: pgBossDb(client),
+    id: `${webhookEventId}:ci-refresh:${data.prNumber}`,
+    priority: 40,
+    group: { id: installationGroupId(data.installationId) },
   });
 }

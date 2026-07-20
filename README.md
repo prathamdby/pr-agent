@@ -34,8 +34,8 @@ Domain terms: [CONTEXT.md](CONTEXT.md). Features: [docs/features.md](docs/featur
 
 1. Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
 2. Set **Webhook URL** to `https://<host>/webhooks` and **Webhook secret** to match `WEBHOOK_SECRET`.
-3. Subscribe to events: **`pull_request`**, **`issue_comment`**, **`pull_request_review_comment`** (do not require `pull_request_review`).
-4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read, **Checks** read/write. Contents write is only needed for `/triage`. **Commit statuses** read/write when `FEATURE_COMMIT_STATUS=true`. Checks read also powers the **CI summary** gate on review stubs and summaries.
+3. Subscribe to events: **`pull_request`**, **`issue_comment`**, **`pull_request_review_comment`**, **`workflow_run`** (do not require `pull_request_review`). `workflow_run` powers CI-summary refresh when CI finishes after the review summary is posted.
+4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read, **Checks** read/write, **Actions** read. Contents write is only needed for `/triage`. **Commit statuses** read/write when `FEATURE_COMMIT_STATUS=true`. Checks + Actions read power the **CI summary** gate (status facts + condensed job logs for LLM-authored failure explanations).
 5. Install the app on target orgs or repos. Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in `.env` (see [`.env.example`](.env.example)).
 
 ### 2. Docker Compose (recommended)
@@ -216,6 +216,7 @@ flowchart LR
   Dedupe --> Items[agent_work_items]
   Items --> Boss[pg-boss enqueue]
   Boss --> AckQ[ack queue]
+  Boss --> CiRefQ[ci-refresh queue]
   Boss --> RevQ[review queue]
   Boss --> AskQ[ask queue]
   Boss --> DescQ[description queue]
@@ -223,6 +224,7 @@ flowchart LR
   Boss --> VerifQ[verification queue]
   Boss --> RetQ[retention queue]
   AckQ --> Worker["ROLE=worker executors"]
+  CiRefQ --> Worker
   RevQ --> Worker
   AskQ --> Worker
   DescQ --> Worker
@@ -238,8 +240,8 @@ flowchart LR
 ```
 
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items** (slash commands, or `@bot` mentions promoted to ask).
-2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, review, ask, description, triage, verification).
-3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs.
+2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, ci-refresh, review, ask, description, triage, verification).
+3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs. **CI-refresh worker**: after `workflow_run` completed, surgically updates the CI cell on the matching **review summary comment** (no full re-review).
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
 5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**. Ask workers load the containing comment thread before the LLM turn.
 6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
