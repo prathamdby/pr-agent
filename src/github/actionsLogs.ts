@@ -14,6 +14,14 @@ export type ActionsJobSnapshot = {
   readonly htmlUrl: string | null;
 };
 
+export type ListFailingActionsJobsResult =
+  | { readonly ok: true; readonly jobs: readonly ActionsJobSnapshot[] }
+  | { readonly ok: false; readonly reason: "actions_permission" };
+
+export type DownloadActionsJobLogsResult =
+  | { readonly ok: true; readonly text: string }
+  | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
+
 /** True when Actions API is unavailable to this installation (missing permission or 404). */
 export function isMissingActionsPermissionError(error: unknown): boolean {
   const status = httpStatus(error);
@@ -27,8 +35,8 @@ export function isMissingActionsPermissionError(error: unknown): boolean {
 }
 
 /**
- * Lists Actions jobs for workflow runs on `headSha`. Soft-fails to `[]` when Actions
- * permission is missing.
+ * Lists Actions jobs for workflow runs on `headSha`.
+ * Reports `actions_permission` when the installation cannot read Actions.
  */
 export async function listFailingActionsJobsForHead(
   token: string,
@@ -36,7 +44,7 @@ export async function listFailingActionsJobsForHead(
   repo: string,
   headSha: string,
   expiresAtTs?: number,
-): Promise<ActionsJobSnapshot[]> {
+): Promise<ListFailingActionsJobsResult> {
   const octokit = installationOctokit(token, expiresAtTs);
   try {
     const runs = await paginateOctokitPages({
@@ -81,24 +89,23 @@ export async function listFailingActionsJobsForHead(
         });
       }
     }
-    return jobs;
+    return { ok: true, jobs };
   } catch (error) {
-    if (isMissingActionsPermissionError(error)) return [];
+    if (isMissingActionsPermissionError(error)) {
+      return { ok: false, reason: "actions_permission" };
+    }
     throw error;
   }
 }
 
-/**
- * Downloads plain-text job logs. Returns null when permission is missing or the API
- * returns an empty body.
- */
+/** Downloads plain-text job logs, distinguishing permission misses from empty bodies. */
 export async function downloadActionsJobLogs(
   token: string,
   owner: string,
   repo: string,
   jobId: number,
   expiresAtTs?: number,
-): Promise<string | null> {
+): Promise<DownloadActionsJobLogsResult> {
   const octokit = installationOctokit(token, expiresAtTs);
   try {
     const response = await octokit.rest.actions.downloadJobLogsForWorkflowRun({
@@ -107,16 +114,20 @@ export async function downloadActionsJobLogs(
       job_id: jobId,
     });
     const data = response.data;
-    if (typeof data === "string") return data;
-    if (data instanceof ArrayBuffer) {
-      return Buffer.from(data).toString("utf8");
+    let text: string | null = null;
+    if (typeof data === "string") text = data;
+    else if (data instanceof ArrayBuffer) text = Buffer.from(data).toString("utf8");
+    else if (ArrayBuffer.isView(data)) {
+      text = Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8");
     }
-    if (ArrayBuffer.isView(data)) {
-      return Buffer.from(data.buffer, data.byteOffset, data.byteLength).toString("utf8");
+    if (text == null || text.trim().length === 0) {
+      return { ok: false, reason: "empty" };
     }
-    return null;
+    return { ok: true, text };
   } catch (error) {
-    if (isMissingActionsPermissionError(error)) return null;
+    if (isMissingActionsPermissionError(error)) {
+      return { ok: false, reason: "actions_permission" };
+    }
     throw error;
   }
 }

@@ -1,8 +1,4 @@
-import {
-  downloadActionsJobLogs,
-  isMissingActionsPermissionError,
-  listFailingActionsJobsForHead,
-} from "../../github/actionsLogs.js";
+import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "../../github/actionsLogs.js";
 import { listCheckRunAnnotations } from "../../github/ciStatus.js";
 import { logDebug } from "../../evlog.js";
 import {
@@ -28,13 +24,20 @@ export type FetchCiLogContextOptions = {
   readonly maxFailures?: number;
 };
 
+export type FetchCiLogContextResult = {
+  readonly condensedLogs: string;
+  readonly checkOutputFallback: string;
+  /** True when the installation cannot read Actions (job logs). */
+  readonly actionsPermissionMissing: boolean;
+};
+
 /**
  * Downloads Actions job logs for failing checks and returns condensed text plus a
  * check-output fallback when Actions permission is missing.
  */
 export async function fetchCiLogContext(
   options: FetchCiLogContextOptions,
-): Promise<{ condensedLogs: string; checkOutputFallback: string }> {
+): Promise<FetchCiLogContextResult> {
   const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
   const failing = options.failingChecks.slice(0, maxFailures);
 
@@ -69,49 +72,63 @@ export async function fetchCiLogContext(
   const checkOutputFallback = redactReviewText(outputParts.join("\n\n"));
 
   let jobs: CondensedJobLog[] = [];
+  let actionsPermissionMissing = false;
   try {
-    const actionsJobs = await listFailingActionsJobsForHead(
+    const listed = await listFailingActionsJobsForHead(
       options.token,
       options.owner,
       options.repo,
       options.headSha,
       options.expiresAtTs,
     );
-    const selected = actionsJobs.slice(0, REVIEW_CI_SUMMARY_LOG_MAX_JOBS);
-    for (const job of selected) {
-      const raw = await downloadActionsJobLogs(
-        options.token,
-        options.owner,
-        options.repo,
-        job.id,
-        options.expiresAtTs,
-      );
-      if (raw == null || raw.trim().length === 0) continue;
-      jobs.push({
-        name: job.name,
-        url: job.htmlUrl ?? undefined,
-        text: condenseJobLogText(raw, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS),
-      });
-    }
-  } catch (error) {
-    if (isMissingActionsPermissionError(error)) {
+    if (!listed.ok) {
+      actionsPermissionMissing = true;
       logDebug("review_ci_summary_actions_unavailable", {
         owner: options.owner,
         repo: options.repo,
         reason: "actions_permission",
       });
     } else {
-      logDebug("review_ci_summary_actions_logs_failed", {
-        owner: options.owner,
-        repo: options.repo,
-        message: error instanceof Error ? error.message : String(error),
-      });
+      const selected = listed.jobs.slice(0, REVIEW_CI_SUMMARY_LOG_MAX_JOBS);
+      for (const job of selected) {
+        const downloaded = await downloadActionsJobLogs(
+          options.token,
+          options.owner,
+          options.repo,
+          job.id,
+          options.expiresAtTs,
+        );
+        if (!downloaded.ok) {
+          if (downloaded.reason === "actions_permission") {
+            actionsPermissionMissing = true;
+            logDebug("review_ci_summary_actions_unavailable", {
+              owner: options.owner,
+              repo: options.repo,
+              reason: "actions_permission",
+              jobId: job.id,
+            });
+            break;
+          }
+          continue;
+        }
+        jobs.push({
+          name: job.name,
+          url: job.htmlUrl ?? undefined,
+          text: condenseJobLogText(downloaded.text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS),
+        });
+      }
     }
+  } catch (error) {
+    logDebug("review_ci_summary_actions_logs_failed", {
+      owner: options.owner,
+      repo: options.repo,
+      message: error instanceof Error ? error.message : String(error),
+    });
     jobs = [];
   }
 
   const condensedLogs =
     jobs.length > 0 ? mergeCondensedJobLogs(jobs) : condenseJobLogText(checkOutputFallback);
 
-  return { condensedLogs, checkOutputFallback };
+  return { condensedLogs, checkOutputFallback, actionsPermissionMissing };
 }

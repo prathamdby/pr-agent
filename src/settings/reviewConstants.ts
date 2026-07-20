@@ -135,6 +135,17 @@ export const REVIEW_CI_SUMMARY_LOG_MAX_JOBS = 3;
 export const REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS = 240;
 export const REVIEW_CI_SUMMARY_REASON_MAX_CHARS = 400;
 export const REVIEW_CI_SUMMARY_FIX_HINT_MAX_CHARS = 280;
+
+/** User-visible CI row when Checks API is blocked for the installation. */
+export const REVIEW_CI_SUMMARY_GRANT_CHECKS =
+  "PR Agent can't see check runs on this head. In the GitHub App settings, set Checks to Read, then run /review again.";
+
+/** User-visible note when Actions API is blocked while CI is failing. */
+export const REVIEW_CI_SUMMARY_GRANT_ACTIONS =
+  "CI failed, but PR Agent can't download the job logs. Set Actions to Read on the GitHub App so the next summary can explain what broke.";
+
+/** Generic CI row when status fetch fails for a non-permission reason. */
+export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */

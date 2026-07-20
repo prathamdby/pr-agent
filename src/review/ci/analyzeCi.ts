@@ -5,7 +5,10 @@ import {
 } from "../../github/ciStatus.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import {
+  REVIEW_CI_SUMMARY_GRANT_ACTIONS,
+  REVIEW_CI_SUMMARY_GRANT_CHECKS,
   REVIEW_CI_SUMMARY_MAX_FAILURES,
+  REVIEW_CI_SUMMARY_UNAVAILABLE,
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
 } from "../../settings/index.js";
 import {
@@ -57,6 +60,14 @@ export type BuildCiSummaryOptions = {
   readonly author?: CiSummaryAuthor;
 };
 
+type ExternalCiLoad =
+  | {
+      readonly ok: true;
+      readonly checks: CiCheckRunSnapshot[];
+      readonly statuses: CiLegacyStatus[];
+    }
+  | { readonly ok: false; readonly reason: "checks_permission" | "fetch_error" };
+
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -88,9 +99,7 @@ function isLegacyFailing(status: CiLegacyStatus): boolean {
   return FAILING_LEGACY_STATES.has(status.state);
 }
 
-async function loadExternalCi(
-  options: BuildCiSummaryOptions,
-): Promise<{ checks: CiCheckRunSnapshot[]; statuses: CiLegacyStatus[] } | null> {
+async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   try {
     const [checks, statuses] = await Promise.all([
       listCheckRunsForHead(
@@ -109,6 +118,7 @@ async function loadExternalCi(
       ),
     ]);
     return {
+      ok: true,
       checks: checks.filter((run) => !isOwnCiCheckName(run.name)),
       statuses: statuses.filter((status) => !isOwnCommitStatusContext(status.context)),
     };
@@ -120,14 +130,14 @@ async function loadExternalCi(
         prHead: options.headSha,
         reason: "checks_permission",
       });
-      return null;
+      return { ok: false, reason: "checks_permission" };
     }
     logWarn("review_ci_summary_fetch_failed", {
       owner: options.owner,
       repo: options.repo,
       message: error instanceof Error ? error.message : String(error),
     });
-    return null;
+    return { ok: false, reason: "fetch_error" };
   }
 }
 
@@ -143,40 +153,55 @@ function classifySnapshot(
   return "passing";
 }
 
-async function waitForTerminalCi(
-  options: BuildCiSummaryOptions,
-): Promise<{ checks: CiCheckRunSnapshot[]; statuses: CiLegacyStatus[] } | null> {
+async function waitForTerminalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   const waitMs = options.waitMs ?? 0;
   const pollMs = Math.max(options.waitPollMs ?? REVIEW_CI_SUMMARY_WAIT_POLL_MS, 100);
   const deadline = Date.now() + waitMs;
-  let snapshot = await loadExternalCi(options);
-  if (snapshot == null || waitMs <= 0) return snapshot;
+  let loaded = await loadExternalCi(options);
+  if (!loaded.ok || waitMs <= 0) return loaded;
 
   while (Date.now() < deadline) {
-    const state = classifySnapshot(snapshot.checks, snapshot.statuses);
-    if (state !== "pending") return snapshot;
+    const state = classifySnapshot(loaded.checks, loaded.statuses);
+    if (state !== "pending") return loaded;
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     await sleepMs(Math.min(pollMs, remaining));
-    snapshot = await loadExternalCi(options);
-    if (snapshot == null) return null;
+    loaded = await loadExternalCi(options);
+    if (!loaded.ok) return loaded;
   }
-  return snapshot;
+  return loaded;
 }
 
 export function summarizeCiSnapshot(params: {
   readonly checks: readonly CiCheckRunSnapshot[];
   readonly statuses: readonly CiLegacyStatus[];
   readonly failures?: readonly CiFailureDetail[];
+  readonly permissionNote?: string;
 }): CiSummary {
   const state = classifySnapshot(params.checks, params.statuses);
+  const permissionNote = params.permissionNote;
   switch (state) {
     case "none":
-      return { status: "none", headline: "No CI checks on this head", failures: [] };
+      return {
+        status: "none",
+        headline: "No CI checks on this head",
+        failures: [],
+        ...(permissionNote != null ? { permissionNote } : {}),
+      };
     case "pending":
-      return { status: "pending", headline: "⏳ CI still running", failures: [] };
+      return {
+        status: "pending",
+        headline: "⏳ CI still running",
+        failures: [],
+        ...(permissionNote != null ? { permissionNote } : {}),
+      };
     case "passing":
-      return { status: "passing", headline: "✅ All CI is passing", failures: [] };
+      return {
+        status: "passing",
+        headline: "✅ All CI is passing",
+        failures: [],
+        ...(permissionNote != null ? { permissionNote } : {}),
+      };
     case "failing": {
       const failures = params.failures ?? [];
       const failingNames = [
@@ -190,6 +215,7 @@ export function summarizeCiSnapshot(params: {
         status: "failing",
         headline: `❌ CI failing — ${nameList}${more}`,
         failures,
+        ...(permissionNote != null ? { permissionNote } : {}),
       };
     }
     default: {
@@ -199,11 +225,26 @@ export function summarizeCiSnapshot(params: {
   }
 }
 
-const UNAVAILABLE_CI_SUMMARY: CiSummary = {
-  status: "unavailable",
-  headline: "CI status unavailable",
-  failures: [],
-};
+function checksPermissionSummary(): CiSummary {
+  return {
+    status: "unavailable",
+    headline: REVIEW_CI_SUMMARY_GRANT_CHECKS,
+    failures: [],
+  };
+}
+
+function unavailableSummary(): CiSummary {
+  return {
+    status: "unavailable",
+    headline: REVIEW_CI_SUMMARY_UNAVAILABLE,
+    failures: [],
+  };
+}
+
+function withPermissionNote(summary: CiSummary, note: string | undefined): CiSummary {
+  if (note == null) return summary;
+  return { ...summary, permissionNote: note };
+}
 
 function buildAuthorInput(
   snapshot: { checks: readonly CiCheckRunSnapshot[]; statuses: readonly CiLegacyStatus[] },
@@ -238,19 +279,23 @@ function buildAuthorInput(
 
 /**
  * Builds a CI summary for the review progress stub or completed review summary.
- * Soft-fails to `unavailable` when Checks permission is missing, the fetch errors,
- * or any unexpected exception escapes the helpers below.
+ * Missing Checks permission yields a visible grant-Checks row. Missing Actions
+ * permission on a failing head attaches a grant-Actions note. Other fetch errors
+ * soft-fail to a short unavailable headline. The review itself still publishes.
  *
  * Failing non-lightweight paths fetch condensed Actions logs and optionally call
  * `author` for model-authored reason/fixHint fields (ADR 0026).
  */
 export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
   try {
-    const snapshot = await waitForTerminalCi(options);
-    if (snapshot == null) {
-      return UNAVAILABLE_CI_SUMMARY;
+    const loaded = await waitForTerminalCi(options);
+    if (!loaded.ok) {
+      return loaded.reason === "checks_permission"
+        ? checksPermissionSummary()
+        : unavailableSummary();
     }
 
+    const snapshot = { checks: loaded.checks, statuses: loaded.statuses };
     const state = classifySnapshot(snapshot.checks, snapshot.statuses);
     if (state !== "failing" || options.lightweight) {
       return summarizeCiSnapshot(snapshot);
@@ -258,33 +303,35 @@ export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<Ci
 
     const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
     const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
-    const { condensedLogs, checkOutputFallback } = await fetchCiLogContext({
-      token: options.token,
-      owner: options.owner,
-      repo: options.repo,
-      headSha: options.headSha,
-      expiresAtTs: options.expiresAtTs,
-      failingChecks,
-      maxFailures,
-    });
+    const { condensedLogs, checkOutputFallback, actionsPermissionMissing } =
+      await fetchCiLogContext({
+        token: options.token,
+        owner: options.owner,
+        repo: options.repo,
+        headSha: options.headSha,
+        expiresAtTs: options.expiresAtTs,
+        failingChecks,
+        maxFailures,
+      });
 
     const authorInput = buildAuthorInput(snapshot, condensedLogs, checkOutputFallback);
+    const actionsNote = actionsPermissionMissing ? REVIEW_CI_SUMMARY_GRANT_ACTIONS : undefined;
 
     if (options.author == null) {
-      return factsOnlyFailingSummary(authorInput);
+      return withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote);
     }
 
     const llm = await options.author(authorInput);
     if (llm == null) {
-      return factsOnlyFailingSummary(authorInput);
+      return withPermissionNote(factsOnlyFailingSummary(authorInput), actionsNote);
     }
-    return mergeCiSummaryWithFacts(authorInput, llm);
+    return withPermissionNote(mergeCiSummaryWithFacts(authorInput, llm), actionsNote);
   } catch (error) {
     logWarn("review_ci_summary_build_failed", {
       owner: options.owner,
       repo: options.repo,
       message: error instanceof Error ? error.message : String(error),
     });
-    return UNAVAILABLE_CI_SUMMARY;
+    return unavailableSummary();
   }
 }

@@ -51,6 +51,7 @@ describe("analyzeCi", () => {
     fetchCiLogContext.mockResolvedValue({
       condensedLogs: "Format issues found in above 1 files.",
       checkOutputFallback: "Format issues found in above 1 files.",
+      actionsPermissionMissing: false,
     });
   });
 
@@ -259,6 +260,7 @@ describe("analyzeCi", () => {
       condensedLogs:
         "Checking formatting...\nFormat issues found in above 1 files.\nError: Process completed with exit code 1.",
       checkOutputFallback: "Node.js 20 is deprecated.",
+      actionsPermissionMissing: false,
     });
 
     const summary = await buildCiSummary({
@@ -369,7 +371,7 @@ describe("analyzeCi", () => {
     expect(summary.headline).not.toContain("d");
   });
 
-  it("returns unavailable when Checks permission is missing", async () => {
+  it("asks to grant Checks Read when Checks permission is missing", async () => {
     listCheckRunsForHead.mockRejectedValueOnce(
       Object.assign(new Error("Not Found"), { status: 404 }),
     );
@@ -384,6 +386,42 @@ describe("analyzeCi", () => {
     });
 
     expect(summary.status).toBe("unavailable");
+    expect(summary.headline).toMatch(/Checks to Read/i);
+    expect(summary.headline).toMatch(/\/review/);
+  });
+
+  it("attaches an Actions Read grant note when job logs are blocked", async () => {
+    listCheckRunsForHead.mockResolvedValueOnce([
+      {
+        id: 11,
+        name: "lint",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: "Format issues found",
+        outputText: null,
+      },
+    ]);
+    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    fetchCiLogContext.mockResolvedValueOnce({
+      condensedLogs: "Format issues found",
+      checkOutputFallback: "Format issues found",
+      actionsPermissionMissing: true,
+    });
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      waitMs: 0,
+      author: mockAuthor,
+    });
+
+    expect(summary.status).toBe("failing");
+    expect(summary.permissionNote).toMatch(/Actions to Read/i);
+    expect(summary.failures[0]?.reason).toContain("Format issues");
   });
 
   it("authors legacy commit status failures from facts + author", async () => {
@@ -405,6 +443,7 @@ describe("analyzeCi", () => {
     fetchCiLogContext.mockResolvedValueOnce({
       condensedLogs: "",
       checkOutputFallback: "The Travis CI build failed",
+      actionsPermissionMissing: false,
     });
 
     const summary = await buildCiSummary({

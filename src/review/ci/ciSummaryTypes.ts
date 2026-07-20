@@ -23,6 +23,11 @@ export type CiSummary = {
   readonly headline: string;
   /** Failure digests (empty unless status is failing). */
   readonly failures: readonly CiFailureDetail[];
+  /**
+   * Optional install hint when Checks or Actions permission is missing.
+   * Shown under the headline; review still publishes.
+   */
+  readonly permissionNote?: string;
 };
 
 export type CiCheckRunSnapshot = {

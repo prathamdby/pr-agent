@@ -23,12 +23,46 @@ describe("renderCiSummary", () => {
     expect(shouldRenderCiSummaryRow(summary)).toBe(true);
   });
 
-  it("omits unavailable and none rows", () => {
-    expect(shouldRenderCiSummaryRow({ status: "unavailable", headline: "x", failures: [] })).toBe(
-      false,
-    );
+  it("renders unavailable permission rows and omits none", () => {
+    expect(
+      shouldRenderCiSummaryRow({
+        status: "unavailable",
+        headline: "Grant Checks to Read",
+        failures: [],
+      }),
+    ).toBe(true);
     expect(shouldRenderCiSummaryRow({ status: "none", headline: "x", failures: [] })).toBe(false);
     expect(shouldRenderCiSummaryRow(null)).toBe(false);
+  });
+
+  it("renders a Checks grant headline for unavailable summaries", () => {
+    const html = renderCiSummaryCell({
+      status: "unavailable",
+      headline:
+        "PR Agent can't see check runs on this head. In the GitHub App settings, set Checks to Read, then run /review again.",
+      failures: [],
+    });
+    expect(html).toContain("Checks to Read");
+    expect(html).toContain("/review");
+  });
+
+  it("renders an Actions permission note under failing digests", () => {
+    const html = renderCiSummaryCell({
+      status: "failing",
+      headline: "❌ CI failing — lint",
+      failures: [
+        {
+          name: "lint",
+          reason: "Format issues found",
+          fixHint: "Run oxfmt and re-push.",
+        },
+      ],
+      permissionNote:
+        "CI failed, but PR Agent can't download the job logs. Set Actions to Read on the GitHub App so the next summary can explain what broke.",
+    });
+    expect(html).toContain("Format issues found");
+    expect(html).toContain("Actions to Read");
+    expect(html).toContain("<em>");
   });
 
   it("renders failure digests with fix hints", () => {

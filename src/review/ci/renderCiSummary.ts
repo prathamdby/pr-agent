@@ -15,9 +15,8 @@ const CI_SUMMARY_CELL_RE =
 
 /** Renders the CI gate cell for the review summary / progress stub table. */
 export function renderCiSummaryCell(summary: CiSummary): string {
-  let inner: string;
+  const parts: string[] = [escapeTablePlainCell(summary.headline)];
   if (summary.status === "failing" && summary.failures.length > 0) {
-    const parts: string[] = [escapeTablePlainCell(summary.headline)];
     for (const failure of summary.failures) {
       const nameHtml =
         failure.url != null
@@ -27,15 +26,16 @@ export function renderCiSummaryCell(summary: CiSummary): string {
         `${nameHtml}<br>${escapeTablePlainCell(failure.reason)}<br>${renderTableEm(failure.fixHint)}`,
       );
     }
-    inner = parts.join("<br><br>");
-  } else {
-    inner = escapeTablePlainCell(summary.headline);
   }
+  if (summary.permissionNote != null && summary.permissionNote.trim().length > 0) {
+    parts.push(renderTableEm(summary.permissionNote));
+  }
+  const inner = parts.join("<br><br>");
   return `${CI_SUMMARY_CELL_START}${inner}${CI_SUMMARY_CELL_END}`;
 }
 
 export type RenderableCiSummary = CiSummary & {
-  readonly status: "passing" | "failing" | "pending";
+  readonly status: "passing" | "failing" | "pending" | "unavailable";
 };
 
 /** Whether the CI row should appear in the summary / stub table. */
@@ -44,7 +44,10 @@ export function shouldRenderCiSummaryRow(
 ): summary is RenderableCiSummary {
   if (summary == null) return false;
   return (
-    summary.status === "passing" || summary.status === "failing" || summary.status === "pending"
+    summary.status === "passing" ||
+    summary.status === "failing" ||
+    summary.status === "pending" ||
+    summary.status === "unavailable"
   );
 }
 
