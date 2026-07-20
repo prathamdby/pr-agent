@@ -12,7 +12,7 @@
 
 PR Agent is a GitHub App that enqueues durable **agent work items** (reviews, descriptions, asks, triage, verification) from webhooks and slash commands, then runs LLM agent loops on workers using local PR workspaces or isolated writable checkouts and GitHub APIs for publish.
 
-Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](docs/configuration.md). Behaviour and deployment: [docs/operations.md](docs/operations.md). Queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
+Domain terms: [CONTEXT.md](CONTEXT.md). Features: [docs/features.md](docs/features.md). Configuration: [docs/configuration.md](docs/configuration.md). Behaviour and deployment: [docs/operations.md](docs/operations.md). Queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
 
 **[Get started](#getting-started)**
 
@@ -35,7 +35,7 @@ Domain terms: [CONTEXT.md](CONTEXT.md). Configuration: [docs/configuration.md](d
 1. Create a [GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/registering-a-github-app).
 2. Set **Webhook URL** to `https://<host>/webhooks` and **Webhook secret** to match `WEBHOOK_SECRET`.
 3. Subscribe to events: **`pull_request`**, **`issue_comment`**, **`pull_request_review_comment`** (do not require `pull_request_review`).
-4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read, **Checks** read/write. Contents write is only needed for `/triage`. **Commit statuses** read/write when `ENABLE_REVIEW_COMMIT_STATUS=true`. Checks read also powers the **CI summary** gate on review stubs and summaries.
+4. Repository permissions (typical): **Issues** and **Pull requests** read/write, **Contents** read/write, **Metadata** read, **Checks** read/write. Contents write is only needed for `/triage`. **Commit statuses** read/write when `FEATURE_COMMIT_STATUS=true`. Checks read also powers the **CI summary** gate on review stubs and summaries.
 5. Install the app on target orgs or repos. Set `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` in `.env` (see [`.env.example`](.env.example)).
 
 ### 2. Docker Compose (recommended)
@@ -100,7 +100,7 @@ LLM runs happen on **`ROLE=worker`** only. Pick a **runner** with `AGENT_PROVIDE
 | Pi (default) | `pi`             | `PI_PROVIDER`, `PI_MODEL`    | Provider API key env vars (see below) |
 | Cursor SDK   | `cursor`         | `PI_MODEL` (Cursor model id) | `CURSOR_API_KEY` (required)           |
 
-Full tunables: [docs/configuration.md](docs/configuration.md). Cursor integration: [ADR 0013](docs/adr/0013-cursor-sdk-provider.md).
+Feature catalog: [docs/features.md](docs/features.md). Operator tunables: [docs/configuration.md](docs/configuration.md). Cursor integration: [ADR 0013](docs/adr/0013-cursor-sdk-provider.md).
 
 ### Pi runner (default)
 
@@ -148,7 +148,7 @@ File listing and patch caps (`MAX_PR_FILES_LISTED`, `MAX_PR_FILES_PATCH_BYTES`) 
 
 ### Customizable via configuration
 
-Tunables live in env vars and [docs/configuration.md](docs/configuration.md). Prompt prose stays in code; limits and shared strings live in `src/settings/`.
+User-facing behavior is controlled by the `FEATURE_*` settings ([docs/features.md](docs/features.md)); operator tunables live in [docs/configuration.md](docs/configuration.md). Prompt prose stays in code; limits and shared strings live in `src/settings/`.
 
 ### Self-hosted control
 

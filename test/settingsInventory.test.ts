@@ -26,6 +26,16 @@ describe("settings inventory", () => {
     expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
     expect(envValues).toContain("POSTHOG_HOST");
     expect(new Set(envValues).size).toBe(envValues.length);
+    expect(envValues.length).toBe(48);
+  });
+
+  it("docs/features.md documents every FEATURE_* key", () => {
+    const featuresDoc = fs.readFileSync(path.join(process.cwd(), "docs", "features.md"), "utf8");
+    const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
+    expect(featureKeys.length).toBe(8);
+    for (const key of featureKeys) {
+      expect(featuresDoc.includes(key), `missing ${key} in docs/features.md`).toBe(true);
+    }
   });
 
   it(".env.example documents every loadConfig env key", () => {

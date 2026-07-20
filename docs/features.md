@@ -1,0 +1,37 @@
+# Features
+
+The eight `FEATURE_*` settings are pr-agent's entire user-facing configuration.
+Everything else is deployment wiring or operator tuning (see
+[configuration.md](configuration.md)).
+
+Modes: `off` = disabled entirely (slash commands reply with a notice, nothing
+runs), `manual` = slash command only, `auto` = slash command plus an automatic
+trigger. Auto triggers are fixed: review and describe fire when a PR is
+`opened`; verification fires on `synchronize` (every push). Custom trigger
+sets are intentionally not supported.
+
+| Setting                 | Values                                 | Default  | Spends tokens? | What it does                                                                                        |
+| ----------------------- | -------------------------------------- | -------- | -------------- | --------------------------------------------------------------------------------------------------- |
+| `FEATURE_REVIEW`        | `manual` \| `auto`                     | `auto`   | yes            | Core review. `auto` reviews each PR when opened; `/review` (and lens variants) is always available. |
+| `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`            | `auto`   | yes            | PR description generation. `auto` runs when a PR opens; `/describe` re-runs on demand.              |
+| `FEATURE_VERIFICATION`  | `off` \| `auto`                        | `auto`   | yes            | Re-checks open findings against new pushes and replies in their threads.                            |
+| `FEATURE_ASK`           | `off` \| `manual`                      | `manual` | yes            | `/ask` and `@bot` question threads.                                                                 |
+| `FEATURE_TRIAGE`        | `off` \| `manual`                      | `manual` | yes            | `/triage` fix-suggestion runs.                                                                      |
+| `FEATURE_REVIEW_LABELS` | `off` \| `effort` \| `effort+security` | `effort` | no             | Review-effort / security labels synced onto the PR.                                                 |
+| `FEATURE_COMMIT_STATUS` | `false` \| `true`                      | `false`  | no             | Posts the `pr-agent/review` commit status on the PR head; usable in branch protection rules.        |
+| `FEATURE_TITLE_REWRITE` | `false` \| `true`                      | `false`  | no             | Allows `/describe` to rewrite the PR title.                                                         |
+
+Notes:
+
+- `FEATURE_REVIEW` has no `off`: review is the product; `/review` always works.
+- The first five settings gate every LLM call outside the core review run —
+  turn them `off` to stop those surfaces from spending tokens at all.
+- Invalid values fail startup with the allowed list; typos never silently
+  disable a feature.
+- Removed pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,
+  `DESCRIPTION_GENERATE_TITLE`, and the old tuning knobs) also fail startup
+  with a pointer to their replacement. There are no aliases.
+
+Defaults reproduce the pre-revision out-of-the-box behavior exactly.
+CI enforces that every `FEATURE_*` key is documented here
+([`test/settingsInventory.test.ts`](../test/settingsInventory.test.ts)).
