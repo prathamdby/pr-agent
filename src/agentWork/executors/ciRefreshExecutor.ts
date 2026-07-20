@@ -77,7 +77,7 @@ export async function executeCiRefreshJob(cfg: Config, data: CiRefreshJobData): 
       const patched = patchCiSummaryCellInCommentBody(comment.body, ciSummary);
       if (patched == null || patched === comment.body) continue;
 
-      await updateIssueCommentBody(
+      await updateIssueComment(
         installation.token,
         data.owner,
         data.repo,

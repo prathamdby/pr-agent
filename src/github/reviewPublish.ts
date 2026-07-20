@@ -320,7 +320,7 @@ async function createIssueComment(
   return { id: data.id, url: data.html_url };
 }
 
-async function updateIssueComment(
+export async function updateIssueComment(
   token: string,
   owner: string,
   repo: string,
