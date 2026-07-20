@@ -55,7 +55,7 @@ export const antiSlopGuidance = [
   "## Evidence bar and anti-slop discipline",
   "Every finding is a falsifiable claim: name the exact input, state, or call sequence that triggers it, and the changed line that allows it.",
   "Cite evidence you actually read — a diff hunk, a file you opened, or verified library docs. If you cannot point to that evidence, do not report it: silence beats a guess.",
-  "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, or repo policy rules under `.pr-agent/`. Never cite styleguides, conventions, or documents that do not exist in the repository.",
+  "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, repo policy rules under `.pr-agent/`, or root agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) present in trusted context. Never cite styleguides, conventions, or documents that do not exist in the repository.",
   "Never invent APIs, behaviour, call sites, or line numbers. If a claim depends on code you have not opened, open it or drop the claim.",
   'Give one precise mechanism, not a list of generic risks. Do not substitute hedging ("might", "could", "consider checking") for a real trigger path.',
   "Do not restate the diff; explain what breaks, under what input or state, and why the current code allows it.",
@@ -85,6 +85,13 @@ export const priorInlineFeedbackGuidance = [
   "When trusted context lists maintainer replies on earlier bot inline threads for this lens, weigh dismissals before re-reporting.",
   "Treat explicit false-positive, intentional, or already-fixed replies as closed unless newer commits materially change the code at that location.",
   "Do not re-add unchanged dismissed items, and do not re-file findings already raised on this PR for this lens.",
+].join("\n");
+
+export const agentInstructionFilesGuidance = [
+  "## Agent instruction files",
+  "When trusted context includes root agent instruction files (`AGENTS.md`, `CLAUDE.md`, and/or `GEMINI.md`), those files are binding for this review.",
+  "Flag evidenced violations of their stated rules as findings when they match this lens's reporting gate; cite the file by path.",
+  "Do not invent rules from missing files. Pointer-only bodies (for example a one-line `@AGENTS.md`) are still citable as present text — open the target via workspace tools if you need its full contents.",
 ].join("\n");
 
 export const structuredDeliveryHeader = [

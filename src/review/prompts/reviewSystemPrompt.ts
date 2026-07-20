@@ -13,6 +13,7 @@ import {
   securityTripwiresGuidance,
   proseContractGuidance,
   priorInlineFeedbackGuidance,
+  agentInstructionFilesGuidance,
 } from "./reviewPromptBlocks.js";
 import { githubToolingDiscipline } from "../../agent/prompts/securityPrompt.js";
 
@@ -57,6 +58,8 @@ export function buildAutomatedSystemPrompt(): string {
     proseContractGuidance,
     "",
     priorInlineFeedbackGuidance,
+    "",
+    agentInstructionFilesGuidance,
     "",
     "## Reporting gate",
     "### Report when at least one holds",

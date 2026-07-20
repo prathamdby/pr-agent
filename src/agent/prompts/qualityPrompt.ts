@@ -19,6 +19,7 @@ import {
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
+  agentInstructionFilesGuidance,
 } from "../../review/prompts/reviewPromptBlocks.js";
 import { githubToolingDiscipline } from "./securityPrompt.js";
 
@@ -65,6 +66,8 @@ export const automatedQualitySystemPrompt = [
   highStakesTrivialTrapGuidance,
   "",
   priorInlineFeedbackGuidance,
+  "",
+  agentInstructionFilesGuidance,
   "",
   "## Out-of-scope files",
   "",

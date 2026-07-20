@@ -14,6 +14,10 @@ import { runFullPrReview } from "../../review/run/reviewRun.js";
 import type { ReviewRunResult } from "../../review/run/reviewRunTypes.js";
 import { loadRepoPolicy, renderRepoPolicyBlock } from "../../review/repoPolicy.js";
 import {
+  loadAgentInstructionFiles,
+  renderAgentInstructionFilesBlock,
+} from "../../review/agentInstructionFiles.js";
+import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/prompts/reviewTrustedContext.js";
@@ -38,6 +42,7 @@ import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import {
   DESCRIPTION_AGENT_HEADER,
   MAX_REPO_POLICY_BYTES,
+  MAX_AGENT_INSTRUCTION_BYTES,
   REPO_POLICY_DIRNAME,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
@@ -393,10 +398,23 @@ async function runFullReviewAgainstRepositoryView(args: {
     repoPolicyBlock = rendered || undefined;
   }
 
+  const agentInstructionResult = await loadAgentInstructionFiles(
+    repositoryView.agentCwd,
+    MAX_AGENT_INSTRUCTION_BYTES,
+  );
+  let agentInstructionFilesBlock: string | undefined;
+  if (agentInstructionResult.kind === "ok") {
+    const rendered = renderAgentInstructionFilesBlock({
+      files: agentInstructionResult.files,
+    });
+    agentInstructionFilesBlock = rendered || undefined;
+  }
+
   const trustedContext = buildTrustedReviewContextForReview({
     preflight: repositoryView.preflight,
     priorInlineFeedback: priorInlineFeedbackResult.value,
     repoPolicyBlock,
+    agentInstructionFilesBlock,
   });
 
   const result = await runFullPrReview({
