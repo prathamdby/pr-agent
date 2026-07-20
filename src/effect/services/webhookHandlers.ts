@@ -11,6 +11,7 @@ import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
+import { prNumbersForWorkflowRunHead } from "../../webhook/payloads/workflowRunEvent.js";
 
 const resolveBotIdentityEffect = (cfg: Config) =>
   Effect.tryPromise({
@@ -291,13 +292,10 @@ export const WebhookHandlersCore = Layer.effect(
       workflowRun: (_cfg, headers, data, intakeLog) =>
         Effect.gen(function* () {
           const headSha = data.workflow_run.head_sha;
-          const prNumbers = [
-            ...new Set(
-              (data.workflow_run.pull_requests ?? [])
-                .filter((pr) => pr.head.sha === headSha)
-                .map((pr) => pr.number),
-            ),
-          ];
+          const prNumbers = prNumbersForWorkflowRunHead(
+            headSha,
+            data.workflow_run.pull_requests ?? [],
+          );
           yield* scheduler.submitCiRefresh(
             headers,
             {

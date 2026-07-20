@@ -121,4 +121,26 @@ describe("renderCiSummary", () => {
     expect(patched).not.toContain("still running");
     expect(patched).toContain("headSha=abc123");
   });
+
+  it("returns null when CI cell markers are missing", () => {
+    const body = "## PR Agent Review\n\nNo CI cell here.\n";
+    expect(commentBodyHasCiSummaryCell(body)).toBe(false);
+    expect(
+      patchCiSummaryCellInCommentBody(body, {
+        status: "passing",
+        headline: "✅ All CI is passing",
+        failures: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("is a no-op when the replacement cell matches the existing cell", () => {
+    const summary: CiSummary = {
+      status: "pending",
+      headline: "⏳ CI still running",
+      failures: [],
+    };
+    const body = `| CI | ${renderCiSummaryCell(summary)} |`;
+    expect(patchCiSummaryCellInCommentBody(body, summary)).toBe(body);
+  });
 });

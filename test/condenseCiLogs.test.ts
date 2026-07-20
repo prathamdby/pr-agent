@@ -58,4 +58,19 @@ describe("condenseCiLogs", () => {
     expect(merged).toContain("Job: lint");
     expect(merged.length).toBeLessThanOrEqual(200);
   });
+
+  it("keeps the tail when condensed text exceeds maxChars", () => {
+    const raw = [
+      "Error: first failure marker near the top",
+      "context-a",
+      "context-b",
+      "context-c",
+      "Error: Process completed with exit code 1.",
+      "tail-marker-zzzz",
+    ].join("\n");
+    const condensed = condenseJobLogText(raw, 40);
+    expect(condensed.length).toBeLessThanOrEqual(40);
+    expect(condensed).toContain("tail-marker-zzzz");
+    expect(condensed).not.toContain("first failure marker");
+  });
 });

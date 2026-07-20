@@ -72,6 +72,39 @@ describe("ciSummarySchema", () => {
     expect(merged.failures[0]?.url).toBe("https://example.com/lint");
   });
 
+  it("uses server headlines for passing, pending, and none", () => {
+    const llm = {
+      headline: "model should not win",
+      failures: [{ name: "lint", reason: "x", fixHint: "y" }],
+    };
+    const base = {
+      checkNames: ["lint"] as const,
+      failingNames: [] as const,
+      failingUrls: new Map<string, string | undefined>(),
+      condensedLogs: "",
+      checkOutputFallback: "",
+    };
+    expect(mergeCiSummaryWithFacts({ ...base, status: "passing" }, llm)).toEqual({
+      status: "passing",
+      headline: "✅ All CI is passing",
+      failures: [],
+    });
+    expect(mergeCiSummaryWithFacts({ ...base, status: "pending" }, llm)).toEqual({
+      status: "pending",
+      headline: "⏳ CI still running",
+      failures: [],
+    });
+    expect(mergeCiSummaryWithFacts({ ...base, status: "none" }, llm)).toEqual({
+      status: "none",
+      headline: "No CI checks on this head",
+      failures: [],
+    });
+  });
+
+  it("throws when model text has no JSON object", () => {
+    expect(() => parseCiSummaryLlmText("sorry, no structured output")).toThrow(/no JSON object/i);
+  });
+
   it("exports the CI gate contract block", () => {
     expect(ciGateRowContract).toContain("CI gate row contract");
     expect(ciGateRowContract).toContain("deprecation");

@@ -1,8 +1,5 @@
 import type { Config } from "../../config.js";
-import {
-  findIssueCommentWithBodyBySentinel,
-  updateIssueComment,
-} from "../../github/reviewPublish.js";
+import { findIssueCommentBySentinel, updateIssueComment } from "../../github/reviewPublish.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
 import { createAgentCiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
@@ -60,7 +57,7 @@ export async function executeCiRefreshJob(cfg: Config, data: CiRefreshJobData): 
 
   for (const sentinel of SUMMARY_SENTINELS) {
     try {
-      const comment = await findIssueCommentWithBodyBySentinel(
+      const comment = await findIssueCommentBySentinel(
         installation.token,
         data.owner,
         data.repo,

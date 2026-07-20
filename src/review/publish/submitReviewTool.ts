@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Config } from "../../config.js";
 import { logInfo, logWarn, logDebug } from "../../evlog.js";
 import { publishReview } from "./publishReview.js";
+import { createAgentCiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import { prepareReviewPayloadForPublish } from "../findings/findingPipeline.js";
 import {
@@ -228,6 +229,7 @@ export function buildSubmitReviewTool(params: {
         recordPublishStep: params.recordPublishStep,
         storedInlineFingerprints: params.storedInlineFingerprints,
         staleReview: params.publishAbortState?.staleHead === true,
+        ciSummaryAuthor: createAgentCiSummaryAuthor(params.cfg),
       });
     } catch (e) {
       logWarn("review_publish_failed", {

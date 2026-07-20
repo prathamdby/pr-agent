@@ -20,3 +20,11 @@ export const workflowRunWebhookSchema = z.object({
 });
 
 export type WorkflowRunWebhookPayload = z.infer<typeof workflowRunWebhookSchema>;
+
+/** PR numbers whose head SHA matches the workflow run head (deduped). */
+export function prNumbersForWorkflowRunHead(
+  headSha: string,
+  pullRequests: readonly { readonly number: number; readonly head: { readonly sha: string } }[],
+): number[] {
+  return [...new Set(pullRequests.filter((pr) => pr.head.sha === headSha).map((pr) => pr.number))];
+}
