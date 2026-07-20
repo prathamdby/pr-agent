@@ -9,6 +9,7 @@ import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
 import { WebhookHandlersLive } from "./services/webhookHandlers.js";
+import { WEBHOOK_MAX_BODY_BYTES } from "../settings/index.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
@@ -126,7 +127,7 @@ function buildEffectWebhookApp(cfg: Config) {
           return HttpServerResponse.text("", { status: 404 });
         }
 
-        const body = yield* readRawBody(req, cfg.webhookMaxBodyBytes);
+        const body = yield* readRawBody(req, WEBHOOK_MAX_BODY_BYTES);
         if (body.kind === "too_large") {
           return payloadTooLargeResponse();
         }

@@ -1,7 +1,6 @@
-import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { EventMessage } from "posthog-node";
 import { ENV } from "../src/settings/index.js";
-import { sanitizePostHogEvent } from "../src/security/sanitizePostHogEvent.js";
 
 type PostHogOptions = {
   readonly host?: string;
@@ -29,6 +28,13 @@ const mockPostHog = vi.hoisted(() => {
 vi.mock("posthog-node", () => ({ PostHog: mockPostHog.PostHog }));
 
 describe("posthog client", () => {
+  beforeEach(() => {
+    // Drop the shared setupFiles no-op client so each case starts uninitialized.
+    vi.resetModules();
+    mockPostHog.instances.length = 0;
+    mockPostHog.PostHog.mockClear();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -38,10 +44,10 @@ describe("posthog client", () => {
   });
 
   it("constructs the client with exception autocapture and before_send sanitizer", async () => {
-    process.env[ENV.POSTHOG_PROJECT_TOKEN] = "token";
-    process.env[ENV.POSTHOG_HOST] = "https://posthog.example";
+    const { initPostHog } = await import("../src/posthog.js");
+    const { sanitizePostHogEvent } = await import("../src/security/sanitizePostHogEvent.js");
 
-    await import("../src/posthog.js");
+    initPostHog({ projectToken: "token", host: "https://posthog.example" });
 
     expect(mockPostHog.PostHog).toHaveBeenCalledWith("token", {
       host: "https://posthog.example",
@@ -60,10 +66,28 @@ describe("posthog client", () => {
   });
 
   it("shuts down the singleton client through the exported helper", async () => {
-    const { shutdownPostHog } = await import("../src/posthog.js");
+    const { initPostHog, shutdownPostHog } = await import("../src/posthog.js");
 
+    initPostHog({ projectToken: "", host: "" });
     await shutdownPostHog();
 
     expect(mockPostHog.instances[0]?.shutdown).toHaveBeenCalledTimes(1);
+  });
+
+  it("throws from getPostHog when initPostHog was not called", async () => {
+    const { getPostHog } = await import("../src/posthog.js");
+    expect(() => getPostHog()).toThrow(/not initialized/);
+  });
+
+  it("initNoOpPostHog installs an empty-token client for tests", async () => {
+    const { getPostHog, initNoOpPostHog } = await import("../src/posthog.js");
+    initNoOpPostHog();
+    expect(getPostHog()).toBeDefined();
+    expect(mockPostHog.instances[0]?.apiKey).toBe("");
+  });
+
+  it("shutdownPostHog resolves when no client was initialised", async () => {
+    const { shutdownPostHog } = await import("../src/posthog.js");
+    await expect(shutdownPostHog()).resolves.toBeUndefined();
   });
 });

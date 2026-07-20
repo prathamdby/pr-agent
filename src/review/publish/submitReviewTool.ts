@@ -8,6 +8,8 @@ import { prepareReviewPayloadForPublish } from "../findings/findingPipeline.js";
 import {
   PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
   REVIEW_DIFF_CACHE_REQUIRED_MESSAGE,
+  MAX_REVIEW_PUBLISH_CALLS,
+  REVIEW_MIN_CONFIDENCE,
 } from "../../settings/index.js";
 import { recordReviewMetric } from "../run/reviewRunMetrics.js";
 import {
@@ -112,7 +114,6 @@ export function buildSubmitReviewTool(params: {
     const enforceDiffAndAnchors = params.canEnforceDiffCacheBeforeSubmit?.() ?? true;
 
     if (
-      params.cfg.reviewRequireDiffCacheBeforeSubmit &&
       params.cachedDiffIndex &&
       !params.cachedDiffIndex.listPullRequestFilesIngested &&
       enforceDiffAndAnchors
@@ -154,7 +155,7 @@ export function buildSubmitReviewTool(params: {
     const prepared = prepareReviewPayloadForPublish({
       payload: parsed.data,
       mode,
-      reviewMinConfidence: params.cfg.reviewMinConfidence,
+      reviewMinConfidence: REVIEW_MIN_CONFIDENCE,
       severityFloor: params.severityFloor,
       cachedDiffIndex: params.cachedDiffIndex,
       enforceInlineAnchorValidation: enforceDiffAndAnchors,
@@ -202,7 +203,7 @@ export function buildSubmitReviewTool(params: {
       }
     }
 
-    if (params.state.publishCallCount >= params.cfg.maxReviewPublishCalls) {
+    if (params.state.publishCallCount >= MAX_REVIEW_PUBLISH_CALLS) {
       params.state.publishCallsExhausted = true;
       throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
     }
@@ -237,7 +238,7 @@ export function buildSubmitReviewTool(params: {
         message: e instanceof Error ? e.message : String(e),
         publishCallCount: params.state.publishCallCount,
       });
-      if (params.state.publishCallCount >= params.cfg.maxReviewPublishCalls) {
+      if (params.state.publishCallCount >= MAX_REVIEW_PUBLISH_CALLS) {
         params.state.publishCallsExhausted = true;
       }
       throw new Error(

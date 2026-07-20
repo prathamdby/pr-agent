@@ -8,6 +8,8 @@ import {
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
+  slashDisabledBody,
+  type Features,
 } from "../../settings/index.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { DeferredIntakeEvent } from "./deferredEvents.js";
@@ -344,6 +346,7 @@ export async function applySlashCommandIntake(
   boss: PgBoss,
   client: PoolClient,
   input: SlashCommandInput,
+  features: Features,
 ): Promise<DeferredIntakeEvent[]> {
   const events: DeferredIntakeEvent[] = [];
   const command = input.command;
@@ -395,6 +398,18 @@ export async function applySlashCommandIntake(
 
   const handler = SLASH_INTAKE_HANDLERS[command];
   if (handler) {
+    const disabledByFeature: Record<string, boolean> = {
+      ask: features.ask === "off",
+      describe: features.describe === "off",
+      triage: features.triage === "off",
+    };
+    if (disabledByFeature[command]) {
+      await enqueueSlashAck(ctx, {
+        reply: { target: input.replyTarget, body: slashDisabledBody(command) },
+      });
+      events.push({ name: "ignored_disabled_slash_command", fields: { command } });
+      return events;
+    }
     await handler(ctx);
     return events;
   }

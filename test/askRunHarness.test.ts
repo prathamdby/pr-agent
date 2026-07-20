@@ -26,10 +26,8 @@ vi.mock("../src/agent/providers/index.js", () => ({
 import { runAskRun } from "../src/agent/ask/askRun.js";
 
 const cfg = makeTestConfig({
-  maxToolRounds: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
 });
 
 const askParams = {
@@ -75,20 +73,6 @@ describe("runAskRun finalize", () => {
     expect(sendMock).toHaveBeenCalledTimes(3);
     expect(restrictToToolsMock).toHaveBeenCalledWith([], {});
     expect(restoreToolsMock).toHaveBeenCalled();
-    expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
-  });
-
-  it("skips finalize when maxAskFinalizeRounds is zero", async () => {
-    sendMock.mockResolvedValueOnce({ text: "" });
-
-    const result = await runAskRun({
-      ...askParams,
-      cfg: { ...cfg, maxAskFinalizeRounds: 0 },
-    });
-
-    expect(sendMock).toHaveBeenCalledTimes(1);
-    expect(restrictToToolsMock).not.toHaveBeenCalled();
-    expect(restoreToolsMock).not.toHaveBeenCalled();
     expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
   });
 });

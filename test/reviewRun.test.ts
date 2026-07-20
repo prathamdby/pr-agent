@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+import { ingestListPullRequestFilesResult } from "../src/review/placement/reviewDiffIndex.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   createIssueComment: vi.fn(async () => ({
@@ -51,10 +52,9 @@ import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPr
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const cfg = makeTestConfig({
-  maxToolRounds: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
+  features: { ...makeTestConfig().features, reviewLabels: "off" },
 });
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;
@@ -93,7 +93,7 @@ describe("runFullPrReview mode", () => {
   it("selects security system prompt when mode is review-security", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
         mode: "review-security",
       }),
     );
@@ -104,7 +104,7 @@ describe("runFullPrReview mode", () => {
   it("selects quality system prompt when mode is review-quality", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
         mode: "review-quality",
       }),
     );
@@ -115,7 +115,7 @@ describe("runFullPrReview mode", () => {
   it("selects tests system prompt when mode is review-tests", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
         mode: "review-tests",
       }),
     );
@@ -126,7 +126,7 @@ describe("runFullPrReview mode", () => {
   it("selects general system prompt by default", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
       }),
     );
 
@@ -192,7 +192,7 @@ describe("runFullPrReview publish retries", () => {
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
       await runFullPrReview(
         reviewParams({
-          cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+          cfg,
         }),
       );
     });
@@ -225,9 +225,13 @@ describe("runFullPrReview publish retries", () => {
       return { text: "aborted review attempt" };
     });
 
+    const workspace = mockLocalPrWorkspace();
+    ingestListPullRequestFilesResult(workspace.diffIndex, {
+      files: [{ filename: "src/x.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") }],
+    });
     const result = await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, reviewRequireDiffCacheBeforeSubmit: false },
+        workspace,
         shouldAbortPublish: async () => true,
       }),
     );

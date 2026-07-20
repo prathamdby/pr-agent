@@ -47,3 +47,6 @@ export const TRIAGE_COMMIT_MAX_FILES = 20;
 /** Staged-diff size cap per commitFix call (added + removed lines). */
 export const TRIAGE_MAX_COMMIT_DIFF_LINES = 200;
 export const TRIAGE_NEW_FILE_MAX_BYTES = 32_768;
+
+export const MAX_TOOL_ROUNDS_TRIAGE = 32;
+export const MAX_TRIAGE_FIXES_PER_RUN = 10;

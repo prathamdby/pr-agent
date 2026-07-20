@@ -27,7 +27,12 @@ import {
   hasManagedCategoryLabel,
 } from "../run/reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
-import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
+import {
+  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
+  REVIEW_CI_SUMMARY_MAX_FAILURES,
+  REVIEW_CI_SUMMARY_WAIT_MS,
+  REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+} from "../../settings/index.js";
 import { buildCiSummary } from "../ci/analyzeCi.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
@@ -227,16 +232,7 @@ export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
     mode?: ReviewMode;
-    cfg: Pick<
-      Config,
-      | "piModel"
-      | "enableReviewLabelsEffort"
-      | "enableReviewLabelsSecurity"
-      | "enableReviewCommitStatus"
-      | "reviewCiSummaryWaitMs"
-      | "reviewCiSummaryWaitPollMs"
-      | "reviewCiSummaryMaxFailures"
-    >;
+    cfg: Pick<Config, "piModel" | "features">;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
     /** Set when payload was already normalized, deduped, and validated by submitReview. */
@@ -371,9 +367,9 @@ export async function publishReview(
     repo,
     headSha,
     expiresAtTs: tokenExpiresAtTs,
-    waitMs: cfg.reviewCiSummaryWaitMs,
-    waitPollMs: cfg.reviewCiSummaryWaitPollMs,
-    maxFailures: cfg.reviewCiSummaryMaxFailures,
+    waitMs: REVIEW_CI_SUMMARY_WAIT_MS,
+    waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+    maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
   });
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
@@ -453,7 +449,7 @@ export async function publishReview(
     });
   }
 
-  if (cfg.enableReviewCommitStatus) {
+  if (cfg.features.commitStatus) {
     try {
       await setReviewCommitStatus(
         token,
@@ -502,8 +498,9 @@ export async function publishReview(
   const wantsCategoryLabel = dominantReviewCategory(payload.findings) != null;
   const syncCategoryLabels =
     mode === "review" && (wantsCategoryLabel || hasManagedCategoryLabel(currentLabels));
-  const shouldSyncLabels =
-    cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity || syncCategoryLabels;
+  const syncEffortLabel = cfg.features.reviewLabels !== "off";
+  const syncSecurityLabel = cfg.features.reviewLabels === "effort+security";
+  const shouldSyncLabels = syncEffortLabel || syncSecurityLabel || syncCategoryLabels;
 
   if (shouldSyncLabels) {
     try {
@@ -512,8 +509,8 @@ export async function publishReview(
           currentLabels,
           payload,
           {
-            effort: cfg.enableReviewLabelsEffort,
-            security: cfg.enableReviewLabelsSecurity,
+            effort: syncEffortLabel,
+            security: syncSecurityLabel,
             category: syncCategoryLabels,
           },
           mode,
@@ -527,8 +524,8 @@ export async function publishReview(
       const managed = reviewLabelsFromPayload(
         payload,
         {
-          effort: cfg.enableReviewLabelsEffort,
-          security: cfg.enableReviewLabelsSecurity,
+          effort: syncEffortLabel,
+          security: syncSecurityLabel,
           category: syncCategoryLabels,
         },
         mode,

@@ -3,13 +3,28 @@ import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/prom
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ListPullRequestFilesResult } from "../src/github/listPullRequestFiles.js";
+import { LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB } from "../src/settings/index.js";
+
+const settingsOverrides: { maxFetchBytes?: number } = {};
+vi.mock("../src/settings/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
+  return {
+    ...actual,
+    get LOCAL_WORKSPACE_MAX_FETCH_BYTES() {
+      return settingsOverrides.maxFetchBytes ?? actual.LOCAL_WORKSPACE_MAX_FETCH_BYTES;
+    },
+  };
+});
+
+afterEach(() => {
+  delete settingsOverrides.maxFetchBytes;
+});
 import {
   assertWorkspacePath,
   prepareLocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
-import { makeTestConfig } from "./helpers/config.js";
 
 const GIT_WORKSPACE_TEST_TIMEOUT_MS = 15_000;
 
@@ -114,17 +129,14 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-
-        const cfg = makeTestConfig();
         const fullWorkspace = await prepareLocalPrWorkspace({
-          cfg,
           owner: "owner",
           repo: "repo",
           prNumber: 1,
           headSha,
           installationToken: "unused",
           prFiles,
-          repositorySizeKb: cfg.localWorkspaceFullCloneMaxRepoKb,
+          repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
           remoteUrlOverride: remote,
         });
         try {
@@ -178,7 +190,6 @@ describe("local PR workspace", () => {
         }
 
         const noSizeWorkspace = await prepareLocalPrWorkspace({
-          cfg,
           owner: "owner",
           repo: "repo",
           prNumber: 1,
@@ -195,14 +206,13 @@ describe("local PR workspace", () => {
         }
 
         const sparseWorkspace = await prepareLocalPrWorkspace({
-          cfg,
           owner: "owner",
           repo: "repo",
           prNumber: 1,
           headSha,
           installationToken: "unused",
           prFiles,
-          repositorySizeKb: cfg.localWorkspaceFullCloneMaxRepoKb + 1,
+          repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
           remoteUrlOverride: remote,
         });
         try {
@@ -261,14 +271,13 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        const cfg = makeTestConfig({ localWorkspaceMaxFetchBytes: 1 });
+        settingsOverrides.maxFetchBytes = 1;
         const workspaceDirsBefore = new Set(
           (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
         );
 
         await expect(
           prepareLocalPrWorkspace({
-            cfg,
             owner: "owner",
             repo: "repo",
             prNumber: 1,
@@ -316,23 +325,20 @@ describe("local PR workspace", () => {
         await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
 
         const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
-        const cfg = makeTestConfig({
-          localWorkspaceMaxFetchBytes: 1,
-        });
+        settingsOverrides.maxFetchBytes = 1;
         const workspaceDirsBefore = new Set(
           (await readdir(tmpdir())).filter((name) => name.startsWith("pr-agent-workspace-")),
         );
 
         await expect(
           prepareLocalPrWorkspace({
-            cfg,
             owner: "owner",
             repo: "repo",
             prNumber: 1,
             headSha,
             installationToken: "unused",
             prFiles,
-            repositorySizeKb: cfg.localWorkspaceFullCloneMaxRepoKb + 1,
+            repositorySizeKb: LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB + 1,
             remoteUrlOverride: remote,
           }),
         ).rejects.toThrow(/LOCAL_WORKSPACE_MAX_FETCH_BYTES/);

@@ -37,8 +37,8 @@ export async function publishDescriptionToPullRequest(params: {
     agentBlock,
   });
 
-  const nextTitle = cfg.descriptionGenerateTitle ? payload.title.trim() : (pr.title ?? "");
-  const titleUpdated = cfg.descriptionGenerateTitle && nextTitle !== (pr.title ?? "");
+  const nextTitle = cfg.features.titleRewrite ? payload.title.trim() : (pr.title ?? "");
+  const titleUpdated = cfg.features.titleRewrite && nextTitle !== (pr.title ?? "");
   const bodyUpdated = mergedBody !== (pr.body ?? "");
 
   if (titleUpdated || bodyUpdated) {

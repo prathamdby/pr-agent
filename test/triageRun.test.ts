@@ -17,7 +17,7 @@ vi.mock("../src/agent/providers/index.js", () => ({
   ),
 }));
 
-const cfg = makeTestConfig({ maxToolRoundsTriage: 4 });
+const cfg = makeTestConfig();
 
 function checkout(): WritablePrCheckout {
   return {

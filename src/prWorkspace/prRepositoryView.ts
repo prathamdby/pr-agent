@@ -1,4 +1,3 @@
-import type { Config } from "../config.js";
 import {
   buildReviewPreflightMetadataFromWorkspace,
   type ReviewPreflightMetadata,
@@ -10,7 +9,11 @@ import {
   type PullRequestForFileList,
 } from "../github/listPullRequestFiles.js";
 import { logWarn } from "../evlog.js";
-import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../settings/index.js";
+import {
+  PR_REPOSITORY_VIEW_RELEASE_GRACE_MS,
+  MAX_PR_FILES_LISTED,
+  MAX_PR_FILES_PATCH_BYTES,
+} from "../settings/index.js";
 import {
   prepareLocalPrWorkspace,
   selectLocalPrWorkspaceCheckoutMode,
@@ -24,7 +27,6 @@ export type PrRepositoryView = {
 };
 
 export type PreparePrRepositoryViewParams = {
-  readonly cfg: Config;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -64,10 +66,10 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
 function cacheKey(
   params: Pick<
     PreparePrRepositoryViewParams,
-    "cfg" | "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+    "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
   >,
 ): string {
-  const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.cfg, params.repositorySizeKb);
+  const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.repositorySizeKb);
   return `${params.owner}/${params.repo}#${params.prNumber}:${params.headSha}:${checkoutMode}`;
 }
 
@@ -82,15 +84,14 @@ async function prepareUncached(
       params.repo,
       params.prNumber,
       {
-        maxPrFilesListed: params.cfg.maxPrFilesListed,
-        maxPrFilesPatchBytes: params.cfg.maxPrFilesPatchBytes,
+        maxPrFilesListed: MAX_PR_FILES_LISTED,
+        maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
       },
       params.pullRequest,
       params.installationExpiresAtTs,
     ));
   assertPullRequestFilesHeadSha(prFiles, params.headSha);
   const workspace = await prepareLocalPrWorkspace({
-    cfg: params.cfg,
     owner: params.owner,
     repo: params.repo,
     prNumber: params.prNumber,
@@ -148,7 +149,7 @@ async function acquirePrRepositoryView(
 async function releasePrRepositoryView(
   params: Pick<
     PreparePrRepositoryViewParams,
-    "cfg" | "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
+    "owner" | "repo" | "prNumber" | "headSha" | "repositorySizeKb"
   >,
 ): Promise<void> {
   const key = cacheKey(params);

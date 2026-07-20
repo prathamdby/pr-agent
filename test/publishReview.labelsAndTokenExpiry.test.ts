@@ -39,6 +39,21 @@ describe("publishReview labels and token expiry", () => {
     vi.clearAllMocks();
   });
 
+  it("skips label sync when reviewLabels mode is off and no category label exists", async () => {
+    vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["bug"]);
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState: testPublishState(),
+      cfg: {
+        ...baseParams.cfg,
+        features: { ...baseParams.cfg.features, reviewLabels: "off" as const },
+      },
+    });
+
+    expect(setPullRequestLabels).not.toHaveBeenCalled();
+  });
+
   it("skips setPullRequestLabels when exact effort label already exists", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 
@@ -47,9 +62,7 @@ describe("publishReview labels and token expiry", () => {
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        enableReviewLabelsEffort: true,
-        enableReviewLabelsSecurity: false,
-        enableReviewCommitStatus: false,
+        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
       },
     });
 
@@ -67,9 +80,7 @@ describe("publishReview labels and token expiry", () => {
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        enableReviewLabelsEffort: true,
-        enableReviewLabelsSecurity: true,
-        enableReviewCommitStatus: false,
+        features: { ...baseParams.cfg.features, reviewLabels: "effort+security" as const },
       },
       payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
     });
@@ -92,9 +103,7 @@ describe("publishReview labels and token expiry", () => {
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        enableReviewLabelsEffort: true,
-        enableReviewLabelsSecurity: false,
-        enableReviewCommitStatus: false,
+        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -122,9 +131,7 @@ describe("publishReview labels and token expiry", () => {
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        enableReviewLabelsEffort: true,
-        enableReviewLabelsSecurity: false,
-        enableReviewCommitStatus: false,
+        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
       },
       payload: { ...payload, estimatedEffort: 4 },
     });
@@ -153,9 +160,7 @@ describe("publishReview labels and token expiry", () => {
       publishState: testPublishState(),
       cfg: {
         ...baseParams.cfg,
-        enableReviewLabelsEffort: true,
-        enableReviewLabelsSecurity: false,
-        enableReviewCommitStatus: false,
+        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
       },
       payload: { ...payload, estimatedEffort: 2 },
     });
@@ -234,9 +239,7 @@ describe("publishReview labels and token expiry", () => {
         publishState: testPublishState(),
         cfg: {
           ...baseParams.cfg,
-          enableReviewLabelsEffort: true,
-          enableReviewLabelsSecurity: false,
-          enableReviewCommitStatus: false,
+          features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
         },
       }),
     ).resolves.toBeUndefined();
@@ -267,9 +270,7 @@ describe("publishReview labels and token expiry", () => {
           publishState: testPublishState(),
           cfg: {
             ...baseParams.cfg,
-            enableReviewLabelsEffort: true,
-            enableReviewLabelsSecurity: false,
-            enableReviewCommitStatus: false,
+            features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
           },
         }),
       ).resolves.toBeUndefined();

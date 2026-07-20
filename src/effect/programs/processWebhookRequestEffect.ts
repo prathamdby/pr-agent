@@ -2,9 +2,9 @@ import { Duration, Effect } from "effect";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import type { Config } from "../../config.js";
-import { posthog } from "../../posthog.js";
+import { getPostHog } from "../../posthog.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
-import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS } from "../../settings/index.js";
+import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
@@ -132,7 +132,7 @@ export function processWebhookPostRequestEffect(
     }
 
     const t0 = Date.now();
-    const responseBudgetMs = Math.max(1, cfg.webhookTimeoutMs - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
+    const responseBudgetMs = Math.max(1, WEBHOOK_TIMEOUT_MS - GITHUB_WEBHOOK_RESPONSE_MARGIN_MS);
     const headers = {
       ...(delivery === undefined ? {} : { delivery }),
       event: githubEvent,
@@ -154,7 +154,7 @@ export function processWebhookPostRequestEffect(
             {
               event: githubEvent,
               delivery: logDelivery,
-              budgetMs: cfg.webhookTimeoutMs,
+              budgetMs: WEBHOOK_TIMEOUT_MS,
               responseBudgetMs,
             },
             "warn",
@@ -239,7 +239,7 @@ export function processWebhookPostRequestEffect(
       { event: githubEvent, delivery: logDelivery, ms: elapsedMs },
       "info",
     );
-    posthog.capture({
+    getPostHog().capture({
       distinctId: "server",
       event: "webhook received",
       properties: {
@@ -252,12 +252,12 @@ export function processWebhookPostRequestEffect(
       webhook: {
         status: 200,
         elapsedMs,
-        budgetExceeded: elapsedMs > cfg.webhookTimeoutMs,
-        budgetMs: cfg.webhookTimeoutMs,
+        budgetExceeded: elapsedMs > WEBHOOK_TIMEOUT_MS,
+        budgetMs: WEBHOOK_TIMEOUT_MS,
         responseBudgetMs,
       },
     });
-    if (elapsedMs > cfg.webhookTimeoutMs) {
+    if (elapsedMs > WEBHOOK_TIMEOUT_MS) {
       recordEvent(
         intakeLog,
         "webhook_timeout_budget_exceeded",
@@ -265,7 +265,7 @@ export function processWebhookPostRequestEffect(
           event: githubEvent,
           delivery: logDelivery,
           ms: elapsedMs,
-          budgetMs: cfg.webhookTimeoutMs,
+          budgetMs: WEBHOOK_TIMEOUT_MS,
         },
         "warn",
       );

@@ -2,10 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../ask/askSafety.js";
-import {
-  buildLocalWorkspaceTools,
-  workspaceToolLimitsFromConfig,
-} from "../tools/localWorkspaceTools.js";
+import { buildLocalWorkspaceTools } from "../tools/localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "../tools/refreshableGithubTools.js";
 import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
 import { buildDescriptionUserContent } from "./descriptionUserMessage.js";
@@ -73,7 +70,7 @@ export function buildDescriptionRunSetup(params: {
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (_activeToken, _activeExpiresAtTs) =>
-      buildLocalWorkspaceTools(workspace, workspaceToolLimitsFromConfig(cfg), {
+      buildLocalWorkspaceTools(workspace, {
         pathGate,
       }),
   });

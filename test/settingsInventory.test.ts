@@ -1,13 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
-  DEFAULT_MAX_PR_FILES_LISTED,
-  DEFAULT_MAX_PR_FILES_PATCH_BYTES,
-  ENV,
-  EXTERNAL_ENV,
-} from "../src/settings/index.js";
+import { ENV, EXTERNAL_ENV } from "../src/settings/index.js";
 
 const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
 
@@ -32,6 +26,16 @@ describe("settings inventory", () => {
     expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
     expect(envValues).toContain("POSTHOG_HOST");
     expect(new Set(envValues).size).toBe(envValues.length);
+    expect(envValues.length).toBe(48);
+  });
+
+  it("docs/features.md documents every FEATURE_* key", () => {
+    const featuresDoc = fs.readFileSync(path.join(process.cwd(), "docs", "features.md"), "utf8");
+    const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
+    expect(featureKeys.length).toBe(8);
+    for (const key of featureKeys) {
+      expect(featuresDoc.includes(key), `missing ${key} in docs/features.md`).toBe(true);
+    }
   });
 
   it(".env.example documents every loadConfig env key", () => {
@@ -50,22 +54,5 @@ describe("settings inventory", () => {
     for (const key of documented) {
       expect(cataloguedKeys.has(key), `${key} in .env.example is not catalogued`).toBe(true);
     }
-  });
-
-  it("high-risk defaults match settings/defaults.ts", () => {
-    const content = fs.readFileSync(ENV_EXAMPLE_PATH, "utf8");
-    const documented = parseEnvExampleKeys(content);
-    const readExample = (key: string): string | undefined => {
-      const line = content.split("\n").find((l) => l.trim().startsWith(`${key}=`));
-      if (!line) return undefined;
-      return line.split("=")[1]?.trim();
-    };
-
-    expect(readExample(ENV.MAX_PR_FILES_LISTED)).toBe(String(DEFAULT_MAX_PR_FILES_LISTED));
-    expect(readExample(ENV.MAX_PR_FILES_PATCH_BYTES)).toBe(
-      String(DEFAULT_MAX_PR_FILES_PATCH_BYTES),
-    );
-    expect(readExample(ENV.WEBHOOK_MAX_BODY_BYTES)).toBe(String(DEFAULT_WEBHOOK_MAX_BODY_BYTES));
-    expect(documented.length).toBeGreaterThan(20);
   });
 });

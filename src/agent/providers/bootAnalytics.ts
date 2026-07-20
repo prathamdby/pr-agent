@@ -1,5 +1,5 @@
 import type { Config } from "../../config.js";
-import { posthog } from "../../posthog.js";
+import { getPostHog } from "../../posthog.js";
 
 const WORKER_DISTINCT_ID = "worker";
 
@@ -8,7 +8,7 @@ export function captureAgentProviderBootFailure(
   error: unknown,
 ): void {
   const errorObj = error instanceof Error ? error : new Error(String(error));
-  posthog.capture({
+  getPostHog().capture({
     distinctId: WORKER_DISTINCT_ID,
     event: "agent provider boot failed",
     properties: {
@@ -16,7 +16,7 @@ export function captureAgentProviderBootFailure(
       error_message: errorObj.message,
     },
   });
-  posthog.captureException(errorObj, WORKER_DISTINCT_ID, {
+  getPostHog().captureException(errorObj, WORKER_DISTINCT_ID, {
     type: "agent_provider_boot",
     provider,
   });

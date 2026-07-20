@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
+
+vi.mock("../src/settings/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
+  return { ...actual, MAX_TOOL_ROUNDS: 2, MAX_REVIEW_PUBLISH_ATTEMPTS: 1 };
+});
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import {
   PRE_SUBMIT_REMINDER,
@@ -83,10 +88,6 @@ import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const harnessConfigOverrides = {
   piModel: "test",
-  maxToolRounds: 2,
-  maxReviewPublishAttempts: 1,
-  reviewAnchorMenuMaxFiles: 10,
-  reviewAnchorMenuMaxRangesPerFile: 5,
 };
 
 describe("runFullPrReview harness behavior", () => {
@@ -131,17 +132,6 @@ describe("runFullPrReview harness behavior", () => {
     expect(sendMock.mock.calls[2]?.[0]).toBe(PRE_SUBMIT_REMINDER);
   });
 
-  it("keeps the round-0 prompt unchanged when the anchor menu is disabled", async () => {
-    await runHarness({ reviewInjectAnchorMenu: false });
-
-    expect(sendMock).toHaveBeenCalledTimes(3);
-    expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
-    expect(sendMock.mock.calls[1]?.[0]).toBe(
-      [PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE].join("\n\n"),
-    );
-    expect(sendMock.mock.calls[2]?.[0]).toBe(PRE_SUBMIT_REMINDER);
-  });
-
   it("keeps the round-0 prompt unchanged when the diff index is empty", async () => {
     cachedDiffIndex = emptyDiffIndex();
 
@@ -182,7 +172,7 @@ describe("runFullPrReview harness behavior", () => {
       return { text: "done" };
     });
 
-    await runHarness({ maxToolRounds: 1, maxReviewPublishAttempts: 1 });
+    await runHarness();
 
     const repairMessages = sendMock.mock.calls
       .map((call) => call[0])

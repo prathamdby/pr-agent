@@ -2,6 +2,18 @@ import http from "node:http";
 import net from "node:net";
 import crypto from "node:crypto";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+
+const settingsOverrides: { webhookMaxBodyBytes?: number } = {};
+vi.mock("../src/settings/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
+  return {
+    ...actual,
+    get WEBHOOK_MAX_BODY_BYTES() {
+      return settingsOverrides.webhookMaxBodyBytes ?? actual.WEBHOOK_MAX_BODY_BYTES;
+    },
+  };
+});
+
 import { Effect, Fiber, Layer } from "effect";
 import { AgentWorkScheduler } from "../src/agentWork/scheduler.js";
 import type { Config } from "../src/config.js";
@@ -11,8 +23,6 @@ import { makeTestConfig } from "./helpers/config.js";
 
 const testCfg = makeTestConfig({
   webhookSecret: "secret",
-  maxAskFinalizeRounds: 6,
-  enableReviewLabelsEffort: false,
 });
 
 function get(port: number, path: string): Promise<{ status: number; body: string }> {
@@ -234,6 +244,7 @@ describe("effect webhook server (end-to-end)", () => {
   let handle: Handle | undefined;
 
   afterEach(async () => {
+    delete settingsOverrides.webhookMaxBodyBytes;
     if (!handle) return;
     await stopEffectServer(handle);
     handle = undefined;
@@ -301,9 +312,10 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("rejects bodies over the configured Content-Length before signature checks", async () => {
+    settingsOverrides.webhookMaxBodyBytes = 8;
     let recordIgnoredCalls = 0;
     handle = await startEffectServer({
-      cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
+      cfg: makeTestConfig(),
       recordIgnored: () =>
         Effect.sync(() => {
           recordIgnoredCalls += 1;
@@ -324,10 +336,11 @@ describe("effect webhook server (end-to-end)", () => {
   });
 
   it("closes chunked bodies over the configured limit while reading", async () => {
+    settingsOverrides.webhookMaxBodyBytes = 8;
     let recordIgnoredCalls = 0;
     const destroySpy = vi.spyOn(http.IncomingMessage.prototype, "destroy");
     handle = await startEffectServer({
-      cfg: makeTestConfig({ webhookMaxBodyBytes: 8 }),
+      cfg: makeTestConfig(),
       recordIgnored: () =>
         Effect.sync(() => {
           recordIgnoredCalls += 1;

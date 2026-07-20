@@ -9,8 +9,6 @@ import { makeTestConfig } from "./helpers/config.js";
 
 const cfg = makeTestConfig({
   webhookSecret: "secret",
-  maxAskFinalizeRounds: 6,
-  enableReviewLabelsEffort: false,
 });
 
 const webhookLayer = Layer.mergeAll(

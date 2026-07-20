@@ -2,7 +2,14 @@ import { logInfo } from "../../evlog.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
-import { ASK_FAILURE_MESSAGE, ASK_META_REFUSAL, ASK_RETRY_NUDGE } from "../../settings/index.js";
+import {
+  ASK_FAILURE_MESSAGE,
+  ASK_META_REFUSAL,
+  ASK_RETRY_NUDGE,
+  CONTEXT7_RESPONSE_BYTES,
+  MAX_ASK_FINALIZE_ROUNDS,
+  MAX_ASK_TOOL_ROUNDS,
+} from "../../settings/index.js";
 import { resolveAgentRunnerProvider } from "../providers/index.js";
 import { buildAskUserContent } from "./askUserContent.js";
 import type { AskRunParams, AskRunResult } from "./askRunTypes.js";
@@ -44,7 +51,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
 
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,
-    maxResponseBytes: cfg.context7ResponseBytes,
+    maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
   const tools = [...refreshableGh.bundle.piTools, ...ctx7.piTools];
   const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
@@ -61,13 +68,13 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   await primePathGatePromise;
 
   try {
-    const sendOpts = { maxToolRounds: cfg.maxAskToolRounds };
+    const sendOpts = { maxToolRounds: MAX_ASK_TOOL_ROUNDS };
     let lastText = (await session.send(buildAskUserContent(params), sendOpts)).text.trim();
 
-    if (!lastText && cfg.maxAskFinalizeRounds > 0) {
+    if (!lastText && MAX_ASK_FINALIZE_ROUNDS > 0) {
       session.restrictToTools([], {});
       try {
-        for (let round = 0; round < cfg.maxAskFinalizeRounds && !lastText; round++) {
+        for (let round = 0; round < MAX_ASK_FINALIZE_ROUNDS && !lastText; round++) {
           lastText = (await session.send(ASK_RETRY_NUDGE)).text.trim();
         }
       } finally {

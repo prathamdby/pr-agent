@@ -16,6 +16,7 @@ import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
   VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
   VERIFICATION_VALIDATION_REPAIR_ROUNDS,
+  MAX_TOOL_ROUNDS_VERIFICATION,
 } from "../../settings/index.js";
 
 const VERIFICATION_SUBMIT_ONLY_NUDGE =
@@ -72,7 +73,7 @@ export async function runVerificationHarness(params: {
           run: async () => {
             lastText = (
               await session.send(setup.userContent, {
-                maxToolRounds: cfg.maxToolRoundsVerification,
+                maxToolRounds: MAX_TOOL_ROUNDS_VERIFICATION,
               })
             ).text;
           },

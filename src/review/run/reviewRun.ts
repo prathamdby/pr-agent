@@ -21,6 +21,10 @@ import {
   TOKEN_FRESHNESS_BUFFER_MS,
   VALIDATION_REPAIR_ROUNDS,
   type ReviewPhase,
+  MAX_REVIEW_PUBLISH_ATTEMPTS,
+  MAX_TOOL_ROUNDS,
+  REVIEW_ANCHOR_MENU_MAX_FILES,
+  REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
 } from "../../settings/index.js";
 import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE, type ReviewMode } from "../reviewSchema.js";
 import type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
@@ -114,19 +118,15 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
   };
 
   const runInvestigationPhase = async () => {
-    const investigationOpts = { maxToolRounds: cfg.maxToolRounds };
+    const investigationOpts = { maxToolRounds: MAX_TOOL_ROUNDS };
     lastText = (await sendReviewAgentTurn(session, setup.userContent, investigationOpts)).text;
     if (!shouldContinueReviewRun(setup)) return;
 
     let anchorMenuBlock: string | undefined;
-    if (
-      cfg.reviewInjectAnchorMenu &&
-      setup.cachedDiffIndex.files.size > 0 &&
-      shouldContinueReviewRun(setup)
-    ) {
+    if (setup.cachedDiffIndex.files.size > 0 && shouldContinueReviewRun(setup)) {
       anchorMenuBlock = renderAnchorMenuBlock(setup.cachedDiffIndex, {
-        maxFiles: cfg.reviewAnchorMenuMaxFiles,
-        maxRangesPerFile: cfg.reviewAnchorMenuMaxRangesPerFile,
+        maxFiles: REVIEW_ANCHOR_MENU_MAX_FILES,
+        maxRangesPerFile: REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
       });
     }
 
@@ -155,11 +155,11 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
     const prompt =
       PUBLISH_RECOVERY_PROMPTS[attemptIndex - 1] ??
       PUBLISH_RECOVERY_PROMPTS[PUBLISH_RECOVERY_PROMPTS.length - 1];
-    const isLastAttempt = attemptIndex >= cfg.maxReviewPublishAttempts - 1;
+    const isLastAttempt = attemptIndex >= MAX_REVIEW_PUBLISH_ATTEMPTS - 1;
     logInfo("review_publish_retry", {
       mode: reviewMode,
       attempt: attemptIndex + 1,
-      maxAttempts: cfg.maxReviewPublishAttempts,
+      maxAttempts: MAX_REVIEW_PUBLISH_ATTEMPTS,
       submitOnly: isLastAttempt,
       owner,
       repo,
@@ -190,7 +190,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
 
   try {
     const phases: StructuredAgentPhase<ReviewPhase>[] =
-      cfg.maxReviewPublishAttempts > 0
+      MAX_REVIEW_PUBLISH_ATTEMPTS > 0
         ? [
             {
               name: "investigation",
@@ -199,7 +199,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
                 await runInvestigationPhase();
               },
             },
-            ...Array.from({ length: cfg.maxReviewPublishAttempts - 1 }, (_, index) => ({
+            ...Array.from({ length: MAX_REVIEW_PUBLISH_ATTEMPTS - 1 }, (_, index) => ({
               name: "publish_recovery" as const,
               run: async () => {
                 const attempt = index + 1;
@@ -223,7 +223,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
       logWarn("review_publish_exhausted", {
         mode: reviewMode,
         attempts: publishAttempts,
-        maxAttempts: cfg.maxReviewPublishAttempts,
+        maxAttempts: MAX_REVIEW_PUBLISH_ATTEMPTS,
         owner,
         repo,
         pr: prNumber,

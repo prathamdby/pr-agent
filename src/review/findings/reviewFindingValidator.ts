@@ -1,5 +1,7 @@
-import { DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE } from "../../settings/index.js";
-import { MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS } from "../../settings/index.js";
+import {
+  MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS,
+  REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
+} from "../../settings/index.js";
 import type { ReviewPayload } from "../reviewSchema.js";
 import { isInlineSeverity } from "../reviewSchema.js";
 import { planInlinePlacements, type InlinePlacement } from "../placement/reviewDiffPlacement.js";
@@ -43,10 +45,10 @@ function formatRangePair([start, end]: [number, number]): string {
 }
 
 function formatSuggestedRanges(ranges: CommentableRightLineRanges): string {
-  const shown = ranges.slice(0, DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE);
+  const shown = ranges.slice(0, REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE);
   const suffix =
-    ranges.length > DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE
-      ? ` …${ranges.length - DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE} more ranges`
+    ranges.length > REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE
+      ? ` …${ranges.length - REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE} more ranges`
       : "";
   return `${shown.map(formatRangePair).join(", ")}${suffix}`;
 }

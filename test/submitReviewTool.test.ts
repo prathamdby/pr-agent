@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
 import {
   buildSubmitReviewTool,
@@ -20,6 +20,17 @@ import {
 import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
+const settingsOverrides: { maxReviewPublishCalls?: number } = {};
+vi.mock("../src/settings/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
+  return {
+    ...actual,
+    get MAX_REVIEW_PUBLISH_CALLS() {
+      return settingsOverrides.maxReviewPublishCalls ?? actual.MAX_REVIEW_PUBLISH_CALLS;
+    },
+  };
+});
+
 vi.mock("../src/review/publish/publishReview.js", () => ({
   publishReview: vi.fn(async () => undefined),
 }));
@@ -28,10 +39,8 @@ import { publishReview } from "../src/review/publish/publishReview.js";
 
 const cfg = makeTestConfig({
   port: 3000,
-  maxToolRounds: 1,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
   logLevel: "info",
 });
 
@@ -61,6 +70,10 @@ function finding(overrides: Record<string, unknown> = {}) {
 }
 
 describe("submitReview tool", () => {
+  afterEach(() => {
+    delete settingsOverrides.maxReviewPublishCalls;
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(publishReview).mockResolvedValue(undefined);
@@ -102,11 +115,12 @@ describe("submitReview tool", () => {
     warnSpy.mockRestore();
   });
 
-  it("caps valid publish executions at maxReviewPublishCalls", async () => {
+  it("caps valid publish executions at MAX_REVIEW_PUBLISH_CALLS", async () => {
+    settingsOverrides.maxReviewPublishCalls = 1;
     vi.mocked(publishReview).mockRejectedValue(new Error("publish failed"));
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
-      cfg: { ...cfg, maxReviewPublishCalls: 1 },
+      cfg,
       token: "tok",
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
       state,

@@ -3,14 +3,18 @@ import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("../src/settings/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
+  return { ...actual, LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS: 1 };
+});
 import {
   buildCommitCommandArgs,
   StaleHeadPushError,
   withWritablePrCheckout,
 } from "../src/prWorkspace/writablePrCheckout.js";
 import { cleanupStaleLocalPrWorkspaces } from "../src/prWorkspace/localPrWorkspace.js";
-import { makeTestConfig } from "./helpers/config.js";
 
 const execFile = promisify(execFileCb);
 const TEST_TIMEOUT_MS = 20_000;
@@ -43,10 +47,8 @@ describe("writable PR checkout", () => {
     async () => {
       const { root, remote, headSha } = await makeRemote();
       try {
-        const cfg = makeTestConfig();
         await withWritablePrCheckout(
           {
-            cfg,
             owner: "owner",
             repo: "repo",
             headRef: "main",
@@ -89,11 +91,9 @@ describe("writable PR checkout", () => {
     async () => {
       const { root, repo, remote, headSha } = await makeRemote();
       try {
-        const cfg = makeTestConfig();
         await expect(
           withWritablePrCheckout(
             {
-              cfg,
               owner: "owner",
               repo: "repo",
               headRef: "main",
@@ -126,10 +126,8 @@ describe("writable PR checkout", () => {
     async () => {
       const { root, remote, headSha } = await makeRemote();
       try {
-        const cfg = makeTestConfig();
         await withWritablePrCheckout(
           {
-            cfg,
             owner: "owner",
             repo: "repo",
             headRef: "main",
@@ -178,7 +176,7 @@ describe("writable PR checkout", () => {
       const old = new Date(Date.now() - 10_000);
       await utimes(staleDir, old, old);
 
-      await cleanupStaleLocalPrWorkspaces(makeTestConfig());
+      await cleanupStaleLocalPrWorkspaces();
 
       await expect(stat(staleDir)).rejects.toThrow();
     } finally {

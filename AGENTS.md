@@ -20,6 +20,7 @@ Indexer for agents working on **pr-agent**. Open the linked source; do not treat
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
 | Naming, product concepts                   | [CONTEXT.md](CONTEXT.md)                                                                                                |
 | Runtime topology                           | [README.md](README.md) "How It Works"                                                                                   |
+| Feature catalog (`FEATURE_*`)              | [docs/features.md](docs/features.md)                                                                                    |
 | Env, constants, knob checklist             | [docs/configuration.md](docs/configuration.md) · CI: [`test/settingsInventory.test.ts`](test/settingsInventory.test.ts) |
 | Modules, imports, prompts, topology rubric | [docs/development.md](docs/development.md)                                                                              |
 | Behaviour, deploy, scripts                 | [docs/operations.md](docs/operations.md)                                                                                |

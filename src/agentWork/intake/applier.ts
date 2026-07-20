@@ -229,14 +229,10 @@ export async function applyAutomatedPullRequestIntake(
   ref: PrRef,
   action: string,
   intakeLog: RequestLogger,
-  cfg: Pick<Config, "reviewAutoActions" | "descriptionAutoActions" | "verificationAutoActions">,
+  cfg: Pick<Config, "features">,
   pushBeforeSha?: string,
 ): Promise<void> {
-  const plan = planAutomatedPullRequestIntake(action, {
-    reviewAutoActions: cfg.reviewAutoActions,
-    descriptionAutoActions: cfg.descriptionAutoActions,
-    verificationAutoActions: cfg.verificationAutoActions,
-  });
+  const plan = planAutomatedPullRequestIntake(action, cfg.features);
   if (plan.kinds.length === 0) {
     // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.
     await recordIgnoredWebhook(pool, headers, `ignored_pull_request_${action}`, intakeLog);

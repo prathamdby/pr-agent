@@ -14,6 +14,7 @@ import {
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
   DESCRIPTION_VALIDATION_REPAIR_ROUNDS,
   TOKEN_FRESHNESS_BUFFER_MS,
+  MAX_TOOL_ROUNDS_DESCRIBE,
 } from "../../settings/index.js";
 import {
   buildDescriptionRunSetup,
@@ -104,7 +105,7 @@ export async function runFullPrDescription(params: {
           run: async () => {
             lastText = (
               await session.send(setup.userContent, {
-                maxToolRounds: cfg.maxToolRoundsDescribe,
+                maxToolRounds: MAX_TOOL_ROUNDS_DESCRIBE,
               })
             ).text;
           },

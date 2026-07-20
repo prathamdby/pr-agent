@@ -16,6 +16,8 @@ import {
   MAX_REPO_POLICY_BYTES,
   PR_COMMITS_MAX_PAGES,
   PR_COMMITS_PAGE_SIZE,
+  MAX_PR_FILES_LISTED,
+  MAX_PR_FILES_PATCH_BYTES,
 } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews } from "../repository.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
@@ -114,8 +116,8 @@ export async function executeVerificationJob(
           item.repo,
           item.prNumber,
           {
-            maxPrFilesListed: cfg.maxPrFilesListed,
-            maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+            maxPrFilesListed: MAX_PR_FILES_LISTED,
+            maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
           },
           env.pullRequest,
           tokenState.installation.expiresAtTs,
@@ -144,7 +146,6 @@ export async function executeVerificationJob(
 
       const result = await withPrRepositoryView(
         buildRepositoryViewParams(
-          cfg,
           item,
           { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
           payload,

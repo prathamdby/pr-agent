@@ -8,6 +8,7 @@ import {
   reviewSummarySentinelForMode,
   type ReviewMode,
 } from "../reviewSchema.js";
+import { MAX_REVIEW_PUBLISH_CALLS } from "../../settings/index.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;
@@ -22,7 +23,7 @@ export async function publishReviewRunFailureNotice(params: {
     mode: params.reviewMode,
     publishAttempts: params.publishAttempts,
     publishCallCount: params.setup.submitState.publishCallCount,
-    maxPublishCalls: params.cfg.maxReviewPublishCalls,
+    maxPublishCalls: MAX_REVIEW_PUBLISH_CALLS,
   });
   const retryCommand = reviewRetrySlashCommandForMode(params.reviewMode);
   const token = params.setup.getToken();

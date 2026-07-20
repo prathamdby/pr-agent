@@ -1,0 +1,61 @@
+/** Env vars removed by the feature-flags revision (docs/features.md). `loadConfig()` refuses to start while any is set. */
+
+const HARDCODED = "was removed and is now hardcoded; delete it from the environment";
+
+export const REMOVED_ENV: Readonly<Record<string, string>> = {
+  ENABLE_REVIEW_LABELS_EFFORT:
+    "was removed — use FEATURE_REVIEW_LABELS (off | effort | effort+security)",
+  ENABLE_REVIEW_LABELS_SECURITY:
+    "was removed — use FEATURE_REVIEW_LABELS (off | effort | effort+security)",
+  ENABLE_REVIEW_COMMIT_STATUS: "was removed — use FEATURE_COMMIT_STATUS (true | false)",
+  DESCRIPTION_GENERATE_TITLE: "was removed — use FEATURE_TITLE_REWRITE (true | false)",
+  REVIEW_AUTO_ACTIONS: "was removed — use FEATURE_REVIEW (manual | auto); auto reviews on opened",
+  DESCRIPTION_AUTO_ACTIONS:
+    "was removed — use FEATURE_DESCRIBE (off | manual | auto); auto describes on opened",
+  VERIFICATION_AUTO_ACTIONS:
+    "was removed — use FEATURE_VERIFICATION (off | auto); auto verifies on synchronize",
+  REVIEW_INJECT_ANCHOR_MENU: "was removed; the anchor menu is always on",
+  REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT: "was removed; the diff-cache gate is always on",
+  MAX_TOOL_ROUNDS: HARDCODED,
+  MAX_TOOL_ROUNDS_DESCRIBE: HARDCODED,
+  MAX_TOOL_ROUNDS_TRIAGE: HARDCODED,
+  MAX_TOOL_ROUNDS_VERIFICATION: HARDCODED,
+  MAX_ASK_TOOL_ROUNDS: HARDCODED,
+  MAX_ASK_FINALIZE_ROUNDS: HARDCODED,
+  MAX_REVIEW_PUBLISH_ATTEMPTS: HARDCODED,
+  MAX_REVIEW_PUBLISH_CALLS: HARDCODED,
+  MAX_TRIAGE_FIXES_PER_RUN: HARDCODED,
+  REVIEW_MIN_CONFIDENCE: HARDCODED,
+  MAX_PR_FILES_LISTED: HARDCODED,
+  MAX_PR_FILES_PATCH_BYTES: HARDCODED,
+  REVIEW_CI_SUMMARY_WAIT_MS: HARDCODED,
+  REVIEW_CI_SUMMARY_WAIT_POLL_MS: HARDCODED,
+  REVIEW_CI_SUMMARY_MAX_FAILURES: HARDCODED,
+  REVIEW_ANCHOR_MENU_MAX_FILES: HARDCODED,
+  REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE: HARDCODED,
+  WEBHOOK_MAX_BODY_BYTES: HARDCODED,
+  WEBHOOK_TIMEOUT_MS: HARDCODED,
+  CONTEXT7_RESPONSE_BYTES: HARDCODED,
+  LOG_MAX_WIDE_EVENTS: HARDCODED,
+  LOCAL_WORKSPACE_CLONE_TIMEOUT_MS: HARDCODED,
+  LOCAL_WORKSPACE_FETCH_TIMEOUT_MS: HARDCODED,
+  LOCAL_WORKSPACE_SEARCH_MAX_FILES: HARDCODED,
+  LOCAL_WORKSPACE_MAX_FILE_BYTES: HARDCODED,
+  LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES: HARDCODED,
+  LOCAL_WORKSPACE_MAX_DIFF_BYTES: HARDCODED,
+  LOCAL_WORKSPACE_READ_RESPONSE_BYTES: HARDCODED,
+  LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES: HARDCODED,
+  LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES: HARDCODED,
+  LOCAL_WORKSPACE_MAX_FETCH_BYTES: HARDCODED,
+  LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB: HARDCODED,
+  LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS: HARDCODED,
+};
+
+export function assertNoRemovedEnv(env: Record<string, string | undefined>): void {
+  const offenders = Object.keys(REMOVED_ENV).filter((key) => env[key] !== undefined);
+  if (offenders.length === 0) return;
+  const lines = offenders.map((key) => `  ${key} ${REMOVED_ENV[key]}`);
+  throw new Error(
+    `Refusing to start: removed environment variables are set (see docs/features.md):\n${lines.join("\n")}`,
+  );
+}

@@ -88,10 +88,8 @@ import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
 
 const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
-  maxToolRounds: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
 });
 
 describe("piAgentRunnerProvider.createSession models.json", () => {

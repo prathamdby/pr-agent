@@ -2,7 +2,7 @@ import { join } from "node:path";
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { posthog } from "../../posthog.js";
+import { getPostHog } from "../../posthog.js";
 import type { InstallationToken } from "../../github/appAuth.js";
 import {
   assertPullRequestFilesHeadSha,
@@ -39,6 +39,8 @@ import {
   DESCRIPTION_AGENT_HEADER,
   MAX_REPO_POLICY_BYTES,
   REPO_POLICY_DIRNAME,
+  MAX_PR_FILES_LISTED,
+  MAX_PR_FILES_PATCH_BYTES,
 } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
@@ -173,8 +175,8 @@ async function runLightweightCompletionOrSkip(args: {
       item.repo,
       item.prNumber,
       {
-        maxPrFilesListed: cfg.maxPrFilesListed,
-        maxPrFilesPatchBytes: cfg.maxPrFilesPatchBytes,
+        maxPrFilesListed: MAX_PR_FILES_LISTED,
+        maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
       },
       undefined,
       tokenState.installation.expiresAtTs,
@@ -293,7 +295,7 @@ async function handleReviewPublishResult(args: {
         publishAttempts: result.publishAttempts,
         publishDegraded: true,
       });
-      posthog.capture({
+      getPostHog().capture({
         distinctId: `installation:${item.installationId}`,
         event: "review failed",
         properties: {
@@ -315,7 +317,7 @@ async function handleReviewPublishResult(args: {
     }
   } else {
     const snapshot = snapshotReviewRunMetrics();
-    posthog.capture({
+    getPostHog().capture({
       distinctId: `installation:${item.installationId}`,
       event: "review published",
       properties: {
@@ -556,7 +558,6 @@ export async function executeReviewJob(
 
       return withPrRepositoryView(
         buildRepositoryViewParams(
-          cfg,
           item,
           { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
           payload,

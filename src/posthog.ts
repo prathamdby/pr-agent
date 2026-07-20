@@ -1,16 +1,33 @@
 import { PostHog } from "posthog-node";
-import { DEFAULT_POSTHOG_HOST, DEFAULT_POSTHOG_PROJECT_TOKEN, ENV } from "./settings/index.js";
 import { sanitizePostHogEvent } from "./security/sanitizePostHogEvent.js";
 
-const apiKey = process.env[ENV.POSTHOG_PROJECT_TOKEN] ?? DEFAULT_POSTHOG_PROJECT_TOKEN;
-const host = (process.env[ENV.POSTHOG_HOST] ?? DEFAULT_POSTHOG_HOST).trim();
+let client: PostHog | null = null;
 
-export const posthog = new PostHog(apiKey, {
-  ...(host ? { host } : {}),
-  enableExceptionAutocapture: true,
-  before_send: sanitizePostHogEvent,
-});
+function buildClient(projectToken: string, host: string): PostHog {
+  return new PostHog(projectToken, {
+    ...(host ? { host } : {}),
+    enableExceptionAutocapture: true,
+    before_send: sanitizePostHogEvent,
+  });
+}
+
+/** Called once from src/index.ts with loadConfig() values; an empty token disables capture. */
+export function initPostHog(opts: { readonly projectToken: string; readonly host: string }): void {
+  client ??= buildClient(opts.projectToken, opts.host.trim());
+}
+
+/** Explicit empty-token client for tests that exercise capture call sites without boot. */
+export function initNoOpPostHog(): void {
+  initPostHog({ projectToken: "", host: "" });
+}
+
+export function getPostHog(): PostHog {
+  if (!client) {
+    throw new Error("PostHog is not initialized; call initPostHog() during process boot");
+  }
+  return client;
+}
 
 export function shutdownPostHog(): Promise<void> {
-  return Promise.resolve(posthog.shutdown());
+  return client ? Promise.resolve(client.shutdown()) : Promise.resolve();
 }

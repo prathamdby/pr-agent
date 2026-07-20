@@ -1,4 +1,4 @@
-import { posthog } from "../posthog.js";
+import { getPostHog } from "../posthog.js";
 import type { TriageScope } from "./types.js";
 
 export type TriageAnalyticsRef = {
@@ -29,7 +29,7 @@ export function captureTriageEvent(
   event: string,
   properties?: Record<string, unknown>,
 ): void {
-  posthog.capture({
+  getPostHog().capture({
     distinctId: distinctId(ref.installationId),
     event,
     properties: { ...baseProperties(ref), ...properties },
@@ -48,7 +48,7 @@ export function captureTriageFailure(
     error_message: errorObj.message,
     ...properties,
   });
-  posthog.captureException(errorObj, distinctId(ref.installationId), {
+  getPostHog().captureException(errorObj, distinctId(ref.installationId), {
     type: "triage",
     step,
     ...baseProperties(ref),

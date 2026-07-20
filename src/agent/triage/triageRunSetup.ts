@@ -15,6 +15,7 @@ import {
   createSubmitTriageState,
   type SubmitTriageState,
 } from "./submitTriageTool.js";
+import { MAX_TRIAGE_FIXES_PER_RUN } from "../../settings/index.js";
 
 export type TriageRunSetup = {
   readonly systemPrompt: string;
@@ -64,7 +65,7 @@ export function buildTriageRunSetup(params: {
       repo: params.repo,
       prNumber: params.prNumber,
       headSha: params.headSha,
-      maxFixesPerRun: params.cfg.maxTriageFixesPerRun,
+      maxFixesPerRun: MAX_TRIAGE_FIXES_PER_RUN,
       threads: params.inventory,
       scope: params.scope,
     }),

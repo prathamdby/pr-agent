@@ -1,7 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
-import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
@@ -14,6 +13,13 @@ import {
 } from "../ask/askSafety.js";
 import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
 import { capTextOutput, readTextWithOutputBudget } from "./toolOutputBudget.js";
+import {
+  LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
+  LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  LOCAL_WORKSPACE_SEARCH_MAX_FILES,
+  LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+} from "../../settings/index.js";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
@@ -23,15 +29,13 @@ export type LocalWorkspaceToolLimits = {
   readonly searchMaxTotalBytes: number;
 };
 
-export function workspaceToolLimitsFromConfig(cfg: Config): LocalWorkspaceToolLimits {
-  return {
-    maxFileBytes: cfg.localWorkspaceMaxFileBytes,
-    readResponseBytes: cfg.localWorkspaceReadResponseBytes,
-    diffResponseBytes: cfg.localWorkspaceDiffResponseBytes,
-    searchMaxFiles: cfg.localWorkspaceSearchMaxFiles,
-    searchMaxTotalBytes: cfg.localWorkspaceSearchMaxTotalBytes,
-  };
-}
+const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
+  maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  readResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  diffResponseBytes: LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
+  searchMaxFiles: LOCAL_WORKSPACE_SEARCH_MAX_FILES,
+  searchMaxTotalBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+};
 
 const BINARY_SAMPLE_BYTES = 8192;
 
@@ -84,8 +88,8 @@ async function refuseUnlessReadableFile(
 
 export function buildLocalWorkspaceTools(
   workspace: LocalPrWorkspace,
-  limits: LocalWorkspaceToolLimits,
   opts?: {
+    readonly limits?: LocalWorkspaceToolLimits;
     readonly pathGate?: AskPathGate;
     readonly extraAllowedPaths?: readonly string[];
   },
@@ -93,6 +97,7 @@ export function buildLocalWorkspaceTools(
   piTools: PiTool[];
   executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
+  const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 

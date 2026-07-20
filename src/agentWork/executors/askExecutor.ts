@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { posthog } from "../../posthog.js";
+import { getPostHog } from "../../posthog.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
@@ -78,7 +78,6 @@ export async function executeAskJob(
 
       return withPrRepositoryView(
         buildRepositoryViewParams(
-          cfg,
           item,
           { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
           payload,
@@ -123,7 +122,7 @@ export async function executeAskJob(
               true,
             );
             answerDelivered = true;
-            posthog.capture({
+            getPostHog().capture({
               distinctId: `installation:${item.installationId}`,
               event: "ask answered",
               properties: {

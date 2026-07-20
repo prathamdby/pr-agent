@@ -11,6 +11,17 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
 }));
 
+const settingsOverrides: { webhookTimeoutMs?: number } = {};
+vi.mock("../src/settings/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/settings/index.js")>();
+  return {
+    ...actual,
+    get WEBHOOK_TIMEOUT_MS() {
+      return settingsOverrides.webhookTimeoutMs ?? actual.WEBHOOK_TIMEOUT_MS;
+    },
+  };
+});
+
 vi.mock("../src/github/appAuth.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/appAuth.js")>();
   return {
@@ -21,7 +32,6 @@ vi.mock("../src/github/appAuth.js", async (importOriginal) => {
 
 const cfg = makeTestConfig({
   webhookSecret: "secret",
-  maxAskFinalizeRounds: 6,
   askConcurrency: 3,
 });
 
@@ -496,7 +506,7 @@ describe("processWebhookPostRequestEffect", () => {
     );
 
     const recordSpy = vi.spyOn(evlog, "recordEvent").mockImplementation(() => {});
-    const tightCfg = { ...cfg, webhookTimeoutMs: 1 };
+    settingsOverrides.webhookTimeoutMs = 1;
     const body = Buffer.from(JSON.stringify({ installation: { id: 1 } }));
 
     try {
@@ -510,7 +520,7 @@ describe("processWebhookPostRequestEffect", () => {
             rawBody: body,
           },
           slowLayer,
-          tightCfg,
+          cfg,
         ),
       );
 
@@ -521,6 +531,7 @@ describe("processWebhookPostRequestEffect", () => {
       expect(budgetWarn).toBeDefined();
       expect(budgetWarn?.[2]).toMatchObject({ budgetMs: 1, responseBudgetMs: 1 });
     } finally {
+      delete settingsOverrides.webhookTimeoutMs;
       recordSpy.mockRestore();
     }
   });

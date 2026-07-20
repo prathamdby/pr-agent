@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import type { PgBoss, SendOptions } from "pg-boss";
 import { applyAutomatedPullRequestIntake } from "../../src/agentWork/intake/applier.js";
@@ -10,12 +10,22 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { createOperationLogger } from "../../src/evlog.js";
 import { makeTestConfig } from "../helpers/config.js";
 
+// These tests exercise the supersede/cancel mechanism on repeated synchronize deliveries,
+// which only auto-runs review on push when the review trigger includes synchronize.
+// Verification stays off so work-item counts only reflect review intake.
+vi.mock("../../src/settings/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/settings/index.js")>();
+  return {
+    ...actual,
+    AUTO_TRIGGER_ACTIONS: {
+      ...actual.AUTO_TRIGGER_ACTIONS,
+      review: new Set(["opened", "synchronize"]),
+    },
+  };
+});
+
 const intakeCfg = makeTestConfig({
-  // These tests exercise the supersede/cancel mechanism on repeated synchronize
-  // deliveries, which only runs auto-review on push when REVIEW_AUTO_ACTIONS includes synchronize.
-  reviewAutoActions: new Set(["opened", "synchronize"]),
-  // Disable verification auto-actions so work-item counts only reflect review intake.
-  verificationAutoActions: new Set([]),
+  features: { ...makeTestConfig().features, verification: "off" },
 });
 import {
   ACK_QUEUE,
