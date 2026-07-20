@@ -28,9 +28,9 @@ Notes:
   turn them `off` to stop those surfaces from spending tokens at all.
 - Invalid values fail startup with the allowed list; typos never silently
   disable a feature.
-- Removed pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,
-  `DESCRIPTION_GENERATE_TITLE`, and the old tuning knobs) also fail startup
-  with a pointer to their replacement. There are no aliases.
+- Pre-revision variables (`ENABLE_*`, `*_AUTO_ACTIONS`,
+  `DESCRIPTION_GENERATE_TITLE`, and the old tuning knobs) are ignored; use
+  `FEATURE_*` only. There are no aliases.
 
 Defaults reproduce the pre-revision out-of-the-box behavior exactly.
 CI enforces that every `FEATURE_*` key is documented here
