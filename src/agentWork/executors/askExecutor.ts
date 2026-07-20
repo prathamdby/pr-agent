@@ -78,7 +78,6 @@ export async function executeAskJob(
 
       return withPrRepositoryView(
         buildRepositoryViewParams(
-          cfg,
           item,
           { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
           payload,

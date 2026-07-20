@@ -479,7 +479,6 @@ async function runFreshTriageAgent(params: {
 }): Promise<TriageExecuteResult> {
   return withWritablePrCheckout(
     {
-      cfg: params.cfg,
       owner: params.item.owner,
       repo: params.item.repo,
       headRef: params.headRef,

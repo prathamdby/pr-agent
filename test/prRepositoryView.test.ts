@@ -43,11 +43,8 @@ vi.mock("../src/review/placement/reviewPreflightFiles.js", () => ({
 }));
 
 vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
-  selectLocalPrWorkspaceCheckoutMode: (
-    cfg: { localWorkspaceFullCloneMaxRepoKb: number },
-    repositorySizeKb?: number,
-  ) =>
-    repositorySizeKb != null && repositorySizeKb > cfg.localWorkspaceFullCloneMaxRepoKb
+  selectLocalPrWorkspaceCheckoutMode: (repositorySizeKb?: number) =>
+    repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
       ? "sparse"
       : "full",
   prepareLocalPrWorkspace: async () => {
@@ -62,7 +59,10 @@ vi.mock("../src/prWorkspace/localPrWorkspace.js", () => ({
 
 import { withPrRepositoryView } from "../src/prWorkspace/prRepositoryView.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
-import { PR_REPOSITORY_VIEW_RELEASE_GRACE_MS } from "../src/settings/index.js";
+import {
+  LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
+  PR_REPOSITORY_VIEW_RELEASE_GRACE_MS,
+} from "../src/settings/index.js";
 
 const params = {
   cfg: {} as never,

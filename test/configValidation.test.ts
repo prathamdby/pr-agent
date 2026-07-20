@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../src/settings/index.js";
 import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 const BASE_ENV = {
@@ -29,7 +28,6 @@ describe("loadConfig validation", () => {
   it("applies documented defaults", async () => {
     const cfg = await load({});
     expect(cfg.port).toBe(3000);
-    expect(cfg.maxToolRounds).toBe(24);
     expect(cfg.providerPromptTimeoutMs).toBe(300_000);
     expect(cfg.queueRetryLimit).toBe(3);
     expect(cfg.queueHeartbeatSeconds).toBe(60);
@@ -38,13 +36,12 @@ describe("loadConfig validation", () => {
     expect(cfg.logRedact).toBe(true);
     expect(cfg.role).toBe("web");
     expect(cfg.logLevel).toBe("info");
-    expect(cfg.reviewMinConfidence).toBe(1);
     expect([...cfg.slashAllowedAssociations]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
   });
 
   it("rejects a non-numeric positive knob", async () => {
-    await expect(load({ MAX_TOOL_ROUNDS: "abc" })).rejects.toThrow(
-      /MAX_TOOL_ROUNDS must be a positive number/,
+    await expect(load({ PROVIDER_PROMPT_TIMEOUT_MS: "abc" })).rejects.toThrow(
+      /PROVIDER_PROMPT_TIMEOUT_MS must be a positive number/,
     );
   });
 
@@ -56,23 +53,6 @@ describe("loadConfig validation", () => {
   it("rejects zero for positive-only knobs", async () => {
     await expect(load({ REVIEW_CONCURRENCY: "0" })).rejects.toThrow(
       /REVIEW_CONCURRENCY must be a positive number/,
-    );
-  });
-
-  it("parses review min confidence", async () => {
-    const cfg = await load({ REVIEW_MIN_CONFIDENCE: "3" });
-    expect(cfg.reviewMinConfidence).toBe(3);
-  });
-
-  it("rejects review min confidence outside the finding confidence range", async () => {
-    await expect(load({ REVIEW_MIN_CONFIDENCE: "0" })).rejects.toThrow(
-      /REVIEW_MIN_CONFIDENCE must be an integer from 1 to 5/,
-    );
-    await expect(load({ REVIEW_MIN_CONFIDENCE: "6" })).rejects.toThrow(
-      /REVIEW_MIN_CONFIDENCE must be an integer from 1 to 5/,
-    );
-    await expect(load({ REVIEW_MIN_CONFIDENCE: "2.5" })).rejects.toThrow(
-      /REVIEW_MIN_CONFIDENCE must be an integer from 1 to 5/,
     );
   });
 
@@ -112,26 +92,6 @@ describe("loadConfig validation", () => {
     await expect(load({ SLASH_ALLOWED_ASSOCIATIONS: "OWNER,STRANGER" })).rejects.toThrow(
       /SLASH_ALLOWED_ASSOCIATIONS must be/,
     );
-  });
-
-  it("clamps max PR files listed to the GitHub API cap with a warning", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    const cfg = await load({ MAX_PR_FILES_LISTED: "5000" });
-
-    expect(cfg.maxPrFilesListed).toBe(GITHUB_PULL_REQUEST_FILES_API_MAX_FILES);
-    expect(warn).toHaveBeenCalledWith(
-      `MAX_PR_FILES_LISTED=5000 exceeds GitHub pull request files API cap ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}; using ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}.`,
-    );
-  });
-
-  it("keeps max PR files listed below the GitHub API cap unchanged", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
-    const cfg = await load({ MAX_PR_FILES_LISTED: "2500" });
-
-    expect(cfg.maxPrFilesListed).toBe(2500);
-    expect(warn).not.toHaveBeenCalled();
   });
 
   it("defaults description auto actions to opened only", async () => {
@@ -200,10 +160,5 @@ describe("loadConfig validation", () => {
   it("defaults verification concurrency to 1", async () => {
     const cfg = await load({});
     expect(cfg.verificationConcurrency).toBe(1);
-  });
-
-  it("defaults max tool rounds verification to 32", async () => {
-    const cfg = await load({});
-    expect(cfg.maxToolRoundsVerification).toBe(32);
   });
 });

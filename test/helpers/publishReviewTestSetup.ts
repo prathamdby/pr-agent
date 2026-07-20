@@ -30,9 +30,6 @@ export const publishReviewTestBaseParams = {
     enableReviewLabelsEffort: false,
     enableReviewLabelsSecurity: false,
     enableReviewCommitStatus: false,
-    reviewCiSummaryWaitMs: 0,
-    reviewCiSummaryWaitPollMs: 2_000,
-    reviewCiSummaryMaxFailures: 3,
   },
   payload: publishReviewTestPayload,
 };

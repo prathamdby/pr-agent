@@ -3,7 +3,6 @@ import { chmod, mkdir, mkdtemp, readdir, rm, stat, statfs, writeFile } from "nod
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import type { Config } from "../config.js";
 import type {
   ListPullRequestFilesResult,
   PullRequestFileEntry,
@@ -16,6 +15,13 @@ import {
 import {
   LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
   LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY,
+  LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
+  LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
+  LOCAL_WORKSPACE_MAX_DIFF_BYTES,
+  LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+  LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
+  LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
 } from "../settings/index.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 
@@ -81,7 +87,6 @@ export type GitGrepWorkspaceMatch = {
 };
 
 export type PrepareLocalPrWorkspaceParams = {
-  readonly cfg: Config;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -140,10 +145,9 @@ function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
 }
 
 export function selectLocalPrWorkspaceCheckoutMode(
-  cfg: Pick<Config, "localWorkspaceFullCloneMaxRepoKb">,
   repositorySizeKb?: number,
 ): LocalPrWorkspaceCheckoutMode {
-  return repositorySizeKb != null && repositorySizeKb > cfg.localWorkspaceFullCloneMaxRepoKb
+  return repositorySizeKb != null && repositorySizeKb > LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB
     ? "sparse"
     : "full";
 }
@@ -390,7 +394,7 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): st
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
-async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
+async function cleanupStalePiAgentDirs(): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (!entry.isDirectory() || !entry.name.startsWith(PI_AGENT_DIR_PREFIX)) continue;
@@ -398,7 +402,7 @@ async function cleanupStalePiAgentDirs(cfg: Config): Promise<void> {
     const entryStat = await statIfPresent(full);
     if (!entryStat) continue;
     const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > cfg.localWorkspaceStaleCleanupAgeSeconds * 1000) {
+    if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
       await rm(full, { recursive: true, force: true }).catch(() => undefined);
     }
   }
@@ -411,8 +415,8 @@ async function statIfPresent(path: string) {
   });
 }
 
-export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> {
-  await cleanupStalePiAgentDirs(cfg);
+export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
+  await cleanupStalePiAgentDirs();
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
     if (
@@ -426,7 +430,7 @@ export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> 
     const entryStat = await statIfPresent(full);
     if (!entryStat) continue;
     const ageMs = now - entryStat.mtimeMs;
-    if (ageMs > cfg.localWorkspaceStaleCleanupAgeSeconds * 1000) {
+    if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
       await removeWorkspace(full).catch(() => undefined);
     }
   }
@@ -435,11 +439,11 @@ export async function cleanupStaleLocalPrWorkspaces(cfg: Config): Promise<void> 
 export async function prepareLocalPrWorkspace(
   params: PrepareLocalPrWorkspaceParams,
 ): Promise<LocalPrWorkspace> {
-  const { cfg, owner, repo, prNumber, headSha, installationToken, prFiles } = params;
+  const { owner, repo, prNumber, headSha, installationToken, prFiles } = params;
   assertRepoPart(owner, "owner");
   assertRepoPart(repo, "repo");
   assertSha(headSha, "headSha");
-  await ensureFreeSpace(tmpdir(), cfg.localWorkspaceMinFreeSpaceBytes);
+  await ensureFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
   const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
@@ -448,7 +452,7 @@ export async function prepareLocalPrWorkspace(
   const credentials = await createGitCredentialFiles(rootDir, installationToken);
   const changedFiles = prFiles.files.map(mapGithubStatus);
   const changedFileByPath = new Map(changedFiles.map((file) => [file.path, file]));
-  const checkoutMode = selectLocalPrWorkspaceCheckoutMode(cfg, params.repositorySizeKb);
+  const checkoutMode = selectLocalPrWorkspaceCheckoutMode(params.repositorySizeKb);
   const diffIndex = createCachedPrDiffIndex();
   const patchByPath = new Map<string, string>();
   const patchOmittedByCapPaths = new Set<string>();
@@ -473,7 +477,7 @@ export async function prepareLocalPrWorkspace(
     files: filesForIndex,
   });
 
-  const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
+  const git = (args: readonly string[], timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS) =>
     execGit(args, {
       cwd: privateGitDir,
       timeoutMs,
@@ -498,8 +502,8 @@ export async function prepareLocalPrWorkspace(
       }
       return "";
     }
-    return patch.length > cfg.localWorkspaceMaxDiffBytes
-      ? `${patch.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[diff truncated]`
+    return patch.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES
+      ? `${patch.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[diff truncated]`
       : patch;
   }
 
@@ -513,22 +517,22 @@ export async function prepareLocalPrWorkspace(
       return "";
     }
     const { stdout } = await git(["blame", "--line-porcelain", headSha, "--", normalized]);
-    return stdout.length > cfg.localWorkspaceMaxDiffBytes
-      ? `${stdout.slice(0, cfg.localWorkspaceMaxDiffBytes)}\n...[blame truncated]`
+    return stdout.length > LOCAL_WORKSPACE_MAX_DIFF_BYTES
+      ? `${stdout.slice(0, LOCAL_WORKSPACE_MAX_DIFF_BYTES)}\n...[blame truncated]`
       : stdout;
   }
 
   const grepLiteral = (grepParams: GitGrepWorkspaceParams) =>
     gitGrepWorkspace(
       { privateGitDir, agentCwd },
-      { ...grepParams, timeoutMs: cfg.localWorkspaceFetchTimeoutMs },
+      { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
     );
 
   try {
     await mkdir(privateGitDir, { recursive: true });
     await mkdir(agentCwd, { recursive: true });
-    await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
-    await git(["remote", "add", "origin", remoteUrl], cfg.localWorkspaceCloneTimeoutMs);
+    await git(["init"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+    await git(["remote", "add", "origin", remoteUrl], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const prRef = `+refs/pull/${prNumber}/head:refs/heads/${PR_HEAD_REF}`;
     const fetchArgs = [
       "fetch",
@@ -539,20 +543,20 @@ export async function prepareLocalPrWorkspace(
       "origin",
       prRef,
     ];
-    await git(fetchArgs, cfg.localWorkspaceFetchTimeoutMs);
+    await git(fetchArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
     if (checkoutMode === "sparse") {
-      await git(["config", "core.sparseCheckout", "true"], cfg.localWorkspaceCloneTimeoutMs);
-      await git(["config", "core.sparseCheckoutCone", "false"], cfg.localWorkspaceCloneTimeoutMs);
+      await git(["config", "core.sparseCheckout", "true"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+      await git(["config", "core.sparseCheckoutCone", "false"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
       await writeFile(
         join(privateGitDir, "info", "sparse-checkout"),
         sparseCheckoutPatterns(changedFiles),
       );
     }
-    await git(["checkout", "-f", PR_HEAD_REF], cfg.localWorkspaceCloneTimeoutMs);
+    await git(["checkout", "-f", PR_HEAD_REF], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await enforceMaxFetchBytes(
       git,
-      cfg.localWorkspaceMaxFetchBytes,
-      cfg.localWorkspaceFetchTimeoutMs,
+      LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+      LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {

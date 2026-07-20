@@ -23,10 +23,6 @@ import {
   DEFAULT_REVIEW_AUTO_ACTIONS,
   DEFAULT_VERIFICATION_AUTO_ACTIONS,
   DEFAULT_VERIFICATION_CONCURRENCY,
-  DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
-  DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
-  DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
-  DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
   DEFAULT_CURSOR_RIPGREP_PATH,
@@ -35,33 +31,9 @@ import {
   DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
   DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
   DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
-  DEFAULT_REVIEW_CI_SUMMARY_WAIT_MS,
-  DEFAULT_REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-  DEFAULT_REVIEW_CI_SUMMARY_MAX_FAILURES,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
-  DEFAULT_LOG_MAX_WIDE_EVENTS,
   DEFAULT_LOG_REDACT,
-  DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
-  DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-  DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
-  DEFAULT_CONTEXT7_RESPONSE_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
-  DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
-  DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_MAX_FETCH_BYTES,
-  DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
-  DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
-  DEFAULT_MAX_ASK_TOOL_ROUNDS,
-  DEFAULT_MAX_PR_FILES_LISTED,
-  DEFAULT_MAX_PR_FILES_PATCH_BYTES,
-  DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS,
-  DEFAULT_MAX_REVIEW_PUBLISH_CALLS,
-  DEFAULT_MAX_TOOL_ROUNDS,
   DEFAULT_PI_MODEL,
   DEFAULT_PI_PROVIDER,
   DEFAULT_PORT,
@@ -75,10 +47,7 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_REVIEW_CONCURRENCY,
-  DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES,
-  DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
   DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
-  DEFAULT_REVIEW_MIN_CONFIDENCE,
   DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
@@ -88,11 +57,8 @@ import {
   DEFAULT_AGENT_WORK_RETENTION_SECONDS,
   DEFAULT_RETENTION_CRON,
   DEFAULT_RETENTION_ENABLED,
-  DEFAULT_WEBHOOK_TIMEOUT_MS,
-  DEFAULT_WEBHOOK_MAX_BODY_BYTES,
   ENV,
   EXTERNAL_ENV,
-  GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
   AUTOMATED_PR_ACTIONS,
 } from "./settings/index.js";
 import {
@@ -197,14 +163,6 @@ function readAutoActions(
   return new Set(values);
 }
 
-function readIntegerInRange(name: string, defaultValue: number, min: number, max: number): number {
-  const value = Number(optionalEnv(name, String(defaultValue)));
-  if (!Number.isInteger(value) || value < min || value > max) {
-    throw new Error(`${name} must be an integer from ${min} to ${max}`);
-  }
-  return value;
-}
-
 function stripMatchingQuotes(value: string): string {
   const first = value[0];
   const last = value[value.length - 1];
@@ -302,24 +260,9 @@ export async function loadConfig() {
     google: optionalEnv(EXTERNAL_ENV.GOOGLE_GENERATIVE_AI_API_KEY, ""),
   };
 
-  const maxToolRounds = readPositiveNumber(ENV.MAX_TOOL_ROUNDS, DEFAULT_MAX_TOOL_ROUNDS);
   const providerPromptTimeoutMs = readPositiveNumber(
     ENV.PROVIDER_PROMPT_TIMEOUT_MS,
     DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
-  );
-  const maxReviewPublishAttempts = readPositiveNumber(
-    ENV.MAX_REVIEW_PUBLISH_ATTEMPTS,
-    DEFAULT_MAX_REVIEW_PUBLISH_ATTEMPTS,
-  );
-  const maxReviewPublishCalls = readPositiveNumber(
-    ENV.MAX_REVIEW_PUBLISH_CALLS,
-    DEFAULT_MAX_REVIEW_PUBLISH_CALLS,
-  );
-  const reviewMinConfidence = readIntegerInRange(
-    ENV.REVIEW_MIN_CONFIDENCE,
-    DEFAULT_REVIEW_MIN_CONFIDENCE,
-    1,
-    5,
   );
   const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
   const askConcurrency = readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY);
@@ -332,22 +275,6 @@ export async function loadConfig() {
   const verificationConcurrency = readPositiveNumber(
     ENV.VERIFICATION_CONCURRENCY,
     DEFAULT_VERIFICATION_CONCURRENCY,
-  );
-  const maxToolRoundsDescribe = readPositiveNumber(
-    ENV.MAX_TOOL_ROUNDS_DESCRIBE,
-    DEFAULT_MAX_TOOL_ROUNDS_DESCRIBE,
-  );
-  const maxToolRoundsTriage = readPositiveNumber(
-    ENV.MAX_TOOL_ROUNDS_TRIAGE,
-    DEFAULT_MAX_TOOL_ROUNDS_TRIAGE,
-  );
-  const maxToolRoundsVerification = readPositiveNumber(
-    ENV.MAX_TOOL_ROUNDS_VERIFICATION,
-    DEFAULT_MAX_TOOL_ROUNDS_VERIFICATION,
-  );
-  const maxTriageFixesPerRun = readPositiveNumber(
-    ENV.MAX_TRIAGE_FIXES_PER_RUN,
-    DEFAULT_MAX_TRIAGE_FIXES_PER_RUN,
   );
   const descriptionGenerateTitle = readBooleanEnv(
     ENV.DESCRIPTION_GENERATE_TITLE,
@@ -415,23 +342,8 @@ export async function loadConfig() {
     ENV.INSTALLATION_GROUP_CONCURRENCY,
     DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   );
-  const maxAskToolRounds = readPositiveNumber(ENV.MAX_ASK_TOOL_ROUNDS, DEFAULT_MAX_ASK_TOOL_ROUNDS);
-  const maxAskFinalizeRounds = readNonNegativeNumber(
-    ENV.MAX_ASK_FINALIZE_ROUNDS,
-    DEFAULT_MAX_ASK_FINALIZE_ROUNDS,
-  );
-
-  const webhookMaxBodyBytes = readPositiveNumber(
-    ENV.WEBHOOK_MAX_BODY_BYTES,
-    DEFAULT_WEBHOOK_MAX_BODY_BYTES,
-  );
-  const webhookTimeoutMs = readPositiveNumber(ENV.WEBHOOK_TIMEOUT_MS, DEFAULT_WEBHOOK_TIMEOUT_MS);
 
   const context7ApiKey = optionalEnv(ENV.CONTEXT7_API_KEY, DEFAULT_CONTEXT7_API_KEY);
-  const context7ResponseBytes = readPositiveNumber(
-    ENV.CONTEXT7_RESPONSE_BYTES,
-    DEFAULT_CONTEXT7_RESPONSE_BYTES,
-  );
 
   const enableReviewLabelsEffort = readBooleanEnv(
     ENV.ENABLE_REVIEW_LABELS_EFFORT,
@@ -445,18 +357,6 @@ export async function loadConfig() {
     ENV.ENABLE_REVIEW_COMMIT_STATUS,
     DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   );
-  const reviewCiSummaryWaitMs = readNonNegativeNumber(
-    ENV.REVIEW_CI_SUMMARY_WAIT_MS,
-    DEFAULT_REVIEW_CI_SUMMARY_WAIT_MS,
-  );
-  const reviewCiSummaryWaitPollMs = readPositiveNumber(
-    ENV.REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-    DEFAULT_REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-  );
-  const reviewCiSummaryMaxFailures = readPositiveNumber(
-    ENV.REVIEW_CI_SUMMARY_MAX_FAILURES,
-    DEFAULT_REVIEW_CI_SUMMARY_MAX_FAILURES,
-  );
   const descriptionAutoActions = readAutoActions(
     ENV.DESCRIPTION_AUTO_ACTIONS,
     DEFAULT_DESCRIPTION_AUTO_ACTIONS,
@@ -468,31 +368,11 @@ export async function loadConfig() {
     { allowEmpty: true },
   );
 
-  const configuredMaxPrFilesListed = readPositiveNumber(
-    ENV.MAX_PR_FILES_LISTED,
-    DEFAULT_MAX_PR_FILES_LISTED,
-  );
-  const maxPrFilesListed = Math.min(
-    configuredMaxPrFilesListed,
-    GITHUB_PULL_REQUEST_FILES_API_MAX_FILES,
-  );
-  if (configuredMaxPrFilesListed > GITHUB_PULL_REQUEST_FILES_API_MAX_FILES) {
-    console.warn(
-      `${ENV.MAX_PR_FILES_LISTED}=${configuredMaxPrFilesListed} exceeds GitHub pull request files API cap ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}; using ${GITHUB_PULL_REQUEST_FILES_API_MAX_FILES}.`,
-    );
-  }
-  const maxPrFilesPatchBytes = readPositiveNumber(
-    ENV.MAX_PR_FILES_PATCH_BYTES,
-    DEFAULT_MAX_PR_FILES_PATCH_BYTES,
-  );
-
   const logLevel = readEnum(
     ENV.LOG_LEVEL,
     ["debug", "info", "warn", "error"] as const,
     DEFAULT_LOG_LEVEL,
   );
-
-  const logMaxWideEvents = readPositiveNumber(ENV.LOG_MAX_WIDE_EVENTS, DEFAULT_LOG_MAX_WIDE_EVENTS);
 
   const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
   const logPretty = optionalEnv(ENV.LOG_PRETTY, logPrettyDefault) === "true";
@@ -507,63 +387,6 @@ export async function loadConfig() {
     DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   );
 
-  const reviewAnchorMenuMaxFiles = readPositiveNumber(
-    ENV.REVIEW_ANCHOR_MENU_MAX_FILES,
-    DEFAULT_REVIEW_ANCHOR_MENU_MAX_FILES,
-  );
-  const reviewAnchorMenuMaxRangesPerFile = readPositiveNumber(
-    ENV.REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
-    DEFAULT_REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
-  );
-
-  const localWorkspaceCloneTimeoutMs = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
-    DEFAULT_LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
-  );
-  const localWorkspaceFetchTimeoutMs = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-    DEFAULT_LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
-  );
-  const localWorkspaceSearchMaxFiles = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_SEARCH_MAX_FILES,
-    DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_FILES,
-  );
-  const localWorkspaceMaxFileBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MAX_FILE_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_MAX_FILE_BYTES,
-  );
-  const localWorkspaceSearchMaxTotalBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
-  );
-  const localWorkspaceMaxDiffBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MAX_DIFF_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_MAX_DIFF_BYTES,
-  );
-  const localWorkspaceReadResponseBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
-  );
-  const localWorkspaceDiffResponseBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
-  );
-  const localWorkspaceMinFreeSpaceBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
-  );
-  const localWorkspaceMaxFetchBytes = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_MAX_FETCH_BYTES,
-    DEFAULT_LOCAL_WORKSPACE_MAX_FETCH_BYTES,
-  );
-  const localWorkspaceFullCloneMaxRepoKb = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
-    DEFAULT_LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
-  );
-  const localWorkspaceStaleCleanupAgeSeconds = readPositiveNumber(
-    ENV.LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
-    DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
-  );
   const features = {
     review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
     describe: readEnum(ENV.FEATURE_DESCRIBE, DESCRIBE_FEATURE_MODES, DEFAULT_FEATURE_DESCRIBE),
@@ -597,21 +420,13 @@ export async function loadConfig() {
     piApi,
     modelsJsonPath,
     modelProviderKeys,
-    maxToolRounds,
     providerPromptTimeoutMs,
-    maxReviewPublishAttempts,
-    maxReviewPublishCalls,
-    reviewMinConfidence,
     reviewConcurrency,
     askConcurrency,
     ackConcurrency,
     descriptionConcurrency,
     triageConcurrency,
     verificationConcurrency,
-    maxToolRoundsDescribe,
-    maxToolRoundsTriage,
-    maxToolRoundsVerification,
-    maxTriageFixesPerRun,
     descriptionGenerateTitle,
     slashAllowedAssociations,
     queueRetryLimit,
@@ -628,12 +443,7 @@ export async function loadConfig() {
     retentionCron,
     retentionEnabled,
     installationGroupConcurrency,
-    maxAskToolRounds,
-    maxAskFinalizeRounds,
-    webhookMaxBodyBytes,
-    webhookTimeoutMs,
     context7ApiKey,
-    context7ResponseBytes,
     cursorApiKey,
     cursorRipgrepPath,
     posthogProjectToken,
@@ -641,34 +451,14 @@ export async function loadConfig() {
     enableReviewLabelsEffort,
     enableReviewLabelsSecurity,
     enableReviewCommitStatus,
-    reviewCiSummaryWaitMs,
-    reviewCiSummaryWaitPollMs,
-    reviewCiSummaryMaxFailures,
     descriptionAutoActions,
     reviewAutoActions,
     verificationAutoActions,
-    maxPrFilesListed,
-    maxPrFilesPatchBytes,
     logLevel,
-    logMaxWideEvents,
     logPretty,
     logRedact,
     reviewInjectAnchorMenu,
     reviewRequireDiffCacheBeforeSubmit,
-    reviewAnchorMenuMaxFiles,
-    reviewAnchorMenuMaxRangesPerFile,
-    localWorkspaceCloneTimeoutMs,
-    localWorkspaceFetchTimeoutMs,
-    localWorkspaceSearchMaxFiles,
-    localWorkspaceMaxFileBytes,
-    localWorkspaceSearchMaxTotalBytes,
-    localWorkspaceMaxDiffBytes,
-    localWorkspaceReadResponseBytes,
-    localWorkspaceDiffResponseBytes,
-    localWorkspaceMinFreeSpaceBytes,
-    localWorkspaceMaxFetchBytes,
-    localWorkspaceFullCloneMaxRepoKb,
-    localWorkspaceStaleCleanupAgeSeconds,
   };
 }
 

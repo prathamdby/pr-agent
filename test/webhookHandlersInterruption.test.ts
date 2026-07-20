@@ -31,7 +31,6 @@ vi.mock("../src/github/appAuth.js", async (importOriginal) => {
 });
 
 const cfg = makeTestConfig({
-  maxAskFinalizeRounds: 6,
   askConcurrency: 1,
   enableReviewLabelsEffort: false,
 });

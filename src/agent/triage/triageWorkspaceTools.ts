@@ -7,7 +7,13 @@ import { z } from "zod";
 import type { Config } from "../../config.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
-import { SENSITIVE_PATH_PATTERNS, TRIAGE_NEW_FILE_MAX_BYTES } from "../../settings/index.js";
+import {
+  SENSITIVE_PATH_PATTERNS,
+  TRIAGE_NEW_FILE_MAX_BYTES,
+  LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  MAX_TRIAGE_FIXES_PER_RUN,
+} from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
 
@@ -86,7 +92,7 @@ export function buildTriageWorkspaceTools(params: {
   const readWorkspaceFile = defineLocalTool({
     description: "Read a text file from the writable PR checkout. Path is repo-relative.",
     schema: z.object({ path: z.string().min(1) }),
-    run: async ({ path }) => readTextFile(root, path, params.cfg.localWorkspaceMaxFileBytes),
+    run: async ({ path }) => readTextFile(root, path, LOCAL_WORKSPACE_MAX_FILE_BYTES),
   });
 
   const searchWorkspace = defineLocalTool({
@@ -99,7 +105,7 @@ export function buildTriageWorkspaceTools(params: {
       const stdout = await git(
         root,
         ["grep", "-nF", "-I", `--max-count=${maxResults + 1}`, "-e", query, "--", "."],
-        params.cfg.localWorkspaceFetchTimeoutMs,
+        LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
       ).catch((error: unknown) => {
         if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
           return "";
@@ -130,11 +136,7 @@ export function buildTriageWorkspaceTools(params: {
     run: async ({ path }) => {
       const fullPath = safePath(root, path);
       const rel = relativePath(root, fullPath);
-      const diff = await git(
-        root,
-        ["diff", "HEAD", "--", rel],
-        params.cfg.localWorkspaceFetchTimeoutMs,
-      );
+      const diff = await git(root, ["diff", "HEAD", "--", rel], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
       return { path: rel, diff };
     },
   });
@@ -186,7 +188,7 @@ export function buildTriageWorkspaceTools(params: {
       if (params.state.commitByThreadRootCommentId.has(threadRootCommentId)) {
         throw new Error("commitFix already called for this threadRootCommentId");
       }
-      if (params.state.commitByThreadRootCommentId.size >= params.cfg.maxTriageFixesPerRun) {
+      if (params.state.commitByThreadRootCommentId.size >= MAX_TRIAGE_FIXES_PER_RUN) {
         throw new Error("Triage fix budget reached");
       }
       const result = await params.checkout.commit({ files, subject, body });

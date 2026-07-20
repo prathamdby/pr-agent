@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, rm, statfs } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { promisify } from "node:util";
-import type { Config } from "../config.js";
 import type { BotIdentity } from "../github/appAuth.js";
 import {
   SENSITIVE_PATH_PATTERNS,
@@ -11,6 +10,10 @@ import {
   TRIAGE_COMMIT_SUBJECT_MAX_CHARS,
   TRIAGE_COMMIT_TYPES,
   TRIAGE_MAX_COMMIT_DIFF_LINES,
+  LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
+  LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+  LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+  LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
 } from "../settings/index.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 import { assertWorkspacePath } from "./localPrWorkspace.js";
@@ -46,13 +49,6 @@ export class StaleHeadPushError extends Error {
 }
 
 type WritablePrCheckoutParams = {
-  readonly cfg: Pick<
-    Config,
-    | "localWorkspaceCloneTimeoutMs"
-    | "localWorkspaceFetchTimeoutMs"
-    | "localWorkspaceMinFreeSpaceBytes"
-    | "localWorkspaceMaxFetchBytes"
-  >;
   readonly owner: string;
   readonly repo: string;
   readonly headRef: string;
@@ -187,12 +183,12 @@ export async function withWritablePrCheckout<T>(
   params: WritablePrCheckoutParams,
   fn: (checkout: WritablePrCheckout) => Promise<T>,
 ): Promise<T> {
-  const { cfg, owner, repo, headRef, headSha, installationToken, botIdentity } = params;
+  const { owner, repo, headRef, headSha, installationToken, botIdentity } = params;
   assertRepoPart(owner, "owner");
   assertRepoPart(repo, "repo");
   assertHeadRef(headRef);
   assertSha(headSha, "headSha");
-  await ensureFreeSpace(tmpdir(), cfg.localWorkspaceMinFreeSpaceBytes);
+  await ensureFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
   const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
   const dir = join(rootDir, "checkout");
@@ -200,7 +196,7 @@ export async function withWritablePrCheckout<T>(
   const credentials = await createGitCredentialFiles(rootDir, installationToken);
   const committed: { sha: string; subject: string; diff: string }[] = [];
 
-  const git = (args: readonly string[], timeoutMs = cfg.localWorkspaceFetchTimeoutMs) =>
+  const git = (args: readonly string[], timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS) =>
     exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
       cwd: dir,
       env: {
@@ -217,8 +213,8 @@ export async function withWritablePrCheckout<T>(
 
   try {
     await mkdir(dir, { recursive: true });
-    await git(["init"], cfg.localWorkspaceCloneTimeoutMs);
-    await git(["remote", "add", "origin", remoteUrl], cfg.localWorkspaceCloneTimeoutMs);
+    await git(["init"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+    await git(["remote", "add", "origin", remoteUrl], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await git(
       [
         "fetch",
@@ -228,32 +224,32 @@ export async function withWritablePrCheckout<T>(
         "origin",
         `refs/heads/${headRef}`,
       ],
-      cfg.localWorkspaceFetchTimeoutMs,
+      LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
     const { stdout: objectStats } = await git(
       ["count-objects", "-v"],
-      cfg.localWorkspaceFetchTimeoutMs,
+      LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
-    if (gitObjectStoreBytes(objectStats) > cfg.localWorkspaceMaxFetchBytes) {
+    if (gitObjectStoreBytes(objectStats) > LOCAL_WORKSPACE_MAX_FETCH_BYTES) {
       throw new Error(
-        `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${cfg.localWorkspaceMaxFetchBytes})`,
+        `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${LOCAL_WORKSPACE_MAX_FETCH_BYTES})`,
       );
     }
-    await git(["checkout", "-f", "FETCH_HEAD"], cfg.localWorkspaceCloneTimeoutMs);
+    await git(["checkout", "-f", "FETCH_HEAD"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
       throw new Error(
         `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
       );
     }
-    await git(["config", "user.name", botIdentity.login], cfg.localWorkspaceCloneTimeoutMs);
+    await git(["config", "user.name", botIdentity.login], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await git(
       [
         "config",
         "user.email",
         `${botIdentity.userId}+${botIdentity.login}@users.noreply.github.com`,
       ],
-      cfg.localWorkspaceCloneTimeoutMs,
+      LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
     );
     const checkout: WritablePrCheckout = {
       dir,
@@ -262,18 +258,18 @@ export async function withWritablePrCheckout<T>(
       commit: async (args) => {
         const files = validateFiles(dir, args.files);
         const commitArgs = buildCommitCommandArgs(args);
-        await git(["reset"], cfg.localWorkspaceFetchTimeoutMs);
-        await git(["add", "--", ...files], cfg.localWorkspaceFetchTimeoutMs);
+        await git(["reset"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+        await git(["add", "--", ...files], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         const { stdout: diff } = await git(
           ["diff", "--cached", "--", ...files],
-          cfg.localWorkspaceFetchTimeoutMs,
+          LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
         );
         if (changedLineCount(diff) > TRIAGE_MAX_COMMIT_DIFF_LINES) {
-          await git(["reset"], cfg.localWorkspaceFetchTimeoutMs);
+          await git(["reset"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
           throw new Error("commitFix rejected: staged diff is not minimal");
         }
-        await git(commitArgs, cfg.localWorkspaceFetchTimeoutMs);
-        const { stdout: sha } = await git(["rev-parse", "HEAD"], cfg.localWorkspaceFetchTimeoutMs);
+        await git(commitArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+        const { stdout: sha } = await git(["rev-parse", "HEAD"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         const committedSha = sha.trim();
         committed.push({ sha: committedSha, subject: args.subject, diff });
         return { sha: committedSha, diff };
@@ -282,7 +278,7 @@ export async function withWritablePrCheckout<T>(
         try {
           await git(
             ["push", "origin", `HEAD:refs/heads/${headRef}`],
-            cfg.localWorkspaceFetchTimeoutMs,
+            LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
           );
         } catch (error) {
           classifyPushError(error);

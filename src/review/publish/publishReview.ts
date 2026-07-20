@@ -27,7 +27,12 @@ import {
   hasManagedCategoryLabel,
 } from "../run/reviewLabels.js";
 import { logWarn, logDebug } from "../../evlog.js";
-import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../../settings/index.js";
+import {
+  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
+  REVIEW_CI_SUMMARY_MAX_FAILURES,
+  REVIEW_CI_SUMMARY_WAIT_MS,
+  REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+} from "../../settings/index.js";
 import { buildCiSummary } from "../ci/analyzeCi.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
@@ -233,9 +238,6 @@ export async function publishReview(
       | "enableReviewLabelsEffort"
       | "enableReviewLabelsSecurity"
       | "enableReviewCommitStatus"
-      | "reviewCiSummaryWaitMs"
-      | "reviewCiSummaryWaitPollMs"
-      | "reviewCiSummaryMaxFailures"
     >;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
@@ -371,9 +373,9 @@ export async function publishReview(
     repo,
     headSha,
     expiresAtTs: tokenExpiresAtTs,
-    waitMs: cfg.reviewCiSummaryWaitMs,
-    waitPollMs: cfg.reviewCiSummaryWaitPollMs,
-    maxFailures: cfg.reviewCiSummaryMaxFailures,
+    waitMs: REVIEW_CI_SUMMARY_WAIT_MS,
+    waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+    maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
   });
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,

@@ -51,7 +51,6 @@ import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPr
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
 const cfg = makeTestConfig({
-  maxToolRounds: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
   enableReviewLabelsEffort: false,
@@ -93,7 +92,7 @@ describe("runFullPrReview mode", () => {
   it("selects security system prompt when mode is review-security", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
         mode: "review-security",
       }),
     );
@@ -104,7 +103,7 @@ describe("runFullPrReview mode", () => {
   it("selects quality system prompt when mode is review-quality", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
         mode: "review-quality",
       }),
     );
@@ -115,7 +114,7 @@ describe("runFullPrReview mode", () => {
   it("selects tests system prompt when mode is review-tests", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
         mode: "review-tests",
       }),
     );
@@ -126,7 +125,7 @@ describe("runFullPrReview mode", () => {
   it("selects general system prompt by default", async () => {
     await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+        cfg,
       }),
     );
 
@@ -192,7 +191,7 @@ describe("runFullPrReview publish retries", () => {
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
       await runFullPrReview(
         reviewParams({
-          cfg: { ...cfg, maxReviewPublishAttempts: 1, maxToolRounds: 1 },
+          cfg,
         }),
       );
     });

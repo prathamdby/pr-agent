@@ -128,7 +128,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           const fastQueueOptions = {
             pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
           };
-          await cleanupStaleLocalPrWorkspaces(cfg);
+          await cleanupStaleLocalPrWorkspaces();
           await ensureRetentionSchedule(boss, cfg);
           await Promise.all([
             registerPlainQueue<AckJobData>(

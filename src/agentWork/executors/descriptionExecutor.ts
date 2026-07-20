@@ -38,7 +38,6 @@ export async function executeDescriptionJob(
       const payload = item.payload;
       return withPrRepositoryView(
         buildRepositoryViewParams(
-          cfg,
           item,
           { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
           payload,

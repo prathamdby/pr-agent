@@ -89,3 +89,6 @@ export const ASK_TOOLS_WITH_PULL_NUMBER = new Set([
   "listPullRequestFiles",
   "listPullRequestReviews",
 ]);
+
+export const MAX_ASK_TOOL_ROUNDS = 12;
+export const MAX_ASK_FINALIZE_ROUNDS = 2;

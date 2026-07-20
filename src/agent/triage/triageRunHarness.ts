@@ -18,6 +18,7 @@ import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js
 import {
   TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
   TRIAGE_VALIDATION_REPAIR_ROUNDS,
+  MAX_TOOL_ROUNDS_TRIAGE,
 } from "../../settings/index.js";
 
 const TRIAGE_SUBMIT_ONLY_NUDGE =
@@ -75,7 +76,7 @@ export async function runTriageHarness(params: {
           run: async () => {
             lastText = (
               await session.send(setup.userContent, {
-                maxToolRounds: cfg.maxToolRoundsTriage,
+                maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
               })
             ).text;
           },

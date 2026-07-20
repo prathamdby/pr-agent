@@ -1,4 +1,3 @@
-import type { Config } from "../../config.js";
 import type { InstallationToken } from "../../github/appAuth.js";
 import type { PullRequestForFileList } from "../../github/listPullRequestFiles.js";
 import type { PreparePrRepositoryViewParams } from "../../prWorkspace/prRepositoryView.js";
@@ -20,14 +19,12 @@ type RepositoryViewPayload = {
 };
 
 export function buildRepositoryViewParams(
-  cfg: Config,
   item: WorkItemIdentity,
   env: RepositoryViewEnv,
   payload: RepositoryViewPayload,
   extra?: Pick<PreparePrRepositoryViewParams, "prFiles">,
 ): PreparePrRepositoryViewParams {
   return {
-    cfg,
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,

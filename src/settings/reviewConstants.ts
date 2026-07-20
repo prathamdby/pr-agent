@@ -180,3 +180,15 @@ export type ReviewPhase =
   | "validation_repair"
   | "publish_recovery"
   | "plaintext_fallback";
+
+/** Review agent caps (hardcoded by the feature-flags revision; formerly env-tunable). */
+export const MAX_TOOL_ROUNDS = 24;
+export const MAX_REVIEW_PUBLISH_ATTEMPTS = 3;
+export const MAX_REVIEW_PUBLISH_CALLS = 2;
+export const REVIEW_MIN_CONFIDENCE = 1;
+/** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */
+export const MAX_PR_FILES_LISTED = 300;
+export const MAX_PR_FILES_PATCH_BYTES = 500_000;
+export const REVIEW_CI_SUMMARY_WAIT_MS = 15_000;
+export const REVIEW_ANCHOR_MENU_MAX_FILES = 40;
+export const REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE = 20;

@@ -5,7 +5,7 @@ import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import {
   buildLocalWorkspaceTools,
-  workspaceToolLimitsFromConfig,
+  workspaceToolLimits,
 } from "../../agent/tools/localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "../../agent/tools/refreshableGithubTools.js";
 import {
@@ -24,6 +24,7 @@ import {
 } from "../publish/submitReviewTool.js";
 import type { ReviewMode } from "../reviewSchema.js";
 import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
+import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 
 function systemPromptForReviewMode(reviewMode: ReviewMode): string {
   switch (reviewMode) {
@@ -122,13 +123,9 @@ export function buildReviewRunSetup(params: {
     refreshInstallationToken: params.refreshInstallationToken,
     githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
     build: (_activeToken, _activeExpiresAtTs) => {
-      const bundle = buildLocalWorkspaceTools(
-        params.workspace,
-        workspaceToolLimitsFromConfig(cfg),
-        {
-          pathGate,
-        },
-      );
+      const bundle = buildLocalWorkspaceTools(params.workspace, workspaceToolLimits(), {
+        pathGate,
+      });
       const executors = { ...bundle.executors };
       wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
       return { piTools: bundle.piTools, executors };
@@ -137,7 +134,7 @@ export function buildReviewRunSetup(params: {
 
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,
-    maxResponseBytes: cfg.context7ResponseBytes,
+    maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
   const buildSubmit = () =>
     buildSubmitReviewTool({

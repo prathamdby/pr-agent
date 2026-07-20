@@ -44,7 +44,6 @@ const cursorCfg = makeTestConfig({
   agentProvider: "cursor",
   piModel: "composer-2.5",
   cursorApiKey: "cursor_test_key",
-  maxToolRounds: 2,
   reviewConcurrency: 1,
   askConcurrency: 3,
   enableReviewLabelsEffort: false,
