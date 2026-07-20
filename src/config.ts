@@ -1,5 +1,19 @@
 import crypto from "node:crypto";
 import {
+  COMMAND_FEATURE_MODES,
+  DEFAULT_FEATURE_ASK,
+  DEFAULT_FEATURE_COMMIT_STATUS,
+  DEFAULT_FEATURE_DESCRIBE,
+  DEFAULT_FEATURE_REVIEW,
+  DEFAULT_FEATURE_REVIEW_LABELS,
+  DEFAULT_FEATURE_TITLE_REWRITE,
+  DEFAULT_FEATURE_TRIAGE,
+  DEFAULT_FEATURE_VERIFICATION,
+  DESCRIBE_FEATURE_MODES,
+  REVIEW_FEATURE_MODES,
+  REVIEW_LABELS_MODES,
+  VERIFICATION_FEATURE_MODES,
+  type Features,
   DEFAULT_ACK_CONCURRENCY,
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_ASK_CONCURRENCY,
@@ -123,6 +137,11 @@ function readEnum<T extends string>(name: string, allowed: readonly T[], default
     throw new Error(`${name} must be one of ${allowed.join(", ")}`);
   }
   return value as T;
+}
+
+/** Boolean env that rejects typos instead of silently reading them as false. */
+function readStrictBoolean(name: string, defaultValue: boolean): boolean {
+  return readEnum(name, ["true", "false"] as const, defaultValue ? "true" : "false") === "true";
 }
 
 const GITHUB_AUTHOR_ASSOCIATIONS = [
@@ -545,6 +564,25 @@ export async function loadConfig() {
     ENV.LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
     DEFAULT_LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
   );
+  const features = {
+    review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
+    describe: readEnum(ENV.FEATURE_DESCRIBE, DESCRIBE_FEATURE_MODES, DEFAULT_FEATURE_DESCRIBE),
+    verification: readEnum(
+      ENV.FEATURE_VERIFICATION,
+      VERIFICATION_FEATURE_MODES,
+      DEFAULT_FEATURE_VERIFICATION,
+    ),
+    ask: readEnum(ENV.FEATURE_ASK, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_ASK),
+    triage: readEnum(ENV.FEATURE_TRIAGE, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_TRIAGE),
+    reviewLabels: readEnum(
+      ENV.FEATURE_REVIEW_LABELS,
+      REVIEW_LABELS_MODES,
+      DEFAULT_FEATURE_REVIEW_LABELS,
+    ),
+    commitStatus: readStrictBoolean(ENV.FEATURE_COMMIT_STATUS, DEFAULT_FEATURE_COMMIT_STATUS),
+    titleRewrite: readStrictBoolean(ENV.FEATURE_TITLE_REWRITE, DEFAULT_FEATURE_TITLE_REWRITE),
+  } satisfies Features;
+
   return {
     port,
     githubAppId,
@@ -552,6 +590,7 @@ export async function loadConfig() {
     webhookSecret,
     databaseUrl,
     role,
+    features,
     agentProvider,
     piProvider,
     piModel,
