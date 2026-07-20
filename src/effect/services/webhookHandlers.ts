@@ -24,6 +24,7 @@ type PullRequestReviewCommentData = Extract<
   ParsedGithubEvent,
   { name: "pull_request_review_comment" }
 >["data"];
+type WorkflowRunData = Extract<ParsedGithubEvent, { name: "workflow_run" }>["data"];
 
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
   WebhookHandlers,
@@ -44,6 +45,12 @@ export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
       cfg: Config,
       headers: WebhookHeaders,
       data: PullRequestReviewCommentData,
+      intakeLog: RequestLogger,
+    ) => Effect.Effect<void, Error>;
+    readonly workflowRun: (
+      cfg: Config,
+      headers: WebhookHeaders,
+      data: WorkflowRunData,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
   }
@@ -276,6 +283,29 @@ export const WebhookHandlersCore = Layer.effect(
                   }
                 : {}),
               ...(command === "ask" ? { botLogin: bot.login } : {}),
+            },
+            intakeLog,
+          );
+        }),
+
+      workflowRun: (_cfg, headers, data, intakeLog) =>
+        Effect.gen(function* () {
+          const headSha = data.workflow_run.head_sha;
+          const prNumbers = [
+            ...new Set(
+              (data.workflow_run.pull_requests ?? [])
+                .filter((pr) => pr.head.sha === headSha)
+                .map((pr) => pr.number),
+            ),
+          ];
+          yield* scheduler.submitCiRefresh(
+            headers,
+            {
+              installationId: data.installation.id,
+              owner: data.repository.owner.login,
+              repo: data.repository.name,
+              headSha,
+              prNumbers,
             },
             intakeLog,
           );

@@ -79,6 +79,16 @@ export type VerificationJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
+/** Fire-and-forget CI cell refresh after workflow_run completed (ADR 0026). */
+export type CiRefreshJobData = JobCorrelation & {
+  readonly kind: "ci_refresh";
+  readonly installationId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly headSha: string;
+};
+
 export type ReviewWorkPayload = {
   readonly mode: ReviewMode;
   readonly source: WorkSource;

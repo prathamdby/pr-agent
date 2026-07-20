@@ -232,6 +232,45 @@ export async function findIssueCommentBySentinel(
   return lastMatch;
 }
 
+export type IssueCommentWithBody = IssueCommentRef & { readonly body: string };
+
+/** Latest issue comment whose body starts with `sentinel`, including full body text. */
+export async function findIssueCommentWithBodyBySentinel(
+  token: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  sentinel: string,
+  expiresAtTs?: number,
+): Promise<IssueCommentWithBody | null> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  let lastMatch: IssueCommentWithBody | null = null;
+
+  const pages = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: issueNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+
+  for (const c of pages) {
+    const body = c.body ?? "";
+    if (body.startsWith(sentinel)) {
+      lastMatch = { id: c.id, url: c.html_url, body };
+    }
+  }
+
+  return lastMatch;
+}
+
 export async function resolveVerifiedSummaryCommentRef(
   token: string,
   owner: string,

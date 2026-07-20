@@ -31,11 +31,13 @@ import { flushDeferredEvents, type DeferredIntakeEvent } from "./deferredEvents.
 import { planAutomatedPullRequestIntake, type AutomatedPrIntakePlan } from "./planner.js";
 import {
   enqueueAck,
+  enqueueCiRefreshIdempotent,
   enqueueDescription,
   enqueueReview,
   enqueueVerification,
   jobCorrelation,
 } from "./queueing.js";
+import type { CiRefreshJobData } from "../types.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
@@ -242,5 +244,67 @@ export async function applyAutomatedPullRequestIntake(
   const events = await inTransaction(pool, (client) =>
     applyPlannedAutomatedPullRequestIntake(boss, client, headers, ref, plan, pushBeforeSha),
   );
+  flushDeferredEvents(intakeLog, events);
+}
+
+/**
+ * Enqueues CI-refresh jobs for a completed workflow_run on matching PR heads.
+ * No agent_work_item row — fire-and-forget like ack (ADR 0026).
+ */
+export async function applyCiRefreshIntake(
+  boss: PgBoss,
+  pool: Pool,
+  headers: WebhookHeaders,
+  data: {
+    readonly installationId: number;
+    readonly owner: string;
+    readonly repo: string;
+    readonly headSha: string;
+    readonly prNumbers: readonly number[];
+  },
+  intakeLog: RequestLogger,
+): Promise<void> {
+  if (data.prNumbers.length === 0) {
+    await recordIgnoredWebhook(pool, headers, "ignored_workflow_run_no_pr", intakeLog);
+    return;
+  }
+  const events = await inTransaction(pool, async (client) => {
+    const deferred: DeferredIntakeEvent[] = [];
+    const event = await insertWebhookEvent(client, headers, "ci_refresh_enqueued");
+    if (event.duplicate) {
+      deferred.push({
+        name: "deduped_delivery",
+        fields: {
+          dedupeKey: event.dedupeKey,
+          event: headers.event,
+        },
+      });
+      return deferred;
+    }
+    const correlation = jobCorrelation(event.id, headers);
+    for (const prNumber of data.prNumbers) {
+      const job: CiRefreshJobData = {
+        kind: "ci_refresh",
+        installationId: data.installationId,
+        owner: data.owner,
+        repo: data.repo,
+        prNumber,
+        headSha: data.headSha,
+        ...correlation,
+      };
+      const result = await enqueueCiRefreshIdempotent(boss, client, job, event.id);
+      deferred.push({
+        name: "ci_refresh_enqueued",
+        fields: {
+          owner: data.owner,
+          repo: data.repo,
+          pr: prNumber,
+          headSha: data.headSha,
+          result,
+        },
+      });
+    }
+    return deferred;
+  });
   flushDeferredEvents(intakeLog, events);
 }

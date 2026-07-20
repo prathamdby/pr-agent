@@ -210,6 +210,7 @@ function startEffectServer({
         recordIgnored,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.void,
+        submitCiRefresh: () => Effect.void,
         ping: () => Effect.succeed(pingResult),
       }),
     );

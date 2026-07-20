@@ -7,6 +7,7 @@ import { HEALTH_DB_PING_TIMEOUT_MS } from "../settings/index.js";
 import type { RequestLogger } from "../evlog.js";
 import {
   applyAutomatedPullRequestIntake,
+  applyCiRefreshIntake,
   applySlashCommandIntake,
   recordIgnoredWebhook,
   type SlashCommandInput,
@@ -28,6 +29,17 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       action: string,
       intakeLog: RequestLogger,
       pushBeforeSha?: string,
+    ) => Effect.Effect<void, Error>;
+    readonly submitCiRefresh: (
+      headers: WebhookHeaders,
+      data: {
+        readonly installationId: number;
+        readonly owner: string;
+        readonly repo: string;
+        readonly headSha: string;
+        readonly prNumbers: readonly number[];
+      },
+      intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
     readonly submitSlashCommand: (
       input: SlashCommandInput,
@@ -58,6 +70,12 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Confi
             cfg,
             pushBeforeSha,
           ),
+        catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+      }),
+
+    submitCiRefresh: (headers, data, intakeLog) =>
+      Effect.tryPromise({
+        try: () => applyCiRefreshIntake(boss, pool, headers, data, intakeLog),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 

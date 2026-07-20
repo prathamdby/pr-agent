@@ -3,9 +3,11 @@ import { installationIdPickSchema } from "./payloads/common.js";
 import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.js";
 import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.js";
 import { pullRequestWebhookSchema } from "./payloads/pullRequestEvent.js";
+import { workflowRunWebhookSchema } from "./payloads/workflowRunEvent.js";
 import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js";
 import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
 import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
+import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.js";
 import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
 
 export class WebhookParseError extends Error {
@@ -26,6 +28,7 @@ export type ParsedGithubEvent =
       name: "pull_request_review_comment";
       data: PullRequestReviewCommentWebhookPayload;
     }
+  | { name: "workflow_run"; data: WorkflowRunWebhookPayload }
   | { name: "ignored"; data: unknown };
 
 function parseOrThrow<T>(eventName: string, schema: z.ZodType<T>, payload: unknown): T {
@@ -73,6 +76,14 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
       return {
         name: "pull_request_review_comment",
         data: parseOrThrow(eventName, pullRequestReviewCommentWebhookSchema, payload),
+      };
+    case "workflow_run":
+      if (payloadAction(payload) !== "completed") {
+        return { name: "ignored", data: payload };
+      }
+      return {
+        name: "workflow_run",
+        data: parseOrThrow(eventName, workflowRunWebhookSchema, payload),
       };
     default:
       return { name: "ignored", data: payload };

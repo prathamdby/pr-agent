@@ -2,21 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   listCheckRunsForHead,
-  listCheckRunAnnotations,
   listLegacyCommitStatusesForHead,
   isMissingChecksPermissionError,
+  fetchCiLogContext,
 } = vi.hoisted(() => ({
   listCheckRunsForHead: vi.fn(),
-  listCheckRunAnnotations: vi.fn(),
   listLegacyCommitStatusesForHead: vi.fn(),
   isMissingChecksPermissionError: vi.fn((_error?: unknown) => false),
+  fetchCiLogContext: vi.fn(),
 }));
 
 vi.mock("../src/github/ciStatus.js", () => ({
   listCheckRunsForHead,
-  listCheckRunAnnotations,
+  listCheckRunAnnotations: vi.fn(),
   listLegacyCommitStatusesForHead,
   isMissingChecksPermissionError,
+}));
+
+vi.mock("../src/review/ci/fetchCiLogContext.js", () => ({
+  fetchCiLogContext,
 }));
 
 import {
@@ -24,14 +28,30 @@ import {
   isOwnCiCheckName,
   summarizeCiSnapshot,
 } from "../src/review/ci/analyzeCi.js";
+import type { CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
+
+const mockAuthor: CiSummaryAuthor = async (input) => ({
+  headline: `❌ CI failing — ${input.failingNames.join(", ")}`,
+  failures: input.failingNames.map((name) => ({
+    name,
+    reason: input.condensedLogs.includes("Format issues")
+      ? "Format issues found; run oxfmt to fix."
+      : input.condensedLogs.slice(0, 120) || "Check failed.",
+    fixHint: "Fix the reported failure locally, then re-push.",
+  })),
+});
 
 describe("analyzeCi", () => {
   beforeEach(() => {
     listCheckRunsForHead.mockReset();
-    listCheckRunAnnotations.mockReset();
     listLegacyCommitStatusesForHead.mockReset();
     isMissingChecksPermissionError.mockReset();
     isMissingChecksPermissionError.mockReturnValue(false);
+    fetchCiLogContext.mockReset();
+    fetchCiLogContext.mockResolvedValue({
+      condensedLogs: "Format issues found in above 1 files.",
+      checkOutputFallback: "Format issues found in above 1 files.",
+    });
   });
 
   it("recognizes PR Agent owned check names", () => {
@@ -81,7 +101,7 @@ describe("analyzeCi", () => {
     expect(summary.headline).toContain("still running");
   });
 
-  it("builds a failure digest from annotations", async () => {
+  it("authors failing CI from condensed logs via injected author", async () => {
     listCheckRunsForHead.mockResolvedValueOnce([
       {
         id: 10,
@@ -105,16 +125,6 @@ describe("analyzeCi", () => {
       },
     ]);
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listCheckRunAnnotations.mockResolvedValueOnce([
-      {
-        path: "src/foo.ts",
-        startLine: 12,
-        endLine: 12,
-        title: "Unexpected any",
-        message: "Unexpected any. Specify a different type.",
-        annotationLevel: "failure",
-      },
-    ]);
 
     const summary = await buildCiSummary({
       token: "t",
@@ -122,17 +132,17 @@ describe("analyzeCi", () => {
       repo: "r",
       headSha: "abc",
       waitMs: 0,
+      author: mockAuthor,
     });
 
     expect(summary.status).toBe("failing");
     expect(summary.headline).toContain("lint");
     expect(summary.failures).toHaveLength(1);
-    expect(summary.failures[0]?.reason).toContain("src/foo.ts:12");
-    expect(summary.failures[0]?.fixHint.toLowerCase()).toContain("lint");
-    expect(listCheckRunAnnotations).toHaveBeenCalledWith("t", "o", "r", 11, undefined);
+    expect(summary.failures[0]?.reason).toContain("Format issues");
+    expect(fetchCiLogContext).toHaveBeenCalled();
   });
 
-  it("skips annotation digests in lightweight mode", async () => {
+  it("skips log fetch and LLM in lightweight mode", async () => {
     listCheckRunsForHead.mockResolvedValueOnce([
       {
         id: 11,
@@ -154,11 +164,12 @@ describe("analyzeCi", () => {
       headSha: "abc",
       lightweight: true,
       waitMs: 0,
+      author: mockAuthor,
     });
 
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(0);
-    expect(listCheckRunAnnotations).not.toHaveBeenCalled();
+    expect(fetchCiLogContext).not.toHaveBeenCalled();
   });
 
   it("lightweight mode still lists failing check names in headline", async () => {
@@ -201,7 +212,7 @@ describe("analyzeCi", () => {
     expect(summary.failures).toHaveLength(0);
   });
 
-  it("caps total failures to maxFailures across checks and legacy statuses", async () => {
+  it("uses facts-only failures when author is omitted", async () => {
     listCheckRunsForHead.mockResolvedValueOnce([
       {
         id: 1,
@@ -213,55 +224,8 @@ describe("analyzeCi", () => {
         outputSummary: "build broke",
         outputText: null,
       },
-      {
-        id: 2,
-        name: "lint",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: "lint broke",
-        outputText: null,
-      },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([
-      {
-        context: "ci/ext",
-        state: "failure",
-        description: "ext failed",
-        targetUrl: null,
-      },
-    ]);
-    listCheckRunAnnotations.mockResolvedValue([]);
-
-    const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
-      headSha: "abc",
-      waitMs: 0,
-      maxFailures: 1,
-    });
-
-    expect(summary.failures).toHaveLength(1);
-    expect(summary.failures[0]?.name).toBe("build");
-  });
-
-  it("digests check outputText when annotations are empty", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
-      {
-        id: 11,
-        name: "unit",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: "Error: AssertionError: expected 2 to equal 1\n    at Object.<anonymous>",
-      },
     ]);
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listCheckRunAnnotations.mockResolvedValueOnce([]);
 
     const summary = await buildCiSummary({
       token: "t",
@@ -273,10 +237,11 @@ describe("analyzeCi", () => {
 
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(1);
-    expect(summary.failures[0]?.reason).toContain("AssertionError");
+    expect(summary.failures[0]?.reason).toContain("unavailable");
+    expect(fetchCiLogContext).toHaveBeenCalled();
   });
 
-  it("prefers check output over runner warning annotations", async () => {
+  it("prefers condensed format failure over Node deprecation in author input", async () => {
     listCheckRunsForHead.mockResolvedValueOnce([
       {
         id: 11,
@@ -286,22 +251,15 @@ describe("analyzeCi", () => {
         htmlUrl: "https://example.com/check",
         outputTitle: null,
         outputSummary: null,
-        outputText:
-          "Checking formatting...\n\nsrc/foo.ts (0ms)\n\nFormat issues found in above 1 files. Run without `--check` to fix.\nError: Process completed with exit code 1.",
+        outputText: "Format issues found",
       },
     ]);
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listCheckRunAnnotations.mockResolvedValueOnce([
-      {
-        path: ".github",
-        startLine: 2,
-        endLine: 2,
-        title: null,
-        message:
-          "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/cache@v4, actions/checkout@v4.",
-        annotationLevel: "warning",
-      },
-    ]);
+    fetchCiLogContext.mockResolvedValueOnce({
+      condensedLogs:
+        "Checking formatting...\nFormat issues found in above 1 files.\nError: Process completed with exit code 1.",
+      checkOutputFallback: "Node.js 20 is deprecated.",
+    });
 
     const summary = await buildCiSummary({
       token: "t",
@@ -309,97 +267,12 @@ describe("analyzeCi", () => {
       repo: "r",
       headSha: "abc",
       waitMs: 0,
+      author: mockAuthor,
     });
 
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(1);
-    expect(summary.failures[0]?.reason).toContain("Format issues found");
-    expect(summary.failures[0]?.reason).not.toContain("Node.js 20");
-    expect(summary.failures[0]?.fixHint.toLowerCase()).toMatch(/format|lint/);
-  });
-
-  it("ignores warning-only annotations when the check failed without output", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
-      {
-        id: 11,
-        name: "check",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: null,
-      },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listCheckRunAnnotations.mockResolvedValueOnce([
-      {
-        path: ".github",
-        startLine: 2,
-        endLine: 2,
-        title: null,
-        message: "Node.js 20 is deprecated.",
-        annotationLevel: "warning",
-      },
-    ]);
-
-    const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
-      headSha: "abc",
-      waitMs: 0,
-    });
-
-    expect(summary.status).toBe("failing");
-    expect(summary.failures).toHaveLength(1);
-    expect(summary.failures[0]?.reason).toContain("Check concluded failure");
-    expect(summary.failures[0]?.reason).not.toContain("Node.js 20");
-  });
-
-  it("still uses failure-level annotations when present", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
-      {
-        id: 11,
-        name: "lint",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: "Format issues found in above 1 files.",
-      },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listCheckRunAnnotations.mockResolvedValueOnce([
-      {
-        path: "src/foo.ts",
-        startLine: 12,
-        endLine: 12,
-        title: "Unexpected any",
-        message: "Unexpected any. Specify a different type.",
-        annotationLevel: "failure",
-      },
-      {
-        path: ".github",
-        startLine: 2,
-        endLine: 2,
-        title: null,
-        message: "Node.js 20 is deprecated.",
-        annotationLevel: "warning",
-      },
-    ]);
-
-    const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
-      headSha: "abc",
-      waitMs: 0,
-    });
-
-    expect(summary.failures[0]?.reason).toContain("src/foo.ts:12");
-    expect(summary.failures[0]?.reason).not.toContain("Format issues");
+    expect(summary.failures[0]?.reason).toContain("Format issues");
     expect(summary.failures[0]?.reason).not.toContain("Node.js 20");
   });
 
@@ -513,7 +386,7 @@ describe("analyzeCi", () => {
     expect(summary.status).toBe("unavailable");
   });
 
-  it("digests legacy commit status failures", async () => {
+  it("authors legacy commit status failures from facts + author", async () => {
     listCheckRunsForHead.mockResolvedValueOnce([]);
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([
       {
@@ -529,6 +402,10 @@ describe("analyzeCi", () => {
         targetUrl: null,
       },
     ]);
+    fetchCiLogContext.mockResolvedValueOnce({
+      condensedLogs: "",
+      checkOutputFallback: "The Travis CI build failed",
+    });
 
     const summary = await buildCiSummary({
       token: "t",
@@ -536,6 +413,16 @@ describe("analyzeCi", () => {
       repo: "r",
       headSha: "abc",
       waitMs: 0,
+      author: async () => ({
+        headline: "❌ CI failing — ci/travis",
+        failures: [
+          {
+            name: "ci/travis",
+            reason: "The Travis CI build failed",
+            fixHint: "Inspect Travis and re-push.",
+          },
+        ],
+      }),
     });
 
     expect(summary.status).toBe("failing");

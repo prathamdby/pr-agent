@@ -102,6 +102,7 @@ function slashTraceLayers(
             needsThreadRootResolution: input.needsThreadRootResolution,
           });
         }),
+      submitCiRefresh: () => Effect.void,
       ping: () => Effect.succeed(true),
     }),
   );
@@ -184,6 +185,7 @@ describe("WebhookHandlers Effect resolution", () => {
         recordIgnored: () => Effect.void,
         submitAutomatedReview: () => Effect.void,
         submitSlashCommand: () => Effect.fail(new Error("scheduler failed")),
+        submitCiRefresh: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -235,6 +237,7 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
+        submitCiRefresh: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );
@@ -285,6 +288,7 @@ describe("WebhookHandlers Effect resolution", () => {
           Effect.sync(() => {
             slash = true;
           }),
+        submitCiRefresh: () => Effect.void,
         ping: () => Effect.succeed(true),
       }),
     );

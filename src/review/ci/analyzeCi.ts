@@ -1,6 +1,5 @@
 import {
   isMissingChecksPermissionError,
-  listCheckRunAnnotations,
   listCheckRunsForHead,
   listLegacyCommitStatusesForHead,
 } from "../../github/ciStatus.js";
@@ -9,14 +8,19 @@ import {
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
 } from "../../settings/index.js";
-import { redactReviewText } from "../findings/reviewPublicOutput.js";
+import {
+  factsOnlyFailingSummary,
+  mergeCiSummaryWithFacts,
+  type CiAuthorInput,
+  type CiSummaryAuthor,
+} from "./authorCiSummary.js";
 import type {
-  CiCheckAnnotation,
   CiCheckRunSnapshot,
   CiFailureDetail,
   CiLegacyStatus,
   CiSummary,
 } from "./ciSummaryTypes.js";
+import { fetchCiLogContext } from "./fetchCiLogContext.js";
 
 const OWN_CHECK_NAME_PREFIX = "PR Agent";
 const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
@@ -34,21 +38,23 @@ const PENDING_CHECK_STATUSES = new Set([
 const FAILING_LEGACY_STATES = new Set(["failure", "error"]);
 const PENDING_LEGACY_STATES = new Set(["pending"]);
 
-const ERROR_LINE_RE =
-  /\b(error|failed|failure|FAIL|AssertionError|TypeError|ENOENT|ELIFECYCLE|✖|✗|×|format issues)\b/i;
-
 export type BuildCiSummaryOptions = {
   readonly token: string;
   readonly owner: string;
   readonly repo: string;
   readonly headSha: string;
   readonly expiresAtTs?: number;
-  /** Max failing checks to dig into with annotations. */
+  /** Max failing checks to dig into with logs. */
   readonly maxFailures?: number;
-  /** When true, skip annotation fetches (progress stub path). */
+  /** When true, skip log fetch and LLM (progress stub path). */
   readonly lightweight?: boolean;
   readonly waitMs?: number;
   readonly waitPollMs?: number;
+  /**
+   * Optional LLM author for failing CI (publish / refresh). When omitted on a failing
+   * non-lightweight path, returns a facts-only failing row (no static annotation digest).
+   */
+  readonly author?: CiSummaryAuthor;
 };
 
 function sleepMs(ms: number): Promise<void> {
@@ -80,103 +86,6 @@ function isLegacyPending(status: CiLegacyStatus): boolean {
 
 function isLegacyFailing(status: CiLegacyStatus): boolean {
   return FAILING_LEGACY_STATES.has(status.state);
-}
-
-function collapseWhitespace(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
-}
-
-function firstUsefulLine(text: string | null | undefined): string | null {
-  if (text == null) return null;
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => collapseWhitespace(line))
-    .filter((line) => line.length > 0);
-  const errorLine = lines.find((line) => ERROR_LINE_RE.test(line));
-  return errorLine ?? lines[0] ?? null;
-}
-
-function annotationReason(annotation: CiCheckAnnotation): string {
-  const location =
-    annotation.path.length > 0
-      ? annotation.startLine != null
-        ? `${annotation.path}:${annotation.startLine}`
-        : annotation.path
-      : null;
-  const message = collapseWhitespace(annotation.message);
-  const title = annotation.title != null ? collapseWhitespace(annotation.title) : null;
-  const body =
-    title != null && title.length > 0 && !message.includes(title)
-      ? `${title}: ${message}`
-      : message;
-  if (location != null) return `${location} — ${body}`;
-  return body;
-}
-
-function fixHintFromReason(name: string, reason: string): string {
-  const lower = `${name} ${reason}`.toLowerCase();
-  if (/\b(lint|eslint|oxlint|prettier|fmt|format)\b/.test(lower)) {
-    return "Fix the reported lint/format findings locally, then re-push.";
-  }
-  if (/\b(typecheck|tsc|typescript|type error)\b/.test(lower)) {
-    return "Resolve the TypeScript errors and re-run the typecheck job.";
-  }
-  if (/\b(test|spec|vitest|jest|pytest|assertion)\b/.test(lower)) {
-    return "Reproduce the failing test locally, fix the regression, and re-push.";
-  }
-  if (/\b(build|compile|bundle)\b/.test(lower)) {
-    return "Reproduce the build failure locally, fix the compile/bundle error, and re-push.";
-  }
-  return `Inspect the failing “${name}” check, fix the reported error, and re-push.`;
-}
-
-function firstAnnotationReason(
-  annotations: readonly CiCheckAnnotation[],
-  level: CiCheckAnnotation["annotationLevel"],
-): string | null {
-  const match = annotations.find((annotation) => annotation.annotationLevel === level);
-  return match != null ? annotationReason(match) : null;
-}
-
-function digestCheckFailure(
-  run: CiCheckRunSnapshot,
-  annotations: readonly CiCheckAnnotation[],
-): CiFailureDetail {
-  // Prefer real failure signals over runner warning annotations (e.g. Node 20
-  // deprecation on Actions), which otherwise mask the job's actual error.
-  const fromFailureAnnotation = firstAnnotationReason(annotations, "failure");
-  const fromOutput =
-    firstUsefulLine(run.outputText) ??
-    firstUsefulLine(run.outputSummary) ??
-    firstUsefulLine(run.outputTitle);
-  const fromWarningAnnotation = firstAnnotationReason(annotations, "warning");
-  const concluded =
-    run.conclusion != null ? `Check concluded ${run.conclusion.replace(/_/g, " ")}.` : null;
-  const reason =
-    fromFailureAnnotation ??
-    fromOutput ??
-    concluded ??
-    fromWarningAnnotation ??
-    "Check failed without a published summary.";
-  return {
-    name: run.name,
-    reason: redactReviewText(reason),
-    fixHint: redactReviewText(fixHintFromReason(run.name, reason)),
-    url: run.htmlUrl ?? undefined,
-  };
-}
-
-function digestLegacyFailure(status: CiLegacyStatus): CiFailureDetail {
-  const reason =
-    status.description != null && status.description.trim().length > 0
-      ? collapseWhitespace(status.description)
-      : `Commit status “${status.context}” is ${status.state}.`;
-  return {
-    name: status.context,
-    reason: redactReviewText(reason),
-    fixHint: redactReviewText(fixHintFromReason(status.context, reason)),
-    url: status.targetUrl ?? undefined,
-  };
 }
 
 async function loadExternalCi(
@@ -296,10 +205,44 @@ const UNAVAILABLE_CI_SUMMARY: CiSummary = {
   failures: [],
 };
 
+function buildAuthorInput(
+  snapshot: { checks: readonly CiCheckRunSnapshot[]; statuses: readonly CiLegacyStatus[] },
+  condensedLogs: string,
+  checkOutputFallback: string,
+): CiAuthorInput {
+  const failingChecks = snapshot.checks.filter(isCheckFailing);
+  const failingStatuses = snapshot.statuses.filter(isLegacyFailing);
+  const failingNames = [
+    ...failingChecks.map((run) => run.name),
+    ...failingStatuses.map((status) => status.context),
+  ];
+  const failingUrls = new Map<string, string | undefined>();
+  for (const run of failingChecks) {
+    failingUrls.set(run.name, run.htmlUrl ?? undefined);
+  }
+  for (const status of failingStatuses) {
+    failingUrls.set(status.context, status.targetUrl ?? undefined);
+  }
+  return {
+    status: "failing",
+    checkNames: [
+      ...snapshot.checks.map((run) => run.name),
+      ...snapshot.statuses.map((status) => status.context),
+    ],
+    failingNames: [...new Set(failingNames)],
+    failingUrls,
+    condensedLogs,
+    checkOutputFallback,
+  };
+}
+
 /**
  * Builds a CI summary for the review progress stub or completed review summary.
  * Soft-fails to `unavailable` when Checks permission is missing, the fetch errors,
  * or any unexpected exception escapes the helpers below.
+ *
+ * Failing non-lightweight paths fetch condensed Actions logs and optionally call
+ * `author` for model-authored reason/fixHint fields (ADR 0026).
  */
 export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
   try {
@@ -315,37 +258,27 @@ export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<Ci
 
     const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
     const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
-    const failures = await Promise.all(
-      failingChecks.map(async (run) => {
-        let annotations: CiCheckAnnotation[] = [];
-        try {
-          annotations = await listCheckRunAnnotations(
-            options.token,
-            options.owner,
-            options.repo,
-            run.id,
-            options.expiresAtTs,
-          );
-        } catch (error) {
-          if (!isMissingChecksPermissionError(error)) {
-            logDebug("review_ci_annotations_failed", {
-              owner: options.owner,
-              repo: options.repo,
-              checkRunId: run.id,
-              message: error instanceof Error ? error.message : String(error),
-            });
-          }
-        }
-        return digestCheckFailure(run, annotations);
-      }),
-    );
+    const { condensedLogs, checkOutputFallback } = await fetchCiLogContext({
+      token: options.token,
+      owner: options.owner,
+      repo: options.repo,
+      headSha: options.headSha,
+      expiresAtTs: options.expiresAtTs,
+      failingChecks,
+      maxFailures,
+    });
 
-    const remainingSlots = Math.max(0, maxFailures - failures.length);
-    for (const status of snapshot.statuses.filter(isLegacyFailing).slice(0, remainingSlots)) {
-      failures.push(digestLegacyFailure(status));
+    const authorInput = buildAuthorInput(snapshot, condensedLogs, checkOutputFallback);
+
+    if (options.author == null) {
+      return factsOnlyFailingSummary(authorInput);
     }
 
-    return summarizeCiSnapshot({ ...snapshot, failures });
+    const llm = await options.author(authorInput);
+    if (llm == null) {
+      return factsOnlyFailingSummary(authorInput);
+    }
+    return mergeCiSummaryWithFacts(authorInput, llm);
   } catch (error) {
     logWarn("review_ci_summary_build_failed", {
       owner: options.owner,

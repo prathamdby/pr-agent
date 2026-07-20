@@ -6,6 +6,8 @@ import {
   ACK_QUEUE,
   ASK_DEAD_LETTER_QUEUE,
   ASK_QUEUE,
+  CI_REFRESH_DEAD_LETTER_QUEUE,
+  CI_REFRESH_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
@@ -69,6 +71,7 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
     DESCRIPTION_DEAD_LETTER_QUEUE,
     TRIAGE_DEAD_LETTER_QUEUE,
     VERIFICATION_DEAD_LETTER_QUEUE,
+    CI_REFRESH_DEAD_LETTER_QUEUE,
   ] as const;
   await Promise.all(deadLetterQueues.map((name) => boss.createQueue(name, dlq)));
 
@@ -94,6 +97,11 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
       name: VERIFICATION_QUEUE,
       policy: "key_strict_fifo" as const,
       deadLetter: VERIFICATION_DEAD_LETTER_QUEUE,
+    },
+    {
+      name: CI_REFRESH_QUEUE,
+      policy: "standard" as const,
+      deadLetter: CI_REFRESH_DEAD_LETTER_QUEUE,
     },
   ] as const;
   await Promise.all(

@@ -7,6 +7,7 @@ import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
   ACK_QUEUE,
   ASK_QUEUE,
+  CI_REFRESH_QUEUE,
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
@@ -17,6 +18,7 @@ import {
 import {
   executeAckJob,
   executeAskJob,
+  executeCiRefreshJob,
   executeDescriptionJob,
   executeReviewJob,
   executeTriageJob,
@@ -25,6 +27,7 @@ import {
 import {
   type AckJobData,
   type AskJobData,
+  type CiRefreshJobData,
   type DescriptionJobData,
   type ReviewJobData,
   type TriageJobData,
@@ -39,6 +42,7 @@ const AGENT_QUEUE_STATS_QUEUES = [
   DESCRIPTION_QUEUE,
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
+  CI_REFRESH_QUEUE,
 ] as const;
 
 export async function logAgentQueueStats(boss: PgBoss): Promise<void> {
@@ -137,6 +141,12 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeAckJob(cfg, pool, job.data),
             ),
+            registerPlainQueue<CiRefreshJobData>(
+              boss,
+              CI_REFRESH_QUEUE,
+              { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
+              (job) => executeCiRefreshJob(cfg, job.data),
+            ),
             registerMetadataQueue<ReviewJobData>(
               boss,
               REVIEW_QUEUE,
@@ -194,6 +204,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           logInfo("agent_worker_started", {
             queues: [
               ACK_QUEUE,
+              CI_REFRESH_QUEUE,
               REVIEW_QUEUE,
               ASK_QUEUE,
               DESCRIPTION_QUEUE,
@@ -224,6 +235,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             await Promise.all(
               [
                 ACK_QUEUE,
+                CI_REFRESH_QUEUE,
                 REVIEW_QUEUE,
                 ASK_QUEUE,
                 DESCRIPTION_QUEUE,

@@ -125,6 +125,16 @@ export const REVIEW_CHECK_RUN_WAIT_POLL_MS = 100;
 /** Review CI summary (optional gate row): fallbacks when call sites omit wait/cap options. */
 export const REVIEW_CI_SUMMARY_WAIT_POLL_MS = 2_000;
 export const REVIEW_CI_SUMMARY_MAX_FAILURES = 3;
+/** Max bytes of condensed CI log context injected into the CI-summary LLM call. */
+export const REVIEW_CI_SUMMARY_LOG_MAX_BYTES = 24_000;
+/** Max characters kept from a single Actions job log before cross-job capping. */
+export const REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS = 12_000;
+/** Max jobs whose logs are downloaded for one CI summary. */
+export const REVIEW_CI_SUMMARY_LOG_MAX_JOBS = 3;
+/** Max chars for model-authored CI headline / reason / fixHint fields. */
+export const REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS = 240;
+export const REVIEW_CI_SUMMARY_REASON_MAX_CHARS = 400;
+export const REVIEW_CI_SUMMARY_FIX_HINT_MAX_CHARS = 280;
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */

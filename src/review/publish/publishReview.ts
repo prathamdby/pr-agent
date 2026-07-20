@@ -34,6 +34,7 @@ import {
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
 } from "../../settings/index.js";
 import { buildCiSummary } from "../ci/analyzeCi.js";
+import { createAgentCiSummaryAuthor, type CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import {
@@ -232,7 +233,7 @@ export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
     mode?: ReviewMode;
-    cfg: Pick<Config, "piModel" | "features">;
+    cfg: Config | Pick<Config, "piModel" | "features">;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
     /** Set when payload was already normalized, deduped, and validated by submitReview. */
@@ -246,6 +247,8 @@ export async function publishReview(
     storedInlineFingerprints?: readonly string[];
     /** Reuse placements already computed during prepare; recomputed when omitted. */
     inlinePlacements?: readonly InlinePlacement[];
+    /** Override CI LLM author (tests); production uses a tool-free agent turn. */
+    ciSummaryAuthor?: CiSummaryAuthor;
   },
 ): Promise<void> {
   const { token, owner, repo, prNumber, headSha, cfg, payload, publishState } = params;
@@ -361,6 +364,11 @@ export async function publishReview(
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
+  const ciAuthor: CiSummaryAuthor | undefined =
+    params.ciSummaryAuthor ??
+    ("agentProvider" in cfg && cfg.agentProvider != null
+      ? createAgentCiSummaryAuthor(cfg)
+      : undefined);
   const ciSummary = await buildCiSummary({
     token,
     owner,
@@ -370,6 +378,7 @@ export async function publishReview(
     waitMs: REVIEW_CI_SUMMARY_WAIT_MS,
     waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
+    author: ciAuthor,
   });
   const summaryBody = renderReviewSummaryComment(payload, {
     ...renderCtx,
