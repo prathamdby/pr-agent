@@ -1,0 +1,11 @@
+---
+globs:
+  - "src/agentWork/**"
+  - "src/effect/**"
+  - "src/index.ts"
+  - "src/worker.ts"
+  - "docker-compose.yml"
+  - "README.md"
+---
+
+If the PR changes web vs worker responsibilities, Postgres or pg-boss role, webhook route, queue lanes, or which executor owns a work type, update the README Mermaid "How It Works" diagram in the same PR. Prompt or publish-only tweaks that do not change diagram boxes or arrows do not require it.

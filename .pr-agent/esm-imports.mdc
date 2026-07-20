@@ -1,0 +1,1 @@
+Use ESM `.js` extensions on relative TypeScript imports (NodeNext). Import concrete modules (for example `src/review/reviewSchema.js`), not removed barrel `index.ts` files. Exception: `src/settings/index.js` (and `constants.js` re-exports) is the intentional settings barrel. Do not reintroduce path aliases that bypass `.js` resolution.

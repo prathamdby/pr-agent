@@ -1,0 +1,12 @@
+---
+globs:
+  - "src/review/prompts/**"
+  - "src/agent/prompts/**"
+  - "src/agent/ask/**"
+  - "src/agent/description/**"
+  - "src/agent/triage/**"
+  - "src/agent/verification/**"
+  - "src/settings/**"
+---
+
+Long investigator prompt blocks stay in prompt modules under `src/review/prompts/` and `src/agent/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Do not relocate large prompt prose into settings, and do not hardcode new shared user-facing strings in feature modules when a settings constant should own them.

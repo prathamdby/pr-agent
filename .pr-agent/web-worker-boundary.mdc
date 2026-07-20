@@ -1,0 +1,9 @@
+---
+globs:
+  - "src/agentWork/**"
+  - "src/effect/**"
+  - "src/webhook/**"
+  - "src/commands/**"
+---
+
+Webhook path stays verify → parse → durable dedupe/enqueue → respond. Do not mint installation tokens or perform PR-surface I/O (acknowledgement reactions, review progress comments, reviews, ask replies, labels) on the web fiber — workers own that. Agent work items store `installationId`; mint tokens at execution time (ADR 0009).

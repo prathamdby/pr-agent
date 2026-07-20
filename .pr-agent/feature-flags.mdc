@@ -1,0 +1,11 @@
+---
+globs:
+  - "src/settings/**"
+  - "src/config.ts"
+  - ".env.example"
+  - "docs/features.md"
+  - "docs/configuration.md"
+  - "test/settingsInventory.test.ts"
+---
+
+User-facing capability changes must use `FEATURE_*` only. Do not reintroduce removed `ENABLE_*`, `*_AUTO_ACTIONS`, or `DESCRIPTION_GENERATE_TITLE` (no aliases). Keep each feature's allowed modes; `FEATURE_REVIEW` has no `off`. Invalid modes must fail startup, never silently disable. Every `FEATURE_*` key must stay documented in `docs/features.md` and covered by `test/settingsInventory.test.ts`.
