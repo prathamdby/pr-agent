@@ -140,7 +140,7 @@ describe("publishReview commit status", () => {
   it("posts failure when published findings include P1", async () => {
     await publishReviewForTest({
       ...baseParams,
-      cfg: { ...baseParams.cfg, enableReviewCommitStatus: true },
+      cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
       publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
@@ -177,7 +177,7 @@ describe("publishReview commit status", () => {
 
     await publishReviewForTest({
       ...baseParams,
-      cfg: { ...baseParams.cfg, enableReviewCommitStatus: true },
+      cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
       payload: p2Payload,
       publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
@@ -203,7 +203,7 @@ describe("publishReview commit status", () => {
     await expect(
       publishReviewForTest({
         ...baseParams,
-        cfg: { ...baseParams.cfg, enableReviewCommitStatus: true },
+        cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
         publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
         cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       }),

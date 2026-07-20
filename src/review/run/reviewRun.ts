@@ -123,11 +123,7 @@ export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRu
     if (!shouldContinueReviewRun(setup)) return;
 
     let anchorMenuBlock: string | undefined;
-    if (
-      cfg.reviewInjectAnchorMenu &&
-      setup.cachedDiffIndex.files.size > 0 &&
-      shouldContinueReviewRun(setup)
-    ) {
+    if (setup.cachedDiffIndex.files.size > 0 && shouldContinueReviewRun(setup)) {
       anchorMenuBlock = renderAnchorMenuBlock(setup.cachedDiffIndex, {
         maxFiles: REVIEW_ANCHOR_MENU_MAX_FILES,
         maxRangesPerFile: REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,

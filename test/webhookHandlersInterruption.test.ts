@@ -32,7 +32,6 @@ vi.mock("../src/github/appAuth.js", async (importOriginal) => {
 
 const cfg = makeTestConfig({
   askConcurrency: 1,
-  enableReviewLabelsEffort: false,
 });
 
 const issueCommentData: IssueCommentWebhookPayload = {

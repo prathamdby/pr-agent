@@ -114,7 +114,6 @@ export function buildSubmitReviewTool(params: {
     const enforceDiffAndAnchors = params.canEnforceDiffCacheBeforeSubmit?.() ?? true;
 
     if (
-      params.cfg.reviewRequireDiffCacheBeforeSubmit &&
       params.cachedDiffIndex &&
       !params.cachedDiffIndex.listPullRequestFilesIngested &&
       enforceDiffAndAnchors

@@ -46,7 +46,6 @@ const cursorCfg = makeTestConfig({
   cursorApiKey: "cursor_test_key",
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
 });
 
 const cursorCatalog = [

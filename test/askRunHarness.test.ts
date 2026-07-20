@@ -28,7 +28,6 @@ import { runAskRun } from "../src/agent/ask/askRun.js";
 const cfg = makeTestConfig({
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
 });
 
 const askParams = {

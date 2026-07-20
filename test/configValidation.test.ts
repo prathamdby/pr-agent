@@ -63,13 +63,9 @@ describe("loadConfig validation", () => {
   });
 
   it("parses boolean knobs by exact 'true'", async () => {
-    expect((await load({ ENABLE_REVIEW_LABELS_EFFORT: "false" })).enableReviewLabelsEffort).toBe(
-      false,
-    );
-    expect((await load({ ENABLE_REVIEW_LABELS_EFFORT: "true" })).enableReviewLabelsEffort).toBe(
-      true,
-    );
-    expect((await load({ ENABLE_REVIEW_LABELS_EFFORT: "1" })).enableReviewLabelsEffort).toBe(false);
+    expect((await load({ LOG_REDACT: "false" })).logRedact).toBe(false);
+    expect((await load({ LOG_REDACT: "true" })).logRedact).toBe(true);
+    expect((await load({ LOG_REDACT: "1" })).logRedact).toBe(false);
   });
 
   it("rejects an invalid enum", async () => {

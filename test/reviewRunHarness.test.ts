@@ -132,17 +132,6 @@ describe("runFullPrReview harness behavior", () => {
     expect(sendMock.mock.calls[2]?.[0]).toBe(PRE_SUBMIT_REMINDER);
   });
 
-  it("keeps the round-0 prompt unchanged when the anchor menu is disabled", async () => {
-    await runHarness({ reviewInjectAnchorMenu: false });
-
-    expect(sendMock).toHaveBeenCalledTimes(3);
-    expect(sendMock.mock.calls[0]?.[0]).toBe("investigate");
-    expect(sendMock.mock.calls[1]?.[0]).toBe(
-      [PRE_SUBMIT_ROUND0_PROMPT, PROSE_ONLY_NUDGE].join("\n\n"),
-    );
-    expect(sendMock.mock.calls[2]?.[0]).toBe(PRE_SUBMIT_REMINDER);
-  });
-
   it("keeps the round-0 prompt unchanged when the diff index is empty", async () => {
     cachedDiffIndex = emptyDiffIndex();
 

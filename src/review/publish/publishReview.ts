@@ -232,13 +232,7 @@ export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
     mode?: ReviewMode;
-    cfg: Pick<
-      Config,
-      | "piModel"
-      | "enableReviewLabelsEffort"
-      | "enableReviewLabelsSecurity"
-      | "enableReviewCommitStatus"
-    >;
+    cfg: Pick<Config, "piModel" | "features">;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
     /** Set when payload was already normalized, deduped, and validated by submitReview. */
@@ -455,7 +449,7 @@ export async function publishReview(
     });
   }
 
-  if (cfg.enableReviewCommitStatus) {
+  if (cfg.features.commitStatus) {
     try {
       await setReviewCommitStatus(
         token,
@@ -504,8 +498,9 @@ export async function publishReview(
   const wantsCategoryLabel = dominantReviewCategory(payload.findings) != null;
   const syncCategoryLabels =
     mode === "review" && (wantsCategoryLabel || hasManagedCategoryLabel(currentLabels));
-  const shouldSyncLabels =
-    cfg.enableReviewLabelsEffort || cfg.enableReviewLabelsSecurity || syncCategoryLabels;
+  const syncEffortLabel = cfg.features.reviewLabels !== "off";
+  const syncSecurityLabel = cfg.features.reviewLabels === "effort+security";
+  const shouldSyncLabels = syncEffortLabel || syncSecurityLabel || syncCategoryLabels;
 
   if (shouldSyncLabels) {
     try {
@@ -514,8 +509,8 @@ export async function publishReview(
           currentLabels,
           payload,
           {
-            effort: cfg.enableReviewLabelsEffort,
-            security: cfg.enableReviewLabelsSecurity,
+            effort: syncEffortLabel,
+            security: syncSecurityLabel,
             category: syncCategoryLabels,
           },
           mode,
@@ -529,8 +524,8 @@ export async function publishReview(
       const managed = reviewLabelsFromPayload(
         payload,
         {
-          effort: cfg.enableReviewLabelsEffort,
-          security: cfg.enableReviewLabelsSecurity,
+          effort: syncEffortLabel,
+          security: syncSecurityLabel,
           category: syncCategoryLabels,
         },
         mode,

@@ -2,6 +2,7 @@ import { vi } from "vitest";
 import type { ReviewPayload } from "../../src/review/reviewSchema.js";
 import type * as reviewPublish from "../../src/github/reviewPublish.js";
 import { makeReviewPayload } from "./reviewPayloadFactory.js";
+import { makeTestConfig } from "./config.js";
 
 export const publishReviewTestPayload: ReviewPayload = makeReviewPayload({
   prCharacter: "Test PR.",
@@ -27,9 +28,7 @@ export const publishReviewTestBaseParams = {
   hasDescriptionAgentBlock: false,
   cfg: {
     piModel: "gpt-4o-mini",
-    enableReviewLabelsEffort: false,
-    enableReviewLabelsSecurity: false,
-    enableReviewCommitStatus: false,
+    features: { ...makeTestConfig().features, reviewLabels: "off" as const },
   },
   payload: publishReviewTestPayload,
 };

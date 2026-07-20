@@ -23,7 +23,6 @@ import { makeTestConfig } from "./helpers/config.js";
 
 const testCfg = makeTestConfig({
   webhookSecret: "secret",
-  enableReviewLabelsEffort: false,
 });
 
 function get(port: number, path: string): Promise<{ status: number; body: string }> {

@@ -18,16 +18,12 @@ import {
   DEFAULT_AGENT_PROVIDER,
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_DESCRIPTION_CONCURRENCY,
-  DEFAULT_DESCRIPTION_GENERATE_TITLE,
   DEFAULT_VERIFICATION_CONCURRENCY,
   DEFAULT_CONTEXT7_API_KEY,
   DEFAULT_CURSOR_API_KEY,
   DEFAULT_CURSOR_RIPGREP_PATH,
   DEFAULT_POSTHOG_PROJECT_TOKEN,
   DEFAULT_POSTHOG_HOST,
-  DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
-  DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
-  DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_REDACT,
@@ -44,8 +40,6 @@ import {
   DEFAULT_QUEUE_RETRY_DELAY_SECONDS,
   DEFAULT_QUEUE_RETRY_LIMIT,
   DEFAULT_REVIEW_CONCURRENCY,
-  DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
-  DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
   DEFAULT_ROLE,
   DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_SECONDS,
   DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
@@ -250,10 +244,6 @@ export async function loadConfig() {
     ENV.VERIFICATION_CONCURRENCY,
     DEFAULT_VERIFICATION_CONCURRENCY,
   );
-  const descriptionGenerateTitle = readBooleanEnv(
-    ENV.DESCRIPTION_GENERATE_TITLE,
-    DEFAULT_DESCRIPTION_GENERATE_TITLE,
-  );
   const slashAllowedAssociations = readSlashAllowedAssociations(
     ENV.SLASH_ALLOWED_ASSOCIATIONS,
     DEFAULT_SLASH_ALLOWED_ASSOCIATIONS,
@@ -319,19 +309,6 @@ export async function loadConfig() {
 
   const context7ApiKey = optionalEnv(ENV.CONTEXT7_API_KEY, DEFAULT_CONTEXT7_API_KEY);
 
-  const enableReviewLabelsEffort = readBooleanEnv(
-    ENV.ENABLE_REVIEW_LABELS_EFFORT,
-    DEFAULT_ENABLE_REVIEW_LABELS_EFFORT,
-  );
-  const enableReviewLabelsSecurity = readBooleanEnv(
-    ENV.ENABLE_REVIEW_LABELS_SECURITY,
-    DEFAULT_ENABLE_REVIEW_LABELS_SECURITY,
-  );
-  const enableReviewCommitStatus = readBooleanEnv(
-    ENV.ENABLE_REVIEW_COMMIT_STATUS,
-    DEFAULT_ENABLE_REVIEW_COMMIT_STATUS,
-  );
-
   const logLevel = readEnum(
     ENV.LOG_LEVEL,
     ["debug", "info", "warn", "error"] as const,
@@ -341,15 +318,6 @@ export async function loadConfig() {
   const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
   const logPretty = optionalEnv(ENV.LOG_PRETTY, logPrettyDefault) === "true";
   const logRedact = readBooleanEnv(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
-
-  const reviewInjectAnchorMenu = readBooleanEnv(
-    ENV.REVIEW_INJECT_ANCHOR_MENU,
-    DEFAULT_REVIEW_INJECT_ANCHOR_MENU,
-  );
-  const reviewRequireDiffCacheBeforeSubmit = readBooleanEnv(
-    ENV.REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
-    DEFAULT_REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT,
-  );
 
   const features = {
     review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
@@ -391,7 +359,6 @@ export async function loadConfig() {
     descriptionConcurrency,
     triageConcurrency,
     verificationConcurrency,
-    descriptionGenerateTitle,
     slashAllowedAssociations,
     queueRetryLimit,
     queueRetryDelaySeconds,
@@ -412,14 +379,9 @@ export async function loadConfig() {
     cursorRipgrepPath,
     posthogProjectToken,
     posthogHost,
-    enableReviewLabelsEffort,
-    enableReviewLabelsSecurity,
-    enableReviewCommitStatus,
     logLevel,
     logPretty,
     logRedact,
-    reviewInjectAnchorMenu,
-    reviewRequireDiffCacheBeforeSubmit,
   };
 }
 

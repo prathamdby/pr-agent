@@ -41,7 +41,6 @@ const cfg = makeTestConfig({
   port: 3000,
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
   logLevel: "info",
 });
 

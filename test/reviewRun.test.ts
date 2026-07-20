@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as evlog from "../src/evlog.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+import { ingestListPullRequestFilesResult } from "../src/review/placement/reviewDiffIndex.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   createIssueComment: vi.fn(async () => ({
@@ -50,10 +51,11 @@ import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTes
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
+const baseCfg = makeTestConfig();
 const cfg = makeTestConfig({
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
+  features: { ...baseCfg.features, reviewLabels: "off" },
 });
 
 const farFutureTokenExpiry = Date.now() + 3_600_000;
@@ -224,9 +226,13 @@ describe("runFullPrReview publish retries", () => {
       return { text: "aborted review attempt" };
     });
 
+    const workspace = mockLocalPrWorkspace();
+    ingestListPullRequestFilesResult(workspace.diffIndex, {
+      files: [{ filename: "src/x.ts", patch: ["@@ -1,1 +1,2 @@", " x", "+y"].join("\n") }],
+    });
     const result = await runFullPrReview(
       reviewParams({
-        cfg: { ...cfg, reviewRequireDiffCacheBeforeSubmit: false },
+        workspace,
         shouldAbortPublish: async () => true,
       }),
     );

@@ -90,7 +90,6 @@ const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
   reviewConcurrency: 1,
   askConcurrency: 3,
-  enableReviewLabelsEffort: false,
 });
 
 describe("piAgentRunnerProvider.createSession models.json", () => {

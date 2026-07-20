@@ -38,7 +38,6 @@ const baseTestConfig: Config = {
   descriptionConcurrency: 1,
   triageConcurrency: 1,
   verificationConcurrency: 1,
-  descriptionGenerateTitle: false,
   queueRetryLimit: 3,
   queueRetryDelaySeconds: 30,
   queueRetryDelayMaxSeconds: 300,
@@ -59,14 +58,9 @@ const baseTestConfig: Config = {
   cursorRipgrepPath: "",
   posthogProjectToken: "",
   posthogHost: "",
-  enableReviewLabelsEffort: true,
-  enableReviewLabelsSecurity: false,
-  enableReviewCommitStatus: false,
   logLevel: "error",
   logPretty: false,
   logRedact: true,
-  reviewInjectAnchorMenu: true,
-  reviewRequireDiffCacheBeforeSubmit: true,
 };
 
 export function makeTestConfig(overrides: TestConfigOverrides = {}): Config {
