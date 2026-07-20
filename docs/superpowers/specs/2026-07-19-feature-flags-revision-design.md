@@ -28,16 +28,16 @@ Everything else (~37 vars) is deleted and hardcoded as named constants.
 
 ## Feature tier
 
-| Var | States | Default | Replaces |
-|---|---|---|---|
-| `FEATURE_REVIEW` | `manual` \| `auto` | `auto` | `REVIEW_AUTO_ACTIONS` |
-| `FEATURE_DESCRIBE` | `off` \| `manual` \| `auto` | `auto` | `DESCRIPTION_AUTO_ACTIONS` |
-| `FEATURE_VERIFICATION` | `off` \| `auto` | `auto` | `VERIFICATION_AUTO_ACTIONS` |
-| `FEATURE_ASK` | `off` \| `manual` | `manual` | new (always-on today) |
-| `FEATURE_TRIAGE` | `off` \| `manual` | `manual` | new (always-on today) |
+| Var                     | States                                 | Default  | Replaces                                                       |
+| ----------------------- | -------------------------------------- | -------- | -------------------------------------------------------------- |
+| `FEATURE_REVIEW`        | `manual` \| `auto`                     | `auto`   | `REVIEW_AUTO_ACTIONS`                                          |
+| `FEATURE_DESCRIBE`      | `off` \| `manual` \| `auto`            | `auto`   | `DESCRIPTION_AUTO_ACTIONS`                                     |
+| `FEATURE_VERIFICATION`  | `off` \| `auto`                        | `auto`   | `VERIFICATION_AUTO_ACTIONS`                                    |
+| `FEATURE_ASK`           | `off` \| `manual`                      | `manual` | new (always-on today)                                          |
+| `FEATURE_TRIAGE`        | `off` \| `manual`                      | `manual` | new (always-on today)                                          |
 | `FEATURE_REVIEW_LABELS` | `off` \| `effort` \| `effort+security` | `effort` | `ENABLE_REVIEW_LABELS_EFFORT`, `ENABLE_REVIEW_LABELS_SECURITY` |
-| `FEATURE_COMMIT_STATUS` | `false` \| `true` | `false` | `ENABLE_REVIEW_COMMIT_STATUS` |
-| `FEATURE_TITLE_REWRITE` | `false` \| `true` | `false` | `DESCRIPTION_GENERATE_TITLE` |
+| `FEATURE_COMMIT_STATUS` | `false` \| `true`                      | `false`  | `ENABLE_REVIEW_COMMIT_STATUS`                                  |
+| `FEATURE_TITLE_REWRITE` | `false` \| `true`                      | `false`  | `DESCRIPTION_GENERATE_TITLE`                                   |
 
 Semantics:
 

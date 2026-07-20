@@ -24,11 +24,13 @@
 ### Task 1: Feature modes module
 
 **Files:**
+
 - Create: `src/settings/featureModes.ts`
 - Modify: `src/settings/index.ts` (add `export * from "./featureModes.js";` alongside existing re-exports)
 - Test: `test/featureModes.test.ts`
 
 **Interfaces:**
+
 - Produces: `Features` type, per-capability mode unions, `DEFAULT_FEATURE_*` constants, `AUTO_TRIGGER_ACTIONS` map. Later tasks import all of these from `../../settings/index.js`.
 
 - [ ] **Step 1: Write the failing test**
@@ -142,11 +144,13 @@ git commit -m "feat: add feature mode settings module"
 ### Task 2: Removed-env guard module
 
 **Files:**
+
 - Create: `src/settings/removedEnv.ts`
 - Modify: `src/settings/index.ts` (add `export * from "./removedEnv.js";`)
 - Test: `test/removedEnv.test.ts`
 
 **Interfaces:**
+
 - Produces: `REMOVED_ENV: Readonly<Record<string, string>>` (removed var name → operator guidance) and `assertNoRemovedEnv(env: Record<string, string | undefined>): void` which throws listing **every** offending var. Task 7 wires the call into `loadConfig()`; do NOT call it from `loadConfig()` in this task (old vars are still parsed until Tasks 4-6 remove them).
 
 - [ ] **Step 1: Write the failing test**
@@ -167,7 +171,9 @@ describe("removed env guard", () => {
         ENABLE_REVIEW_COMMIT_STATUS: "true",
         MAX_TOOL_ROUNDS: "24",
       }),
-    ).toThrow(/ENABLE_REVIEW_COMMIT_STATUS.*FEATURE_COMMIT_STATUS[\s\S]*MAX_TOOL_ROUNDS.*hardcoded/);
+    ).toThrow(
+      /ENABLE_REVIEW_COMMIT_STATUS.*FEATURE_COMMIT_STATUS[\s\S]*MAX_TOOL_ROUNDS.*hardcoded/,
+    );
   });
 
   it("covers all replaced flag and auto-action vars", () => {
@@ -203,13 +209,17 @@ Expected: FAIL — module does not exist.
 const HARDCODED = "was removed and is now hardcoded; delete it from the environment";
 
 export const REMOVED_ENV: Readonly<Record<string, string>> = {
-  ENABLE_REVIEW_LABELS_EFFORT: "was removed — use FEATURE_REVIEW_LABELS (off | effort | effort+security)",
-  ENABLE_REVIEW_LABELS_SECURITY: "was removed — use FEATURE_REVIEW_LABELS (off | effort | effort+security)",
+  ENABLE_REVIEW_LABELS_EFFORT:
+    "was removed — use FEATURE_REVIEW_LABELS (off | effort | effort+security)",
+  ENABLE_REVIEW_LABELS_SECURITY:
+    "was removed — use FEATURE_REVIEW_LABELS (off | effort | effort+security)",
   ENABLE_REVIEW_COMMIT_STATUS: "was removed — use FEATURE_COMMIT_STATUS (true | false)",
   DESCRIPTION_GENERATE_TITLE: "was removed — use FEATURE_TITLE_REWRITE (true | false)",
   REVIEW_AUTO_ACTIONS: "was removed — use FEATURE_REVIEW (manual | auto); auto reviews on opened",
-  DESCRIPTION_AUTO_ACTIONS: "was removed — use FEATURE_DESCRIBE (off | manual | auto); auto describes on opened",
-  VERIFICATION_AUTO_ACTIONS: "was removed — use FEATURE_VERIFICATION (off | auto); auto verifies on synchronize",
+  DESCRIPTION_AUTO_ACTIONS:
+    "was removed — use FEATURE_DESCRIBE (off | manual | auto); auto describes on opened",
+  VERIFICATION_AUTO_ACTIONS:
+    "was removed — use FEATURE_VERIFICATION (off | auto); auto verifies on synchronize",
   REVIEW_INJECT_ANCHOR_MENU: "was removed; the anchor menu is always on",
   REVIEW_REQUIRE_DIFF_CACHE_BEFORE_SUBMIT: "was removed; the diff-cache gate is always on",
   MAX_TOOL_ROUNDS: HARDCODED,
@@ -276,12 +286,14 @@ git commit -m "feat: add removed-env fail-fast guard"
 Old vars keep working in this task; removal happens in Tasks 4-6.
 
 **Files:**
+
 - Modify: `src/settings/envKeys.ts` (add 8 `FEATURE_*` keys to `ENV`)
 - Modify: `src/config.ts` (parse `features`, add to return object)
 - Modify: `.env.example` (add a `# --- Features (docs/features.md) ---` block at the top of the settings, after the HTTP/role block, listing all 8 with defaults)
 - Test: `test/featureConfig.test.ts`
 
 **Interfaces:**
+
 - Consumes: Task 1 types/defaults.
 - Produces: `Config["features"]: Features`. Parsing uses the existing `readEnum` helper (`src/config.ts:120-126`) — it already throws on invalid values. Booleans parse via `readEnum(name, ["true","false"] as const, ...) === "true"` so typos fail instead of silently becoming false.
 
@@ -323,8 +335,12 @@ describe("feature config", () => {
   });
 
   it("rejects invalid modes", async () => {
-    await expect(loadConfigWithBaseEnv({ FEATURE_REVIEW: "off" })).rejects.toThrow(/FEATURE_REVIEW/);
-    await expect(loadConfigWithBaseEnv({ FEATURE_TITLE_REWRITE: "yes" })).rejects.toThrow(/FEATURE_TITLE_REWRITE/);
+    await expect(loadConfigWithBaseEnv({ FEATURE_REVIEW: "off" })).rejects.toThrow(
+      /FEATURE_REVIEW/,
+    );
+    await expect(loadConfigWithBaseEnv({ FEATURE_TITLE_REWRITE: "yes" })).rejects.toThrow(
+      /FEATURE_TITLE_REWRITE/,
+    );
   });
 });
 ```
@@ -352,22 +368,34 @@ Expected: FAIL — `cfg.features` undefined / `FEATURE_*` not in ENV.
 `src/config.ts` — import the Task 1 symbols from `./settings/index.js`, then before the return object:
 
 ```ts
-  const features = {
-    review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
-    describe: readEnum(ENV.FEATURE_DESCRIBE, DESCRIBE_FEATURE_MODES, DEFAULT_FEATURE_DESCRIBE),
-    verification: readEnum(
-      ENV.FEATURE_VERIFICATION,
-      VERIFICATION_FEATURE_MODES,
-      DEFAULT_FEATURE_VERIFICATION,
-    ),
-    ask: readEnum(ENV.FEATURE_ASK, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_ASK),
-    triage: readEnum(ENV.FEATURE_TRIAGE, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_TRIAGE),
-    reviewLabels: readEnum(ENV.FEATURE_REVIEW_LABELS, REVIEW_LABELS_MODES, DEFAULT_FEATURE_REVIEW_LABELS),
-    commitStatus:
-      readEnum(ENV.FEATURE_COMMIT_STATUS, ["true", "false"] as const, String(DEFAULT_FEATURE_COMMIT_STATUS) as "true" | "false") === "true",
-    titleRewrite:
-      readEnum(ENV.FEATURE_TITLE_REWRITE, ["true", "false"] as const, String(DEFAULT_FEATURE_TITLE_REWRITE) as "true" | "false") === "true",
-  } satisfies Features;
+const features = {
+  review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),
+  describe: readEnum(ENV.FEATURE_DESCRIBE, DESCRIBE_FEATURE_MODES, DEFAULT_FEATURE_DESCRIBE),
+  verification: readEnum(
+    ENV.FEATURE_VERIFICATION,
+    VERIFICATION_FEATURE_MODES,
+    DEFAULT_FEATURE_VERIFICATION,
+  ),
+  ask: readEnum(ENV.FEATURE_ASK, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_ASK),
+  triage: readEnum(ENV.FEATURE_TRIAGE, COMMAND_FEATURE_MODES, DEFAULT_FEATURE_TRIAGE),
+  reviewLabels: readEnum(
+    ENV.FEATURE_REVIEW_LABELS,
+    REVIEW_LABELS_MODES,
+    DEFAULT_FEATURE_REVIEW_LABELS,
+  ),
+  commitStatus:
+    readEnum(
+      ENV.FEATURE_COMMIT_STATUS,
+      ["true", "false"] as const,
+      String(DEFAULT_FEATURE_COMMIT_STATUS) as "true" | "false",
+    ) === "true",
+  titleRewrite:
+    readEnum(
+      ENV.FEATURE_TITLE_REWRITE,
+      ["true", "false"] as const,
+      String(DEFAULT_FEATURE_TITLE_REWRITE) as "true" | "false",
+    ) === "true",
+} satisfies Features;
 ```
 
 Add `features,` to the return object (after `role,`).
@@ -407,6 +435,7 @@ git commit -m "feat: parse FEATURE_* modes into cfg.features"
 Delete ~30 env vars (all "now hardcoded" entries in `REMOVED_ENV` from Task 2) and switch consumers to imported constants. One commit; the tree must typecheck at the end.
 
 **Files:**
+
 - Modify: `src/settings/envKeys.ts`, `src/settings/defaults.ts`, `src/config.ts`, `.env.example`
 - Modify: `src/settings/reviewConstants.ts`, `src/settings/descriptionConstants.ts`, `src/settings/triageConstants.ts`, `src/settings/askConstants.ts`, `src/settings/workspaceConstants.ts`, `src/settings/context7Constants.ts`, `src/settings/loggingConstants.ts`, `src/settings/constants.ts`
 - Create: `src/settings/verificationConstants.ts`
@@ -414,32 +443,33 @@ Delete ~30 env vars (all "now hardcoded" entries in `REMOVED_ENV` from Task 2) a
 - Test: existing suites; `test/settingsInventory.test.ts` (drop the `DEFAULT_MAX_PR_FILES_LISTED`/`DEFAULT_MAX_PR_FILES_PATCH_BYTES`/`DEFAULT_WEBHOOK_MAX_BODY_BYTES` example-value assertions — those keys leave `.env.example`; keep `documented.length` check but lower the floor to `> 15`)
 
 **Interfaces:**
+
 - Produces: constants named by dropping the `DEFAULT_` prefix, exported via `src/settings/index.js`. Mapping (constant = current default value from `src/settings/defaults.ts`):
 
-| Removed env var / Config field | New constant | Home |
-|---|---|---|
-| `MAX_TOOL_ROUNDS` / `maxToolRounds` | `MAX_TOOL_ROUNDS = 24` | reviewConstants.ts |
-| `MAX_REVIEW_PUBLISH_ATTEMPTS` | `MAX_REVIEW_PUBLISH_ATTEMPTS = 3` | reviewConstants.ts |
-| `MAX_REVIEW_PUBLISH_CALLS` | `MAX_REVIEW_PUBLISH_CALLS = 2` | reviewConstants.ts |
-| `REVIEW_MIN_CONFIDENCE` | `REVIEW_MIN_CONFIDENCE = 1` | reviewConstants.ts |
-| `MAX_PR_FILES_LISTED` | `MAX_PR_FILES_LISTED = 300` | reviewConstants.ts |
-| `MAX_PR_FILES_PATCH_BYTES` | `MAX_PR_FILES_PATCH_BYTES = 500_000` | reviewConstants.ts |
-| `REVIEW_CI_SUMMARY_WAIT_MS` | `REVIEW_CI_SUMMARY_WAIT_MS = 15_000` | reviewConstants.ts |
-| `REVIEW_CI_SUMMARY_WAIT_POLL_MS` | `REVIEW_CI_SUMMARY_WAIT_POLL_MS = 2_000` | reviewConstants.ts |
-| `REVIEW_CI_SUMMARY_MAX_FAILURES` | `REVIEW_CI_SUMMARY_MAX_FAILURES = 3` | reviewConstants.ts |
-| `REVIEW_ANCHOR_MENU_MAX_FILES` | `REVIEW_ANCHOR_MENU_MAX_FILES = 40` | reviewConstants.ts |
-| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE = 20` | reviewConstants.ts |
-| `MAX_TOOL_ROUNDS_DESCRIBE` | `MAX_TOOL_ROUNDS_DESCRIBE = 16` | descriptionConstants.ts |
-| `MAX_TOOL_ROUNDS_TRIAGE` | `MAX_TOOL_ROUNDS_TRIAGE = 32` | triageConstants.ts |
-| `MAX_TRIAGE_FIXES_PER_RUN` | `MAX_TRIAGE_FIXES_PER_RUN = 10` | triageConstants.ts |
-| `MAX_TOOL_ROUNDS_VERIFICATION` | `MAX_TOOL_ROUNDS_VERIFICATION = 32` | verificationConstants.ts (new) |
-| `MAX_ASK_TOOL_ROUNDS` | `MAX_ASK_TOOL_ROUNDS = 12` | askConstants.ts |
-| `MAX_ASK_FINALIZE_ROUNDS` | `MAX_ASK_FINALIZE_ROUNDS = 2` | askConstants.ts |
-| 12× `LOCAL_WORKSPACE_*` | same names, values from defaults.ts:82-94 | workspaceConstants.ts |
-| `CONTEXT7_RESPONSE_BYTES` | `CONTEXT7_RESPONSE_BYTES = 64_000` | context7Constants.ts |
-| `LOG_MAX_WIDE_EVENTS` | `LOG_MAX_WIDE_EVENTS = 128` | loggingConstants.ts |
-| `WEBHOOK_MAX_BODY_BYTES` | `WEBHOOK_MAX_BODY_BYTES = 25_000_000` | constants.ts |
-| `WEBHOOK_TIMEOUT_MS` | `WEBHOOK_TIMEOUT_MS = 10_000` | constants.ts |
+| Removed env var / Config field           | New constant                                  | Home                           |
+| ---------------------------------------- | --------------------------------------------- | ------------------------------ |
+| `MAX_TOOL_ROUNDS` / `maxToolRounds`      | `MAX_TOOL_ROUNDS = 24`                        | reviewConstants.ts             |
+| `MAX_REVIEW_PUBLISH_ATTEMPTS`            | `MAX_REVIEW_PUBLISH_ATTEMPTS = 3`             | reviewConstants.ts             |
+| `MAX_REVIEW_PUBLISH_CALLS`               | `MAX_REVIEW_PUBLISH_CALLS = 2`                | reviewConstants.ts             |
+| `REVIEW_MIN_CONFIDENCE`                  | `REVIEW_MIN_CONFIDENCE = 1`                   | reviewConstants.ts             |
+| `MAX_PR_FILES_LISTED`                    | `MAX_PR_FILES_LISTED = 300`                   | reviewConstants.ts             |
+| `MAX_PR_FILES_PATCH_BYTES`               | `MAX_PR_FILES_PATCH_BYTES = 500_000`          | reviewConstants.ts             |
+| `REVIEW_CI_SUMMARY_WAIT_MS`              | `REVIEW_CI_SUMMARY_WAIT_MS = 15_000`          | reviewConstants.ts             |
+| `REVIEW_CI_SUMMARY_WAIT_POLL_MS`         | `REVIEW_CI_SUMMARY_WAIT_POLL_MS = 2_000`      | reviewConstants.ts             |
+| `REVIEW_CI_SUMMARY_MAX_FAILURES`         | `REVIEW_CI_SUMMARY_MAX_FAILURES = 3`          | reviewConstants.ts             |
+| `REVIEW_ANCHOR_MENU_MAX_FILES`           | `REVIEW_ANCHOR_MENU_MAX_FILES = 40`           | reviewConstants.ts             |
+| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE = 20` | reviewConstants.ts             |
+| `MAX_TOOL_ROUNDS_DESCRIBE`               | `MAX_TOOL_ROUNDS_DESCRIBE = 16`               | descriptionConstants.ts        |
+| `MAX_TOOL_ROUNDS_TRIAGE`                 | `MAX_TOOL_ROUNDS_TRIAGE = 32`                 | triageConstants.ts             |
+| `MAX_TRIAGE_FIXES_PER_RUN`               | `MAX_TRIAGE_FIXES_PER_RUN = 10`               | triageConstants.ts             |
+| `MAX_TOOL_ROUNDS_VERIFICATION`           | `MAX_TOOL_ROUNDS_VERIFICATION = 32`           | verificationConstants.ts (new) |
+| `MAX_ASK_TOOL_ROUNDS`                    | `MAX_ASK_TOOL_ROUNDS = 12`                    | askConstants.ts                |
+| `MAX_ASK_FINALIZE_ROUNDS`                | `MAX_ASK_FINALIZE_ROUNDS = 2`                 | askConstants.ts                |
+| 12× `LOCAL_WORKSPACE_*`                  | same names, values from defaults.ts:82-94     | workspaceConstants.ts          |
+| `CONTEXT7_RESPONSE_BYTES`                | `CONTEXT7_RESPONSE_BYTES = 64_000`            | context7Constants.ts           |
+| `LOG_MAX_WIDE_EVENTS`                    | `LOG_MAX_WIDE_EVENTS = 128`                   | loggingConstants.ts            |
+| `WEBHOOK_MAX_BODY_BYTES`                 | `WEBHOOK_MAX_BODY_BYTES = 25_000_000`         | constants.ts                   |
+| `WEBHOOK_TIMEOUT_MS`                     | `WEBHOOK_TIMEOUT_MS = 10_000`                 | constants.ts                   |
 
 Notes: `MAX_PR_FILES_LISTED` keeps a comment that it must not exceed `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` (the runtime clamp in config.ts:456-464 is deleted). If a name collides with an existing export in its home file, keep the existing export and delete the duplicate default instead.
 
@@ -478,6 +508,7 @@ git commit -m "feat: hardcode tuning knobs as settings constants"
 ### Task 5: Feature-mode intake (planner, scheduler, slash gating)
 
 **Files:**
+
 - Modify: `src/agentWork/intake/planner.ts` (full rewrite below)
 - Modify: `src/agentWork/intake/applier.ts:225-250` (`cfg` param → `features`)
 - Modify: `src/agentWork/scheduler.ts:40-44` (`Pick<Config, "features">`)
@@ -488,6 +519,7 @@ git commit -m "feat: hardcode tuning knobs as settings constants"
 - Test: `test/intakePlanner.test.ts` (rewrite), `test/schedulerAutomatedDescribe.test.ts`, `test/slashIntake*.test.ts` / `test/askIntake.test.ts` (adjust), new cases in `test/intakePlanner.test.ts`
 
 **Interfaces:**
+
 - Consumes: `Features`, `AUTO_TRIGGER_ACTIONS` (Task 1); `cfg.features` (Task 3).
 - Produces: `planAutomatedPullRequestIntake(action: string, features: Pick<Features, "review" | "describe" | "verification">): AutomatedPrIntakePlan`; `applySlashCommandIntake(boss, client, input, features: Features)`; `slashDisabledBody(command: string): string`.
 
@@ -497,7 +529,10 @@ git commit -m "feat: hardcode tuning knobs as settings constants"
 const allAuto = { review: "auto", describe: "auto", verification: "auto" } as const;
 
 it("opened triggers review and description in auto mode", () => {
-  expect(planAutomatedPullRequestIntake("opened", allAuto).kinds).toEqual(["review", "description"]);
+  expect(planAutomatedPullRequestIntake("opened", allAuto).kinds).toEqual([
+    "review",
+    "description",
+  ]);
 });
 
 it("synchronize triggers verification only", () => {
@@ -506,10 +541,18 @@ it("synchronize triggers verification only", () => {
 
 it("manual/off modes suppress auto triggers", () => {
   expect(
-    planAutomatedPullRequestIntake("opened", { review: "manual", describe: "off", verification: "auto" }).kinds,
+    planAutomatedPullRequestIntake("opened", {
+      review: "manual",
+      describe: "off",
+      verification: "auto",
+    }).kinds,
   ).toEqual([]);
   expect(
-    planAutomatedPullRequestIntake("synchronize", { review: "auto", describe: "auto", verification: "off" }).kinds,
+    planAutomatedPullRequestIntake("synchronize", {
+      review: "auto",
+      describe: "auto",
+      verification: "off",
+    }).kinds,
   ).toEqual([]);
 });
 ```
@@ -558,18 +601,18 @@ export function slashDisabledBody(command: string): string {
 In `slashIntake.ts`, `applySlashCommandIntake` gains a `features: Features` last parameter. After building `ctx` and before the handler dispatch (`slashIntake.ts:396`):
 
 ```ts
-  const disabledCommands: Record<string, boolean> = {
-    ask: features.ask === "off",
-    describe: features.describe === "off",
-    triage: features.triage === "off",
-  };
-  if (disabledCommands[command]) {
-    await enqueueSlashAck(ctx, {
-      reply: { target: input.replyTarget, body: slashDisabledBody(command) },
-    });
-    events.push({ name: "ignored_disabled_slash_command", fields: { command } });
-    return events;
-  }
+const disabledCommands: Record<string, boolean> = {
+  ask: features.ask === "off",
+  describe: features.describe === "off",
+  triage: features.triage === "off",
+};
+if (disabledCommands[command]) {
+  await enqueueSlashAck(ctx, {
+    reply: { target: input.replyTarget, body: slashDisabledBody(command) },
+  });
+  events.push({ name: "ignored_disabled_slash_command", fields: { command } });
+  return events;
+}
 ```
 
 Gate the mention-ask path with the same `features.ask === "off"` check where `promoteAskFromWebhookEvent` is invoked outside slash intake (grep first; mirror the ack-reply pattern used there).
@@ -591,6 +634,7 @@ git commit -m "feat: drive intake from feature modes"
 ### Task 6: Feature-mode publish surfaces + always-on collapse
 
 **Files:**
+
 - Modify: `src/review/publish/publishReview.ts` (`Pick` at :233-235 → `"features"`; :456 `cfg.features.commitStatus`; :506-531 labels from `cfg.features.reviewLabels`)
 - Modify: `src/agent/description/publishDescription.ts:40-41` (`cfg.features.titleRewrite`)
 - Modify: `src/review/run/reviewRun.ts:123` and `src/review/publish/submitReviewTool.ts:115` (drop the config condition; keep the other conjuncts)
@@ -623,6 +667,7 @@ git commit -m "feat: gate publish surfaces by feature modes"
 ### Task 7: Wire fail-fast guard + PostHog through config
 
 **Files:**
+
 - Modify: `src/config.ts` (first line of `loadConfig()`: `assertNoRemovedEnv(process.env);`)
 - Modify: `src/posthog.ts` (init pattern below)
 - Modify: `src/index.ts` (call `initPostHog(...)` right after `loadConfig()`; keep the existing `context7_enabled` boot log intact)
@@ -677,19 +722,20 @@ git commit -m "feat: fail fast on removed env vars and route posthog through con
 ### Task 8: Settings inventory test extension
 
 **Files:**
+
 - Modify: `test/settingsInventory.test.ts`
 
 - [ ] **Step 1: Add failing test** (docs/features.md does not exist yet — this drives Task 9):
 
 ```ts
-  it("docs/features.md documents every FEATURE_* key", () => {
-    const featuresDoc = fs.readFileSync(path.join(process.cwd(), "docs", "features.md"), "utf8");
-    const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
-    expect(featureKeys.length).toBe(8);
-    for (const key of featureKeys) {
-      expect(featuresDoc.includes(key), `missing ${key} in docs/features.md`).toBe(true);
-    }
-  });
+it("docs/features.md documents every FEATURE_* key", () => {
+  const featuresDoc = fs.readFileSync(path.join(process.cwd(), "docs", "features.md"), "utf8");
+  const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
+  expect(featureKeys.length).toBe(8);
+  for (const key of featureKeys) {
+    expect(featuresDoc.includes(key), `missing ${key} in docs/features.md`).toBe(true);
+  }
+});
 ```
 
 Also assert the final surface size in the first test: `expect(Object.values(ENV).length).toBe(48);`
@@ -701,6 +747,7 @@ Also assert the final surface size in the first test: `expect(Object.values(ENV)
 ### Task 9: Documentation
 
 **Files:**
+
 - Create: `docs/features.md`
 - Modify: `docs/configuration.md` (features section replaced by a pointer to features.md; remove all rows for deleted vars; group remaining rows under Infra / Ops headings)
 - Modify: `README.md` (link features.md from "How It Works"; fix the `ENABLE_REVIEW_COMMIT_STATUS` mention at :38 → `FEATURE_COMMIT_STATUS`; check `LOG_REDACT` mention at :265 still accurate)
@@ -717,16 +764,16 @@ Everything else is deployment wiring (see docs/configuration.md).
 Modes: `off` = disabled (slash commands reply with a notice), `manual` = slash
 command only, `auto` = slash command + automatic trigger.
 
-| Setting | Values | Default | Spends tokens? | What it does |
-|---|---|---|---|---|
-| `FEATURE_REVIEW` | `manual` `auto` | `auto` | yes | Core review. `auto` reviews each PR when opened; `/review` always available. |
-| `FEATURE_DESCRIBE` | `off` `manual` `auto` | `auto` | yes | PR description generation. `auto` runs when a PR opens. |
-| `FEATURE_VERIFICATION` | `off` `auto` | `auto` | yes | Re-checks open findings on new pushes and replies in their threads. |
-| `FEATURE_ASK` | `off` `manual` | `manual` | yes | `/ask` and `@bot` question threads. |
-| `FEATURE_TRIAGE` | `off` `manual` | `manual` | yes | `/triage` fix-suggestion runs. |
-| `FEATURE_REVIEW_LABELS` | `off` `effort` `effort+security` | `effort` | no | Review-effort / security labels synced onto the PR. |
-| `FEATURE_COMMIT_STATUS` | `false` `true` | `false` | no | `pr-agent/review` commit status on the PR head. |
-| `FEATURE_TITLE_REWRITE` | `false` `true` | `false` | no | Allows `/describe` to rewrite the PR title. |
+| Setting                 | Values                           | Default  | Spends tokens? | What it does                                                                 |
+| ----------------------- | -------------------------------- | -------- | -------------- | ---------------------------------------------------------------------------- |
+| `FEATURE_REVIEW`        | `manual` `auto`                  | `auto`   | yes            | Core review. `auto` reviews each PR when opened; `/review` always available. |
+| `FEATURE_DESCRIBE`      | `off` `manual` `auto`            | `auto`   | yes            | PR description generation. `auto` runs when a PR opens.                      |
+| `FEATURE_VERIFICATION`  | `off` `auto`                     | `auto`   | yes            | Re-checks open findings on new pushes and replies in their threads.          |
+| `FEATURE_ASK`           | `off` `manual`                   | `manual` | yes            | `/ask` and `@bot` question threads.                                          |
+| `FEATURE_TRIAGE`        | `off` `manual`                   | `manual` | yes            | `/triage` fix-suggestion runs.                                               |
+| `FEATURE_REVIEW_LABELS` | `off` `effort` `effort+security` | `effort` | no             | Review-effort / security labels synced onto the PR.                          |
+| `FEATURE_COMMIT_STATUS` | `false` `true`                   | `false`  | no             | `pr-agent/review` commit status on the PR head.                              |
+| `FEATURE_TITLE_REWRITE` | `false` `true`                   | `false`  | no             | Allows `/describe` to rewrite the PR title.                                  |
 
 Removed variables fail startup with a pointer here; there are no aliases.
 ```
