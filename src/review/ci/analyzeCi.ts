@@ -35,7 +35,7 @@ const FAILING_LEGACY_STATES = new Set(["failure", "error"]);
 const PENDING_LEGACY_STATES = new Set(["pending"]);
 
 const ERROR_LINE_RE =
-  /\b(error|failed|failure|FAIL|AssertionError|TypeError|ENOENT|ELIFECYCLE|✖|✗|×)\b/i;
+  /\b(error|failed|failure|FAIL|AssertionError|TypeError|ENOENT|ELIFECYCLE|✖|✗|×|format issues)\b/i;
 
 export type BuildCiSummaryOptions = {
   readonly token: string;
@@ -130,26 +130,34 @@ function fixHintFromReason(name: string, reason: string): string {
   return `Inspect the failing “${name}” check, fix the reported error, and re-push.`;
 }
 
+function firstAnnotationReason(
+  annotations: readonly CiCheckAnnotation[],
+  level: CiCheckAnnotation["annotationLevel"],
+): string | null {
+  const match = annotations.find((annotation) => annotation.annotationLevel === level);
+  return match != null ? annotationReason(match) : null;
+}
+
 function digestCheckFailure(
   run: CiCheckRunSnapshot,
   annotations: readonly CiCheckAnnotation[],
 ): CiFailureDetail {
-  const failureAnnotations = annotations.filter(
-    (annotation) =>
-      annotation.annotationLevel === "failure" || annotation.annotationLevel === "warning",
-  );
-  const primary = failureAnnotations[0] ?? annotations[0];
-  const fromAnnotation = primary != null ? annotationReason(primary) : null;
+  // Prefer real failure signals over runner warning annotations (e.g. Node 20
+  // deprecation on Actions), which otherwise mask the job's actual error.
+  const fromFailureAnnotation = firstAnnotationReason(annotations, "failure");
   const fromOutput =
     firstUsefulLine(run.outputText) ??
     firstUsefulLine(run.outputSummary) ??
     firstUsefulLine(run.outputTitle);
+  const fromWarningAnnotation = firstAnnotationReason(annotations, "warning");
+  const concluded =
+    run.conclusion != null ? `Check concluded ${run.conclusion.replace(/_/g, " ")}.` : null;
   const reason =
-    fromAnnotation ??
+    fromFailureAnnotation ??
     fromOutput ??
-    (run.conclusion != null
-      ? `Check concluded ${run.conclusion.replace(/_/g, " ")}.`
-      : "Check failed without a published summary.");
+    concluded ??
+    fromWarningAnnotation ??
+    "Check failed without a published summary.";
   return {
     name: run.name,
     reason: redactReviewText(reason),

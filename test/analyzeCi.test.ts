@@ -276,6 +276,133 @@ describe("analyzeCi", () => {
     expect(summary.failures[0]?.reason).toContain("AssertionError");
   });
 
+  it("prefers check output over runner warning annotations", async () => {
+    listCheckRunsForHead.mockResolvedValueOnce([
+      {
+        id: 11,
+        name: "check",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: "https://example.com/check",
+        outputTitle: null,
+        outputSummary: null,
+        outputText:
+          "Checking formatting...\n\nsrc/foo.ts (0ms)\n\nFormat issues found in above 1 files. Run without `--check` to fix.\nError: Process completed with exit code 1.",
+      },
+    ]);
+    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    listCheckRunAnnotations.mockResolvedValueOnce([
+      {
+        path: ".github",
+        startLine: 2,
+        endLine: 2,
+        title: null,
+        message:
+          "Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/cache@v4, actions/checkout@v4.",
+        annotationLevel: "warning",
+      },
+    ]);
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      waitMs: 0,
+    });
+
+    expect(summary.status).toBe("failing");
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.reason).toContain("Format issues found");
+    expect(summary.failures[0]?.reason).not.toContain("Node.js 20");
+    expect(summary.failures[0]?.fixHint.toLowerCase()).toMatch(/format|lint/);
+  });
+
+  it("ignores warning-only annotations when the check failed without output", async () => {
+    listCheckRunsForHead.mockResolvedValueOnce([
+      {
+        id: 11,
+        name: "check",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: null,
+        outputText: null,
+      },
+    ]);
+    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    listCheckRunAnnotations.mockResolvedValueOnce([
+      {
+        path: ".github",
+        startLine: 2,
+        endLine: 2,
+        title: null,
+        message: "Node.js 20 is deprecated.",
+        annotationLevel: "warning",
+      },
+    ]);
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      waitMs: 0,
+    });
+
+    expect(summary.status).toBe("failing");
+    expect(summary.failures).toHaveLength(1);
+    expect(summary.failures[0]?.reason).toContain("Check concluded failure");
+    expect(summary.failures[0]?.reason).not.toContain("Node.js 20");
+  });
+
+  it("still uses failure-level annotations when present", async () => {
+    listCheckRunsForHead.mockResolvedValueOnce([
+      {
+        id: 11,
+        name: "lint",
+        status: "completed",
+        conclusion: "failure",
+        htmlUrl: null,
+        outputTitle: null,
+        outputSummary: null,
+        outputText: "Format issues found in above 1 files.",
+      },
+    ]);
+    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    listCheckRunAnnotations.mockResolvedValueOnce([
+      {
+        path: "src/foo.ts",
+        startLine: 12,
+        endLine: 12,
+        title: "Unexpected any",
+        message: "Unexpected any. Specify a different type.",
+        annotationLevel: "failure",
+      },
+      {
+        path: ".github",
+        startLine: 2,
+        endLine: 2,
+        title: null,
+        message: "Node.js 20 is deprecated.",
+        annotationLevel: "warning",
+      },
+    ]);
+
+    const summary = await buildCiSummary({
+      token: "t",
+      owner: "o",
+      repo: "r",
+      headSha: "abc",
+      waitMs: 0,
+    });
+
+    expect(summary.failures[0]?.reason).toContain("src/foo.ts:12");
+    expect(summary.failures[0]?.reason).not.toContain("Format issues");
+    expect(summary.failures[0]?.reason).not.toContain("Node.js 20");
+  });
+
   it("polls until CI transitions from pending to passing", async () => {
     listCheckRunsForHead
       .mockResolvedValueOnce([

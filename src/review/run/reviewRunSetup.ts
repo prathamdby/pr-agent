@@ -3,9 +3,7 @@ import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
-import {
-  buildLocalWorkspaceTools,
-} from "../../agent/tools/localWorkspaceTools.js";
+import { buildLocalWorkspaceTools } from "../../agent/tools/localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "../../agent/tools/refreshableGithubTools.js";
 import {
   createCachedPrDiffIndex,

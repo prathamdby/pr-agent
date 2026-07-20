@@ -178,10 +178,9 @@ describe("local workspace tools", () => {
       });
 
       const workspace = mockWorkspace(root, ["src/changed.ts", "src/huge.ts"]);
-      const { executors } = buildLocalWorkspaceTools(
-        workspace,
-        { limits: testLimits({ maxFileBytes: 100, readResponseBytes: 50 }) },
-      );
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 100, readResponseBytes: 50 }),
+      });
       const out = (await executors.readWorkspaceFile?.({ path: "src/huge.ts" })) as {
         refused?: boolean;
         reason?: string;
@@ -227,10 +226,9 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
         getDiffForPath: async () => "x".repeat(10_000),
       });
-      const { executors } = buildLocalWorkspaceTools(
-        workspace,
-        { limits: testLimits({ diffResponseBytes: 100 }) },
-      );
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ diffResponseBytes: 100 }),
+      });
       const out = (await executors.getWorkspaceDiff?.({ path: "src/changed.ts" })) as {
         diff: string;
         truncated: boolean;
@@ -254,10 +252,9 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, ["src/changed.ts"], {
         getBlameForPath: async () => "author-mail user@example.com\n".repeat(200),
       });
-      const { executors } = buildLocalWorkspaceTools(
-        workspace,
-        { limits: testLimits({ diffResponseBytes: 100 }) },
-      );
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ diffResponseBytes: 100 }),
+      });
       const out = (await executors.getWorkspaceBlame?.({ path: "src/changed.ts" })) as {
         blame: string;
         truncated: boolean;
@@ -345,10 +342,10 @@ describe("local workspace tools", () => {
       const workspace = mockWorkspace(root, [".env", "src/changed.ts", "zzz/allowed.ts"]);
       const pathGate = createAskPathGate();
       pathGate.addPaths(["zzz/allowed.ts"]);
-      const { executors } = buildLocalWorkspaceTools(
-        workspace,
-        { limits: testLimits({ searchMaxTotalBytes: 500 }), pathGate },
-      );
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ searchMaxTotalBytes: 500 }),
+        pathGate,
+      });
       const out = (await executors.searchWorkspace?.({ query: "needle" })) as {
         matches: Array<{ path: string; text: string }>;
         truncated: boolean;
