@@ -69,7 +69,7 @@ nub install
 # terminal 1: enqueue only
 ROLE=web DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub src/index.ts
 
-# terminal 2: reviews, descriptions, asks
+# terminal 2: reviews, descriptions, asks, triage, verification, CI refresh
 ROLE=worker DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub src/index.ts
 ```
 
@@ -156,19 +156,20 @@ Run on your infrastructure with your GitHub App credentials and chosen LLM provi
 
 ### Specialized review lenses
 
-General bug-and-correctness reviews run on PR open and sync. **`/review-security`**, **`/review-quality`**, and **`/review-tests`** add separate **review summary comments** on demand, each with its own **review lens** and progress comment.
+General bug-and-correctness reviews run on PR open. **`/review-security`**, **`/review-quality`**, and **`/review-tests`** add separate **review summary comments** on demand, each with its own **review lens** and progress comment.
 
 ## Features
 
 | Capability              | Auto on PR             | Slash command      | Notes                                                                                     |
 | ----------------------- | ---------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| General review          | opened / sync / reopen | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
+| General review          | opened                 | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
 | PR description          | opened (configurable)  | `/describe`        | Merges under `## PR Agent Description`                                                    |
 | Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
 | Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
 | Tests lens              | No                     | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |
 | Triage                  | No                     | `/triage`          | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`         |
-| Ask                     | No                     | `/ask <question>`  | PR conversation or inline diff **code anchor**                                            |
+| Verification            | synchronize            | No                 | Re-checks open bot findings against the new head; edits verification stubs in place       |
+| Ask                     | No                     | `/ask <question>`  | Also `@bot` mentions; PR conversation or inline diff **code anchor**                      |
 | Help                    | No                     | `/help`            | Worker-published guidance                                                                 |
 | Lightweight auto-review | docs-only trivial PRs  | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
 

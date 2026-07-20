@@ -14,13 +14,11 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 | Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                                                            |
 | Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`                                         |
 
-Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `reviewDiffPlacement.ts`.
-
-Run `nubx knip` after refactors to catch unused exports and files.
+Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `src/review/placement/reviewDiffPlacement.ts`.
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, and `src/agent/description/`. Only numeric limits and shared user-visible strings belong in `settings/constants.ts`.
+Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`. Only numeric limits and shared user-visible strings belong in `src/settings/constants.ts`.
 
 ## README runtime topology diagram
 

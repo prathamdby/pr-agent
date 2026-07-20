@@ -12,7 +12,7 @@ The concept already existed in the product under another name: a triage run veri
 
 ## Decision
 
-1. **Fifth work type: verification run.** Automatically triggered on `synchronize` when the pull request has open PR Agent findings. Skipped when it has none.
+1. **Fifth work type: verification run.** Enqueued on every `synchronize` when `FEATURE_VERIFICATION=auto`. The worker short-circuits without an agent run or publish when the PR has no unresolved open PR Agent finding threads.
 
 2. **Strictly read-only.** No writable PR checkout, no code edits, no new findings, no full review. It re-checks each open finding against the new head and emits a triage verdict per finding (shared vocabulary with `/triage`: fixed, already-resolved, skipped, dismissed). Publish policy is refined in [ADR 0021](0021-verification-silent-resolve.md): silent resolve for fixed/already-resolved; thread replies only for still-open and dismissed.
 
