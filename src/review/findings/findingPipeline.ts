@@ -1,3 +1,4 @@
+import { AppError } from "../../errors/appError.js";
 import { MAX_INLINE_REVIEW_COMMENTS, REVIEW_SEVERITY_RANK } from "../../settings/index.js";
 import type { AnchorFailure } from "./reviewFindingValidator.js";
 import { validateReviewPayload } from "./reviewFindingValidator.js";
@@ -91,14 +92,20 @@ export function prepareReviewPayloadForPublish(params: {
   for (const [index, finding] of candidate.findings.entries()) {
     const redactedFinding = payload.findings[index];
     if (!redactedFinding) {
-      throw new Error("Review payload redaction lost finding identity");
+      throw new AppError({
+        code: "review.payload_redaction",
+        message: "Review payload redaction lost finding identity",
+      });
     }
     redactedFindingsByOriginal.set(finding, redactedFinding);
   }
   const placements = validation.placements.map((placement) => {
     const finding = redactedFindingsByOriginal.get(placement.finding);
     if (!finding) {
-      throw new Error("Review payload redaction lost finding identity");
+      throw new AppError({
+        code: "review.payload_redaction",
+        message: "Review payload redaction lost finding identity",
+      });
     }
     return { ...placement, finding };
   });

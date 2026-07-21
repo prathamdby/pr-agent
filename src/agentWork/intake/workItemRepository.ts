@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { PoolClient } from "pg";
+import { AppError } from "../../errors/appError.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type {
@@ -148,9 +149,11 @@ async function insertAgentWorkItem(
       );
       const existingId = existing.rows[0]?.id;
       if (!existingId) {
-        throw new Error(
-          `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
-        );
+        throw new AppError({
+          code: "agent_work.slash_active_conflict_no_winner",
+          message: `slash active uniqueness conflict without winner for ${params.resourceKey} ${params.type}`,
+          context: { resourceKey: params.resourceKey, type: params.type },
+        });
       }
       return { created: false, id: existingId };
     }
@@ -179,13 +182,20 @@ async function insertAgentWorkItem(
       );
       const existingId = existing.rows[0]?.id;
       if (!existingId) {
-        throw new Error("ask work item conflict without existing row");
+        throw new AppError({
+          code: "agent_work.ask_conflict_no_row",
+          message: "ask work item conflict without existing row",
+        });
       }
       return { created: false, id: existingId };
     }
     default: {
       const exhaustive: never = params;
-      throw new Error(`unreachable agent work insert: ${JSON.stringify(exhaustive)}`);
+      throw new AppError({
+        code: "agent_work.unreachable_insert",
+        message: `unreachable agent work insert: ${JSON.stringify(exhaustive)}`,
+        context: { params: exhaustive },
+      });
     }
   }
 }

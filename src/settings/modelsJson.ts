@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { AppError } from "../errors/appError.js";
 
 /** Fixed project-root catalog filename (Pi native `models.json` format). */
 export const MODELS_JSON_FILENAME = "models.json";
@@ -24,7 +25,11 @@ export function resolveModelsJsonPath(
   if (explicit) {
     const path = isAbsolute(explicit) ? explicit : join(cwd, explicit);
     if (!existsSync(path)) {
-      throw new Error(`MODELS_JSON_PATH "${path}" does not exist`);
+      throw new AppError({
+        code: "settings.models_json_path_not_found",
+        message: `MODELS_JSON_PATH "${path}" does not exist`,
+        context: { path },
+      });
     }
     return path;
   }
@@ -38,9 +43,10 @@ export function defaultModelsJsonCandidatePath(cwd: string = process.cwd()): str
 
 function assertNotCursorPiProvider(piProvider: string): void {
   if (piProvider === "cursor") {
-    throw new Error(
-      "PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.",
-    );
+    throw new AppError({
+      code: "settings.models_json_cursor_provider_deprecated",
+      message: "PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.",
+    });
   }
 }
 
@@ -49,16 +55,22 @@ function builtinPiApi(piProvider: string, piModel: string): string {
   if (model?.api) return model.api;
   const fallback = getModels(piProvider as never)[0];
   if (fallback?.api) return fallback.api;
-  throw new Error(`PI_PROVIDER "${piProvider}" has no resolvable API type`);
+  throw new AppError({
+    code: "settings.models_json_unresolvable_api",
+    message: `PI_PROVIDER "${piProvider}" has no resolvable API type`,
+    context: { piProvider },
+  });
 }
 
 export function assertBuiltinPiProvider(piProvider: string): void {
   assertNotCursorPiProvider(piProvider);
   const providers = getProviders() as readonly string[];
   if (!providers.includes(piProvider)) {
-    throw new Error(
-      `PI_PROVIDER "${piProvider}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
-    );
+    throw new AppError({
+      code: "settings.models_json_unknown_provider",
+      message: `PI_PROVIDER "${piProvider}" is unknown. Pick one of: ${providers.slice(0, 12).join(", ")}…`,
+      context: { piProvider, providers: providers.slice(0, 12) },
+    });
   }
 }
 
@@ -80,9 +92,15 @@ export async function assertPiModelSelection(options: {
     const providers = getProviders() as readonly string[];
     if (!providers.includes(piProvider)) {
       const lookedFor = options.catalogCandidatePath ?? defaultModelsJsonCandidatePath();
-      throw new Error(
-        `PI_PROVIDER "${piProvider}" is unknown and no models.json catalog was loaded (looked for ${lookedFor}). Mount or copy ${MODELS_JSON_FILENAME} into the process cwd, or set MODELS_JSON_PATH. Built-ins: ${providers.slice(0, 12).join(", ")}…`,
-      );
+      throw new AppError({
+        code: "settings.models_json_unknown_provider_no_catalog",
+        message: `PI_PROVIDER "${piProvider}" is unknown and no models.json catalog was loaded (looked for ${lookedFor}). Mount or copy ${MODELS_JSON_FILENAME} into the process cwd, or set MODELS_JSON_PATH. Built-ins: ${providers.slice(0, 12).join(", ")}…`,
+        context: {
+          piProvider,
+          lookedFor,
+          providers: providers.slice(0, 12),
+        },
+      });
     }
     return builtinPiApi(piProvider, piModel);
   }
@@ -96,13 +114,19 @@ export async function assertPiModelSelection(options: {
     });
     const loadError = modelRuntime.getError();
     if (loadError) {
-      throw new Error(loadError);
+      throw new AppError({
+        code: "settings.models_json_load_error",
+        message: loadError,
+        context: { modelsJsonPath },
+      });
     }
     const model = modelRuntime.getModel(piProvider, piModel);
     if (!model) {
-      throw new Error(
-        `PI_PROVIDER/PI_MODEL "${piProvider}/${piModel}" not found in ${MODELS_JSON_FILENAME} or the built-in catalog`,
-      );
+      throw new AppError({
+        code: "settings.models_json_model_not_found",
+        message: `PI_PROVIDER/PI_MODEL "${piProvider}/${piModel}" not found in ${MODELS_JSON_FILENAME} or the built-in catalog`,
+        context: { piProvider, piModel },
+      });
     }
     return model.api;
   } finally {

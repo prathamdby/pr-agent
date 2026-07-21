@@ -160,18 +160,18 @@ General bug-and-correctness reviews run on PR open. **`/review-security`**, **`/
 
 ## Features
 
-| Capability              | Auto on PR             | Slash command      | Notes                                                                                     |
-| ----------------------- | ---------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| General review          | opened                 | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
-| PR description          | opened (configurable)  | `/describe`        | Merges under `## PR Agent Description`                                                    |
-| Security lens           | No                     | `/review-security` | `## PR Agent Security Review`                                                             |
-| Quality lens            | No                     | `/review-quality`  | `## PR Agent Quality Review`                                                              |
-| Tests lens              | No                     | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |
-| Triage                  | No                     | `/triage`          | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`         |
-| Verification            | synchronize            | No                 | Re-checks open bot findings against the new head; edits verification stubs in place       |
-| Ask                     | No                     | `/ask <question>`  | Also `@bot` mentions; PR conversation or inline diff **code anchor**                      |
-| Help                    | No                     | `/help`            | Worker-published guidance                                                                 |
-| Lightweight auto-review | docs-only trivial PRs  | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
+| Capability              | Auto on PR            | Slash command      | Notes                                                                                     |
+| ----------------------- | --------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
+| General review          | opened                | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
+| PR description          | opened (configurable) | `/describe`        | Merges under `## PR Agent Description`                                                    |
+| Security lens           | No                    | `/review-security` | `## PR Agent Security Review`                                                             |
+| Quality lens            | No                    | `/review-quality`  | `## PR Agent Quality Review`                                                              |
+| Tests lens              | No                    | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |
+| Triage                  | No                    | `/triage`          | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`         |
+| Verification            | synchronize           | No                 | Re-checks open bot findings against the new head; edits verification stubs in place       |
+| Ask                     | No                    | `/ask <question>`  | Also `@bot` mentions; PR conversation or inline diff **code anchor**                      |
+| Help                    | No                    | `/help`            | Worker-published guidance                                                                 |
+| Lightweight auto-review | docs-only trivial PRs | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
 
 | Deployment                                | Supported |
 | ----------------------------------------- | --------- |

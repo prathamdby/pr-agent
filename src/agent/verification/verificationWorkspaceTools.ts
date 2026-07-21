@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
+import { AppError } from "../../errors/appError.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   SENSITIVE_PATH_PATTERNS,
@@ -21,7 +22,13 @@ function isSensitivePath(path: string): boolean {
 
 function safePath(root: string, path: string): string {
   const normalized = path.replace(/\\/g, "/");
-  if (isSensitivePath(normalized)) throw new Error(`Blocked sensitive path "${normalized}"`);
+  if (isSensitivePath(normalized)) {
+    throw new AppError({
+      code: "verification.sensitive_path_blocked",
+      message: `Blocked sensitive path "${normalized}"`,
+      context: { path: normalized },
+    });
+  }
   return assertWorkspacePath(root, normalized);
 }
 

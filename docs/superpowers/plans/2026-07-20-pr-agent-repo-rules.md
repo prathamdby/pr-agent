@@ -15,6 +15,7 @@
 ### Task 1: Always-apply rules
 
 **Files:**
+
 - Create: `.pr-agent/settings-knobs.mdc`
 - Create: `.pr-agent/esm-imports.mdc`
 - Create: `.pr-agent/exhaustive-unions.mdc`
@@ -27,6 +28,7 @@
 ### Task 2: Path-scoped product rules
 
 **Files:**
+
 - Create: `.pr-agent/feature-flags.mdc`
 - Create: `.pr-agent/module-layout.mdc`
 - Create: `.pr-agent/prompt-vs-constants.mdc`
@@ -42,6 +44,7 @@
 ### Task 3: Path-scoped safety / isolation rules
 
 **Files:**
+
 - Create: `.pr-agent/triage-safety.mdc`
 - Create: `.pr-agent/verification-publish.mdc`
 - Create: `.pr-agent/site-isolation.mdc`

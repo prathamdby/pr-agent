@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+import { AppError } from "../src/errors/appError.js";
 import {
   WebhookParseError,
   parseGithubPayload,
   parseInstallationId,
 } from "../src/webhook/parseGithubPayload.js";
+
+describe("WebhookParseError", () => {
+  it("preserves eventName and zodError through AppError", () => {
+    const zodErr = new z.ZodError([]);
+    const err = new WebhookParseError("parse failed", "pull_request.opened", zodErr);
+    expect(err).toBeInstanceOf(AppError);
+    expect(err).toBeInstanceOf(WebhookParseError);
+    expect(err.code).toBe("webhook.parse_failed");
+    expect(err.eventName).toBe("pull_request.opened");
+    expect(err.zodError).toBe(zodErr);
+  });
+});
 
 describe("parseGithubPayload", () => {
   it("returns ignored for unknown events", () => {
@@ -247,9 +261,16 @@ describe("parseGithubPayload", () => {
   });
 
   it("throws WebhookParseError on malformed pull_request", () => {
-    expect(() => parseGithubPayload("pull_request", { action: "opened" })).toThrow(
-      WebhookParseError,
-    );
+    try {
+      parseGithubPayload("pull_request", { action: "opened" });
+      expect.fail("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(WebhookParseError);
+      expect(e).toBeInstanceOf(AppError);
+      expect((e as WebhookParseError).code).toBe("webhook.parse_failed");
+      expect((e as WebhookParseError).eventName).toBe("pull_request");
+      expect((e as WebhookParseError).zodError).toBeInstanceOf(z.ZodError);
+    }
   });
 
   it("ignores pull_request actions outside the automated allowlist", () => {

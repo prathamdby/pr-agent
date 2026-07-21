@@ -13,6 +13,7 @@ import { mkdtemp, rm, chmod } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { recordReviewMetric } from "../../../review/run/reviewRunMetrics.js";
+import { AppError } from "../../../errors/appError.js";
 import type {
   AgentRunnerProvider,
   AgentRunnerSendOptions,
@@ -69,7 +70,11 @@ function toCodingAgentTool(
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
       if (!executor) {
         safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
-        throw new Error(`No executor registered for tool ${tool.name}`);
+        throw new AppError({
+          code: "provider.missing_tool_executor",
+          message: `No executor registered for tool ${tool.name}`,
+          context: { toolName: tool.name },
+        });
       }
       try {
         if (refreshBeforeTool) {
@@ -112,15 +117,27 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
       await chmod(authPath, 0o600).catch(() => undefined);
       if (cfg.modelsJsonPath) {
         const loadError = modelRuntime.getError();
-        if (loadError) throw new Error(loadError);
+        if (loadError) {
+          throw new AppError({
+            code: "provider.models_load_failed",
+            message: loadError,
+            context: { modelsJsonPath: cfg.modelsJsonPath },
+          });
+        }
       }
       const model = modelRuntime.getModel(cfg.piProvider, cfg.piModel);
       if (!model) {
-        throw new Error(
-          cfg.modelsJsonPath
+        throw new AppError({
+          code: "provider.model_not_found",
+          message: cfg.modelsJsonPath
             ? `Model not found: ${cfg.piProvider}/${cfg.piModel} (models.json: ${cfg.modelsJsonPath})`
             : `Model not found: ${cfg.piProvider}/${cfg.piModel}`,
-        );
+          context: {
+            piProvider: cfg.piProvider,
+            piModel: cfg.piModel,
+            ...(cfg.modelsJsonPath ? { modelsJsonPath: cfg.modelsJsonPath } : {}),
+          },
+        });
       }
       const settingsManager = SettingsManager.inMemory({
         compaction: { enabled: false },

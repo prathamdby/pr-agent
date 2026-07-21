@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 
+import { AppError } from "../../errors/appError.js";
 import { CONTEXT7_BASE_URL } from "../../settings/index.js";
 import { capTextOutput } from "./toolOutputBudget.js";
 
@@ -90,7 +91,11 @@ async function context7Get(url: string, apiKey: string): Promise<string> {
         /* response body is unreadable; keep detail empty */
       }
     }
-    throw new Error(`Context7 ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`);
+    throw new AppError({
+      code: "context7.request_failed",
+      message: `Context7 ${res.status} ${res.statusText}${detail ? `: ${detail}` : ""}`,
+      context: { status: res.status, statusText: res.statusText, url },
+    });
   }
 
   const contentType = res.headers.get("content-type") ?? "";

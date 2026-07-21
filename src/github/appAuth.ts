@@ -3,6 +3,7 @@ import { Octokit } from "@octokit/rest";
 import { retry } from "@octokit/plugin-retry";
 import { throttling } from "@octokit/plugin-throttling";
 import type { Config } from "../config.js";
+import { AppError } from "../errors/appError.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
 import { httpStatus } from "./httpStatus.js";
@@ -172,7 +173,10 @@ async function resolveBotIdentityViaAppSlug(
   });
   const { data } = await jwtOctokit.rest.apps.getAuthenticated();
   if (!data?.slug) {
-    throw new Error("GitHub App /app response missing slug (cannot resolve bot user)");
+    throw new AppError({
+      code: "github.missing_app_slug",
+      message: "GitHub App /app response missing slug (cannot resolve bot user)",
+    });
   }
   const slug = data.slug;
   const anon = new ThrottledOctokit({

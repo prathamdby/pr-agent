@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AppError } from "../errors/appError.js";
 import type {
   AgentWorkItem,
   AgentWorkItemCore,
@@ -79,11 +80,15 @@ const VerificationWorkPayloadSchema = z.looseObject({
   pushBeforeSha: z.string().min(1).optional(),
 });
 
-export class WorkItemPayloadValidationError extends Error {
+export class WorkItemPayloadValidationError extends AppError {
   readonly workType: WorkType;
 
   constructor(workType: WorkType, message: string) {
-    super(message);
+    super({
+      code: "agent_work.invalid_payload",
+      message,
+      context: { workType },
+    });
     this.name = "WorkItemPayloadValidationError";
     this.workType = workType;
   }

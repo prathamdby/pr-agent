@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import { AppError } from "../../errors/appError.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import { pgBossDb } from "../../db/postgres.js";
 import {
@@ -48,7 +49,11 @@ async function requireBossJobSend(
 ): Promise<void> {
   const jobId = await boss.send(queue, data, options);
   if (jobId == null) {
-    throw new Error(`pg-boss did not enqueue ${queue} job`);
+    throw new AppError({
+      code: "agent_work.enqueue_failed",
+      message: `pg-boss did not enqueue ${queue} job`,
+      context: { queue },
+    });
   }
 }
 

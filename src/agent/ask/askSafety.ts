@@ -1,4 +1,5 @@
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
+import { AppError } from "../../errors/appError.js";
 import { BOT_META_PATTERNS, SENSITIVE_PATH_PATTERNS } from "../../settings/index.js";
 
 export { redactOutboundSecrets };
@@ -43,9 +44,11 @@ export function pathAllowedForAsk(path: string, gate: AskPathGate): boolean {
 export function assertPathAllowedForAsk(path: string, gate: AskPathGate): void {
   const normalized = path.replace(/\\/g, "/");
   if (pathAllowedForAsk(normalized, gate)) return;
-  throw new Error(
-    `getFileContent blocked for sensitive path "${normalized}" (not in this PR's changed files). Ask about files touched by the PR instead.`,
-  );
+  throw new AppError({
+    code: "ask.sensitive_path_blocked",
+    message: `getFileContent blocked for sensitive path "${normalized}" (not in this PR's changed files). Ask about files touched by the PR instead.`,
+    context: { path: normalized },
+  });
 }
 
 function redactEmailsInJson(value: unknown): unknown {

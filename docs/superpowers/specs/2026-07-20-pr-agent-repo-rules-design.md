@@ -27,28 +27,28 @@ Commit a focused set of maintainer repo policy rules under `.pr-agent/` so revie
 
 ## Rule set
 
-| File | Apply | Purpose |
-| --- | --- | --- |
-| `settings-knobs.mdc` | always | Magic numbers / defaults live in `src/settings/`; knob checklist |
-| `feature-flags.mdc` | globs: settings, config, features docs, `.env.example` | `FEATURE_*` only; no legacy `ENABLE_*` aliases |
-| `esm-imports.mdc` | always | NodeNext `.js` imports; no removed barrels |
-| `exhaustive-unions.mdc` | always | `never` default on union/enum switches |
-| `module-layout.mdc` | `src/**` | Public entry points + reviewErrors import seam |
-| `prompt-vs-constants.mdc` | prompts + settings | Long prose stays in prompt modules |
-| `web-worker-boundary.mdc` | agentWork / effect / webhook / commands | No PR-surface I/O on web fibers (ADR 0009) |
-| `topology-diagram.mdc` | topology-sensitive paths | README Mermaid update when topology changes |
-| `triage-safety.mdc` | triage + writable checkout | Same-repo, no force-push, evidence for dismiss (ADR 0018) |
-| `verification-publish.mdc` | verification | Read-only, stub ledger, quiet resolve (ADR 0020–0023) |
-| `site-isolation.mdc` | `site/**` (+ prod dep check touchpoints) | Landing package must not contaminate backend graph |
+| File                       | Apply                                                  | Purpose                                                          |
+| -------------------------- | ------------------------------------------------------ | ---------------------------------------------------------------- |
+| `settings-knobs.mdc`       | always                                                 | Magic numbers / defaults live in `src/settings/`; knob checklist |
+| `feature-flags.mdc`        | globs: settings, config, features docs, `.env.example` | `FEATURE_*` only; no legacy `ENABLE_*` aliases                   |
+| `esm-imports.mdc`          | always                                                 | NodeNext `.js` imports; no removed barrels                       |
+| `exhaustive-unions.mdc`    | always                                                 | `never` default on union/enum switches                           |
+| `module-layout.mdc`        | `src/**`                                               | Public entry points + reviewErrors import seam                   |
+| `prompt-vs-constants.mdc`  | prompts + settings                                     | Long prose stays in prompt modules                               |
+| `web-worker-boundary.mdc`  | agentWork / effect / webhook / commands                | No PR-surface I/O on web fibers (ADR 0009)                       |
+| `topology-diagram.mdc`     | topology-sensitive paths                               | README Mermaid update when topology changes                      |
+| `triage-safety.mdc`        | triage + writable checkout                             | Same-repo, no force-push, evidence for dismiss (ADR 0018)        |
+| `verification-publish.mdc` | verification                                           | Read-only, stub ledger, quiet resolve (ADR 0020–0023)            |
+| `site-isolation.mdc`       | `site/**` (+ prod dep check touchpoints)               | Landing package must not contaminate backend graph               |
 
 ## Deliberately omitted
 
-| Topic | Why |
-| --- | --- |
-| Same-PR doc table / CONTEXT vocabulary | Already in `AGENTS.md` agent-instruction trusted context |
-| Cursor Cloud runbooks | Operator setup, not PR defect signal |
-| Evidence bar / reporting gate / sanitizer details | Already in review prompts |
-| Generic “prefer `nub`” / “never commit `.env`” | CI / ops culture; low review finding value |
+| Topic                                             | Why                                                      |
+| ------------------------------------------------- | -------------------------------------------------------- |
+| Same-PR doc table / CONTEXT vocabulary            | Already in `AGENTS.md` agent-instruction trusted context |
+| Cursor Cloud runbooks                             | Operator setup, not PR defect signal                     |
+| Evidence bar / reporting gate / sanitizer details | Already in review prompts                                |
+| Generic “prefer `nub`” / “never commit `.env`”    | CI / ops culture; low review finding value               |
 
 ## Success criteria
 

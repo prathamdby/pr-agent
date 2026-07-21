@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { AppError } from "../src/errors/appError.js";
+import { ENV } from "../src/settings/index.js";
 import { TEST_PRIVATE_KEY_PEM } from "./helpers/testKey.js";
 
 const BASE_ENV = {
@@ -93,5 +95,20 @@ describe("loadConfig validation", () => {
   it("defaults verification concurrency to 1", async () => {
     const cfg = await load({});
     expect(cfg.verificationConcurrency).toBe(1);
+  });
+
+  it("throws config.missing_env with the variable name in context", async () => {
+    process.env = {
+      ...BASE_ENV,
+      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
+    } as NodeJS.ProcessEnv;
+    delete process.env[ENV.DATABASE_URL];
+    const { loadConfig } = await import("../src/config.js");
+    await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("config.missing_env");
+      expect((error as AppError).context).toEqual({ name: ENV.DATABASE_URL });
+      return true;
+    });
   });
 });

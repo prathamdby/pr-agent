@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
+import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
@@ -59,7 +60,10 @@ export function buildSubmitVerificationTool(params: {
       params.submitState.lastValidationError = parsed.error.issues
         .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
         .join("\n");
-      throw new Error(params.submitState.lastValidationError);
+      throw new AppError({
+        code: "verification.validation_failed",
+        message: params.submitState.lastValidationError,
+      });
     }
     const issues = validateVerificationVerdicts({
       payload: parsed.data,
@@ -71,7 +75,10 @@ export function buildSubmitVerificationTool(params: {
     });
     if (issues.length > 0) {
       params.submitState.lastValidationError = formatVerificationValidationError(issues);
-      throw new Error(params.submitState.lastValidationError);
+      throw new AppError({
+        code: "verification.validation_failed",
+        message: params.submitState.lastValidationError,
+      });
     }
 
     params.submitState.lastValidationError = null;

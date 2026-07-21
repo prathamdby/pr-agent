@@ -20,6 +20,7 @@ import {
 } from "../../../settings/index.js";
 import type { CursorExecutor } from "./runContext.js";
 import { logDebug } from "../../../evlog.js";
+import { AppError } from "../../../errors/appError.js";
 import { recordReviewMetric } from "../../../review/run/reviewRunMetrics.js";
 
 function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
@@ -100,11 +101,19 @@ function closeHttpServer(server: HttpServer): Promise<void> {
 
 async function runWithAbortSignal<T>(run: () => Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) {
-    throw new Error("MCP tool call aborted");
+    throw new AppError({
+      code: "cursor.mcp_tool_call_aborted",
+      message: "MCP tool call aborted",
+    });
   }
   return new Promise<T>((resolve, reject) => {
     const onAbort = (): void => {
-      reject(new Error("MCP tool call aborted"));
+      reject(
+        new AppError({
+          code: "cursor.mcp_tool_call_aborted",
+          message: "MCP tool call aborted",
+        }),
+      );
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void run()
@@ -187,7 +196,10 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
 
     try {
       if (abortController.signal.aborted) {
-        throw new Error("MCP tool call aborted");
+        throw new AppError({
+          code: "cursor.mcp_tool_call_aborted",
+          message: "MCP tool call aborted",
+        });
       }
       const maxToolRounds = resolveOption(options.maxToolRounds);
       if (maxToolRounds != null) {
@@ -297,7 +309,10 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
 
   const address = httpServer.address() as AddressInfo | null;
   if (!address?.port) {
-    throw new Error("MCP bridge HTTP server failed to bind");
+    throw new AppError({
+      code: "cursor.mcp_bind_failed",
+      message: "MCP bridge HTTP server failed to bind",
+    });
   }
 
   const endpointUrl = `http://${CURSOR_MCP_BIND_HOST}:${address.port}${endpointPath}`;

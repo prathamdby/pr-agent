@@ -9,6 +9,7 @@ vi.mock("../src/settings/index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/settings/index.js")>();
   return { ...actual, LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS: 1 };
 });
+import { AppError } from "../src/errors/appError.js";
 import {
   buildCommitCommandArgs,
   StaleHeadPushError,
@@ -113,13 +114,39 @@ describe("writable PR checkout", () => {
               await checkout.push();
             },
           ),
-        ).rejects.toBeInstanceOf(StaleHeadPushError);
+        ).rejects.toSatisfy((error: unknown) => {
+          expect(error).toBeInstanceOf(StaleHeadPushError);
+          expect(error).toBeInstanceOf(AppError);
+          expect((error as StaleHeadPushError).code).toBe("triage.stale_head_push");
+          return true;
+        });
       } finally {
         await rm(root, { recursive: true, force: true });
       }
     },
     TEST_TIMEOUT_MS,
   );
+
+  it("rejects invalid headSha with pr_workspace.invalid_sha and field context", async () => {
+    await expect(
+      withWritablePrCheckout(
+        {
+          owner: "owner",
+          repo: "repo",
+          headRef: "main",
+          headSha: "not-a-sha",
+          installationToken: "unused",
+          botIdentity: { userId: 123, login: "pr-agent[bot]" },
+        },
+        async () => undefined,
+      ),
+    ).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("pr_workspace.invalid_sha");
+      expect((error as AppError).context).toEqual({ field: "headSha" });
+      return true;
+    });
+  });
 
   it(
     "rejects unsafe paths and resets index after oversized staged diff",

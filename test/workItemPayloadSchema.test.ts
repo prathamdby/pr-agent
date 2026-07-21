@@ -5,6 +5,7 @@ import {
   WorkItemPayloadValidationError,
 } from "../src/agentWork/workItemPayloadSchema.js";
 import type { AgentWorkItemCore, WorkType } from "../src/agentWork/types.js";
+import { AppError } from "../src/errors/appError.js";
 import {
   makeAskWorkItem,
   makeDescriptionWorkItem,
@@ -13,6 +14,17 @@ import {
   makeVerificationWorkItem,
 } from "./helpers/agentWorkItems.js";
 import { coreOf } from "./helpers/executorDurableHarness.js";
+
+describe("WorkItemPayloadValidationError", () => {
+  it("extends AppError with code and workType", () => {
+    const err = new WorkItemPayloadValidationError("review", "bad payload");
+    expect(err).toBeInstanceOf(AppError);
+    expect(err).toBeInstanceOf(WorkItemPayloadValidationError);
+    expect(err.code).toBe("agent_work.invalid_payload");
+    expect(err.workType).toBe("review");
+    expect(err.message).toBe("bad payload");
+  });
+});
 
 const validByType = {
   review: () => makeReviewWorkItem().payload,

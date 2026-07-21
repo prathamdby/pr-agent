@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
+import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn, logDebug } from "../../evlog.js";
 import { publishReview } from "./publishReview.js";
 import { createAgentCiSummaryAuthor } from "../ci/authorCiSummary.js";
@@ -109,7 +110,10 @@ export function buildSubmitReviewTool(params: {
         repo: params.ctx.repo,
         pr: params.ctx.prNumber,
       });
-      throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
+      throw new AppError({
+        code: "review.publish_exhausted",
+        message: PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
+      });
     }
 
     const enforceDiffAndAnchors = params.canEnforceDiffCacheBeforeSubmit?.() ?? true;
@@ -120,7 +124,10 @@ export function buildSubmitReviewTool(params: {
       enforceDiffAndAnchors
     ) {
       recordReviewMetric({ kind: "diff_cache_empty_at_submit" });
-      throw new Error(REVIEW_DIFF_CACHE_REQUIRED_MESSAGE);
+      throw new AppError({
+        code: "review.diff_cache_required",
+        message: REVIEW_DIFF_CACHE_REQUIRED_MESSAGE,
+      });
     }
 
     const { value: coercedArgs, coerced, coercions } = coerceReviewPayloadInput(args);
@@ -147,7 +154,10 @@ export function buildSubmitReviewTool(params: {
         failureKind: formatted.failureKind,
         message: formatted.message.slice(0, 200),
       });
-      throw new Error(formatted.message);
+      throw new AppError({
+        code: "review.payload_validation_failed",
+        message: formatted.message,
+      });
     }
 
     params.state.lastValidationError = null;
@@ -175,7 +185,10 @@ export function buildSubmitReviewTool(params: {
         message: prepared.error.slice(0, 200),
         anchorFailureCount: prepared.anchorFailures.length,
       });
-      throw new Error(prepared.error);
+      throw new AppError({
+        code: "review.payload_semantic_validation_failed",
+        message: prepared.error,
+      });
     }
 
     if (params.shouldAbortPublish) {
@@ -200,13 +213,19 @@ export function buildSubmitReviewTool(params: {
           pr: params.ctx.prNumber,
         });
         params.state.publishSuperseded = true;
-        throw new Error("Review publish skipped: work superseded or cancelled");
+        throw new AppError({
+          code: "review.publish_superseded",
+          message: "Review publish skipped: work superseded or cancelled",
+        });
       }
     }
 
     if (params.state.publishCallCount >= MAX_REVIEW_PUBLISH_CALLS) {
       params.state.publishCallsExhausted = true;
-      throw new Error(PUBLISH_BUDGET_EXHAUSTED_MESSAGE);
+      throw new AppError({
+        code: "review.publish_exhausted",
+        message: PUBLISH_BUDGET_EXHAUSTED_MESSAGE,
+      });
     }
 
     params.state.publishCallCount += 1;
@@ -243,12 +262,15 @@ export function buildSubmitReviewTool(params: {
       if (params.state.publishCallCount >= MAX_REVIEW_PUBLISH_CALLS) {
         params.state.publishCallsExhausted = true;
       }
-      throw new Error(
-        params.state.publishCallsExhausted
+      throw new AppError({
+        code: params.state.publishCallsExhausted
+          ? "review.publish_exhausted"
+          : "review.publish_failed",
+        message: params.state.publishCallsExhausted
           ? PUBLISH_BUDGET_EXHAUSTED_MESSAGE
           : "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
-        { cause: e },
-      );
+        cause: e,
+      });
     }
 
     params.state.published = true;

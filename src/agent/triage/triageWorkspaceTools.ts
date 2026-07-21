@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
+import { AppError } from "../../errors/appError.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
@@ -29,7 +30,13 @@ function isSensitivePath(path: string): boolean {
 
 function safePath(root: string, path: string): string {
   const normalized = path.replace(/\\/g, "/");
-  if (isSensitivePath(normalized)) throw new Error(`Blocked sensitive path "${normalized}"`);
+  if (isSensitivePath(normalized)) {
+    throw new AppError({
+      code: "triage.sensitive_path_blocked",
+      message: `Blocked sensitive path "${normalized}"`,
+      context: { path: normalized },
+    });
+  }
   return assertWorkspacePath(root, normalized);
 }
 
@@ -153,8 +160,20 @@ export function buildTriageWorkspaceTools(params: {
       const fullPath = safePath(root, path);
       const content = await readFile(fullPath, "utf8");
       const matches = countOccurrences(content, oldText);
-      if (matches === 0) throw new Error("oldText not found; re-read the file");
-      if (matches > 1) throw new Error("oldText is ambiguous; include more surrounding context");
+      if (matches === 0) {
+        throw new AppError({
+          code: "triage.old_text_not_found",
+          message: "oldText not found; re-read the file",
+          context: { path },
+        });
+      }
+      if (matches > 1) {
+        throw new AppError({
+          code: "triage.old_text_ambiguous",
+          message: "oldText is ambiguous; include more surrounding context",
+          context: { path },
+        });
+      }
       await writeFile(fullPath, content.replace(oldText, newText));
       return { ok: true, path };
     },
@@ -168,7 +187,13 @@ export function buildTriageWorkspaceTools(params: {
     }),
     run: async ({ path, content }) => {
       const fullPath = safePath(root, path);
-      if (await stat(fullPath).catch(() => null)) throw new Error("Path already exists");
+      if (await stat(fullPath).catch(() => null)) {
+        throw new AppError({
+          code: "triage.path_exists",
+          message: "Path already exists",
+          context: { path },
+        });
+      }
       await mkdir(dirname(fullPath), { recursive: true });
       await writeFile(fullPath, content);
       return { ok: true, path };
@@ -184,12 +209,25 @@ export function buildTriageWorkspaceTools(params: {
       body: z.array(z.string().min(1)).optional(),
     }),
     run: async ({ threadRootCommentId, files, subject, body }) => {
-      if (!inventoryIds.has(threadRootCommentId)) throw new Error("Unknown threadRootCommentId");
+      if (!inventoryIds.has(threadRootCommentId)) {
+        throw new AppError({
+          code: "triage.unknown_thread",
+          message: "Unknown threadRootCommentId",
+          context: { threadRootCommentId },
+        });
+      }
       if (params.state.commitByThreadRootCommentId.has(threadRootCommentId)) {
-        throw new Error("commitFix already called for this threadRootCommentId");
+        throw new AppError({
+          code: "triage.commit_fix_duplicate",
+          message: "commitFix already called for this threadRootCommentId",
+          context: { threadRootCommentId },
+        });
       }
       if (params.state.commitByThreadRootCommentId.size >= MAX_TRIAGE_FIXES_PER_RUN) {
-        throw new Error("Triage fix budget reached");
+        throw new AppError({
+          code: "triage.fix_budget_reached",
+          message: "Triage fix budget reached",
+        });
       }
       const result = await params.checkout.commit({ files, subject, body });
       params.state.commitByThreadRootCommentId.set(threadRootCommentId, result.sha);

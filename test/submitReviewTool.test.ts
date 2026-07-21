@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
+import { AppError } from "../src/errors/appError.js";
 import {
   buildSubmitReviewTool,
   createSubmitReviewState,
@@ -127,9 +128,35 @@ describe("submitReview tool", () => {
     });
     const valid = validPayload();
 
-    await expect(executor(valid)).rejects.toThrow(/publish budget exhausted/i);
+    await expect(executor(valid)).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("review.publish_exhausted");
+      expect((error as Error).message).toMatch(/publish budget exhausted/i);
+      return true;
+    });
     expect(publishReview).toHaveBeenCalledTimes(1);
     expect(state.publishCallsExhausted).toBe(true);
+  });
+
+  it("uses review.publish_failed when publish budget remains", async () => {
+    settingsOverrides.maxReviewPublishCalls = 2;
+    vi.mocked(publishReview).mockRejectedValue(new Error("publish failed"));
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      state,
+    });
+    const valid = validPayload();
+
+    await expect(executor(valid)).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("review.publish_failed");
+      expect((error as AppError).cause).toBeInstanceOf(Error);
+      return true;
+    });
+    expect(state.publishCallsExhausted).toBe(false);
   });
 
   it("treats abort-check failures as superseded publish", async () => {

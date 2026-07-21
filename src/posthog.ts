@@ -1,4 +1,5 @@
 import { PostHog } from "posthog-node";
+import { AppError } from "./errors/appError.js";
 import { sanitizePostHogEvent } from "./security/sanitizePostHogEvent.js";
 
 let client: PostHog | null = null;
@@ -23,7 +24,10 @@ export function initNoOpPostHog(): void {
 
 export function getPostHog(): PostHog {
   if (!client) {
-    throw new Error("PostHog is not initialized; call initPostHog() during process boot");
+    throw new AppError({
+      code: "posthog.not_initialized",
+      message: "PostHog is not initialized; call initPostHog() during process boot",
+    });
   }
   return client;
 }

@@ -8,16 +8,23 @@ import type { IssueCommentWebhookPayload } from "./payloads/issueCommentEvent.js
 import type { PullRequestReviewCommentWebhookPayload } from "./payloads/pullRequestReviewCommentEvent.js";
 import type { PullRequestWebhookPayload } from "./payloads/pullRequestEvent.js";
 import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.js";
+import { AppError } from "../errors/appError.js";
 import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
 
-export class WebhookParseError extends Error {
-  constructor(
-    message: string,
-    public readonly eventName: string,
-    public readonly zodError?: z.ZodError,
-  ) {
-    super(message);
+export class WebhookParseError extends AppError {
+  readonly eventName: string;
+  readonly zodError?: z.ZodError;
+
+  constructor(message: string, eventName: string, zodError?: z.ZodError) {
+    super({
+      code: "webhook.parse_failed",
+      message,
+      context: { eventName },
+      cause: zodError,
+    });
     this.name = "WebhookParseError";
+    this.eventName = eventName;
+    this.zodError = zodError;
   }
 }
 

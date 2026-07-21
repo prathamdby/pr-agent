@@ -1,4 +1,5 @@
 import type { RestEndpointMethodTypes } from "@octokit/rest";
+import { AppError } from "../errors/appError.js";
 import { GITHUB_PULL_REQUEST_FILES_API_MAX_FILES } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 
@@ -47,9 +48,10 @@ export function assertPullRequestFilesHeadSha(
   expectedHeadSha: string,
 ): void {
   if (prFiles.headSha?.toLowerCase() !== expectedHeadSha.toLowerCase()) {
-    throw new Error(
-      `Pull request head SHA ${prFiles.headSha ?? "unknown"} does not match work item headSha ${expectedHeadSha}`,
-    );
+    throw new AppError({
+      code: "github.head_sha_mismatch",
+      message: `Pull request head SHA ${prFiles.headSha ?? "unknown"} does not match work item headSha ${expectedHeadSha}`,
+    });
   }
 }
 

@@ -2,6 +2,7 @@ import { Effect, Layer } from "effect";
 import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
 import type { Config } from "../config.js";
+import { errorLogFields } from "../errors/appError.js";
 import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
@@ -196,6 +197,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               } catch (e) {
                 logError("retention_cleanup_failed", {
                   message: e instanceof Error ? e.message : String(e),
+                  ...errorLogFields(e),
                 });
                 throw e;
               }

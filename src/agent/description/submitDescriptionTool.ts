@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
+import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
 import { publishDescriptionToPullRequest } from "./publishDescription.js";
 import {
@@ -73,16 +74,20 @@ export function buildSubmitDescriptionTool(params: {
 
     if (params.shouldAbortPublish && (await params.shouldAbortPublish())) {
       params.state.publishSuperseded = true;
-      throw new Error(
-        "Description publish aborted because this work item was superseded or cancelled.",
-      );
+      throw new AppError({
+        code: "description.publish_superseded",
+        message: "Description publish aborted because this work item was superseded or cancelled.",
+      });
     }
 
     const coerced = coerceDescriptionPayloadInput(args);
     const parsed = descriptionPayloadSchema.safeParse(coerced);
     if (!parsed.success) {
       params.state.lastValidationError = formatDescriptionValidationError(parsed.error);
-      throw new Error(params.state.lastValidationError);
+      throw new AppError({
+        code: "description.validation_failed",
+        message: params.state.lastValidationError,
+      });
     }
 
     let payload = parsed.data;
@@ -91,7 +96,10 @@ export function buildSubmitDescriptionTool(params: {
       const mermaidIssues = validateSanitizedMermaidFence(sanitizedDiagram);
       if (mermaidIssues.length > 0) {
         params.state.lastValidationError = formatMermaidValidationError(mermaidIssues);
-        throw new Error(params.state.lastValidationError);
+        throw new AppError({
+          code: "description.validation_failed",
+          message: params.state.lastValidationError,
+        });
       }
       payload = { ...payload, changesDiagram: sanitizedDiagram };
     }

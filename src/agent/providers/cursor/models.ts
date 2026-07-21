@@ -1,5 +1,6 @@
 import type { ModelSelection } from "@cursor/sdk";
 import type { Model } from "@earendil-works/pi-ai";
+import { AppError } from "../../../errors/appError.js";
 import { CURSOR_API, CURSOR_PROVIDER } from "./constants.js";
 import {
   getCursorCatalogById,
@@ -63,9 +64,11 @@ function resolveCursorCatalogId(modelId: string): string {
   const { baseId } = parseCursorModelId(modelId);
   const catalog = getCursorCatalogById();
   if (!catalog.has(baseId)) {
-    throw new Error(
-      `PI_MODEL "${modelId}" is not a supported Cursor model. Supported: ${listCursorModelIds().join(", ")}`,
-    );
+    throw new AppError({
+      code: "cursor.model_not_supported",
+      message: `PI_MODEL "${modelId}" is not a supported Cursor model. Supported: ${listCursorModelIds().join(", ")}`,
+      context: { modelId },
+    });
   }
   const model = catalog.get(baseId);
   return model?.id ?? baseId;
@@ -85,7 +88,11 @@ export function assertCursorModelFastSelection(modelId: string): void {
       supportedFast.length > 0
         ? supportedFast.map((id) => `${id}${CURSOR_FAST_MODEL_SUFFIX}`).join(", ")
         : "none";
-    throw new Error(`PI_MODEL "${modelId}" does not support fast mode. Supported: ${hint}`);
+    throw new AppError({
+      code: "cursor.fast_mode_not_supported",
+      message: `PI_MODEL "${modelId}" does not support fast mode. Supported: ${hint}`,
+      context: { modelId },
+    });
   }
 }
 
@@ -93,7 +100,11 @@ export function getCursorModel(modelId: string): Model<typeof CURSOR_API> {
   const baseId = resolveCursorCatalogId(modelId);
   const model = getCursorCatalogById().get(baseId);
   if (!model) {
-    throw new Error(`Unknown Cursor model id: ${baseId}`);
+    throw new AppError({
+      code: "cursor.unknown_model_id",
+      message: `Unknown Cursor model id: ${baseId}`,
+      context: { modelId: baseId },
+    });
   }
   return model;
 }
