@@ -414,6 +414,50 @@ describe("piAgentRunnerProvider.send", () => {
     }
   });
 
+  it("abort() cancels the in-flight pi session and is idempotent", async () => {
+    const abort = vi.fn();
+    const session = {
+      subscribe: () => () => {},
+      prompt: () => new Promise<void>(() => {}),
+      abort,
+      setActiveToolsByName: vi.fn(),
+      dispose: vi.fn(),
+    };
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const sendPromise = runnerSession.send("question");
+    runnerSession.abort();
+    runnerSession.abort();
+    expect(abort).toHaveBeenCalledTimes(1);
+    void sendPromise;
+  });
+
+  it("abort() then dispose() disposes exactly once (idempotent disposal)", async () => {
+    const dispose = vi.fn();
+    const session = buildMockSession(() => undefined);
+    session.dispose = dispose;
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    runnerSession.abort();
+    await runnerSession.dispose();
+    await runnerSession.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   it("calls SDK session.dispose before removing the agent directory", async () => {
     const dispose = vi.fn();
     const session = buildMockSession(() => undefined);

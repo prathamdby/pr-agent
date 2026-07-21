@@ -21,6 +21,11 @@ export type AgentRunnerSession = {
     executors: Record<string, AgentRunnerToolExecutor>,
   ) => void;
   readonly restoreTools: () => void;
+  /**
+   * Cooperatively cancel any in-flight `send`, cancelling the underlying provider
+   * request and pending tool calls. Idempotent and safe to call before `dispose`.
+   */
+  readonly abort: () => void;
   readonly dispose: () => Promise<void>;
 };
 

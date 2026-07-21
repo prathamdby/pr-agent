@@ -148,6 +148,12 @@ export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 export const MAX_INLINE_REVIEW_COMMENTS = 50;
 /** Max incremental inline thread publish calls in one review run. */
 export const MAX_THREAD_PUBLISH_CALLS = 8;
+/** Max findings one specialist may return in a single findings report (orchestrator V2). */
+export const MAX_SPECIALIST_FINDINGS = 20;
+/** Total specialist attempts per run: one fresh-session retry plus classified transient retries. */
+export const MAX_SPECIALIST_ATTEMPTS = 3;
+/** Backoff before a classified rate_limit/timeout specialist retry, indexed by prior transient retries. */
+export const SPECIALIST_TRANSIENT_BACKOFF_MS = [1_000, 3_000] as const;
 
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,

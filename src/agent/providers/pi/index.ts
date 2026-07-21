@@ -173,6 +173,9 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         ),
       });
 
+      let aborted = false;
+      let disposed = false;
+
       return {
         async send(prompt: string, opts?: AgentRunnerSendOptions) {
           let sessionToolTurnCount = 0;
@@ -253,7 +256,14 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
         restoreTools() {
           session.setActiveToolsByName(allToolNames);
         },
+        abort() {
+          if (aborted) return;
+          aborted = true;
+          void session.abort();
+        },
         async dispose() {
+          if (disposed) return;
+          disposed = true;
           try {
             session.dispose();
           } finally {

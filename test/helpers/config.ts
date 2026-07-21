@@ -32,6 +32,7 @@ const baseTestConfig: Config = {
     google: "",
   },
   providerPromptTimeoutMs: 300_000,
+  reviewSpecialistTimeoutMs: 900_000,
   reviewConcurrency: 2,
   askConcurrency: 1,
   ackConcurrency: 2,

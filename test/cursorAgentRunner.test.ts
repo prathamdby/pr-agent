@@ -225,6 +225,82 @@ describe("cursorAgentRunnerProvider", () => {
     expect(bridgeDisposeMock).toHaveBeenCalledTimes(1);
   });
 
+  it("abort() cancels an in-flight cursor send via the shared abort signal", async () => {
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: vi.fn(),
+    } as never);
+    completeMock.mockImplementationOnce(
+      (_model: unknown, _context: unknown, options?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        }),
+    );
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+    });
+
+    const sendPromise = session.send("go");
+    session.abort();
+    await expect(sendPromise).rejects.toThrow("aborted");
+    await session.dispose();
+  });
+
+  it("plumbs the session abort signal into the MCP bridge", async () => {
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: vi.fn(),
+    } as never);
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+    });
+
+    const bridgeOptions = createMcpBridgeMock.mock.calls.at(0)?.at(0) as
+      | { signal?: AbortSignal }
+      | undefined;
+    if (!bridgeOptions) throw new Error("expected MCP bridge options");
+    expect(bridgeOptions.signal).toBeInstanceOf(AbortSignal);
+    expect(bridgeOptions.signal?.aborted).toBe(false);
+
+    session.abort();
+    expect(bridgeOptions.signal?.aborted).toBe(true);
+
+    await session.dispose();
+  });
+
+  it("abort() and dispose() are idempotent", async () => {
+    const agentDispose = vi.fn(async () => undefined);
+    vi.mocked(Agent.create).mockResolvedValue({
+      send: vi.fn(),
+      [Symbol.asyncDispose]: agentDispose,
+    } as never);
+
+    const session = await cursorAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+    });
+
+    session.abort();
+    session.abort();
+    await session.dispose();
+    await session.dispose();
+
+    expect(agentDispose).toHaveBeenCalledTimes(1);
+    expect(bridgeDisposeMock).toHaveBeenCalledTimes(1);
+  });
+
   it("restores the original tools after nested restrictToTools calls", async () => {
     vi.mocked(Agent.create).mockResolvedValue({
       send: vi.fn(),

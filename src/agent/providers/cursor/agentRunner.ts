@@ -81,9 +81,13 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       });
     }
     assertCursorRipgrepConfigured();
+    // One controller per session: abort() cancels the in-flight send and every pending
+    // MCP tool call, and disposes the bridge (decision 18 — reuse existing MCP AbortControllers).
+    const abortController = new AbortController();
     const bridge = await createMcpBridge({
       tools: () => context.tools ?? [],
       executors: () => activeExecutors,
+      signal: abortController.signal,
       refreshBeforeTool,
       maxToolRounds: () => activeMaxToolRounds,
       toolRoundCounter,
@@ -136,6 +140,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         });
         const assistant = await complete(model, context, {
           apiKey: cfg.cursorApiKey,
+          signal: abortController.signal,
         });
         context.messages.push(assistant);
         return {
@@ -163,6 +168,9 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         syncRunContext();
         savedTools = null;
         savedExecutors = null;
+      },
+      abort() {
+        abortController.abort();
       },
       async dispose() {
         if (disposed) return;
