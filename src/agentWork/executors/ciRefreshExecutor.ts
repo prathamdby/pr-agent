@@ -9,22 +9,12 @@ import {
   shouldRenderCiSummaryRow,
 } from "../../review/ci/renderCiSummary.js";
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
-import {
-  QUALITY_REVIEW_SUMMARY_SENTINEL,
-  REVIEW_CI_SUMMARY_MAX_FAILURES,
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-  TESTS_REVIEW_SUMMARY_SENTINEL,
-} from "../../settings/index.js";
+import { REVIEW_CI_SUMMARY_MAX_FAILURES, REVIEW_SUMMARY_SENTINEL } from "../../settings/index.js";
+import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import { mintInstallationToken } from "../durableJob.js";
 import type { CiRefreshJobData } from "../types.js";
 
-const SUMMARY_SENTINELS = [
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-  QUALITY_REVIEW_SUMMARY_SENTINEL,
-  TESTS_REVIEW_SUMMARY_SENTINEL,
-] as const;
+const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
 /**
  * Refreshes the CI cell on matching review summary comments for a head SHA after

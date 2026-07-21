@@ -5,12 +5,11 @@ import {
   formatPriorInlineFeedbackBlock,
   type PriorInlineFeedbackThread,
 } from "../src/review/run/reviewPriorFeedback.js";
-import {
-  REVIEW_POINTER_BODY,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
-} from "../src/settings/index.js";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
+
+const [SECURITY_REVIEW_POINTER_BODY, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] =
+  LEGACY_REVIEW_POINTER_BODIES;
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(),

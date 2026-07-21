@@ -2,10 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import * as reviewSchema from "../src/review/reviewSchema.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REVIEW_POINTER_NOTE_LEAD,
@@ -192,7 +189,7 @@ describe("publishReview core", () => {
     {
       label: "security",
       mode: "review-security" as const,
-      sentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
+      sentinel: REVIEW_SUMMARY_SENTINEL,
     },
   ])("skips PR review when there are no P0–P2 findings ($label)", async ({ mode, sentinel }) => {
     const publishState = testPublishState();
@@ -300,7 +297,7 @@ describe("publishReview core", () => {
     expect(summaryBody).toContain("#discussion_r99");
   });
 
-  it("uses security sentinel and pointer with agent fix prompt when mode is review-security", async () => {
+  it("uses the general sentinel and pointer for recognized legacy modes", async () => {
     const publishState = testPublishState();
     await publishReviewForTest({
       ...baseParams,
@@ -334,8 +331,8 @@ describe("publishReview core", () => {
       "o",
       "r",
       1,
-      expect.stringContaining(SECURITY_REVIEW_SUMMARY_SENTINEL),
-      SECURITY_REVIEW_SUMMARY_SENTINEL,
+      expect.stringContaining(REVIEW_SUMMARY_SENTINEL),
+      REVIEW_SUMMARY_SENTINEL,
       null,
       undefined,
     );

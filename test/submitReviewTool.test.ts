@@ -6,11 +6,6 @@ import {
   createSubmitReviewState,
 } from "../src/review/publish/submitReviewTool.js";
 import {
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-  QUALITY_REVIEW_SUMMARY_SENTINEL,
-  TESTS_REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
-import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
 } from "../src/review/placement/reviewDiffIndex.js";
@@ -20,6 +15,7 @@ import {
 } from "../src/review/run/reviewRunMetrics.js";
 import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 
 const settingsOverrides: { maxReviewPublishCalls?: number } = {};
 vi.mock("../src/settings/index.js", async (importOriginal) => {
@@ -195,38 +191,25 @@ describe("submitReview tool", () => {
     expect(publishReview).not.toHaveBeenCalled();
   });
 
-  it("mentions the security summary sentinel in the tool description", () => {
-    const { piTool } = buildSubmitReviewTool({
-      cfg,
-      token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
-      mode: "review-security",
-      state: createSubmitReviewState(),
-    });
-    expect(piTool.description).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
-  });
-
-  it("mentions the quality summary sentinel in the tool description", () => {
-    const { piTool } = buildSubmitReviewTool({
-      cfg,
-      token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
-      mode: "review-quality",
-      state: createSubmitReviewState(),
-    });
-    expect(piTool.description).toContain(QUALITY_REVIEW_SUMMARY_SENTINEL);
-  });
-
-  it("mentions the tests summary sentinel in the tool description", () => {
-    const { piTool } = buildSubmitReviewTool({
-      cfg,
-      token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
-      mode: "review-tests",
-      state: createSubmitReviewState(),
-    });
-    expect(piTool.description).toContain(TESTS_REVIEW_SUMMARY_SENTINEL);
-  });
+  it.each(["review-security", "review-quality", "review-tests"] as const)(
+    "mentions the general summary sentinel for recognized %s mode",
+    (mode) => {
+      const { piTool } = buildSubmitReviewTool({
+        cfg,
+        token: "tok",
+        ctx: {
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: "sha",
+          hasDescriptionAgentBlock: false,
+        },
+        mode,
+        state: createSubmitReviewState(),
+      });
+      expect(piTool.description).toContain(REVIEW_SUMMARY_SENTINEL);
+    },
+  );
 
   it("blocks submit when listPullRequestFiles was not ingested", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });

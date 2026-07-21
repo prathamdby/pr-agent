@@ -1,12 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  QUALITY_REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
-  TESTS_REVIEW_POINTER_BODY,
   VERIFICATION_STUB_MARKER,
 } from "../src/settings/index.js";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
 import { renderReviewPointerLensMarker } from "../src/review/run/reviewRender.js";
+
+const [, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] = LEGACY_REVIEW_POINTER_BODIES;
 
 const mocks = vi.hoisted(() => ({
   listReviews: vi.fn(),

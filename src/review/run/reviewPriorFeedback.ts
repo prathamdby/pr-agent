@@ -4,15 +4,15 @@ import {
   MAX_PRIOR_INLINE_FEEDBACK_THREADS,
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
   VERIFICATION_STUB_MARKER,
 } from "../../settings/index.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { escapeTablePlainCell } from "../../github/markdownFormat.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import {
+  LEGACY_REVIEW_POINTER_BODIES,
+  type AnyReviewLens,
+} from "../../settings/legacyReviewLenses.js";
 
 export type PriorInlineFeedbackThread = {
   path: string;
@@ -115,9 +115,9 @@ export function parseReviewPointerLensMarker(body: string): AnyReviewLens | null
 export function classifyReviewLensFromPointerBody(body: string): AnyReviewLens | null {
   const markerLens = parseReviewPointerLensMarker(body);
   if (markerLens) return markerLens;
-  if (body.includes(SECURITY_REVIEW_POINTER_BODY)) return "review-security";
-  if (body.includes(QUALITY_REVIEW_POINTER_BODY)) return "review-quality";
-  if (body.includes(TESTS_REVIEW_POINTER_BODY)) return "review-tests";
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[0])) return "review-security";
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[1])) return "review-quality";
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[2])) return "review-tests";
   if (body.includes(REVIEW_POINTER_BODY)) return "review";
   return null;
 }

@@ -19,12 +19,7 @@ import {
 import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
 import { fixDoubleEscapedString } from "../agent/tools/fixDoubleEscapedString.js";
 
-export {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-  QUALITY_REVIEW_SUMMARY_SENTINEL,
-  TESTS_REVIEW_SUMMARY_SENTINEL,
-} from "../settings/index.js";
+export { REVIEW_SUMMARY_SENTINEL } from "../settings/index.js";
 
 export type ReviewMode = "review";
 

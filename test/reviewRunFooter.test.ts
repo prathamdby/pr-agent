@@ -7,11 +7,11 @@ import {
 } from "../src/review/run/reviewRunFooter.js";
 
 describe("reviewLensFooterLabel", () => {
-  it("maps each review mode to a short lens label", () => {
+  it("uses one footer label for recognized review lenses", () => {
     expect(reviewLensFooterLabel("review")).toBe("general");
-    expect(reviewLensFooterLabel("review-security")).toBe("security");
-    expect(reviewLensFooterLabel("review-quality")).toBe("quality");
-    expect(reviewLensFooterLabel("review-tests")).toBe("tests");
+    expect(reviewLensFooterLabel("review-security")).toBe("general");
+    expect(reviewLensFooterLabel("review-quality")).toBe("general");
+    expect(reviewLensFooterLabel("review-tests")).toBe("general");
   });
 });
 
@@ -74,7 +74,7 @@ describe("renderReviewRunFooter", () => {
         durationMs: 1_000,
         model: "evil<script>",
       }),
-    ).toBe("<sub>abc1234 ⋅ security ⋅ 1s ⋅ evil&lt;script&gt;</sub>");
+    ).toBe("<sub>abc1234 ⋅ general ⋅ 1s ⋅ evil&lt;script&gt;</sub>");
   });
 
   it("falls back to unknown for empty or whitespace-only model", () => {
