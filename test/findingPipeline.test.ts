@@ -107,4 +107,18 @@ describe("findingPipeline", () => {
       anchorUnresolved: 0,
     });
   });
+
+  it("records new fingerprints under the merged review mode", () => {
+    const item = finding();
+    const result = prepareFindingsForPublish({
+      payload: payload({ findings: [item] }),
+      mode: "review-security",
+      inlinePlacements: [placement(item)],
+    });
+
+    expect(result.inline[0]?.inlineFingerprint).toBe(fingerprintFinding(item, "review"));
+    expect(result.inline[0]?.inlineFingerprint).not.toBe(
+      fingerprintFinding(item, "review-security"),
+    );
+  });
 });

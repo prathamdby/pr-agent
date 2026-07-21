@@ -80,6 +80,20 @@ describe("suppressInlinePlacementsByFingerprint", () => {
     expect(suppressedInlineCount).toBe(1);
     expect(placements[0]?.inlinePosted).toBe(false);
   });
+
+  it("suppresses a merged review finding stored under a legacy lens", () => {
+    const fingerprintedPlacements = fingerprintInlinePlacements(
+      [{ finding, inlineLine: 10, inlinePosted: true }],
+      "review",
+    );
+    const { placements, suppressedInlineCount } = suppressInlinePlacementsByFingerprint(
+      fingerprintedPlacements,
+      [fingerprintFinding(finding, "review-security")],
+    );
+
+    expect(suppressedInlineCount).toBe(1);
+    expect(placements[0]?.inlinePosted).toBe(false);
+  });
 });
 
 describe("mergeInlineFingerprintRecords", () => {

@@ -127,7 +127,7 @@ export function prepareFindingsForPublish(params: {
     params.inlinePlacements == null
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
-  const fingerprintedPlacements = fingerprintInlinePlacements(plannedPlacements, params.mode);
+  const fingerprintedPlacements = fingerprintInlinePlacements(plannedPlacements, "review");
   const suppression = suppressInlinePlacementsByFingerprint(
     fingerprintedPlacements,
     params.storedInlineFingerprints ?? [],

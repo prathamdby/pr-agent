@@ -5,7 +5,7 @@ import type {
   InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
 import type { ReviewFinding } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import { LEGACY_REVIEW_LENSES, type AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export function normalizeFindingSubstance(text: string): string {
   return text
@@ -25,6 +25,13 @@ export function fingerprintFinding(finding: ReviewFinding, mode: AnyReviewLens):
     String(lineBucket),
   ].join("|");
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 16);
+}
+
+export function fingerprintCandidates(finding: ReviewFinding): readonly string[] {
+  return [
+    fingerprintFinding(finding, "review"),
+    ...LEGACY_REVIEW_LENSES.map((lens) => fingerprintFinding(finding, lens)),
+  ];
 }
 
 export type StoredInlineFingerprints = {
@@ -59,7 +66,9 @@ export function suppressInlinePlacementsByFingerprint(
   let suppressedInlineCount = 0;
   const next = placements.map((placement) => {
     if (!placement.inlinePosted) return placement;
-    if (!stored.has(placement.inlineFingerprint)) return placement;
+    if (!fingerprintCandidates(placement.finding).some((candidate) => stored.has(candidate))) {
+      return placement;
+    }
     suppressedInlineCount += 1;
     return { ...placement, inlinePosted: false };
   });
