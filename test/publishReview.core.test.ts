@@ -92,8 +92,7 @@ describe("publishReview core", () => {
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("#discussion_r99");
     expect(summaryBody).not.toContain("/blob/sha/");
-    expect(publishState.inlinePublished).toBe(true);
-    expect(publishState.inlineReviewId).toBe(1);
+    expect(publishState.inlineReviewIds).toEqual([1]);
   });
 
   it("suppresses inline review when stored fingerprint matches", async () => {
@@ -212,7 +211,7 @@ describe("publishReview core", () => {
       null,
       undefined,
     );
-    expect(publishState.inlinePublished).toBe(true);
+    expect(publishState.inlineReviewIds).toEqual([]);
   });
 
   it("skips PR review when only P3 findings", async () => {
@@ -238,7 +237,7 @@ describe("publishReview core", () => {
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
-    expect(publishState.inlinePublished).toBe(true);
+    expect(publishState.inlineReviewIds).toEqual([]);
   });
 
   it("uses COMMENT when only P2 findings", async () => {
@@ -262,39 +261,40 @@ describe("publishReview core", () => {
     );
   });
 
-  it("skips inline review when inlinePublished is already true", async () => {
-    const publishState = testPublishState();
-    publishState.inlinePublished = true;
-
-    await publishReviewForTest({ ...baseParams, publishState });
-
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
-  });
-
-  it("still resolves inline comment URLs when inline review was published earlier", async () => {
+  it("loads inline comments from every resumed review batch", async () => {
+    const stored = fingerprintFinding(payload.findings[0], "review");
     const publishState = testPublishState({
-      inlinePublished: true,
-      inlineReviewId: 1,
+      inlineReviewIds: [41, 42],
     });
 
     await publishReviewForTest({
       ...baseParams,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      storedInlineFingerprints: [stored],
     });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith(
+    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledTimes(2);
+    expect(listPullRequestReviewCommentsForReview).toHaveBeenNthCalledWith(
+      1,
       "t",
       "o",
       "r",
       1,
-      1,
+      41,
       undefined,
     );
-    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
-    expect(summaryBody).toContain("#discussion_r99");
+    expect(listPullRequestReviewCommentsForReview).toHaveBeenNthCalledWith(
+      2,
+      "t",
+      "o",
+      "r",
+      1,
+      42,
+      undefined,
+    );
+    expect(publishState.inlineReviewIds).toEqual([41, 42]);
   });
 
   it("uses the general sentinel and pointer for recognized legacy modes", async () => {
@@ -431,7 +431,7 @@ describe("publishReview core", () => {
     const callArgs = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4];
     expect(callArgs).not.toHaveProperty("comments");
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
-    expect(publishState.inlinePublished).toBe(true);
+    expect(publishState.inlineReviewIds).toEqual([1]);
   });
 
   it("does not post repeat no-bugs review when shouldLinkToSummary but P3-only findings", async () => {
@@ -479,7 +479,7 @@ describe("publishReview core", () => {
       null,
       undefined,
     );
-    expect(publishState.inlinePublished).toBe(true);
+    expect(publishState.inlineReviewIds).toEqual([]);
   });
 
   it("publishes summary when GitHub rejects inline review", async () => {
@@ -507,6 +507,6 @@ describe("publishReview core", () => {
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("Summary only");
     expect(summaryBody).not.toContain("Inline thread posted");
-    expect(publishState.inlinePublished).toBe(true);
+    expect(publishState.inlineReviewIds).toEqual([]);
   });
 });

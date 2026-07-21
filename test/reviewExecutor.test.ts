@@ -186,9 +186,8 @@ describe("executeReviewJob", () => {
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1 });
     mocks.loadPublishContext.mockResolvedValue({
       publishState: {
-        inlinePublished: false,
         summaryPublished: false,
-        inlineReviewId: null,
+        inlineReviewIds: [],
       },
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],

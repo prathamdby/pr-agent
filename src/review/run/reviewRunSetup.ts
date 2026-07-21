@@ -54,8 +54,7 @@ export function buildReviewRunSetup(params: {
   workspace: LocalPrWorkspace;
   initialPublishState?: {
     published?: boolean;
-    inlinePublished?: boolean;
-    inlineReviewId?: number | null;
+    inlineReviewIds?: readonly number[];
   };
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
@@ -88,11 +87,7 @@ export function buildReviewRunSetup(params: {
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
-  const submitState: SubmitReviewState = createSubmitReviewState({
-    published: params.initialPublishState?.published,
-    inlinePublished: params.initialPublishState?.inlinePublished,
-    inlineReviewId: params.initialPublishState?.inlineReviewId,
-  });
+  const submitState: SubmitReviewState = createSubmitReviewState(params.initialPublishState);
 
   const pathGate = createAskPathGate();
   const refreshableGh = createRefreshableToolExecutors({

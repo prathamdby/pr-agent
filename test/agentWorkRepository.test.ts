@@ -25,14 +25,35 @@ describe("loadReviewExecutorPublishContext", () => {
     vi.clearAllMocks();
   });
 
-  it("maps one batched publish_records query into executor context", async () => {
+  it("restores current batch review ids and merges stored fingerprints", async () => {
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [
-        { step: "inline_review", github_id: "42" },
+        {
+          step: "inline_review",
+          github_id: "43",
+          detail: {
+            batches: [
+              { batchId: "old", workItemId: "wi-0", reviewId: 41, fingerprints: ["fp-old"] },
+              { batchId: "one", workItemId: "wi-1", reviewId: 42, fingerprints: ["fp-1"] },
+              { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
+            ],
+          },
+        },
         { step: "summary_comment", github_id: "99" },
       ],
       prior_summary_exists: true,
-      fingerprint_details: [{ detail: { fingerprints: ["fp-1", "fp-2"] } }],
+      fingerprint_details: [
+        {
+          detail: {
+            fingerprints: ["fp-legacy"],
+            batches: [
+              { batchId: "old", workItemId: "wi-0", reviewId: 41, fingerprints: ["fp-old"] },
+              { batchId: "one", workItemId: "wi-1", reviewId: 42, fingerprints: ["fp-1"] },
+              { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
+            ],
+          },
+        },
+      ],
       latest_summary_github_id: "1001",
     });
 
@@ -40,12 +61,11 @@ describe("loadReviewExecutorPublishContext", () => {
       loadReviewExecutorPublishContext(pool, "wi-1", "o/r#1", "review"),
     ).resolves.toEqual({
       publishState: {
-        inlinePublished: true,
         summaryPublished: true,
-        inlineReviewId: 42,
+        inlineReviewIds: [42, 43],
       },
       shouldLinkToSummary: true,
-      storedInlineFingerprints: ["fp-1", "fp-2"],
+      storedInlineFingerprints: ["fp-legacy", "fp-old", "fp-1", "fp-2"],
       summaryCommentGithubId: 1001,
     });
 
@@ -94,7 +114,33 @@ describe("listTriageEligibleInlineReviews", () => {
   });
 });
 
-describe("review check run publish records", () => {
+describe("publish records", () => {
+  it("atomically appends unique inline batches in one publish record row", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const scopedPool = { query } as unknown as Pool;
+    const batch = {
+      batchId: "batch-1",
+      workItemId: "wi-1",
+      reviewId: 42,
+      fingerprints: ["fp-1"],
+    };
+
+    await recordPublishStep(scopedPool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+      step: "inline_review",
+      githubId: 42,
+      detail: batch,
+    });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("jsonb_set"),
+      expect.arrayContaining([JSON.stringify({ batches: [batch] })]),
+    );
+    expect(vi.mocked(query).mock.calls[0]?.[0]).toContain("batchId");
+  });
+
   it("uses the shared-step conflict predicate that matches the partial index", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const scopedPool = { query } as unknown as Pool;

@@ -15,7 +15,6 @@ import {
 } from "./reviewRender.js";
 import type { ReviewPayload } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import type { SubmitReviewState } from "../publish/submitReviewTool.js";
 
 export type InlinePublishPhaseContext = {
   owner: string;
@@ -55,7 +54,6 @@ export async function runInlinePublishPhase(params: {
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   summaryCommentUrl?: string;
   shouldLinkToSummary: boolean;
-  publishState: SubmitReviewState;
   publishMetaBase: Record<string, unknown>;
   inlineReviewFingerprints: (placements: readonly FingerprintedInlinePlacement[]) => string[];
   tokenExpiresAtTs?: number;
@@ -72,14 +70,13 @@ export async function runInlinePublishPhase(params: {
     placements,
     event,
     summaryCommentUrl,
-    publishState,
     publishMetaBase,
     inlineReviewFingerprints,
     tokenExpiresAtTs,
     recordPublishStep,
   } = params;
   let summaryPlacements: InlinePlacement[] = [...params.placements];
-  let inlineReviewId = publishState.inlineReviewId;
+  let inlineReviewId: number | null = null;
   let anchorDroppedCount = 0;
   let lineResolutionFallback = false;
   let agentFixPromptTruncated = false;
@@ -115,7 +112,6 @@ export async function runInlinePublishPhase(params: {
 
       if (inlineResult.review) {
         inlineReviewId = inlineResult.review.id;
-        publishState.inlineReviewId = inlineResult.review.id;
         summaryPlacements = mergeDroppedIntoSummaryPlacements(
           placements,
           inlineResult.anchorDroppedPlacements,
@@ -247,7 +243,6 @@ export async function runInlinePublishPhase(params: {
         ),
       );
       inlineReviewId = review.id;
-      publishState.inlineReviewId = review.id;
       await recordPublishStep?.("inline_review", {
         githubId: review.id,
         meta: {

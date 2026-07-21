@@ -25,8 +25,7 @@ import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type SubmitReviewState = {
   published: boolean;
-  inlinePublished: boolean;
-  inlineReviewId: number | null;
+  inlineReviewIds: number[];
   lastValidationError: string | null;
   publishCallCount: number;
   publishCallsExhausted: boolean;
@@ -39,13 +38,13 @@ const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
   unrepresentable: "any",
 }) as PiTool["parameters"];
 
-export function createSubmitReviewState(
-  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished" | "inlineReviewId">>,
-): SubmitReviewState {
+export function createSubmitReviewState(initial?: {
+  readonly published?: boolean;
+  readonly inlineReviewIds?: readonly number[];
+}): SubmitReviewState {
   return {
     published: initial?.published ?? false,
-    inlinePublished: initial?.inlinePublished ?? false,
-    inlineReviewId: initial?.inlineReviewId ?? null,
+    inlineReviewIds: [...(initial?.inlineReviewIds ?? [])],
     lastValidationError: null,
     publishCallCount: 0,
     publishCallsExhausted: false,

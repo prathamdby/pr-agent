@@ -270,7 +270,7 @@ export async function publishReview(
   const inlineFindings = preparedFindings.inline;
   const event = reviewEventForFindings(payload.findings);
   let summaryPlacements: InlinePlacement[] = [...placements];
-  let inlineReviewId = publishState.inlineReviewId;
+  const inlineReviewIds = [...publishState.inlineReviewIds];
   const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
   if (diffCacheEmpty) {
     logDebug("review_diff_cache_empty", {
@@ -318,39 +318,40 @@ export async function publishReview(
     diffCacheEmpty,
   };
 
-  if (!publishState.inlinePublished) {
-    const inlinePhase = await runInlinePublishPhase({
-      token,
-      mode,
-      payload,
-      ctx: renderCtx,
-      placements,
-      inlineFindings,
-      event,
-      summaryCommentUrl,
-      shouldLinkToSummary: params.shouldLinkToSummary ?? false,
-      publishState,
-      publishMetaBase,
-      inlineReviewFingerprints,
-      tokenExpiresAtTs,
-      recordPublishStep: params.recordPublishStep,
-    });
-    summaryPlacements = inlinePhase.summaryPlacements;
-    inlineReviewId = inlinePhase.inlineReviewId;
-    publishState.inlinePublished = true;
+  const inlinePhase = await runInlinePublishPhase({
+    token,
+    mode,
+    payload,
+    ctx: renderCtx,
+    placements,
+    inlineFindings,
+    event,
+    summaryCommentUrl,
+    shouldLinkToSummary: params.shouldLinkToSummary ?? false,
+    publishMetaBase,
+    inlineReviewFingerprints,
+    tokenExpiresAtTs,
+    recordPublishStep: params.recordPublishStep,
+  });
+  summaryPlacements = inlinePhase.summaryPlacements;
+  if (inlinePhase.inlineReviewId != null && !inlineReviewIds.includes(inlinePhase.inlineReviewId)) {
+    inlineReviewIds.push(inlinePhase.inlineReviewId);
   }
+  publishState.inlineReviewIds = [...inlineReviewIds];
 
-  if (inlineReviewId != null) {
+  const reviewComments: Awaited<ReturnType<typeof listPullRequestReviewCommentsForReview>> = [];
+  for (const inlineReviewId of inlineReviewIds) {
     try {
-      const reviewComments = await listPullRequestReviewCommentsForReview(
-        token,
-        owner,
-        repo,
-        prNumber,
-        inlineReviewId,
-        tokenExpiresAtTs,
+      reviewComments.push(
+        ...(await listPullRequestReviewCommentsForReview(
+          token,
+          owner,
+          repo,
+          prNumber,
+          inlineReviewId,
+          tokenExpiresAtTs,
+        )),
       );
-      summaryPlacements = enrichPlacementsWithInlineCommentUrls(summaryPlacements, reviewComments);
     } catch (e) {
       logWarn("review_inline_comment_urls_failed", {
         mode,
@@ -362,6 +363,7 @@ export async function publishReview(
       });
     }
   }
+  summaryPlacements = enrichPlacementsWithInlineCommentUrls(summaryPlacements, reviewComments);
 
   const metricsSnapshot = snapshotReviewRunMetrics();
   const ciSummary = await buildCiSummary({
