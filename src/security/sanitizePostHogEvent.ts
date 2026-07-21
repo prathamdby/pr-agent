@@ -1,5 +1,10 @@
-import type { EventMessage } from "posthog-node";
 import { redactOutboundSecrets } from "./redactOutboundSecrets.js";
+
+/** Structural subset of posthog-node EventMessage used by before_send (no SDK import). */
+export type PostHogEventMessage = {
+  readonly properties?: Record<string | number, unknown> | null;
+  readonly [key: string]: unknown;
+};
 
 const STACK_FRAME_STRING_KEYS = [
   "filename",
@@ -49,7 +54,9 @@ function sanitizeExceptionEntry(entry: unknown): unknown {
   return next;
 }
 
-export function sanitizePostHogEvent(event: EventMessage | null): EventMessage | null {
+export function sanitizePostHogEvent(
+  event: PostHogEventMessage | null,
+): PostHogEventMessage | null {
   if (event == null) return null;
   const properties = event.properties;
   if (properties == null) return event;

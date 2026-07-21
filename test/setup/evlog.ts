@@ -1,5 +1,5 @@
+import { initNoOpAnalytics } from "../../src/analytics/index.js";
 import { initEvlog } from "../../src/evlog.js";
-import { initNoOpPostHog } from "../../src/posthog.js";
 
 initEvlog("error", { silent: true, suppressDrainWarning: true });
-initNoOpPostHog();
+initNoOpAnalytics();

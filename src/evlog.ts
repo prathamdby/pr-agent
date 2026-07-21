@@ -7,6 +7,7 @@ import {
   withAuditMethods,
 } from "evlog";
 import { createLoggerStorage } from "evlog/toolkit";
+import { captureException, isAnalyticsEnabled } from "./analytics/index.js";
 import type { Config } from "./config.js";
 
 export type { RequestLogger };
@@ -120,8 +121,71 @@ export function logWarn(event: string, meta?: Record<string, unknown>): void {
   recordOrGlobal("warn", (p) => globalLog.warn(p), event, meta);
 }
 
-export function logError(event: string, meta?: Record<string, unknown>): void {
+function analyticsDistinctIdFromMeta(meta?: Record<string, unknown>): string {
+  if (meta == null) return "server";
+  if (typeof meta.analyticsDistinctId === "string" && meta.analyticsDistinctId.length > 0) {
+    return meta.analyticsDistinctId;
+  }
+  if (typeof meta.installationId === "number") {
+    return `installation:${meta.installationId}`;
+  }
+  if (typeof meta.installationId === "string" && meta.installationId.length > 0) {
+    return `installation:${meta.installationId}`;
+  }
+  return "server";
+}
+
+function unknownErrorMessage(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+    return String(value);
+  }
+  if (typeof value === "symbol") return value.description ?? "Symbol";
+  try {
+    return JSON.stringify(value) ?? "null";
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+function errorFromLogErrorArgs(
+  event: string,
+  meta?: Record<string, unknown>,
+  error?: unknown,
+): Error {
+  if (error instanceof Error) return error;
+  if (error !== undefined) return new Error(unknownErrorMessage(error));
+  if (typeof meta?.message === "string" && meta.message.length > 0) {
+    return new Error(meta.message);
+  }
+  return new Error(event);
+}
+
+function forwardLogErrorToAnalytics(
+  event: string,
+  meta?: Record<string, unknown>,
+  error?: unknown,
+): void {
+  if (!isAnalyticsEnabled()) return;
+
+  const properties: Record<string, unknown> = { event };
+  if (meta) {
+    for (const [key, value] of Object.entries(meta)) {
+      if (key === "analyticsDistinctId" || key === "error" || key === "err") continue;
+      properties[key] = value;
+    }
+  }
+
+  captureException(
+    errorFromLogErrorArgs(event, meta, error),
+    analyticsDistinctIdFromMeta(meta),
+    properties,
+  );
+}
+
+export function logError(event: string, meta?: Record<string, unknown>, error?: unknown): void {
   recordOrGlobal("error", (p) => globalLog.error(p), event, meta);
+  forwardLogErrorToAnalytics(event, meta, error);
 }
 
 export type OperationLoggerMeta = {

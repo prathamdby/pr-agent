@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { getPostHog } from "../../posthog.js";
+import { captureEvent } from "../../analytics/index.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
@@ -79,7 +79,7 @@ export async function executeDescriptionJob(
             return { degraded: true };
           }
           if (result.published) {
-            getPostHog().capture({
+            captureEvent({
               distinctId: `installation:${item.installationId}`,
               event: "description published",
               properties: {

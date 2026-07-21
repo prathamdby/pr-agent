@@ -4,7 +4,7 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { runMigrations } from "../db/migrations.js";
 import { createPgPool } from "../db/postgres.js";
-import { shutdownPostHog } from "../posthog.js";
+import { shutdownAnalytics } from "../analytics/index.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "./boss.js";
 import { AgentWorkScheduler, makeAgentWorkScheduler } from "./scheduler.js";
 import { AgentWorkerLive } from "./worker.js";
@@ -48,7 +48,7 @@ const AgentWorkBossLive = (cfg: Config) =>
         Effect.tryPromise({
           try: async () => {
             await stopBoss(boss, cfg.shutdownDrainTimeoutSeconds * 1000);
-            await shutdownPostHog();
+            await shutdownAnalytics();
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),

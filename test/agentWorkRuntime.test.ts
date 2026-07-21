@@ -20,8 +20,8 @@ const runtimeMocks = vi.hoisted(() => {
     stopBoss: vi.fn(async () => {
       trace.push("boss.stop");
     }),
-    shutdownPostHog: vi.fn(async () => {
-      trace.push("posthog.shutdown");
+    shutdownAnalytics: vi.fn(async () => {
+      trace.push("analytics.shutdown");
     }),
   };
 });
@@ -39,13 +39,12 @@ vi.mock("../src/agentWork/boss.js", () => ({
   stopBoss: runtimeMocks.stopBoss,
 }));
 
-vi.mock("../src/posthog.js", () => ({
-  shutdownPostHog: runtimeMocks.shutdownPostHog,
-  posthog: { capture: vi.fn(), captureException: vi.fn() },
+vi.mock("../src/analytics/index.js", () => ({
+  shutdownAnalytics: runtimeMocks.shutdownAnalytics,
 }));
 
 describe("agent work runtime teardown", () => {
-  it("shuts down PostHog after pg-boss drains", async () => {
+  it("shuts down analytics after pg-boss drains", async () => {
     const { agentWorkWebLive } = await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig();
 
@@ -55,6 +54,6 @@ describe("agent work runtime teardown", () => {
       runtimeMocks.boss,
       cfg.shutdownDrainTimeoutSeconds * 1000,
     );
-    expect(runtimeMocks.trace).toEqual(["boss.stop", "posthog.shutdown"]);
+    expect(runtimeMocks.trace).toEqual(["boss.stop", "analytics.shutdown"]);
   });
 });

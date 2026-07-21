@@ -2,8 +2,8 @@ import type { JobWithMetadata } from "pg-boss";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
+import { captureEvent } from "../analytics/index.js";
 import { AppError, errorLogFields } from "../errors/appError.js";
-import { getPostHog } from "../posthog.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import {
   getAppBotIdentity,
@@ -469,17 +469,25 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     await invokeRescheduleAbort(error);
     await invokeTerminalFailureHook(error);
-    logError("agent_work_failed", {
-      type: spec.type,
-      workItemId: item.id,
-      message: sanitizeLogMessage(message),
-      providerErrorKind: classifyProviderError(error),
-      pgBossRetryCount: spec.job.retryCount,
-      pgBossRetryLimit: spec.job.retryLimit,
-      dbAttemptCount: item.attemptCount,
-      ...errorLogFields(error),
-    });
-    getPostHog().capture({
+    logError(
+      "agent_work_failed",
+      {
+        type: spec.type,
+        workItemId: item.id,
+        installationId: item.installationId,
+        owner: item.owner,
+        repo: item.repo,
+        pr_number: item.prNumber,
+        message: sanitizeLogMessage(message),
+        providerErrorKind: classifyProviderError(error),
+        pgBossRetryCount: spec.job.retryCount,
+        pgBossRetryLimit: spec.job.retryLimit,
+        dbAttemptCount: item.attemptCount,
+        ...errorLogFields(error),
+      },
+      error,
+    );
+    captureEvent({
       distinctId: `installation:${item.installationId}`,
       event: "work item failed",
       properties: {
@@ -490,12 +498,6 @@ export async function runDurableWorkItem<T extends WorkType>(
         attempt_count: item.attemptCount,
         provider_error_kind: classifyProviderError(error),
       },
-    });
-    getPostHog().captureException(error, `installation:${item.installationId}`, {
-      type: spec.type,
-      owner: item.owner,
-      repo: item.repo,
-      pr_number: item.prNumber,
     });
   }
 
