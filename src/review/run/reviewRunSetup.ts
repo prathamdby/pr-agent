@@ -90,7 +90,9 @@ export function buildReviewRunSetup(params: {
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
   const submitState: SubmitReviewState = createSubmitReviewState({
     published: params.initialPublishState?.published,
-    inlineReviewIds: params.initialPublishState?.inlineReviewIds,
+    inlineReviewIds: params.initialPublishState?.inlineReviewIds
+      ? [...params.initialPublishState.inlineReviewIds]
+      : undefined,
     postedInlineCount: params.initialPublishState?.postedInlineCount,
   });
 
