@@ -269,7 +269,6 @@ function buildPriorInlineFeedbackPromise(args: {
       owner: item.owner,
       repo: item.repo,
       prNumber: item.prNumber,
-      reviewLens,
       botUserId: bot.userId,
       onPriorFeedbackError: logPriorFeedbackError,
     });

@@ -11,6 +11,7 @@ import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { escapeTablePlainCell } from "../../github/markdownFormat.js";
 import {
   LEGACY_REVIEW_POINTER_BODIES,
+  isAnyReviewLens,
   type AnyReviewLens,
 } from "../../settings/legacyReviewLenses.js";
 
@@ -68,12 +69,7 @@ function extractBotSeverity(body: string): BotFindingThread["severity"] {
 }
 
 function isTriageEligibleLens(lens: AnyReviewLens): boolean {
-  return (
-    lens === "review" ||
-    lens === "review-security" ||
-    lens === "review-quality" ||
-    lens === "review-tests"
-  );
+  return isAnyReviewLens(lens);
 }
 
 const REVIEW_POINTER_LENS_MARKER_RE = /<!--\s*pr-agent:review-pointer\s+lens=([^\s>]+)\s*-->/;
@@ -101,15 +97,7 @@ export function parseReviewPointerLensMarker(body: string): AnyReviewLens | null
   const match = REVIEW_POINTER_LENS_MARKER_RE.exec(body);
   if (!match) return null;
   const lens = match[1];
-  if (
-    lens === "review" ||
-    lens === "review-security" ||
-    lens === "review-quality" ||
-    lens === "review-tests"
-  ) {
-    return lens;
-  }
-  return null;
+  return isAnyReviewLens(lens) ? lens : null;
 }
 
 export function classifyReviewLensFromPointerBody(body: string): AnyReviewLens | null {
@@ -189,12 +177,11 @@ export async function fetchReviewCommentParentGraph(
   return comments.map((comment) => ({ id: comment.id, inReplyToId: comment.inReplyToId }));
 }
 
-async function listBotReviewIdsForLens(
+async function listBotReviewIds(
   token: string,
   owner: string,
   repo: string,
   pullNumber: number,
-  mode: AnyReviewLens,
   botUserId: number,
 ): Promise<Set<number>> {
   const octokit = installationOctokit(token);
@@ -217,7 +204,7 @@ async function listBotReviewIdsForLens(
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
     const lens = classifyReviewLensFromPointerBody(review.body ?? "");
-    if (lens === mode) reviewIds.add(review.id);
+    if (lens && isTriageEligibleLens(lens)) reviewIds.add(review.id);
   }
   return reviewIds;
 }
@@ -297,11 +284,10 @@ export async function fetchPriorInlineReviewFeedback(
   owner: string,
   repo: string,
   pullNumber: number,
-  mode: AnyReviewLens,
   botUserId: number,
 ): Promise<PriorInlineFeedbackThread[]> {
   const [reviewIds, comments] = await Promise.all([
-    listBotReviewIdsForLens(token, owner, repo, pullNumber, mode, botUserId),
+    listBotReviewIds(token, owner, repo, pullNumber, botUserId),
     listPullRequestReviewComments(token, owner, repo, pullNumber),
   ]);
   if (reviewIds.size === 0) return [];
