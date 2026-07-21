@@ -722,6 +722,7 @@ describe("runDurableWorkItem", () => {
     expect(evlog.logError).toHaveBeenCalledWith(
       "agent_work_failed",
       expect.objectContaining({ type: "review", workItemId: "wi-1" }),
+      expect.anything(),
     );
   });
 

@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { getPostHog } from "../../posthog.js";
+import { captureEvent } from "../../analytics/index.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
@@ -122,7 +122,7 @@ export async function executeAskJob(
               true,
             );
             answerDelivered = true;
-            getPostHog().capture({
+            captureEvent({
               distinctId: `installation:${item.installationId}`,
               event: "ask answered",
               properties: {

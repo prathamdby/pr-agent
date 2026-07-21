@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { EventMessage } from "posthog-node";
-import { sanitizePostHogEvent } from "../src/security/sanitizePostHogEvent.js";
+import {
+  sanitizePostHogEvent,
+  type PostHogEventMessage,
+} from "../src/security/sanitizePostHogEvent.js";
 
 const TOKEN = "ghp_1234567890123456789012345678901234";
 
@@ -10,7 +12,7 @@ describe("sanitizePostHogEvent", () => {
   });
 
   it("leaves benign events without error fields unchanged by identity", () => {
-    const event: EventMessage = {
+    const event: PostHogEventMessage = {
       distinctId: "installation:1",
       event: "triage degraded",
       properties: { step: "publish_push", reason: "stale_head" },
@@ -19,7 +21,7 @@ describe("sanitizePostHogEvent", () => {
   });
 
   it("redacts error_message while preserving other properties", () => {
-    const event: EventMessage = {
+    const event: PostHogEventMessage = {
       distinctId: "installation:1",
       event: "triage failed",
       properties: {
@@ -37,7 +39,7 @@ describe("sanitizePostHogEvent", () => {
   });
 
   it("redacts exception value and stack-frame string fields", () => {
-    const event: EventMessage = {
+    const event: PostHogEventMessage = {
       distinctId: "installation:1",
       event: "$exception",
       properties: {
@@ -112,7 +114,7 @@ describe("sanitizePostHogEvent", () => {
       error_message: errorMessage,
       $exception_list: exceptionList,
     };
-    const event: EventMessage = {
+    const event: PostHogEventMessage = {
       distinctId: "installation:1",
       event: "$exception",
       properties,

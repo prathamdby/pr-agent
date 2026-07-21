@@ -13,6 +13,7 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 | Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`                                                                   |
 | Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                                                            |
 | Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`                                         |
+| Analytics facade     | `src/analytics/`           | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`)                       |
 
 Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `src/review/placement/reviewDiffPlacement.ts`.
 
