@@ -48,12 +48,19 @@ export type PublishReviewSummaryOnlyArgs = {
   ctx: ReviewPublishContext;
   getToken: () => string;
   getTokenExpiresAtTs?: () => number | undefined;
+  /**
+   * Optional V2 holder-updating near-expiry refresh (decision 27). Called before each GitHub
+   * write group; absent for V1 callers.
+   */
+  refreshNearExpiry?: () => Promise<void>;
   payload: ReviewPayload;
   summaryPlacements: readonly InlinePlacement[];
   inlineReviewIds: readonly number[];
   recordPublishStep: RecordPublishStepWithCoordination;
   ciAuthor?: CiSummaryAuthor;
   partialCoverageNote?: string;
+  /** True when at least one specialist failed: force neutral check / error commit status (decision 21). */
+  coveragePartial?: boolean;
   cachedDiffIndex?: CachedPrDiffIndex;
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
@@ -63,6 +70,25 @@ export type PublishReviewSummaryOnlyArgs = {
   publishAbortState?: { staleHead?: boolean };
   publishMeta?: Record<string, unknown>;
 };
+
+/** Map the check-run conclusion to a commit-status state. Neutral/cancelled → `error`. */
+export function reviewCommitStatusState(
+  conclusion: "success" | "failure" | "cancelled" | "neutral",
+): "success" | "failure" | "error" {
+  switch (conclusion) {
+    case "failure":
+      return "failure";
+    case "neutral":
+    case "cancelled":
+      return "error";
+    case "success":
+      return "success";
+    default: {
+      const exhaustive: never = conclusion;
+      return exhaustive;
+    }
+  }
+}
 
 async function assertSummaryPublishAllowed(args: PublishReviewSummaryOnlyArgs): Promise<void> {
   if (!args.shouldAbortPublish) return;
@@ -113,6 +139,19 @@ async function enrichFromReviewIds(args: PublishReviewSummaryOnlyArgs): Promise<
     }
   }
   return placements;
+}
+
+async function refreshLiveToken(args: PublishReviewSummaryOnlyArgs): Promise<{
+  token: string;
+  expiresAtTs: number | undefined;
+}> {
+  if (args.refreshNearExpiry) {
+    await args.refreshNearExpiry();
+  }
+  return {
+    token: args.getToken(),
+    expiresAtTs: args.getTokenExpiresAtTs?.(),
+  };
 }
 
 async function syncLabels(
@@ -175,13 +214,14 @@ async function syncLabels(
       "review",
     );
     const next = syncReviewLabels(currentLabels, managed, "review");
+    const live = await refreshLiveToken(args);
     await setPullRequestLabels(
-      args.getToken(),
+      live.token,
       ctx.owner,
       ctx.repo,
       ctx.prNumber,
       next,
-      args.getTokenExpiresAtTs?.(),
+      live.expiresAtTs,
     );
     await args.recordPublishStep("labels", { meta: { labels: next } });
     logDebug("review_labels_synced", {
@@ -248,36 +288,37 @@ export async function publishReviewSummaryOnly(
     knownSummaryCommentRef = resolved ? { id: resolved.id, url: resolved.url } : null;
   }
 
+  const summaryLive = await refreshLiveToken(args);
   const labelsPromise = listPullRequestLabels(
-    args.getToken(),
+    summaryLive.token,
     ctx.owner,
     ctx.repo,
     ctx.prNumber,
-    args.getTokenExpiresAtTs?.(),
+    summaryLive.expiresAtTs,
   ).catch((error: unknown) => error);
   const summaryCoordination = args.recordPublishStep.summaryCommentCoordination;
   const summaryPromise = summaryCoordination
     ? upsertSummaryCommentWithCreationClaim({
         ...summaryCoordination,
         reviewLens: "review",
-        token: args.getToken(),
+        token: summaryLive.token,
         owner: ctx.owner,
         repo: ctx.repo,
         prNumber: ctx.prNumber,
         body: summaryBody,
         sentinel: summarySentinel,
-        expiresAtTs: args.getTokenExpiresAtTs?.(),
+        expiresAtTs: summaryLive.expiresAtTs,
         hintCommentId: args.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
       })
     : upsertReviewSummaryComment(
-        args.getToken(),
+        summaryLive.token,
         ctx.owner,
         ctx.repo,
         ctx.prNumber,
         summaryBody,
         summarySentinel,
         knownSummaryCommentRef,
-        args.getTokenExpiresAtTs?.(),
+        summaryLive.expiresAtTs,
       );
   const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
   await args.recordPublishStep("summary_comment", {
@@ -293,12 +334,15 @@ export async function publishReviewSummaryOnly(
     updated: summary.updated,
   });
 
-  const checkOutcome = reviewCheckRunOutcome(payload.findings);
+  const checkOutcome = reviewCheckRunOutcome(payload.findings, {
+    coveragePartial: args.coveragePartial,
+  });
   const targetUrl = reviewCheckDetailsUrl(ctx.owner, ctx.repo, ctx.prNumber, summary.id);
   if (summaryCoordination) {
+    const checkLive = await refreshLiveToken(args);
     await completeReviewCheckRun(summaryCoordination.pool, {
-      token: args.getToken(),
-      tokenExpiresAtTs: args.getTokenExpiresAtTs?.(),
+      token: checkLive.token,
+      tokenExpiresAtTs: checkLive.expiresAtTs,
       owner: ctx.owner,
       repo: ctx.repo,
       prNumber: ctx.prNumber,
@@ -313,17 +357,18 @@ export async function publishReviewSummaryOnly(
 
   if (args.cfg.features.commitStatus) {
     try {
+      const statusLive = await refreshLiveToken(args);
       await setReviewCommitStatus(
-        args.getToken(),
+        statusLive.token,
         ctx.owner,
         ctx.repo,
         ctx.headSha,
         {
-          state: checkOutcome.conclusion === "failure" ? "failure" : "success",
+          state: reviewCommitStatusState(checkOutcome.conclusion),
           description: checkOutcome.summary,
           targetUrl,
         },
-        args.getTokenExpiresAtTs?.(),
+        statusLive.expiresAtTs,
       );
     } catch (error) {
       logWarn("review_commit_status_failed", {

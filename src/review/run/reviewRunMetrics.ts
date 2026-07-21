@@ -90,6 +90,10 @@ export type ReviewRunMetricsSnapshot = {
   readonly severities: readonly string[];
   readonly wallClockMs: number;
   readonly lightweight?: boolean;
+  readonly specialistOutcomes?: Record<string, string>;
+  readonly threadBatches?: number;
+  readonly briefFallback?: boolean;
+  readonly judgmentDegraded?: boolean;
 };
 
 type MutableReviewRunMetrics = {
@@ -128,6 +132,10 @@ type MutableReviewRunMetrics = {
   findingsCount: number;
   severities: string[];
   lightweight?: boolean;
+  specialistOutcomes?: Record<string, string>;
+  threadBatches?: number;
+  briefFallback?: boolean;
+  judgmentDegraded?: boolean;
 };
 
 function createEmptyMetrics(meta: {
@@ -314,13 +322,30 @@ export function initReviewRunMetrics(meta: {
 }
 
 export function setReviewRunMetricFields(
-  fields: Partial<Pick<MutableReviewRunMetrics, "published" | "publishAttempts" | "lightweight">>,
+  fields: Partial<
+    Pick<
+      MutableReviewRunMetrics,
+      | "published"
+      | "publishAttempts"
+      | "lightweight"
+      | "specialistOutcomes"
+      | "threadBatches"
+      | "briefFallback"
+      | "judgmentDegraded"
+    >
+  >,
 ): void {
   const metrics = getOrInitMetrics();
   if (!metrics) return;
   if (fields.published !== undefined) metrics.published = fields.published;
   if (fields.publishAttempts !== undefined) metrics.publishAttempts = fields.publishAttempts;
   if (fields.lightweight !== undefined) metrics.lightweight = fields.lightweight;
+  if (fields.specialistOutcomes !== undefined) {
+    metrics.specialistOutcomes = { ...fields.specialistOutcomes };
+  }
+  if (fields.threadBatches !== undefined) metrics.threadBatches = fields.threadBatches;
+  if (fields.briefFallback !== undefined) metrics.briefFallback = fields.briefFallback;
+  if (fields.judgmentDegraded !== undefined) metrics.judgmentDegraded = fields.judgmentDegraded;
 }
 
 export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
@@ -364,6 +389,14 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     severities: [...metrics.severities],
     wallClockMs,
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
+    ...(metrics.specialistOutcomes !== undefined
+      ? { specialistOutcomes: { ...metrics.specialistOutcomes } }
+      : {}),
+    ...(metrics.threadBatches !== undefined ? { threadBatches: metrics.threadBatches } : {}),
+    ...(metrics.briefFallback !== undefined ? { briefFallback: metrics.briefFallback } : {}),
+    ...(metrics.judgmentDegraded !== undefined
+      ? { judgmentDegraded: metrics.judgmentDegraded }
+      : {}),
   };
 }
 

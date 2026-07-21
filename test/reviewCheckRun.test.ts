@@ -87,6 +87,23 @@ describe("review check run lifecycle", () => {
     });
   });
 
+  it("concludes neutral under partial coverage regardless of findings", () => {
+    expect(reviewCheckRunOutcome([], { coveragePartial: true })).toEqual({
+      conclusion: "neutral",
+      summary: "coverage partial",
+    });
+    expect(reviewCheckRunOutcome([{ severity: "P0" }], { coveragePartial: true })).toEqual({
+      conclusion: "neutral",
+      summary: "1 finding (coverage partial)",
+    });
+    expect(
+      reviewCheckRunOutcome([{ severity: "P2" }, { severity: "P0" }], { coveragePartial: true }),
+    ).toEqual({
+      conclusion: "neutral",
+      summary: "2 findings (coverage partial)",
+    });
+  });
+
   it("creates and records an in-progress check run", async () => {
     await expect(ensureReviewCheckRunStarted(pool, startParams)).resolves.toBe(123);
 

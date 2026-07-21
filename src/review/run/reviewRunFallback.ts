@@ -2,29 +2,38 @@ import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
-import type { ReviewRunSetup } from "./reviewRunSetup.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
 import { MAX_REVIEW_PUBLISH_CALLS } from "../../settings/index.js";
+import { refreshInstallationTokenIfNearExpiry } from "../orchestrator/refreshInstallationTokenIfNearExpiry.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;
-  readonly setup: ReviewRunSetup;
+  readonly getToken: () => string;
+  readonly getTokenExpiresAtTs?: () => number;
+  readonly refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  readonly refreshNearExpiry?: () => Promise<void>;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
   readonly reviewMode: ReviewMode;
   readonly publishAttempts: number;
+  readonly publishCallCount?: number;
 }): Promise<void> {
   logWarn("agent_publish_fallback", {
     mode: params.reviewMode,
     publishAttempts: params.publishAttempts,
-    publishCallCount: params.setup.submitState.publishCallCount,
+    publishCallCount: params.publishCallCount ?? 0,
     maxPublishCalls: MAX_REVIEW_PUBLISH_CALLS,
   });
-  const token = params.setup.getToken();
-  const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
-  const sentinel = reviewSummarySentinelForMode(params.reviewMode);
   try {
+    await refreshInstallationTokenIfNearExpiry({
+      getTokenExpiresAtTs: params.getTokenExpiresAtTs,
+      refreshInstallationToken: params.refreshInstallationToken,
+      refreshNearExpiry: params.refreshNearExpiry,
+    });
+    const token = params.getToken();
+    const tokenExpiresAtTs = params.getTokenExpiresAtTs?.();
+    const sentinel = reviewSummarySentinelForMode(params.reviewMode);
     await upsertReviewSummaryComment(
       token,
       params.owner,

@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   loadPublishContext: vi.fn(),
   fetchPrFiles: vi.fn(),
   lightweight: vi.fn(),
-  runFullPrReview: vi.fn(),
+  runOrchestratedPrReview: vi.fn(),
   withPrRepositoryView: vi.fn(),
   buildStaleReschedule: vi.fn(),
   buildTrustedContext: vi.fn(),
@@ -50,8 +50,8 @@ vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
   reviewCheckDetailsUrl: mocks.reviewCheckDetailsUrl,
 }));
 
-vi.mock("../src/review/run/reviewRun.js", () => ({
-  runFullPrReview: mocks.runFullPrReview,
+vi.mock("../src/review/orchestrator/orchestratorRun.js", () => ({
+  runOrchestratedPrReview: mocks.runOrchestratedPrReview,
 }));
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
@@ -189,6 +189,7 @@ describe("executeReviewJob", () => {
         summaryPublished: false,
         inlineReviewIds: [],
         postedInlineCount: 0,
+        batchCount: 0,
       },
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],
@@ -196,7 +197,7 @@ describe("executeReviewJob", () => {
     });
     mocks.fetchPrFiles.mockResolvedValue(prFiles);
     mocks.lightweight.mockResolvedValue({ handled: false });
-    mocks.runFullPrReview.mockResolvedValue({
+    mocks.runOrchestratedPrReview.mockResolvedValue({
       published: true,
       publishAttempts: 1,
       publishSuperseded: false,
@@ -228,7 +229,7 @@ describe("executeReviewJob", () => {
 
     expect(mocks.fetchPrFiles).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
-    expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
   });
 
   it("ensures a review check run before the long review", async () => {
@@ -247,7 +248,7 @@ describe("executeReviewJob", () => {
         reviewLens: "review",
       }),
     );
-    expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
   });
 
   it("runs auto preflight and lightweight completion before full review", async () => {
@@ -269,7 +270,7 @@ describe("executeReviewJob", () => {
       }),
     );
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
     expect(mocks.completeCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
@@ -280,7 +281,7 @@ describe("executeReviewJob", () => {
   });
 
   it("completes an existing check as failure when publish is exhausted", async () => {
-    mocks.runFullPrReview.mockResolvedValue({
+    mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
       publishAttempts: 3,
       publishSuperseded: false,
@@ -299,7 +300,7 @@ describe("executeReviewJob", () => {
   });
 
   it("completes an existing check as cancelled when publish is superseded", async () => {
-    mocks.runFullPrReview.mockResolvedValue({
+    mocks.runOrchestratedPrReview.mockResolvedValue({
       published: false,
       publishAttempts: 1,
       publishSuperseded: true,
@@ -364,7 +365,7 @@ describe("executeReviewJob", () => {
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
       }),
     );
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
   });
 
   it("passes auto preflight files into repository preparation", async () => {
@@ -406,7 +407,7 @@ describe("executeReviewJob", () => {
     const review = executeReviewJob(cfg, pool, boss, reviewJob());
 
     await vi.waitFor(() => expect(mocks.fetchPriorFeedback).toHaveBeenCalledTimes(1));
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
 
     releaseRepositoryView();
     await review;
@@ -434,7 +435,7 @@ describe("executeReviewJob", () => {
       message: "identity unavailable",
     });
     expect(mocks.fetchPriorFeedback).not.toHaveBeenCalled();
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
   });
 
   it("continues the review when prior feedback fetch logs and returns undefined", async () => {
@@ -458,7 +459,7 @@ describe("executeReviewJob", () => {
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
     });
-    expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
   });
 
   it("rethrows unexpected prior feedback helper rejections", async () => {
@@ -475,7 +476,7 @@ describe("executeReviewJob", () => {
       reviewLens: "review",
       message: "feedback blew up",
     });
-    expect(mocks.runFullPrReview).not.toHaveBeenCalled();
+    expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
   });
 
   it("appends rendered repo policy to trusted context when .mdc rules are present", async () => {
@@ -565,6 +566,7 @@ describe("executeReviewJob", () => {
         summaryPublished: false,
         inlineReviewIds: [41, 42],
         postedInlineCount: 3,
+        batchCount: 2,
       },
       shouldLinkToSummary: true,
       storedInlineFingerprints: ["fp-1"],
@@ -573,12 +575,13 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({
         initialPublishState: {
           published: false,
           inlineReviewIds: [41, 42],
           postedInlineCount: 3,
+          batchCount: 2,
         },
         storedInlineFingerprints: ["fp-1"],
         shouldLinkToSummary: true,
@@ -590,9 +593,35 @@ describe("executeReviewJob", () => {
   it("threads hasDescriptionAgentBlock false when PR body lacks the description header", async () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
       expect.objectContaining({ hasDescriptionAgentBlock: false }),
     );
+  });
+
+  it("wires shouldCancelRun to shouldSkipWork and keeps shouldAbortPublish as the full stale-head gate", async () => {
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        shouldCancelRun: expect.any(Function),
+        shouldAbortPublish: expect.any(Function),
+      }),
+    );
+
+    const params = mocks.runOrchestratedPrReview.mock.calls[0]?.[0] as {
+      shouldCancelRun: () => Promise<boolean>;
+      shouldAbortPublish: () => Promise<boolean>;
+    };
+
+    mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    expect(await params.shouldCancelRun()).toBe(true);
+
+    mocks.shouldSkipWork.mockResolvedValueOnce(false);
+    expect(await params.shouldCancelRun()).toBe(false);
+
+    // Full publish gate still consults shouldSkipWork first.
+    mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    expect(await params.shouldAbortPublish()).toBe(true);
   });
 
   it("threads hasDescriptionAgentBlock true when PR body contains the description header", async () => {
@@ -614,8 +643,14 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
-      expect.objectContaining({ hasDescriptionAgentBlock: true }),
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hasDescriptionAgentBlock: true,
+        progressTick: expect.objectContaining({
+          workItemId: expect.any(String),
+          resourceKey: expect.any(String),
+        }),
+      }),
     );
   });
 });

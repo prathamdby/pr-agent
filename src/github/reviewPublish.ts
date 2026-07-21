@@ -14,7 +14,7 @@ export type InlineReviewComment = {
   body: string;
 };
 
-export type ReviewCheckRunConclusion = "success" | "failure" | "cancelled";
+export type ReviewCheckRunConclusion = "success" | "failure" | "cancelled" | "neutral";
 
 export async function findReviewCheckRunByName(
   token: string,
@@ -390,7 +390,7 @@ export async function setReviewCommitStatus(
   repo: string,
   sha: string,
   params: {
-    state: "success" | "failure";
+    state: "success" | "failure" | "error";
     description: string;
     targetUrl?: string;
   },

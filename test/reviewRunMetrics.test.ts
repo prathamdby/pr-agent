@@ -132,6 +132,37 @@ describe("reviewRunMetrics", () => {
     });
   });
 
+  it("records orchestrator outcome fields", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
+      setReviewRunMetricFields({
+        specialistOutcomes: {
+          correctness: "report",
+          security: "error",
+          quality: "empty",
+          tests: "report",
+        },
+        threadBatches: 3,
+        briefFallback: true,
+        judgmentDegraded: true,
+      });
+
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot).toMatchObject({
+        specialistOutcomes: {
+          correctness: "report",
+          security: "error",
+          quality: "empty",
+          tests: "report",
+        },
+        threadBatches: 3,
+        briefFallback: true,
+        judgmentDegraded: true,
+      });
+    });
+  });
+
   it("emits review_run_completed envelope from snapshot", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     const infoSpy = vi.spyOn(evlog, "logInfo");

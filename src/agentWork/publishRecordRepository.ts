@@ -333,12 +333,15 @@ export function parseReviewPublishStateRows(rows: readonly ReviewPublishStateRow
   summaryPublished: boolean;
   inlineReviewIds: number[];
   postedInlineCount: number;
+  batchCount: number;
 } {
   const inlineReviewIds = new Set<number>();
   let postedInlineCount = 0;
+  let batchCount = 0;
   for (const row of rows) {
     if (row.step !== "inline_review") continue;
     const batches = inlineBatchDetails(row.detail);
+    batchCount += batches.length;
     for (const batch of batches) {
       if (batch.reviewId != null) inlineReviewIds.add(batch.reviewId);
       postedInlineCount += batch.posted;
@@ -352,6 +355,7 @@ export function parseReviewPublishStateRows(rows: readonly ReviewPublishStateRow
     summaryPublished: rows.some((row) => row.step === "summary_comment"),
     inlineReviewIds: [...inlineReviewIds],
     postedInlineCount,
+    batchCount,
   };
 }
 
@@ -360,6 +364,7 @@ export type ReviewExecutorPublishContext = {
     summaryPublished: boolean;
     inlineReviewIds: number[];
     postedInlineCount: number;
+    batchCount: number;
   };
   shouldLinkToSummary: boolean;
   storedInlineFingerprints: string[];

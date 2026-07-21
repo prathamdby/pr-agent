@@ -24,12 +24,26 @@ function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** P0–P2 findings fail the check; empty or P3-only payloads pass. */
-export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
+/**
+ * P0–P2 findings fail the check; empty or P3-only payloads pass. Partial specialist coverage
+ * forces `neutral` regardless of findings — a green "PR Agent Review" always means all four
+ * specialists ran (decision 21). Findings-derived conclusion applies only under full coverage.
+ */
+export function reviewCheckRunOutcome(
+  findings: readonly Pick<ReviewFinding, "severity">[],
+  options?: { coveragePartial?: boolean },
+): {
   conclusion: ReviewCheckRunConclusion;
   summary: string;
 } {
   const bugCount = findings.filter((f) => isInlineSeverity(f.severity)).length;
+  if (options?.coveragePartial === true) {
+    const findingsNote =
+      bugCount > 0
+        ? `${bugCount} finding${bugCount === 1 ? "" : "s"} (coverage partial)`
+        : "coverage partial";
+    return { conclusion: "neutral", summary: findingsNote };
+  }
   if (bugCount > 0) {
     return {
       conclusion: "failure",

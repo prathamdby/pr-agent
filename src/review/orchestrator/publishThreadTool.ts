@@ -69,6 +69,7 @@ export function buildPublishThreadTool(params: {
   getToken: () => string;
   getTokenExpiresAtTs?: () => number | undefined;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshNearExpiry?: () => Promise<void>;
   recordPublishStep: RecordPublishStepWithCoordination;
   runState: ThreadPublishRunState;
   cachedDiffIndex?: CachedPrDiffIndex;
@@ -79,8 +80,12 @@ export function buildPublishThreadTool(params: {
   executor: AgentRunnerToolExecutor;
   getLastError: () => string | null;
   clearLastError: () => void;
+  beginTurn: () => void;
+  /** True when this turn made at least one successful `publish_thread` call (empty findings count). */
+  hadSuccessfulCallThisTurn: () => boolean;
 } {
   let lastError: string | null = null;
+  let successfulCallsThisTurn = 0;
 
   const piTool: PiTool = {
     name: THREAD_TOOL_NAME,
@@ -106,6 +111,7 @@ export function buildPublishThreadTool(params: {
     await refreshInstallationTokenIfNearExpiry({
       getTokenExpiresAtTs: params.getTokenExpiresAtTs,
       refreshInstallationToken: params.refreshInstallationToken,
+      refreshNearExpiry: params.refreshNearExpiry,
     });
 
     const batchResult = await publishFindingBatch(parsed.data.findings, {
@@ -119,6 +125,9 @@ export function buildPublishThreadTool(params: {
       runState: params.runState,
       tokenExpiresAtTs: params.getTokenExpiresAtTs?.(),
     });
+
+    // Empty findings and budget_exhausted still count as a successful tool call (decision 25).
+    successfulCallsThisTurn += 1;
 
     const result: PublishThreadToolResult = {
       ...batchResult,
@@ -135,6 +144,10 @@ export function buildPublishThreadTool(params: {
     clearLastError: () => {
       lastError = null;
     },
+    beginTurn: () => {
+      successfulCallsThisTurn = 0;
+    },
+    hadSuccessfulCallThisTurn: () => successfulCallsThisTurn > 0,
   };
 }
 

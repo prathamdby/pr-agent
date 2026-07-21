@@ -36,6 +36,8 @@ export type PullRequestForFileList = {
   readonly deletions: number;
   readonly changed_files: number;
   readonly head?: { readonly sha?: string | null } | null;
+  readonly title?: string | null;
+  readonly body?: string | null;
 };
 
 type PatchBudgetState = {

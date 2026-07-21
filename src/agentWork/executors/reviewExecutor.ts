@@ -10,7 +10,7 @@ import {
   type ListPullRequestFilesResult,
   type PullRequestForFileList,
 } from "../../github/listPullRequestFiles.js";
-import { runFullPrReview } from "../../review/run/reviewRun.js";
+import { runOrchestratedPrReview } from "../../review/orchestrator/orchestratorRun.js";
 import type { ReviewRunResult } from "../../review/run/reviewRunTypes.js";
 import { loadRepoPolicy, renderRepoPolicyBlock } from "../../review/repoPolicy.js";
 import {
@@ -69,6 +69,7 @@ import {
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
+import { refreshInstallationTokenIfNearExpiry } from "../../review/orchestrator/refreshInstallationTokenIfNearExpiry.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -423,7 +424,13 @@ async function runFullReviewAgainstRepositoryView(args: {
     agentInstructionFilesBlock,
   });
 
-  const result = await runFullPrReview({
+  const refreshInstallationToken = makeInstallationTokenRefresher(
+    cfg,
+    item.installationId,
+    tokenState,
+  );
+
+  const result = await runOrchestratedPrReview({
     cfg,
     token: tokenState.installation.token,
     tokenExpiresAtTs: tokenState.installation.expiresAtTs,
@@ -440,13 +447,19 @@ async function runFullReviewAgainstRepositoryView(args: {
     workspace: repositoryView.workspace,
     shouldLinkToSummary,
     summaryCommentIdHint,
-    hasDescriptionAgentBlock: (
-      (pullRequest as { body?: string | null } | undefined)?.body ?? ""
-    ).includes(DESCRIPTION_AGENT_HEADER),
+    hasDescriptionAgentBlock: (pullRequest?.body ?? "").includes(DESCRIPTION_AGENT_HEADER),
+    prTitle: pullRequest?.title ?? "",
+    prBody: pullRequest?.body ?? "",
+    progressTick: {
+      pool,
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+    },
     initialPublishState: {
       published: publishState.summaryPublished,
       inlineReviewIds: publishState.inlineReviewIds,
       postedInlineCount: publishState.postedInlineCount,
+      batchCount: publishState.batchCount,
     },
     recordPublishStep: attachSummaryCommentCoordination(
       (step, detail) =>
@@ -463,8 +476,13 @@ async function runFullReviewAgainstRepositoryView(args: {
     reviewSource: payload.source,
     staleHeadRescheduled: payload.staleHeadRescheduled,
     publishAbortState,
+    shouldCancelRun: async () => shouldSkipWork(pool, item),
     shouldAbortPublish: async () => {
       if (await shouldSkipWork(pool, item)) return true;
+      await refreshInstallationTokenIfNearExpiry({
+        getTokenExpiresAtTs: () => tokenState.installation.expiresAtTs,
+        refreshInstallationToken,
+      });
       const latestHeadSha = await getPullRequestHeadSha(
         tokenState.installation.token,
         item.owner,
@@ -479,7 +497,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       }
       return false;
     },
-    refreshInstallationToken: makeInstallationTokenRefresher(cfg, item.installationId, tokenState),
+    refreshInstallationToken,
   });
 
   if (staleHeadAtPublish.value && payload.source === "slash" && !payload.staleHeadRescheduled) {

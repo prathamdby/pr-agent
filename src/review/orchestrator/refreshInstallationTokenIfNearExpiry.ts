@@ -4,6 +4,11 @@ import { isInstallationTokenNearExpiry } from "../../github/installationTokenExp
 export type InstallationTokenRefreshHooks = {
   readonly getTokenExpiresAtTs?: () => number | undefined;
   readonly refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  /**
+   * Preferred V2 path: holder-updating near-expiry refresh. When set, this is used instead of
+   * composing `getTokenExpiresAtTs` + `refreshInstallationToken`.
+   */
+  readonly refreshNearExpiry?: () => Promise<void>;
 };
 
 /**
@@ -13,6 +18,10 @@ export type InstallationTokenRefreshHooks = {
 export async function refreshInstallationTokenIfNearExpiry(
   hooks: InstallationTokenRefreshHooks,
 ): Promise<void> {
+  if (hooks.refreshNearExpiry) {
+    await hooks.refreshNearExpiry();
+    return;
+  }
   if (!hooks.refreshInstallationToken || !hooks.getTokenExpiresAtTs) return;
   const expiresAtTs = hooks.getTokenExpiresAtTs();
   if (expiresAtTs == null) return;

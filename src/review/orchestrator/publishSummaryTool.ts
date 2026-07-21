@@ -50,12 +50,15 @@ export function buildPublishSummaryTool(params: {
   getToken: () => string;
   getTokenExpiresAtTs?: () => number | undefined;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshNearExpiry?: () => Promise<void>;
   recordPublishStep: RecordPublishStepWithCoordination;
   runState: ThreadPublishRunState;
   state: SummaryPublishState;
   cachedDiffIndex?: CachedPrDiffIndex;
   ciAuthor?: CiSummaryAuthor;
   partialCoverageNote?: string;
+  /** True when a specialist failed: forces neutral check / error commit status (decision 21). */
+  coveragePartial?: boolean;
   shouldAbortPublish?: () => Promise<boolean>;
   publishAbortState?: { staleHead?: boolean };
   shouldLinkToSummary?: boolean;
@@ -98,6 +101,7 @@ export function buildPublishSummaryTool(params: {
     await refreshInstallationTokenIfNearExpiry({
       getTokenExpiresAtTs: params.getTokenExpiresAtTs,
       refreshInstallationToken: params.refreshInstallationToken,
+      refreshNearExpiry: params.refreshNearExpiry,
     });
 
     const acceptedFindings = [...params.runState.acceptedFindings];
@@ -111,6 +115,7 @@ export function buildPublishSummaryTool(params: {
       ctx: params.ctx,
       getToken: params.getToken,
       getTokenExpiresAtTs: params.getTokenExpiresAtTs,
+      refreshNearExpiry: params.refreshNearExpiry,
       payload: {
         ...parsed.data,
         findings: acceptedFindings,
@@ -120,6 +125,7 @@ export function buildPublishSummaryTool(params: {
       recordPublishStep: params.recordPublishStep,
       ciAuthor: params.ciAuthor,
       partialCoverageNote: params.partialCoverageNote,
+      coveragePartial: params.coveragePartial,
       cachedDiffIndex: params.cachedDiffIndex,
       shouldAbortPublish: params.shouldAbortPublish,
       publishAbortState: params.publishAbortState,

@@ -12,6 +12,10 @@ export type RefreshableToolExecutors = {
   readonly bundle: ToolExecutorBundle;
   readonly githubExecutorNames: ReadonlySet<string>;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
+  /** Near-expiry refresh that updates the live holder used by `getToken()` (decision 27). */
+  readonly refreshNearExpiry: () => Promise<void>;
+  /** Apply a freshly minted token into the live holder and rebuild GitHub executors. */
+  readonly applyFreshToken: (fresh: { token: string; expiresAtTs: number }) => void;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number;
 };
@@ -43,16 +47,24 @@ export function createRefreshableToolExecutors(params: {
   };
   const githubExecutorNames = params.githubToolNames ?? new Set(Object.keys(executorStore));
 
-  const refreshBeforeTool = async (toolName: string): Promise<void> => {
-    if (!githubExecutorNames.has(toolName)) return;
-    if (!params.refreshInstallationToken) return;
-    if (!isInstallationTokenNearExpiry(activeExpiresAtTs)) return;
-    const fresh = await params.refreshInstallationToken();
+  const applyFreshToken = (fresh: { token: string; expiresAtTs: number }): void => {
     activeToken = fresh.token;
     activeExpiresAtTs = fresh.expiresAtTs;
     built = params.build(activeToken, activeExpiresAtTs);
     Object.assign(executorStore, built.executors);
     bundle = { piTools: built.piTools, executors: executorStore };
+  };
+
+  const refreshNearExpiry = async (): Promise<void> => {
+    if (!params.refreshInstallationToken) return;
+    if (!isInstallationTokenNearExpiry(activeExpiresAtTs)) return;
+    const fresh = await params.refreshInstallationToken();
+    applyFreshToken(fresh);
+  };
+
+  const refreshBeforeTool = async (toolName: string): Promise<void> => {
+    if (!githubExecutorNames.has(toolName)) return;
+    await refreshNearExpiry();
   };
 
   return {
@@ -61,6 +73,8 @@ export function createRefreshableToolExecutors(params: {
     },
     githubExecutorNames,
     refreshBeforeTool,
+    refreshNearExpiry,
+    applyFreshToken,
     getToken: () => activeToken,
     getTokenExpiresAtTs: () => activeExpiresAtTs,
   };

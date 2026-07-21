@@ -34,6 +34,26 @@ describe("createRefreshableToolExecutors", () => {
     expect(build).toHaveBeenLastCalledWith("fresh-token", freshExpiresAtTs);
   });
 
+  it("refreshNearExpiry updates the live holder without a tool name", async () => {
+    const freshExpiresAtTs = Date.now() + 3_600_000;
+    const refresh = vi.fn(async () => ({
+      token: "fresh-token",
+      expiresAtTs: freshExpiresAtTs,
+    }));
+    const refreshable = createRefreshableToolExecutors({
+      initialToken: "stale-token",
+      tokenExpiresAtTs: Date.now() + TOKEN_FRESHNESS_BUFFER_MS - 1_000,
+      tokenTtlMs: 3_600_000,
+      refreshInstallationToken: refresh,
+      build: () => ({ piTools: [], executors: {} }),
+      githubToolNames: new Set(),
+    });
+
+    await refreshable.refreshNearExpiry();
+    expect(refreshable.getToken()).toBe("fresh-token");
+    expect(refreshable.getTokenExpiresAtTs()).toBe(freshExpiresAtTs);
+  });
+
   it("keeps static tool parameter schemas identical across token rebuilds", async () => {
     const sharedSchema = { type: "object", properties: {} };
     const refresh = vi.fn(async () => ({

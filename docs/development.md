@@ -4,16 +4,16 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 
 ## Module layout (production)
 
-| Area                 | Path                       | Public entry                                                                                                |
-| -------------------- | -------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Review run + publish | `src/review/`              | `run/reviewRun.ts`, `publish/publishReview.ts`, `ci/analyzeCi.ts` (LLM CI summary: `ci/authorCiSummary.ts`) |
-| Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                                                                         |
-| Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss)                                                      |
-| Agent work execution | `src/agentWork/executors/` | `index.ts`                                                                                                  |
-| Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`                                                                   |
-| Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                                                            |
-| Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`                                         |
-| Analytics facade     | `src/analytics/`           | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`)                       |
+| Area                 | Path                       | Public entry                                                                                                               |
+| -------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Review run + publish | `src/review/`              | `orchestrator/orchestratorRun.ts`, `publish/publishReview.ts`, `ci/analyzeCi.ts` (LLM CI summary: `ci/authorCiSummary.ts`) |
+| Local PR workspace   | `src/prWorkspace/`         | `index.ts` (`withPrRepositoryView`)                                                                                        |
+| Agent work intake    | `src/agentWork/intake/`    | `planner.ts` (pure), `applier.ts` (Postgres + pg-boss)                                                                     |
+| Agent work execution | `src/agentWork/executors/` | `index.ts`                                                                                                                 |
+| Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`                                                                                  |
+| Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                                                                           |
+| Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`                                                        |
+| Analytics facade     | `src/analytics/`           | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`)                                      |
 
 Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `src/review/placement/reviewDiffPlacement.ts`.
 

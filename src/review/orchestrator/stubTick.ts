@@ -24,6 +24,7 @@ export type TickProgressCommentArgs = {
   getToken: () => string;
   getTokenExpiresAtTs?: () => number | undefined;
   refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
+  refreshNearExpiry?: () => Promise<void>;
   specialistTicks: SpecialistTickState;
   runPhase?: ProgressRunPhase;
   ciSummary?: CiSummary | null;
@@ -39,6 +40,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
     await refreshInstallationTokenIfNearExpiry({
       getTokenExpiresAtTs: args.getTokenExpiresAtTs,
       refreshInstallationToken: args.refreshInstallationToken,
+      refreshNearExpiry: args.refreshNearExpiry,
     });
 
     const body = renderReviewProgressComment({

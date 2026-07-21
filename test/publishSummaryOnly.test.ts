@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppError } from "../src/errors/appError.js";
 import {
   publishReviewSummaryOnly,
+  reviewCommitStatusState,
   type PublishReviewSummaryOnlyArgs,
 } from "../src/review/publish/publishSummaryOnly.js";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
@@ -27,6 +28,8 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 
 import {
   listPullRequestReviewCommentsForReview,
+  setPullRequestLabels,
+  setReviewCommitStatus,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
 
@@ -131,6 +134,47 @@ describe("publishReviewSummaryOnly", () => {
     expect(summaryBody).toContain("Coverage partial: security specialist failed.");
   });
 
+  it("sets the commit status to error with a partial-coverage description under partial coverage", async () => {
+    const cfg = makeTestConfig({
+      features: { ...makeTestConfig().features, commitStatus: true },
+    });
+    await publishReviewSummaryOnly(
+      args({
+        cfg,
+        coveragePartial: true,
+        partialCoverageNote: "Coverage partial: security specialist failed.",
+      }),
+    );
+
+    expect(setReviewCommitStatus).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      "sha",
+      expect.objectContaining({ state: "error", description: "2 findings (coverage partial)" }),
+      undefined,
+    );
+  });
+
+  it("never maps partial coverage to a success commit status even with no findings", async () => {
+    const cfg = makeTestConfig({
+      features: { ...makeTestConfig().features, commitStatus: true },
+    });
+    await publishReviewSummaryOnly(
+      args({ cfg, payload: makeReviewPayload({ findings: [] }), coveragePartial: true }),
+    );
+
+    const call = vi.mocked(setReviewCommitStatus).mock.calls[0]?.[4];
+    expect(call?.state).toBe("error");
+  });
+
+  it("maps a cancelled check conclusion to an error commit status, not success", () => {
+    expect(reviewCommitStatusState("cancelled")).toBe("error");
+    expect(reviewCommitStatusState("success")).toBe("success");
+    expect(reviewCommitStatusState("neutral")).toBe("error");
+    expect(reviewCommitStatusState("failure")).toBe("failure");
+  });
+
   it.each([
     { staleHead: true, reason: "stale_head" },
     { staleHead: false, reason: "superseded" },
@@ -148,5 +192,67 @@ describe("publishReviewSummaryOnly", () => {
     });
     expect(listPullRequestReviewCommentsForReview).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+  });
+
+  it("calls refreshNearExpiry before each V2 GitHub write group when supplied", async () => {
+    // Exactly three write groups with this setup: summary, commit status, labels
+    // (no coordinated check run).
+    const cfg = makeTestConfig({
+      features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "effort" },
+    });
+    let token = "t0";
+    const refreshNearExpiry = vi.fn(async () => {
+      token = `t${refreshNearExpiry.mock.calls.length}`;
+    });
+
+    await publishReviewSummaryOnly(
+      args({
+        cfg,
+        getToken: () => token,
+        refreshNearExpiry,
+      }),
+    );
+
+    expect(refreshNearExpiry).toHaveBeenCalledTimes(3);
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t1",
+      "o",
+      "r",
+      1,
+      expect.any(String),
+      expect.any(String),
+      null,
+      undefined,
+    );
+    expect(setReviewCommitStatus).toHaveBeenCalledWith(
+      "t2",
+      "o",
+      "r",
+      "sha",
+      expect.objectContaining({ state: expect.any(String) }),
+      undefined,
+    );
+    expect(setPullRequestLabels).toHaveBeenCalledWith(
+      "t3",
+      "o",
+      "r",
+      1,
+      expect.any(Array),
+      undefined,
+    );
+  });
+
+  it("preserves V1 callers when refreshNearExpiry is absent", async () => {
+    await expect(publishReviewSummaryOnly(args())).resolves.toEqual({ summaryCommentId: 2 });
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.any(String),
+      expect.any(String),
+      null,
+      undefined,
+    );
   });
 });

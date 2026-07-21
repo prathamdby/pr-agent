@@ -154,6 +154,31 @@ export const MAX_SPECIALIST_FINDINGS = 20;
 export const MAX_SPECIALIST_ATTEMPTS = 3;
 /** Backoff before a classified rate_limit/timeout specialist retry, indexed by prior transient retries. */
 export const SPECIALIST_TRANSIENT_BACKOFF_MS = [1_000, 3_000] as const;
+/** Max tool rounds per orchestrator judgment turn (one publish_thread call plus a repair, decision 25). */
+export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
+/**
+ * Fraction of the pg-boss queue expiry the orchestrated run treats as its hard deadline.
+ * The handler must always return before pg-boss can fail + redeliver the job (decision 17).
+ */
+export const RUN_DEADLINE_BUDGET_FRACTION = 0.8;
+/**
+ * Bounded poll interval while an orchestrator `session.send` is in flight, and while
+ * specialists are pending with no send active: detect cheap run cancel (`shouldCancelRun`)
+ * and abort promptly without leaving timers past the run (decision 17/18). Never poll the
+ * full stale-head `shouldAbortPublish` gate on this interval.
+ */
+export const ORCHESTRATOR_SEND_ABORT_POLL_MS = 250;
+/**
+ * Deterministic per-index dispatch stagger (ms) applied to the four specialist spawns to avoid a
+ * five-way provider burst (decision 24). Specialist i waits `i * stagger` before its first send.
+ */
+export const SPECIALIST_DISPATCH_STAGGER_MS = 2_000;
+/**
+ * Maintainer-visible note when the orchestrator judgment/synthesis session dies and
+ * findings/summary are published deterministically (decision 19).
+ */
+export const JUDGMENT_DEGRADED_NOTE =
+  "Judgment degraded: remaining findings were published without LLM judgment; summary was synthesized deterministically from accepted findings.";
 
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,
@@ -162,15 +187,7 @@ export const REVIEW_SEVERITY_RANK = {
   P3: 3,
 } as const;
 
-export const PROSE_ONLY_NUDGE =
-  "You replied with text only. Call submitReview now with a complete ReviewPayload.";
-
 export const PUBLISH_RECOVERY_ROUNDS = 4;
-export const PUBLISH_RECOVERY_PROMPTS = [
-  "You ended with a text reply but never called submitReview. Call submitReview exactly once now with a complete ReviewPayload based on your analysis above. Do not continue investigating unless required to fix payload validation.",
-  "The structured review was still not published. You must call submitReview now with a valid ReviewPayload. No prose-only replies.",
-  "Final publish attempt: call submitReview immediately with your ReviewPayload.",
-] as const;
 
 export const VALIDATION_REPAIR_ROUNDS = 3;
 
