@@ -19,6 +19,7 @@ import {
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
+import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 
 export type ReviewRunSetup = {
   readonly systemPrompt: string;
@@ -65,6 +66,8 @@ export function buildReviewRunSetup(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
+  workItemId?: string;
+  resumedPlacements?: readonly AcceptedPlacement[];
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;
@@ -132,6 +135,8 @@ export function buildReviewRunSetup(params: {
       recordPublishStep: params.recordPublishStep,
       shouldAbortPublish: params.shouldAbortPublish,
       storedInlineFingerprints: params.storedInlineFingerprints,
+      workItemId: params.workItemId,
+      resumedPlacements: params.resumedPlacements,
       publishAbortState: params.publishAbortState,
       severityFloor: params.severityFloor,
     });

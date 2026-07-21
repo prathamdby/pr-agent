@@ -229,6 +229,9 @@ describe("executeReviewJob", () => {
     expect(mocks.fetchPrFiles).not.toHaveBeenCalled();
     expect(mocks.lightweight).not.toHaveBeenCalled();
     expect(mocks.runFullPrReview).toHaveBeenCalledTimes(1);
+    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ workItemId: "wi-1", resumedPlacements: [] }),
+    );
   });
 
   it("ensures a review check run before the long review", async () => {

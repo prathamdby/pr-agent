@@ -428,6 +428,7 @@ type ReviewSummaryRenderCtx = RenderContext & {
   cachedDiffIndex?: CachedPrDiffIndex;
   /** Server-derived CI gate; omitted when disabled, unavailable, or no checks. */
   ciSummary?: CiSummary | null;
+  partialCoverageNote?: string;
 };
 
 /** Expects `ctx.placements` pre-sorted by severity, file, and line (`sortPlacements`). */
@@ -518,6 +519,11 @@ function buildReviewSummaryBody(
   }
 
   rows.push(renderKeyValueTable(tableRows));
+
+  if (ctx.partialCoverageNote) {
+    rows.push("");
+    rows.push(ctx.partialCoverageNote);
+  }
 
   if (summaryOnlyAccordions.length > 0) {
     rows.push("");

@@ -3,6 +3,7 @@ import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 
 export type ReviewRunParams = {
   readonly cfg: Config;
@@ -31,6 +32,8 @@ export type ReviewRunParams = {
   ) => Promise<void>;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly storedInlineFingerprints?: readonly string[];
+  readonly workItemId?: string;
+  readonly resumedPlacements?: readonly AcceptedPlacement[];
   readonly refreshInstallationToken?: () => Promise<{
     readonly token: string;
     readonly expiresAtTs: number;

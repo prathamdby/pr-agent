@@ -28,7 +28,6 @@ export async function publishReviewForTest(
     ...params,
     payload: prepared.prepared.payload,
     dedupedFindingCount: prepared.prepared.dedupedCount,
-    inlinePlacements: prepared.prepared.placements,
   });
 }
 

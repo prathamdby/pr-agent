@@ -111,7 +111,9 @@ describe("publishFindingBatch", () => {
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
-    expect(result.delta.accepted).toEqual([]);
+    expect(result.delta.accepted).toEqual([
+      expect.objectContaining({ kind: "summary_only", reason: "historical" }),
+    ]);
     expect(result.delta.threadCallCount).toBe(1);
   });
 
@@ -152,6 +154,8 @@ describe("publishFindingBatch", () => {
     expect(second.kind).toBe("empty");
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
     expect(recordPublishStep).toHaveBeenCalledTimes(1);
+    if (second.kind !== "empty") return;
+    expect(second.delta.accepted).toEqual([]);
   });
 
   it("applies the remaining global inline cap", async () => {

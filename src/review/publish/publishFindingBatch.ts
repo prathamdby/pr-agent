@@ -12,6 +12,7 @@ import {
   REVIEW_POINTER_BODY,
 } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
+import { logWarn } from "../../evlog.js";
 import {
   fingerprintCandidates,
   fingerprintInlinePlacements,
@@ -21,7 +22,7 @@ import {
   prepareReviewPayloadForPublish,
 } from "../findings/findingPipeline.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
-import type { RecordPublishStepWithCoordination } from "./publishReview.js";
+import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
@@ -61,11 +62,11 @@ export type FindingBatchResult =
 export type FindingBatchContext = {
   readonly ctx: ReviewPublishContext;
   readonly source: FindingSource;
-  readonly workItemId: string;
+  readonly workItemId?: string;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs?: () => number | undefined;
   readonly cachedDiffIndex: CachedPrDiffIndex;
-  readonly recordPublishStep: RecordPublishStepWithCoordination;
+  readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly ledger: FindingLedger;
@@ -100,6 +101,14 @@ function isSuppressed(placement: FingerprintedInlinePlacement, ledger: FindingLe
   );
 }
 
+function hasAcceptedFingerprint(
+  placement: FingerprintedInlinePlacement,
+  ledger: FindingLedger,
+): boolean {
+  const candidates = new Set(fingerprintCandidates(placement.finding));
+  return ledger.accepted.some((accepted) => candidates.has(accepted.canonicalFingerprint));
+}
+
 function summaryOnlyPlacement(
   placement: FingerprintedInlinePlacement,
   source: FindingSource,
@@ -125,7 +134,10 @@ function acceptedSummaryPlacements(params: {
     params.planned.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
   return params.targets.flatMap((placement) => {
-    if (isSuppressed(placement, params.ledger)) return [];
+    if (isSuppressed(placement, params.ledger)) {
+      if (hasAcceptedFingerprint(placement, params.ledger)) return [];
+      return [summaryOnlyPlacement(placement, params.source, "historical")];
+    }
     if (placement.inlinePosted && !params.budgetExhausted) return [];
     const planned = plannedByKey.get(reviewFindingPlacementKey(placement.finding));
     const reason = params.budgetExhausted ? "budget" : planned?.inlinePosted ? "cap" : "anchor";
@@ -221,7 +233,27 @@ export async function publishFindingBatch(
     };
   }
 
-  if (await context.shouldAbortPublish?.()) {
+  if (context.recordPublishStep && context.workItemId == null) {
+    throw new AppError({
+      code: "review.work_item_id_required",
+      message: "workItemId is required when recording an inline review batch",
+    });
+  }
+
+  let shouldAbort = false;
+  try {
+    shouldAbort = (await context.shouldAbortPublish?.()) ?? false;
+  } catch (error) {
+    logWarn("review_finding_batch_abort_check_failed", {
+      source: context.source,
+      owner: context.ctx.owner,
+      repo: context.ctx.repo,
+      pr: context.ctx.prNumber,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    shouldAbort = true;
+  }
+  if (shouldAbort) {
     return {
       kind: "stopped",
       reason: context.publishAbortState?.staleHead === true ? "stale_head" : "superseded",
@@ -268,28 +300,32 @@ export async function publishFindingBatch(
     reviewId: review.id,
   }));
   const accepted = [...acceptedWithoutPosted, ...postedAccepted];
-  const batchRecord: StoredInlineBatch = {
-    version: 2,
-    batchId: crypto.randomUUID(),
-    workItemId: context.workItemId,
-    specialist: context.source,
-    headSha: context.ctx.headSha,
-    reviewId: review.id,
-    reviewUrl: review.url,
-    event: "COMMENT",
-    fingerprints: posted.map((placement) => placement.inlineFingerprint),
-    placements: posted.map(storedPlacement),
-    counts: {
-      posted: posted.length,
-      suppressed: targets.dropped.suppressedInlineCount,
-      capDowngraded: targets.dropped.inlineCommentCapExcluded,
-      anchorDropped: inlineResult.anchorDroppedPlacements.length,
-    },
-  };
-  await context.recordPublishStep("inline_review", {
-    githubId: review.id,
-    meta: batchRecord,
-  });
+  const batchRecord: StoredInlineBatch | undefined = context.workItemId
+    ? {
+        version: 2,
+        batchId: crypto.randomUUID(),
+        workItemId: context.workItemId,
+        specialist: context.source,
+        headSha: context.ctx.headSha,
+        reviewId: review.id,
+        reviewUrl: review.url,
+        event: "COMMENT",
+        fingerprints: posted.map((placement) => placement.inlineFingerprint),
+        placements: posted.map(storedPlacement),
+        counts: {
+          posted: posted.length,
+          suppressed: targets.dropped.suppressedInlineCount,
+          capDowngraded: targets.dropped.inlineCommentCapExcluded,
+          anchorDropped: inlineResult.anchorDroppedPlacements.length,
+        },
+      }
+    : undefined;
+  if (context.recordPublishStep && batchRecord) {
+    await context.recordPublishStep("inline_review", {
+      githubId: review.id,
+      meta: batchRecord,
+    });
+  }
 
   return {
     kind: "published",

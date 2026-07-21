@@ -22,6 +22,7 @@ import {
   type ReviewPublishContext,
 } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 
 export type SubmitReviewState = {
   published: boolean;
@@ -71,6 +72,8 @@ export function buildSubmitReviewTool(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
+  workItemId?: string;
+  resumedPlacements?: readonly AcceptedPlacement[];
   publishAbortState?: { staleHead?: boolean };
   severityFloor?: number;
 }): {
@@ -233,19 +236,24 @@ export function buildSubmitReviewTool(params: {
     try {
       await publishReview({
         token: params.getToken?.() ?? params.token,
+        getToken: params.getToken,
         tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
+        getTokenExpiresAtTs: params.getTokenExpiresAtTs,
         mode,
         cfg: params.cfg,
         ...params.ctx,
         payload: prepared.prepared.payload,
         dedupedFindingCount: prepared.prepared.dedupedCount,
-        inlinePlacements: prepared.prepared.placements,
         publishState: params.state,
         cachedDiffIndex: params.cachedDiffIndex,
         shouldLinkToSummary: params.shouldLinkToSummary,
         summaryCommentIdHint: params.summaryCommentIdHint,
         recordPublishStep: params.recordPublishStep,
         storedInlineFingerprints: params.storedInlineFingerprints,
+        workItemId: params.workItemId,
+        resumedPlacements: params.resumedPlacements,
+        shouldAbortPublish: params.shouldAbortPublish,
+        publishAbortState: params.publishAbortState,
         staleReview: params.publishAbortState?.staleHead === true,
         ciSummaryAuthor: createAgentCiSummaryAuthor(params.cfg),
       });
@@ -270,6 +278,10 @@ export function buildSubmitReviewTool(params: {
           : "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
         cause: e,
       });
+    }
+
+    if (params.state.publishSuperseded) {
+      return { ok: false, publishSuperseded: true };
     }
 
     params.state.published = true;

@@ -194,14 +194,14 @@ describe("publishReview labels and token expiry", () => {
       "r",
       1,
       expect.objectContaining({
-        event: "REQUEST_CHANGES",
+        event: "COMMENT",
         commitId: "sha",
       }),
       tokenExpiresAtTs,
     );
   });
 
-  it("forwards tokenExpiresAtTs on repeat no-bugs review creation", async () => {
+  it("does not create a zero-comment review on repeat no-bugs publish", async () => {
     const tokenExpiresAtTs = 1_700_000_000_000;
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
       id: 99,
@@ -218,16 +218,7 @@ describe("publishReview labels and token expiry", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        event: "COMMENT",
-      }),
-      tokenExpiresAtTs,
-    );
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 
   it("does not fail publish when label sync throws", async () => {

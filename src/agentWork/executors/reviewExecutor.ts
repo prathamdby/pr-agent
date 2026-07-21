@@ -386,6 +386,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     publishState,
     shouldLinkToSummary,
     storedInlineFingerprints,
+    resumedPlacements,
     summaryCommentGithubId: summaryCommentIdHint,
   } = publishContext;
 
@@ -436,6 +437,8 @@ async function runFullReviewAgainstRepositoryView(args: {
     userSupplement: payload.userSupplement,
     trustedContext,
     storedInlineFingerprints,
+    workItemId: item.id,
+    resumedPlacements,
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,
     shouldLinkToSummary,

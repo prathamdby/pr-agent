@@ -1,12 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import * as reviewSchema from "../src/review/reviewSchema.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import {
-  AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
-  REVIEW_POINTER_NOTE_LEAD,
-} from "../src/review/run/reviewRender.js";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import {
   cachedDiffForFiles,
   cachedDiffForLines,
@@ -53,7 +49,7 @@ describe("publishReview core", () => {
     vi.clearAllMocks();
   });
 
-  it("uses REQUEST_CHANGES for P1 and passes inline comments with agent fix prompt body", async () => {
+  it("uses COMMENT for P1 and publishes the incremental review pointer", async () => {
     const publishState = testPublishState();
     await publishReviewForTest({
       ...baseParams,
@@ -67,8 +63,8 @@ describe("publishReview core", () => {
       "r",
       1,
       expect.objectContaining({
-        event: "REQUEST_CHANGES",
-        body: expect.stringContaining(AGENT_FIX_PROMPT_ACCORDION_SUMMARY),
+        event: "COMMENT",
+        body: expect.stringContaining(REVIEW_POINTER_BODY),
         commitId: "sha",
         comments: [
           expect.objectContaining({
@@ -113,7 +109,7 @@ describe("publishReview core", () => {
     expect(summaryBody).toContain("Bug");
   });
 
-  it("preserves stored fingerprints on inline_review step when all inline suppressed", async () => {
+  it("does not record a zero-comment inline review when all findings are suppressed", async () => {
     const finding = payload.findings[0];
     const stored = fingerprintFinding(finding, "review");
     const recordPublishStep = vi.fn<RecordPublishStep>(async () => undefined);
@@ -123,17 +119,14 @@ describe("publishReview core", () => {
       publishState: testPublishState(),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       storedInlineFingerprints: [stored],
+      workItemId: "wi-test",
       recordPublishStep,
     });
 
-    const inlineStep = recordPublishStep.mock.calls.find(([step]) => step === "inline_review");
-    expect(inlineStep).toBeDefined();
-    const meta = inlineStep?.[1]?.meta;
-    expect(meta?.fingerprints).toEqual([stored]);
+    expect(recordPublishStep).not.toHaveBeenCalledWith("inline_review", expect.anything());
   });
 
-  it("bases review event on full findings list", async () => {
-    const spy = vi.spyOn(reviewSchema, "reviewEventForFindings");
+  it("publishes all inline findings in one COMMENT batch", async () => {
     const findings: ReviewPayload["findings"] = [
       {
         severity: "P2",
@@ -165,14 +158,13 @@ describe("publishReview core", () => {
       payload: { ...payload, findings },
     });
 
-    expect(spy).toHaveBeenCalledWith([findings[1], findings[0]]);
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
       "t",
       "o",
       "r",
       1,
       expect.objectContaining({
-        event: "REQUEST_CHANGES",
+        event: "COMMENT",
         comments: expect.arrayContaining([
           expect.objectContaining({ path: "a.ts" }),
           expect.objectContaining({ path: "b.ts" }),
@@ -180,7 +172,6 @@ describe("publishReview core", () => {
       }),
       undefined,
     );
-    spy.mockRestore();
   });
 
   it.each([
@@ -272,6 +263,19 @@ describe("publishReview core", () => {
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       storedInlineFingerprints: [stored],
+      resumedPlacements: [
+        {
+          kind: "resumed",
+          source: "review",
+          placement: {
+            finding: payload.findings[0],
+            inlineLine: 4,
+            inlinePosted: true,
+          },
+          canonicalFingerprint: stored,
+          reviewId: 41,
+        },
+      ],
     });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
@@ -295,6 +299,8 @@ describe("publishReview core", () => {
       undefined,
     );
     expect(publishState.inlineReviewIds).toEqual([41, 42]);
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4] ?? "";
+    expect(summaryBody.match(/Bug/g)).toHaveLength(1);
   });
 
   it("uses the general sentinel and pointer for recognized legacy modes", async () => {
@@ -312,17 +318,8 @@ describe("publishReview core", () => {
       "r",
       1,
       expect.objectContaining({
-        body: expect.stringContaining(REVIEW_POINTER_NOTE_LEAD),
-      }),
-      undefined,
-    );
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        body: expect.stringContaining(AGENT_FIX_PROMPT_ACCORDION_SUMMARY),
+        body: expect.stringContaining(REVIEW_POINTER_BODY),
+        event: "COMMENT",
       }),
       undefined,
     );
@@ -359,11 +356,7 @@ describe("publishReview core", () => {
       "o",
       "r",
       1,
-      expect.objectContaining({
-        body: expect.stringContaining(
-          "[View the updated review.](https://github.com/o/r/pull/1#issuecomment-99)",
-        ),
-      }),
+      expect.objectContaining({ body: expect.stringContaining(REVIEW_POINTER_BODY) }),
       undefined,
     );
     expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
@@ -394,13 +387,13 @@ describe("publishReview core", () => {
       "r",
       1,
       expect.objectContaining({
-        body: expect.stringContaining(REVIEW_POINTER_NOTE_LEAD),
+        body: expect.stringContaining(REVIEW_POINTER_BODY),
       }),
       undefined,
     );
   });
 
-  it("posts repeat no-bugs COMMENT review when shouldLinkToSummary and zero findings", async () => {
+  it("does not create a zero-comment review when a repeated run has no findings", async () => {
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
       id: 99,
       url: "https://github.com/o/r/pull/1#issuecomment-99",
@@ -416,22 +409,9 @@ describe("publishReview core", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        event: "COMMENT",
-        body: "No bugs found, [see the updated review](https://github.com/o/r/pull/1#issuecomment-99).",
-      }),
-      undefined,
-    );
-    const callArgs = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4];
-    expect(callArgs).not.toHaveProperty("comments");
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
-    expect(publishState.inlineReviewIds).toEqual([1]);
+    expect(publishState.inlineReviewIds).toEqual([]);
   });
 
   it("does not post repeat no-bugs review when shouldLinkToSummary but P3-only findings", async () => {
@@ -482,31 +462,37 @@ describe("publishReview core", () => {
     expect(publishState.inlineReviewIds).toEqual([]);
   });
 
-  it("publishes summary when GitHub rejects inline review", async () => {
-    vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce(
-      new Error("Line could not be resolved"),
-    );
+  it("skips the summary when the final publish gate stops V1", async () => {
     const publishState = testPublishState();
+    const shouldAbortPublish = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 
     await publishReviewForTest({
       ...baseParams,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      shouldAbortPublish,
     });
 
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.not.stringContaining("Line could not be resolved"),
-      REVIEW_SUMMARY_SENTINEL,
-      null,
-      undefined,
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
+    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+    expect(publishState.publishSuperseded).toBe(true);
+  });
+
+  it("propagates arbitrary GitHub inline publish failures", async () => {
+    vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce(
+      new Error("GitHub unavailable"),
     );
-    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
-    expect(summaryBody).toContain("Summary only");
-    expect(summaryBody).not.toContain("Inline thread posted");
+    const publishState = testPublishState();
+
+    await expect(
+      publishReviewForTest({
+        ...baseParams,
+        publishState,
+        cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      }),
+    ).rejects.toThrow("GitHub unavailable");
+
+    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
   });
 });

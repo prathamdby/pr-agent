@@ -16,6 +16,7 @@ import {
 import { REVIEW_DIFF_CACHE_REQUIRED_MESSAGE } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
+import type { AcceptedPlacement } from "../src/review/orchestrator/orchestratorTypes.js";
 
 const settingsOverrides: { maxReviewPublishCalls?: number } = {};
 vi.mock("../src/settings/index.js", async (importOriginal) => {
@@ -80,6 +81,37 @@ describe("submitReview tool", () => {
     expect(createSubmitReviewState({ inlineReviewIds: [41, 42] }).inlineReviewIds).toEqual([
       41, 42,
     ]);
+  });
+
+  it("forwards the work item and resumed placements to the V1 publisher", async () => {
+    const resumedPlacement: AcceptedPlacement = {
+      kind: "resumed",
+      source: "review",
+      placement: {
+        finding: finding({ startLine: 4, endLine: 4 }),
+        inlineLine: 4,
+        inlinePosted: true,
+      },
+      canonicalFingerprint: "fp-1",
+      reviewId: 41,
+    };
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      state: createSubmitReviewState({ inlineReviewIds: [41] }),
+      workItemId: "wi-1",
+      resumedPlacements: [resumedPlacement],
+    });
+
+    await executor(validPayload());
+
+    expect(publishReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-1",
+        resumedPlacements: [resumedPlacement],
+      }),
+    );
   });
 
   it("ignores duplicate submitReview after publish", async () => {
@@ -195,6 +227,26 @@ describe("submitReview tool", () => {
     await expect(executor(valid)).rejects.toThrow(/superseded or cancelled/i);
     expect(state.publishSuperseded).toBe(true);
     expect(publishReview).not.toHaveBeenCalled();
+  });
+
+  it("keeps the run unpublished when the final publish gate stops V1", async () => {
+    const state = createSubmitReviewState();
+    vi.mocked(publishReview).mockImplementationOnce(async ({ publishState }) => {
+      publishState.publishSuperseded = true;
+    });
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      token: "tok",
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      state,
+    });
+
+    await expect(executor(validPayload())).resolves.toEqual({
+      ok: false,
+      publishSuperseded: true,
+    });
+    expect(state.published).toBe(false);
+    expect(state.publishSuperseded).toBe(true);
   });
 
   it.each(["review-security", "review-quality", "review-tests"] as const)(
