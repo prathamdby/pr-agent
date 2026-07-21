@@ -14,20 +14,20 @@ export function computeRunDeadlineAtMs(params: {
 }
 
 /**
- * Per-specialist timeout: min(config timeout, fair share of remaining budget across
- * concurrent specialists). At one dispatch instant every specialist uses the same
- * `pendingCount` (typically 4); start stagger is handled separately via `startDelayMs`.
+ * Per-specialist timeout: min(config timeout, remaining budget minus that specialist's start
+ * stagger). Specialists run concurrently, so dividing remaining by pending count under-budgets
+ * late-staggered specialists; the hard run deadline still bounds synthesis.
  */
 export function specialistTimeoutMs(params: {
   readonly nowMs: number;
   readonly deadlineAtMs: number;
   readonly configTimeoutMs: number;
-  readonly pendingCount: number;
+  /** Delay before this specialist's first send (`index * stagger`). */
+  readonly startStaggerMs?: number;
 }): number {
-  const remaining = Math.max(0, params.deadlineAtMs - params.nowMs);
-  const fairShare =
-    params.pendingCount > 0 ? Math.floor(remaining / params.pendingCount) : remaining;
-  return Math.min(params.configTimeoutMs, fairShare);
+  const stagger = Math.max(0, params.startStaggerMs ?? 0);
+  const remaining = Math.max(0, params.deadlineAtMs - params.nowMs - stagger);
+  return Math.min(params.configTimeoutMs, remaining);
 }
 
 export function resolveSpecialistDispatchStaggerMs(override?: number): number {

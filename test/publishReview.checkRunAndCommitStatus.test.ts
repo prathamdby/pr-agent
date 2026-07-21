@@ -1,11 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  publishReviewSummaryOnly,
+  type PublishReviewSummaryOnlyArgs,
+} from "../src/review/publish/publishSummaryOnly.js";
 import {
   publishReviewTestBaseParams,
   publishReviewTestPayload,
 } from "./helpers/publishReviewTestSetup.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -29,34 +32,51 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 });
 
 import { setReviewCommitStatus, upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
-import { attachSummaryCommentCoordination } from "../src/review/publish/publishReview.js";
+import { attachSummaryCommentCoordination } from "../src/review/publish/summaryCommentCoordination.js";
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
 
 const payload = publishReviewTestPayload;
 const baseParams = publishReviewTestBaseParams;
 const pool = {} as import("pg").Pool;
 
-describe("publishReview check run completion", () => {
+function summaryArgs(
+  overrides: Partial<PublishReviewSummaryOnlyArgs> = {},
+): PublishReviewSummaryOnlyArgs {
+  const findings = overrides.payload?.findings ?? payload.findings;
+  return {
+    cfg: makeTestConfig(),
+    ctx: {
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "sha",
+      hasDescriptionAgentBlock: false,
+    },
+    getToken: () => "t",
+    payload,
+    summaryPlacements: findings.map((finding) => ({
+      finding,
+      inlineLine: finding.startLine,
+      inlinePosted: true,
+    })),
+    inlineReviewIds: [1],
+    recordPublishStep: attachSummaryCommentCoordination(vi.fn(), {
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    }),
+    ...overrides,
+  };
+}
+
+describe("publishReviewSummaryOnly check run completion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 2, updated: false });
   });
 
-  function coordinatedRecordPublishStep() {
-    return attachSummaryCommentCoordination(vi.fn(), {
-      pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
-  }
-
   it("completes the review check as failure when published findings include P1", async () => {
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep: coordinatedRecordPublishStep(),
-    });
+    await publishReviewSummaryOnly(summaryArgs());
 
     expect(completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -76,16 +96,14 @@ describe("publishReview check run completion", () => {
   });
 
   it("completes the review check as failure when findings are P2-only", async () => {
-    await publishReviewForTest({
-      ...baseParams,
-      payload: {
-        ...payload,
-        findings: [{ ...payload.findings[0], severity: "P2" }],
-      },
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep: coordinatedRecordPublishStep(),
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        payload: {
+          ...payload,
+          findings: [{ ...payload.findings[0]!, severity: "P2" }],
+        },
+      }),
+    );
 
     expect(completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -97,13 +115,11 @@ describe("publishReview check run completion", () => {
   });
 
   it("completes the review check as success when findings are empty", async () => {
-    await publishReviewForTest({
-      ...baseParams,
-      payload: { ...payload, findings: [] },
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep: coordinatedRecordPublishStep(),
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        payload: { ...payload, findings: [] },
+      }),
+    );
 
     expect(completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -115,16 +131,14 @@ describe("publishReview check run completion", () => {
   });
 
   it("completes the review check as success when findings are P3-only", async () => {
-    await publishReviewForTest({
-      ...baseParams,
-      payload: {
-        ...payload,
-        findings: [{ ...payload.findings[0], severity: "P3", fixPrompt: undefined }],
-      },
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep: coordinatedRecordPublishStep(),
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        payload: {
+          ...payload,
+          findings: [{ ...payload.findings[0]!, severity: "P3", fixPrompt: undefined }],
+        },
+      }),
+    );
 
     expect(completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
@@ -136,19 +150,19 @@ describe("publishReview check run completion", () => {
   });
 });
 
-describe("publishReview commit status", () => {
+describe("publishReviewSummaryOnly commit status", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 2, updated: false });
   });
 
   it("posts failure when published findings include P1", async () => {
-    await publishReviewForTest({
-      ...baseParams,
-      cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
+        recordPublishStep: vi.fn(async () => undefined),
+      }),
+    );
 
     expect(setReviewCommitStatus).toHaveBeenCalledWith(
       "t",
@@ -180,13 +194,13 @@ describe("publishReview commit status", () => {
       ],
     };
 
-    await publishReviewForTest({
-      ...baseParams,
-      cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
-      payload: p2Payload,
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
+        payload: p2Payload,
+        recordPublishStep: vi.fn(async () => undefined),
+      }),
+    );
 
     expect(setReviewCommitStatus).toHaveBeenCalledWith(
       "t",
@@ -206,21 +220,21 @@ describe("publishReview commit status", () => {
     vi.mocked(setReviewCommitStatus).mockRejectedValueOnce(new Error("status api down"));
 
     await expect(
-      publishReviewForTest({
-        ...baseParams,
-        cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
-        publishState: testPublishState({ inlineReviewIds: [1] }),
-        cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      }),
-    ).resolves.toBeUndefined();
+      publishReviewSummaryOnly(
+        summaryArgs({
+          cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
+          recordPublishStep: vi.fn(async () => undefined),
+        }),
+      ),
+    ).resolves.toEqual({ summaryCommentId: expect.any(Number) });
   });
 
   it("skips commit status when flag is off", async () => {
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState({ inlineReviewIds: [1] }),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        recordPublishStep: vi.fn(async () => undefined),
+      }),
+    );
 
     expect(setReviewCommitStatus).not.toHaveBeenCalled();
   });

@@ -316,10 +316,10 @@ describe("cursorAgentRunnerProvider", () => {
       write: async () => "write-ok",
     };
     const submitOnlyTools = [
-      { name: "submitReview", description: "submit", parameters: { type: "object" } },
+      { name: "publish_summary", description: "submit", parameters: { type: "object" } },
     ];
     const submitOnlyExecutors = {
-      submitReview: async () => "submitted",
+      publish_summary: async () => "submitted",
     };
     const emptyExecutors = {};
 
@@ -342,8 +342,8 @@ describe("cursorAgentRunnerProvider", () => {
     expect(Object.keys(bridgeOptions.executors())).toEqual(["read", "write"]);
 
     session.restrictToTools(submitOnlyTools, submitOnlyExecutors);
-    expect(bridgeOptions.tools().map((tool) => tool.name)).toEqual(["submitReview"]);
-    expect(Object.keys(bridgeOptions.executors())).toEqual(["submitReview"]);
+    expect(bridgeOptions.tools().map((tool) => tool.name)).toEqual(["publish_summary"]);
+    expect(Object.keys(bridgeOptions.executors())).toEqual(["publish_summary"]);
 
     session.restrictToTools([], emptyExecutors);
     expect(bridgeOptions.tools()).toEqual([]);

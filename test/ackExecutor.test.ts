@@ -30,8 +30,9 @@ vi.mock("../src/agentWork/repository.js", () => ({
   claimSummaryCommentCreation: vi.fn(async () => true),
 }));
 
-vi.mock("../src/review/publish/publishReview.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/publish/publishReview.js")>();
+vi.mock("../src/review/publish/summaryCommentCoordination.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/review/publish/summaryCommentCoordination.js")>();
   return {
     ...actual,
     upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({ id: 42, updated: false })),
@@ -47,7 +48,7 @@ import {
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
-import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
+import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/summaryCommentCoordination.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../src/agentWork/repository.js";
 import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
 

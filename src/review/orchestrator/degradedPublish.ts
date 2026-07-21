@@ -1,6 +1,6 @@
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
-import { JUDGMENT_DEGRADED_NOTE } from "../../settings/index.js";
+import { JUDGMENT_DEGRADED_NOTE, RUN_DEADLINE_NOTE } from "../../settings/index.js";
 import type { ReviewFinding, ReviewPublishContext } from "../reviewSchema.js";
 import {
   prepareFindingsForPublish,
@@ -51,6 +51,8 @@ function deterministicOverviewPayload(acceptedFindings: readonly ReviewFinding[]
 export function coverageNotes(params: {
   readonly partialSpecialists: readonly string[];
   readonly judgmentDegraded: boolean;
+  /** Pure time-budget path — never combined with judgment-degraded wording. */
+  readonly deadlineReached?: boolean;
 }): string | undefined {
   const parts: string[] = [];
   if (params.partialSpecialists.length > 0) {
@@ -58,6 +60,8 @@ export function coverageNotes(params: {
   }
   if (params.judgmentDegraded) {
     parts.push(JUDGMENT_DEGRADED_NOTE);
+  } else if (params.deadlineReached) {
+    parts.push(RUN_DEADLINE_NOTE);
   }
   return parts.length > 0 ? parts.join("\n\n") : undefined;
 }
@@ -178,6 +182,7 @@ export async function publishDeterministicSummary(params: {
   readonly cachedDiffIndex?: CachedPrDiffIndex;
   readonly partialSpecialists: readonly SpecialistId[] | readonly string[];
   readonly judgmentDegraded: boolean;
+  readonly deadlineReached?: boolean;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { staleHead?: boolean };
   readonly shouldLinkToSummary?: boolean;
@@ -208,6 +213,7 @@ export async function publishDeterministicSummary(params: {
     partialCoverageNote: coverageNotes({
       partialSpecialists: params.partialSpecialists,
       judgmentDegraded: params.judgmentDegraded,
+      deadlineReached: params.deadlineReached,
     }),
     coveragePartial: params.partialSpecialists.length > 0,
     cachedDiffIndex: params.cachedDiffIndex,

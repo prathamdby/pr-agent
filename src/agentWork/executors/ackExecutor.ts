@@ -6,7 +6,7 @@ import {
 } from "../../github/reviewPublish.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import { reviewSummarySentinelForMode } from "../../review/reviewSchema.js";
-import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
+import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/summaryCommentCoordination.js";
 import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { getSummaryCommentGithubId, recordPublishStep } from "../repository.js";

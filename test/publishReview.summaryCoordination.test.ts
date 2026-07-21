@@ -1,8 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
-import { publishReviewTestBaseParams } from "./helpers/publishReviewTestSetup.js";
+import {
+  publishReviewSummaryOnly,
+  type PublishReviewSummaryOnlyArgs,
+} from "../src/review/publish/publishSummaryOnly.js";
+import { publishReviewTestPayload } from "./helpers/publishReviewTestSetup.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -33,13 +36,13 @@ import {
 import {
   attachSummaryCommentCoordination,
   upsertSummaryCommentWithCreationClaim,
-} from "../src/review/publish/publishReview.js";
+} from "../src/review/publish/summaryCommentCoordination.js";
 import {
   claimSummaryCommentCreation,
   getSummaryCommentGithubId,
 } from "../src/agentWork/publishRecordRepository.js";
 
-const baseParams = publishReviewTestBaseParams;
+const payload = publishReviewTestPayload;
 const pool = {} as import("pg").Pool;
 const claimBase = {
   pool,
@@ -53,6 +56,35 @@ const claimBase = {
   body: "summary body",
   sentinel: REVIEW_SUMMARY_SENTINEL,
 };
+
+function summaryArgs(
+  overrides: Partial<PublishReviewSummaryOnlyArgs> = {},
+): PublishReviewSummaryOnlyArgs {
+  return {
+    cfg: makeTestConfig(),
+    ctx: {
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "sha",
+      hasDescriptionAgentBlock: false,
+    },
+    getToken: () => "t",
+    payload,
+    summaryPlacements: payload.findings.map((finding) => ({
+      finding,
+      inlineLine: finding.startLine,
+      inlinePosted: true,
+    })),
+    inlineReviewIds: [1],
+    recordPublishStep: attachSummaryCommentCoordination(vi.fn(), {
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    }),
+    ...overrides,
+  };
+}
 
 describe("upsertSummaryCommentWithCreationClaim", () => {
   beforeEach(() => {
@@ -158,7 +190,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   });
 });
 
-describe("publishReview summary coordination", () => {
+describe("publishReviewSummaryOnly summary coordination", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(88);
@@ -172,18 +204,7 @@ describe("publishReview summary coordination", () => {
   });
 
   it("uses stored progress id without sentinel scan", async () => {
-    const recordPublishStep = attachSummaryCommentCoordination(vi.fn(), {
-      pool,
-      workItemId: "wi-1",
-      resourceKey: "o/r#1",
-    });
-
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-      recordPublishStep,
-    });
+    await publishReviewSummaryOnly(summaryArgs());
 
     expect(findIssueCommentBySentinel).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalledWith(

@@ -85,9 +85,9 @@ describe("publishSummaryTool", () => {
     expect(publishReviewSummaryOnly).toHaveBeenCalledTimes(1);
   });
 
-  it("stores structured validation errors for the repair loop", async () => {
+  it("stores structured validation errors for the repair loop without throwing", async () => {
     const state = createSummaryPublishState();
-    const { executor } = buildPublishSummaryTool({
+    const { executor, getLastError, clearLastError } = buildPublishSummaryTool({
       cfg: makeTestConfig(),
       ctx: {
         owner: "o",
@@ -102,10 +102,51 @@ describe("publishSummaryTool", () => {
       state,
     });
 
-    await expect(executor({ prCharacter: "" })).rejects.toThrow(/validation/i);
+    await expect(executor({ prCharacter: "" })).resolves.toEqual({
+      accepted: false,
+      error: expect.stringContaining("prCharacter"),
+    });
+    expect(getLastError()).toEqual(expect.stringContaining("prCharacter"));
     expect(state.lastValidationError).toEqual(expect.stringContaining("prCharacter"));
     expect(state.published).toBe(false);
     expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
+
+    clearLastError();
+    expect(getLastError()).toBeNull();
+  });
+
+  it("reads live coverage note getters at invocation time", async () => {
+    let note: string | undefined = "initial";
+    let partial = false;
+    const { executor } = buildPublishSummaryTool({
+      cfg: makeTestConfig(),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionAgentBlock: false,
+      },
+      getToken: () => "tok",
+      recordPublishStep: vi.fn(async () => undefined),
+      runState: createThreadPublishRunState(),
+      state: createSummaryPublishState(),
+      live: {
+        getPartialCoverageNote: () => note,
+        getCoveragePartial: () => partial,
+      },
+    });
+
+    note = "Coverage partial: security specialist(s) failed.";
+    partial = true;
+    await executor(overviewArgs());
+
+    expect(publishReviewSummaryOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partialCoverageNote: note,
+        coveragePartial: true,
+      }),
+    );
   });
 
   it("refreshes a near-expiry token before the summary write", async () => {

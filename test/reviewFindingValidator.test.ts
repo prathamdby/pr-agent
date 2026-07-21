@@ -114,6 +114,7 @@ describe("validateReviewPayload", () => {
       expect(result.anchorFailures).toHaveLength(1);
       expect(result.anchorFailures[0]?.suggestedRanges?.length).toBeGreaterThan(0);
       expect(result.message).toContain("Inline anchor validation failed");
+      expect(result.message).toContain("structured submission tool");
     }
   });
 

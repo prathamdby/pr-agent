@@ -60,6 +60,21 @@ function resolveOption<T>(value: T | (() => T)): T {
   return typeof value === "function" ? (value as () => T)() : value;
 }
 
+function structuredSubmissionNudge(tools: readonly PiTool[], maxToolRounds: number): string {
+  const preferredOrder = [
+    "publish_summary",
+    "submit_findings_report",
+    "publish_thread",
+    "submit_specialist_brief",
+  ] as const;
+  const active = new Set(tools.map((tool) => tool.name));
+  const submitTool = preferredOrder.find((name) => active.has(name));
+  if (submitTool != null) {
+    return `Tool round limit (${maxToolRounds}) reached; call ${submitTool} with your structured result.`;
+  }
+  return `Tool round limit (${maxToolRounds}) reached; call your structured submission tool now.`;
+}
+
 function piToolToMcpTool(tool: PiTool): McpTool {
   return {
     name: tool.name,
@@ -212,7 +227,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
             ok: false,
           });
           return executorResultToMcp(
-            `Tool round limit (${maxToolRounds}) reached; call submitReview with your findings.`,
+            structuredSubmissionNudge(resolveOption(options.tools), maxToolRounds),
             true,
           );
         }

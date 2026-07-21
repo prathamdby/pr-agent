@@ -42,7 +42,7 @@ Locked decision IDs from #319 (body 1–15, edge-case addendum 16–27). Grouped
 
 ### Deadline, abort, degrade (17–19, 26–27)
 
-- **17.** Hard run deadline = `queueExpireInSeconds × 0.8` (`RUN_DEADLINE_BUDGET_FRACTION`). Specialist timeout is `min(REVIEW_SPECIALIST_TIMEOUT_MS, fair share of remaining budget)`. Invariant: the handler returns before pg-boss can fail + redeliver.
+- **17.** Hard run deadline = `queueExpireInSeconds × 0.8` (`RUN_DEADLINE_BUDGET_FRACTION`). Specialist timeout is `min(REVIEW_SPECIALIST_TIMEOUT_MS, remaining budget minus that specialist's start stagger)`. Invariant: the handler returns before pg-boss can fail + redeliver.
 - **18.** `abort()` is on `AgentRunnerSession`. The pump aborts pending specialists and disposes the orchestrator when `shouldContinue()` flips or the deadline hits. Cheap cancel poll is 250ms (`ORCHESTRATOR_SEND_ABORT_POLL_MS`) and never hits the full stale-head GitHub gate.
 - **19.** Orchestrator session death: retry the failing `send()` once; on second failure, degrade deterministically — unjudged reports flow through `publishFindingBatch`, summary renders from `acceptedFindings` with a judgment-degraded note. A summary always lands when any coverage remains.
 - **26.** Stale head / superseded mid-pump: first abort stops the pump, aborts all sessions, skips synthesis, writes a terminal superseded stub tick, then hands off to existing reschedule/skip-publish paths. No findings reuse across heads.

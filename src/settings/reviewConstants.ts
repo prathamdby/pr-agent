@@ -180,6 +180,13 @@ export const SPECIALIST_DISPATCH_STAGGER_MS = 2_000;
 export const JUDGMENT_DEGRADED_NOTE =
   "Judgment degraded: remaining findings were published without LLM judgment; summary was synthesized deterministically from accepted findings.";
 
+/**
+ * Maintainer-visible note when the internal run time budget alone forces deterministic
+ * summary publish — distinct from orchestrator send/tool judgment degradation.
+ */
+export const RUN_DEADLINE_NOTE =
+  "Run deadline reached: remaining findings were published from accepted state; summary was synthesized without further LLM judgment.";
+
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,
   P1: 1,
@@ -190,13 +197,6 @@ export const REVIEW_SEVERITY_RANK = {
 export const PUBLISH_RECOVERY_ROUNDS = 4;
 
 export const VALIDATION_REPAIR_ROUNDS = 3;
-
-export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
-  "Review publish budget exhausted for this run. Do not call submitReview again.";
-
-/** Review harness: step enforcement when diff cache is empty at submitReview. */
-export const REVIEW_DIFF_CACHE_REQUIRED_MESSAGE =
-  "Call listChangedFiles and getWorkspaceDiff first; diff index is empty so inline anchors cannot be validated.";
 
 /** Review harness: anchor menu block header (untrusted user content). */
 export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";

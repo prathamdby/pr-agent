@@ -329,7 +329,99 @@ describe("runOrchestratedPrReview (core path)", () => {
     expect(mocks.publishFindingBatch).toHaveBeenCalledWith([], expect.any(Object));
   });
 
-  it("dispatches all four specialists with the same remaining/4 timeout", async () => {
+  it("registers full tool roster at createSession then immediately restricts to recon", async () => {
+    mocks.runSpecialist.mockImplementation(async (args: { specialist: SpecialistId }) =>
+      emptyOutcome(args.specialist),
+    );
+
+    const session = installOrchestratorSession(mocks, {
+      onRecon: async (executors) => {
+        await submitDefaultBrief(executors);
+      },
+      onSynthesis: async (executors) => {
+        await executors.publish_summary!({
+          prCharacter: "ok",
+          estimatedEffort: 1,
+          relevantTests: "no",
+          securityConcerns: null,
+          followUps: [],
+        });
+      },
+    });
+
+    await runOrchestratedPrReview(baseParams({ specialistDispatchStaggerMs: 0 }));
+
+    expect(mocks.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: expect.arrayContaining([
+          expect.objectContaining({ name: "listChangedFiles" }),
+          expect.objectContaining({ name: "submit_specialist_brief" }),
+          expect.objectContaining({ name: "publish_thread" }),
+          expect.objectContaining({ name: "publish_summary" }),
+        ]),
+      }),
+    );
+    const createdTools = (
+      mocks.createSession.mock.calls[0]?.[0] as { tools: Array<{ name: string }> }
+    ).tools.map((tool) => tool.name);
+    expect(createdTools).toEqual(
+      expect.arrayContaining([
+        "submit_specialist_brief",
+        "publish_thread",
+        "publish_summary",
+        "listChangedFiles",
+        "readWorkspaceFile",
+        "searchWorkspace",
+        "getWorkspaceDiff",
+        "getWorkspaceBlame",
+      ]),
+    );
+
+    // First restrict after createSession is recon-only (workspace + brief).
+    expect(
+      session.restrictToTools.mock.calls[0]?.[0].map((tool: { name: string }) => tool.name),
+    ).toEqual(expect.arrayContaining(["submit_specialist_brief", "listChangedFiles"]));
+    expect(
+      session.restrictToTools.mock.calls[0]?.[0].map((tool: { name: string }) => tool.name),
+    ).not.toContain("publish_thread");
+    expect(
+      session.restrictToTools.mock.calls[0]?.[0].map((tool: { name: string }) => tool.name),
+    ).not.toContain("publish_summary");
+  });
+
+  it("repairs an invalid publish_summary then accepts a valid retry", async () => {
+    mocks.runSpecialist.mockImplementation(async (args: { specialist: SpecialistId }) =>
+      emptyOutcome(args.specialist),
+    );
+
+    let summaryCalls = 0;
+    installOrchestratorSession(mocks, {
+      onRecon: async (executors) => {
+        await submitDefaultBrief(executors);
+      },
+      onSynthesis: async (executors) => {
+        summaryCalls += 1;
+        if (summaryCalls === 1) {
+          await executors.publish_summary!({ prCharacter: "" });
+          return;
+        }
+        await executors.publish_summary!({
+          prCharacter: "Repaired overview.",
+          estimatedEffort: 1,
+          relevantTests: "no",
+          securityConcerns: null,
+          followUps: [],
+        });
+      },
+    });
+
+    const result = await runOrchestratedPrReview(baseParams({ specialistDispatchStaggerMs: 0 }));
+    expect(result.published).toBe(true);
+    expect(summaryCalls).toBeGreaterThanOrEqual(2);
+    expect(mocks.publishReviewSummaryOnly).toHaveBeenCalledTimes(1);
+  });
+
+  it("dispatches specialists with remaining budget minus each start stagger", async () => {
     const timeouts: number[] = [];
     mocks.runSpecialist.mockImplementation(
       async (args: { specialist: SpecialistId; timeoutMs: number }) => {
@@ -358,7 +450,7 @@ describe("runOrchestratedPrReview (core path)", () => {
       baseParams({
         now: () => nowMs,
         deadlineAtMs: nowMs + 40_000,
-        specialistDispatchStaggerMs: 0,
+        specialistDispatchStaggerMs: 2_000,
         cfg: makeTestConfig({
           features: { ...makeTestConfig().features, reviewLabels: "off", commitStatus: false },
           queueExpireInSeconds: 100,
@@ -368,7 +460,6 @@ describe("runOrchestratedPrReview (core path)", () => {
     );
 
     expect(timeouts).toHaveLength(4);
-    expect(new Set(timeouts).size).toBe(1);
-    expect(timeouts[0]).toBe(10_000);
+    expect(timeouts).toEqual([40_000, 38_000, 36_000, 34_000]);
   });
 });

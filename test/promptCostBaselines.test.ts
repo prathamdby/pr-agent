@@ -8,9 +8,10 @@ import { buildCursorPrompt } from "../src/agent/providers/cursor/promptBuilder.j
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
 import {
-  buildSubmitReviewTool,
-  createSubmitReviewState,
-} from "../src/review/publish/submitReviewTool.js";
+  buildPublishSummaryTool,
+  createSummaryPublishState,
+} from "../src/review/orchestrator/publishSummaryTool.js";
+import { createThreadPublishRunState } from "../src/review/orchestrator/publishThreadTool.js";
 import {
   buildOrchestratorSystemPrompt,
   renderReconInstruction,
@@ -36,6 +37,13 @@ const SEVERITIES = ["P0", "P1", "P2", "P3"] as const;
 const REVIEW_PAYLOAD_FIELDS = [
   "prCharacter",
   "findings",
+  "estimatedEffort",
+  "relevantTests",
+  "securityConcerns",
+  "followUps",
+] as const;
+const SUMMARY_OVERVIEW_FIELDS = [
+  "prCharacter",
   "estimatedEffort",
   "relevantTests",
   "securityConcerns",
@@ -88,10 +96,10 @@ describe("prompt cost baselines", () => {
     expect(required.toSorted()).toEqual([...REVIEW_PAYLOAD_FIELDS].toSorted());
   });
 
-  it("keeps submitReview tool contract stable for composition/resume paths", () => {
-    const { piTool } = buildSubmitReviewTool({
+  it("keeps publish_summary tool contract stable for synthesis", () => {
+    const { piTool } = buildPublishSummaryTool({
       cfg,
-      token: "token",
+      getToken: () => "token",
       ctx: {
         owner: "octo",
         repo: "hello",
@@ -99,21 +107,21 @@ describe("prompt cost baselines", () => {
         headSha: "abc123",
         hasDescriptionAgentBlock: false,
       },
-      state: createSubmitReviewState(),
+      state: createSummaryPublishState(),
+      runState: createThreadPublishRunState(),
+      recordPublishStep: async () => undefined,
     });
-    expect(piTool.name).toBe("submitReview");
-    expect(piTool.description).toContain("ReviewPayload");
-    expect(piTool.description).toContain("tool schema");
-    expect(piTool.description).not.toContain("Minimal valid example");
+    expect(piTool.name).toBe("publish_summary");
+    expect(piTool.description).toContain("overview");
     expect(requiredFields(piTool.parameters).toSorted()).toEqual(
-      [...REVIEW_PAYLOAD_FIELDS].toSorted(),
+      [...SUMMARY_OVERVIEW_FIELDS].toSorted(),
     );
   });
 
-  it("reduces static submitReview tool surface versus the prior field-list description", () => {
-    const { piTool } = buildSubmitReviewTool({
+  it("keeps publish_summary tool surface within budget", () => {
+    const { piTool } = buildPublishSummaryTool({
       cfg,
-      token: "token",
+      getToken: () => "token",
       ctx: {
         owner: "octo",
         repo: "hello",
@@ -121,7 +129,9 @@ describe("prompt cost baselines", () => {
         headSha: "abc123",
         hasDescriptionAgentBlock: false,
       },
-      state: createSubmitReviewState(),
+      state: createSummaryPublishState(),
+      runState: createThreadPublishRunState(),
+      recordPublishStep: async () => undefined,
     });
     const bytes = measurePromptCost(stableJson(piTool)).bytes;
     expect(bytes).toBeLessThan(2_500);
@@ -209,9 +219,9 @@ function promptSurfaces(): PromptSurface[] {
     apiKey: "",
     maxResponseBytes: 64_000,
   }).piTools;
-  const submitReviewTool = buildSubmitReviewTool({
+  const publishSummaryTool = buildPublishSummaryTool({
     cfg,
-    token: "token",
+    getToken: () => "token",
     ctx: {
       owner: "octo",
       repo: "hello",
@@ -219,7 +229,9 @@ function promptSurfaces(): PromptSurface[] {
       headSha: "abc123",
       hasDescriptionAgentBlock: false,
     },
-    state: createSubmitReviewState(),
+    state: createSummaryPublishState(),
+    runState: createThreadPublishRunState(),
+    recordPublishStep: async () => undefined,
   }).piTool;
   const cursorPrompt = buildCursorPrompt(representativeCursorContext()).text;
 
@@ -251,7 +263,7 @@ function promptSurfaces(): PromptSurface[] {
     },
     {
       name: "structured review submission tool",
-      content: stableJson(submitReviewTool),
+      content: stableJson(publishSummaryTool),
       budget: { bytes: 2_050, characters: 2_050, estimatedTokens: 513 },
     },
     {

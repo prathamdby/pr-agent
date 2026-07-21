@@ -4,6 +4,7 @@ import type {
   SpecialistOutcome,
 } from "../src/review/orchestrator/specialistReport.js";
 import { AppError } from "../src/errors/appError.js";
+import { JUDGMENT_DEGRADED_NOTE, RUN_DEADLINE_NOTE } from "../src/settings/index.js";
 import {
   deferred,
   emptyOutcome,
@@ -237,7 +238,7 @@ describe("runOrchestratedPrReview (terminal races)", () => {
     expect(elapsedMs).toBeLessThan(5_000);
   });
 
-  it("deadline aborts pending specialists and publishes a degraded summary", async () => {
+  it("deadline aborts pending specialists and publishes a deadline note, not judgment-degraded", async () => {
     let nowMs = 1_000;
     mocks.runSpecialist.mockImplementation(async (args: { specialist: SpecialistId }) => {
       if (args.specialist === "correctness") {
@@ -268,9 +269,13 @@ describe("runOrchestratedPrReview (terminal races)", () => {
     expect(result.published).toBe(true);
     expect(mocks.publishReviewSummaryOnly).toHaveBeenCalledWith(
       expect.objectContaining({
-        partialCoverageNote: expect.stringContaining("Judgment degraded"),
+        partialCoverageNote: expect.stringContaining(RUN_DEADLINE_NOTE.slice(0, 20)),
       }),
     );
+    const note = vi.mocked(mocks.publishReviewSummaryOnly).mock.calls.at(-1)?.[0] as {
+      partialCoverageNote?: string;
+    };
+    expect(note.partialCoverageNote).not.toContain(JUDGMENT_DEGRADED_NOTE.slice(0, 20));
   });
 
   it("at deadline accumulates unjudged reports as summary-only without thread writes", async () => {
@@ -393,7 +398,15 @@ describe("runOrchestratedPrReview (terminal races)", () => {
 
     const result = await runOrchestratedPrReview(baseParams({ specialistDispatchStaggerMs: 0 }));
     expect(result.published).toBe(true);
-    expect(mocks.publishReviewSummaryOnly).toHaveBeenCalled();
+    expect(mocks.publishReviewSummaryOnly).toHaveBeenCalledWith(
+      expect.objectContaining({
+        partialCoverageNote: expect.stringContaining(RUN_DEADLINE_NOTE.slice(0, 20)),
+      }),
+    );
+    const note = vi.mocked(mocks.publishReviewSummaryOnly).mock.calls.at(-1)?.[0] as {
+      partialCoverageNote?: string;
+    };
+    expect(note.partialCoverageNote).not.toContain("Judgment degraded");
     expect(mocks.upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 });

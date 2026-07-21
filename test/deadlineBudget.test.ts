@@ -17,15 +17,23 @@ describe("deadlineBudget", () => {
     ).toBe(1_000 + 80_000);
   });
 
-  it("caps specialist timeout at the fair share of remaining budget", () => {
+  it("caps specialist timeout at remaining budget minus start stagger", () => {
     expect(
       specialistTimeoutMs({
         nowMs: 10_000,
         deadlineAtMs: 50_000,
         configTimeoutMs: 900_000,
-        pendingCount: 4,
+        startStaggerMs: 0,
       }),
-    ).toBe(10_000);
+    ).toBe(40_000);
+    expect(
+      specialistTimeoutMs({
+        nowMs: 10_000,
+        deadlineAtMs: 50_000,
+        configTimeoutMs: 900_000,
+        startStaggerMs: 6_000,
+      }),
+    ).toBe(34_000);
   });
 
   it("uses the named stagger constant by default", () => {
@@ -33,14 +41,26 @@ describe("deadlineBudget", () => {
     expect(resolveSpecialistDispatchStaggerMs(0)).toBe(0);
   });
 
-  it("gives every concurrent specialist the same remaining/4 fair share at one instant", () => {
+  it("gives later-staggered specialists less remaining budget than earlier ones", () => {
     const shared = {
       nowMs: 10_000,
       deadlineAtMs: 50_000,
       configTimeoutMs: 900_000,
-      pendingCount: 4,
     };
-    const timeouts = [0, 1, 2, 3].map(() => specialistTimeoutMs(shared));
-    expect(timeouts).toEqual([10_000, 10_000, 10_000, 10_000]);
+    const timeouts = [0, 1, 2, 3].map((index) =>
+      specialistTimeoutMs({ ...shared, startStaggerMs: index * 2_000 }),
+    );
+    expect(timeouts).toEqual([40_000, 38_000, 36_000, 34_000]);
+  });
+
+  it("never exceeds the configured specialist timeout", () => {
+    expect(
+      specialistTimeoutMs({
+        nowMs: 0,
+        deadlineAtMs: 1_000_000,
+        configTimeoutMs: 90_000,
+        startStaggerMs: 0,
+      }),
+    ).toBe(90_000);
   });
 });

@@ -122,7 +122,7 @@ Do **not** set `PI_PROVIDER=cursor`. Use `AGENT_PROVIDER=cursor` for Cursor mode
 
 ### Cursor runner
 
-Uses the Cursor SDK local agent with an HTTP MCP bridge to pr-agent's GitHub, Context7, and `submitReview` tools. Register at worker boot only.
+Uses the Cursor SDK local agent with an HTTP MCP bridge to pr-agent's workspace, Context7, and structured submission tools (`publish_thread` / `publish_summary` on the orchestrator; `submit_findings_report` on specialists). Register at worker boot only.
 
 ```bash
 AGENT_PROVIDER=cursor

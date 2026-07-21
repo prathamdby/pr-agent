@@ -1,7 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
-import { AppError } from "../../errors/appError.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import {
   coerceReviewPayloadInput,
@@ -41,8 +40,18 @@ export function createSummaryPublishState(
 }
 
 /**
+ * Live coverage note/partial flags for the one stable pi `publish_summary` executor.
+ * Pi cannot swap tools after session creation; getters keep invocation-time values current.
+ */
+export type SummaryPublishLiveContext = {
+  readonly getPartialCoverageNote: () => string | undefined;
+  readonly getCoveragePartial: () => boolean;
+};
+
+/**
  * Orchestrator synthesis tool: wraps {@link publishReviewSummaryOnly} with a one-success latch.
  * Findings/table rows come from `runState.acceptedFindings` / `summaryPlacements`.
+ * Validation failures return `{accepted:false,error}` (brief/thread contract), not throws.
  */
 export function buildPublishSummaryTool(params: {
   cfg: Pick<Config, "piModel" | "features">;
@@ -56,6 +65,7 @@ export function buildPublishSummaryTool(params: {
   state: SummaryPublishState;
   cachedDiffIndex?: CachedPrDiffIndex;
   ciAuthor?: CiSummaryAuthor;
+  live?: SummaryPublishLiveContext;
   partialCoverageNote?: string;
   /** True when a specialist failed: forces neutral check / error commit status (decision 21). */
   coveragePartial?: boolean;
@@ -66,6 +76,8 @@ export function buildPublishSummaryTool(params: {
 }): {
   piTool: PiTool;
   executor: AgentRunnerToolExecutor;
+  getLastError: () => string | null;
+  clearLastError: () => void;
 } {
   const piTool: PiTool = {
     name: SUMMARY_TOOL_NAME,
@@ -91,10 +103,7 @@ export function buildPublishSummaryTool(params: {
     if (!parsed.success) {
       const formatted = formatReviewValidationError(parsed.error);
       params.state.lastValidationError = formatted.message;
-      throw new AppError({
-        code: "review.summary_validation_failed",
-        message: formatted.message,
-      });
+      return { accepted: false, error: formatted.message };
     }
     params.state.lastValidationError = null;
 
@@ -110,6 +119,9 @@ export function buildPublishSummaryTool(params: {
         ? params.runState.summaryPlacements
         : planInlinePlacements(acceptedFindings, params.cachedDiffIndex);
 
+    const partialCoverageNote = params.live?.getPartialCoverageNote() ?? params.partialCoverageNote;
+    const coveragePartial = params.live?.getCoveragePartial() ?? params.coveragePartial ?? false;
+
     const result = await publishReviewSummaryOnly({
       cfg: params.cfg,
       ctx: params.ctx,
@@ -124,8 +136,8 @@ export function buildPublishSummaryTool(params: {
       inlineReviewIds: params.runState.inlineReviewIds,
       recordPublishStep: params.recordPublishStep,
       ciAuthor: params.ciAuthor,
-      partialCoverageNote: params.partialCoverageNote,
-      coveragePartial: params.coveragePartial,
+      partialCoverageNote,
+      coveragePartial,
       cachedDiffIndex: params.cachedDiffIndex,
       shouldAbortPublish: params.shouldAbortPublish,
       publishAbortState: params.publishAbortState,
@@ -137,5 +149,12 @@ export function buildPublishSummaryTool(params: {
     return { ok: true, summaryCommentId: result.summaryCommentId };
   };
 
-  return { piTool, executor };
+  return {
+    piTool,
+    executor,
+    getLastError: () => params.state.lastValidationError,
+    clearLastError: () => {
+      params.state.lastValidationError = null;
+    },
+  };
 }

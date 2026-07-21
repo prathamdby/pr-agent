@@ -191,27 +191,26 @@ export async function runOrchestratedPrReview(
   /** After recon send dies twice, never call orchestrator send again (decision 19). */
   let skipOrchestratorSends = false;
 
-  const rebuildSummaryTool = () =>
-    buildPublishSummaryTool({
-      cfg,
-      ctx: publishCtx,
-      getToken: workspaceTools.getToken,
-      getTokenExpiresAtTs: workspaceTools.getTokenExpiresAtTs,
-      refreshInstallationToken: workspaceTools.refreshInstallationToken,
-      refreshNearExpiry: workspaceTools.refreshNearExpiry,
-      recordPublishStep,
-      runState,
-      state: summaryState,
-      cachedDiffIndex: workspaceTools.cachedDiffIndex,
-      partialCoverageNote,
-      coveragePartial,
-      shouldAbortPublish: params.shouldAbortPublish,
-      publishAbortState: params.publishAbortState,
-      shouldLinkToSummary: params.shouldLinkToSummary,
-      summaryCommentIdHint: params.summaryCommentIdHint,
-    });
-
-  let summaryTool = rebuildSummaryTool();
+  const summaryTool = buildPublishSummaryTool({
+    cfg,
+    ctx: publishCtx,
+    getToken: workspaceTools.getToken,
+    getTokenExpiresAtTs: workspaceTools.getTokenExpiresAtTs,
+    refreshInstallationToken: workspaceTools.refreshInstallationToken,
+    refreshNearExpiry: workspaceTools.refreshNearExpiry,
+    recordPublishStep,
+    runState,
+    state: summaryState,
+    cachedDiffIndex: workspaceTools.cachedDiffIndex,
+    live: {
+      getPartialCoverageNote: () => partialCoverageNote,
+      getCoveragePartial: () => coveragePartial,
+    },
+    shouldAbortPublish: params.shouldAbortPublish,
+    publishAbortState: params.publishAbortState,
+    shouldLinkToSummary: params.shouldLinkToSummary,
+    summaryCommentIdHint: params.summaryCommentIdHint,
+  });
 
   const reconTools = [...workspaceTools.piTools, briefTool.piTool];
   const reconExecutors = {
@@ -219,14 +218,39 @@ export async function runOrchestratedPrReview(
     [briefTool.piTool.name]: briefTool.executor,
   };
 
+  // Pi fixes customTools at session creation; register the full roster then name-allowlist.
+  const sessionTools = [
+    ...workspaceTools.piTools,
+    briefTool.piTool,
+    threadTool.piTool,
+    summaryTool.piTool,
+  ];
+  const sessionExecutors = {
+    ...workspaceTools.executors,
+    [briefTool.piTool.name]: briefTool.executor,
+    [threadTool.piTool.name]: threadTool.executor,
+    [summaryTool.piTool.name]: summaryTool.executor,
+  };
+
   const session = await provider.createSession({
     cfg,
     cwd: params.cwd,
     systemPrompt: buildOrchestratorSystemPrompt(),
-    tools: reconTools,
-    executors: reconExecutors,
+    tools: sessionTools,
+    executors: sessionExecutors,
     refreshBeforeTool: workspaceTools.refreshBeforeTool,
   });
+
+  const restoreThenRestrict = (
+    tools: readonly (typeof sessionTools)[number][],
+    executors: Record<string, (typeof sessionExecutors)[string]>,
+  ): void => {
+    session.restoreTools();
+    session.restrictToTools(tools, executors);
+  };
+
+  // Immediately restrict to recon; later phases re-allowlist thread / summary by name.
+  restoreThenRestrict(reconTools, reconExecutors);
 
   const abortController = new AbortController();
   let publishSuperseded = false;
@@ -304,14 +328,6 @@ export async function runOrchestratedPrReview(
       runPhase,
       summaryCommentIdHint: params.summaryCommentIdHint,
     });
-  };
-
-  const restoreThenRestrict = (
-    tools: typeof reconTools,
-    executors: typeof reconExecutors,
-  ): void => {
-    session.restoreTools();
-    session.restrictToTools(tools, executors);
   };
 
   const publishTokenHooks = {
@@ -425,11 +441,12 @@ export async function runOrchestratedPrReview(
     const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
     for (let index = 0; index < SPECIALIST_IDS.length; index++) {
       const specialist = SPECIALIST_IDS[index]!;
+      const startStaggerMs = index * staggerMs;
       const timeoutMs = specialistTimeoutMs({
         nowMs: dispatchNowMs,
         deadlineAtMs,
         configTimeoutMs: cfg.reviewSpecialistTimeoutMs,
-        pendingCount: SPECIALIST_IDS.length,
+        startStaggerMs,
       });
       pending.set(
         specialist,
@@ -446,7 +463,7 @@ export async function runOrchestratedPrReview(
           shouldContinue: shouldKeepRunning,
           deadlineAtMs,
           signal: abortController.signal,
-          startDelayMs: index * staggerMs,
+          startDelayMs: startStaggerMs,
           now,
           sleep,
           provider,
@@ -503,7 +520,6 @@ export async function runOrchestratedPrReview(
             partialSpecialists: runState.partialSpecialists,
             judgmentDegraded,
           });
-          summaryTool = rebuildSummaryTool();
           logWarn("review_specialist_failed", {
             specialist: outcome.specialist,
             message: outcome.error.message,
@@ -687,14 +703,15 @@ export async function runOrchestratedPrReview(
       });
     }
 
-    const forceDeterministicSummary =
-      judgmentDegraded || skipOrchestratorSends || deadlinePassed() || allDeadlineErrored;
+    const sessionJudgmentDegraded = judgmentDegraded || skipOrchestratorSends;
+    const deadlineHit = deadlinePassed() || allDeadlineErrored;
+    const forceDeterministicSummary = sessionJudgmentDegraded || deadlineHit;
     partialCoverageNote = coverageNotes({
       partialSpecialists: runState.partialSpecialists,
-      judgmentDegraded: forceDeterministicSummary,
+      judgmentDegraded: sessionJudgmentDegraded,
+      deadlineReached: deadlineHit && !sessionJudgmentDegraded,
     });
     coveragePartial = runState.partialSpecialists.length > 0;
-    summaryTool = rebuildSummaryTool();
 
     if (forceDeterministicSummary) {
       const summaryGate = await gate();
@@ -707,14 +724,15 @@ export async function runOrchestratedPrReview(
           runState,
           cachedDiffIndex: workspaceTools.cachedDiffIndex,
           partialSpecialists: runState.partialSpecialists,
-          judgmentDegraded: true,
+          judgmentDegraded: sessionJudgmentDegraded,
+          deadlineReached: deadlineHit && !sessionJudgmentDegraded,
           shouldAbortPublish: params.shouldAbortPublish,
           publishAbortState: params.publishAbortState,
           shouldLinkToSummary: params.shouldLinkToSummary,
           summaryCommentIdHint: params.summaryCommentIdHint,
         });
         summaryState.published = true;
-        judgmentDegraded = true;
+        if (sessionJudgmentDegraded) judgmentDegraded = true;
       }
     } else {
       restoreThenRestrict([summaryTool.piTool], {
@@ -747,6 +765,27 @@ export async function runOrchestratedPrReview(
 
       if (synthesisSend.ok) {
         lastText = synthesisSend.turn.text;
+        if (!summaryState.published && summaryTool.getLastError() != null && shouldKeepRunning()) {
+          await runValidationRepairLoop({
+            rounds: VALIDATION_REPAIR_ROUNDS,
+            shouldContinue: () => shouldKeepRunning() && !summaryState.published,
+            getValidationError: () => summaryTool.getLastError(),
+            clearValidationError: () => summaryTool.clearLastError(),
+            repair: async (validationError) => {
+              const repairSend = await sendTurn({
+                prompt: validationError,
+                opts: { maxToolRounds: MAX_TOOL_ROUNDS },
+                phase: "validation_repair",
+                shouldSend: () => shouldKeepRunning() && !summaryState.published,
+              });
+              if (repairSend.ok) lastText = repairSend.turn.text;
+              else {
+                judgmentDegraded = true;
+                skipOrchestratorSends = true;
+              }
+            },
+          });
+        }
         if (!summaryState.published) {
           for (
             let round = 0;

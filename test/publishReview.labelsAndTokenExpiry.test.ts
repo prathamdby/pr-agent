@@ -1,11 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as evlog from "../src/evlog.js";
-import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  publishReviewSummaryOnly,
+  type PublishReviewSummaryOnlyArgs,
+} from "../src/review/publish/publishSummaryOnly.js";
+import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.js";
+import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import {
   publishReviewTestBaseParams,
   publishReviewTestPayload,
 } from "./helpers/publishReviewTestSetup.js";
+import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -26,7 +31,6 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 import {
   createPullRequestReviewWithComments,
   listPullRequestLabels,
-  resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
@@ -34,7 +38,33 @@ import {
 const payload = publishReviewTestPayload;
 const baseParams = publishReviewTestBaseParams;
 
-describe("publishReview labels and token expiry", () => {
+function summaryArgs(
+  overrides: Partial<PublishReviewSummaryOnlyArgs> = {},
+): PublishReviewSummaryOnlyArgs {
+  const findings = overrides.payload?.findings ?? payload.findings;
+  return {
+    cfg: makeTestConfig({ features: { ...makeTestConfig().features, reviewLabels: "effort" } }),
+    ctx: {
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "sha",
+      hasDescriptionAgentBlock: false,
+    },
+    getToken: () => "t",
+    payload,
+    summaryPlacements: findings.map((finding) => ({
+      finding,
+      inlineLine: finding.startLine,
+      inlinePosted: true,
+    })),
+    inlineReviewIds: [1],
+    recordPublishStep: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+describe("publishReviewSummaryOnly labels", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -42,14 +72,14 @@ describe("publishReview labels and token expiry", () => {
   it("skips label sync when reviewLabels mode is off and no category label exists", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["bug"]);
 
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cfg: {
-        ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "off" as const },
-      },
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        cfg: {
+          ...baseParams.cfg,
+          features: { ...baseParams.cfg.features, reviewLabels: "off" as const },
+        },
+      }),
+    );
 
     expect(setPullRequestLabels).not.toHaveBeenCalled();
   });
@@ -57,14 +87,7 @@ describe("publishReview labels and token expiry", () => {
   it("skips setPullRequestLabels when exact effort label already exists", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cfg: {
-        ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
-      },
-    });
+    await publishReviewSummaryOnly(summaryArgs());
 
     expect(setPullRequestLabels).not.toHaveBeenCalled();
   });
@@ -75,15 +98,15 @@ describe("publishReview labels and token expiry", () => {
       "Possible security concern",
     ]);
 
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cfg: {
-        ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort+security" as const },
-      },
-      payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        cfg: {
+          ...baseParams.cfg,
+          features: { ...baseParams.cfg.features, reviewLabels: "effort+security" as const },
+        },
+        payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
+      }),
+    );
 
     expect(setPullRequestLabels).toHaveBeenCalledWith(
       "t",
@@ -98,15 +121,11 @@ describe("publishReview labels and token expiry", () => {
   it("calls setPullRequestLabels when effort label value changes", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cfg: {
-        ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
-      },
-      payload: { ...payload, estimatedEffort: 4 },
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        payload: { ...payload, estimatedEffort: 4 },
+      }),
+    );
 
     expect(setPullRequestLabels).toHaveBeenCalledWith(
       "t",
@@ -127,15 +146,11 @@ describe("publishReview labels and token expiry", () => {
       ...pageTwoExtras,
     ]);
 
-    await publishReviewForTest({
-      ...baseParams,
-      publishState: testPublishState(),
-      cfg: {
-        ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
-      },
-      payload: { ...payload, estimatedEffort: 2 },
-    });
+    await publishReviewSummaryOnly(
+      summaryArgs({
+        payload: { ...payload, estimatedEffort: 2 },
+      }),
+    );
 
     expect(setPullRequestLabels).toHaveBeenCalledWith(
       "t",
@@ -150,71 +165,12 @@ describe("publishReview labels and token expiry", () => {
     expect(nextLabels).not.toContain("Review effort 1/5");
   });
 
-  it("forwards tokenExpiresAtTs to inline review creation", async () => {
-    const tokenExpiresAtTs = 1_700_000_000_000;
-
-    await publishReviewForTest({
-      ...baseParams,
-      tokenExpiresAtTs,
-      publishState: testPublishState(),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
-
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        event: "COMMENT",
-        commitId: "sha",
-      }),
-      tokenExpiresAtTs,
-    );
-  });
-
-  it("forwards tokenExpiresAtTs on repeat no-bugs review creation", async () => {
-    const tokenExpiresAtTs = 1_700_000_000_000;
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
-      id: 99,
-      url: "https://github.com/o/r/pull/1#issuecomment-99",
-      source: "hint",
-    });
-
-    await publishReviewForTest({
-      ...baseParams,
-      tokenExpiresAtTs,
-      shouldLinkToSummary: true,
-      summaryCommentIdHint: 99,
-      publishState: testPublishState(),
-      payload: { ...payload, findings: [] },
-    });
-
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        event: "COMMENT",
-      }),
-      tokenExpiresAtTs,
-    );
-  });
-
   it("does not fail publish when label sync throws", async () => {
     vi.mocked(setPullRequestLabels).mockRejectedValueOnce(new Error("labels forbidden"));
 
-    await expect(
-      publishReviewForTest({
-        ...baseParams,
-        publishState: testPublishState(),
-        cfg: {
-          ...baseParams.cfg,
-          features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
-        },
-      }),
-    ).resolves.toBeUndefined();
+    await expect(publishReviewSummaryOnly(summaryArgs())).resolves.toEqual({
+      summaryCommentId: expect.any(Number),
+    });
 
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
   });
@@ -236,16 +192,9 @@ describe("publishReview labels and token expiry", () => {
       const warnSpy = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
       vi.mocked(listPullRequestLabels).mockRejectedValueOnce(rejection);
 
-      await expect(
-        publishReviewForTest({
-          ...baseParams,
-          publishState: testPublishState(),
-          cfg: {
-            ...baseParams.cfg,
-            features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
-          },
-        }),
-      ).resolves.toBeUndefined();
+      await expect(publishReviewSummaryOnly(summaryArgs())).resolves.toEqual({
+        summaryCommentId: expect.any(Number),
+      });
 
       expect(upsertReviewSummaryComment).toHaveBeenCalled();
       expect(setPullRequestLabels).not.toHaveBeenCalled();
@@ -259,4 +208,89 @@ describe("publishReview labels and token expiry", () => {
       warnSpy.mockRestore();
     },
   );
+});
+
+describe("publishFindingBatch token expiry forwarding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("forwards tokenExpiresAtTs to inline review creation", async () => {
+    const tokenExpiresAtTs = 1_700_000_000_000;
+    const finding = payload.findings[0]!;
+
+    await publishFindingBatch([finding], {
+      cfg: makeTestConfig(),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionAgentBlock: false,
+      },
+      getToken: () => "t",
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      recordPublishStep: vi.fn(async () => undefined),
+      runState: {
+        postedFingerprints: new Set(),
+        postedInlineCount: 0,
+        batchCount: 0,
+        inlineReviewIds: [],
+        acceptedFindings: [],
+        partialSpecialists: [],
+      },
+      tokenExpiresAtTs,
+    });
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.objectContaining({
+        event: "COMMENT",
+        commitId: "sha",
+      }),
+      tokenExpiresAtTs,
+    );
+  });
+
+  it("forwards tokenExpiresAtTs on repeat no-bugs review creation", async () => {
+    const tokenExpiresAtTs = 1_700_000_000_000;
+
+    await publishFindingBatch([], {
+      cfg: makeTestConfig(),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionAgentBlock: false,
+      },
+      getToken: () => "t",
+      recordPublishStep: vi.fn(async () => undefined),
+      runState: {
+        postedFingerprints: new Set(),
+        postedInlineCount: 0,
+        batchCount: 0,
+        inlineReviewIds: [],
+        acceptedFindings: [],
+        partialSpecialists: [],
+      },
+      tokenExpiresAtTs,
+      shouldLinkToSummary: true,
+      summaryCommentUrl: "https://github.com/o/r/pull/1#issuecomment-99",
+    });
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.objectContaining({
+        event: "COMMENT",
+      }),
+      tokenExpiresAtTs,
+    );
+  });
 });

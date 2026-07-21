@@ -32,7 +32,7 @@ import {
 } from "../../review/run/reviewRunMetrics.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
+import { attachSummaryCommentCoordination } from "../../review/publish/summaryCommentCoordination.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
 import {

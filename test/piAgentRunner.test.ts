@@ -138,23 +138,54 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
     );
   });
 
-  it("uses ModelRuntime with null modelsPath when modelsJsonPath is null", async () => {
+  it("registers the full customTools roster and restrictToTools only toggles active names", async () => {
+    const setActiveToolsByName = vi.fn();
     const session = buildMockSession(() => undefined);
+    session.setActiveToolsByName = setActiveToolsByName;
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    await piAgentRunnerProvider.createSession({
+    const tools = [
+      { name: "listChangedFiles", description: "a", parameters: { type: "object" } },
+      { name: "submit_specialist_brief", description: "b", parameters: { type: "object" } },
+      { name: "publish_thread", description: "c", parameters: { type: "object" } },
+      { name: "publish_summary", description: "d", parameters: { type: "object" } },
+    ];
+    const executors = Object.fromEntries(tools.map((tool) => [tool.name, async () => "ok"]));
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
       cfg,
       systemPrompt: "test",
-      tools: [],
-      executors: {},
+      tools,
+      executors,
     });
 
-    expect(ModelRuntime.create).toHaveBeenCalledWith(expect.objectContaining({ modelsPath: null }));
     expect(createAgentSession).toHaveBeenCalledWith(
       expect.objectContaining({
-        model: { id: "gpt-4o-mini", provider: "openai", api: "openai-responses" },
+        customTools: expect.arrayContaining([
+          expect.objectContaining({ name: "listChangedFiles" }),
+          expect.objectContaining({ name: "submit_specialist_brief" }),
+          expect.objectContaining({ name: "publish_thread" }),
+          expect.objectContaining({ name: "publish_summary" }),
+        ]),
       }),
     );
+
+    runnerSession.restrictToTools([tools[0]!, tools[1]!], {
+      listChangedFiles: executors.listChangedFiles!,
+      submit_specialist_brief: executors.submit_specialist_brief!,
+    });
+    expect(setActiveToolsByName).toHaveBeenCalledWith([
+      "listChangedFiles",
+      "submit_specialist_brief",
+    ]);
+
+    runnerSession.restoreTools();
+    expect(setActiveToolsByName).toHaveBeenLastCalledWith([
+      "listChangedFiles",
+      "submit_specialist_brief",
+      "publish_thread",
+      "publish_summary",
+    ]);
   });
 
   it("throws when models.json runtime reports a load error", async () => {

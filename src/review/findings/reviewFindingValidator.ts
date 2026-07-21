@@ -99,7 +99,9 @@ function formatAnchorFailureRepairMessage(failures: readonly AnchorFailure[]): s
       );
     }
   }
-  lines.push("Fix all listed findings and call submitReview again with a complete ReviewPayload.");
+  lines.push(
+    "Fix all listed findings and call the structured submission tool again with a complete ReviewPayload.",
+  );
   return lines.join("\n");
 }
 

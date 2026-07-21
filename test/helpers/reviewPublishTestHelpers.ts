@@ -1,41 +1,12 @@
-import { publishReview } from "../../src/review/publish/publishReview.js";
 import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
 import { planInlinePlacements } from "../../src/review/placement/reviewDiffPlacement.js";
-import type { ReviewFinding, ReviewMode, ReviewPayload } from "../../src/review/reviewSchema.js";
+import type { ReviewFinding, ReviewPayload } from "../../src/review/reviewSchema.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
   type CachedPrDiffIndex,
 } from "../../src/review/placement/reviewDiffIndex.js";
-import { createSubmitReviewState } from "../../src/review/publish/submitReviewTool.js";
-
-/** Runs pre-publish pipeline then publishReview (matches submitReview path). */
-export async function publishReviewForTest(
-  params: Parameters<typeof publishReview>[0] & { mode?: ReviewMode },
-): Promise<void> {
-  const mode = params.mode ?? "review";
-  const prepared = prepareReviewPayloadForPublish({
-    payload: params.payload,
-    mode,
-    cachedDiffIndex: params.cachedDiffIndex,
-  });
-  if (!prepared.ok) {
-    throw new Error(prepared.error);
-  }
-  await publishReview({
-    ...params,
-    payload: prepared.prepared.payload,
-    dedupedFindingCount: prepared.prepared.dedupedCount,
-    inlinePlacements: prepared.prepared.placements,
-  });
-}
-
-export function testPublishState(
-  overrides: Partial<ReturnType<typeof createSubmitReviewState>> = {},
-) {
-  return { ...createSubmitReviewState(), ...overrides };
-}
 
 export function testPlacements(
   findings: ReviewFinding[],
@@ -85,6 +56,15 @@ export function cachedDiffForFiles(
     });
   }
   return index;
+}
+
+/** Prepare a payload the same way publish paths do (for rendering / placement tests). */
+export function preparePayloadForTest(payload: ReviewPayload, diffIndex?: CachedPrDiffIndex) {
+  return prepareReviewPayloadForPublish({
+    payload,
+    mode: "review",
+    cachedDiffIndex: diffIndex,
+  });
 }
 
 function buildPatchForRightLines(lines: number[]): string {

@@ -258,29 +258,38 @@ describe("publishFindingBatch", () => {
     expect(ctx.recordPublishStep).not.toHaveBeenCalled();
   });
 
-  it("propagates durable record failures after a successful GitHub review post", async () => {
+  it("latches in-memory fingerprints before durable record and still fails after retries", async () => {
+    vi.useFakeTimers();
     const ctx = context({
       recordPublishStep: vi.fn(async () => {
         throw new Error("publish_records upsert failed");
       }),
     });
 
-    await expect(publishFindingBatch([finding], ctx)).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("review.finding_batch_record_failed");
-      expect((error as AppError).cause).toBeInstanceOf(Error);
-      expect(String(((error as AppError).cause as Error).message)).toMatch(
-        /publish_records upsert failed/,
-      );
-      return true;
-    });
+    const pending = publishFindingBatch([finding], ctx);
+    await Promise.all([
+      expect(pending).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).code).toBe("review.finding_batch_record_failed");
+        expect((error as AppError).cause).toBeInstanceOf(Error);
+        expect(String(((error as AppError).cause as Error).message)).toMatch(
+          /publish_records upsert failed/,
+        );
+        return true;
+      }),
+      vi.runAllTimersAsync(),
+    ]);
 
     expect(createPullRequestReviewWithComments).toHaveBeenCalled();
-    expect(ctx.runState.inlineReviewIds).toEqual([]);
-    expect(ctx.runState.postedInlineCount).toBe(0);
+    expect(ctx.runState.inlineReviewIds).toEqual([1]);
+    expect(ctx.runState.postedInlineCount).toBe(1);
+    expect(ctx.runState.postedFingerprints.has(fingerprintFinding(finding, "review"))).toBe(true);
+    expect(ctx.recordPublishStep).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
   });
 
-  it("propagates durable record failures after a successful repeat-no-bugs review post", async () => {
+  it("latches repeat-no-bugs review id before durable record failure retries", async () => {
+    vi.useFakeTimers();
     const ctx = context({
       shouldLinkToSummary: true,
       summaryCommentUrl: "https://github.com/o/r/pull/1#issuecomment-7",
@@ -289,17 +298,44 @@ describe("publishFindingBatch", () => {
       }),
     });
 
-    await expect(publishFindingBatch([], ctx)).rejects.toSatisfy((error: unknown) => {
-      expect(error).toBeInstanceOf(AppError);
-      expect((error as AppError).code).toBe("review.finding_batch_record_failed");
-      expect((error as AppError).cause).toBeInstanceOf(Error);
-      expect(String(((error as AppError).cause as Error).message)).toMatch(
-        /publish_records upsert failed/,
-      );
-      return true;
-    });
+    const pending = publishFindingBatch([], ctx);
+    await Promise.all([
+      expect(pending).rejects.toSatisfy((error: unknown) => {
+        expect(error).toBeInstanceOf(AppError);
+        expect((error as AppError).code).toBe("review.finding_batch_record_failed");
+        expect((error as AppError).cause).toBeInstanceOf(Error);
+        expect(String(((error as AppError).cause as Error).message)).toMatch(
+          /publish_records upsert failed/,
+        );
+        return true;
+      }),
+      vi.runAllTimersAsync(),
+    ]);
 
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
-    expect(ctx.runState.inlineReviewIds).toEqual([]);
+    expect(ctx.runState.inlineReviewIds).toEqual([1]);
+    expect(ctx.recordPublishStep).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it("retries a transient durable record failure then succeeds", async () => {
+    vi.useFakeTimers();
+    const recordPublishStep = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("transient upsert"))
+      .mockResolvedValue(undefined);
+    const ctx = context({ recordPublishStep });
+
+    const pending = publishFindingBatch([finding], ctx);
+    await Promise.all([pending, vi.runAllTimersAsync()]);
+    await expect(pending).resolves.toEqual({
+      kind: "published",
+      reviewId: 1,
+      posted: 1,
+      suppressed: 0,
+      dropped: 0,
+    });
+    expect(recordPublishStep).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });

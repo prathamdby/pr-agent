@@ -156,4 +156,53 @@ describe("createMcpBridge", () => {
       },
     );
   });
+
+  it("nudges the active structured submission tool when the tool-round limit is hit", async () => {
+    await withBridge(
+      {
+        tools: [
+          { name: "readWorkspaceFile", description: "read", parameters: { type: "object" } },
+          { name: "publish_summary", description: "summary", parameters: { type: "object" } },
+        ],
+        executors: {
+          readWorkspaceFile: async () => "ok",
+          publish_summary: async () => ({ ok: true }),
+        },
+        maxToolRounds: 1,
+        toolRoundCounter: { count: 0 },
+      },
+      async (bridge) => {
+        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+        await client.callTool({ name: "readWorkspaceFile", arguments: {} });
+        const limited = await client.callTool({ name: "readWorkspaceFile", arguments: {} });
+        expect(limited.isError).toBe(true);
+        expect(limited.content).toContainEqual({
+          type: "text",
+          text: "Tool round limit (1) reached; call publish_summary with your structured result.",
+        });
+        await client.close();
+      },
+    );
+  });
+
+  it("uses provider-neutral guidance when no structured submission tool is registered", async () => {
+    await withBridge(
+      {
+        tools: [{ name: "noop", description: "noop", parameters: { type: "object" } }],
+        executors: { noop: async () => "ok" },
+        maxToolRounds: 0,
+        toolRoundCounter: { count: 0 },
+      },
+      async (bridge) => {
+        const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+        const limited = await client.callTool({ name: "noop", arguments: {} });
+        expect(limited.isError).toBe(true);
+        expect(limited.content).toContainEqual({
+          type: "text",
+          text: "Tool round limit (0) reached; call your structured submission tool now.",
+        });
+        await client.close();
+      },
+    );
+  });
 });

@@ -21,7 +21,11 @@ import {
   renderReviewPointerBody,
 } from "../run/reviewRender.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
-import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../../settings/index.js";
+import {
+  MAX_INLINE_REVIEW_COMMENTS,
+  MAX_THREAD_PUBLISH_CALLS,
+  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
+} from "../../settings/index.js";
 import type { RecordPublishStepWithCoordination } from "./summaryCommentCoordination.js";
 
 export type ThreadPublishRunState = {
@@ -31,7 +35,7 @@ export type ThreadPublishRunState = {
   inlineReviewIds: number[];
   acceptedFindings: ReviewFinding[];
   partialSpecialists: string[];
-  /** Accumulated publish placements used by the V1 composition path. */
+  /** Accumulated placements for the final summary table / summary-only rows. */
   summaryPlacements?: InlinePlacement[];
 };
 
@@ -94,6 +98,46 @@ function appendSummaryPlacements(
 ): void {
   if (runState.summaryPlacements == null) runState.summaryPlacements = [];
   runState.summaryPlacements.push(...placements);
+}
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Durable append after GitHub already accepted the review. Retries with the same bounded
+ * schedule as other publish writes. Cross-process duplicate prevention still requires the
+ * durable row — in-memory fingerprints only stop same-run model repair from reposting.
+ */
+async function recordInlineBatchWithRetry(
+  context: FindingBatchContext,
+  detail: { githubId: number; meta: Record<string, unknown> },
+  failureMessage: string,
+): Promise<void> {
+  const delays = REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS;
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      await context.recordPublishStep("inline_review", detail);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= delays.length) break;
+      const delay = delays[attempt];
+      if (delay != null) await sleepMs(delay);
+    }
+  }
+  throw new AppError({
+    code: "review.finding_batch_record_failed",
+    message: failureMessage,
+    context: {
+      owner: context.ctx.owner,
+      repo: context.ctx.repo,
+      pr: context.ctx.prNumber,
+      reviewId: detail.githubId,
+    },
+    cause: lastError,
+  });
 }
 
 async function abortReason(
@@ -188,8 +232,14 @@ export async function publishFindingBatch(
         return { kind: "empty" };
       }
 
-      try {
-        await context.recordPublishStep("inline_review", {
+      // Latch in-memory before durable append so a same-run repair cannot repost.
+      if (!context.runState.inlineReviewIds.includes(review.id)) {
+        context.runState.inlineReviewIds.push(review.id);
+      }
+
+      await recordInlineBatchWithRetry(
+        context,
+        {
           githubId: review.id,
           meta: {
             batches: [
@@ -203,24 +253,10 @@ export async function publishFindingBatch(
               },
             ],
           },
-        });
-      } catch (error) {
-        throw new AppError({
-          code: "review.finding_batch_record_failed",
-          message: "Durable repeat-no-bugs review batch record failed after GitHub publish",
-          context: {
-            owner: context.ctx.owner,
-            repo: context.ctx.repo,
-            pr: context.ctx.prNumber,
-            reviewId: review.id,
-          },
-          cause: error,
-        });
-      }
+        },
+        "Durable repeat-no-bugs review batch record failed after GitHub publish",
+      );
 
-      if (!context.runState.inlineReviewIds.includes(review.id)) {
-        context.runState.inlineReviewIds.push(review.id);
-      }
       return {
         kind: "published",
         reviewId: review.id,
@@ -288,8 +324,19 @@ export async function publishFindingBatch(
     suppressed: targets.dropped.suppressedInlineCount,
     dropped,
   };
-  try {
-    await context.recordPublishStep("inline_review", {
+
+  // Latch in-memory before durable append so a same-run repair cannot repost.
+  for (const fingerprint of fingerprints) {
+    context.runState.postedFingerprints.add(fingerprint);
+  }
+  context.runState.postedInlineCount += result.postedPlacements.length;
+  if (!context.runState.inlineReviewIds.includes(result.review.id)) {
+    context.runState.inlineReviewIds.push(result.review.id);
+  }
+
+  await recordInlineBatchWithRetry(
+    context,
+    {
       githubId: result.review.id,
       meta: {
         batches: [
@@ -302,28 +349,9 @@ export async function publishFindingBatch(
           },
         ],
       },
-    });
-  } catch (error) {
-    throw new AppError({
-      code: "review.finding_batch_record_failed",
-      message: "Durable inline review batch record failed after GitHub publish",
-      context: {
-        owner: context.ctx.owner,
-        repo: context.ctx.repo,
-        pr: context.ctx.prNumber,
-        reviewId: result.review.id,
-      },
-      cause: error,
-    });
-  }
-
-  for (const fingerprint of fingerprints) {
-    context.runState.postedFingerprints.add(fingerprint);
-  }
-  context.runState.postedInlineCount += result.postedPlacements.length;
-  if (!context.runState.inlineReviewIds.includes(result.review.id)) {
-    context.runState.inlineReviewIds.push(result.review.id);
-  }
+    },
+    "Durable inline review batch record failed after GitHub publish",
+  );
 
   return {
     kind: "published",
