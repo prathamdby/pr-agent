@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { AppError } from "../src/errors/appError.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 
 const MAX_RESPONSE_BYTES = 64_000;
@@ -197,8 +198,17 @@ describe("buildContext7Tools — executors", () => {
         apiKey: "",
         maxResponseBytes: MAX_RESPONSE_BYTES,
       });
-      await expect(executors.getLibraryDocs({ libraryId: "/no/such/lib" })).rejects.toThrow(
-        /Context7 404.*Invalid library/,
+      await expect(executors.getLibraryDocs({ libraryId: "/no/such/lib" })).rejects.toSatisfy(
+        (error: unknown) => {
+          expect(error).toBeInstanceOf(AppError);
+          expect((error as AppError).code).toBe("context7.request_failed");
+          expect((error as AppError).message).toMatch(/Context7 404.*Invalid library/);
+          expect((error as AppError).context).toMatchObject({
+            status: 404,
+            statusText: "Not Found",
+          });
+          return true;
+        },
       );
     } finally {
       fetchSpy.mockRestore();

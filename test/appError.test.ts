@@ -51,18 +51,32 @@ describe("AppError", () => {
     expect(wrapped.cause).toBe(plain);
   });
 
+  it("toAppError keeps rawValue for non-Error primitives and objects", () => {
+    const fromNumber = toAppError(404, { code: "http.status" });
+    expect(fromNumber.message).toBe("404");
+    expect(fromNumber.context).toEqual({ rawValue: 404 });
+
+    const fromObject = toAppError(
+      { status: 404 },
+      { code: "http.status", context: { path: "/x" } },
+    );
+    expect(fromObject.message).toBe('{"status":404}');
+    expect(fromObject.context).toEqual({ path: "/x", rawValue: { status: 404 } });
+  });
+
   it("serializeAppError and errorLogFields expose log fields", () => {
+    const cause = new TypeError("git push rejected");
     const err = new AppError({
       code: "triage.stale_head",
       message: "head moved",
       context: { owner: "o", repo: "r" },
-      cause: new Error("git push rejected"),
+      cause,
     });
     expect(serializeAppError(err)).toEqual({
       errorCode: "triage.stale_head",
       errorMessage: "head moved",
       errorContext: { owner: "o", repo: "r" },
-      errorCause: { errorMessage: "git push rejected" },
+      errorCause: { errorMessage: "git push rejected", errorName: "TypeError" },
     });
     expect(errorLogFields(err).errorCode).toBe("triage.stale_head");
     expect(errorLogFields(new Error("plain"))).toEqual({});

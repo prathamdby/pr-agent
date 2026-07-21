@@ -65,7 +65,7 @@ export async function initCursorModelCapabilities(apiKey: string): Promise<void>
 export function getCursorCatalogItems(): readonly ModelListItem[] {
   if (!catalogItems) {
     throw new AppError({
-      code: "cursor.capabilities_not_initialized",
+      code: "cursor.catalog_items_not_initialized",
       message: "Cursor model capabilities are not initialized",
     });
   }
@@ -75,7 +75,7 @@ export function getCursorCatalogItems(): readonly ModelListItem[] {
 export function getCursorCatalogById(): ReadonlyMap<string, Model<typeof CURSOR_API>> {
   if (!catalogById) {
     throw new AppError({
-      code: "cursor.capabilities_not_initialized",
+      code: "cursor.catalog_by_id_not_initialized",
       message: "Cursor model capabilities are not initialized",
     });
   }
@@ -85,7 +85,7 @@ export function getCursorCatalogById(): ReadonlyMap<string, Model<typeof CURSOR_
 export function getFastParamModelIds(): ReadonlySet<string> {
   if (!fastParamModelIds) {
     throw new AppError({
-      code: "cursor.capabilities_not_initialized",
+      code: "cursor.fast_param_ids_not_initialized",
       message: "Cursor model capabilities are not initialized",
     });
   }

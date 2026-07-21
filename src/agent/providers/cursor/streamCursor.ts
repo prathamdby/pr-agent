@@ -73,7 +73,7 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
       const apiKey = options?.apiKey?.trim() || runContext.apiKey;
       if (!apiKey) {
         throw new AppError({
-          code: "cursor.api_key_required",
+          code: "cursor.runtime_api_key_required",
           message: "CURSOR_API_KEY is required for Cursor provider runs",
         });
       }

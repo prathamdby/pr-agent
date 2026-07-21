@@ -29,6 +29,7 @@ vi.mock("@octokit/rest", () => ({
   },
 }));
 
+import { AppError } from "../src/errors/appError.js";
 import {
   clearAppBotIdentityCacheForTest,
   getAppBotIdentity,
@@ -96,5 +97,15 @@ describe("app bot identity cache", () => {
     });
     expect(authFn).toHaveBeenCalledTimes(2);
     expect(getAuthenticated).toHaveBeenCalledTimes(2);
+  });
+
+  it("throws github.missing_app_slug when /app response has no slug", async () => {
+    getAuthenticated.mockResolvedValueOnce({ data: {} });
+
+    await expect(getAppBotIdentity(cfg)).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("github.missing_app_slug");
+      return true;
+    });
   });
 });

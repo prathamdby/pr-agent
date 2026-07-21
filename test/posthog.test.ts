@@ -75,8 +75,16 @@ describe("posthog client", () => {
   });
 
   it("throws from getPostHog when initPostHog was not called", async () => {
+    const { AppError } = await import("../src/errors/appError.js");
     const { getPostHog } = await import("../src/posthog.js");
-    expect(() => getPostHog()).toThrow(/not initialized/);
+    try {
+      getPostHog();
+      expect.fail("expected throw");
+    } catch (e) {
+      expect(e).toBeInstanceOf(AppError);
+      expect((e as InstanceType<typeof AppError>).code).toBe("posthog.not_initialized");
+      expect((e as Error).message).toMatch(/not initialized/);
+    }
   });
 
   it("initNoOpPostHog installs an empty-token client for tests", async () => {

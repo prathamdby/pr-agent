@@ -76,7 +76,7 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     const apiKey = cfg.cursorApiKey?.trim();
     if (!apiKey) {
       throw new AppError({
-        code: "cursor.api_key_required",
+        code: "cursor.boot_api_key_required",
         message: "CURSOR_API_KEY is required for Cursor provider runs",
       });
     }
