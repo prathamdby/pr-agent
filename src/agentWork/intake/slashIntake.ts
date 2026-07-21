@@ -1,5 +1,6 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
+import { AppError } from "../../errors/appError.js";
 import {
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
@@ -241,7 +242,11 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   if (!insert.created) {
     const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
     if (!winner) {
-      throw new Error(`slash triage uniqueness conflict without winner for ${resourceKey}`);
+      throw new AppError({
+        code: "agent_work.slash_triage_conflict_no_winner",
+        message: `slash triage uniqueness conflict without winner for ${resourceKey}`,
+        context: { resourceKey },
+      });
     }
     await rejectActiveTriage(winner);
     return;

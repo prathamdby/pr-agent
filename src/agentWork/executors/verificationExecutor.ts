@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { AppError } from "../../errors/appError.js";
 import { logInfo } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
@@ -165,14 +166,20 @@ export async function executeVerificationJob(
             pushedCommits,
           });
           if (!runResult.submitted || !runResult.payload) {
-            throw new Error("Verification run ended without submitVerification");
+            throw new AppError({
+              code: "verification.missing_submit",
+              message: "Verification run ended without submitVerification",
+            });
           }
           return { runResult, policyResult };
         },
       );
 
       if (!result.runResult.payload) {
-        throw new Error("Verification run ended without submitVerification");
+        throw new AppError({
+          code: "verification.missing_submit",
+          message: "Verification run ended without submitVerification",
+        });
       }
 
       const publish = await publishVerification({

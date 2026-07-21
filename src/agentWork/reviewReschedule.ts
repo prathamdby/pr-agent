@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { inTransaction, pgBossDb } from "../db/postgres.js";
+import { AppError } from "../errors/appError.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
@@ -159,7 +160,11 @@ export async function createSlashReviewRescheduleWorkItem(
     if ((updateResult.rowCount ?? 0) === 0) {
       const refreshed = await getWorkItem(pool, item.id);
       if (refreshed?.type !== "review" || !refreshed.payload.staleHeadReplacementWorkItemId) {
-        throw new Error(`Failed to persist stale-head replacement marker for work item ${item.id}`);
+        throw new AppError({
+          code: "agent_work.stale_head_marker_persist_failed",
+          message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
+          context: { workItemId: item.id },
+        });
       }
       replacementWorkItemId = refreshed.payload.staleHeadReplacementWorkItemId;
     } else {

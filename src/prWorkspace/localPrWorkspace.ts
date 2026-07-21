@@ -24,6 +24,7 @@ import {
   LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
 } from "../settings/index.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
+import { AppError } from "../errors/appError.js";
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
@@ -98,21 +99,41 @@ export type PrepareLocalPrWorkspaceParams = {
 };
 
 function assertSha(value: string, field: string): void {
-  if (!/^[0-9a-f]{40}$/i.test(value)) throw new Error(`${field} must be a 40-character SHA`);
+  if (!/^[0-9a-f]{40}$/i.test(value)) {
+    throw new AppError({
+      code: "pr_workspace.invalid_sha",
+      message: `${field} must be a 40-character SHA`,
+      context: { field },
+    });
+  }
 }
 
 function assertRepoPart(value: string, field: string): void {
-  if (!/^[A-Za-z0-9_.-]+$/.test(value)) throw new Error(`${field} is not git-safe`);
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
+    throw new AppError({
+      code: "pr_workspace.unsafe_repo_part",
+      message: `${field} is not git-safe`,
+      context: { field },
+    });
+  }
 }
 
 export function assertWorkspacePath(root: string, requestedPath: string): string {
   const normalized = requestedPath.replace(/\\/g, "/");
   if (normalized.startsWith("/") || normalized.split("/").includes("..")) {
-    throw new Error(`Path traversal attempt detected: ${requestedPath}`);
+    throw new AppError({
+      code: "pr_workspace.path_traversal",
+      message: `Path traversal attempt detected: ${requestedPath}`,
+      context: { path: requestedPath },
+    });
   }
   const resolved = resolve(root, normalized);
   if (!resolved.startsWith(root + sep) && resolved !== root) {
-    throw new Error(`Path traversal attempt detected: ${requestedPath}`);
+    throw new AppError({
+      code: "pr_workspace.path_traversal",
+      message: `Path traversal attempt detected: ${requestedPath}`,
+      context: { path: requestedPath },
+    });
   }
   return resolved;
 }
@@ -314,7 +335,11 @@ async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
   const fs = await statfs(dir);
   const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
   if (freeBytes < BigInt(minBytes)) {
-    throw new Error("Insufficient free space for local PR workspace");
+    throw new AppError({
+      code: "pr_workspace.insufficient_free_space",
+      message: "Insufficient free space for local PR workspace",
+      context: { minBytes },
+    });
   }
 }
 
@@ -341,9 +366,11 @@ async function enforceMaxFetchBytes(
   const { stdout: countObjectsOut } = await git(["count-objects", "-v"], timeoutMs);
   const objectStoreBytes = gitObjectStoreBytes(countObjectsOut);
   if (objectStoreBytes > maxFetchBytes) {
-    throw new Error(
-      `PR fetch object store (${objectStoreBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${maxFetchBytes})`,
-    );
+    throw new AppError({
+      code: "pr_workspace.fetch_too_large",
+      message: `PR fetch object store (${objectStoreBytes} bytes) exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${maxFetchBytes})`,
+      context: { objectStoreBytes, maxFetchBytes },
+    });
   }
 }
 
@@ -560,9 +587,11 @@ export async function prepareLocalPrWorkspace(
     );
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
-      throw new Error(
-        `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
-      );
+      throw new AppError({
+        code: "pr_workspace.head_sha_mismatch",
+        message: `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
+        context: { fetchedHead: fetchedHead.trim(), headSha },
+      });
     }
 
     await credentials.cleanup();

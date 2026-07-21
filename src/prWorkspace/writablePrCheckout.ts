@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 import { promisify } from "node:util";
 import type { BotIdentity } from "../github/appAuth.js";
+import { AppError } from "../errors/appError.js";
 import {
   SENSITIVE_PATH_PATTERNS,
   TRIAGE_COMMIT_MAX_FILES,
@@ -41,9 +42,9 @@ export type WritablePrCheckout = {
   }[];
 };
 
-export class StaleHeadPushError extends Error {
+export class StaleHeadPushError extends AppError {
   constructor(message = "Pull request head moved before triage push") {
-    super(message);
+    super({ code: "triage.stale_head_push", message });
     this.name = "StaleHeadPushError";
   }
 }
@@ -59,11 +60,23 @@ type WritablePrCheckoutParams = {
 };
 
 function assertSha(value: string, field: string): void {
-  if (!/^[0-9a-f]{40}$/i.test(value)) throw new Error(`${field} must be a 40-character SHA`);
+  if (!/^[0-9a-f]{40}$/i.test(value)) {
+    throw new AppError({
+      code: "pr_workspace.invalid_sha",
+      message: `${field} must be a 40-character SHA`,
+      context: { field },
+    });
+  }
 }
 
 function assertRepoPart(value: string, field: string): void {
-  if (!/^[A-Za-z0-9_.-]+$/.test(value)) throw new Error(`${field} is not git-safe`);
+  if (!/^[A-Za-z0-9_.-]+$/.test(value)) {
+    throw new AppError({
+      code: "pr_workspace.unsafe_repo_part",
+      message: `${field} is not git-safe`,
+      context: { field },
+    });
+  }
 }
 
 function assertHeadRef(value: string): void {
@@ -79,7 +92,11 @@ function assertHeadRef(value: string): void {
     value.endsWith(".") ||
     value.split("/").some((part) => part.length === 0 || part.endsWith(".lock"))
   ) {
-    throw new Error("headRef is not git-safe");
+    throw new AppError({
+      code: "pr_workspace.unsafe_head_ref",
+      message: "headRef is not git-safe",
+      context: { headRef: value },
+    });
   }
 }
 
@@ -89,22 +106,49 @@ function isSensitivePath(path: string): boolean {
 
 function validateSubject(subject: string): void {
   if (subject.length > TRIAGE_COMMIT_SUBJECT_MAX_CHARS) {
-    throw new Error(`Commit subject exceeds ${TRIAGE_COMMIT_SUBJECT_MAX_CHARS} characters`);
+    throw new AppError({
+      code: "pr_workspace.commit_subject_too_long",
+      message: `Commit subject exceeds ${TRIAGE_COMMIT_SUBJECT_MAX_CHARS} characters`,
+      context: { maxChars: TRIAGE_COMMIT_SUBJECT_MAX_CHARS },
+    });
   }
-  if (subject.endsWith(".")) throw new Error("Commit subject must not end with a period");
+  if (subject.endsWith(".")) {
+    throw new AppError({
+      code: "pr_workspace.commit_subject_trailing_period",
+      message: "Commit subject must not end with a period",
+    });
+  }
   const types = TRIAGE_COMMIT_TYPES.join("|");
   const match = new RegExp(`^(${types}): ([^A-Z].*)$`).exec(subject);
-  if (!match) throw new Error("Commit subject does not match the triage commit contract");
+  if (!match) {
+    throw new AppError({
+      code: "pr_workspace.commit_subject_invalid",
+      message: "Commit subject does not match the triage commit contract",
+    });
+  }
 }
 
 function validateBody(body: readonly string[] | undefined): string | undefined {
   if (!body || body.length === 0) return undefined;
   for (const line of body) {
-    if (!line.startsWith("- ")) throw new Error("Commit body lines must start with '- '");
-    if (line.endsWith(".")) throw new Error("Commit body bullets must not end with a period");
+    if (!line.startsWith("- ")) {
+      throw new AppError({
+        code: "pr_workspace.commit_body_invalid_prefix",
+        message: "Commit body lines must start with '- '",
+      });
+    }
+    if (line.endsWith(".")) {
+      throw new AppError({
+        code: "pr_workspace.commit_body_trailing_period",
+        message: "Commit body bullets must not end with a period",
+      });
+    }
     const firstWord = line.slice(2).trim().split(/\s+/, 1)[0] ?? "";
     if (!/^[A-Z]/.test(firstWord)) {
-      throw new Error("Commit body bullet first word must be capitalized");
+      throw new AppError({
+        code: "pr_workspace.commit_body_capitalization",
+        message: "Commit body bullet first word must be capitalized",
+      });
     }
   }
   return body.join("\n");
@@ -120,16 +164,35 @@ export function buildCommitCommandArgs(args: CommitArgs): readonly string[] {
 
 function validateFiles(root: string, files: readonly string[]): readonly string[] {
   const normalized = [...new Set(files.map((file) => file.replace(/\\/g, "/")))];
-  if (normalized.length === 0) throw new Error("commitFix requires at least one file");
+  if (normalized.length === 0) {
+    throw new AppError({
+      code: "pr_workspace.commit_fix_no_files",
+      message: "commitFix requires at least one file",
+    });
+  }
   if (normalized.length > TRIAGE_COMMIT_MAX_FILES) {
-    throw new Error(`commitFix accepts at most ${TRIAGE_COMMIT_MAX_FILES} files`);
+    throw new AppError({
+      code: "pr_workspace.commit_fix_too_many_files",
+      message: `commitFix accepts at most ${TRIAGE_COMMIT_MAX_FILES} files`,
+      context: { maxFiles: TRIAGE_COMMIT_MAX_FILES },
+    });
   }
   for (const file of normalized) {
     const resolved = assertWorkspacePath(root, file);
     if (!resolved.startsWith(root + sep) && resolved !== root) {
-      throw new Error(`Path traversal attempt detected: ${file}`);
+      throw new AppError({
+        code: "pr_workspace.path_traversal",
+        message: `Path traversal attempt detected: ${file}`,
+        context: { path: file },
+      });
     }
-    if (isSensitivePath(file)) throw new Error(`commitFix blocked sensitive path "${file}"`);
+    if (isSensitivePath(file)) {
+      throw new AppError({
+        code: "pr_workspace.sensitive_path",
+        message: `commitFix blocked sensitive path "${file}"`,
+        context: { path: file },
+      });
+    }
   }
   return normalized;
 }
@@ -144,8 +207,13 @@ function changedLineCount(diff: string): number {
 async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
   const fs = await statfs(dir);
   const freeBytes = BigInt(fs.bavail) * BigInt(fs.bsize);
-  if (freeBytes < BigInt(minBytes))
-    throw new Error("Insufficient free space for writable checkout");
+  if (freeBytes < BigInt(minBytes)) {
+    throw new AppError({
+      code: "pr_workspace.insufficient_free_space",
+      message: "Insufficient free space for writable checkout",
+      context: { minBytes },
+    });
+  }
 }
 
 function gitObjectStoreBytes(countObjectsOutput: string): number {
@@ -231,16 +299,20 @@ export async function withWritablePrCheckout<T>(
       LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
     );
     if (gitObjectStoreBytes(objectStats) > LOCAL_WORKSPACE_MAX_FETCH_BYTES) {
-      throw new Error(
-        `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${LOCAL_WORKSPACE_MAX_FETCH_BYTES})`,
-      );
+      throw new AppError({
+        code: "pr_workspace.fetch_too_large",
+        message: `PR fetch object store exceeds LOCAL_WORKSPACE_MAX_FETCH_BYTES (${LOCAL_WORKSPACE_MAX_FETCH_BYTES})`,
+        context: { maxFetchBytes: LOCAL_WORKSPACE_MAX_FETCH_BYTES },
+      });
     }
     await git(["checkout", "-f", "FETCH_HEAD"], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const { stdout: fetchedHead } = await git(["rev-parse", "HEAD"]);
     if (fetchedHead.trim().toLowerCase() !== headSha.toLowerCase()) {
-      throw new Error(
-        `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
-      );
+      throw new AppError({
+        code: "pr_workspace.head_sha_mismatch",
+        message: `Fetched PR head ${fetchedHead.trim()} does not match expected headSha ${headSha}`,
+        context: { fetchedHead: fetchedHead.trim(), headSha },
+      });
     }
     await git(["config", "user.name", botIdentity.login], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await git(
@@ -266,7 +338,10 @@ export async function withWritablePrCheckout<T>(
         );
         if (changedLineCount(diff) > TRIAGE_MAX_COMMIT_DIFF_LINES) {
           await git(["reset"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
-          throw new Error("commitFix rejected: staged diff is not minimal");
+          throw new AppError({
+            code: "pr_workspace.commit_diff_not_minimal",
+            message: "commitFix rejected: staged diff is not minimal",
+          });
         }
         await git(commitArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         const { stdout: sha } = await git(["rev-parse", "HEAD"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);

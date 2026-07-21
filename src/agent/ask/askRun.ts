@@ -1,4 +1,5 @@
 import { logInfo } from "../../evlog.js";
+import { AppError } from "../../errors/appError.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
@@ -40,10 +41,16 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   }
 
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
-    throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+    throw new AppError({
+      code: "ask.invalid_token_expires_at",
+      message: "tokenExpiresAtTs must be a finite timestamp in milliseconds",
+    });
   }
   if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
-    throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
+    throw new AppError({
+      code: "ask.invalid_token_ttl",
+      message: "tokenTtlMs must be a positive finite duration in milliseconds",
+    });
   }
 
   const { refreshableGh, primePathGate } = buildAskRunSetup(params);

@@ -1,4 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import { AppError } from "../../errors/appError.js";
 import { isInstallationTokenNearExpiry } from "../../github/installationTokenExpiry.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
 
@@ -27,7 +28,10 @@ export function createRefreshableToolExecutors(params: {
   githubToolNames?: ReadonlySet<string>;
 }): RefreshableToolExecutors {
   if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
-    throw new Error("tokenTtlMs must be a positive finite duration in milliseconds");
+    throw new AppError({
+      code: "provider.invalid_token_ttl",
+      message: "tokenTtlMs must be a positive finite duration in milliseconds",
+    });
   }
   let activeToken = params.initialToken;
   let activeExpiresAtTs = params.tokenExpiresAtTs;

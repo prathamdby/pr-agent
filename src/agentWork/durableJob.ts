@@ -2,6 +2,7 @@ import type { JobWithMetadata } from "pg-boss";
 import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
+import { AppError, errorLogFields } from "../errors/appError.js";
 import { getPostHog } from "../posthog.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import {
@@ -199,9 +200,11 @@ async function finishRescheduledParentWorkItem(
       });
       return;
     }
-    throw new Error(
-      `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
-    );
+    throw new AppError({
+      code: "agent_work.rescheduled_parent_complete_failed",
+      message: `Failed to complete rescheduled parent work item ${itemId}; retry will reuse idempotent enqueue`,
+      context: { workItemId: itemId },
+    });
   }
   if (await shouldSkipWork(pool, refreshed ?? { id: itemId })) {
     await markWorkCancelled(pool, itemId);
@@ -474,6 +477,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       pgBossRetryCount: spec.job.retryCount,
       pgBossRetryLimit: spec.job.retryLimit,
       dbAttemptCount: item.attemptCount,
+      ...errorLogFields(error),
     });
     getPostHog().capture({
       distinctId: `installation:${item.installationId}`,

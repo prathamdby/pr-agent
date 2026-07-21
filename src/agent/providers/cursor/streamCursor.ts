@@ -6,6 +6,7 @@ import {
   type StreamFunction,
 } from "@earendil-works/pi-ai";
 import { Agent, CursorAgentError } from "@cursor/sdk";
+import { AppError } from "../../../errors/appError.js";
 import { approximateCursorUsage, buildCursorSendText } from "./promptBuilder.js";
 import { createMcpBridge } from "./mcpBridge.js";
 import { detachCursorRunContext, getCursorRunContext } from "./runContext.js";
@@ -63,12 +64,18 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
       stream.push({ type: "start", partial });
 
       if (!runContext) {
-        throw new Error("Cursor run context missing; attach executors before calling complete()");
+        throw new AppError({
+          code: "cursor.run_context_missing",
+          message: "Cursor run context missing; attach executors before calling complete()",
+        });
       }
 
       const apiKey = options?.apiKey?.trim() || runContext.apiKey;
       if (!apiKey) {
-        throw new Error("CURSOR_API_KEY is required for Cursor provider runs");
+        throw new AppError({
+          code: "cursor.api_key_required",
+          message: "CURSOR_API_KEY is required for Cursor provider runs",
+        });
       }
 
       const bridge =

@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.js";
@@ -203,7 +204,11 @@ export async function claimQueuedWorkItem<T extends WorkType>(
   try {
     const item = mapWorkItem(row);
     if (!isWorkItemType(item, type)) {
-      throw new Error(`claimed work item ${id} returned type ${item.type}, expected ${type}`);
+      throw new AppError({
+        code: "agent_work.type_mismatch",
+        message: `claimed work item ${id} returned type ${item.type}, expected ${type}`,
+        context: { workItemId: id, actualType: item.type, expectedType: type },
+      });
     }
     return item;
   } catch (error) {

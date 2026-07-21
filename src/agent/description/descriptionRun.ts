@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
+import { AppError } from "../../errors/appError.js";
 import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import {
   runStructuredAgentLoop,
@@ -54,7 +55,10 @@ export async function runFullPrDescription(params: {
   }>;
 }): Promise<DescriptionRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
-    throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+    throw new AppError({
+      code: "description.invalid_token_expires_at",
+      message: "tokenExpiresAtTs must be a finite timestamp in milliseconds",
+    });
   }
 
   const { cfg, owner, repo, prNumber } = params;

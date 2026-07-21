@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit, type BotIdentity } from "../../github/appAuth.js";
 import {
@@ -193,7 +194,10 @@ function checkoutFromStoredPush(
     headRef,
     baseSha: headSha,
     commit: async () => {
-      throw new Error("Stored triage push cannot create new commits");
+      throw new AppError({
+        code: "triage.invalid_stored_push",
+        message: "Stored triage push cannot create new commits",
+      });
     },
     push: async () => undefined,
     listCommittedShas: () => detail.commits.map((commit) => commit.sha),

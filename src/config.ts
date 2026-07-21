@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { AppError } from "./errors/appError.js";
 import {
   COMMAND_FEATURE_MODES,
   DEFAULT_FEATURE_ASK,
@@ -59,7 +60,13 @@ import {
 
 function requireEnv(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`Missing required environment variable: ${name}`);
+  if (!v) {
+    throw new AppError({
+      code: "config.missing_env",
+      message: `Missing required environment variable: ${name}`,
+      context: { name },
+    });
+  }
   return v;
 }
 
@@ -70,7 +77,11 @@ function optionalEnv(name: string, defaultValue: string): string {
 function readPositiveNumber(name: string, defaultValue: number): number {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isFinite(value) || value < 1) {
-    throw new Error(`${name} must be a positive number`);
+    throw new AppError({
+      code: "config.invalid_number",
+      message: `${name} must be a positive number`,
+      context: { name },
+    });
   }
   return value;
 }
@@ -78,7 +89,11 @@ function readPositiveNumber(name: string, defaultValue: number): number {
 function readNonNegativeNumber(name: string, defaultValue: number): number {
   const value = Number(optionalEnv(name, String(defaultValue)));
   if (!Number.isFinite(value) || value < 0) {
-    throw new Error(`${name} must be zero or a positive number`);
+    throw new AppError({
+      code: "config.invalid_number",
+      message: `${name} must be zero or a positive number`,
+      context: { name },
+    });
   }
   return value;
 }
@@ -90,7 +105,11 @@ function readBooleanEnv(name: string, defaultValue: boolean): boolean {
 function readEnum<T extends string>(name: string, allowed: readonly T[], defaultValue: T): T {
   const value = optionalEnv(name, defaultValue);
   if (!allowed.includes(value as T)) {
-    throw new Error(`${name} must be one of ${allowed.join(", ")}`);
+    throw new AppError({
+      code: "config.invalid_enum",
+      message: `${name} must be one of ${allowed.join(", ")}`,
+      context: { name, allowed },
+    });
   }
   return value as T;
 }
@@ -122,9 +141,11 @@ function readSlashAllowedAssociations(name: string, defaultValue: string): Reado
 
   for (const value of values) {
     if (!allowedGithubAuthorAssociations.has(value)) {
-      throw new Error(
-        `${name} must be "*" or one or more of ${GITHUB_AUTHOR_ASSOCIATIONS.join(", ")}`,
-      );
+      throw new AppError({
+        code: "config.invalid_enum",
+        message: `${name} must be "*" or one or more of ${GITHUB_AUTHOR_ASSOCIATIONS.join(", ")}`,
+        context: { name, allowed: GITHUB_AUTHOR_ASSOCIATIONS },
+      });
     }
   }
 
@@ -166,9 +187,11 @@ export function normalizeGithubAppPrivateKey(raw: string): string {
   try {
     crypto.createPrivateKey(key);
   } catch {
-    throw new Error(
-      "GITHUB_APP_PRIVATE_KEY must be a valid unencrypted PEM private key. Use the GitHub App private key content with real newlines, escaped \\n newlines, or base64-encoded PEM.",
-    );
+    throw new AppError({
+      code: "config.invalid_github_app_private_key",
+      message:
+        "GITHUB_APP_PRIVATE_KEY must be a valid unencrypted PEM private key. Use the GitHub App private key content with real newlines, escaped \\n newlines, or base64-encoded PEM.",
+    });
   }
 
   return key;
@@ -213,7 +236,11 @@ export async function loadConfig() {
 
   const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
   if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
-    throw new Error(`Missing required environment variable: ${ENV.CURSOR_API_KEY}`);
+    throw new AppError({
+      code: "config.missing_env",
+      message: `Missing required environment variable: ${ENV.CURSOR_API_KEY}`,
+      context: { name: ENV.CURSOR_API_KEY },
+    });
   }
   const cursorApiKey = agentProvider === "cursor" ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
   const cursorRipgrepPath = optionalEnv(
@@ -267,14 +294,22 @@ export async function loadConfig() {
     optionalEnv(ENV.QUEUE_HEARTBEAT_SECONDS, String(DEFAULT_QUEUE_HEARTBEAT_SECONDS)),
   );
   if (!Number.isFinite(queueHeartbeatSeconds) || queueHeartbeatSeconds < 10) {
-    throw new Error("QUEUE_HEARTBEAT_SECONDS must be at least 10");
+    throw new AppError({
+      code: "config.invalid_number",
+      message: "QUEUE_HEARTBEAT_SECONDS must be at least 10",
+      context: { name: ENV.QUEUE_HEARTBEAT_SECONDS },
+    });
   }
 
   const queuePollingIntervalSeconds = Number(
     optionalEnv(ENV.QUEUE_POLLING_INTERVAL_SECONDS, String(DEFAULT_QUEUE_POLLING_INTERVAL_SECONDS)),
   );
   if (!Number.isFinite(queuePollingIntervalSeconds) || queuePollingIntervalSeconds < 0.5) {
-    throw new Error("QUEUE_POLLING_INTERVAL_SECONDS must be at least 0.5");
+    throw new AppError({
+      code: "config.invalid_number",
+      message: "QUEUE_POLLING_INTERVAL_SECONDS must be at least 0.5",
+      context: { name: ENV.QUEUE_POLLING_INTERVAL_SECONDS },
+    });
   }
 
   const queueRetentionSeconds = readPositiveNumber(

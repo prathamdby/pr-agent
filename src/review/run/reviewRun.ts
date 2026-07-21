@@ -1,3 +1,4 @@
+import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import {
@@ -52,7 +53,10 @@ function tokenTtlMsOrDefault(value: number | undefined, mode: ReviewMode): numbe
 
 export async function runFullPrReview(params: ReviewRunParams): Promise<ReviewRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
-    throw new Error("tokenExpiresAtTs must be a finite timestamp in milliseconds");
+    throw new AppError({
+      code: "review.invalid_token_expiry_ts",
+      message: "tokenExpiresAtTs must be a finite timestamp in milliseconds",
+    });
   }
 
   const { cfg, owner, repo, prNumber } = params;

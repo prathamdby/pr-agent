@@ -1,4 +1,5 @@
 import type { Config } from "../../config.js";
+import { AppError } from "../../errors/appError.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
@@ -24,7 +25,10 @@ function extractJsonObject(text: string): unknown {
   const start = candidate.indexOf("{");
   const end = candidate.lastIndexOf("}");
   if (start < 0 || end <= start) {
-    throw new Error("CI summary LLM response contained no JSON object");
+    throw new AppError({
+      code: "ci.summary_no_json",
+      message: "CI summary LLM response contained no JSON object",
+    });
   }
   return JSON.parse(candidate.slice(start, end + 1)) as unknown;
 }

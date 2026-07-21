@@ -7,6 +7,7 @@ import type {
   AgentRunnerToolExecutor,
 } from "../interface.js";
 import { estimatedUsageFromTokenCounts } from "../usageMetadata.js";
+import { AppError } from "../../../errors/appError.js";
 import { attachCursorRunContext } from "./runContext.js";
 import { getCursorModel, toCursorSdkModelSelection } from "./models.js";
 import { buildCursorSendText } from "./promptBuilder.js";
@@ -20,7 +21,10 @@ function isStringArray(value: unknown): value is readonly string[] {
 
 function assertCursorWorkerBootInfo(value: unknown): CursorWorkerBootInfo {
   if (value == null || typeof value !== "object") {
-    throw new Error("Cursor worker boot returned an invalid result");
+    throw new AppError({
+      code: "cursor.worker_boot_invalid",
+      message: "Cursor worker boot returned an invalid result",
+    });
   }
   const result = value as Record<string, unknown>;
   const { modelCount, topModels, fastModels, ripgrepPath } = result;
@@ -30,7 +34,10 @@ function assertCursorWorkerBootInfo(value: unknown): CursorWorkerBootInfo {
     !isStringArray(fastModels) ||
     (ripgrepPath !== undefined && typeof ripgrepPath !== "string")
   ) {
-    throw new Error("Cursor worker boot returned an invalid result");
+    throw new AppError({
+      code: "cursor.worker_boot_invalid",
+      message: "Cursor worker boot returned an invalid result",
+    });
   }
   return {
     modelCount,
@@ -68,7 +75,10 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
     const toolRoundCounter = { count: 0 };
     const apiKey = cfg.cursorApiKey?.trim();
     if (!apiKey) {
-      throw new Error("CURSOR_API_KEY is required for Cursor provider runs");
+      throw new AppError({
+        code: "cursor.api_key_required",
+        message: "CURSOR_API_KEY is required for Cursor provider runs",
+      });
     }
     assertCursorRipgrepConfigured();
     const bridge = await createMcpBridge({

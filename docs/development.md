@@ -16,6 +16,27 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 
 Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `src/review/placement/reviewDiffPlacement.ts`.
 
+## Internal errors (`AppError`)
+
+Production failures use `AppError` from `src/errors/appError.ts`. Do not throw bare
+`Error` from `src/`.
+
+| Field     | Rule                                                                    |
+| --------- | ----------------------------------------------------------------------- |
+| `code`    | Stable `<domain>.<reason_snake>` (e.g. `review.publish_exhausted`)      |
+| `message` | Technical why/what/how for logs. Preserve exact strings when migrating. |
+| `context` | JSON-safe bag of identifying fields (ids, paths, env names)             |
+| `cause`   | Optional underlying error                                               |
+
+Helpers: `isAppError`, `toAppError`, `serializeAppError`, `errorLogFields`.
+
+**PR-facing copy** stays in separate constants / mappers (plain English). Never post
+`AppError.message` on a pull request. Domain subclasses (`WebhookParseError`,
+`StaleHeadPushError`, `WorkItemPayloadValidationError`) extend `AppError` and keep
+their class names for `instanceof` checks.
+
+Design: [docs/superpowers/specs/2026-07-21-structured-apperror-design.md](superpowers/specs/2026-07-21-structured-apperror-design.md).
+
 ## Prompt prose
 
 Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`. Only numeric limits and shared user-visible strings belong in `src/settings/constants.ts`.

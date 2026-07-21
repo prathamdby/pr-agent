@@ -4,6 +4,7 @@ import {
   CURSOR_DEFAULT_CONTEXT_WINDOW,
   CURSOR_DEFAULT_MAX_TOKENS,
 } from "../../../settings/constants.js";
+import { AppError } from "../../../errors/appError.js";
 import { CURSOR_API, CURSOR_PROVIDER } from "./constants.js";
 
 const FAST_PARAM_ID = "fast";
@@ -63,21 +64,30 @@ export async function initCursorModelCapabilities(apiKey: string): Promise<void>
 
 export function getCursorCatalogItems(): readonly ModelListItem[] {
   if (!catalogItems) {
-    throw new Error("Cursor model capabilities are not initialized");
+    throw new AppError({
+      code: "cursor.capabilities_not_initialized",
+      message: "Cursor model capabilities are not initialized",
+    });
   }
   return catalogItems;
 }
 
 export function getCursorCatalogById(): ReadonlyMap<string, Model<typeof CURSOR_API>> {
   if (!catalogById) {
-    throw new Error("Cursor model capabilities are not initialized");
+    throw new AppError({
+      code: "cursor.capabilities_not_initialized",
+      message: "Cursor model capabilities are not initialized",
+    });
   }
   return catalogById;
 }
 
 export function getFastParamModelIds(): ReadonlySet<string> {
   if (!fastParamModelIds) {
-    throw new Error("Cursor model capabilities are not initialized");
+    throw new AppError({
+      code: "cursor.capabilities_not_initialized",
+      message: "Cursor model capabilities are not initialized",
+    });
   }
   return fastParamModelIds;
 }
