@@ -33,9 +33,6 @@ import {
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
   REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK,
   REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
 } from "../../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
@@ -62,9 +59,6 @@ export {
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
 } from "../../settings/index.js";
 
 export type RenderContext = ReviewPublishContext;
@@ -88,44 +82,14 @@ function formatEffortLabelHtml(effort: number): string {
   return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
 }
 
-type ReviewModeRenderStrategy = {
-  readonly pointerBody: string;
-  readonly updatedNoun: string;
-};
-
-const REVIEW_MODE_RENDER: Record<ReviewMode, ReviewModeRenderStrategy> = {
-  "review-security": {
-    pointerBody: SECURITY_REVIEW_POINTER_BODY,
-    updatedNoun: "security review",
-  },
-  "review-quality": {
-    pointerBody: QUALITY_REVIEW_POINTER_BODY,
-    updatedNoun: "code-quality review",
-  },
-  "review-tests": {
-    pointerBody: TESTS_REVIEW_POINTER_BODY,
-    updatedNoun: "test-case proposals",
-  },
-  review: {
-    pointerBody: REVIEW_POINTER_BODY,
-    updatedNoun: "review",
-  },
-};
-
-function reviewPointerBodyForMode(mode: ReviewMode): string {
-  return REVIEW_MODE_RENDER[mode].pointerBody;
-}
-
-function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
-  if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
-  return `[View the updated ${REVIEW_MODE_RENDER[mode].updatedNoun}.](${summaryCommentUrl})`;
-}
-
-export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
+export function renderRepeatNoBugsReviewBody(
+  _mode: ReviewMode,
+  summaryCommentUrl?: string,
+): string {
   if (summaryCommentUrl) {
-    return `${REPEAT_NO_BUGS_PREFIX}, [see the updated ${REVIEW_MODE_RENDER[mode].updatedNoun}](${summaryCommentUrl}).`;
+    return `${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${summaryCommentUrl}).`;
   }
-  return `${REPEAT_NO_BUGS_PREFIX}. ${reviewPointerBodyForMode(mode)}`;
+  return `${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`;
 }
 
 export function renderLightweightReviewCompletion(
@@ -365,9 +329,9 @@ export function renderAgentFixPrompt(
   ].join("\n");
 }
 
-function renderPointerLead(mode: ReviewMode, summaryCommentUrl?: string): string {
+function renderPointerLead(summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
-    return renderReviewPointerLine(mode, summaryCommentUrl);
+    return `[View the updated review.](${summaryCommentUrl})`;
   }
   return renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_POINTER_NOTE_LEAD);
 }
@@ -432,7 +396,7 @@ export function renderReviewPointerBody(
     droppedInlinePlacements?: readonly InlinePlacement[];
   },
 ): { body: string; truncated: boolean } {
-  const pointerLine = renderPointerLead(ctx.mode, ctx.summaryCommentUrl);
+  const pointerLine = renderPointerLead(ctx.summaryCommentUrl);
   const droppedNote = renderDroppedInlineAnchorNote(ctx.droppedInlinePlacements ?? []);
   let agentFixPrompt = renderAgentFixPrompt(payload, ctx, ctx.placements);
   let truncated = false;

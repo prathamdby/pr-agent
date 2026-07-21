@@ -108,6 +108,21 @@ describe("parseWorkItemPayload", () => {
     });
   });
 
+  it.each(["review-security", "review-quality", "review-tests"] as const)(
+    "normalizes stored legacy mode %s to review",
+    (mode) => {
+      expect(
+        parseWorkItemPayload("review", {
+          mode,
+          source: "auto",
+        }),
+      ).toEqual({
+        mode: "review",
+        source: "auto",
+      });
+    },
+  );
+
   it.each([
     { type: "review" as const, missing: "mode", payload: { source: "auto" } },
     { type: "review" as const, missing: "source", payload: { mode: "review" } },

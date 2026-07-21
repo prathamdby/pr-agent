@@ -5,7 +5,6 @@ import {
   reviewEventForFindings,
   reviewPayloadSchema,
   reviewSummarySentinelForMode,
-  reviewRetrySlashCommandForMode,
   selectInlineFindings,
 } from "../src/review/reviewSchema.js";
 import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings/index.js";
@@ -388,21 +387,7 @@ describe("formatReviewValidationError", () => {
 });
 
 describe("reviewSummarySentinelForMode", () => {
-  it("returns the quality sentinel for review-quality", () => {
-    expect(reviewSummarySentinelForMode("review-quality")).toBe("## PR Agent Quality Review");
-  });
-
-  it("returns the tests sentinel for review-tests", () => {
-    expect(reviewSummarySentinelForMode("review-tests")).toBe("## PR Agent Tests Review");
-  });
-});
-
-describe("reviewRetrySlashCommandForMode", () => {
-  it("returns /review-quality for review-quality mode", () => {
-    expect(reviewRetrySlashCommandForMode("review-quality")).toBe("/review-quality");
-  });
-
-  it("returns /review-tests for review-tests mode", () => {
-    expect(reviewRetrySlashCommandForMode("review-tests")).toBe("/review-tests");
+  it("returns the single review sentinel", () => {
+    expect(reviewSummarySentinelForMode("review")).toBe("## PR Agent Review");
   });
 });

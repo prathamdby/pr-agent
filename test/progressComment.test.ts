@@ -19,16 +19,6 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toMatch(/\d+\/\d+/);
   });
 
-  it("keeps security retry command", () => {
-    const body = renderReviewFailureNotice({
-      mode: "review-security",
-      retryCommand: "/review-security",
-    });
-    expect(body).toContain("/review-security");
-    expect(body).toContain("[!CAUTION]");
-    expect(body).not.toMatch(/structured publish/i);
-  });
-
   it("renders progress with NOTE alert and metadata table", () => {
     const body = renderReviewProgressComment({
       mode: "review",

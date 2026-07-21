@@ -107,4 +107,20 @@ describe("findingPipeline", () => {
       anchorUnresolved: 0,
     });
   });
+
+  it("suppresses historical fingerprints from an adjacent line bucket", () => {
+    const historical = finding({ startLine: 1, endLine: 1 });
+    const shifted = finding({ startLine: 50, endLine: 50 });
+
+    const result = prepareFindingsForPublish({
+      payload: payload({ findings: [shifted] }),
+      mode: "review",
+      inlinePlacements: [placement(shifted)],
+      storedInlineFingerprints: [fingerprintFinding(historical, "review-security")],
+    });
+
+    expect(result.inline).toEqual([]);
+    expect(result.summaryOnly).toHaveLength(1);
+    expect(result.dropped.suppressedInlineCount).toBe(1);
+  });
 });

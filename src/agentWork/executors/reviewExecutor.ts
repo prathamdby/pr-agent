@@ -22,11 +22,7 @@ import {
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/prompts/reviewTrustedContext.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
-import {
-  reviewRetrySlashCommandForMode,
-  reviewSummarySentinelForMode,
-  type ReviewMode,
-} from "../../review/reviewSchema.js";
+import { reviewSummarySentinelForMode, type ReviewMode } from "../../review/reviewSchema.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -273,7 +269,6 @@ function buildPriorInlineFeedbackPromise(args: {
       owner: item.owner,
       repo: item.repo,
       prNumber: item.prNumber,
-      reviewLens,
       botUserId: bot.userId,
       onPriorFeedbackError: logPriorFeedbackError,
     });
@@ -638,7 +633,7 @@ export async function executeReviewJob(
         item.prNumber,
         renderReviewFailureNotice({
           mode: reviewLens,
-          retryCommand: reviewRetrySlashCommandForMode(reviewLens),
+          retryCommand: "/review",
         }),
         reviewSummarySentinelForMode(reviewLens),
         undefined,

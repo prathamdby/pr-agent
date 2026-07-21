@@ -2,6 +2,7 @@ import type { Pool } from "pg";
 import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.js";
 import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload, WorkItemPayloadValidationError } from "./workItemPayloadSchema.js";
@@ -17,7 +18,7 @@ type AgentWorkRow = {
   pr_number: number;
   installation_id: string;
   head_sha: string;
-  review_lens: "review" | "review-security" | "review-quality" | "review-tests" | null;
+  review_lens: AnyReviewLens | null;
   resource_key: string;
   attempt_count: number;
   payload: unknown;
@@ -58,7 +59,7 @@ function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore 
         ...base,
         type: "review",
         source: row.source,
-        reviewLens: row.review_lens,
+        reviewLens: "review",
       };
     }
     case "ask": {

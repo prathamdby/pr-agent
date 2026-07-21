@@ -8,19 +8,8 @@ export type ReviewRunFooterMeta = {
 
 const FOOTER_SEP = " ⋅ ";
 
-export function reviewLensFooterLabel(mode: ReviewMode): string {
-  switch (mode) {
-    case "review":
-      return "general";
-    case "review-security":
-      return "security";
-    case "review-quality":
-      return "quality";
-    case "review-tests":
-      return "tests";
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
+export function reviewLensFooterLabel(_mode: ReviewMode): string {
+  return "general";
 }
 
 /** Compact wall-clock duration (`45s`, `11m 20s`, `1h 2m`). */

@@ -2,12 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction } from "../../db/postgres.js";
-import {
-  AUTOMATED_REVIEW_LENS,
-  DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
-  VERIFICATION_QUEUE,
-} from "../../settings/index.js";
+import { DESCRIPTION_QUEUE, REVIEW_QUEUE, VERIFICATION_QUEUE } from "../../settings/index.js";
 import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import {
   releaseSingletonSlot,
@@ -143,19 +138,16 @@ async function applyPlannedAutomatedPullRequestIntake(
         target: {
           kind: "review",
           resourceKey,
-          lens: AUTOMATED_REVIEW_LENS,
         },
         createWorkItem: () =>
           createReviewWorkItem(client, {
             webhookEventId: event.id,
             ref,
             source: "auto",
-            lens: AUTOMATED_REVIEW_LENS,
           }),
-        enqueue: (workItemId) =>
-          enqueueReview(boss, client, ref, workItemId, AUTOMATED_REVIEW_LENS, correlation),
+        enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
         queueName: REVIEW_QUEUE,
-        singletonKey: reviewSingletonKey(resourceKey, AUTOMATED_REVIEW_LENS),
+        singletonKey: reviewSingletonKey(resourceKey),
         eventType: "review",
         enqueueAck: async (workItemId) => {
           const ackData: AckJobData = {
@@ -167,7 +159,7 @@ async function applyPlannedAutomatedPullRequestIntake(
             prNumber: ref.prNumber,
             targets: ackTargets,
             progress: {
-              lens: AUTOMATED_REVIEW_LENS,
+              lens: "review",
               headSha: ref.headSha,
               source: "auto",
             },

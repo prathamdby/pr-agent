@@ -2,10 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import * as reviewSchema from "../src/review/reviewSchema.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REVIEW_POINTER_NOTE_LEAD,
@@ -187,19 +184,11 @@ describe("publishReview core", () => {
     spy.mockRestore();
   });
 
-  it.each([
-    { label: "general", mode: undefined, sentinel: REVIEW_SUMMARY_SENTINEL },
-    {
-      label: "security",
-      mode: "review-security" as const,
-      sentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
-    },
-  ])("skips PR review when there are no P0–P2 findings ($label)", async ({ mode, sentinel }) => {
+  it("skips PR review when there are no P0–P2 findings", async () => {
     const publishState = testPublishState();
 
     await publishReviewForTest({
       ...baseParams,
-      ...(mode ? { mode } : {}),
       publishState,
       payload: { ...payload, findings: [] },
     });
@@ -210,8 +199,8 @@ describe("publishReview core", () => {
       "o",
       "r",
       1,
-      expect.stringContaining(sentinel),
-      sentinel,
+      expect.stringContaining(REVIEW_SUMMARY_SENTINEL),
+      REVIEW_SUMMARY_SENTINEL,
       null,
       undefined,
     );
@@ -298,47 +287,6 @@ describe("publishReview core", () => {
     );
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("#discussion_r99");
-  });
-
-  it("uses security sentinel and pointer with agent fix prompt when mode is review-security", async () => {
-    const publishState = testPublishState();
-    await publishReviewForTest({
-      ...baseParams,
-      mode: "review-security",
-      publishState,
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
-
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        body: expect.stringContaining(REVIEW_POINTER_NOTE_LEAD),
-      }),
-      undefined,
-    );
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        body: expect.stringContaining(AGENT_FIX_PROMPT_ACCORDION_SUMMARY),
-      }),
-      undefined,
-    );
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.stringContaining(SECURITY_REVIEW_SUMMARY_SENTINEL),
-      SECURITY_REVIEW_SUMMARY_SENTINEL,
-      null,
-      undefined,
-    );
   });
 
   it("links pointer when shouldLinkToSummary and comment verifies", async () => {

@@ -56,11 +56,8 @@ describe("review check run lifecycle", () => {
     vi.clearAllMocks();
   });
 
-  it("maps review lenses to check names", () => {
+  it("uses the single review check name", () => {
     expect(reviewCheckRunName("review")).toBe("PR Agent Review");
-    expect(reviewCheckRunName("review-security")).toBe("PR Agent Security Review");
-    expect(reviewCheckRunName("review-quality")).toBe("PR Agent Quality Review");
-    expect(reviewCheckRunName("review-tests")).toBe("PR Agent Tests Review");
   });
 
   it("fails the check when P0–P2 findings exist and passes otherwise", () => {

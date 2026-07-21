@@ -5,12 +5,8 @@ import {
   formatPriorInlineFeedbackBlock,
   type PriorInlineFeedbackThread,
 } from "../src/review/run/reviewPriorFeedback.js";
-import {
-  REVIEW_POINTER_BODY,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
-} from "../src/settings/index.js";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(),
@@ -24,9 +20,13 @@ describe("reviewPriorFeedback", () => {
   });
   it("classifies review lens from pointer body", () => {
     expect(classifyReviewLensFromPointerBody(REVIEW_POINTER_BODY)).toBe("review");
-    expect(classifyReviewLensFromPointerBody(SECURITY_REVIEW_POINTER_BODY)).toBe("review-security");
-    expect(classifyReviewLensFromPointerBody(QUALITY_REVIEW_POINTER_BODY)).toBe("review-quality");
-    expect(classifyReviewLensFromPointerBody(TESTS_REVIEW_POINTER_BODY)).toBe("review-tests");
+    expect(classifyReviewLensFromPointerBody(LEGACY_REVIEW_POINTER_BODIES[0])).toBe(
+      "review-security",
+    );
+    expect(classifyReviewLensFromPointerBody(LEGACY_REVIEW_POINTER_BODIES[1])).toBe(
+      "review-quality",
+    );
+    expect(classifyReviewLensFromPointerBody(LEGACY_REVIEW_POINTER_BODIES[2])).toBe("review-tests");
     expect(classifyReviewLensFromPointerBody("unrelated")).toBeNull();
   });
 
@@ -110,10 +110,74 @@ describe("reviewPriorFeedback", () => {
       },
     } as never);
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual(["False positive — already handled upstream"]);
+  });
+
+  it("includes prior feedback from general and historical review lenses", async () => {
+    const botUserId = 1;
+    vi.mocked(installationOctokit).mockReturnValue({
+      rest: {
+        pulls: {
+          listReviews: vi.fn(async () => ({
+            data: [
+              { id: 100, user: { id: botUserId }, body: REVIEW_POINTER_BODY },
+              {
+                id: 200,
+                user: { id: botUserId },
+                body: LEGACY_REVIEW_POINTER_BODIES[0],
+              },
+            ],
+          })),
+          listReviewComments: vi.fn(async () => ({
+            data: [
+              {
+                id: 10,
+                pull_request_review_id: 100,
+                user: { id: botUserId },
+                body: "**P1** · **General finding**",
+                path: "src/general.ts",
+                line: 4,
+                html_url: "https://github.com/o/r/pull/1#discussion_r10",
+              },
+              {
+                id: 11,
+                in_reply_to_id: 10,
+                user: { id: 2 },
+                body: "General dismissal",
+                path: "src/general.ts",
+                line: 4,
+                html_url: "https://github.com/o/r/pull/1#discussion_r11",
+              },
+              {
+                id: 20,
+                pull_request_review_id: 200,
+                user: { id: botUserId },
+                body: "**P1** · **Historical security finding**",
+                path: "src/security.ts",
+                line: 8,
+                html_url: "https://github.com/o/r/pull/1#discussion_r20",
+              },
+              {
+                id: 21,
+                in_reply_to_id: 20,
+                user: { id: 3 },
+                body: "Historical dismissal",
+                path: "src/security.ts",
+                line: 8,
+                html_url: "https://github.com/o/r/pull/1#discussion_r21",
+              },
+            ],
+          })),
+        },
+      },
+    } as never);
+
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
+
+    expect(threads.map((thread) => thread.path)).toEqual(["src/general.ts", "src/security.ts"]);
   });
 
   it("groups nested replies under the bot root comment", async () => {
@@ -171,7 +235,7 @@ describe("reviewPriorFeedback", () => {
       },
     } as never);
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual([

@@ -4,7 +4,7 @@ import {
   setCursorModelsForTests,
 } from "../src/agent/providers/cursor/modelCapabilities.js";
 import * as evlog from "../src/evlog.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
+import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
@@ -104,7 +104,7 @@ describe("runFullPrReview cursor provider", () => {
     ).rejects.toThrow(/tokenExpiresAtTs/);
   });
 
-  it("uses session sends and security lens prompt for review-security", async () => {
+  it("uses session sends and the general review prompt", async () => {
     const result = await runFullPrReview({
       cfg: cursorCfg,
       token: "t",
@@ -114,7 +114,6 @@ describe("runFullPrReview cursor provider", () => {
       repo: "r",
       prNumber: 1,
       headSha: "sha",
-      mode: "review-security",
       workspace: testWorkspace,
     });
 
@@ -122,7 +121,7 @@ describe("runFullPrReview cursor provider", () => {
     const context = vi.mocked(complete).mock.calls[0][1] as {
       systemPrompt: string;
     };
-    expect(context.systemPrompt).toBe(automatedSecuritySystemPrompt);
+    expect(context.systemPrompt).toBe(buildAutomatedSystemPrompt());
     expect(result.publishAttempts).toBe(3);
     expect(result.published).toBe(false);
     expect(vi.mocked(buildSubmitReviewTool)).toHaveBeenCalledWith(

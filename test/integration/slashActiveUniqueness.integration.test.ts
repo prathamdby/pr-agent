@@ -26,6 +26,7 @@ import {
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_QUEUE,
+  slashUnknownBody,
 } from "../../src/settings/index.js";
 import type { QueueConfig } from "../../src/agentWork/types.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
@@ -165,12 +166,12 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(loserAcks.length).toBe(ackForResource.length - 1);
   });
 
-  it("allows concurrent slash reviews with different lenses", async () => {
+  it("creates one review and an unknown-command ack for a concurrent legacy review command", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
-    const lenses = ["review", "review-security"] as const;
+    const commands = ["review", "review-security"] as const;
 
     await Promise.all(
-      lenses.map((lens, index) =>
+      commands.map((command, index) =>
         inTransaction(pool, (client) =>
           applySlashCommandIntake(
             boss,
@@ -178,7 +179,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
             {
               headers: {
                 event: EVENT,
-                delivery: `lens-${lens}`,
+                delivery: `command-${command}`,
                 rawBody: Buffer.from("{}"),
               },
               installationId: 4242,
@@ -187,8 +188,8 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
               prNumber: 88,
               commentId: 2000 + index,
               commenterId: 11,
-              body: `/${lens}`,
-              command: lens,
+              body: `/${command}`,
+              command,
               replyTarget: { kind: "prConversation" as const, prNumber: 88 },
             },
             testFeatures,
@@ -198,13 +199,30 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     );
 
     const resourceKey = prResourceKey(OWNER, repo, 88);
-    const { rows } = await pool.query<{ review_lens: string }>(
-      `SELECT review_lens FROM agent_work_items
-        WHERE resource_key = $1 AND type = 'review' AND source = 'slash' AND status = 'queued'
+    const { rows } = await pool.query<{ review_lens: string; status: string }>(
+      `SELECT review_lens, status FROM agent_work_items
+        WHERE resource_key = $1 AND type = 'review' AND source = 'slash'
         ORDER BY review_lens`,
       [resourceKey],
     );
-    expect(rows.map((r) => r.review_lens)).toEqual(["review", "review-security"]);
+    expect(rows).toEqual([{ review_lens: "review", status: "queued" }]);
+
+    const ackJobs = await boss.findJobs(ACK_QUEUE, {});
+    const unknownCommandAcks = ackJobs.filter((job) => {
+      const data = job.data as {
+        owner?: string;
+        repo?: string;
+        prNumber?: number;
+        reply?: { body?: string };
+      };
+      return (
+        data.owner === OWNER &&
+        data.repo === repo &&
+        data.prNumber === 88 &&
+        data.reply?.body === slashUnknownBody("review-security")
+      );
+    });
+    expect(unknownCommandAcks).toHaveLength(1);
   });
 
   it("does not uniqueness-block auto description inserts beside active slash work", async () => {

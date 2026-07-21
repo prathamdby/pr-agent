@@ -1,11 +1,9 @@
 import type { PoolClient } from "pg";
-import type { ReviewMode } from "../review/reviewSchema.js";
 
 export type AutoWorkSupersedeTarget =
   | {
       readonly kind: "review";
       readonly resourceKey: string;
-      readonly lens: ReviewMode;
     }
   | { readonly kind: "description"; readonly resourceKey: string }
   | { readonly kind: "triage"; readonly resourceKey: string }
@@ -24,7 +22,7 @@ function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
 			       AND source = 'auto'
 			       AND status = 'queued'
 			     RETURNING id`,
-      params: [target.resourceKey, target.lens],
+      params: [target.resourceKey, "review"],
     };
   }
   return {
@@ -52,7 +50,7 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
 			       AND source = 'auto'
 			       AND status = 'running'
 			     RETURNING id`,
-      params: [target.resourceKey, target.lens],
+      params: [target.resourceKey, "review"],
     };
   }
   return {

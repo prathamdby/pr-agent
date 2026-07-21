@@ -234,8 +234,8 @@ export function prResourceKey(owner: string, repo: string, prNumber: number): st
   return `${owner}/${repo}#${prNumber}`;
 }
 
-export function reviewSingletonKey(resourceKey: string, lens: ReviewMode): string {
-  return `${resourceKey}:${lens}`;
+export function reviewSingletonKey(resourceKey: string): string {
+  return `${resourceKey}:review`;
 }
 
 export function descriptionSingletonKey(resourceKey: string): string {

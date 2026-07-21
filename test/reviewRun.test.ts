@@ -45,9 +45,6 @@ vi.mock("../src/agent/providers/pi/index.js", () => ({
 }));
 
 import { upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
-import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { runFullPrReview } from "../src/review/run/reviewRun.js";
 
@@ -90,40 +87,7 @@ describe("runFullPrReview mode", () => {
     );
   });
 
-  it("selects security system prompt when mode is review-security", async () => {
-    await runFullPrReview(
-      reviewParams({
-        cfg,
-        mode: "review-security",
-      }),
-    );
-
-    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(automatedSecuritySystemPrompt);
-  });
-
-  it("selects quality system prompt when mode is review-quality", async () => {
-    await runFullPrReview(
-      reviewParams({
-        cfg,
-        mode: "review-quality",
-      }),
-    );
-
-    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(automatedQualitySystemPrompt);
-  });
-
-  it("selects tests system prompt when mode is review-tests", async () => {
-    await runFullPrReview(
-      reviewParams({
-        cfg,
-        mode: "review-tests",
-      }),
-    );
-
-    expect(reviewRunMocks.state.capturedSystemPrompt).toBe(automatedReviewTestsSystemPrompt);
-  });
-
-  it("selects general system prompt by default", async () => {
+  it("selects the general system prompt", async () => {
     await runFullPrReview(
       reviewParams({
         cfg,
@@ -131,18 +95,6 @@ describe("runFullPrReview mode", () => {
     );
 
     expect(reviewRunMocks.state.capturedSystemPrompt).toBe(buildAutomatedSystemPrompt());
-    expect(reviewRunMocks.state.capturedSystemPrompt).not.toBe(automatedSecuritySystemPrompt);
-  });
-
-  it("uses security fallback heading when security publish is exhausted", async () => {
-    await runFullPrReview(reviewParams({ mode: "review-security" }));
-
-    const body = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4] as string;
-    expect(body).toContain("## PR Agent Security Review");
-    expect(body).toContain("Review did not finish");
-    expect(body).not.toMatch(/structured publish/i);
-    expect(body).not.toMatch(/server logs/i);
-    expect(body).not.toContain("analysis without submitReview");
   });
 });
 

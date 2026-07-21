@@ -222,7 +222,6 @@ async function ensureProgressCommentRecord(
 type ReviewWorkItemParams = {
   webhookEventId: string;
   ref: PrRef;
-  lens: ReviewMode;
   priority?: number;
   userSupplement?: string;
   commenterId?: number;
@@ -243,7 +242,7 @@ export async function createReviewWorkItem(
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
   const payload = {
-    mode: params.lens,
+    mode: "review",
     source: params.source,
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
@@ -257,7 +256,7 @@ export async function createReviewWorkItem(
       type: "review",
       source: "slash",
       ref: params.ref,
-      reviewLens: params.lens,
+      reviewLens: "review",
       resourceKey,
       priority: params.priority ?? 0,
       payload,
@@ -269,7 +268,7 @@ export async function createReviewWorkItem(
     await ensureProgressCommentRecord(client, {
       workItemId: insert.id,
       resourceKey,
-      reviewLens: params.lens,
+      reviewLens: "review",
     });
     return insert;
   }
@@ -280,7 +279,7 @@ export async function createReviewWorkItem(
     type: "review",
     source: "auto",
     ref: params.ref,
-    reviewLens: params.lens,
+    reviewLens: "review",
     resourceKey,
     priority: params.priority ?? 0,
     payload,
@@ -289,7 +288,7 @@ export async function createReviewWorkItem(
   await ensureProgressCommentRecord(client, {
     workItemId: insert.id,
     resourceKey,
-    reviewLens: params.lens,
+    reviewLens: "review",
   });
   return insert.id;
 }

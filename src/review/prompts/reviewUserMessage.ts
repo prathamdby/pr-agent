@@ -10,7 +10,7 @@ export function buildReviewRunUserContent(params: {
   userSupplement?: string;
   trustedContext?: string;
 }): string {
-  const { owner, repo, prNumber, headSha, reviewMode, userSupplement, trustedContext } = params;
+  const { owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
   return [
     `Target repository: ${owner}/${repo}`,
     `Pull request #: ${prNumber}`,
@@ -18,21 +18,6 @@ export function buildReviewRunUserContent(params: {
     userSupplement ? `\n${wrapUntrustedBlock("user_supplement", userSupplement)}\n` : "",
     trustedContext ? `\n${trustedContext}\n` : "",
     "",
-    closingInstructionForReviewMode(reviewMode),
+    "Perform an exhaustive review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 findings.",
   ].join("\n");
-}
-
-function closingInstructionForReviewMode(reviewMode: ReviewMode): string {
-  switch (reviewMode) {
-    case "review-security":
-      return "Perform an exhaustive security review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 security findings.";
-    case "review-quality":
-      return "Perform an exhaustive code-quality review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 maintainability findings.";
-    case "review-tests":
-      return "Perform an exhaustive test-gap review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 proposed test cases.";
-    case "review":
-      return "Perform an exhaustive review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 findings.";
-  }
-  const exhaustive: never = reviewMode;
-  return exhaustive;
 }

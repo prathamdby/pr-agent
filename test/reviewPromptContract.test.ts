@@ -1,7 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import {
   structuredDeliveryHeader,
   VALIDATION_REPAIR_REMINDER,
@@ -12,76 +9,37 @@ import {
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 
-const LENS_PROMPTS = [
-  ["general", buildAutomatedSystemPrompt()],
-  ["security", automatedSecuritySystemPrompt],
-  ["quality", automatedQualitySystemPrompt],
-  ["tests", automatedReviewTestsSystemPrompt],
-] as const;
+const REVIEW_PROMPT = buildAutomatedSystemPrompt();
 
 describe("review prompt shared contract blocks", () => {
-  it("reuses the shared structured delivery header in every lens", () => {
-    for (const [name, prompt] of LENS_PROMPTS) {
-      expect(prompt, `${name} should include shared delivery header`).toContain(
-        structuredDeliveryHeader,
-      );
-    }
+  it("reuses the shared structured delivery header", () => {
+    expect(REVIEW_PROMPT, "review should include shared delivery header").toContain(
+      structuredDeliveryHeader,
+    );
   });
 
-  it("keeps single-pass submitReview obligations in every lens", () => {
-    for (const [name, prompt] of LENS_PROMPTS) {
-      expect(prompt, `${name} should require one submitReview call`).toContain(
-        "submitReview exactly once",
-      );
-    }
+  it("keeps the single-pass submitReview obligation", () => {
+    expect(REVIEW_PROMPT, "review should require one submitReview call").toContain(
+      "submitReview exactly once",
+    );
   });
 });
 
-describe("review lens-specific obligations", () => {
+describe("review prompt obligations", () => {
   it("keeps general correctness reporting gate", () => {
     expect(buildAutomatedSystemPrompt()).toContain("you report problems, not prescriptions");
   });
 
-  it("keeps security-only severity mapping", () => {
-    expect(automatedSecuritySystemPrompt).toContain(
-      "Do not report general correctness bugs, style issues, or non-security logic errors",
+  it("includes security tripwires and prose contracts", () => {
+    const prompt = buildAutomatedSystemPrompt();
+    expect(prompt).toContain(securityTripwiresGuidance);
+    expect(prompt).toContain(proseContractGuidance);
+  });
+
+  it("includes agent instruction files guidance", () => {
+    expect(REVIEW_PROMPT, "review should include agent instruction files guidance").toContain(
+      agentInstructionFilesGuidance,
     );
-    expect(automatedSecuritySystemPrompt).toContain("Security lens: set category to security");
-  });
-
-  it("keeps quality restructuring prescriptions", () => {
-    expect(automatedQualitySystemPrompt).toContain("Prescriptions are required");
-    expect(automatedQualitySystemPrompt).toContain("code-judo move");
-  });
-
-  it("keeps tests draft skeleton guidance", () => {
-    expect(automatedReviewTestsSystemPrompt).toContain("Draft skeletons are required");
-    expect(automatedReviewTestsSystemPrompt).toContain("draft test skeleton");
-  });
-
-  it("includes security tripwires and prose contracts only in the general lens", () => {
-    const [general] = LENS_PROMPTS;
-    expect(general[1]).toContain(securityTripwiresGuidance);
-    expect(general[1]).toContain(proseContractGuidance);
-
-    for (const [name, prompt] of LENS_PROMPTS.slice(1)) {
-      expect(
-        prompt,
-        `${name} lens must not carry the general-lens security tripwires block`,
-      ).not.toContain(securityTripwiresGuidance);
-      expect(
-        prompt,
-        `${name} lens must not carry the general-lens prose contracts block`,
-      ).not.toContain(proseContractGuidance);
-    }
-  });
-
-  it("includes agent instruction files guidance in every review lens", () => {
-    for (const [name, prompt] of LENS_PROMPTS) {
-      expect(prompt, `${name} should include agent instruction files guidance`).toContain(
-        agentInstructionFilesGuidance,
-      );
-    }
   });
 });
 

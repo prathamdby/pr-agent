@@ -63,7 +63,7 @@ describe("loadReviewExecutorPublishContext", () => {
     });
 
     await expect(
-      loadReviewExecutorPublishContext(pool, "wi-2", "o/r#1", "review-security"),
+      loadReviewExecutorPublishContext(pool, "wi-2", "o/r#1", "review"),
     ).resolves.toMatchObject({
       shouldLinkToSummary: false,
       summaryCommentGithubId: null,

@@ -46,7 +46,7 @@ export async function cancelUnenqueuedStaleHeadReplacement(
 ): Promise<void> {
   if (replacementEnqueued) return;
   try {
-    const reviewKey = reviewSingletonKey(parent.resourceKey, parent.reviewLens);
+    const reviewKey = reviewSingletonKey(parent.resourceKey);
     if (await replacementReviewJobExists(boss, reviewKey, replacementWorkItemId)) return;
     if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
       logWarn("agent_work_replacement_cancel_failed", {
@@ -140,7 +140,6 @@ export async function createSlashReviewRescheduleWorkItem(
   latestHeadSha: string,
 ): Promise<SlashReviewRescheduleWorkItem> {
   const payload = item.payload;
-  const reviewLens = item.reviewLens;
   let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
 
   if (!replacementWorkItemId) {
@@ -196,7 +195,7 @@ export async function createSlashReviewRescheduleWorkItem(
       item.prNumber,
       item.installationId,
       latestHeadSha,
-      reviewLens,
+      "review",
       item.resourceKey,
       JSON.stringify(nextPayload),
     ],
@@ -246,13 +245,12 @@ export async function enqueueSlashReviewReschedule(
   replacementHeadSha: string,
   activePgBossJobId?: string,
 ): Promise<void> {
-  const reviewLens = item.reviewLens;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
-  const reviewKey = reviewSingletonKey(item.resourceKey, reviewLens);
+  const reviewKey = reviewSingletonKey(item.resourceKey);
 
   await inTransaction(pool, async (client) => {
     const db = pgBossDb(client);
-    await releaseReviewSingletonSlot(boss, item.resourceKey, reviewLens, {
+    await releaseReviewSingletonSlot(boss, item.resourceKey, {
       db,
       skipJobId: activePgBossJobId,
       skipWorkItemId: workItemId,
@@ -278,7 +276,7 @@ export async function enqueueSlashReviewReschedule(
       repo: item.repo,
       prNumber: item.prNumber,
       targets: [],
-      progress: { lens: reviewLens, headSha: replacementHeadSha, source: "slash" },
+      progress: { lens: "review", headSha: replacementHeadSha, source: "slash" },
       ...correlation,
     };
     await boss.send(ACK_QUEUE, ackData, {
@@ -294,7 +292,7 @@ export async function enqueueSlashReviewReschedule(
     owner: item.owner,
     repo: item.repo,
     pr: item.prNumber,
-    reviewLens,
+    reviewLens: "review",
     previousWorkItemId: item.id,
     replacementWorkItemId: workItemId,
     previousHeadSha: item.headSha,

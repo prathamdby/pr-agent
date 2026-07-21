@@ -1,23 +1,11 @@
 /** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
-export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
-export const QUALITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Quality Review";
-export const TESTS_REVIEW_SUMMARY_SENTINEL = "## PR Agent Tests Review";
 export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
-export const LABEL_SECURITY_EFFORT_PREFIX = "Security effort ";
-export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
-export const LABEL_TESTS_EFFORT_PREFIX = "Tests effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
-export const SECURITY_REVIEW_POINTER_BODY =
-  "See the security review summary in the PR conversation.";
-export const QUALITY_REVIEW_POINTER_BODY =
-  "See the code-quality review summary in the PR conversation.";
-export const TESTS_REVIEW_POINTER_BODY =
-  "See the proposed test cases summary in the PR conversation.";
 export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";

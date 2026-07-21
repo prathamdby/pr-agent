@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  QUALITY_REVIEW_POINTER_BODY,
   REVIEW_POINTER_BODY,
   REVIEW_POINTER_NOTE_LEAD,
-  TESTS_REVIEW_POINTER_BODY,
   VERIFICATION_STUB_MARKER,
 } from "../src/settings/index.js";
+import {
+  LEGACY_REVIEW_LENSES,
+  LEGACY_REVIEW_POINTER_BODIES,
+} from "../src/settings/legacyReviewLenses.js";
 import { renderReviewPointerLensMarker } from "../src/review/run/reviewRender.js";
 
 const mocks = vi.hoisted(() => ({
@@ -32,14 +34,16 @@ import {
 
 describe("classifyReviewLensFromPointerBody", () => {
   it("prefers the HTML lens marker over legacy strings", () => {
-    const body = `${REVIEW_POINTER_BODY}\n${renderReviewPointerLensMarker("review-security")}`;
+    const body = `${REVIEW_POINTER_BODY}\n<!-- pr-agent:review-pointer lens=review-security -->`;
     expect(classifyReviewLensFromPointerBody(body)).toBe("review-security");
   });
 
   it("classifies legacy pointer strings", () => {
     expect(classifyReviewLensFromPointerBody(REVIEW_POINTER_BODY)).toBe("review");
-    expect(classifyReviewLensFromPointerBody(QUALITY_REVIEW_POINTER_BODY)).toBe("review-quality");
-    expect(classifyReviewLensFromPointerBody(TESTS_REVIEW_POINTER_BODY)).toBe("review-tests");
+    expect(classifyReviewLensFromPointerBody(LEGACY_REVIEW_POINTER_BODIES[1])).toBe(
+      "review-quality",
+    );
+    expect(classifyReviewLensFromPointerBody(LEGACY_REVIEW_POINTER_BODIES[2])).toBe("review-tests");
   });
 
   it("returns null for NOTE_LEAD-only bodies", () => {
@@ -49,8 +53,11 @@ describe("classifyReviewLensFromPointerBody", () => {
 
 describe("parseReviewPointerLensMarker", () => {
   it("parses all four lenses from the marker", () => {
-    for (const lens of ["review", "review-security", "review-quality", "review-tests"] as const) {
-      expect(parseReviewPointerLensMarker(renderReviewPointerLensMarker(lens))).toBe(lens);
+    expect(parseReviewPointerLensMarker(renderReviewPointerLensMarker("review"))).toBe("review");
+    for (const lens of LEGACY_REVIEW_LENSES) {
+      expect(parseReviewPointerLensMarker(`<!-- pr-agent:review-pointer lens=${lens} -->`)).toBe(
+        lens,
+      );
     }
   });
 });
@@ -64,8 +71,8 @@ describe("fetchBotFindingThreads", () => {
     mocks.listReviews.mockResolvedValue({
       data: [
         { id: 10, user: { id: 99 }, body: REVIEW_POINTER_BODY },
-        { id: 11, user: { id: 99 }, body: QUALITY_REVIEW_POINTER_BODY },
-        { id: 12, user: { id: 99 }, body: TESTS_REVIEW_POINTER_BODY },
+        { id: 11, user: { id: 99 }, body: LEGACY_REVIEW_POINTER_BODIES[1] },
+        { id: 12, user: { id: 99 }, body: LEGACY_REVIEW_POINTER_BODIES[2] },
       ],
     });
     mocks.listReviewComments.mockResolvedValue({

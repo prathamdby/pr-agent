@@ -10,7 +10,6 @@ import {
   ACK_QUEUE,
   DESCRIPTION_ALREADY_IN_PROGRESS,
   DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
   SLASH_HELP_BODY,
   TRIAGE_QUEUE,
 } from "../src/settings/index.js";
@@ -57,8 +56,8 @@ describe("applySlashCommandIntake", () => {
     initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
 
-  it("records unknown slash commands without acking", async () => {
-    const boss = { send: vi.fn() } as unknown as PgBoss;
+  it("records unknown slash commands and replies with help", async () => {
+    const boss = { send: vi.fn().mockResolvedValue("job-1") } as unknown as PgBoss;
     const client = makeClient();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
@@ -72,7 +71,15 @@ describe("applySlashCommandIntake", () => {
       scheduler.submitSlashCommand(makeSlashInput("/cc looks good"), intakeLog),
     );
 
-    expect(boss.send).not.toHaveBeenCalled();
+    expect(boss.send).toHaveBeenCalledWith(
+      ACK_QUEUE,
+      expect.objectContaining({
+        reply: expect.objectContaining({
+          body: "Unknown slash command `/cc`. Use `/help` to see supported commands.",
+        }),
+      }),
+      expect.objectContaining({ priority: 100 }),
+    );
     expect(intakeLog.getContext().events).toEqual([
       expect.objectContaining({
         event: "ignored_unknown_slash_command",
@@ -112,56 +119,69 @@ describe("applySlashCommandIntake", () => {
     );
   });
 
-  it("enqueues a review work item with the review-tests lens", async () => {
-    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
-        sentJobs.push({ queue, data });
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
-    const workItemInserts: unknown[][] = [];
-    const client = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("INSERT INTO webhook_events")) {
-          return { rows: [{ id: "event-1" }] };
-        }
-        if (sql.includes("SELECT id")) {
-          return { rows: [] };
-        }
-        if (sql.includes("INSERT INTO agent_work_items")) {
-          workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-review-tests" }] };
-        }
-        if (sql.includes("INSERT INTO publish_records")) {
-          return { rows: [] };
-        }
-        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
-      }),
-    } as unknown as PoolClient;
-    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
-
-    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
-    const intakeLog = createOperationLogger({
-      method: "POST",
-      path: "/webhooks",
-    });
-
-    await Effect.runPromise(
-      scheduler.submitSlashCommand(makeSlashInput("/review-tests"), intakeLog),
-    );
-
-    expect(workItemInserts).toHaveLength(1);
-    expect(workItemInserts[0]).toContain("review-tests");
-    expect(sentJobs.map((j) => j.queue)).toContain(REVIEW_QUEUE);
-    expect(intakeLog.getContext().events).toContainEqual(
-      expect.objectContaining({
-        event: "agent_work_enqueued",
-        type: "review",
-        lens: "review-tests",
-      }),
-    );
+  it("lists only the single review slash command in help", () => {
+    expect(SLASH_HELP_BODY).toContain("`/review`");
+    expect(SLASH_HELP_BODY).not.toContain("/review-security");
+    expect(SLASH_HELP_BODY).not.toContain("/review-quality");
+    expect(SLASH_HELP_BODY).not.toContain("/review-tests");
   });
+
+  it.each(["review-security", "review-quality", "review-tests"])(
+    "routes legacy /%s to the unknown-command handler",
+    async (command) => {
+      const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+      const boss = {
+        send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+          sentJobs.push({ queue, data });
+          return "job-1";
+        }),
+      } as unknown as PgBoss;
+      const workItemInserts: unknown[][] = [];
+      const client = {
+        query: vi.fn(async (sql: string, params?: unknown[]) => {
+          if (sql.includes("INSERT INTO webhook_events")) {
+            return { rows: [{ id: "event-1" }] };
+          }
+          if (sql.includes("SELECT id")) {
+            return { rows: [] };
+          }
+          if (sql.includes("INSERT INTO agent_work_items")) {
+            workItemInserts.push(params ?? []);
+            return { rows: [{ id: "work-review-tests" }] };
+          }
+          if (sql.includes("INSERT INTO publish_records")) {
+            return { rows: [] };
+          }
+          throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+        }),
+      } as unknown as PoolClient;
+      vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+      const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+      const intakeLog = createOperationLogger({
+        method: "POST",
+        path: "/webhooks",
+      });
+
+      await Effect.runPromise(
+        scheduler.submitSlashCommand(makeSlashInput(`/${command}`), intakeLog),
+      );
+
+      expect(workItemInserts).toHaveLength(0);
+      expect(sentJobs).toHaveLength(1);
+      expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
+      expect(sentJobs[0]?.data.reply).toEqual({
+        target: { kind: "prConversation", prNumber: 7 },
+        body: `Unknown slash command \`/${command}\`. Use \`/help\` to see supported commands.`,
+      });
+      expect(intakeLog.getContext().events).toContainEqual(
+        expect.objectContaining({
+          event: "ignored_unknown_slash_command",
+          command,
+        }),
+      );
+    },
+  );
 
   it("enqueues a triage work item and ack", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];

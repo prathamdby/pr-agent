@@ -7,11 +7,8 @@ import {
 } from "../src/review/run/reviewRunFooter.js";
 
 describe("reviewLensFooterLabel", () => {
-  it("maps each review mode to a short lens label", () => {
+  it("uses the general label for the single review mode", () => {
     expect(reviewLensFooterLabel("review")).toBe("general");
-    expect(reviewLensFooterLabel("review-security")).toBe("security");
-    expect(reviewLensFooterLabel("review-quality")).toBe("quality");
-    expect(reviewLensFooterLabel("review-tests")).toBe("tests");
   });
 });
 
@@ -70,11 +67,11 @@ describe("renderReviewRunFooter", () => {
     expect(
       renderReviewRunFooter({
         headSha: "abc1234",
-        mode: "review-security",
+        mode: "review",
         durationMs: 1_000,
         model: "evil<script>",
       }),
-    ).toBe("<sub>abc1234 ⋅ security ⋅ 1s ⋅ evil&lt;script&gt;</sub>");
+    ).toBe("<sub>abc1234 ⋅ general ⋅ 1s ⋅ evil&lt;script&gt;</sub>");
   });
 
   it("falls back to unknown for empty or whitespace-only model", () => {

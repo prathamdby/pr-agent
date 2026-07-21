@@ -8,7 +8,6 @@ import {
   fetchPriorInlineReviewFeedback,
   formatPriorInlineFeedbackBlock,
 } from "../run/reviewPriorFeedback.js";
-import type { ReviewMode } from "../reviewSchema.js";
 
 function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
@@ -61,7 +60,6 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
   owner: string;
   repo: string;
   prNumber: number;
-  reviewLens: ReviewMode;
   botUserId: number;
   onPriorFeedbackError?: (error: unknown) => void;
 }): Promise<string | undefined> {
@@ -71,7 +69,6 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
       params.owner,
       params.repo,
       params.prNumber,
-      params.reviewLens,
       params.botUserId,
     );
     return formatPriorInlineFeedbackBlock(threads) || undefined;

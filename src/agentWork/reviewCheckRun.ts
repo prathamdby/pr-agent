@@ -79,19 +79,8 @@ function logCheckRunWarning(
   });
 }
 
-export function reviewCheckRunName(mode: ReviewMode): string {
-  switch (mode) {
-    case "review-security":
-      return "PR Agent Security Review";
-    case "review-quality":
-      return "PR Agent Quality Review";
-    case "review-tests":
-      return "PR Agent Tests Review";
-    case "review":
-      return "PR Agent Review";
-  }
-  const exhaustive: never = mode;
-  return exhaustive;
+export function reviewCheckRunName(_mode: ReviewMode): string {
+  return "PR Agent Review";
 }
 
 export function reviewCheckDetailsUrl(

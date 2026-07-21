@@ -24,7 +24,6 @@ describe("createReviewWorkItem", () => {
     await createReviewWorkItem(client, {
       webhookEventId: "00000000-0000-0000-0000-000000000001",
       source: "auto",
-      lens: "review",
       ref,
     });
 
@@ -46,7 +45,6 @@ describe("createReviewWorkItem", () => {
     const result = await createReviewWorkItem(client, {
       webhookEventId: "00000000-0000-0000-0000-000000000001",
       source: "slash",
-      lens: "review",
       ref,
     });
 
@@ -78,7 +76,6 @@ describe("createReviewWorkItem", () => {
     const result = await createReviewWorkItem(client, {
       webhookEventId: "00000000-0000-0000-0000-000000000001",
       source: "slash",
-      lens: "review-security",
       ref: { ...ref, prNumber: 2 },
     });
 
@@ -86,26 +83,22 @@ describe("createReviewWorkItem", () => {
     expect(query.mock.calls.some((call) => String(call[0]).includes("publish_records"))).toBe(true);
   });
 
-  it.each(["review", "review-security", "review-quality", "review-tests"] as const)(
-    "returns created winner id for slash lens %s",
-    async (lens) => {
-      const query = vi
-        .fn()
-        .mockResolvedValueOnce({ rows: [{ id: `id-${lens}` }] })
-        .mockResolvedValueOnce({ rowCount: 1, rows: [] });
-      const client = { query } as unknown as PoolClient;
+  it("writes review for the single slash review mode", async () => {
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rows: [{ id: "id-review" }] })
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] });
+    const client = { query } as unknown as PoolClient;
 
-      const result = await createReviewWorkItem(client, {
-        webhookEventId: "00000000-0000-0000-0000-000000000010",
-        source: "slash",
-        lens,
-        ref,
-      });
+    const result = await createReviewWorkItem(client, {
+      webhookEventId: "00000000-0000-0000-0000-000000000010",
+      source: "slash",
+      ref,
+    });
 
-      expect(result).toEqual({ created: true, id: `id-${lens}` });
-      expect(query.mock.calls[0]?.[1]).toEqual(expect.arrayContaining([lens, "o/r#1"]));
-    },
-  );
+    expect(result).toEqual({ created: true, id: "id-review" });
+    expect(query.mock.calls[0]?.[1]).toEqual(expect.arrayContaining(["review", "o/r#1"]));
+  });
 });
 
 describe("createDescriptionWorkItem", () => {

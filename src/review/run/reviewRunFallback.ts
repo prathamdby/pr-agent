@@ -3,11 +3,7 @@ import { logWarn } from "../../evlog.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
-import {
-  reviewRetrySlashCommandForMode,
-  reviewSummarySentinelForMode,
-  type ReviewMode,
-} from "../reviewSchema.js";
+import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
 import { MAX_REVIEW_PUBLISH_CALLS } from "../../settings/index.js";
 
 export async function publishReviewRunFailureNotice(params: {
@@ -25,7 +21,6 @@ export async function publishReviewRunFailureNotice(params: {
     publishCallCount: params.setup.submitState.publishCallCount,
     maxPublishCalls: MAX_REVIEW_PUBLISH_CALLS,
   });
-  const retryCommand = reviewRetrySlashCommandForMode(params.reviewMode);
   const token = params.setup.getToken();
   const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
   const sentinel = reviewSummarySentinelForMode(params.reviewMode);
@@ -35,7 +30,7 @@ export async function publishReviewRunFailureNotice(params: {
       params.owner,
       params.repo,
       params.prNumber,
-      renderReviewFailureNotice({ mode: params.reviewMode, retryCommand }),
+      renderReviewFailureNotice({ mode: params.reviewMode, retryCommand: "/review" }),
       sentinel,
       undefined,
       tokenExpiresAtTs,

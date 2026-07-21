@@ -10,9 +10,6 @@ import {
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
 } from "../placement/reviewDiffIndex.js";
-import { automatedSecuritySystemPrompt } from "../../agent/prompts/securityPrompt.js";
-import { automatedQualitySystemPrompt } from "../../agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../../agent/prompts/reviewTestsPrompt.js";
 import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
 import {
   buildSubmitReviewTool,
@@ -22,21 +19,6 @@ import {
 import type { ReviewMode } from "../reviewSchema.js";
 import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
-
-function systemPromptForReviewMode(reviewMode: ReviewMode): string {
-  switch (reviewMode) {
-    case "review-security":
-      return automatedSecuritySystemPrompt;
-    case "review-quality":
-      return automatedQualitySystemPrompt;
-    case "review-tests":
-      return automatedReviewTestsSystemPrompt;
-    case "review":
-      return buildAutomatedSystemPrompt();
-  }
-  const exhaustive: never = reviewMode;
-  return exhaustive;
-}
 
 export type ReviewRunSetup = {
   readonly systemPrompt: string;
@@ -182,7 +164,7 @@ export function buildReviewRunSetup(params: {
   };
 
   return {
-    systemPrompt: systemPromptForReviewMode(reviewMode),
+    systemPrompt: buildAutomatedSystemPrompt(),
     userContent: buildReviewRunUserContent({
       owner,
       repo,

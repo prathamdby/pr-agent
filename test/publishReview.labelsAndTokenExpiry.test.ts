@@ -118,34 +118,6 @@ describe("publishReview labels and token expiry", () => {
     );
   });
 
-  it("syncs quality effort without removing review effort", async () => {
-    vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
-      "Review effort 3/5",
-      "Quality effort 1/5",
-      "bug",
-    ]);
-
-    await publishReviewForTest({
-      ...baseParams,
-      mode: "review-quality",
-      publishState: testPublishState(),
-      cfg: {
-        ...baseParams.cfg,
-        features: { ...baseParams.cfg.features, reviewLabels: "effort" as const },
-      },
-      payload: { ...payload, estimatedEffort: 4 },
-    });
-
-    expect(setPullRequestLabels).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      ["Review effort 3/5", "bug", "Quality effort 4/5"],
-      undefined,
-    );
-  });
-
   it("preserves unmanaged labels beyond the first GitHub page on replace-all sync", async () => {
     const pageOneExtras = Array.from({ length: 30 }, (_, i) => `extra-${i + 1}`);
     const pageTwoExtras = ["must-preserve-page-two", "also-preserve-page-two"];

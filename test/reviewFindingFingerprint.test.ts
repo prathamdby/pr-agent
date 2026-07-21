@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  fingerprintCandidates,
   fingerprintFinding,
   fingerprintInlinePlacements,
   mergeInlineFingerprintRecords,
@@ -79,6 +80,44 @@ describe("suppressInlinePlacementsByFingerprint", () => {
     );
     expect(suppressedInlineCount).toBe(1);
     expect(placements[0]?.inlinePosted).toBe(false);
+  });
+
+  it("suppresses a finding stored under a historical review lens", () => {
+    const stored = fingerprintFinding(finding, "review-security");
+    const fingerprintedPlacements = fingerprintInlinePlacements(
+      [{ finding, inlineLine: 10, inlinePosted: true }],
+      "review",
+    );
+
+    const result = suppressInlinePlacementsByFingerprint(fingerprintedPlacements, [stored]);
+
+    expect(result.suppressedInlineCount).toBe(1);
+    expect(result.placements[0]?.inlinePosted).toBe(false);
+  });
+
+  it("suppresses a finding stored in an adjacent line bucket", () => {
+    const shifted = { ...finding, startLine: 50, endLine: 52 };
+    const stored = fingerprintFinding(finding, "review");
+    const fingerprintedPlacements = fingerprintInlinePlacements(
+      [{ finding: shifted, inlineLine: 50, inlinePosted: true }],
+      "review",
+    );
+
+    const result = suppressInlinePlacementsByFingerprint(fingerprintedPlacements, [stored]);
+
+    expect(result.suppressedInlineCount).toBe(1);
+    expect(result.placements[0]?.inlinePosted).toBe(false);
+  });
+});
+
+describe("fingerprintCandidates", () => {
+  it("includes historical lenses and adjacent line buckets", () => {
+    const shifted = { ...finding, startLine: 50, endLine: 52 };
+    const candidates = fingerprintCandidates(shifted);
+
+    expect(candidates).toContain(fingerprintFinding(shifted, "review-security"));
+    expect(candidates).toContain(fingerprintFinding(finding, "review"));
+    expect(candidates).toContain(fingerprintFinding(finding, "review-security"));
   });
 });
 
