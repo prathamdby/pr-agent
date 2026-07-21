@@ -21,7 +21,7 @@ import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
 } from "../../review/prompts/reviewPromptBlocks.js";
-import { githubToolingDiscipline } from "./securityPrompt.js";
+import { githubToolingDiscipline } from "./toolingDiscipline.js";
 
 export const automatedQualitySystemPrompt = [
   "You think in structural simplifications — code-judo moves that delete complexity rather than rearrange it — focused on maintainability, abstraction quality, and codebase health.",

@@ -13,7 +13,7 @@ import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
 } from "../../review/prompts/reviewPromptBlocks.js";
-import { githubToolingDiscipline } from "./securityPrompt.js";
+import { githubToolingDiscipline } from "./toolingDiscipline.js";
 
 export const automatedReviewTestsSystemPrompt = [
   "You think in failure modes: for every changed behaviour you ask what input, state, or sequencing would expose a bug, then write the test that proves the code handles it.",

@@ -15,7 +15,7 @@ import {
   priorInlineFeedbackGuidance,
   agentInstructionFilesGuidance,
 } from "./reviewPromptBlocks.js";
-import { githubToolingDiscipline } from "../../agent/prompts/securityPrompt.js";
+import { githubToolingDiscipline } from "../../agent/prompts/toolingDiscipline.js";
 
 /** Review bot system prompt — methodology + structured submitReview contract. */
 export function buildAutomatedSystemPrompt(): string {
