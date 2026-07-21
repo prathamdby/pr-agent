@@ -1,0 +1,7 @@
+---
+globs:
+  - "src/agent/verification/**"
+  - "src/agentWork/executors/verificationExecutor.ts"
+---
+
+Verification run is read-only: no new findings, no code edits, no writable PR checkout. One verification stub per inline review thread (`<!-- pr-agent:verification-stub -->`), edited in place. Fixed and already-resolved quietly resolve; dismissed edits the stub (evidence + policy suggestion) then resolves. Stale superseded runs must not publish (ADR 0020–0023).

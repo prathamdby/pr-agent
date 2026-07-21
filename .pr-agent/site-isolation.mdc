@@ -1,0 +1,8 @@
+---
+globs:
+  - "site/**"
+  - "package.json"
+  - "scripts/check-production-dependency-graph.mjs"
+---
+
+`site/` is a separate landing package (`pr-agent-landing`); Vercel deploys use pnpm. Do not pull React, Vite, Next, or other frontend frameworks into the backend production dependency graph. Backend stays on Nub; do not "unify" package managers by contaminating prod deps (`check:prod-deps` must stay green).

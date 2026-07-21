@@ -1,0 +1,8 @@
+---
+globs:
+  - "src/agent/triage/**"
+  - "src/prWorkspace/writablePrCheckout.ts"
+  - "src/agentWork/executors/triageExecutor.ts"
+---
+
+Triage run: same-repo only (forks report-only); never force-push, rebase, or amend; push-or-nothing before resolving threads; dismissed requires maintainer reply evidence and is never auto-resolved by triage; use `git commit -n` (hooks off); keep sensitive-path / message / size validation server-side (ADR 0018). Writable PR checkout must stay isolated from the shared PR repository view cache.

@@ -1,0 +1,1 @@
+Switches over discriminated unions or enums must be exhaustive. Use a `never` check in the default case (`const exhaustive: never = …` or `satisfies never`) so newly added variants fail at compile time until handled. Do not use a silent `default` that drops unknown cases.
