@@ -1,11 +1,7 @@
 import type { ReviewMode } from "../review/reviewSchema.js";
 
 /** Historical lens identifiers still present in DB rows and old GitHub comments. Never written by new code. */
-export const LEGACY_REVIEW_LENSES = [
-  "review-security",
-  "review-quality",
-  "review-tests",
-] as const;
+export const LEGACY_REVIEW_LENSES = ["review-security", "review-quality", "review-tests"] as const;
 
 export type LegacyReviewLens = (typeof LEGACY_REVIEW_LENSES)[number];
 export type AnyReviewLens = ReviewMode | LegacyReviewLens;
