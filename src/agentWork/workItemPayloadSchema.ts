@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AppError } from "../errors/appError.js";
+import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/legacyReviewLenses.js";
 import type {
   AgentWorkItem,
   AgentWorkItemCore,
@@ -11,7 +12,7 @@ import type {
   WorkType,
 } from "./types.js";
 
-const ReviewModeSchema = z.enum(["review", "review-security", "review-quality", "review-tests"]);
+const ReviewModeSchema = z.enum(["review", ...LEGACY_REVIEW_LENSES]).transform(normalizeReviewLens);
 const WorkSourceSchema = z.enum(["auto", "slash"]);
 
 const ReplyTargetSchema = z.discriminatedUnion("kind", [

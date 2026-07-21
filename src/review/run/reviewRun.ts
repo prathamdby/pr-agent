@@ -27,7 +27,8 @@ import {
   REVIEW_ANCHOR_MENU_MAX_FILES,
   REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
 } from "../../settings/index.js";
-import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE, type ReviewMode } from "../reviewSchema.js";
+import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
 import { publishReviewRunFailureNotice } from "./reviewRunFallback.js";
 import {
@@ -45,7 +46,7 @@ import { sendReviewAgentTurn } from "./reviewRunAgentSend.js";
 
 export type { ReviewRunParams, ReviewRunResult } from "./reviewRunTypes.js";
 
-function tokenTtlMsOrDefault(value: number | undefined, mode: ReviewMode): number {
+function tokenTtlMsOrDefault(value: number | undefined, mode: AnyReviewLens): number {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
   logWarn("review_token_ttl_defaulted", { mode });
   return TOKEN_FRESHNESS_BUFFER_MS;

@@ -13,7 +13,8 @@ import {
   renderRepeatNoBugsReviewBody,
   renderReviewPointerBody,
 } from "./reviewRender.js";
-import type { ReviewMode, ReviewPayload } from "../reviewSchema.js";
+import type { ReviewPayload } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { SubmitReviewState } from "../publish/submitReviewTool.js";
 
 export type InlinePublishPhaseContext = {
@@ -35,7 +36,7 @@ export type InlinePublishPhaseResult = {
 function buildReviewPointerBody(
   payload: ReviewPayload,
   ctx: InlinePublishPhaseContext & {
-    mode: ReviewMode;
+    mode: AnyReviewLens;
     summaryCommentUrl?: string;
     placements: readonly InlinePlacement[];
     droppedInlinePlacements: readonly InlinePlacement[];
@@ -46,7 +47,7 @@ function buildReviewPointerBody(
 
 export async function runInlinePublishPhase(params: {
   token: string;
-  mode: ReviewMode;
+  mode: AnyReviewLens;
   payload: ReviewPayload;
   ctx: InlinePublishPhaseContext;
   placements: readonly FingerprintedInlinePlacement[];

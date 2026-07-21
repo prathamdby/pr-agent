@@ -7,7 +7,8 @@ import {
   updateReviewCheckRun,
   type ReviewCheckRunConclusion,
 } from "../github/reviewPublish.js";
-import { isInlineSeverity, type ReviewFinding, type ReviewMode } from "../review/reviewSchema.js";
+import { isInlineSeverity, type ReviewFinding } from "../review/reviewSchema.js";
+import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
@@ -42,7 +43,7 @@ export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "se
 export async function waitForReviewCheckRunGithubId(
   pool: Pool,
   workItemId: string,
-  reviewLens: ReviewMode,
+  reviewLens: AnyReviewLens,
   options?: { timeoutMs?: number; pollMs?: number },
 ): Promise<number | null> {
   const timeoutMs = options?.timeoutMs ?? REVIEW_CHECK_RUN_WAIT_FOR_ID_MS;
@@ -79,7 +80,7 @@ function logCheckRunWarning(
   });
 }
 
-export function reviewCheckRunName(mode: ReviewMode): string {
+export function reviewCheckRunName(mode: AnyReviewLens): string {
   switch (mode) {
     case "review-security":
       return "PR Agent Security Review";
@@ -113,7 +114,7 @@ type EnsureReviewCheckRunParams = {
   headSha: string;
   workItemId: string;
   resourceKey: string;
-  reviewLens: ReviewMode;
+  reviewLens: AnyReviewLens;
 };
 
 type GithubCheckRunRef = { id: number; url: string | null };
@@ -357,7 +358,7 @@ export async function completeReviewCheckRun(
     prNumber: number;
     workItemId: string;
     resourceKey: string;
-    reviewLens: ReviewMode;
+    reviewLens: AnyReviewLens;
     conclusion: ReviewCheckRunConclusion;
     summary: string;
     detailsUrl?: string;

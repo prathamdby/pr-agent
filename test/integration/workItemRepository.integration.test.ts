@@ -11,7 +11,7 @@ import {
   createVerificationWorkItem,
 } from "../../src/agentWork/intake/workItemRepository.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
-import type { ReviewMode } from "../../src/review/reviewSchema.js";
+import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "work-item-repo-it";
@@ -84,7 +84,7 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     "review-security",
     "review-quality",
     "review-tests",
-  ] as const satisfies readonly ReviewMode[])(
+  ] as const satisfies readonly AnyReviewLens[])(
     "keeps distinct winners per review lens %s",
     async (lens) => {
       const repo = `repo-${randomUUID().slice(0, 8)}`;

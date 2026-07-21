@@ -2,6 +2,11 @@ import type { Pool } from "pg";
 import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
+import {
+  isAnyReviewLens,
+  normalizeReviewLens,
+  type AnyReviewLens,
+} from "../settings/legacyReviewLenses.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkStatus, WorkType } from "./types.js";
 import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload, WorkItemPayloadValidationError } from "./workItemPayloadSchema.js";
@@ -17,7 +22,7 @@ type AgentWorkRow = {
   pr_number: number;
   installation_id: string;
   head_sha: string;
-  review_lens: "review" | "review-security" | "review-quality" | "review-tests" | null;
+  review_lens: AnyReviewLens | "description" | "ask" | "triage" | "verification" | null;
   resource_key: string;
   attempt_count: number;
   payload: unknown;
@@ -54,11 +59,14 @@ function mapWorkItemCore(row: Omit<AgentWorkRow, "payload">): AgentWorkItemCore 
       if (row.review_lens == null) {
         invalidWorkItemRow(row, "missing review_lens");
       }
+      if (!isAnyReviewLens(row.review_lens)) {
+        invalidWorkItemRow(row, `invalid review_lens "${row.review_lens}"`);
+      }
       return {
         ...base,
         type: "review",
         source: row.source,
-        reviewLens: row.review_lens,
+        reviewLens: normalizeReviewLens(row.review_lens),
       };
     }
     case "ask": {

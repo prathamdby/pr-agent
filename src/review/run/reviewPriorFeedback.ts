@@ -12,7 +12,7 @@ import {
 import { installationOctokit } from "../../github/appAuth.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { escapeTablePlainCell } from "../../github/markdownFormat.js";
-import type { ReviewMode } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type PriorInlineFeedbackThread = {
   path: string;
@@ -25,7 +25,7 @@ export type PriorInlineFeedbackThread = {
 
 export type BotFindingThread = {
   rootCommentId: number;
-  lens: ReviewMode;
+  lens: AnyReviewLens;
   path: string;
   line: number;
   severity: "P0" | "P1" | "P2" | "P3" | null;
@@ -67,7 +67,7 @@ function extractBotSeverity(body: string): BotFindingThread["severity"] {
   return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
 }
 
-function isTriageEligibleLens(lens: ReviewMode): boolean {
+function isTriageEligibleLens(lens: AnyReviewLens): boolean {
   return (
     lens === "review" ||
     lens === "review-security" ||
@@ -97,7 +97,7 @@ function findVerificationStubCommentId(
   return legacy?.id;
 }
 
-export function parseReviewPointerLensMarker(body: string): ReviewMode | null {
+export function parseReviewPointerLensMarker(body: string): AnyReviewLens | null {
   const match = REVIEW_POINTER_LENS_MARKER_RE.exec(body);
   if (!match) return null;
   const lens = match[1];
@@ -112,7 +112,7 @@ export function parseReviewPointerLensMarker(body: string): ReviewMode | null {
   return null;
 }
 
-export function classifyReviewLensFromPointerBody(body: string): ReviewMode | null {
+export function classifyReviewLensFromPointerBody(body: string): AnyReviewLens | null {
   const markerLens = parseReviewPointerLensMarker(body);
   if (markerLens) return markerLens;
   if (body.includes(SECURITY_REVIEW_POINTER_BODY)) return "review-security";
@@ -125,8 +125,8 @@ export function classifyReviewLensFromPointerBody(body: string): ReviewMode | nu
 function resolveReviewLensForTriage(
   body: string,
   reviewId: number,
-  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
-): ReviewMode | null {
+  publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
+): AnyReviewLens | null {
   const fromBody = classifyReviewLensFromPointerBody(body);
   if (fromBody) return fromBody;
   const fromRecords = publishRecordLenses?.get(reviewId);
@@ -194,7 +194,7 @@ async function listBotReviewIdsForLens(
   owner: string,
   repo: string,
   pullNumber: number,
-  mode: ReviewMode,
+  mode: AnyReviewLens,
   botUserId: number,
 ): Promise<Set<number>> {
   const octokit = installationOctokit(token);
@@ -228,8 +228,8 @@ async function listBotReviewIdsForTriage(
   repo: string,
   pullNumber: number,
   botUserId: number,
-  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
-): Promise<Map<number, ReviewMode>> {
+  publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
+): Promise<Map<number, AnyReviewLens>> {
   const octokit = installationOctokit(token);
   const reviews = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
@@ -246,7 +246,7 @@ async function listBotReviewIdsForTriage(
     },
   });
 
-  const reviewIds = new Map<number, ReviewMode>();
+  const reviewIds = new Map<number, AnyReviewLens>();
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
     const lens = resolveReviewLensForTriage(review.body ?? "", review.id, publishRecordLenses);
@@ -297,7 +297,7 @@ export async function fetchPriorInlineReviewFeedback(
   owner: string,
   repo: string,
   pullNumber: number,
-  mode: ReviewMode,
+  mode: AnyReviewLens,
   botUserId: number,
 ): Promise<PriorInlineFeedbackThread[]> {
   const [reviewIds, comments] = await Promise.all([
@@ -352,7 +352,7 @@ export async function fetchBotFindingThreads(
   repo: string,
   pullNumber: number,
   botUserId: number,
-  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
+  publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
 ): Promise<BotFindingThread[]> {
   const [comments, reviewIds] = await Promise.all([
     listPullRequestReviewComments(token, owner, repo, pullNumber),

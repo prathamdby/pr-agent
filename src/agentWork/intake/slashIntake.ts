@@ -12,7 +12,7 @@ import {
   slashDisabledBody,
   type Features,
 } from "../../settings/index.js";
-import type { ReviewMode } from "../../review/reviewSchema.js";
+import { normalizeReviewLens, type AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { DeferredIntakeEvent } from "./deferredEvents.js";
 import {
   type AckJobData,
@@ -282,14 +282,15 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
-async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): Promise<void> {
+async function handleSlashReview(ctx: SlashIntakeContext, command: AnyReviewLens): Promise<void> {
+  const reviewMode = normalizeReviewLens(command);
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const alreadyInProgressBody = `A \`/${command}\` run is already queued or in progress for this pull request.`;
   const insert = await createReviewWorkItem(ctx.client, {
     webhookEventId: ctx.eventId,
     ref: ctx.ref,
     source: "slash",
-    lens: command,
+    lens: reviewMode,
     userSupplement: clampStoredCommentText(`User invoked /${command} with:\n${ctx.input.body}`),
     commenterId: ctx.input.commenterId,
   });
@@ -305,9 +306,9 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
   const workItemId = insert.id;
   await enqueueSlashAck(ctx, {
     workItemId,
-    progress: { lens: command, headSha: ctx.ref.headSha, source: "slash" },
+    progress: { lens: reviewMode, headSha: ctx.ref.headSha, source: "slash" },
   });
-  await enqueueReview(ctx.boss, ctx.client, ctx.ref, workItemId, command, ctx.correlation);
+  await enqueueReview(ctx.boss, ctx.client, ctx.ref, workItemId, reviewMode, ctx.correlation);
   ctx.events.push({
     name: "agent_work_enqueued",
     fields: {
@@ -315,7 +316,7 @@ async function handleSlashReview(ctx: SlashIntakeContext, command: ReviewMode): 
       source: "slash",
       workItemId,
       resourceKey,
-      lens: command,
+      lens: reviewMode,
       ...ctx.correlation,
     },
   });
@@ -337,7 +338,7 @@ const REVIEW_SLASH_HANDLERS = {
   "review-security": (ctx) => handleSlashReview(ctx, "review-security"),
   "review-quality": (ctx) => handleSlashReview(ctx, "review-quality"),
   "review-tests": (ctx) => handleSlashReview(ctx, "review-tests"),
-} satisfies Record<ReviewMode, SlashIntakeHandler>;
+} satisfies Record<AnyReviewLens, SlashIntakeHandler>;
 
 const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
   help: (ctx) => handleSlashHelp(ctx),

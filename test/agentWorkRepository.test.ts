@@ -202,6 +202,18 @@ describe("mapWorkItem payload boundary", () => {
     });
   });
 
+  it.each(["review-security", "review-quality", "review-tests"] as const)(
+    "normalizes stored %s database rows to the live review mode",
+    async (reviewLens) => {
+      vi.mocked(queryOne).mockResolvedValue(reviewRow({ review_lens: reviewLens }));
+
+      await expect(getWorkItem(pool, "wi-1")).resolves.toMatchObject({
+        type: "review",
+        reviewLens: "review",
+      });
+    },
+  );
+
   it("rejects malformed payloads at getWorkItem", async () => {
     vi.mocked(queryOne).mockResolvedValue(reviewRow({ payload: { question: "wrong type shape" } }));
 

@@ -1,12 +1,12 @@
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
-import type { ReviewMode } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export function buildReviewRunUserContent(params: {
   owner: string;
   repo: string;
   prNumber: number;
   headSha: string;
-  reviewMode: ReviewMode;
+  reviewMode: AnyReviewLens;
   userSupplement?: string;
   trustedContext?: string;
 }): string {
@@ -22,7 +22,7 @@ export function buildReviewRunUserContent(params: {
   ].join("\n");
 }
 
-function closingInstructionForReviewMode(reviewMode: ReviewMode): string {
+function closingInstructionForReviewMode(reviewMode: AnyReviewLens): string {
   switch (reviewMode) {
     case "review-security":
       return "Perform an exhaustive security review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 security findings.";

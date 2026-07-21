@@ -22,11 +22,7 @@ import {
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/prompts/reviewTrustedContext.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
-import {
-  reviewRetrySlashCommandForMode,
-  reviewSummarySentinelForMode,
-  type ReviewMode,
-} from "../../review/reviewSchema.js";
+import { reviewSummarySentinelForMode, type ReviewMode } from "../../review/reviewSchema.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -638,7 +634,7 @@ export async function executeReviewJob(
         item.prNumber,
         renderReviewFailureNotice({
           mode: reviewLens,
-          retryCommand: reviewRetrySlashCommandForMode(reviewLens),
+          retryCommand: "/review",
         }),
         reviewSummarySentinelForMode(reviewLens),
         undefined,

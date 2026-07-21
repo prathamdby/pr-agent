@@ -19,9 +19,9 @@ import {
   createReviewPayloadSchema,
   formatReviewValidationError,
   reviewSummarySentinelForMode,
-  type ReviewMode,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type SubmitReviewState = {
   published: boolean;
@@ -60,7 +60,7 @@ export function buildSubmitReviewTool(params: {
   getToken?: () => string;
   getTokenExpiresAtTs?: () => number;
   ctx: ReviewPublishContext;
-  mode?: ReviewMode;
+  mode?: AnyReviewLens;
   state: SubmitReviewState;
   cachedDiffIndex?: CachedPrDiffIndex;
   canEnforceDiffCacheBeforeSubmit?: () => boolean;

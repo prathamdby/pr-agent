@@ -2,7 +2,8 @@ import { publishReview } from "../../src/review/publish/publishReview.js";
 import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
 import { planInlinePlacements } from "../../src/review/placement/reviewDiffPlacement.js";
-import type { ReviewFinding, ReviewMode, ReviewPayload } from "../../src/review/reviewSchema.js";
+import type { ReviewFinding, ReviewPayload } from "../../src/review/reviewSchema.js";
+import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 import {
   createCachedPrDiffIndex,
   ingestListPullRequestFilesResult,
@@ -12,7 +13,7 @@ import { createSubmitReviewState } from "../../src/review/publish/submitReviewTo
 
 /** Runs pre-publish pipeline then publishReview (matches submitReview path). */
 export async function publishReviewForTest(
-  params: Parameters<typeof publishReview>[0] & { mode?: ReviewMode },
+  params: Parameters<typeof publishReview>[0] & { mode?: AnyReviewLens },
 ): Promise<void> {
   const mode = params.mode ?? "review";
   const prepared = prepareReviewPayloadForPublish({

@@ -19,9 +19,9 @@ import {
   isInlineSeverity,
   normalizeReviewPayload,
   type ReviewFinding,
-  type ReviewMode,
   type ReviewPayload,
 } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type PreparedReviewPayload = {
   readonly payload: ReviewPayload;
@@ -47,7 +47,7 @@ function passesSeverityFloor(severity: ReviewFinding["severity"], severityFloor?
 
 export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
-  mode: ReviewMode;
+  mode: AnyReviewLens;
   reviewMinConfidence?: number;
   severityFloor?: number;
   cachedDiffIndex?: CachedPrDiffIndex;
@@ -117,7 +117,7 @@ export function prepareReviewPayloadForPublish(params: {
 
 export function prepareFindingsForPublish(params: {
   payload: ReviewPayload;
-  mode: ReviewMode;
+  mode: AnyReviewLens;
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
   storedInlineFingerprints?: readonly string[];

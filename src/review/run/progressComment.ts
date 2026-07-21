@@ -12,13 +12,14 @@ import {
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
 } from "../../settings/index.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
+import { reviewSummarySentinelForMode } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
 
 export function renderReviewProgressComment(params: {
-  mode: ReviewMode;
+  mode: AnyReviewLens;
   headSha: string;
   source: WorkSource;
   ciSummary?: CiSummary | null;
@@ -42,7 +43,7 @@ export function renderReviewProgressComment(params: {
 }
 
 export function renderReviewFailureNotice(params: {
-  mode: ReviewMode;
+  mode: AnyReviewLens;
   retryCommand: string;
 }): string {
   return [

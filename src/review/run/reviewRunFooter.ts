@@ -1,5 +1,5 @@
 import { escapeTableHtml } from "../../github/markdownFormat.js";
-import type { ReviewMode } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type ReviewRunFooterMeta = {
   readonly durationMs: number;
@@ -8,7 +8,7 @@ export type ReviewRunFooterMeta = {
 
 const FOOTER_SEP = " ⋅ ";
 
-export function reviewLensFooterLabel(mode: ReviewMode): string {
+export function reviewLensFooterLabel(mode: AnyReviewLens): string {
   switch (mode) {
     case "review":
       return "general";
@@ -52,7 +52,7 @@ export function shortHeadSha(headSha: string): string {
 /** Muted provenance line: `<sub>a1b2c3d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>`. */
 export function renderReviewRunFooter(params: {
   readonly headSha: string;
-  readonly mode: ReviewMode;
+  readonly mode: AnyReviewLens;
   readonly durationMs: number;
   readonly model: string;
 }): string {

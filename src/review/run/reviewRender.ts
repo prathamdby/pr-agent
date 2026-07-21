@@ -39,13 +39,9 @@ import {
 } from "../../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
-import type {
-  ReviewFinding,
-  ReviewPayload,
-  ReviewPublishContext,
-  ReviewMode,
-} from "../reviewSchema.js";
+import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import { reviewSummarySentinelForMode } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
@@ -93,7 +89,7 @@ type ReviewModeRenderStrategy = {
   readonly updatedNoun: string;
 };
 
-const REVIEW_MODE_RENDER: Record<ReviewMode, ReviewModeRenderStrategy> = {
+const REVIEW_MODE_RENDER: Record<AnyReviewLens, ReviewModeRenderStrategy> = {
   "review-security": {
     pointerBody: SECURITY_REVIEW_POINTER_BODY,
     updatedNoun: "security review",
@@ -112,16 +108,19 @@ const REVIEW_MODE_RENDER: Record<ReviewMode, ReviewModeRenderStrategy> = {
   },
 };
 
-function reviewPointerBodyForMode(mode: ReviewMode): string {
+function reviewPointerBodyForMode(mode: AnyReviewLens): string {
   return REVIEW_MODE_RENDER[mode].pointerBody;
 }
 
-function renderReviewPointerLine(mode: ReviewMode, summaryCommentUrl?: string): string {
+function renderReviewPointerLine(mode: AnyReviewLens, summaryCommentUrl?: string): string {
   if (!summaryCommentUrl) return reviewPointerBodyForMode(mode);
   return `[View the updated ${REVIEW_MODE_RENDER[mode].updatedNoun}.](${summaryCommentUrl})`;
 }
 
-export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl?: string): string {
+export function renderRepeatNoBugsReviewBody(
+  mode: AnyReviewLens,
+  summaryCommentUrl?: string,
+): string {
   if (summaryCommentUrl) {
     return `${REPEAT_NO_BUGS_PREFIX}, [see the updated ${REVIEW_MODE_RENDER[mode].updatedNoun}](${summaryCommentUrl}).`;
   }
@@ -129,7 +128,7 @@ export function renderRepeatNoBugsReviewBody(mode: ReviewMode, summaryCommentUrl
 }
 
 export function renderLightweightReviewCompletion(
-  mode: ReviewMode,
+  mode: AnyReviewLens,
   footer: { readonly headSha: string } & ReviewRunFooterMeta,
 ): string {
   const summarySentinel = reviewSummarySentinelForMode(mode);
@@ -159,7 +158,7 @@ export function renderLightweightReviewCompletion(
 
 export function renderStaleReviewMetadataComment(params: {
   headSha: string;
-  mode: ReviewMode;
+  mode: AnyReviewLens;
   stale: boolean;
 }): string {
   const headSha = sanitizeReviewMetaHeadSha(params.headSha);
@@ -365,7 +364,7 @@ export function renderAgentFixPrompt(
   ].join("\n");
 }
 
-function renderPointerLead(mode: ReviewMode, summaryCommentUrl?: string): string {
+function renderPointerLead(mode: AnyReviewLens, summaryCommentUrl?: string): string {
   if (summaryCommentUrl) {
     return renderReviewPointerLine(mode, summaryCommentUrl);
   }
@@ -419,14 +418,14 @@ function truncateAgentFixPromptForPointerBody(
   };
 }
 
-export function renderReviewPointerLensMarker(mode: ReviewMode): string {
+export function renderReviewPointerLensMarker(mode: AnyReviewLens): string {
   return `<!-- pr-agent:review-pointer lens=${escapeHtmlCommentAttr(mode)} -->`;
 }
 
 export function renderReviewPointerBody(
   payload: ReviewPayload,
   ctx: RenderContext & {
-    mode: ReviewMode;
+    mode: AnyReviewLens;
     summaryCommentUrl?: string;
     placements: readonly InlinePlacement[];
     droppedInlinePlacements?: readonly InlinePlacement[];
@@ -457,7 +456,7 @@ export function renderReviewPointerBody(
 type ReviewSummaryRenderCtx = RenderContext & {
   summarySentinel: string;
   placements: readonly InlinePlacement[];
-  mode: ReviewMode;
+  mode: AnyReviewLens;
   runFooter: ReviewRunFooterMeta;
   staleReview?: boolean;
   cachedDiffIndex?: CachedPrDiffIndex;

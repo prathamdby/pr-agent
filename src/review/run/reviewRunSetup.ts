@@ -19,11 +19,11 @@ import {
   createSubmitReviewState,
   type SubmitReviewState,
 } from "../publish/submitReviewTool.js";
-import type { ReviewMode } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 
-function systemPromptForReviewMode(reviewMode: ReviewMode): string {
+function systemPromptForReviewMode(reviewMode: AnyReviewLens): string {
   switch (reviewMode) {
     case "review-security":
       return automatedSecuritySystemPrompt;
@@ -66,7 +66,7 @@ export function buildReviewRunSetup(params: {
   repo: string;
   prNumber: number;
   headSha: string;
-  reviewMode: ReviewMode;
+  reviewMode: AnyReviewLens;
   userSupplement?: string;
   trustedContext?: string;
   workspace: LocalPrWorkspace;

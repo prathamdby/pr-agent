@@ -1,7 +1,8 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
-import type { WorkSource, ReviewMode } from "../reviewSchema.js";
+import type { WorkSource } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type ReviewRunParams = {
   readonly cfg: Config;
@@ -12,7 +13,7 @@ export type ReviewRunParams = {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  readonly mode?: ReviewMode;
+  readonly mode?: AnyReviewLens;
   readonly userSupplement?: string;
   readonly trustedContext?: string;
   readonly cwd?: string;

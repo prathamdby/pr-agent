@@ -8,7 +8,7 @@ import {
   fetchPriorInlineReviewFeedback,
   formatPriorInlineFeedbackBlock,
 } from "../run/reviewPriorFeedback.js";
-import type { ReviewMode } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
@@ -61,7 +61,7 @@ export async function fetchPriorInlineFeedbackBlockForReview(params: {
   owner: string;
   repo: string;
   prNumber: number;
-  reviewLens: ReviewMode;
+  reviewLens: AnyReviewLens;
   botUserId: number;
   onPriorFeedbackError?: (error: unknown) => void;
 }): Promise<string | undefined> {

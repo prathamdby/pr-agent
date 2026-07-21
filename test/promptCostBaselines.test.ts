@@ -16,7 +16,8 @@ import {
 } from "../src/review/publish/submitReviewTool.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
-import { createReviewPayloadSchema, type ReviewMode } from "../src/review/reviewSchema.js";
+import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
+import type { AnyReviewLens } from "../src/settings/legacyReviewLenses.js";
 import {
   assertPromptCostWithinBudget,
   measurePromptCost,
@@ -279,7 +280,7 @@ function reviewLensPrompts(): ReadonlyArray<readonly [string, string]> {
   ];
 }
 
-function representativeReviewUserContent(reviewMode: ReviewMode): string {
+function representativeReviewUserContent(reviewMode: AnyReviewLens): string {
   return buildReviewRunUserContent({
     owner: "octo",
     repo: "hello",

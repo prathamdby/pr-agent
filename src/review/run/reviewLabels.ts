@@ -10,11 +10,11 @@ import {
   REVIEW_FINDING_CATEGORIES,
   type ReviewFinding,
   type ReviewFindingCategory,
-  type ReviewMode,
   type ReviewPayload,
 } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
-function reviewEffortLabelPrefix(mode: ReviewMode): string {
+function reviewEffortLabelPrefix(mode: AnyReviewLens): string {
   switch (mode) {
     case "review-security":
       return LABEL_SECURITY_EFFORT_PREFIX;
@@ -66,7 +66,7 @@ export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean; category: boolean },
-  mode: ReviewMode = "review",
+  mode: AnyReviewLens = "review",
 ): boolean {
   if (opts.effort) {
     const effortPrefix = reviewEffortLabelPrefix(mode);
@@ -88,7 +88,7 @@ export function labelsAlreadySynced(
 export function reviewLabelsFromPayload(
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean; category: boolean },
-  mode: ReviewMode = "review",
+  mode: AnyReviewLens = "review",
 ): string[] {
   const labels: string[] = [];
   if (opts.effort) {
@@ -107,7 +107,7 @@ export function reviewLabelsFromPayload(
 export function syncReviewLabels(
   currentLabels: string[],
   nextManaged: string[],
-  mode: ReviewMode = "review",
+  mode: AnyReviewLens = "review",
 ): string[] {
   const effortPrefix = reviewEffortLabelPrefix(mode);
   const preserved = currentLabels.filter(

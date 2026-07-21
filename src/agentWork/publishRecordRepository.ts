@@ -8,10 +8,10 @@ import {
   TRIAGE_PUBLISH_LENS,
   VERIFICATION_PUBLISH_LENS,
 } from "../settings/index.js";
-import type { ReviewWorkPayload } from "./types.js";
+import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 
 export type PublishLens =
-  | ReviewWorkPayload["mode"]
+  | AnyReviewLens
   | typeof DESCRIPTION_PUBLISH_LENS
   | typeof ASK_PUBLISH_LENS
   | typeof TRIAGE_PUBLISH_LENS
@@ -113,7 +113,7 @@ export async function claimSummaryCommentCreation(
   pool: Pool,
   workItemId: string,
   resourceKey: string,
-  reviewLens: ReviewWorkPayload["mode"],
+  reviewLens: AnyReviewLens,
 ): Promise<boolean> {
   const result = await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
@@ -128,7 +128,7 @@ export async function claimSummaryCommentCreation(
 export async function getSummaryCommentGithubId(
   pool: Pool,
   resourceKey: string,
-  reviewLens: ReviewWorkPayload["mode"],
+  reviewLens: AnyReviewLens,
 ): Promise<number | null> {
   const row = await queryOne<{ github_id: string }>(
     pool,
@@ -151,7 +151,7 @@ export async function getSummaryCommentGithubId(
 export async function getReviewCheckRunGithubId(
   pool: Pool,
   workItemId: string,
-  reviewLens: ReviewWorkPayload["mode"],
+  reviewLens: AnyReviewLens,
 ): Promise<number | null> {
   const row = await queryOne<{ github_id: string | null }>(
     pool,
@@ -174,7 +174,7 @@ export async function reserveReviewCheckRun(
   params: {
     workItemId: string;
     resourceKey: string;
-    reviewLens: ReviewWorkPayload["mode"];
+    reviewLens: AnyReviewLens;
     detail?: Record<string, unknown>;
   },
 ): Promise<boolean> {
@@ -199,7 +199,7 @@ export async function recordReviewCheckRun(
   params: {
     workItemId: string;
     resourceKey: string;
-    reviewLens: ReviewWorkPayload["mode"];
+    reviewLens: AnyReviewLens;
     githubId: string | number;
     detail?: Record<string, unknown>;
   },
@@ -229,7 +229,7 @@ export async function releaseUnstartedReviewCheckRunReservation(
   params: {
     workItemId: string;
     resourceKey: string;
-    reviewLens: ReviewWorkPayload["mode"];
+    reviewLens: AnyReviewLens;
     staleBefore?: Date;
   },
 ): Promise<boolean> {
@@ -258,8 +258,8 @@ export async function releaseUnstartedReviewCheckRunReservation(
 export async function listTriageEligibleInlineReviews(
   pool: Pool,
   resourceKey: string,
-): Promise<Map<number, ReviewWorkPayload["mode"]>> {
-  const result = await pool.query<{ github_id: string; review_lens: ReviewWorkPayload["mode"] }>(
+): Promise<Map<number, AnyReviewLens>> {
+  const result = await pool.query<{ github_id: string; review_lens: AnyReviewLens }>(
     `SELECT github_id, review_lens
        FROM publish_records
       WHERE resource_key = $1
@@ -268,7 +268,7 @@ export async function listTriageEligibleInlineReviews(
         AND review_lens IN ('review', 'review-security', 'review-quality', 'review-tests')`,
     [resourceKey],
   );
-  const reviewLenses = new Map<number, ReviewWorkPayload["mode"]>();
+  const reviewLenses = new Map<number, AnyReviewLens>();
   for (const row of result.rows) {
     if (!row.github_id) continue;
     const reviewId = Number(row.github_id);
@@ -324,7 +324,7 @@ export async function loadReviewExecutorPublishContext(
   pool: Pool,
   workItemId: string,
   resourceKey: string,
-  reviewLens: ReviewWorkPayload["mode"],
+  reviewLens: AnyReviewLens,
 ): Promise<ReviewExecutorPublishContext> {
   const row = await queryOne<{
     current_publish: { step: string; github_id: string | null }[] | null;

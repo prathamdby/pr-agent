@@ -48,10 +48,10 @@ import { prepareFindingsForPublish } from "../findings/findingPipeline.js";
 import {
   reviewEventForFindings,
   reviewSummarySentinelForMode,
-  type ReviewMode,
   type ReviewPayload,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
 
 export type SummaryCommentCoordination = {
@@ -107,7 +107,7 @@ export async function upsertSummaryCommentWithCreationClaim(params: {
   pool: Pool;
   workItemId: string;
   resourceKey: string;
-  reviewLens: ReviewMode;
+  reviewLens: AnyReviewLens;
   token: string;
   owner: string;
   repo: string;
@@ -232,7 +232,7 @@ export async function upsertSummaryCommentWithCreationClaim(params: {
 export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
-    mode?: ReviewMode;
+    mode?: AnyReviewLens;
     cfg: Pick<Config, "piModel" | "features">;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
