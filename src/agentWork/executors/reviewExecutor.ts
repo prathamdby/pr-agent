@@ -69,7 +69,7 @@ import {
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
-import { refreshInstallationTokenIfNearExpiry } from "../../review/orchestrator/refreshInstallationTokenIfNearExpiry.js";
+import { isInstallationTokenNearExpiry } from "../../github/installationTokenExpiry.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -439,7 +439,6 @@ async function runFullReviewAgainstRepositoryView(args: {
     repo: item.repo,
     prNumber: item.prNumber,
     headSha,
-    mode: reviewLens,
     userSupplement: payload.userSupplement,
     trustedContext,
     storedInlineFingerprints,
@@ -479,10 +478,9 @@ async function runFullReviewAgainstRepositoryView(args: {
     shouldCancelRun: async () => shouldSkipWork(pool, item),
     shouldAbortPublish: async () => {
       if (await shouldSkipWork(pool, item)) return true;
-      await refreshInstallationTokenIfNearExpiry({
-        getTokenExpiresAtTs: () => tokenState.installation.expiresAtTs,
-        refreshInstallationToken,
-      });
+      if (isInstallationTokenNearExpiry(tokenState.installation.expiresAtTs)) {
+        await refreshInstallationToken();
+      }
       const latestHeadSha = await getPullRequestHeadSha(
         tokenState.installation.token,
         item.owner,

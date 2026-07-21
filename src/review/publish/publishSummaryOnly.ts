@@ -9,6 +9,7 @@ import {
   setReviewCommitStatus,
   upsertReviewSummaryComment,
 } from "../../github/reviewPublish.js";
+import type { InstallationTokenHandle } from "../../github/installationTokenHandle.js";
 import {
   completeReviewCheckRun,
   reviewCheckDetailsUrl,
@@ -37,6 +38,7 @@ import {
   type ReviewPayload,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
+import type { PublishAbortGate } from "./publishAbortGate.js";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
 import {
   type RecordPublishStepWithCoordination,
@@ -46,13 +48,7 @@ import {
 export type PublishReviewSummaryOnlyArgs = {
   cfg: Pick<Config, "piModel" | "features">;
   ctx: ReviewPublishContext;
-  getToken: () => string;
-  getTokenExpiresAtTs?: () => number | undefined;
-  /**
-   * Optional V2 holder-updating near-expiry refresh (decision 27). Called before each GitHub
-   * write group; absent for V1 callers.
-   */
-  refreshNearExpiry?: () => Promise<void>;
+  token: InstallationTokenHandle;
   payload: ReviewPayload;
   summaryPlacements: readonly InlinePlacement[];
   inlineReviewIds: readonly number[];
@@ -66,8 +62,7 @@ export type PublishReviewSummaryOnlyArgs = {
   summaryCommentIdHint?: number | null;
   knownSummaryCommentRef?: { id: number; url: string } | null;
   staleReview?: boolean;
-  shouldAbortPublish?: () => Promise<boolean>;
-  publishAbortState?: { staleHead?: boolean };
+  abortGate: PublishAbortGate;
   publishMeta?: Record<string, unknown>;
 };
 
@@ -91,10 +86,9 @@ export function reviewCommitStatusState(
 }
 
 async function assertSummaryPublishAllowed(args: PublishReviewSummaryOnlyArgs): Promise<void> {
-  if (!args.shouldAbortPublish) return;
-  let abort = false;
+  let kind: "continue" | "stale_head" | "superseded";
   try {
-    abort = await args.shouldAbortPublish();
+    kind = await args.abortGate();
   } catch (error) {
     logWarn("review_summary_abort_check_failed", {
       owner: args.ctx.owner,
@@ -102,15 +96,13 @@ async function assertSummaryPublishAllowed(args: PublishReviewSummaryOnlyArgs): 
       pr: args.ctx.prNumber,
       message: error instanceof Error ? error.message : String(error),
     });
-    abort = true;
+    kind = "superseded";
   }
-  if (!abort) return;
+  if (kind === "continue") return;
   throw new AppError({
     code: "review.publish_superseded",
     message: "Review summary publish skipped: work superseded or cancelled",
-    context: {
-      reason: args.publishAbortState?.staleHead === true ? "stale_head" : "superseded",
-    },
+    context: { reason: kind },
   });
 }
 
@@ -119,12 +111,12 @@ async function enrichFromReviewIds(args: PublishReviewSummaryOnlyArgs): Promise<
   for (const reviewId of new Set(args.inlineReviewIds)) {
     try {
       const comments = await listPullRequestReviewCommentsForReview(
-        args.getToken(),
+        args.token.getToken(),
         args.ctx.owner,
         args.ctx.repo,
         args.ctx.prNumber,
         reviewId,
-        args.getTokenExpiresAtTs?.(),
+        args.token.getExpiresAtTs(),
       );
       placements = enrichPlacementsWithInlineCommentUrls(placements, comments);
     } catch (error) {
@@ -143,14 +135,12 @@ async function enrichFromReviewIds(args: PublishReviewSummaryOnlyArgs): Promise<
 
 async function refreshLiveToken(args: PublishReviewSummaryOnlyArgs): Promise<{
   token: string;
-  expiresAtTs: number | undefined;
+  expiresAtTs: number;
 }> {
-  if (args.refreshNearExpiry) {
-    await args.refreshNearExpiry();
-  }
+  await args.token.refreshNearExpiry();
   return {
-    token: args.getToken(),
-    expiresAtTs: args.getTokenExpiresAtTs?.(),
+    token: args.token.getToken(),
+    expiresAtTs: args.token.getExpiresAtTs(),
   };
 }
 
@@ -248,11 +238,11 @@ export async function publishReviewSummaryOnly(
   const summarySentinel = reviewSummarySentinelForMode("review");
   const summaryPlacements = await enrichFromReviewIds(args);
   const ciSummary = await buildCiSummary({
-    token: args.getToken(),
+    token: args.token.getToken(),
     owner: ctx.owner,
     repo: ctx.repo,
     headSha: ctx.headSha,
-    expiresAtTs: args.getTokenExpiresAtTs?.(),
+    expiresAtTs: args.token.getExpiresAtTs(),
     waitMs: REVIEW_CI_SUMMARY_WAIT_MS,
     waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
@@ -277,13 +267,13 @@ export async function publishReviewSummaryOnly(
   let knownSummaryCommentRef = args.knownSummaryCommentRef ?? null;
   if (args.shouldLinkToSummary && args.knownSummaryCommentRef === undefined) {
     const resolved = await resolveVerifiedSummaryCommentRef(
-      args.getToken(),
+      args.token.getToken(),
       ctx.owner,
       ctx.repo,
       ctx.prNumber,
       summarySentinel,
       args.summaryCommentIdHint,
-      args.getTokenExpiresAtTs?.(),
+      args.token.getExpiresAtTs(),
     );
     knownSummaryCommentRef = resolved ? { id: resolved.id, url: resolved.url } : null;
   }

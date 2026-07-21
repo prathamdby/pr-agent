@@ -1,11 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
-import {
-  createThreadPublishRunState,
-  buildPublishThreadTool,
-} from "../src/review/orchestrator/publishThreadTool.js";
-import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
+import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
+import { createThreadPublishRunState } from "../src/review/publish/threadPublishRunState.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { testTokenHandle } from "./helpers/tokenHandle.js";
 
 const publishFindingBatch = vi.fn();
 
@@ -43,7 +41,7 @@ describe("publishThreadTool", () => {
       })
       .mockResolvedValueOnce({ kind: "empty" });
 
-    const getToken = vi.fn(() => "tok-1");
+    const token = testTokenHandle({ token: "tok-1" });
     const { executor } = buildPublishThreadTool({
       cfg: makeTestConfig(),
       ctx: {
@@ -53,36 +51,40 @@ describe("publishThreadTool", () => {
         headSha: "sha",
         hasDescriptionAgentBlock: false,
       },
-      getToken,
-      getTokenExpiresAtTs: () => Date.now() + 3_600_000,
+      token,
       recordPublishStep: vi.fn(async () => undefined),
       runState,
+      abortGate: async () => "continue" as const,
     });
 
     const first = await executor({ findings: [finding()] });
-    expect(first).toEqual(
-      expect.objectContaining({
+    expect(first).toEqual({
+      accepted: true,
+      value: expect.objectContaining({
         kind: "published",
         reviewId: 10,
         posted: 1,
       }),
-    );
+    });
     expect(publishFindingBatch).toHaveBeenCalledWith(
       [finding()],
-      expect.objectContaining({ runState, getToken }),
+      expect.objectContaining({ runState, token }),
     );
 
     runState.postedFingerprints.add("fp-from-batch");
     const second = await executor({
       findings: [finding({ file: "src/b.ts", title: "Bug B" })],
     });
-    expect(second).toEqual(expect.objectContaining({ kind: "empty" }));
+    expect(second).toEqual({
+      accepted: true,
+      value: expect.objectContaining({ kind: "empty" }),
+    });
     expect(publishFindingBatch.mock.calls[1]?.[1].runState).toBe(runState);
     expect(runState.postedFingerprints.has("fp-existing")).toBe(true);
     expect(runState.postedFingerprints.has("fp-from-batch")).toBe(true);
   });
 
-  it("returns same-file published-thread overlap hints", async () => {
+  it("returns same-file published-thread overlap hints in the accepted envelope", async () => {
     const runState = createThreadPublishRunState({
       acceptedFindings: [
         finding({ file: "src/a.ts", title: "Prior A", startLine: 2, endLine: 2 }),
@@ -106,16 +108,18 @@ describe("publishThreadTool", () => {
         headSha: "sha",
         hasDescriptionAgentBlock: false,
       },
-      getToken: () => "tok",
+      token: testTokenHandle(),
       recordPublishStep: vi.fn(async () => undefined),
       runState,
+      abortGate: async () => "continue" as const,
     });
 
     const result = await executor({
       findings: [finding({ file: "src/a.ts", title: "New A", startLine: 8, endLine: 8 })],
     });
-    expect(result).toEqual(
-      expect.objectContaining({
+    expect(result).toEqual({
+      accepted: true,
+      value: expect.objectContaining({
         kind: "published",
         sameFilePublishedThreads: [
           expect.objectContaining({
@@ -126,7 +130,7 @@ describe("publishThreadTool", () => {
           }),
         ],
       }),
-    );
+    });
   });
 
   it("treats zero-thread judgment (empty batch) as valid", async () => {
@@ -141,14 +145,16 @@ describe("publishThreadTool", () => {
         headSha: "sha",
         hasDescriptionAgentBlock: false,
       },
-      getToken: () => "tok",
+      token: testTokenHandle(),
       recordPublishStep: vi.fn(async () => undefined),
       runState,
+      abortGate: async () => "continue" as const,
     });
 
-    await expect(executor({ findings: [] })).resolves.toEqual(
-      expect.objectContaining({ kind: "empty" }),
-    );
+    await expect(executor({ findings: [] })).resolves.toEqual({
+      accepted: true,
+      value: expect.objectContaining({ kind: "empty" }),
+    });
   });
 
   it("converts budget_exhausted findings into accepted summary-only state", async () => {
@@ -170,32 +176,27 @@ describe("publishThreadTool", () => {
         headSha: "sha",
         hasDescriptionAgentBlock: false,
       },
-      getToken: () => "tok",
+      token: testTokenHandle(),
       recordPublishStep: vi.fn(async () => undefined),
       runState,
+      abortGate: async () => "continue" as const,
     });
 
     const result = await executor({ findings: [batchFinding] });
-    expect(result).toEqual(
-      expect.objectContaining({
+    expect(result).toEqual({
+      accepted: true,
+      value: expect.objectContaining({
         kind: "budget_exhausted",
         acceptedAsSummaryOnly: true,
       }),
-    );
+    });
     expect(runState.acceptedFindings).toEqual([batchFinding]);
   });
 
-  it("reads getToken live and refreshes when near expiry before publish", async () => {
-    const expiresAt = Date.now() + TOKEN_FRESHNESS_BUFFER_MS / 2;
-    let token = "stale-tok";
-    const refreshInstallationToken = vi.fn(async () => {
-      token = "fresh-tok";
-      return { token, expiresAtTs: Date.now() + 3_600_000 };
-    });
-    publishFindingBatch.mockImplementationOnce(async (_batch, context) => {
-      expect(context.getToken()).toBe("fresh-tok");
-      return { kind: "empty" };
-    });
+  it("passes InstallationTokenHandle and abortGate through to publishFindingBatch", async () => {
+    publishFindingBatch.mockResolvedValueOnce({ kind: "empty" });
+    const token = testTokenHandle({ token: "tok-live" });
+    const abortGate = vi.fn(async () => "continue" as const);
 
     const { executor } = buildPublishThreadTool({
       cfg: makeTestConfig(),
@@ -206,25 +207,21 @@ describe("publishThreadTool", () => {
         headSha: "sha",
         hasDescriptionAgentBlock: false,
       },
-      getToken: () => token,
-      getTokenExpiresAtTs: () => expiresAt,
-      refreshInstallationToken,
+      token,
       recordPublishStep: vi.fn(async () => undefined),
       runState: createThreadPublishRunState(),
+      abortGate,
     });
 
     await executor({ findings: [finding()] });
-    expect(refreshInstallationToken).toHaveBeenCalledTimes(1);
+    expect(publishFindingBatch).toHaveBeenCalledWith(
+      [finding()],
+      expect.objectContaining({ token, abortGate }),
+    );
   });
 
-  it("does not refresh when the token is still fresh", async () => {
-    const refreshInstallationToken = vi.fn(async () => ({
-      token: "fresh",
-      expiresAtTs: Date.now() + 3_600_000,
-    }));
-    publishFindingBatch.mockResolvedValueOnce({ kind: "empty" });
-
-    const { executor } = buildPublishThreadTool({
+  it("returns rejected envelope on validation failure", async () => {
+    const { executor, getLastError } = buildPublishThreadTool({
       cfg: makeTestConfig(),
       ctx: {
         owner: "o",
@@ -233,14 +230,18 @@ describe("publishThreadTool", () => {
         headSha: "sha",
         hasDescriptionAgentBlock: false,
       },
-      getToken: () => "tok",
-      getTokenExpiresAtTs: () => Date.now() + 3_600_000,
-      refreshInstallationToken,
+      token: testTokenHandle(),
       recordPublishStep: vi.fn(async () => undefined),
       runState: createThreadPublishRunState(),
+      abortGate: async () => "continue" as const,
     });
 
-    await executor({ findings: [finding()] });
-    expect(refreshInstallationToken).not.toHaveBeenCalled();
+    const result = await executor({ findings: [{ severity: "P1" }] });
+    expect(result).toEqual({
+      accepted: false,
+      error: expect.stringContaining("validation"),
+    });
+    expect(getLastError()).toEqual(expect.stringContaining("validation"));
+    expect(publishFindingBatch).not.toHaveBeenCalled();
   });
 });

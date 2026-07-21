@@ -4,14 +4,11 @@ import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../reviewSchema.js";
 import { MAX_REVIEW_PUBLISH_CALLS } from "../../settings/index.js";
-import { refreshInstallationTokenIfNearExpiry } from "../orchestrator/refreshInstallationTokenIfNearExpiry.js";
+import type { InstallationTokenHandle } from "../../github/installationTokenHandle.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;
-  readonly getToken: () => string;
-  readonly getTokenExpiresAtTs?: () => number;
-  readonly refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
-  readonly refreshNearExpiry?: () => Promise<void>;
+  readonly token: InstallationTokenHandle;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -26,23 +23,17 @@ export async function publishReviewRunFailureNotice(params: {
     maxPublishCalls: MAX_REVIEW_PUBLISH_CALLS,
   });
   try {
-    await refreshInstallationTokenIfNearExpiry({
-      getTokenExpiresAtTs: params.getTokenExpiresAtTs,
-      refreshInstallationToken: params.refreshInstallationToken,
-      refreshNearExpiry: params.refreshNearExpiry,
-    });
-    const token = params.getToken();
-    const tokenExpiresAtTs = params.getTokenExpiresAtTs?.();
+    await params.token.refreshNearExpiry();
     const sentinel = reviewSummarySentinelForMode(params.reviewMode);
     await upsertReviewSummaryComment(
-      token,
+      params.token.getToken(),
       params.owner,
       params.repo,
       params.prNumber,
       renderReviewFailureNotice({ mode: params.reviewMode, retryCommand: "/review" }),
       sentinel,
       undefined,
-      tokenExpiresAtTs,
+      params.token.getExpiresAtTs(),
     );
   } catch (error) {
     logWarn("review_publish_fallback_comment_failed", {

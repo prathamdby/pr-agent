@@ -3,15 +3,13 @@ import { z } from "zod";
 import type { Config } from "../../config.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { reviewFindingSchema, type ReviewPublishContext } from "../reviewSchema.js";
-import {
-  publishFindingBatch,
-  type FindingBatchContext,
-  type FindingBatchResult,
-  type ThreadPublishRunState,
-} from "../publish/publishFindingBatch.js";
+import { publishFindingBatch, type FindingBatchResult } from "../publish/publishFindingBatch.js";
 import type { RecordPublishStepWithCoordination } from "../publish/summaryCommentCoordination.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import { refreshInstallationTokenIfNearExpiry } from "./refreshInstallationTokenIfNearExpiry.js";
+import type { InstallationTokenHandle } from "../../github/installationTokenHandle.js";
+import type { PublishAbortGate } from "../publish/publishAbortGate.js";
+import { toolAccepted, toolRejected } from "./structuredToolResult.js";
+import type { ThreadPublishRunState } from "../publish/threadPublishRunState.js";
 import {
   sameFilePublishedThreadHints,
   type SameFilePublishedThreadHint,
@@ -29,25 +27,18 @@ const THREAD_TOOL_PARAMETERS = z.toJSONSchema(publishThreadArgsSchema, {
 
 export type PublishedThreadOverlapHint = SameFilePublishedThreadHint;
 
-export type PublishThreadToolResult = FindingBatchResult & {
+export type PublishThreadToolValue = FindingBatchResult & {
   readonly sameFilePublishedThreads: readonly PublishedThreadOverlapHint[];
   readonly acceptedAsSummaryOnly?: boolean;
 };
 
-export function createThreadPublishRunState(
-  overrides: Partial<ThreadPublishRunState> = {},
-): ThreadPublishRunState {
-  return {
-    postedFingerprints: new Set(),
-    postedInlineCount: 0,
-    batchCount: 0,
-    inlineReviewIds: [],
-    acceptedFindings: [],
-    partialSpecialists: [],
-    summaryPlacements: [],
-    ...overrides,
-  };
-}
+/** Facade handle for judgment / ensure-report callers that only need turn lifecycle. */
+export type PublishThreadToolHandle = {
+  readonly beginTurn: () => void;
+  readonly hadSuccessfulCallThisTurn: () => boolean;
+  readonly getLastError: () => string | null;
+  readonly clearLastError: () => void;
+};
 
 function formatThreadValidationError(error: z.ZodError): string {
   const lines = [`${THREAD_TOOL_NAME} validation failed:`];
@@ -66,15 +57,11 @@ function formatThreadValidationError(error: z.ZodError): string {
 export function buildPublishThreadTool(params: {
   cfg: Pick<Config, "piModel" | "features">;
   ctx: ReviewPublishContext;
-  getToken: () => string;
-  getTokenExpiresAtTs?: () => number | undefined;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
-  refreshNearExpiry?: () => Promise<void>;
+  token: InstallationTokenHandle;
   recordPublishStep: RecordPublishStepWithCoordination;
   runState: ThreadPublishRunState;
   cachedDiffIndex?: CachedPrDiffIndex;
-  shouldAbortPublish?: FindingBatchContext["shouldAbortPublish"];
-  publishAbortState?: FindingBatchContext["publishAbortState"];
+  abortGate: PublishAbortGate;
 }): {
   piTool: PiTool;
   executor: AgentRunnerToolExecutor;
@@ -101,40 +88,32 @@ export function buildPublishThreadTool(params: {
     const parsed = publishThreadArgsSchema.safeParse(args);
     if (!parsed.success) {
       lastError = formatThreadValidationError(parsed.error);
-      return { accepted: false, error: lastError };
+      return toolRejected(lastError);
     }
     lastError = null;
 
     const priorAccepted = [...params.runState.acceptedFindings];
     const overlap = sameFilePublishedThreadHints(parsed.data.findings, priorAccepted);
 
-    await refreshInstallationTokenIfNearExpiry({
-      getTokenExpiresAtTs: params.getTokenExpiresAtTs,
-      refreshInstallationToken: params.refreshInstallationToken,
-      refreshNearExpiry: params.refreshNearExpiry,
-    });
-
     const batchResult = await publishFindingBatch(parsed.data.findings, {
       cfg: params.cfg,
       ctx: params.ctx,
-      getToken: params.getToken,
+      token: params.token,
       cachedDiffIndex: params.cachedDiffIndex,
       recordPublishStep: params.recordPublishStep,
-      shouldAbortPublish: params.shouldAbortPublish,
-      publishAbortState: params.publishAbortState,
+      abortGate: params.abortGate,
       runState: params.runState,
-      tokenExpiresAtTs: params.getTokenExpiresAtTs?.(),
     });
 
     // Empty findings and budget_exhausted still count as a successful tool call (decision 25).
     successfulCallsThisTurn += 1;
 
-    const result: PublishThreadToolResult = {
+    const value: PublishThreadToolValue = {
       ...batchResult,
       sameFilePublishedThreads: overlap,
       ...(batchResult.kind === "budget_exhausted" ? { acceptedAsSummaryOnly: true } : {}),
     };
-    return result;
+    return toolAccepted(value);
   };
 
   return {
@@ -150,6 +129,3 @@ export function buildPublishThreadTool(params: {
     hadSuccessfulCallThisTurn: () => successfulCallsThisTurn > 0,
   };
 }
-
-/** Re-export run state type for orchestrator callers. */
-export type { ThreadPublishRunState };

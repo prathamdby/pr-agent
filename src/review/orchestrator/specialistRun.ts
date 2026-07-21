@@ -26,6 +26,7 @@ import {
   type SpecialistOutcome,
   type SpecialistReport,
 } from "./specialistReport.js";
+import { toolAccepted, toolRejected } from "./structuredToolResult.js";
 
 const REPORT_TOOL_NAME = "submit_findings_report";
 
@@ -74,11 +75,11 @@ function buildSpecialistReportTool(): {
     const parsed = specialistReportSchema.safeParse(args);
     if (!parsed.success) {
       lastError = formatSpecialistReportError(parsed.error);
-      return { accepted: false, error: lastError };
+      return toolRejected(lastError);
     }
     report = parsed.data;
     lastError = null;
-    return { accepted: true };
+    return toolAccepted(parsed.data);
   };
   return {
     piTool,

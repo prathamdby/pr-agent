@@ -2,6 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { SPECIALIST_DISPLAY_LABEL, type SpecialistId } from "./specialistReport.js";
+import { toolAccepted, toolRejected } from "./structuredToolResult.js";
 
 const BRIEF_TOOL_NAME = "submit_specialist_brief";
 
@@ -100,11 +101,11 @@ export function buildSpecialistBriefTool(): {
     const parsed = specialistBriefSchema.safeParse(args);
     if (!parsed.success) {
       lastError = formatBriefValidationError(parsed.error);
-      return { accepted: false, error: lastError };
+      return toolRejected(lastError);
     }
     brief = parsed.data;
     lastError = null;
-    return { accepted: true };
+    return toolAccepted(parsed.data);
   };
 
   return {

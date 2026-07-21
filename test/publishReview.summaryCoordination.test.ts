@@ -6,6 +6,7 @@ import {
 } from "../src/review/publish/publishSummaryOnly.js";
 import { publishReviewTestPayload } from "./helpers/publishReviewTestSetup.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { testTokenHandle } from "./helpers/tokenHandle.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -69,7 +70,8 @@ function summaryArgs(
       headSha: "sha",
       hasDescriptionAgentBlock: false,
     },
-    getToken: () => "t",
+    token: testTokenHandle({ token: "t" }),
+    abortGate: async () => "continue" as const,
     payload,
     summaryPlacements: payload.findings.map((finding) => ({
       finding,
@@ -215,7 +217,7 @@ describe("publishReviewSummaryOnly summary coordination", () => {
       expect.any(String),
       REVIEW_SUMMARY_SENTINEL,
       { id: 88, url: "https://example.com/88" },
-      undefined,
+      expect.any(Number),
     );
   });
 });

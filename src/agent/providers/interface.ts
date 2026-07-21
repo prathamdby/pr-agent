@@ -16,6 +16,14 @@ export type AgentRunnerSendOptions = {
 
 export type AgentRunnerSession = {
   readonly send: (prompt: string, opts?: AgentRunnerSendOptions) => Promise<AgentRunnerTurn>;
+  /**
+   * Provider contract asymmetry (intentional):
+   * - **Pi:** `customTools` are fixed at session creation; this only toggles the active
+   *   name allowlist. Executors are ignored after create — register the full roster up front.
+   * - **Cursor:** may swap the active MCP tool set and executors on each call.
+   * Orchestrated review always registers the full tool roster at create, then restrictToTools
+   * for recon / judgment / synthesis name allowlists so both providers stay correct.
+   */
   readonly restrictToTools: (
     tools: readonly PiTool[],
     executors: Record<string, AgentRunnerToolExecutor>,

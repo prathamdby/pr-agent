@@ -96,7 +96,7 @@ describe("buildSpecialistBriefTool", () => {
     expect(tool.getBrief()).toBeNull();
 
     const accepted = await tool.executor(makeBrief());
-    expect(accepted).toEqual({ accepted: true });
+    expect(accepted).toEqual({ accepted: true, value: makeBrief() });
     expect(tool.getBrief()).toEqual(makeBrief());
   });
 });

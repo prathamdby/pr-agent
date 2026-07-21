@@ -9,6 +9,7 @@ import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../src/settings/index.js";
 import { cachedDiffForFiles, cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { testTokenHandle } from "./helpers/tokenHandle.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -36,6 +37,7 @@ function runState(overrides: Partial<ThreadPublishRunState> = {}): ThreadPublish
     inlineReviewIds: [],
     acceptedFindings: [],
     partialSpecialists: [],
+    summaryPlacements: [],
     ...overrides,
   };
 }
@@ -50,10 +52,10 @@ function context(overrides: Record<string, unknown> = {}) {
       headSha: "sha",
       hasDescriptionAgentBlock: false,
     },
-    getToken: () => "t",
+    token: testTokenHandle({ token: "t" }),
     cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     recordPublishStep: vi.fn(async () => undefined),
-    shouldAbortPublish: async () => false,
+    abortGate: async () => "continue" as const,
     runState: runState(),
     ...overrides,
   };
@@ -84,7 +86,7 @@ describe("publishFindingBatch", () => {
         event: "COMMENT",
         comments: [expect.objectContaining({ path: "src/x.ts", line: 4 })],
       }),
-      undefined,
+      expect.any(Number),
     );
     expect(ctx.recordPublishStep).toHaveBeenCalledWith("inline_review", {
       githubId: 1,
@@ -169,12 +171,11 @@ describe("publishFindingBatch", () => {
   });
 
   it.each([
-    { staleHead: true, expected: "stale_head" as const },
-    { staleHead: false, expected: "superseded" as const },
-  ])("aborts a $expected batch before creating a review", async ({ staleHead, expected }) => {
+    { gate: "stale_head" as const, expected: "stale_head" as const },
+    { gate: "superseded" as const, expected: "superseded" as const },
+  ])("aborts a $expected batch before creating a review", async ({ gate, expected }) => {
     const ctx = context({
-      shouldAbortPublish: async () => true,
-      publishAbortState: { staleHead },
+      abortGate: async () => gate,
     });
 
     await expect(publishFindingBatch([finding], ctx)).resolves.toEqual({
@@ -187,9 +188,9 @@ describe("publishFindingBatch", () => {
     expect(ctx.runState.batchCount).toBe(0);
   });
 
-  it("treats an abort-check failure as superseded", async () => {
+  it("treats an abort-gate failure as superseded", async () => {
     const ctx = context({
-      shouldAbortPublish: async () => {
+      abortGate: async () => {
         throw new Error("database unavailable");
       },
     });
@@ -199,6 +200,25 @@ describe("publishFindingBatch", () => {
       reason: "superseded",
     });
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+  });
+
+  it("refreshes InstallationTokenHandle immediately before the GitHub write", async () => {
+    const refreshNearExpiry = vi.fn(async () => undefined);
+    const ctx = context({
+      token: testTokenHandle({ token: "t", expiresAtTs: 1_700_000_000_000, refreshNearExpiry }),
+    });
+
+    await publishFindingBatch([finding], ctx);
+
+    expect(refreshNearExpiry).toHaveBeenCalledTimes(1);
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.any(Object),
+      1_700_000_000_000,
+    );
   });
 
   it("retains the exhausted batch and every later batch as accepted summary-only findings", async () => {
@@ -284,36 +304,6 @@ describe("publishFindingBatch", () => {
     expect(ctx.runState.inlineReviewIds).toEqual([1]);
     expect(ctx.runState.postedInlineCount).toBe(1);
     expect(ctx.runState.postedFingerprints.has(fingerprintFinding(finding, "review"))).toBe(true);
-    expect(ctx.recordPublishStep).toHaveBeenCalledTimes(3);
-    vi.useRealTimers();
-  });
-
-  it("latches repeat-no-bugs review id before durable record failure retries", async () => {
-    vi.useFakeTimers();
-    const ctx = context({
-      shouldLinkToSummary: true,
-      summaryCommentUrl: "https://github.com/o/r/pull/1#issuecomment-7",
-      recordPublishStep: vi.fn(async () => {
-        throw new Error("publish_records upsert failed");
-      }),
-    });
-
-    const pending = publishFindingBatch([], ctx);
-    await Promise.all([
-      expect(pending).rejects.toSatisfy((error: unknown) => {
-        expect(error).toBeInstanceOf(AppError);
-        expect((error as AppError).code).toBe("review.finding_batch_record_failed");
-        expect((error as AppError).cause).toBeInstanceOf(Error);
-        expect(String(((error as AppError).cause as Error).message)).toMatch(
-          /publish_records upsert failed/,
-        );
-        return true;
-      }),
-      vi.runAllTimersAsync(),
-    ]);
-
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
-    expect(ctx.runState.inlineReviewIds).toEqual([1]);
     expect(ctx.recordPublishStep).toHaveBeenCalledTimes(3);
     vi.useRealTimers();
   });

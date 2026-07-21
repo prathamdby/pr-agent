@@ -421,6 +421,110 @@ describe("runOrchestratedPrReview (core path)", () => {
     expect(mocks.publishReviewSummaryOnly).toHaveBeenCalledTimes(1);
   });
 
+  it("progress ticks reflect mid-judgment specialist resolutions while peers stay running", async () => {
+    const correctness = deferred<SpecialistOutcome>();
+    const security = deferred<SpecialistOutcome>();
+    const quality = deferred<SpecialistOutcome>();
+    const tests = deferred<SpecialistOutcome>();
+    const byId: Record<SpecialistId, ReturnType<typeof deferred<SpecialistOutcome>>> = {
+      correctness,
+      security,
+      quality,
+      tests,
+    };
+
+    mocks.runSpecialist.mockImplementation(async (args: { specialist: SpecialistId }) => {
+      return byId[args.specialist].promise;
+    });
+
+    type TickPhaseSnap = { phase: string; threadsPublished?: number };
+    const tickSnapshots: Array<Record<SpecialistId, TickPhaseSnap>> = [];
+    mocks.tickProgressComment.mockImplementation(
+      async (args: { specialistTicks: Record<SpecialistId, TickPhaseSnap> }) => {
+        tickSnapshots.push(
+          Object.fromEntries(
+            Object.entries(args.specialistTicks).map(([id, tick]) => [
+              id,
+              tick.phase === "done"
+                ? { phase: tick.phase, threadsPublished: tick.threadsPublished }
+                : { phase: tick.phase },
+            ]),
+          ) as Record<SpecialistId, TickPhaseSnap>,
+        );
+      },
+    );
+
+    installOrchestratorSession(mocks, {
+      onRecon: async (executors) => {
+        await submitDefaultBrief(executors);
+      },
+      onJudgment: async (executors) => {
+        await executors.publish_thread!({ findings: [finding("judged")] });
+      },
+      onSynthesis: async (executors) => {
+        await executors.publish_summary!({
+          prCharacter: "ok",
+          estimatedEffort: 1,
+          relevantTests: "no",
+          securityConcerns: null,
+          followUps: [],
+        });
+      },
+    });
+
+    const runPromise = runOrchestratedPrReview(
+      baseParams({
+        specialistDispatchStaggerMs: 0,
+        progressTick: { pool: {}, workItemId: "w", resourceKey: "rk" },
+      }),
+    );
+
+    await vi.waitFor(() => expect(tickSnapshots.length).toBeGreaterThanOrEqual(1));
+    expect(tickSnapshots.at(-1)).toEqual({
+      correctness: { phase: "running" },
+      security: { phase: "running" },
+      quality: { phase: "running" },
+      tests: { phase: "running" },
+    });
+
+    quality.resolve(emptyOutcome("quality"));
+    await vi.waitFor(() =>
+      expect(tickSnapshots.some((snap) => snap.quality.phase === "no_findings")).toBe(true),
+    );
+    expect(tickSnapshots.find((snap) => snap.quality.phase === "no_findings")).toMatchObject({
+      quality: { phase: "no_findings" },
+      correctness: { phase: "running" },
+      security: { phase: "running" },
+      tests: { phase: "running" },
+    });
+
+    security.resolve(errorOutcome("security"));
+    await vi.waitFor(() =>
+      expect(tickSnapshots.some((snap) => snap.security.phase === "failed")).toBe(true),
+    );
+    expect(tickSnapshots.find((snap) => snap.security.phase === "failed")).toMatchObject({
+      security: { phase: "failed" },
+      quality: { phase: "no_findings" },
+      correctness: { phase: "running" },
+      tests: { phase: "running" },
+    });
+
+    correctness.resolve(reportOutcome("correctness"));
+    await vi.waitFor(() =>
+      expect(tickSnapshots.some((snap) => snap.correctness.phase === "done")).toBe(true),
+    );
+    expect(tickSnapshots.find((snap) => snap.correctness.phase === "done")).toMatchObject({
+      correctness: { phase: "done" },
+      quality: { phase: "no_findings" },
+      security: { phase: "failed" },
+      tests: { phase: "running" },
+    });
+
+    tests.resolve(emptyOutcome("tests"));
+    const result = await runPromise;
+    expect(result.published).toBe(true);
+  });
+
   it("dispatches specialists with remaining budget minus each start stagger", async () => {
     const timeouts: number[] = [];
     mocks.runSpecialist.mockImplementation(

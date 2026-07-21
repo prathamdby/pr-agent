@@ -100,14 +100,25 @@ export function installOrchestratorSession(
 ): SessionHooks {
   const restoreTools = vi.fn();
   const restrictToTools = vi.fn();
-  const abort = vi.fn();
+  const pendingAbortRejects = new Set<(error: unknown) => void>();
+  const abort = vi.fn(() => {
+    const error = new AppError({
+      code: "review.orchestrator_send_superseded",
+      message: "Orchestrator session aborted",
+      context: { reason: "superseded" },
+    });
+    for (const reject of pendingAbortRejects) {
+      reject(error);
+    }
+    pendingAbortRejects.clear();
+  });
   const dispose = vi.fn(async () => undefined);
   let executors: Record<string, AgentRunnerToolExecutor> = {};
   let judgmentCalls = 0;
   let judgmentFailuresLeft = script.judgmentThrows ?? 0;
   let synthesisFailuresLeft = script.synthesisThrows ?? 0;
 
-  const send = vi.fn(async (prompt: string) => {
+  const runSendBody = async (prompt: string) => {
     if (prompt.includes("submit_specialist_brief") || prompt.includes("Recon this pull request")) {
       await script.onRecon?.(executors);
       return { text: "recon done" };
@@ -137,6 +148,19 @@ export function installOrchestratorSession(
       await script.onRecon?.(executors);
     }
     return { text: "ok" };
+  };
+
+  const send = vi.fn(async (prompt: string) => {
+    let rejectAbort!: (error: unknown) => void;
+    const abortRace = new Promise<never>((_resolve, reject) => {
+      rejectAbort = reject;
+      pendingAbortRejects.add(reject);
+    });
+    try {
+      return await Promise.race([runSendBody(prompt), abortRace]);
+    } finally {
+      pendingAbortRejects.delete(rejectAbort);
+    }
   });
 
   mocks.createSession.mockImplementation(

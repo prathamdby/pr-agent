@@ -9,7 +9,7 @@ import {
   type SpecialistTickState,
 } from "../run/progressComment.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
-import { refreshInstallationTokenIfNearExpiry } from "./refreshInstallationTokenIfNearExpiry.js";
+import type { InstallationTokenHandle } from "../../github/installationTokenHandle.js";
 
 export type TickProgressCommentArgs = {
   cfg: Pick<Config, "piModel" | "features">;
@@ -21,10 +21,7 @@ export type TickProgressCommentArgs = {
   prNumber: number;
   headSha: string;
   source: WorkSource;
-  getToken: () => string;
-  getTokenExpiresAtTs?: () => number | undefined;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
-  refreshNearExpiry?: () => Promise<void>;
+  token: InstallationTokenHandle;
   specialistTicks: SpecialistTickState;
   runPhase?: ProgressRunPhase;
   ciSummary?: CiSummary | null;
@@ -37,11 +34,7 @@ export type TickProgressCommentArgs = {
  */
 export async function tickProgressComment(args: TickProgressCommentArgs): Promise<void> {
   try {
-    await refreshInstallationTokenIfNearExpiry({
-      getTokenExpiresAtTs: args.getTokenExpiresAtTs,
-      refreshInstallationToken: args.refreshInstallationToken,
-      refreshNearExpiry: args.refreshNearExpiry,
-    });
+    await args.token.refreshNearExpiry();
 
     const body = renderReviewProgressComment({
       mode: "review",
@@ -57,13 +50,13 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
       workItemId: args.workItemId,
       resourceKey: args.resourceKey,
       reviewLens: "review",
-      token: args.getToken(),
+      token: args.token.getToken(),
       owner: args.owner,
       repo: args.repo,
       prNumber: args.prNumber,
       body,
       sentinel: reviewSummarySentinelForMode("review"),
-      expiresAtTs: args.getTokenExpiresAtTs?.(),
+      expiresAtTs: args.token.getExpiresAtTs(),
       hintCommentId: args.summaryCommentIdHint,
     });
   } catch (error) {

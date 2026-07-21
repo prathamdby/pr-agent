@@ -16,7 +16,27 @@ import {
   reportOutcome,
   resetOrchestratorPublishMocks,
   submitDefaultBrief,
+  type SessionHooks,
 } from "./helpers/orchestratorRunHarness.js";
+
+function hangUntilSessionAbort(session: SessionHooks): Promise<never> {
+  return new Promise((_resolve, reject) => {
+    const error = new AppError({
+      code: "review.orchestrator_send_superseded",
+      message: "Orchestrator session aborted",
+      context: { reason: "superseded" },
+    });
+    if (session.abort.mock.calls.length > 0) {
+      reject(error);
+      return;
+    }
+    const original = session.abort.getMockImplementation() as (() => void) | undefined;
+    session.abort.mockImplementation(() => {
+      original?.();
+      reject(error);
+    });
+  });
+}
 
 const mocks = vi.hoisted(() => ({
   runSpecialist: vi.fn(),
@@ -144,8 +164,7 @@ describe("runOrchestratedPrReview (terminal races)", () => {
         return { text: "recon done" };
       }
       cancelRun = true;
-      await new Promise<void>(() => undefined);
-      return { text: "never" };
+      return hangUntilSessionAbort(session);
     });
 
     const result = await runOrchestratedPrReview(
@@ -168,6 +187,82 @@ describe("runOrchestratedPrReview (terminal races)", () => {
     expect(mocks.tickProgressComment).toHaveBeenCalledWith(
       expect.objectContaining({ runPhase: "superseded_rescheduled" }),
     );
+  });
+
+  it("cheap shouldCancelRun during recon marks superseded with no summary", async () => {
+    let cancelRun = false;
+    mocks.runSpecialist.mockImplementation(async (args: { specialist: SpecialistId }) =>
+      emptyOutcome(args.specialist),
+    );
+
+    const session = installOrchestratorSession(mocks, {
+      onRecon: async (executors) => {
+        await submitDefaultBrief(executors);
+      },
+    });
+
+    session.send.mockImplementation(async (prompt: string) => {
+      if (
+        prompt.includes("submit_specialist_brief") ||
+        prompt.includes("Recon this pull request")
+      ) {
+        cancelRun = true;
+        return hangUntilSessionAbort(session);
+      }
+      return { text: "ok" };
+    });
+
+    const result = await runOrchestratedPrReview(
+      baseParams({
+        specialistDispatchStaggerMs: 0,
+        shouldCancelRun: async () => cancelRun,
+        sleep: async (ms: number) => {
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.min(ms, 5)));
+        },
+      }),
+    );
+
+    expect(result.publishSuperseded).toBe(true);
+    expect(result.published).toBe(false);
+    expect(mocks.publishReviewSummaryOnly).not.toHaveBeenCalled();
+    expect(session.abort).toHaveBeenCalled();
+  });
+
+  it("cheap shouldCancelRun during judgment marks superseded with no summary", async () => {
+    let cancelRun = false;
+    const security = deferred<SpecialistOutcome>();
+
+    mocks.runSpecialist.mockImplementation(async (args: { specialist: SpecialistId }) => {
+      if (args.specialist === "security") return security.promise;
+      return emptyOutcome(args.specialist);
+    });
+
+    const session = installOrchestratorSession(mocks, {
+      onRecon: async (executors) => {
+        await submitDefaultBrief(executors);
+      },
+      onJudgment: async () => {
+        cancelRun = true;
+        return hangUntilSessionAbort(session);
+      },
+    });
+
+    const runPromise = runOrchestratedPrReview(
+      baseParams({
+        specialistDispatchStaggerMs: 0,
+        shouldCancelRun: async () => cancelRun,
+        sleep: async (ms: number) => {
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.min(ms, 5)));
+        },
+      }),
+    );
+
+    security.resolve(reportOutcome("security"));
+    const result = await runPromise;
+    expect(result.publishSuperseded).toBe(true);
+    expect(result.published).toBe(false);
+    expect(mocks.publishReviewSummaryOnly).not.toHaveBeenCalled();
+    expect(session.abort).toHaveBeenCalled();
   });
 
   it("pending specialists: cheap shouldCancelRun aborts all without waiting for timeout and does not poll shouldAbortPublish repeatedly", async () => {
@@ -236,6 +331,61 @@ describe("runOrchestratedPrReview (terminal races)", () => {
     expect(abortPublishCalls).toBeLessThanOrEqual(2);
     // Must not wait out specialist timeouts (test cfg uses 50s).
     expect(elapsedMs).toBeLessThan(5_000);
+  });
+
+  it("cheap cancel uses a single shouldCancelRun poller across recon and pending specialists", async () => {
+    let cancelRun = false;
+    let cancelCalls = 0;
+    const peakConcurrentPolls = { value: 0 };
+    let inFlightPolls = 0;
+
+    mocks.runSpecialist.mockImplementation(
+      async (args: { specialist: SpecialistId; signal?: AbortSignal }) => {
+        await new Promise<void>((resolve) => {
+          if (args.signal?.aborted) {
+            resolve();
+            return;
+          }
+          args.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return emptyOutcome(args.specialist);
+      },
+    );
+
+    installOrchestratorSession(mocks, {
+      onRecon: async (executors) => {
+        await submitDefaultBrief(executors);
+      },
+    });
+
+    setTimeout(() => {
+      cancelRun = true;
+    }, 40);
+
+    const result = await runOrchestratedPrReview(
+      baseParams({
+        specialistDispatchStaggerMs: 0,
+        shouldCancelRun: async () => {
+          inFlightPolls += 1;
+          peakConcurrentPolls.value = Math.max(peakConcurrentPolls.value, inFlightPolls);
+          cancelCalls += 1;
+          try {
+            return cancelRun;
+          } finally {
+            inFlightPolls -= 1;
+          }
+        },
+        sleep: async (ms: number) => {
+          await new Promise<void>((resolve) => setTimeout(resolve, Math.min(ms, 5)));
+        },
+      }),
+    );
+
+    expect(result.publishSuperseded).toBe(true);
+    expect(result.published).toBe(false);
+    expect(cancelCalls).toBeGreaterThan(0);
+    // One monitor => at most one in-flight cheap callback at a time.
+    expect(peakConcurrentPolls.value).toBe(1);
   });
 
   it("deadline aborts pending specialists and publishes a deadline note, not judgment-degraded", async () => {

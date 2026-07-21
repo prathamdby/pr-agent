@@ -9,6 +9,7 @@ import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacemen
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
+import { testTokenHandle } from "./helpers/tokenHandle.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -71,11 +72,12 @@ function args(overrides: Partial<PublishReviewSummaryOnlyArgs> = {}): PublishRev
       headSha: "sha",
       hasDescriptionAgentBlock: false,
     },
-    getToken: () => "t",
+    token: testTokenHandle({ token: "t" }),
     payload,
     summaryPlacements: placements,
     inlineReviewIds: [11, 12],
     recordPublishStep: vi.fn(async () => undefined),
+    abortGate: async () => "continue",
     ...overrides,
   };
 }
@@ -152,7 +154,7 @@ describe("publishReviewSummaryOnly", () => {
       "r",
       "sha",
       expect.objectContaining({ state: "error", description: "2 findings (coverage partial)" }),
-      undefined,
+      expect.any(Number),
     );
   });
 
@@ -176,12 +178,11 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it.each([
-    { staleHead: true, reason: "stale_head" },
-    { staleHead: false, reason: "superseded" },
-  ])("checks the $reason gate before every GitHub read or write", async ({ staleHead, reason }) => {
+    { gate: "stale_head" as const, reason: "stale_head" },
+    { gate: "superseded" as const, reason: "superseded" },
+  ])("checks the $reason gate before every GitHub read or write", async ({ gate, reason }) => {
     const params = args({
-      shouldAbortPublish: async () => true,
-      publishAbortState: { staleHead },
+      abortGate: async () => gate,
     });
 
     await expect(publishReviewSummaryOnly(params)).rejects.toSatisfy((error: unknown) => {
@@ -194,26 +195,29 @@ describe("publishReviewSummaryOnly", () => {
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 
-  it("calls refreshNearExpiry before each V2 GitHub write group when supplied", async () => {
+  it("refreshes InstallationTokenHandle before each GitHub write group", async () => {
     // Exactly three write groups with this setup: summary, commit status, labels
     // (no coordinated check run).
     const cfg = makeTestConfig({
       features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "effort" },
     });
-    let token = "t0";
-    const refreshNearExpiry = vi.fn(async () => {
-      token = `t${refreshNearExpiry.mock.calls.length}`;
+    const calls = { n: 0 };
+    const liveHandle = testTokenHandle({
+      token: "t0",
+      refreshNearExpiry: async () => {
+        calls.n += 1;
+        liveHandle.token = `t${calls.n}`;
+      },
     });
 
     await publishReviewSummaryOnly(
       args({
         cfg,
-        getToken: () => token,
-        refreshNearExpiry,
+        token: liveHandle,
       }),
     );
 
-    expect(refreshNearExpiry).toHaveBeenCalledTimes(3);
+    expect(calls.n).toBe(3);
     expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
       "t1",
       "o",
@@ -222,7 +226,7 @@ describe("publishReviewSummaryOnly", () => {
       expect.any(String),
       expect.any(String),
       null,
-      undefined,
+      liveHandle.expiresAtTs,
     );
     expect(setReviewCommitStatus).toHaveBeenCalledWith(
       "t2",
@@ -230,7 +234,7 @@ describe("publishReviewSummaryOnly", () => {
       "r",
       "sha",
       expect.objectContaining({ state: expect.any(String) }),
-      undefined,
+      liveHandle.expiresAtTs,
     );
     expect(setPullRequestLabels).toHaveBeenCalledWith(
       "t3",
@@ -238,21 +242,7 @@ describe("publishReviewSummaryOnly", () => {
       "r",
       1,
       expect.any(Array),
-      undefined,
-    );
-  });
-
-  it("preserves V1 callers when refreshNearExpiry is absent", async () => {
-    await expect(publishReviewSummaryOnly(args())).resolves.toEqual({ summaryCommentId: 2 });
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.any(String),
-      expect.any(String),
-      null,
-      undefined,
+      liveHandle.expiresAtTs,
     );
   });
 });

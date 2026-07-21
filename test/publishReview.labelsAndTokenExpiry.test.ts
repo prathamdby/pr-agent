@@ -11,6 +11,7 @@ import {
   publishReviewTestPayload,
 } from "./helpers/publishReviewTestSetup.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { testTokenHandle } from "./helpers/tokenHandle.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -51,7 +52,8 @@ function summaryArgs(
       headSha: "sha",
       hasDescriptionAgentBlock: false,
     },
-    getToken: () => "t",
+    token: testTokenHandle({ token: "t" }),
+    abortGate: async () => "continue" as const,
     payload,
     summaryPlacements: findings.map((finding) => ({
       finding,
@@ -114,7 +116,7 @@ describe("publishReviewSummaryOnly labels", () => {
       "r",
       1,
       ["Review effort 2/5"],
-      undefined,
+      expect.any(Number),
     );
   });
 
@@ -133,7 +135,7 @@ describe("publishReviewSummaryOnly labels", () => {
       "r",
       1,
       ["bug", "Review effort 4/5"],
-      undefined,
+      expect.any(Number),
     );
   });
 
@@ -158,7 +160,7 @@ describe("publishReviewSummaryOnly labels", () => {
       "r",
       1,
       expect.arrayContaining([...pageOneExtras, ...pageTwoExtras, "Review effort 2/5"]),
-      undefined,
+      expect.any(Number),
     );
     const nextLabels = vi.mocked(setPullRequestLabels).mock.calls[0]?.[4] ?? [];
     expect(nextLabels).toHaveLength(pageOneExtras.length + pageTwoExtras.length + 1);
@@ -215,7 +217,7 @@ describe("publishFindingBatch token expiry forwarding", () => {
     vi.clearAllMocks();
   });
 
-  it("forwards tokenExpiresAtTs to inline review creation", async () => {
+  it("forwards InstallationTokenHandle expiry to inline review creation", async () => {
     const tokenExpiresAtTs = 1_700_000_000_000;
     const finding = payload.findings[0]!;
 
@@ -228,7 +230,8 @@ describe("publishFindingBatch token expiry forwarding", () => {
         headSha: "sha",
         hasDescriptionAgentBlock: false,
       },
-      getToken: () => "t",
+      token: testTokenHandle({ token: "t", expiresAtTs: tokenExpiresAtTs }),
+      abortGate: async () => "continue" as const,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: vi.fn(async () => undefined),
       runState: {
@@ -238,8 +241,8 @@ describe("publishFindingBatch token expiry forwarding", () => {
         inlineReviewIds: [],
         acceptedFindings: [],
         partialSpecialists: [],
+        summaryPlacements: [],
       },
-      tokenExpiresAtTs,
     });
 
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
@@ -250,45 +253,6 @@ describe("publishFindingBatch token expiry forwarding", () => {
       expect.objectContaining({
         event: "COMMENT",
         commitId: "sha",
-      }),
-      tokenExpiresAtTs,
-    );
-  });
-
-  it("forwards tokenExpiresAtTs on repeat no-bugs review creation", async () => {
-    const tokenExpiresAtTs = 1_700_000_000_000;
-
-    await publishFindingBatch([], {
-      cfg: makeTestConfig(),
-      ctx: {
-        owner: "o",
-        repo: "r",
-        prNumber: 1,
-        headSha: "sha",
-        hasDescriptionAgentBlock: false,
-      },
-      getToken: () => "t",
-      recordPublishStep: vi.fn(async () => undefined),
-      runState: {
-        postedFingerprints: new Set(),
-        postedInlineCount: 0,
-        batchCount: 0,
-        inlineReviewIds: [],
-        acceptedFindings: [],
-        partialSpecialists: [],
-      },
-      tokenExpiresAtTs,
-      shouldLinkToSummary: true,
-      summaryCommentUrl: "https://github.com/o/r/pull/1#issuecomment-99",
-    });
-
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        event: "COMMENT",
       }),
       tokenExpiresAtTs,
     );

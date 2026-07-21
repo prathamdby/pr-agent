@@ -124,7 +124,7 @@ describe("runOrchestratedPrReview (degraded / resume)", () => {
     );
   });
 
-  it("refreshes the installation token when near expiry before publish", async () => {
+  it("defers installation-token refresh to publish units (mocked publish does not mint)", async () => {
     mocks.isInstallationTokenNearExpiry.mockReturnValue(true);
     const refresh = vi.fn(async () => ({
       token: "fresh",
@@ -154,14 +154,17 @@ describe("runOrchestratedPrReview (degraded / resume)", () => {
       },
     });
 
-    await runOrchestratedPrReview(
+    const result = await runOrchestratedPrReview(
       baseParams({
         refreshInstallationToken: refresh,
         tokenExpiresAtTs: Date.now() + 1_000,
       }),
     );
 
-    expect(refresh).toHaveBeenCalled();
+    // Orchestrator wrappers no longer pre-refresh; mocked publishFindingBatch /
+    // publishReviewSummaryOnly skip the real publish-unit refreshNearExpiry path.
+    expect(result.published).toBe(true);
+    expect(refresh).not.toHaveBeenCalled();
   });
 
   it("retains budget-exhausted findings as summary-only via the thread tool", async () => {

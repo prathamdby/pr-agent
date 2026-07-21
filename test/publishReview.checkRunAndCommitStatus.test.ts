@@ -9,6 +9,7 @@ import {
   publishReviewTestPayload,
 } from "./helpers/publishReviewTestSetup.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { testTokenHandle } from "./helpers/tokenHandle.js";
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -52,7 +53,8 @@ function summaryArgs(
       headSha: "sha",
       hasDescriptionAgentBlock: false,
     },
-    getToken: () => "t",
+    token: testTokenHandle({ token: "t" }),
+    abortGate: async () => "continue" as const,
     payload,
     summaryPlacements: findings.map((finding) => ({
       finding,
@@ -174,7 +176,7 @@ describe("publishReviewSummaryOnly commit status", () => {
         description: "1 finding",
         targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       },
-      undefined,
+      expect.any(Number),
     );
   });
 
@@ -212,7 +214,7 @@ describe("publishReviewSummaryOnly commit status", () => {
         description: "1 finding",
         targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
       },
-      undefined,
+      expect.any(Number),
     );
   });
 

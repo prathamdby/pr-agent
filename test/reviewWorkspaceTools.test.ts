@@ -42,7 +42,7 @@ describe("buildReviewWorkspaceTools live token holder", () => {
     localMocks.buildLocalWorkspaceTools.mockClear();
   });
 
-  it("updates getToken and getTokenExpiresAtTs after near-expiry refresh", async () => {
+  it("exposes InstallationTokenHandle and updates after near-expiry refresh", async () => {
     const freshExpiresAtTs = Date.now() + 3_600_000;
     const refreshInstallationToken = vi.fn(async () => ({
       token: "fresh-live-token",
@@ -58,35 +58,13 @@ describe("buildReviewWorkspaceTools live token holder", () => {
       refreshInstallationToken,
     });
 
-    expect(tools.getToken()).toBe("stale-token");
+    expect(tools.token.getToken()).toBe("stale-token");
 
-    await tools.refreshNearExpiry();
+    await tools.token.refreshNearExpiry();
 
     expect(refreshInstallationToken).toHaveBeenCalledTimes(1);
-    expect(tools.getToken()).toBe("fresh-live-token");
-    expect(tools.getTokenExpiresAtTs()).toBe(freshExpiresAtTs);
-  });
-
-  it("holder-updating refreshInstallationToken keeps getToken in sync", async () => {
-    const freshExpiresAtTs = Date.now() + 7_200_000;
-    const refreshInstallationToken = vi.fn(async () => ({
-      token: "minted",
-      expiresAtTs: freshExpiresAtTs,
-    }));
-
-    const tools = buildReviewWorkspaceTools({
-      cfg: makeTestConfig(),
-      token: "old",
-      tokenExpiresAtTs: Date.now() + 60_000,
-      tokenTtlMs: 3_600_000,
-      workspace: mockLocalPrWorkspace(),
-      refreshInstallationToken,
-    });
-
-    const fresh = await tools.refreshInstallationToken!();
-    expect(fresh.token).toBe("minted");
-    expect(tools.getToken()).toBe("minted");
-    expect(tools.getTokenExpiresAtTs()).toBe(freshExpiresAtTs);
+    expect(tools.token.getToken()).toBe("fresh-live-token");
+    expect(tools.token.getExpiresAtTs()).toBe(freshExpiresAtTs);
   });
 
   it("preserves the mutable refreshable executor store so post-refresh calls use the rebuilt executor", async () => {
@@ -110,15 +88,14 @@ describe("buildReviewWorkspaceTools live token holder", () => {
 
     const before = await store.getPullRequest!({});
     expect(before).toEqual({ generation: 1 });
-    expect(tools.getToken()).toBe("stale-token");
+    expect(tools.token.getToken()).toBe("stale-token");
 
-    await tools.refreshNearExpiry();
+    await tools.token.refreshNearExpiry();
 
-    expect(tools.getToken()).toBe("fresh-live-token");
+    expect(tools.token.getToken()).toBe("fresh-live-token");
     const after = await store.getPullRequest!({});
     expect(after).toEqual({ generation: 2 });
     expect(localMocks.tokensSeen).toEqual(["gen-1", "gen-2"]);
-    // Same object identity as the live refreshable store (not a spread snapshot).
     expect(await tools.executors.getPullRequest!({})).toEqual({ generation: 2 });
     expect(tools.executors.resolveLibraryId).toBe(store.resolveLibraryId);
   });

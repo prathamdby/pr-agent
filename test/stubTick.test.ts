@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { tickProgressComment } from "../src/review/orchestrator/stubTick.js";
-import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { testTokenHandle } from "./helpers/tokenHandle.js";
 
 const upsertSummaryCommentWithCreationClaim = vi.fn();
 const renderReviewProgressComment = vi.fn((_params: unknown) => "## PR Agent Review\n\nstub body");
@@ -35,7 +35,6 @@ describe("tickProgressComment", () => {
   });
 
   it("renders and upserts the progress comment", async () => {
-    let token = "tok";
     await tickProgressComment({
       cfg: makeTestConfig(),
       pool: {} as never,
@@ -46,8 +45,7 @@ describe("tickProgressComment", () => {
       prNumber: 1,
       headSha: "abc123",
       source: "slash",
-      getToken: () => token,
-      getTokenExpiresAtTs: () => Date.now() + 3_600_000,
+      token: testTokenHandle({ token: "tok" }),
       specialistTicks: {
         correctness: { phase: "done", threadsPublished: 1 },
         security: { phase: "running" },
@@ -75,13 +73,10 @@ describe("tickProgressComment", () => {
     );
   });
 
-  it("refreshes a near-expiry token before the tick write", async () => {
+  it("refreshes via InstallationTokenHandle before the tick write", async () => {
     let token = "stale";
-    let expiresAt = Date.now() + TOKEN_FRESHNESS_BUFFER_MS / 2;
-    const refreshInstallationToken = vi.fn(async () => {
+    const refreshNearExpiry = vi.fn(async () => {
       token = "fresh";
-      expiresAt = Date.now() + 3_600_000;
-      return { token, expiresAtTs: expiresAt };
     });
 
     await tickProgressComment({
@@ -94,9 +89,11 @@ describe("tickProgressComment", () => {
       prNumber: 1,
       headSha: "abc123",
       source: "auto",
-      getToken: () => token,
-      getTokenExpiresAtTs: () => expiresAt,
-      refreshInstallationToken,
+      token: {
+        getToken: () => token,
+        getExpiresAtTs: () => Date.now() + 3_600_000,
+        refreshNearExpiry,
+      },
       specialistTicks: {
         correctness: { phase: "running" },
         security: { phase: "running" },
@@ -105,7 +102,7 @@ describe("tickProgressComment", () => {
       },
     });
 
-    expect(refreshInstallationToken).toHaveBeenCalledTimes(1);
+    expect(refreshNearExpiry).toHaveBeenCalledTimes(1);
     expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
       expect.objectContaining({ token: "fresh" }),
     );
@@ -125,7 +122,7 @@ describe("tickProgressComment", () => {
         prNumber: 1,
         headSha: "abc123",
         source: "auto",
-        getToken: () => "tok",
+        token: testTokenHandle(),
         specialistTicks: {
           correctness: { phase: "running" },
           security: { phase: "running" },

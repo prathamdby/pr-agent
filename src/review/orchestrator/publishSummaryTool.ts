@@ -1,88 +1,53 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
-import type { Config } from "../../config.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import {
   coerceReviewPayloadInput,
   createReviewPayloadSchema,
   formatReviewValidationError,
-  type ReviewPublishContext,
 } from "../reviewSchema.js";
-import { publishReviewSummaryOnly } from "../publish/publishSummaryOnly.js";
-import type { RecordPublishStepWithCoordination } from "../publish/summaryCommentCoordination.js";
-import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import type { ThreadPublishRunState } from "../publish/publishFindingBatch.js";
-import { planInlinePlacements } from "../placement/reviewDiffPlacement.js";
-import { refreshInstallationTokenIfNearExpiry } from "./refreshInstallationTokenIfNearExpiry.js";
+import { toolAccepted, toolRejected } from "./structuredToolResult.js";
 
 const SUMMARY_TOOL_NAME = "publish_summary";
 
 /** Overview/verdict fields only — accepted findings come from shared run state. */
 const publishSummaryArgsSchema = createReviewPayloadSchema().omit({ findings: true });
 
+export type CapturedSummaryOverview = z.infer<typeof publishSummaryArgsSchema>;
+
 const SUMMARY_TOOL_PARAMETERS = z.toJSONSchema(publishSummaryArgsSchema, {
   unrepresentable: "any",
 }) as PiTool["parameters"];
 
-export type SummaryPublishState = {
-  published: boolean;
+export type SummaryCaptureState = {
+  captured: CapturedSummaryOverview | null;
   lastValidationError: string | null;
 };
 
-export function createSummaryPublishState(
-  initial?: Partial<Pick<SummaryPublishState, "published">>,
-): SummaryPublishState {
+export function createSummaryCaptureState(): SummaryCaptureState {
   return {
-    published: initial?.published ?? false,
+    captured: null,
     lastValidationError: null,
   };
 }
 
 /**
- * Live coverage note/partial flags for the one stable pi `publish_summary` executor.
- * Pi cannot swap tools after session creation; getters keep invocation-time values current.
+ * Stable pi `publish_summary` executor: validates and captures the LLM overview payload.
+ * Does not publish — the host {@link finalizeReviewSummary} owns the single
+ * {@link publishReviewSummaryOnly} call site.
  */
-export type SummaryPublishLiveContext = {
-  readonly getPartialCoverageNote: () => string | undefined;
-  readonly getCoveragePartial: () => boolean;
-};
-
-/**
- * Orchestrator synthesis tool: wraps {@link publishReviewSummaryOnly} with a one-success latch.
- * Findings/table rows come from `runState.acceptedFindings` / `summaryPlacements`.
- * Validation failures return `{accepted:false,error}` (brief/thread contract), not throws.
- */
-export function buildPublishSummaryTool(params: {
-  cfg: Pick<Config, "piModel" | "features">;
-  ctx: ReviewPublishContext;
-  getToken: () => string;
-  getTokenExpiresAtTs?: () => number | undefined;
-  refreshInstallationToken?: () => Promise<{ token: string; expiresAtTs: number }>;
-  refreshNearExpiry?: () => Promise<void>;
-  recordPublishStep: RecordPublishStepWithCoordination;
-  runState: ThreadPublishRunState;
-  state: SummaryPublishState;
-  cachedDiffIndex?: CachedPrDiffIndex;
-  ciAuthor?: CiSummaryAuthor;
-  live?: SummaryPublishLiveContext;
-  partialCoverageNote?: string;
-  /** True when a specialist failed: forces neutral check / error commit status (decision 21). */
-  coveragePartial?: boolean;
-  shouldAbortPublish?: () => Promise<boolean>;
-  publishAbortState?: { staleHead?: boolean };
-  shouldLinkToSummary?: boolean;
-  summaryCommentIdHint?: number | null;
-}): {
+export function buildPublishSummaryTool(params: { state: SummaryCaptureState }): {
   piTool: PiTool;
   executor: AgentRunnerToolExecutor;
   getLastError: () => string | null;
   clearLastError: () => void;
+  getCapturedOverview: () => CapturedSummaryOverview | null;
+  hasCaptured: () => boolean;
 } {
   const piTool: PiTool = {
     name: SUMMARY_TOOL_NAME,
     description: [
-      "Publish the final review summary comment exactly once.",
+      "Submit the final review summary overview exactly once.",
       "Supply overview fields (prCharacter, estimatedEffort, relevantTests, securityConcerns, followUps, optional mergeVerdict).",
       "Accepted findings are taken from the server-owned run state — do not re-list unpublished speculative findings.",
     ].join(" "),
@@ -90,8 +55,11 @@ export function buildPublishSummaryTool(params: {
   };
 
   const executor: AgentRunnerToolExecutor = async (args) => {
-    if (params.state.published) {
-      return { ok: true, duplicate: true };
+    if (params.state.captured != null) {
+      return toolAccepted({
+        duplicate: true,
+        overview: params.state.captured,
+      });
     }
 
     const { value: coercedArgs } = coerceReviewPayloadInput({
@@ -103,50 +71,15 @@ export function buildPublishSummaryTool(params: {
     if (!parsed.success) {
       const formatted = formatReviewValidationError(parsed.error);
       params.state.lastValidationError = formatted.message;
-      return { accepted: false, error: formatted.message };
+      return toolRejected(formatted.message);
     }
     params.state.lastValidationError = null;
+    params.state.captured = parsed.data;
 
-    await refreshInstallationTokenIfNearExpiry({
-      getTokenExpiresAtTs: params.getTokenExpiresAtTs,
-      refreshInstallationToken: params.refreshInstallationToken,
-      refreshNearExpiry: params.refreshNearExpiry,
+    return toolAccepted({
+      duplicate: false,
+      overview: parsed.data,
     });
-
-    const acceptedFindings = [...params.runState.acceptedFindings];
-    const summaryPlacements =
-      params.runState.summaryPlacements != null && params.runState.summaryPlacements.length > 0
-        ? params.runState.summaryPlacements
-        : planInlinePlacements(acceptedFindings, params.cachedDiffIndex);
-
-    const partialCoverageNote = params.live?.getPartialCoverageNote() ?? params.partialCoverageNote;
-    const coveragePartial = params.live?.getCoveragePartial() ?? params.coveragePartial ?? false;
-
-    const result = await publishReviewSummaryOnly({
-      cfg: params.cfg,
-      ctx: params.ctx,
-      getToken: params.getToken,
-      getTokenExpiresAtTs: params.getTokenExpiresAtTs,
-      refreshNearExpiry: params.refreshNearExpiry,
-      payload: {
-        ...parsed.data,
-        findings: acceptedFindings,
-      },
-      summaryPlacements,
-      inlineReviewIds: params.runState.inlineReviewIds,
-      recordPublishStep: params.recordPublishStep,
-      ciAuthor: params.ciAuthor,
-      partialCoverageNote,
-      coveragePartial,
-      cachedDiffIndex: params.cachedDiffIndex,
-      shouldAbortPublish: params.shouldAbortPublish,
-      publishAbortState: params.publishAbortState,
-      shouldLinkToSummary: params.shouldLinkToSummary,
-      summaryCommentIdHint: params.summaryCommentIdHint,
-    });
-
-    params.state.published = true;
-    return { ok: true, summaryCommentId: result.summaryCommentId };
   };
 
   return {
@@ -156,5 +89,7 @@ export function buildPublishSummaryTool(params: {
     clearLastError: () => {
       params.state.lastValidationError = null;
     },
+    getCapturedOverview: () => params.state.captured,
+    hasCaptured: () => params.state.captured != null,
   };
 }

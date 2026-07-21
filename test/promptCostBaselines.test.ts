@@ -9,9 +9,8 @@ import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
 import {
   buildPublishSummaryTool,
-  createSummaryPublishState,
+  createSummaryCaptureState,
 } from "../src/review/orchestrator/publishSummaryTool.js";
-import { createThreadPublishRunState } from "../src/review/orchestrator/publishThreadTool.js";
 import {
   buildOrchestratorSystemPrompt,
   renderReconInstruction,
@@ -24,7 +23,6 @@ import {
   stableJson,
   type PromptCostBudget,
 } from "./helpers/promptCost.js";
-import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 type PromptSurface = {
@@ -57,8 +55,6 @@ const LOCAL_WORKSPACE_TOOL_NAMES = [
   "searchWorkspace",
 ] as const;
 const CONTEXT7_TOOL_NAMES = ["getLibraryDocs", "resolveLibraryId"] as const;
-
-const cfg = makeTestConfig();
 
 describe("prompt cost baselines", () => {
   it("keeps prompt and tool surfaces within explicit budgets", () => {
@@ -98,18 +94,7 @@ describe("prompt cost baselines", () => {
 
   it("keeps publish_summary tool contract stable for synthesis", () => {
     const { piTool } = buildPublishSummaryTool({
-      cfg,
-      getToken: () => "token",
-      ctx: {
-        owner: "octo",
-        repo: "hello",
-        prNumber: 42,
-        headSha: "abc123",
-        hasDescriptionAgentBlock: false,
-      },
-      state: createSummaryPublishState(),
-      runState: createThreadPublishRunState(),
-      recordPublishStep: async () => undefined,
+      state: createSummaryCaptureState(),
     });
     expect(piTool.name).toBe("publish_summary");
     expect(piTool.description).toContain("overview");
@@ -120,18 +105,7 @@ describe("prompt cost baselines", () => {
 
   it("keeps publish_summary tool surface within budget", () => {
     const { piTool } = buildPublishSummaryTool({
-      cfg,
-      getToken: () => "token",
-      ctx: {
-        owner: "octo",
-        repo: "hello",
-        prNumber: 42,
-        headSha: "abc123",
-        hasDescriptionAgentBlock: false,
-      },
-      state: createSummaryPublishState(),
-      runState: createThreadPublishRunState(),
-      recordPublishStep: async () => undefined,
+      state: createSummaryCaptureState(),
     });
     const bytes = measurePromptCost(stableJson(piTool)).bytes;
     expect(bytes).toBeLessThan(2_500);
@@ -220,18 +194,7 @@ function promptSurfaces(): PromptSurface[] {
     maxResponseBytes: 64_000,
   }).piTools;
   const publishSummaryTool = buildPublishSummaryTool({
-    cfg,
-    getToken: () => "token",
-    ctx: {
-      owner: "octo",
-      repo: "hello",
-      prNumber: 42,
-      headSha: "abc123",
-      hasDescriptionAgentBlock: false,
-    },
-    state: createSummaryPublishState(),
-    runState: createThreadPublishRunState(),
-    recordPublishStep: async () => undefined,
+    state: createSummaryCaptureState(),
   }).piTool;
   const cursorPrompt = buildCursorPrompt(representativeCursorContext()).text;
 

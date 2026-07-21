@@ -1,57 +1,42 @@
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
-import { createPullRequestReviewWithComments } from "../../github/reviewPublish.js";
-import { withTransientReviewRetry } from "../../github/reviewPublishRetry.js";
 import { publishInlineReviewComments } from "../placement/reviewInlinePublish.js";
 import {
   downgradePlacementsAfterInlineFailure,
   mergeDroppedIntoSummaryPlacements,
-  type InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
   prepareFindingsForPublish,
   prepareReviewPayloadForPublish,
 } from "../findings/findingPipeline.js";
-import { fingerprintFinding } from "../findings/reviewFindingFingerprint.js";
-import {
-  renderInlineThreadBody,
-  renderRepeatNoBugsReviewBody,
-  renderReviewPointerBody,
-} from "../run/reviewRender.js";
-import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
+import type { InstallationTokenHandle } from "../../github/installationTokenHandle.js";
 import {
   MAX_INLINE_REVIEW_COMMENTS,
   MAX_THREAD_PUBLISH_CALLS,
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
 } from "../../settings/index.js";
+import { renderInlineThreadBody, renderReviewPointerBody } from "../run/reviewRender.js";
+import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
+import type { PublishAbortGate } from "./publishAbortGate.js";
 import type { RecordPublishStepWithCoordination } from "./summaryCommentCoordination.js";
+import {
+  appendAcceptedFindings,
+  appendSummaryPlacements,
+  type ThreadPublishRunState,
+} from "./threadPublishRunState.js";
 
-export type ThreadPublishRunState = {
-  postedFingerprints: Set<string>;
-  postedInlineCount: number;
-  batchCount: number;
-  inlineReviewIds: number[];
-  acceptedFindings: ReviewFinding[];
-  partialSpecialists: string[];
-  /** Accumulated placements for the final summary table / summary-only rows. */
-  summaryPlacements?: InlinePlacement[];
-};
+export type { ThreadPublishRunState };
 
 export type FindingBatchContext = {
   cfg: Pick<Config, "piModel" | "features">;
   ctx: ReviewPublishContext;
-  getToken: () => string;
+  token: InstallationTokenHandle;
   cachedDiffIndex?: CachedPrDiffIndex;
   recordPublishStep: RecordPublishStepWithCoordination;
-  shouldAbortPublish?: () => Promise<boolean>;
-  publishAbortState?: { staleHead?: boolean };
+  abortGate: PublishAbortGate;
   runState: ThreadPublishRunState;
-  tokenExpiresAtTs?: number;
-  pointerPayload?: ReviewPayload;
-  summaryCommentUrl?: string;
-  shouldLinkToSummary?: boolean;
 };
 
 export type FindingBatchResult =
@@ -75,29 +60,6 @@ function batchReviewPayload(findings: ReviewFinding[]): ReviewPayload {
     securityConcerns: null,
     followUps: [],
   };
-}
-
-function appendAcceptedFindings(
-  runState: ThreadPublishRunState,
-  findings: readonly ReviewFinding[],
-): void {
-  const existing = new Set(
-    runState.acceptedFindings.map((finding) => fingerprintFinding(finding, "review")),
-  );
-  for (const finding of findings) {
-    const fingerprint = fingerprintFinding(finding, "review");
-    if (existing.has(fingerprint)) continue;
-    existing.add(fingerprint);
-    runState.acceptedFindings.push(finding);
-  }
-}
-
-function appendSummaryPlacements(
-  runState: ThreadPublishRunState,
-  placements: readonly InlinePlacement[],
-): void {
-  if (runState.summaryPlacements == null) runState.summaryPlacements = [];
-  runState.summaryPlacements.push(...placements);
 }
 
 function sleepMs(ms: number): Promise<void> {
@@ -143,9 +105,9 @@ async function recordInlineBatchWithRetry(
 async function abortReason(
   context: FindingBatchContext,
 ): Promise<"stale_head" | "superseded" | null> {
-  if (!context.shouldAbortPublish) return null;
+  let kind: "continue" | "stale_head" | "superseded";
   try {
-    if (!(await context.shouldAbortPublish())) return null;
+    kind = await context.abortGate();
   } catch (error) {
     logWarn("review_thread_batch_abort_check_failed", {
       owner: context.ctx.owner,
@@ -155,7 +117,8 @@ async function abortReason(
     });
     return "superseded";
   }
-  return context.publishAbortState?.staleHead === true ? "stale_head" : "superseded";
+  if (kind === "continue") return null;
+  return kind;
 }
 
 export async function publishFindingBatch(
@@ -205,83 +168,22 @@ export async function publishFindingBatch(
 
   if (targets.inline.length === 0) {
     appendSummaryPlacements(context.runState, targets.placements);
-    if (batch.length === 0 && context.shouldLinkToSummary && context.summaryCommentUrl != null) {
-      let review;
-      try {
-        review = await withTransientReviewRetry(() =>
-          createPullRequestReviewWithComments(
-            context.getToken(),
-            context.ctx.owner,
-            context.ctx.repo,
-            context.ctx.prNumber,
-            {
-              body: renderRepeatNoBugsReviewBody("review", context.summaryCommentUrl),
-              event: "COMMENT",
-              commitId: context.ctx.headSha,
-            },
-            context.tokenExpiresAtTs,
-          ),
-        );
-      } catch (error) {
-        logWarn("review_repeat_no_bugs_publish_failed", {
-          owner: context.ctx.owner,
-          repo: context.ctx.repo,
-          pr: context.ctx.prNumber,
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return { kind: "empty" };
-      }
-
-      // Latch in-memory before durable append so a same-run repair cannot repost.
-      if (!context.runState.inlineReviewIds.includes(review.id)) {
-        context.runState.inlineReviewIds.push(review.id);
-      }
-
-      await recordInlineBatchWithRetry(
-        context,
-        {
-          githubId: review.id,
-          meta: {
-            batches: [
-              {
-                reviewId: review.id,
-                fingerprints: [],
-                event: "COMMENT",
-                url: review.url,
-                counts: { posted: 0, suppressed: 0, dropped: 0 },
-                repeatNoBugs: true,
-              },
-            ],
-          },
-        },
-        "Durable repeat-no-bugs review batch record failed after GitHub publish",
-      );
-
-      return {
-        kind: "published",
-        reviewId: review.id,
-        posted: 0,
-        suppressed: 0,
-        dropped: 0,
-      };
-    }
     return { kind: "empty" };
   }
 
-  const pointerPayload = context.pointerPayload ?? prepared.prepared.payload;
+  await context.token.refreshNearExpiry();
   let result;
   try {
     result = await publishInlineReviewComments(
-      context.getToken(),
+      context.token.getToken(),
       context.ctx.owner,
       context.ctx.repo,
       context.ctx.prNumber,
       {
         renderReviewBody: (anchorDroppedPlacements) =>
-          renderReviewPointerBody(pointerPayload, {
+          renderReviewPointerBody(prepared.prepared.payload, {
             ...context.ctx,
             mode: "review",
-            summaryCommentUrl: context.summaryCommentUrl,
             placements: mergeDroppedIntoSummaryPlacements(
               targets.placements,
               anchorDroppedPlacements,
@@ -292,7 +194,7 @@ export async function publishFindingBatch(
         commitId: context.ctx.headSha,
         inlinePlacements: targets.inline,
         renderCommentBody: (item) => renderInlineThreadBody(item, context.ctx),
-        expiresAtTs: context.tokenExpiresAtTs,
+        expiresAtTs: context.token.getExpiresAtTs(),
       },
     );
   } catch (error) {

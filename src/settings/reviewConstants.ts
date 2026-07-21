@@ -162,10 +162,9 @@ export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
  */
 export const RUN_DEADLINE_BUDGET_FRACTION = 0.8;
 /**
- * Bounded poll interval while an orchestrator `session.send` is in flight, and while
- * specialists are pending with no send active: detect cheap run cancel (`shouldCancelRun`)
- * and abort promptly without leaving timers past the run (decision 17/18). Never poll the
- * full stale-head `shouldAbortPublish` gate on this interval.
+ * Bounded poll interval for the single run-scoped cheap-cancel monitor (`shouldCancelRun`)
+ * spanning recon through summary (decision 17/18). Calls `session.abort` on cancel; never polls
+ * the full stale-head `shouldAbortPublish` gate on this interval.
  */
 export const ORCHESTRATOR_SEND_ABORT_POLL_MS = 250;
 /**
