@@ -1,0 +1,164 @@
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import type { JobWithMetadata, PgBoss } from "pg-boss";
+import type { Pool } from "pg";
+import type { Config } from "../src/config.js";
+import {
+  clearDurableAuthCachesForTest,
+  runDurableWorkItem,
+  type DurableJobSpec,
+} from "../src/agentWork/durableJob.js";
+import { initAnalytics, shutdownAnalytics } from "../src/analytics/index.js";
+import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { coreOf } from "./helpers/executorDurableHarness.js";
+
+type PostHogOptions = {
+  readonly host?: string;
+  readonly enableExceptionAutocapture?: boolean;
+  readonly before_send?: (event: unknown) => unknown;
+};
+
+const mockPostHog = vi.hoisted(() => {
+  const instances: Array<{
+    readonly capture: Mock;
+    readonly captureException: Mock;
+    readonly shutdown: Mock;
+  }> = [];
+
+  return {
+    instances,
+    PostHog: vi.fn(function MockPostHog(_apiKey: string, _options: PostHogOptions) {
+      const capture = vi.fn();
+      const captureException = vi.fn();
+      const shutdown = vi.fn(async () => undefined);
+      instances.push({ capture, captureException, shutdown });
+      return { capture, captureException, shutdown };
+    }),
+  };
+});
+
+vi.mock("posthog-node", () => ({ PostHog: mockPostHog.PostHog }));
+
+vi.mock("../src/agentWork/repository.js", () => ({
+  getWorkItem: vi.fn(),
+  getWorkItemCore: vi.fn(),
+  getWorkItemPayload: vi.fn(),
+  shouldSkipWork: vi.fn(),
+  markWorkCancelled: vi.fn(),
+  markQueuedWorkCancelled: vi.fn(),
+  claimQueuedWorkItem: vi.fn(),
+  claimWorkForExecution: vi.fn(),
+  markWorkCompleted: vi.fn(),
+  forceMarkRescheduledParentCompleted: vi.fn(),
+  markWorkFailed: vi.fn(),
+  markWorkPublishDegraded: vi.fn(),
+  markWorkRetrying: vi.fn(),
+  updateRunningWorkHeadSha: vi.fn(),
+}));
+
+vi.mock("../src/agentWork/reviewReschedule.js", () => ({
+  cancelOrphanedStaleHeadReplacementOnTerminalFailure: vi.fn(),
+}));
+
+vi.mock("../src/github/appAuth.js", () => ({
+  mintInstallationAuth: vi.fn(),
+  getAppBotIdentity: vi.fn(),
+}));
+
+import * as repo from "../src/agentWork/repository.js";
+import * as appAuth from "../src/github/appAuth.js";
+
+const cfg = {} as Config;
+const pool = {} as Pool;
+const boss = {} as PgBoss;
+
+describe("durableJob analytics forwarding", () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    mockPostHog.instances.length = 0;
+    mockPostHog.PostHog.mockClear();
+    await initAnalytics({ projectToken: "token", host: "" });
+
+    vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
+    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
+    vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
+    vi.mocked(repo.markWorkRetrying).mockResolvedValue(true);
+    vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
+    vi.mocked(appAuth.mintInstallationAuth).mockResolvedValue({
+      type: "token",
+      tokenType: "installation",
+      token: "tok",
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      installationId: 99,
+    } as Awaited<ReturnType<typeof appAuth.mintInstallationAuth>>);
+    clearDurableAuthCachesForTest();
+    vi.mocked(appAuth.getAppBotIdentity).mockResolvedValue({
+      userId: 999,
+      login: "pr-agent[bot]",
+    } as Awaited<ReturnType<typeof appAuth.getAppBotIdentity>>);
+  });
+
+  afterEach(async () => {
+    await shutdownAnalytics();
+  });
+
+  it("forwards terminal failures to captureException with repo context", async () => {
+    const item = makeReviewWorkItem({
+      status: "running",
+      id: "wi-1",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    const boom = new Error("enqueue failed");
+    const execute = vi.fn().mockRejectedValue(boom);
+    const job = {
+      id: "job-1",
+      data: { workItemId: item.id },
+      retryCount: 3,
+      retryLimit: 3,
+    } as unknown as JobWithMetadata<{ workItemId: string }>;
+
+    const spec: DurableJobSpec<"review"> = {
+      type: "review",
+      cfg,
+      pool,
+      boss,
+      job,
+      resolveHeadSha: async () => ({ headSha: "abc123" }),
+      execute,
+    };
+
+    await expect(runDurableWorkItem(spec)).resolves.toBeUndefined();
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    const client = mockPostHog.instances[0];
+    expect(client?.capture).toHaveBeenCalledWith({
+      distinctId: "installation:99",
+      event: "work item failed",
+      properties: expect.objectContaining({
+        type: "review",
+        owner: "acme",
+        repo: "widgets",
+        pr_number: 12,
+      }),
+    });
+    expect(client?.captureException).toHaveBeenCalledWith(
+      boom,
+      "installation:99",
+      expect.objectContaining({
+        event: "agent_work_failed",
+        type: "review",
+        owner: "acme",
+        repo: "widgets",
+        pr_number: 12,
+        workItemId: "wi-1",
+      }),
+    );
+  });
+});

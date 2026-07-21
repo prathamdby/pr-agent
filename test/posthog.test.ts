@@ -81,4 +81,13 @@ describe("analytics PostHog sink", () => {
     const { shutdownAnalytics } = await import("../src/analytics/index.js");
     await expect(shutdownAnalytics()).resolves.toBeUndefined();
   });
+
+  it("before_send leaves events without error fields unchanged", async () => {
+    const { initAnalytics } = await import("../src/analytics/index.js");
+    await initAnalytics({ projectToken: "token", host: "" });
+
+    const beforeSend = mockPostHog.instances[0]?.options.before_send;
+    const event = { distinctId: "x", event: "y" };
+    expect(beforeSend?.(event)).toBe(event);
+  });
 });

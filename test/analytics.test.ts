@@ -167,4 +167,67 @@ describe("analytics facade", () => {
 
     expect(mockPostHog.PostHog).not.toHaveBeenCalled();
   });
+
+  it("resolves logError distinct ids from analyticsDistinctId and string installationId", async () => {
+    const analytics = await import("../src/analytics/index.js");
+    await analytics.initAnalytics({ projectToken: "token", host: "" });
+    const { logError } = await import("../src/evlog.js");
+
+    logError("agent_work_failed", { analyticsDistinctId: "custom-id", message: "a" });
+    logError("agent_work_failed", { installationId: "gh-123", message: "b" });
+    logError("agent_work_failed", { message: "c" });
+
+    const calls = mockPostHog.instances[0]?.captureException.mock.calls ?? [];
+    expect(calls[0]?.[1]).toBe("custom-id");
+    expect(calls[1]?.[1]).toBe("installation:gh-123");
+    expect(calls[2]?.[1]).toBe("server");
+  });
+
+  it("builds captureException errors from non-Error args and meta fallbacks", async () => {
+    const analytics = await import("../src/analytics/index.js");
+    await analytics.initAnalytics({ projectToken: "token", host: "" });
+    const { logError } = await import("../src/evlog.js");
+
+    logError("agent_work_failed", { installationId: 1 }, "raw string");
+    logError("agent_work_failed", { installationId: 1, message: "fallback" });
+    logError("agent_work_failed", { installationId: 1 });
+
+    const calls = mockPostHog.instances[0]?.captureException.mock.calls ?? [];
+    expect(calls[0]?.[0]).toEqual(expect.objectContaining({ message: "raw string" }));
+    expect(calls[1]?.[0]).toEqual(expect.objectContaining({ message: "fallback" }));
+    expect(calls[2]?.[0]).toEqual(expect.objectContaining({ message: "agent_work_failed" }));
+  });
+
+  it("strips analyticsDistinctId, error, and err from forwarded properties", async () => {
+    const analytics = await import("../src/analytics/index.js");
+    await analytics.initAnalytics({ projectToken: "token", host: "" });
+    const { logError } = await import("../src/evlog.js");
+
+    logError(
+      "ev",
+      { analyticsDistinctId: "x", error: "skip", err: "skip", kept: 1 },
+      new Error("boom"),
+    );
+
+    const props = mockPostHog.instances[0]?.captureException.mock.calls[0]?.[2] as Record<
+      string,
+      unknown
+    >;
+    expect(props).toMatchObject({ event: "ev", kept: 1 });
+    expect(props).not.toHaveProperty("analyticsDistinctId");
+    expect(props).not.toHaveProperty("error");
+    expect(props).not.toHaveProperty("err");
+  });
+
+  it("keeps analytics disabled when PostHog sink construction fails", async () => {
+    mockPostHog.PostHog.mockImplementationOnce(() => {
+      throw new Error("sdk missing");
+    });
+    const analytics = await import("../src/analytics/index.js");
+
+    await expect(analytics.initAnalytics({ projectToken: "token", host: "" })).rejects.toThrow(
+      /sdk missing/,
+    );
+    expect(analytics.isAnalyticsEnabled()).toBe(false);
+  });
 });

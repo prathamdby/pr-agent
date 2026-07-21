@@ -721,8 +721,14 @@ describe("runDurableWorkItem", () => {
     expect(onTerminalFailure).toHaveBeenCalledTimes(1);
     expect(evlog.logError).toHaveBeenCalledWith(
       "agent_work_failed",
-      expect.objectContaining({ type: "review", workItemId: "wi-1" }),
-      expect.anything(),
+      expect.objectContaining({
+        type: "review",
+        workItemId: "wi-1",
+        owner: "o",
+        repo: "r",
+        pr_number: 1,
+      }),
+      boom,
     );
   });
 
