@@ -22,8 +22,8 @@ export type ReviewRunParams = {
   readonly hasDescriptionAgentBlock?: boolean;
   readonly initialPublishState?: {
     readonly published?: boolean;
-    readonly inlinePublished?: boolean;
-    readonly inlineReviewId?: number | null;
+    readonly inlineReviewIds?: readonly number[];
+    readonly postedInlineCount?: number;
   };
   readonly recordPublishStep?: (
     step: "inline_review" | "summary_comment" | "labels",

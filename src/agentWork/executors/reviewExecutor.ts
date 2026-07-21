@@ -444,9 +444,9 @@ async function runFullReviewAgainstRepositoryView(args: {
       (pullRequest as { body?: string | null } | undefined)?.body ?? ""
     ).includes(DESCRIPTION_AGENT_HEADER),
     initialPublishState: {
-      inlinePublished: publishState.inlinePublished,
       published: publishState.summaryPublished,
-      inlineReviewId: publishState.inlineReviewId,
+      inlineReviewIds: publishState.inlineReviewIds,
+      postedInlineCount: publishState.postedInlineCount,
     },
     recordPublishStep: attachSummaryCommentCoordination(
       (step, detail) =>

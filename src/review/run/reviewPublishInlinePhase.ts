@@ -78,12 +78,18 @@ export async function runInlinePublishPhase(params: {
     recordPublishStep,
   } = params;
   let summaryPlacements: InlinePlacement[] = [...params.placements];
-  let inlineReviewId = publishState.inlineReviewId;
+  let inlineReviewId = publishState.inlineReviewIds.at(-1) ?? null;
   let anchorDroppedCount = 0;
   let lineResolutionFallback = false;
   let agentFixPromptTruncated = false;
   let inlinePostedPlacements: FingerprintedInlinePlacement[] = [];
 
+  const rememberInlineReviewId = (reviewId: number): void => {
+    inlineReviewId = reviewId;
+    if (!publishState.inlineReviewIds.includes(reviewId)) {
+      publishState.inlineReviewIds.push(reviewId);
+    }
+  };
   if (params.inlineFindings.length > 0) {
     try {
       let lastPointerTruncated = false;
@@ -113,8 +119,7 @@ export async function runInlinePublishPhase(params: {
       );
 
       if (inlineResult.review) {
-        inlineReviewId = inlineResult.review.id;
-        publishState.inlineReviewId = inlineResult.review.id;
+        rememberInlineReviewId(inlineResult.review.id);
         summaryPlacements = mergeDroppedIntoSummaryPlacements(
           placements,
           inlineResult.anchorDroppedPlacements,
@@ -245,8 +250,7 @@ export async function runInlinePublishPhase(params: {
           tokenExpiresAtTs,
         ),
       );
-      inlineReviewId = review.id;
-      publishState.inlineReviewId = review.id;
+      rememberInlineReviewId(review.id);
       await recordPublishStep?.("inline_review", {
         githubId: review.id,
         meta: {

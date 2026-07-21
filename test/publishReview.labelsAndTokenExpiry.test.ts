@@ -166,7 +166,7 @@ describe("publishReview labels and token expiry", () => {
       "r",
       1,
       expect.objectContaining({
-        event: "REQUEST_CHANGES",
+        event: "COMMENT",
         commitId: "sha",
       }),
       tokenExpiresAtTs,

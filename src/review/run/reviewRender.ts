@@ -423,6 +423,7 @@ type ReviewSummaryRenderCtx = RenderContext & {
   placements: readonly InlinePlacement[];
   mode: ReviewMode;
   runFooter: ReviewRunFooterMeta;
+  partialCoverageNote?: string;
   staleReview?: boolean;
   cachedDiffIndex?: CachedPrDiffIndex;
   /** Server-derived CI gate; omitted when disabled, unavailable, or no checks. */
@@ -517,6 +518,11 @@ function buildReviewSummaryBody(
   }
 
   rows.push(renderKeyValueTable(tableRows));
+
+  if (ctx.partialCoverageNote) {
+    rows.push("");
+    rows.push(ctx.partialCoverageNote);
+  }
 
   if (summaryOnlyAccordions.length > 0) {
     rows.push("");

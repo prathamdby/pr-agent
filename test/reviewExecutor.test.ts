@@ -186,9 +186,9 @@ describe("executeReviewJob", () => {
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1 });
     mocks.loadPublishContext.mockResolvedValue({
       publishState: {
-        inlinePublished: false,
         summaryPublished: false,
-        inlineReviewId: null,
+        inlineReviewIds: [],
+        postedInlineCount: 0,
       },
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],
@@ -557,6 +557,34 @@ describe("executeReviewJob", () => {
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
     });
+  });
+
+  it("threads resumed inline review ids and posted count into the review run", async () => {
+    mocks.loadPublishContext.mockResolvedValue({
+      publishState: {
+        summaryPublished: false,
+        inlineReviewIds: [41, 42],
+        postedInlineCount: 3,
+      },
+      shouldLinkToSummary: true,
+      storedInlineFingerprints: ["fp-1"],
+      summaryCommentGithubId: 1001,
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialPublishState: {
+          published: false,
+          inlineReviewIds: [41, 42],
+          postedInlineCount: 3,
+        },
+        storedInlineFingerprints: ["fp-1"],
+        shouldLinkToSummary: true,
+        summaryCommentIdHint: 1001,
+      }),
+    );
   });
 
   it("threads hasDescriptionAgentBlock false when PR body lacks the description header", async () => {

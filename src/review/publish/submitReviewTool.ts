@@ -25,8 +25,10 @@ import {
 
 export type SubmitReviewState = {
   published: boolean;
-  inlinePublished: boolean;
-  inlineReviewId: number | null;
+  /** GitHub review IDs created by inline batches this run or restored from publish records. */
+  inlineReviewIds: number[];
+  /** Inline threads already posted this run or restored from publish-record batch counts. */
+  postedInlineCount: number;
   lastValidationError: string | null;
   publishCallCount: number;
   publishCallsExhausted: boolean;
@@ -40,12 +42,12 @@ const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
 }) as PiTool["parameters"];
 
 export function createSubmitReviewState(
-  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished" | "inlineReviewId">>,
+  initial?: Partial<Pick<SubmitReviewState, "published" | "inlineReviewIds" | "postedInlineCount">>,
 ): SubmitReviewState {
   return {
     published: initial?.published ?? false,
-    inlinePublished: initial?.inlinePublished ?? false,
-    inlineReviewId: initial?.inlineReviewId ?? null,
+    inlineReviewIds: [...(initial?.inlineReviewIds ?? [])],
+    postedInlineCount: initial?.postedInlineCount ?? 0,
     lastValidationError: null,
     publishCallCount: 0,
     publishCallsExhausted: false,

@@ -28,11 +28,37 @@ describe("loadReviewExecutorPublishContext", () => {
   it("maps one batched publish_records query into executor context", async () => {
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [
-        { step: "inline_review", github_id: "42" },
+        {
+          step: "inline_review",
+          github_id: "42",
+          detail: {
+            batches: [
+              {
+                reviewId: 41,
+                fingerprints: ["fp-1"],
+                counts: { posted: 2 },
+              },
+              {
+                reviewId: 42,
+                fingerprints: ["fp-2", "fp-3"],
+                counts: { posted: 1 },
+              },
+            ],
+          },
+        },
         { step: "summary_comment", github_id: "99" },
       ],
       prior_summary_exists: true,
-      fingerprint_details: [{ detail: { fingerprints: ["fp-1", "fp-2"] } }],
+      fingerprint_details: [
+        {
+          detail: {
+            batches: [
+              { reviewId: 41, fingerprints: ["fp-1"] },
+              { reviewId: 42, fingerprints: ["fp-2", "fp-3"] },
+            ],
+          },
+        },
+      ],
       latest_summary_github_id: "1001",
     });
 
@@ -40,12 +66,12 @@ describe("loadReviewExecutorPublishContext", () => {
       loadReviewExecutorPublishContext(pool, "wi-1", "o/r#1", "review"),
     ).resolves.toEqual({
       publishState: {
-        inlinePublished: true,
         summaryPublished: true,
-        inlineReviewId: 42,
+        inlineReviewIds: [41, 42],
+        postedInlineCount: 3,
       },
       shouldLinkToSummary: true,
-      storedInlineFingerprints: ["fp-1", "fp-2"],
+      storedInlineFingerprints: ["fp-1", "fp-2", "fp-3"],
       summaryCommentGithubId: 1001,
     });
 
@@ -69,16 +95,98 @@ describe("loadReviewExecutorPublishContext", () => {
       summaryCommentGithubId: null,
     });
   });
+
+  it("preserves legacy flat fingerprint records without a batches array", async () => {
+    vi.mocked(queryOne).mockResolvedValue({
+      current_publish: [
+        { step: "inline_review", github_id: "77", detail: { fingerprints: ["fp-legacy"] } },
+      ],
+      prior_summary_exists: false,
+      fingerprint_details: [{ detail: { fingerprints: ["fp-legacy"] } }],
+      latest_summary_github_id: null,
+    });
+
+    await expect(
+      loadReviewExecutorPublishContext(pool, "wi-3", "o/r#1", "review"),
+    ).resolves.toEqual({
+      publishState: {
+        summaryPublished: false,
+        inlineReviewIds: [77],
+        postedInlineCount: 0,
+      },
+      shouldLinkToSummary: false,
+      storedInlineFingerprints: ["fp-legacy"],
+      summaryCommentGithubId: null,
+    });
+  });
+
+  it("restores prior-work-item inline batches on retry without marking the current run published", async () => {
+    vi.mocked(queryOne).mockResolvedValue({
+      current_publish: [
+        {
+          step: "inline_review",
+          github_id: "42",
+          detail: {
+            batches: [
+              {
+                reviewId: 41,
+                fingerprints: ["fp-1"],
+                counts: { posted: 2 },
+              },
+              {
+                reviewId: 42,
+                fingerprints: ["fp-2", "fp-3"],
+                counts: { posted: 1 },
+              },
+            ],
+          },
+        },
+      ],
+      prior_summary_exists: true,
+      fingerprint_details: [
+        {
+          detail: {
+            batches: [
+              { reviewId: 41, fingerprints: ["fp-1"] },
+              { reviewId: 42, fingerprints: ["fp-2", "fp-3"] },
+            ],
+          },
+        },
+      ],
+      latest_summary_github_id: "1001",
+    });
+
+    await expect(
+      loadReviewExecutorPublishContext(pool, "wi-retry", "o/r#1", "review"),
+    ).resolves.toEqual({
+      publishState: {
+        summaryPublished: false,
+        inlineReviewIds: [41, 42],
+        postedInlineCount: 3,
+      },
+      shouldLinkToSummary: true,
+      storedInlineFingerprints: ["fp-1", "fp-2", "fp-3"],
+      summaryCommentGithubId: 1001,
+    });
+
+    const sql = String(vi.mocked(queryOne).mock.calls[0]?.[1]);
+    expect(sql).not.toContain("step IN ('inline_review', 'summary_comment')");
+    expect(sql).toMatch(/step = 'inline_review'/);
+    expect(sql).toMatch(/step = 'summary_comment'[\s\S]*work_item_id = \$3/);
+    expect(sql).not.toMatch(
+      /step = 'inline_review'[\s\S]*work_item_id = \$3[\s\S]*step = 'summary_comment'/,
+    );
+  });
 });
 
 describe("listTriageEligibleInlineReviews", () => {
   it("maps completed inline_review publish rows to review id and lens", async () => {
     const query = vi.fn().mockResolvedValue({
       rows: [
-        { github_id: "10", review_lens: "review" },
-        { github_id: "11", review_lens: "review-tests" },
-        { github_id: "", review_lens: "review-quality" },
-        { github_id: "0", review_lens: "review-security" },
+        { github_id: "10", review_lens: "review", detail: null },
+        { github_id: "11", review_lens: "review-tests", detail: null },
+        { github_id: "", review_lens: "review-quality", detail: null },
+        { github_id: "0", review_lens: "review-security", detail: null },
       ],
     });
     const scopedPool = { query } as unknown as Pool;
@@ -92,9 +200,65 @@ describe("listTriageEligibleInlineReviews", () => {
 
     expect(query).toHaveBeenCalledWith(expect.stringContaining("inline_review"), ["o/r#1"]);
   });
+
+  it("includes every batch review id from a single inline_review row", async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          github_id: "42",
+          review_lens: "review",
+          detail: {
+            batches: [
+              { reviewId: 41, fingerprints: ["fp-1"], counts: { posted: 1 } },
+              { reviewId: 42, fingerprints: ["fp-2"], counts: { posted: 1 } },
+            ],
+          },
+        },
+      ],
+    });
+    const scopedPool = { query } as unknown as Pool;
+
+    await expect(listTriageEligibleInlineReviews(scopedPool, "o/r#1")).resolves.toEqual(
+      new Map([
+        [41, "review"],
+        [42, "review"],
+      ]),
+    );
+  });
 });
 
 describe("review check run publish records", () => {
+  it("atomically appends inline batches in the conflict update", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const scopedPool = { query } as unknown as Pool;
+
+    await recordPublishStep(scopedPool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+      step: "inline_review",
+      githubId: 42,
+      detail: {
+        batches: [
+          {
+            reviewId: 42,
+            fingerprints: ["fp-2"],
+            event: "COMMENT",
+            url: "https://example.com/reviews/42",
+            counts: { posted: 1, suppressed: 1, dropped: 0 },
+          },
+        ],
+      },
+    });
+
+    const sql = vi.mocked(query).mock.calls[0]?.[0];
+    expect(sql).toContain("publish_records.detail");
+    expect(sql).toContain("EXCLUDED.detail");
+    expect(sql).toContain("||");
+    expect(sql).toContain("'batches'");
+    expect(sql).not.toContain("SELECT detail");
+  });
+
   it("uses the shared-step conflict predicate that matches the partial index", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const scopedPool = { query } as unknown as Pool;

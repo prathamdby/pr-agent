@@ -18,6 +18,11 @@ vi.mock("../src/agentWork/repository.js", async () => {
   return createAgentWorkRepositoryMock();
 });
 
+vi.mock("../src/agentWork/publishRecordRepository.js", async () => {
+  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
+  return createAgentWorkRepositoryMock();
+});
+
 vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
   return createReviewCheckRunMock();
@@ -48,7 +53,7 @@ describe("publishReview check run completion", () => {
   it("completes the review check as failure when published findings include P1", async () => {
     await publishReviewForTest({
       ...baseParams,
-      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: coordinatedRecordPublishStep(),
     });
@@ -77,7 +82,7 @@ describe("publishReview check run completion", () => {
         ...payload,
         findings: [{ ...payload.findings[0], severity: "P2" }],
       },
-      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: coordinatedRecordPublishStep(),
     });
@@ -95,7 +100,7 @@ describe("publishReview check run completion", () => {
     await publishReviewForTest({
       ...baseParams,
       payload: { ...payload, findings: [] },
-      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: coordinatedRecordPublishStep(),
     });
@@ -116,7 +121,7 @@ describe("publishReview check run completion", () => {
         ...payload,
         findings: [{ ...payload.findings[0], severity: "P3", fixPrompt: undefined }],
       },
-      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       recordPublishStep: coordinatedRecordPublishStep(),
     });
@@ -141,7 +146,7 @@ describe("publishReview commit status", () => {
     await publishReviewForTest({
       ...baseParams,
       cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
-      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
@@ -179,7 +184,7 @@ describe("publishReview commit status", () => {
       ...baseParams,
       cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
       payload: p2Payload,
-      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
@@ -204,7 +209,7 @@ describe("publishReview commit status", () => {
       publishReviewForTest({
         ...baseParams,
         cfg: { ...baseParams.cfg, features: { ...baseParams.cfg.features, commitStatus: true } },
-        publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+        publishState: testPublishState({ inlineReviewIds: [1] }),
         cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       }),
     ).resolves.toBeUndefined();
@@ -213,7 +218,7 @@ describe("publishReview commit status", () => {
   it("skips commit status when flag is off", async () => {
     await publishReviewForTest({
       ...baseParams,
-      publishState: testPublishState({ inlinePublished: true, inlineReviewId: 1 }),
+      publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 

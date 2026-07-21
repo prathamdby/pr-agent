@@ -15,6 +15,11 @@ vi.mock("../src/agentWork/repository.js", async () => {
   return createAgentWorkRepositoryMock();
 });
 
+vi.mock("../src/agentWork/publishRecordRepository.js", async () => {
+  const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
+  return createAgentWorkRepositoryMock();
+});
+
 vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   const { createReviewCheckRunMock } = await import("./helpers/publishReviewTestSetup.js");
   return createReviewCheckRunMock();
@@ -32,7 +37,7 @@ import {
 import {
   claimSummaryCommentCreation,
   getSummaryCommentGithubId,
-} from "../src/agentWork/repository.js";
+} from "../src/agentWork/publishRecordRepository.js";
 
 const baseParams = publishReviewTestBaseParams;
 const pool = {} as import("pg").Pool;

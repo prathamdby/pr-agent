@@ -76,6 +76,22 @@ describe("submitReview tool", () => {
     vi.mocked(publishReview).mockResolvedValue(undefined);
   });
 
+  it("seeds every resumed inline review id without skipping inline publish", () => {
+    const state = createSubmitReviewState({
+      published: true,
+      inlineReviewIds: [41, 42],
+      postedInlineCount: 5,
+    });
+
+    expect(state).toMatchObject({
+      published: true,
+      inlineReviewIds: [41, 42],
+      postedInlineCount: 5,
+    });
+    expect(state).not.toHaveProperty("inlinePublished");
+    expect(state).not.toHaveProperty("inlineReviewId");
+  });
+
   it("ignores duplicate submitReview after publish", async () => {
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({

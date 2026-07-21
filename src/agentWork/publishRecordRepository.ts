@@ -256,12 +256,39 @@ export async function releaseUnstartedReviewCheckRunReservation(
   return (result.rowCount ?? 0) > 0;
 }
 
+function positiveFiniteNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function inlineBatchDetails(detail: Record<string, unknown> | null | undefined): Array<{
+  reviewId: number | null;
+  posted: number;
+}> {
+  if (!Array.isArray(detail?.batches)) return [];
+  return detail.batches.flatMap((entry) => {
+    if (typeof entry !== "object" || entry == null || Array.isArray(entry)) return [];
+    const batch = entry as Record<string, unknown>;
+    const counts =
+      typeof batch.counts === "object" && batch.counts != null && !Array.isArray(batch.counts)
+        ? (batch.counts as Record<string, unknown>)
+        : {};
+    const reviewId = positiveFiniteNumber(batch.reviewId);
+    const posted = positiveFiniteNumber(counts.posted) ?? 0;
+    return [{ reviewId, posted }];
+  });
+}
+
 export async function listTriageEligibleInlineReviews(
   pool: Pool,
   resourceKey: string,
 ): Promise<Map<number, AnyReviewLens>> {
-  const result = await pool.query<{ github_id: string; review_lens: AnyReviewLens }>(
-    `SELECT github_id, review_lens
+  const result = await pool.query<{
+    github_id: string;
+    review_lens: AnyReviewLens;
+    detail: Record<string, unknown> | null;
+  }>(
+    `SELECT github_id, review_lens, detail
        FROM publish_records
       WHERE resource_key = $1
         AND step = 'inline_review'
@@ -271,10 +298,14 @@ export async function listTriageEligibleInlineReviews(
   );
   const reviewLenses = new Map<number, AnyReviewLens>();
   for (const row of result.rows) {
-    if (!row.github_id) continue;
-    const reviewId = Number(row.github_id);
-    if (Number.isFinite(reviewId) && reviewId > 0) {
-      reviewLenses.set(reviewId, row.review_lens);
+    const batches = inlineBatchDetails(row.detail);
+    for (const batch of batches) {
+      if (batch.reviewId != null) reviewLenses.set(batch.reviewId, row.review_lens);
+    }
+    if (batches.length > 0) continue;
+    const legacyReviewId = positiveFiniteNumber(row.github_id);
+    if (legacyReviewId != null) {
+      reviewLenses.set(legacyReviewId, row.review_lens);
     }
   }
   return reviewLenses;
@@ -292,29 +323,43 @@ function mergeStoredInlineFingerprints(
   return [...merged];
 }
 
-function parseReviewPublishStateRows(rows: readonly { step: string; github_id: string | null }[]): {
-  inlinePublished: boolean;
+type ReviewPublishStateRow = {
+  step: string;
+  github_id: string | null;
+  detail?: Record<string, unknown> | null;
+};
+
+export function parseReviewPublishStateRows(rows: readonly ReviewPublishStateRow[]): {
   summaryPublished: boolean;
-  inlineReviewId: number | null;
+  inlineReviewIds: number[];
+  postedInlineCount: number;
 } {
-  const steps = new Set(rows.map((row) => row.step));
-  const inlineRow = rows.find((row) => row.step === "inline_review");
-  const inlineReviewId =
-    inlineRow?.github_id != null && Number.isFinite(Number(inlineRow.github_id))
-      ? Number(inlineRow.github_id)
-      : null;
+  const inlineReviewIds = new Set<number>();
+  let postedInlineCount = 0;
+  for (const row of rows) {
+    if (row.step !== "inline_review") continue;
+    const batches = inlineBatchDetails(row.detail);
+    for (const batch of batches) {
+      if (batch.reviewId != null) inlineReviewIds.add(batch.reviewId);
+      postedInlineCount += batch.posted;
+    }
+    if (batches.length === 0) {
+      const legacyReviewId = positiveFiniteNumber(row.github_id);
+      if (legacyReviewId != null) inlineReviewIds.add(legacyReviewId);
+    }
+  }
   return {
-    inlinePublished: steps.has("inline_review"),
-    summaryPublished: steps.has("summary_comment"),
-    inlineReviewId,
+    summaryPublished: rows.some((row) => row.step === "summary_comment"),
+    inlineReviewIds: [...inlineReviewIds],
+    postedInlineCount,
   };
 }
 
 export type ReviewExecutorPublishContext = {
   publishState: {
-    inlinePublished: boolean;
     summaryPublished: boolean;
-    inlineReviewId: number | null;
+    inlineReviewIds: number[];
+    postedInlineCount: number;
   };
   shouldLinkToSummary: boolean;
   storedInlineFingerprints: string[];
@@ -328,7 +373,7 @@ export async function loadReviewExecutorPublishContext(
   reviewLens: ReviewWorkPayload["mode"],
 ): Promise<ReviewExecutorPublishContext> {
   const row = await queryOne<{
-    current_publish: { step: string; github_id: string | null }[] | null;
+    current_publish: ReviewPublishStateRow[] | null;
     prior_summary_exists: boolean;
     fingerprint_details: { detail: Record<string, unknown> }[] | null;
     latest_summary_github_id: string | null;
@@ -337,13 +382,25 @@ export async function loadReviewExecutorPublishContext(
     `SELECT
        COALESCE(
          (
-           SELECT json_agg(json_build_object('step', step, 'github_id', github_id))
-             FROM publish_records
-            WHERE resource_key = $1
-              AND review_lens = $2
-              AND work_item_id = $3
-              AND status = 'completed'
-              AND step IN ('inline_review', 'summary_comment')
+           SELECT json_agg(
+             json_build_object('step', step, 'github_id', github_id, 'detail', detail)
+           )
+             FROM (
+               SELECT step, github_id, detail
+                 FROM publish_records
+                WHERE resource_key = $1
+                  AND review_lens = $2
+                  AND status = 'completed'
+                  AND step = 'summary_comment'
+                  AND work_item_id = $3
+               UNION ALL
+               SELECT step, github_id, detail
+                 FROM publish_records
+                WHERE resource_key = $1
+                  AND review_lens = $2
+                  AND status = 'completed'
+                  AND step = 'inline_review'
+             ) AS publish_steps
          ),
          '[]'::json
        ) AS current_publish,
@@ -415,7 +472,32 @@ export async function recordPublishStep(
 			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
 			               github_id = EXCLUDED.github_id,
 			               status = 'completed',
-			               detail = EXCLUDED.detail,
+			               detail = CASE
+			                 WHEN EXCLUDED.step = 'inline_review' THEN
+			                   (
+			                     COALESCE(publish_records.detail, '{}'::jsonb)
+			                     || (EXCLUDED.detail - 'batches')
+			                   )
+			                   || jsonb_build_object(
+			                     'batches',
+			                     (
+			                       CASE
+			                         WHEN jsonb_typeof(publish_records.detail -> 'batches') = 'array'
+			                           THEN publish_records.detail -> 'batches'
+			                         ELSE '[]'::jsonb
+			                       END
+			                     )
+			                     ||
+			                     (
+			                       CASE
+			                         WHEN jsonb_typeof(EXCLUDED.detail -> 'batches') = 'array'
+			                           THEN EXCLUDED.detail -> 'batches'
+			                         ELSE '[]'::jsonb
+			                       END
+			                     )
+			                   )
+			                 ELSE EXCLUDED.detail
+			               END,
 			               updated_at = now()`,
     [
       crypto.randomUUID(),

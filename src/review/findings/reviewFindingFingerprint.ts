@@ -59,11 +59,23 @@ export type StoredInlineFingerprints = {
 export function parseStoredInlineFingerprints(
   detail: Record<string, unknown> | null | undefined,
 ): StoredInlineFingerprints {
-  const raw = detail?.fingerprints;
-  if (!Array.isArray(raw)) return { fingerprints: [] };
-  return {
-    fingerprints: raw.filter((entry): entry is string => typeof entry === "string"),
+  const fingerprints = new Set<string>();
+  const addFingerprints = (raw: unknown): void => {
+    if (!Array.isArray(raw)) return;
+    for (const entry of raw) {
+      if (typeof entry === "string") fingerprints.add(entry);
+    }
   };
+
+  addFingerprints(detail?.fingerprints);
+  if (Array.isArray(detail?.batches)) {
+    for (const batch of detail.batches) {
+      if (typeof batch !== "object" || batch == null || Array.isArray(batch)) continue;
+      addFingerprints((batch as Record<string, unknown>).fingerprints);
+    }
+  }
+
+  return { fingerprints: [...fingerprints] };
 }
 
 export function fingerprintInlinePlacements(
