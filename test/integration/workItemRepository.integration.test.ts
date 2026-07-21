@@ -11,7 +11,6 @@ import {
   createVerificationWorkItem,
 } from "../../src/agentWork/intake/workItemRepository.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
-import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
 const OWNER = "work-item-repo-it";
@@ -65,7 +64,6 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       return createReviewWorkItem(client, {
         webhookEventId,
         source: "slash",
-        lens: "review",
         ref,
       });
     });
@@ -79,52 +77,42 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     expect(publish.rows).toEqual([{ step: "progress_comment", status: "pending" }]);
   });
 
-  it.each([
-    "review",
-    "review-security",
-    "review-quality",
-    "review-tests",
-  ] as const satisfies readonly AnyReviewLens[])(
-    "keeps distinct winners per review lens %s",
-    async (lens) => {
-      const repo = `repo-${randomUUID().slice(0, 8)}`;
-      const ref = makeRef(repo, 11);
-      const resourceKey = prResourceKey(OWNER, repo, 11);
+  it("keeps one active slash review winner", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const ref = makeRef(repo, 11);
+    const resourceKey = prResourceKey(OWNER, repo, 11);
 
-      const firstEvent = randomUUID();
-      const secondEvent = randomUUID();
-      const first = await inTransaction(pool, async (client) => {
-        await insertWebhookEvent(client, firstEvent);
-        return createReviewWorkItem(client, {
-          webhookEventId: firstEvent,
-          source: "slash",
-          lens,
-          ref,
-        });
+    const firstEvent = randomUUID();
+    const secondEvent = randomUUID();
+    const first = await inTransaction(pool, async (client) => {
+      await insertWebhookEvent(client, firstEvent);
+      return createReviewWorkItem(client, {
+        webhookEventId: firstEvent,
+        source: "slash",
+        ref,
       });
-      const second = await inTransaction(pool, async (client) => {
-        await insertWebhookEvent(client, secondEvent);
-        return createReviewWorkItem(client, {
-          webhookEventId: secondEvent,
-          source: "slash",
-          lens,
-          ref,
-        });
+    });
+    const second = await inTransaction(pool, async (client) => {
+      await insertWebhookEvent(client, secondEvent);
+      return createReviewWorkItem(client, {
+        webhookEventId: secondEvent,
+        source: "slash",
+        ref,
       });
+    });
 
-      expect(first.created).toBe(true);
-      expect(second).toEqual({ created: false, id: first.id });
+    expect(first.created).toBe(true);
+    expect(second).toEqual({ created: false, id: first.id });
 
-      const { rows } = await pool.query<{ id: string }>(
-        `SELECT id FROM agent_work_items
-          WHERE resource_key = $1 AND type = 'review' AND review_lens = $2
-            AND source = 'slash' AND status = 'queued'`,
-        [resourceKey, lens],
-      );
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.id).toBe(first.id);
-    },
-  );
+    const { rows } = await pool.query<{ id: string }>(
+      `SELECT id FROM agent_work_items
+        WHERE resource_key = $1 AND type = 'review' AND review_lens = $2
+          AND source = 'slash' AND status = 'queued'`,
+      [resourceKey, "review"],
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.id).toBe(first.id);
+  });
 
   it("returns winner for description and triage without follow-up races", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
@@ -307,7 +295,6 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       return createReviewWorkItem(client, {
         webhookEventId: thirdEvent,
         source: "slash",
-        lens: "review",
         ref,
       });
     });

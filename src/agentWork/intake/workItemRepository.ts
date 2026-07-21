@@ -12,7 +12,6 @@ import type {
   VerificationWorkPayload,
 } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
-import { normalizeReviewLens, type AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { prResourceKey, type PrRef } from "../types.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
@@ -223,7 +222,6 @@ async function ensureProgressCommentRecord(
 type ReviewWorkItemParams = {
   webhookEventId: string;
   ref: PrRef;
-  lens: AnyReviewLens;
   priority?: number;
   userSupplement?: string;
   commenterId?: number;
@@ -243,9 +241,8 @@ export async function createReviewWorkItem(
 ): Promise<string | SlashActiveWorkInsertResult> {
   const id = crypto.randomUUID();
   const resourceKey = prResourceKey(params.ref.owner, params.ref.repo, params.ref.prNumber);
-  const reviewMode = normalizeReviewLens(params.lens);
   const payload = {
-    mode: reviewMode,
+    mode: "review",
     source: params.source,
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
@@ -259,7 +256,7 @@ export async function createReviewWorkItem(
       type: "review",
       source: "slash",
       ref: params.ref,
-      reviewLens: reviewMode,
+      reviewLens: "review",
       resourceKey,
       priority: params.priority ?? 0,
       payload,
@@ -271,7 +268,7 @@ export async function createReviewWorkItem(
     await ensureProgressCommentRecord(client, {
       workItemId: insert.id,
       resourceKey,
-      reviewLens: reviewMode,
+      reviewLens: "review",
     });
     return insert;
   }
@@ -282,7 +279,7 @@ export async function createReviewWorkItem(
     type: "review",
     source: "auto",
     ref: params.ref,
-    reviewLens: reviewMode,
+    reviewLens: "review",
     resourceKey,
     priority: params.priority ?? 0,
     payload,
@@ -291,7 +288,7 @@ export async function createReviewWorkItem(
   await ensureProgressCommentRecord(client, {
     workItemId: insert.id,
     resourceKey,
-    reviewLens: reviewMode,
+    reviewLens: "review",
   });
   return insert.id;
 }

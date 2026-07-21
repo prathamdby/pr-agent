@@ -1,7 +1,6 @@
 import type { Config } from "../config.js";
 import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 
@@ -235,8 +234,8 @@ export function prResourceKey(owner: string, repo: string, prNumber: number): st
   return `${owner}/${repo}#${prNumber}`;
 }
 
-export function reviewSingletonKey(resourceKey: string, lens: AnyReviewLens): string {
-  return `${resourceKey}:${lens}`;
+export function reviewSingletonKey(resourceKey: string): string {
+  return `${resourceKey}:review`;
 }
 
 export function descriptionSingletonKey(resourceKey: string): string {
