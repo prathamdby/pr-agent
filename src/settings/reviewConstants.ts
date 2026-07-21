@@ -144,6 +144,8 @@ export const REVIEW_CI_SUMMARY_GRANT_ACTIONS =
 export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
+/** Max findings accepted from one specialist report. */
+export const MAX_SPECIALIST_FINDINGS = 20;
 /** Max inline review threads attempted in one GitHub review submission. */
 export const MAX_INLINE_REVIEW_COMMENTS = 50;
 /** Max incremental COMMENT review calls accepted during one orchestrated review run. */
