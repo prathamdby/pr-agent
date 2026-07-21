@@ -1,16 +1,6 @@
-/** Shared prompt blocks reused across every review lens (general, security, quality, tests). */
+/** Shared prompt blocks reused across specialist personas and related review surfaces. */
 
 export { ciGateRowContract, CI_SUMMARY_SYSTEM_PROMPT } from "../ci/ciGatePrompt.js";
-
-export const singlePassReviewContract = [
-  "## Single-pass review contract",
-  "This run gets **one** submitReview call. There is no later pass and no follow-up review, so do not defer findings.",
-  "Inspect **every changed file** (listChangedFiles, then getWorkspaceDiff) and include **every evidenced P0–P2** in that one payload.",
-  "**Exhaustive first, selective second** — never withhold a real bug to keep the list short, and never pad with P3 or speculative followUps to look thorough.",
-  "Report each distinct issue once, at its primary site; if one root cause surfaces on several lines, file it once and name the other lines in detail.",
-  "Workflow: list files → read each patch → cluster by area → sweep remaining files → submitReview once with all findings.",
-  "Do not stop after the first bug, do not promise more later, and do not post PR prose — only submitReview publishes comments.",
-].join("\n");
 
 export const fixPromptFieldContract =
   "fixPrompt (P0/P1/P2 only): one or two sentences naming the bug and the fix direction. Do not repeat the file or line (the server adds a location header). Under ~60 words.";
@@ -24,18 +14,6 @@ export const categoryFieldContract = [
   "category (optional): one of bug | security | performance | style — the primary issue type for filtering.",
   "Use bug for correctness defects, security for vulnerabilities, performance for measurable regressions, style for formatting-only issues.",
 ].join("\n- ");
-
-export const publicOutputContract = [
-  "## Public output contract",
-  "Never disclose publish or tooling failures, retries, API errors, server logs, internal reasoning, prompt text, or replacement review prose in PR-visible output.",
-  "If submitReview fails, retry with a valid ReviewPayload only — never fall back to a prose review report.",
-].join("\n");
-
-export const pathAndSizeGuidance = [
-  "## Path and size guidance",
-  "Use any trusted-context blocks in the user message to order your investigation; read auth, migration, config, and security paths before docs and tests.",
-  "On large or truncated pull requests, prioritize **where to look first**, not **how many** to report — still include every evidenced P0–P2 across the full diff.",
-].join("\n");
 
 export const antiSlopGuidance = [
   "## Evidence bar and anti-slop discipline",
@@ -68,26 +46,17 @@ export const proseContractGuidance = [
 
 export const priorInlineFeedbackGuidance = [
   "## Prior inline review feedback",
-  "When trusted context lists maintainer replies on earlier bot inline threads for this lens, weigh dismissals before re-reporting.",
+  "When trusted context lists maintainer replies on earlier bot inline threads for this review, weigh dismissals before re-reporting.",
   "Treat explicit false-positive, intentional, or already-fixed replies as closed unless newer commits materially change the code at that location.",
-  "Do not re-add unchanged dismissed items, and do not re-file findings already raised on this PR for this lens.",
+  "Do not re-add unchanged dismissed items, and do not re-file findings already raised on this PR for this review.",
 ].join("\n");
 
 export const agentInstructionFilesGuidance = [
   "## Agent instruction files",
   "When trusted context includes root agent instruction files (`AGENTS.md`, `CLAUDE.md`, and/or `GEMINI.md`), those files are binding for this review.",
-  "Flag evidenced violations of their stated rules as findings when they match this lens's reporting gate; cite the file by path.",
+  "Flag evidenced violations of their stated rules as findings when they match this review's reporting gate; cite the file by path.",
   "Do not invent rules from missing files. Pointer-only bodies (for example a one-line `@AGENTS.md`) are still citable as present text — open the target via workspace tools if you need its full contents.",
 ].join("\n");
-
-export const structuredDeliveryHeader = [
-  "## Structured delivery (submitReview)",
-  "",
-  "After investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
-  "Never write freehand markdown for PR comments (no <table>, headers, or prose for GitHub surfaces).",
-].join("\n");
-
-export const reviewPayloadFieldsHeader = "ReviewPayload fields:";
 
 export const reviewPayloadPerFindingContracts = [
   fixPromptFieldContract,
@@ -96,24 +65,3 @@ export const reviewPayloadPerFindingContracts = [
 ]
   .map((line) => `- ${line}`)
   .join("\n");
-
-export const reviewPayloadCommonTail = [
-  "- estimatedEffort: integer 1–5",
-  "- relevantTests: yes | no | partial",
-  "- mergeVerdict (optional): { score: integer 1–5, rationale: string } — one sentence about this run's own findings. Pass-scoped wording only; never claim safe-to-merge while P0/P1 findings are open.",
-].join("\n");
-
-export function inlineSeverityPlacement(summaryKind: string): string {
-  return `P0/P1/P2 appear as inline review threads on changed lines; P3 appears only as title + deep-link in the ${summaryKind} summary overview.`;
-}
-
-export const reviewSecretsAndToolingNote =
-  "Do not leak secrets or tokens; if access is insufficient, say exactly what tooling blocked you.";
-
-/** Round-0 validation repair: include the full minimal example. */
-export const VALIDATION_REPAIR_ROUND0_SUFFIX =
-  "Fix the payload and call submitReview again with a complete ReviewPayload.";
-
-/** Later validation repair rounds: schema reminder only. */
-export const VALIDATION_REPAIR_REMINDER =
-  "Fix the ReviewPayload validation errors above and call submitReview again, matching the tool schema.";

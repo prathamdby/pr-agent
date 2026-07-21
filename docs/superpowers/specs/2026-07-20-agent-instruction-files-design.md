@@ -1,5 +1,7 @@
 # Design: Load root agent instruction files into review trusted context
 
+> **Historical design note:** “all lenses” / “every review lens” below describes the pre-[ADR 0028](../../adr/0028-orchestrated-review.md) multi-lens model. Current product behavior loads these files once per **orchestrated review run**; retired lens values remain recognition-only.
+
 ## Goal
 
 Statically discover `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` at the PR head checkout root, inject their bodies into review trusted context (parallel to `.pr-agent/*.mdc` repo policy), and require investigators to flag evidenced violations.

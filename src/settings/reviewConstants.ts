@@ -142,7 +142,7 @@ export const REVIEW_CI_SUMMARY_GRANT_ACTIONS =
 
 /** Generic CI row when status fetch fails for a non-permission reason. */
 export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
-/** Soft sanity ceiling on findings count (not a review-quality cap). */
+/** Soft sanity ceiling on findings count (not a quality-scoring gate). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */
 export const MAX_INLINE_REVIEW_COMMENTS = 50;

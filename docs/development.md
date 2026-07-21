@@ -40,7 +40,7 @@ Design: [docs/superpowers/specs/2026-07-21-structured-apperror-design.md](superp
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`. Only numeric limits and shared user-visible strings belong in `src/settings/constants.ts`.
+Long investigator prompt blocks stay in `src/review/prompts/`, `src/review/orchestrator/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`. Only numeric limits and shared user-visible strings belong in `src/settings/constants.ts`.
 
 ## README runtime topology diagram
 

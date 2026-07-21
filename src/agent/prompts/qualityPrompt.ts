@@ -7,15 +7,6 @@
  */
 
 import {
-  fixPromptFieldContract,
-  inlineSeverityPlacement,
-  publicOutputContract,
-  reviewPayloadCommonTail,
-  reviewPayloadFieldsHeader,
-  singlePassReviewContract,
-  structuredDeliveryHeader,
-  suggestedCodeAndConfidenceFieldContract,
-  categoryFieldContract,
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
@@ -24,8 +15,8 @@ import {
 import { buildGithubToolingDiscipline } from "./toolingDiscipline.js";
 
 /**
- * Code-quality investigator methodology (intro through out-of-scope), submit-tool agnostic.
- * Shared by the V1 quality lens prompt and the V2 quality persona.
+ * Quality specialist methodology (intro through out-of-scope), submit-tool agnostic.
+ * Used by the quality persona via `specialistSystemPrompt("quality")`.
  */
 export function qualityInvestigationBlocks(submitToolName: string): string[] {
   return [
@@ -59,12 +50,12 @@ export function qualityInvestigationBlocks(submitToolName: string): string[] {
     "",
     "## Severity classification (code-quality findings only)",
     "",
-    "- **P0** — structural defect that will cause a correctness or maintenance failure (rare in this lens).",
+    "- **P0** — structural defect that will cause a correctness or maintenance failure (rare in this specialty).",
     "- **P1** — clear structural regression or high-impact missed simplification (file pushed past 1k lines without strong reason; spaghetti bolted into a shared or critical flow; feature logic leaking into a shared path).",
     "- **P2** — meaningful maintainability issue or visible code-judo opportunity (thin wrapper, ad-hoc branch, bespoke duplicate of a canonical helper, cast or `any` muddying a contract).",
     "- **P3** — minor or low-confidence note (title + link in the conversation overview only).",
     "",
-    "Do not report general correctness bugs or security vulnerabilities — those belong to `/review` or `/review-security`, not this pass.",
+    "Do not report general correctness bugs or security vulnerabilities — those belong to the correctness or security specialists, not this pass.",
     "",
     antiSlopGuidance,
     "",
@@ -79,28 +70,3 @@ export function qualityInvestigationBlocks(submitToolName: string): string[] {
     "Do not flag findings in `dist/`, `node_modules/`, `vendor/`, `generated/`, build outputs, or files outside the PR diff.",
   ];
 }
-
-export const automatedQualitySystemPrompt = [
-  ...qualityInvestigationBlocks("submitReview"),
-  "",
-  singlePassReviewContract,
-  "",
-  structuredDeliveryHeader,
-  "",
-  "**Prescriptions are required in this lens.** Each P0–P2 finding must carry actionable restructuring direction in `fixPrompt`. This pass exists to propose cleaner structure, not merely to note smells.",
-  "",
-  reviewPayloadFieldsHeader,
-  "- prCharacter: one paragraph describing what this PR changes from a maintainability perspective",
-  "- findings: every code-quality item you report; severity P0|P1|P2|P3 per the mapping above; file, startLine, endLine, title (imperative, <=80 chars), detail (why this hurts maintainability)",
-  `- ${fixPromptFieldContract} In this lens, fixPrompt carries the restructuring direction — name the exact code-judo move.`,
-  `- ${suggestedCodeAndConfidenceFieldContract}`,
-  `- ${categoryFieldContract}`,
-  reviewPayloadCommonTail,
-  "- securityConcerns: null (always for this lens)",
-  "- followUps: up to 5 non-blocking observations only — not duplicate findings",
-  "",
-  "Anchor each finding to the most relevant changed line when possible. Structural or cross-file findings without a clean anchor are expected to land in the summary only — that is normal.",
-  inlineSeverityPlacement("quality"),
-  "",
-  publicOutputContract,
-].join("\n");

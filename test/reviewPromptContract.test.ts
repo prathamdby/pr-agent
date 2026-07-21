@@ -1,52 +1,49 @@
 import { describe, expect, it } from "vitest";
 import {
-  structuredDeliveryHeader,
-  VALIDATION_REPAIR_REMINDER,
-  VALIDATION_REPAIR_ROUND0_SUFFIX,
   securityTripwiresGuidance,
   proseContractGuidance,
   agentInstructionFilesGuidance,
+  priorInlineFeedbackGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
-import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
+import { correctnessInvestigationBlocks } from "../src/review/prompts/reviewSystemPrompt.js";
+import { specialistSystemPrompt } from "../src/review/orchestrator/prompts/specialistPersonas.js";
+import { buildOrchestratorSystemPrompt } from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
 
-const REVIEW_PROMPT = buildAutomatedSystemPrompt();
+const CORRECTNESS_BLOCKS = correctnessInvestigationBlocks("submit_findings_report").join("\n");
+const ORCHESTRATOR_PROMPT = buildOrchestratorSystemPrompt();
 
-describe("review prompt shared contract blocks", () => {
-  it("reuses the shared structured delivery header", () => {
-    expect(REVIEW_PROMPT, "review should include shared delivery header").toContain(
-      structuredDeliveryHeader,
-    );
+describe("orchestrator and specialist prompt contracts", () => {
+  it("orchestrator owns publish tools, not submitReview", () => {
+    expect(ORCHESTRATOR_PROMPT).toContain("publish_thread");
+    expect(ORCHESTRATOR_PROMPT).toContain("publish_summary");
+    expect(ORCHESTRATOR_PROMPT).toContain("submit_specialist_brief");
+    expect(ORCHESTRATOR_PROMPT).not.toContain("submitReview");
   });
 
-  it("keeps the single-pass submitReview obligation", () => {
-    expect(REVIEW_PROMPT, "review should require one submitReview call").toContain(
-      "submitReview exactly once",
-    );
+  it("correctness specialist uses submit_findings_report", () => {
+    const prompt = specialistSystemPrompt("correctness");
+    expect(prompt).toContain("submit_findings_report");
+    expect(prompt).not.toContain("submitReview");
+    expect(prompt).toContain("you report problems, not prescriptions");
   });
 });
 
 describe("review prompt obligations", () => {
-  it("keeps general correctness reporting gate", () => {
-    expect(buildAutomatedSystemPrompt()).toContain("you report problems, not prescriptions");
+  it("keeps general correctness reporting gate in investigation blocks", () => {
+    expect(CORRECTNESS_BLOCKS).toContain("you report problems, not prescriptions");
   });
 
   it("includes security tripwires and prose contracts", () => {
-    const prompt = buildAutomatedSystemPrompt();
-    expect(prompt).toContain(securityTripwiresGuidance);
-    expect(prompt).toContain(proseContractGuidance);
+    expect(CORRECTNESS_BLOCKS).toContain(securityTripwiresGuidance);
+    expect(CORRECTNESS_BLOCKS).toContain(proseContractGuidance);
   });
 
   it("includes agent instruction files guidance", () => {
-    expect(REVIEW_PROMPT, "review should include agent instruction files guidance").toContain(
-      agentInstructionFilesGuidance,
-    );
+    expect(CORRECTNESS_BLOCKS).toContain(agentInstructionFilesGuidance);
   });
-});
 
-describe("validation repair prompt suffixes", () => {
-  it("keeps round-0 repair wording distinct from later reminders", () => {
-    expect(VALIDATION_REPAIR_ROUND0_SUFFIX).toContain("complete ReviewPayload");
-    expect(VALIDATION_REPAIR_REMINDER).toContain("tool schema");
-    expect(VALIDATION_REPAIR_REMINDER).not.toContain("Minimal valid example");
+  it("scopes prior feedback to this review, not a removed lens", () => {
+    expect(priorInlineFeedbackGuidance).toContain("this review");
+    expect(priorInlineFeedbackGuidance).not.toContain("this lens");
   });
 });

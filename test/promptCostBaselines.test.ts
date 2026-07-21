@@ -11,8 +11,11 @@ import {
   buildSubmitReviewTool,
   createSubmitReviewState,
 } from "../src/review/publish/submitReviewTool.js";
-import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
-import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
+import {
+  buildOrchestratorSystemPrompt,
+  renderReconInstruction,
+} from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
+import { specialistSystemPrompt } from "../src/review/orchestrator/prompts/specialistPersonas.js";
 import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
 import {
   assertPromptCostWithinBudget,
@@ -56,21 +59,27 @@ describe("prompt cost baselines", () => {
     }
   });
 
-  it("keeps review prompt behavior-critical phrases", () => {
-    const prompt = buildAutomatedSystemPrompt();
-    expect(prompt, "review should require one submitReview call").toContain(
-      "submitReview exactly once",
-    );
+  it("keeps orchestrator and specialist behavior-critical phrases", () => {
+    const orchestrator = buildOrchestratorSystemPrompt();
+    expect(orchestrator).toContain("submit_specialist_brief");
+    expect(orchestrator).toContain("publish_thread");
+    expect(orchestrator).toContain("publish_summary");
+
+    const correctness = specialistSystemPrompt("correctness");
+    expect(correctness).toContain("submit_findings_report");
+    expect(correctness).not.toContain("submitReview");
     for (const severity of SEVERITIES) {
-      expect(prompt, `review should keep ${severity} severity guidance`).toContain(severity);
+      expect(correctness, `correctness should keep ${severity} severity guidance`).toContain(
+        severity,
+      );
     }
   });
 
-  it("keeps review user content instructions bounded and structured", () => {
-    const content = representativeReviewUserContent();
-    expect(content).toContain("Target repository: octo/hello");
-    expect(content).toContain("Head commit SHA: abc123");
-    expect(content).toContain("submitReview exactly once");
+  it("keeps recon user content instructions bounded and structured", () => {
+    const content = representativeReconUserContent();
+    expect(content).toContain("submit_specialist_brief");
+    expect(content).toContain("billing retry");
+    expect(content).toContain("src/billing.ts");
   });
 
   it("keeps structured review schema top-level fields required", () => {
@@ -79,7 +88,7 @@ describe("prompt cost baselines", () => {
     expect(required.toSorted()).toEqual([...REVIEW_PAYLOAD_FIELDS].toSorted());
   });
 
-  it("keeps submitReview tool contract stable", () => {
+  it("keeps submitReview tool contract stable for composition/resume paths", () => {
     const { piTool } = buildSubmitReviewTool({
       cfg,
       token: "token",
@@ -216,14 +225,19 @@ function promptSurfaces(): PromptSurface[] {
 
   return [
     {
-      name: "general review system prompt",
-      content: buildAutomatedSystemPrompt(),
-      budget: { bytes: 11_500, characters: 11_500, estimatedTokens: 2_875 },
+      name: "orchestrator system prompt",
+      content: buildOrchestratorSystemPrompt(),
+      budget: { bytes: 2_500, characters: 2_500, estimatedTokens: 625 },
     },
     {
-      name: "representative review user content",
-      content: representativeReviewUserContent(),
-      budget: { bytes: 400, characters: 400, estimatedTokens: 100 },
+      name: "correctness specialist system prompt",
+      content: specialistSystemPrompt("correctness"),
+      budget: { bytes: 14_000, characters: 14_000, estimatedTokens: 3_500 },
+    },
+    {
+      name: "representative recon user content",
+      content: representativeReconUserContent(),
+      budget: { bytes: 800, characters: 800, estimatedTokens: 200 },
     },
     {
       name: "local workspace tool definitions",
@@ -243,30 +257,29 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "representative Cursor prompt",
       content: cursorPrompt,
-      budget: { bytes: 12_000, characters: 12_000, estimatedTokens: 3_000 },
+      budget: { bytes: 16_000, characters: 16_000, estimatedTokens: 4_000 },
     },
   ];
 }
 
-function representativeReviewUserContent(): string {
-  return buildReviewRunUserContent({
-    owner: "octo",
-    repo: "hello",
-    prNumber: 42,
-    headSha: "abc123",
-    reviewMode: "review",
-    userSupplement: "Focus on the billing retry path.",
-    trustedContext: '<context trusted="server">\nChanged files: src/billing.ts\n</context>',
-  });
+function representativeReconUserContent(): string {
+  return [
+    renderReconInstruction({
+      prTitle: "Fix billing retry",
+      prBody: "Focus on the billing retry path.",
+      changedFilesSummary: "src/billing.ts",
+    }),
+    '\n<context trusted="server">\nChanged files: src/billing.ts\n</context>\n',
+  ].join("\n");
 }
 
 function representativeCursorContext(): Context {
   return {
-    systemPrompt: buildAutomatedSystemPrompt(),
+    systemPrompt: specialistSystemPrompt("correctness"),
     messages: [
       {
         role: "user",
-        content: representativeReviewUserContent(),
+        content: representativeReconUserContent(),
         timestamp: 1,
       },
     ],

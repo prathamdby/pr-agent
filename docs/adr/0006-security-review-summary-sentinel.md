@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted. Production concurrency and execution use pg-boss workers ([ADR 0009](0009-durable-agent-work.md)); references to `ReviewQueue` in this ADR describe the pre-0009 in-memory path only.
+**Superseded by [ADR 0028](0028-orchestrated-review.md).** Security investigation lives as the security **specialist** inside one **orchestrated review run**; the separate `/review-security` slash command and `## PR Agent Security Review` write path are retired (legacy recognition only).
+
+Accepted historically. Production concurrency and execution use pg-boss workers ([ADR 0009](0009-durable-agent-work.md)); references to `ReviewQueue` in this ADR describe the pre-0009 in-memory path only.
 
 ## Context
 

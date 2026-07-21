@@ -1,13 +1,4 @@
 import {
-  inlineSeverityPlacement,
-  pathAndSizeGuidance,
-  publicOutputContract,
-  reviewPayloadCommonTail,
-  reviewPayloadFieldsHeader,
-  reviewPayloadPerFindingContracts,
-  reviewSecretsAndToolingNote,
-  singlePassReviewContract,
-  structuredDeliveryHeader,
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   securityTripwiresGuidance,
@@ -18,8 +9,8 @@ import {
 import { buildGithubToolingDiscipline } from "../../agent/prompts/toolingDiscipline.js";
 
 /**
- * Correctness investigator methodology (intro through the shared-methodology block),
- * submit-tool agnostic. Shared by the V1 general lens prompt and the V2 correctness persona.
+ * Correctness specialist methodology (intro through the shared-methodology block),
+ * submit-tool agnostic. Used by the correctness persona via `specialistSystemPrompt("correctness")`.
  */
 export function correctnessInvestigationBlocks(submitToolName: string): string[] {
   return [
@@ -87,30 +78,4 @@ export function correctnessInvestigationBlocks(submitToolName: string): string[]
     "",
     "<!-- END_SHARED_METHODOLOGY -->",
   ];
-}
-
-/** Review bot system prompt — methodology + structured submitReview contract. */
-export function buildAutomatedSystemPrompt(): string {
-  return [
-    ...correctnessInvestigationBlocks("submitReview"),
-    "",
-    singlePassReviewContract,
-    "",
-    structuredDeliveryHeader,
-    "",
-    reviewPayloadFieldsHeader,
-    "- prCharacter: one paragraph describing what this PR does",
-    "- findings: every item you report; each has severity (P0|P1|P2|P3), file, startLine, endLine, title (imperative, <=80 chars), detail (why + trigger path)",
-    reviewPayloadPerFindingContracts,
-    reviewPayloadCommonTail,
-    "- securityConcerns: string or null (null if none)",
-    "- followUps: up to 5 non-blocking observations only (e.g. missing tests) — not refactor suggestions",
-    "",
-    inlineSeverityPlacement("conversation"),
-    reviewSecretsAndToolingNote,
-    "",
-    pathAndSizeGuidance,
-    "",
-    publicOutputContract,
-  ].join("\n");
 }

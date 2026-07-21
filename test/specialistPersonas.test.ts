@@ -21,6 +21,12 @@ describe("specialistSystemPrompt", () => {
         expect(prompt).not.toContain("review summary comment");
       });
 
+      it("does not recommend removed lens slash commands", () => {
+        expect(prompt).not.toContain("/review-security");
+        expect(prompt).not.toContain("/review-quality");
+        expect(prompt).not.toContain("/review-tests");
+      });
+
       it("keeps the shared investigation protocol", () => {
         expect(prompt).toContain("Investigation protocol (local workspace tools)");
       });

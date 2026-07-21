@@ -1,5 +1,7 @@
 # Design: Dogfood `.pr-agent/*.mdc` repo policy for pr-agent
 
+> **Historical design note:** Phrases like “general review lens” below describe the pre-[ADR 0028](../../adr/0028-orchestrated-review.md) multi-lens model. Current product behavior is one **orchestrated review run** with specialists; lens slash commands are retired (legacy recognition only).
+
 ## Goal
 
 Commit a focused set of maintainer repo policy rules under `.pr-agent/` so reviews of this repository load the same durable preferences the product already supports (ADR 0025).

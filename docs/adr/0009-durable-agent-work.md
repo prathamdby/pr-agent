@@ -24,7 +24,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 6. **Fresh token execution** — Jobs store `installationId`; workers mint installation tokens immediately before GitHub operations.
 
-7. **Superseding and lanes** — Automated `synchronize` reviews use latest-head-wins semantics for the same PR/lens. `/ask` uses a separate queue and reserved worker capacity. General and security review lenses use separate singleton keys and progress comments.
+7. **Superseding and lanes** — Automated `synchronize` reviews use latest-head-wins semantics for the same PR. `/ask` uses a separate queue and reserved worker capacity. **Historical (pre-[ADR 0028](0028-orchestrated-review.md)):** general and security review lenses used separate singleton keys and progress comments (per PR/lens); new code writes only mode `review` with one active review slot per PR.
 
 8. **Publish idempotency** — `publish_records` tracks progress comments, inline review publishing, summary comments, and label sync so at-least-once job execution can resume safely.
 
@@ -32,7 +32,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 - GitHub may redeliver if Postgres is unavailable during intake because the app returns `503` instead of acknowledging unpersisted work.
 - Acknowledgement reactions and progress comments are fast but asynchronous; they may appear shortly after the webhook response.
-- `key_strict_fifo` can block a PR/lens when a pg-boss job is failed; worker logs expose blocked keys and `docs/agent-work-ops.md` documents recovery.
+- `key_strict_fifo` can block a PR when a pg-boss job is failed; worker logs expose blocked keys and `docs/agent-work-ops.md` documents recovery. (Historical lens-scoped keys remain readable in old rows.)
 - ADR 0002's in-memory queue decision and ADR 0007's "synchronous webhook contract unchanged" consequence are superseded for agent work.
 
 ## Reversal

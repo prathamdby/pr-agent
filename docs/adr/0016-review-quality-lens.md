@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+**Superseded by [ADR 0028](0028-orchestrated-review.md).** Quality investigation lives as the quality **specialist** inside one **orchestrated review run**; the separate `/review-quality` slash command and `## PR Agent Quality Review` write path are retired (legacy recognition only).
+
+Accepted historically.
 
 ## Context
 

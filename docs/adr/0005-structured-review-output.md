@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. After [ADR 0028](0028-orchestrated-review.md), `ReviewPayload` remains the structured contract for the final summary publish (`publish_summary` / summary-only path). Incremental inline threads are published as **thread batches** (`publish_thread`) rather than a single `submitReview` call; the schema and server-side renderers from this ADR still apply.
 
 ## Context
 

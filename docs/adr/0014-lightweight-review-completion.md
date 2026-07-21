@@ -16,7 +16,7 @@ Operators may still request a full pass with `/review`.
 
 2. **Ack flow unchanged.** Durable intake still schedules acknowledgement reactions and the in-progress progress stub before the review worker runs.
 
-3. **Slash override.** `/review` and `/review-security` always run a full Review run regardless of file types.
+3. **Slash override.** `/review` always runs a full **orchestrated review run** regardless of file types. (Historical: `/review-security` once shared this override; that slash command and security auto-reviews are retired — see [ADR 0028](0028-orchestrated-review.md).)
 
 4. **Truncation guard.** A truncated change set never qualifies for lightweight completion.
 
@@ -35,7 +35,7 @@ Operators may still request a full pass with `/review`.
 
 - Docs-only PRs get faster feedback without LLM cost.
 - Risk: a one-line code change bundled with docs-only files fails the gate (all files must match allowlist).
-- Security lens auto-reviews use the same gate; security-heavy docs-only repos still skip unless `/review-security` is invoked.
+- Historical note: security-lens auto-reviews once used the same gate and required `/review-security` to force a full pass; that path no longer exists.
 
 ## Reversal
 

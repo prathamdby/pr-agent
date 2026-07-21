@@ -24,11 +24,11 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 
 6. **Dismissed is maintainer-owned.** A dismissed verdict requires human reply evidence and is never auto-resolved.
 
-7. **All review lenses are triage-eligible.** Triage inventory includes inline findings from `review`, `review-security`, `review-quality`, and `review-tests`. Lens is resolved from the `pr-agent:review-pointer` HTML marker on the inline review body, legacy lens-specific pointer strings, or `publish_records` backfill. `REVIEW_POINTER_NOTE_LEAD` alone never makes a thread eligible.
+7. **Specialist-thread and legacy-lens findings are triage-eligible.** Triage inventory includes inline findings from the current **orchestrated review run** (specialist **thread batches**, mode `review`) and historical **legacy review lens** threads (`review-security`, `review-quality`, `review-tests`). The old lens values are recognized only for compatibility. Lens is resolved from the `pr-agent:review-pointer` HTML marker on the inline review body, legacy lens-specific pointer strings, or `publish_records` backfill. `REVIEW_POINTER_NOTE_LEAD` alone never makes a thread eligible.
 
 8. **Scoped invocation.** PR-conversation `/triage` runs on all unresolved eligible findings. Inline-thread `/triage` runs on one finding. One active triage job per PR remains; thread `/triage` during a full-PR run acks that full triage is already in progress.
 
-9. **Lens discovery is publish-time.** New inline reviews append `<!-- pr-agent:review-pointer lens=<mode> -->` after pointer-body truncation so classification survives long bodies.
+9. **Lens discovery is publish-time.** New inline reviews append `<!-- pr-agent:review-pointer lens=review -->` after pointer-body truncation so classification survives long bodies. Historical markers may still carry retired lens values for recognition only.
 
 ## Consequences
 

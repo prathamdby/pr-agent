@@ -154,24 +154,17 @@ User-facing behavior is controlled by the `FEATURE_*` settings ([docs/features.m
 
 Run on your infrastructure with your GitHub App credentials and chosen LLM provider (Pi/OpenAI, Cursor SDK, and others via `@earendil-works/pi-ai`).
 
-### Specialized review lenses
-
-General bug-and-correctness reviews run on PR open. **`/review-security`**, **`/review-quality`**, and **`/review-tests`** add separate **review summary comments** on demand, each with its own **review lens** and progress comment.
-
 ## Features
 
-| Capability              | Auto on PR            | Slash command      | Notes                                                                                     |
-| ----------------------- | --------------------- | ------------------ | ----------------------------------------------------------------------------------------- |
-| General review          | opened                | `/review`          | `## PR Agent Review`; inline P0 to P2 on Files tab when present                           |
-| PR description          | opened (configurable) | `/describe`        | Merges under `## PR Agent Description`                                                    |
-| Security lens           | No                    | `/review-security` | `## PR Agent Security Review`                                                             |
-| Quality lens            | No                    | `/review-quality`  | `## PR Agent Quality Review`                                                              |
-| Tests lens              | No                    | `/review-tests`    | `## PR Agent Tests Review`; proposed test cases as markdown (never commits tests)         |
-| Triage                  | No                    | `/triage`          | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`         |
-| Verification            | synchronize           | No                 | Re-checks open bot findings against the new head; edits verification stubs in place       |
-| Ask                     | No                    | `/ask <question>`  | Also `@bot` mentions; PR conversation or inline diff **code anchor**                      |
-| Help                    | No                    | `/help`            | Worker-published guidance                                                                 |
-| Lightweight auto-review | docs-only trivial PRs | No                 | Skips full **review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
+| Capability              | Auto on PR            | Slash command     | Notes                                                                                                  |
+| ----------------------- | --------------------- | ----------------- | ------------------------------------------------------------------------------------------------------ |
+| Orchestrated review     | opened                | `/review`         | One run: orchestrator + four specialists; `## PR Agent Review`; inline P0–P2 when present              |
+| PR description          | opened (configurable) | `/describe`       | Merges under `## PR Agent Description`                                                                 |
+| Triage                  | No                    | `/triage`         | Fixes earlier findings (including legacy lens threads); commits/pushes; `## PR Agent Triage`           |
+| Verification            | synchronize           | No                | Re-checks open bot findings against the new head; edits verification stubs in place                    |
+| Ask                     | No                    | `/ask <question>` | Also `@bot` mentions; PR conversation or inline diff **code anchor**                                   |
+| Help                    | No                    | `/help`           | Worker-published guidance                                                                              |
+| Lightweight auto-review | docs-only trivial PRs | No                | Skips full **orchestrated review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
 
 | Deployment                                | Supported |
 | ----------------------------------------- | --------- |
@@ -198,16 +191,6 @@ Slash commands are **case-sensitive** and must start the first non-empty line of
   <img src="site/public/screenshots/ask.example.webp" alt="Example /ask answer on a pull request" width="800" />
 </details>
 
-<details>
-  <summary><h3>/review-security</h3></summary>
-  <img src="site/public/screenshots/review-security.example.webp" alt="Example /review-security output showing PR Agent Security Review summary" width="800" />
-</details>
-
-<details>
-  <summary><h3>/review-quality</h3></summary>
-  <img src="site/public/screenshots/review-quality.example.webp" alt="Example /review-quality output showing PR Agent Quality Review summary" width="800" />
-</details>
-
 ## How It Works
 
 ```mermaid
@@ -226,7 +209,7 @@ flowchart LR
   Boss --> RetQ[retention queue]
   AckQ --> Worker["ROLE=worker executors"]
   CiRefQ --> Worker
-  RevQ --> Worker
+  RevQ --> ReviewWorker[review executor]
   AskQ --> Worker
   DescQ --> Worker
   TriageQ --> Worker
@@ -235,19 +218,29 @@ flowchart LR
   Worker --> Retention[retention cleanup]
   Retention --> Dedupe
   Retention --> Items
+  ReviewWorker --> Orch[review orchestrator]
+  Orch --> SpecC[correctness specialist]
+  Orch --> SpecS[security specialist]
+  Orch --> SpecQ[quality specialist]
+  Orch --> SpecT[tests specialist]
+  SpecC --> Orch
+  SpecS --> Orch
+  SpecQ --> Orch
+  SpecT --> Orch
+  Orch --> Publish[GitHub PR-surface publish]
   Worker --> LLM[LLM plus tools]
-  LLM --> Publish[GitHub PR-surface publish]
+  LLM --> Publish
   Worker --> Push[git push PR branch]
 ```
 
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)): verify signature, parse payload, durable dedupe, schedule **agent work items** (slash commands, or `@bot` mentions promoted to ask).
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)): write Postgres rows and enqueue pg-boss jobs (ack, ci-refresh, review, ask, description, triage, verification).
-3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs. **CI-refresh worker**: after `workflow_run` completed, surgically updates the CI cell on the matching **review summary comment** (no full re-review).
+3. **Ack worker**: acknowledgement reaction and **review progress comment** stub before long runs. **CI-refresh worker**: after `workflow_run` completed, surgically updates the CI cell on the matching **review summary comment** (no full re-review); skips while an active review work item exists for that PR.
 4. **Worker maintenance** ([`AgentWorkerLive`](src/agentWork/worker.ts)): owns pg-boss cron/supervision and the daily retention cleanup lane.
-5. **Review / ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**. Ask workers load the containing comment thread before the LLM turn.
-6. **Reviews** ([`runFullPrReview`](src/review/run/reviewRun.ts)): investigation tools, then one structured **`submitReview`** publish path.
+5. **Ask / description / triage / verification workers** ([`executors/`](src/agentWork/executors/)): installation token, **local PR workspace** or isolated writable checkout, agent harness, **PR-surface I/O**. Ask workers load the containing comment thread before the LLM turn.
+6. **Orchestrated review** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)): one **review orchestrator** session recons and briefs, four **specialists** investigate in parallel, incremental **thread batches** publish as reports arrive, then final synthesis publishes the **review summary comment**.
 
-Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md). Conversational ask: [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
+Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Architecture ADR: [docs/adr/0009-durable-agent-work.md](docs/adr/0009-durable-agent-work.md). Orchestrated review: [docs/adr/0028-orchestrated-review.md](docs/adr/0028-orchestrated-review.md). Conversational ask: [docs/adr/0008-ask-command.md](docs/adr/0008-ask-command.md).
 
 ## Data Privacy
 

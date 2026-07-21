@@ -1,7 +1,7 @@
 /**
  * Shared investigation-protocol block for local-workspace review agents. Imported by the
- * four review/persona prompts. The submit-tool sentence is parameterized so the same prose
- * serves both the V1 `submitReview` contract and the V2 specialist `submit_findings_report`.
+ * four specialist persona prompts. The submit-tool sentence is parameterized so the same prose
+ * works with `submit_findings_report`.
  */
 export function buildGithubToolingDiscipline(submitToolName: string): string {
   return [
@@ -16,6 +16,3 @@ export function buildGithubToolingDiscipline(submitToolName: string): string {
     "- If a tool refuses for path, size, or workspace reasons, work from what you have, note the limit, and do not loop on the same refused call.",
   ].join("\n");
 }
-
-/** V1 review tooling-discipline block (submitReview contract). */
-export const githubToolingDiscipline = buildGithubToolingDiscipline("submitReview");

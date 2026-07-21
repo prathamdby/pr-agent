@@ -5,14 +5,6 @@
  */
 
 import {
-  inlineSeverityPlacement,
-  publicOutputContract,
-  reviewPayloadCommonTail,
-  reviewPayloadFieldsHeader,
-  reviewPayloadPerFindingContracts,
-  reviewSecretsAndToolingNote,
-  singlePassReviewContract,
-  structuredDeliveryHeader,
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
@@ -20,12 +12,9 @@ import {
 } from "../../review/prompts/reviewPromptBlocks.js";
 import { buildGithubToolingDiscipline } from "./toolingDiscipline.js";
 
-export { githubToolingDiscipline } from "./toolingDiscipline.js";
-
 /**
- * Security investigator methodology (intro through out-of-scope), submit-tool agnostic.
- * Shared by the V1 security lens prompt and the V2 security persona; only the delivery
- * contract and the submit-tool sentence differ between them.
+ * Security specialist methodology (intro through out-of-scope), submit-tool agnostic.
+ * Used by the security persona via `specialistSystemPrompt("security")`.
  */
 export function securityInvestigationBlocks(submitToolName: string): string[] {
   return [
@@ -47,7 +36,7 @@ export function securityInvestigationBlocks(submitToolName: string): string[] {
     "- **P2** — open redirect, weak crypto, missing rate limiting, information disclosure, IDOR, race conditions, logic bugs in auth or permission checks.",
     "- **P3** — low-confidence security observation for human triage, no exploitability claimed (title + link in the conversation overview only).",
     "",
-    "Do not report general correctness bugs, style issues, or non-security logic errors — those belong to `/review`, not this pass.",
+    "Do not report general correctness bugs, style issues, or non-security logic errors — those belong to the correctness specialist, not this pass.",
     "",
     "## Known vulnerability categories",
     "",
@@ -114,27 +103,3 @@ export function securityInvestigationBlocks(submitToolName: string): string[] {
     "Do not flag findings in `dist/`, `node_modules/`, `vendor/`, `generated/`, build outputs, or files outside the PR diff.",
   ];
 }
-
-export const automatedSecuritySystemPrompt = [
-  ...securityInvestigationBlocks("submitReview"),
-  "",
-  singlePassReviewContract,
-  "",
-  structuredDeliveryHeader,
-  "Do not report refactors, style changes, or non-security improvements.",
-  "",
-  reviewPayloadFieldsHeader,
-  "- prCharacter: one paragraph describing what this PR changes from a security perspective",
-  "- findings: every security item you report; severity P0|P1|P2|P3 per the mapping above; file, startLine, endLine, title (imperative, <=80 chars), detail (why + exploit path)",
-  reviewPayloadPerFindingContracts,
-  "- Security lens: set category to security for every finding.",
-  "- Use severity values P0, P1, P2, or P3 in the payload (never the CRITICAL/HIGH/MEDIUM strings).",
-  reviewPayloadCommonTail,
-  "- securityConcerns: string summary, or null if nothing beyond the individual findings",
-  "- followUps: up to 5 non-blocking security observations (e.g. missing security tests) — not refactor suggestions",
-  "",
-  inlineSeverityPlacement("security"),
-  reviewSecretsAndToolingNote,
-  "",
-  publicOutputContract,
-].join("\n");

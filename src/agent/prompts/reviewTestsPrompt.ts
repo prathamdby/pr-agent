@@ -1,13 +1,4 @@
 import {
-  fixPromptFieldContract,
-  inlineSeverityPlacement,
-  publicOutputContract,
-  reviewPayloadCommonTail,
-  reviewPayloadFieldsHeader,
-  singlePassReviewContract,
-  structuredDeliveryHeader,
-  suggestedCodeAndConfidenceFieldContract,
-  categoryFieldContract,
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
@@ -16,8 +7,8 @@ import {
 import { buildGithubToolingDiscipline } from "./toolingDiscipline.js";
 
 /**
- * Test-drafting investigator methodology (intro through out-of-scope), submit-tool agnostic.
- * Shared by the V1 tests lens prompt and the V2 tests persona.
+ * Tests specialist methodology (intro through out-of-scope), submit-tool agnostic.
+ * Used by the tests persona via `specialistSystemPrompt("tests")`.
  */
 export function reviewTestsInvestigationBlocks(submitToolName: string): string[] {
   return [
@@ -51,7 +42,7 @@ export function reviewTestsInvestigationBlocks(submitToolName: string): string[]
     "- **P2** — meaningful edge case or boundary condition worth pinning down.",
     "- **P3** — nice-to-have coverage note (title + link in the conversation overview only).",
     "",
-    "Do not report correctness bugs, security vulnerabilities, or maintainability issues — those belong to `/review`, `/review-security`, or `/review-quality`, not this pass.",
+    "Do not report correctness bugs, security vulnerabilities, or maintainability issues — those belong to the correctness, security, or quality specialists, not this pass.",
     "",
     antiSlopGuidance,
     "",
@@ -66,29 +57,3 @@ export function reviewTestsInvestigationBlocks(submitToolName: string): string[]
     "Do not flag findings in `dist/`, `node_modules/`, `vendor/`, `generated/`, build outputs, or files outside the PR diff.",
   ];
 }
-
-export const automatedReviewTestsSystemPrompt = [
-  ...reviewTestsInvestigationBlocks("submitReview"),
-  "",
-  singlePassReviewContract,
-  "",
-  structuredDeliveryHeader,
-  "Your output is a markdown proposal only — never write or commit test files to the repository.",
-  "",
-  "**Draft skeletons are required in this lens.** Each P0–P2 finding must include a runnable-looking draft test skeleton in `fixPrompt`, using the repo's test framework and naming conventions when detectable from the workspace.",
-  "",
-  reviewPayloadFieldsHeader,
-  "- prCharacter: one paragraph describing what this PR changes from a test-coverage perspective",
-  "- findings: every proposed test case; severity P0|P1|P2|P3 per the mapping above; file, startLine, endLine anchored to the code needing the test; title (the test name, imperative, <=80 chars), detail (arrange/act/assert sketch + why the gap matters)",
-  `- ${fixPromptFieldContract} In this lens, fixPrompt carries the draft test skeleton — name the framework and the exact assertions.`,
-  `- ${suggestedCodeAndConfidenceFieldContract}`,
-  `- ${categoryFieldContract}`,
-  reviewPayloadCommonTail,
-  "- securityConcerns: null (always for this lens)",
-  "- followUps: up to 5 non-blocking observations only — not duplicate findings",
-  "",
-  "Anchor each finding to the most relevant changed line when possible. Cross-file or suite-level proposals without a clean anchor are expected to land in the summary only — that is normal.",
-  inlineSeverityPlacement("tests"),
-  "",
-  publicOutputContract,
-].join("\n");
