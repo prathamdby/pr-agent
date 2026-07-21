@@ -117,7 +117,7 @@ async function enrichFromReviewIds(args: PublishReviewSummaryOnlyArgs): Promise<
 
 async function syncLabels(
   args: PublishReviewSummaryOnlyArgs,
-  currentLabels: string[] | unknown,
+  currentLabels: unknown,
 ): Promise<void> {
   const { ctx, payload } = args;
   if (currentLabels instanceof Error) {
