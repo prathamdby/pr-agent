@@ -17,6 +17,14 @@ export function normalizeFindingSubstance(text: string): string {
 
 export function fingerprintFinding(finding: ReviewFinding, mode: AnyReviewLens): string {
   const lineBucket = Math.floor(finding.startLine / REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE);
+  return fingerprintFindingInLineBucket(finding, mode, lineBucket);
+}
+
+function fingerprintFindingInLineBucket(
+  finding: ReviewFinding,
+  mode: AnyReviewLens,
+  lineBucket: number,
+): string {
   const material = [
     mode,
     finding.file,
@@ -28,10 +36,14 @@ export function fingerprintFinding(finding: ReviewFinding, mode: AnyReviewLens):
 }
 
 export function fingerprintCandidates(finding: ReviewFinding): readonly string[] {
-  return [
-    fingerprintFinding(finding, "review"),
-    ...LEGACY_REVIEW_LENSES.map((lens) => fingerprintFinding(finding, lens)),
-  ];
+  const currentBucket = Math.floor(finding.startLine / REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE);
+  const buckets = [currentBucket, currentBucket - 1, currentBucket + 1].filter(
+    (bucket) => bucket >= 0,
+  );
+  const modes: readonly AnyReviewLens[] = ["review", ...LEGACY_REVIEW_LENSES];
+  return buckets.flatMap((bucket) =>
+    modes.map((mode) => fingerprintFindingInLineBucket(finding, mode, bucket)),
+  );
 }
 
 export type StoredInlineFingerprints = {

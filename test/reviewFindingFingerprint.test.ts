@@ -94,6 +94,21 @@ describe("suppressInlinePlacementsByFingerprint", () => {
     expect(suppressedInlineCount).toBe(1);
     expect(placements[0]?.inlinePosted).toBe(false);
   });
+
+  it("suppresses a matching finding from an adjacent line bucket", () => {
+    const shifted = { ...finding, startLine: 50, endLine: 52 };
+    const fingerprintedPlacements = fingerprintInlinePlacements(
+      [{ finding: shifted, inlineLine: 50, inlinePosted: true }],
+      "review",
+    );
+    const { placements, suppressedInlineCount } = suppressInlinePlacementsByFingerprint(
+      fingerprintedPlacements,
+      [fingerprintFinding(finding, "review-security")],
+    );
+
+    expect(suppressedInlineCount).toBe(1);
+    expect(placements[0]?.inlinePosted).toBe(false);
+  });
 });
 
 describe("mergeInlineFingerprintRecords", () => {

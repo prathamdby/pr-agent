@@ -191,6 +191,7 @@ describe("executeReviewJob", () => {
       },
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],
+      resumedPlacements: [],
       summaryCommentGithubId: null,
     });
     mocks.fetchPrFiles.mockResolvedValue(prFiles);

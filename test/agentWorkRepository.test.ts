@@ -26,6 +26,15 @@ describe("loadReviewExecutorPublishContext", () => {
   });
 
   it("restores current batch review ids and merges stored fingerprints", async () => {
+    const postedFinding = {
+      severity: "P1",
+      file: "src/a.ts",
+      startLine: 10,
+      endLine: 10,
+      title: "Missing null check",
+      detail: "The payload can be null.",
+      fixPrompt: "Guard the payload before dereferencing it.",
+    };
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [
         {
@@ -34,7 +43,20 @@ describe("loadReviewExecutorPublishContext", () => {
           detail: {
             batches: [
               { batchId: "old", workItemId: "wi-0", reviewId: 41, fingerprints: ["fp-old"] },
-              { batchId: "one", workItemId: "wi-1", reviewId: 42, fingerprints: ["fp-1"] },
+              {
+                batchId: "one",
+                workItemId: "wi-1",
+                specialist: "correctness",
+                reviewId: 42,
+                fingerprints: ["fp-1"],
+                placements: [
+                  {
+                    finding: postedFinding,
+                    resolvedLine: 10,
+                    canonicalFingerprint: "fp-1",
+                  },
+                ],
+              },
               { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
             ],
           },
@@ -66,6 +88,15 @@ describe("loadReviewExecutorPublishContext", () => {
       },
       shouldLinkToSummary: true,
       storedInlineFingerprints: ["fp-legacy", "fp-old", "fp-1", "fp-2"],
+      resumedPlacements: [
+        {
+          kind: "resumed",
+          source: "correctness",
+          placement: { finding: postedFinding, inlineLine: 10, inlinePosted: true },
+          canonicalFingerprint: "fp-1",
+          reviewId: 42,
+        },
+      ],
       summaryCommentGithubId: 1001,
     });
 

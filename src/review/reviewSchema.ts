@@ -35,7 +35,7 @@ const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "style"] as const;
 export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
 
-const reviewFindingSchema = z
+export const reviewFindingSchema = z
   .object({
     severity: severitySchema,
     file: z.string().min(1),

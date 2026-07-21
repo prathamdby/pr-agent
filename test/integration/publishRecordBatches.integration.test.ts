@@ -34,14 +34,32 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       const firstBatch = {
         batchId: "batch-1",
         workItemId,
+        specialist: "correctness",
         reviewId: 41,
         fingerprints: ["fp-1"],
+        placements: [
+          {
+            finding: {
+              severity: "P1",
+              file: "src/a.ts",
+              startLine: 10,
+              endLine: 10,
+              title: "Missing null check",
+              detail: "The payload can be null.",
+              fixPrompt: "Guard the payload before dereferencing it.",
+            },
+            resolvedLine: 10,
+            canonicalFingerprint: "fp-1",
+          },
+        ],
       };
       const secondBatch = {
         batchId: "batch-2",
         workItemId,
+        specialist: "security",
         reviewId: 42,
         fingerprints: ["fp-2"],
+        placements: [],
       };
       const write = (detail: typeof firstBatch) =>
         recordPublishStep(pool, {
@@ -87,6 +105,19 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       );
       expect(context.publishState.inlineReviewIds).toEqual([41, 42]);
       expect(context.storedInlineFingerprints.toSorted()).toEqual(["fp-1", "fp-2", "fp-legacy"]);
+      expect(context.resumedPlacements).toEqual([
+        {
+          kind: "resumed",
+          source: "correctness",
+          placement: {
+            finding: firstBatch.placements[0]?.finding,
+            inlineLine: 10,
+            inlinePosted: true,
+          },
+          canonicalFingerprint: "fp-1",
+          reviewId: 41,
+        },
+      ]);
     } finally {
       await pool.query("DELETE FROM agent_work_items WHERE id = $1", [workItemId]);
     }

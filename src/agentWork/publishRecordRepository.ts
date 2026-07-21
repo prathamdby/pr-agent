@@ -3,6 +3,12 @@ import type { Pool } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
 import {
+  isFindingSource,
+  type AcceptedPlacement,
+  type FindingSource,
+} from "../review/orchestrator/orchestratorTypes.js";
+import { reviewFindingSchema, type ReviewFinding } from "../review/reviewSchema.js";
+import {
   ASK_PUBLISH_LENS,
   DESCRIPTION_PUBLISH_LENS,
   TRIAGE_PUBLISH_LENS,
@@ -300,10 +306,35 @@ type StoredInlineBatchRef = {
   readonly workItemId: string;
   readonly reviewId: number | null;
   readonly fingerprints: readonly string[];
+  readonly source: FindingSource | null;
+  readonly placements: readonly {
+    readonly finding: ReviewFinding;
+    readonly resolvedLine: number;
+    readonly canonicalFingerprint: string;
+  }[];
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != null;
+}
+
+function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"][number] | null {
+  if (!isRecord(value)) return null;
+  const finding = reviewFindingSchema.safeParse(value.finding);
+  const resolvedLine = Number(value.resolvedLine);
+  if (
+    !finding.success ||
+    !Number.isInteger(resolvedLine) ||
+    resolvedLine <= 0 ||
+    typeof value.canonicalFingerprint !== "string"
+  ) {
+    return null;
+  }
+  return {
+    finding: finding.data,
+    resolvedLine,
+    canonicalFingerprint: value.canonicalFingerprint,
+  };
 }
 
 function parseStoredInlineBatches(detail: Record<string, unknown>): StoredInlineBatchRef[] {
@@ -320,9 +351,44 @@ function parseStoredInlineBatches(detail: Record<string, unknown>): StoredInline
       fingerprints: Array.isArray(batch.fingerprints)
         ? batch.fingerprints.filter((entry): entry is string => typeof entry === "string")
         : [],
+      source: isFindingSource(batch.specialist) ? batch.specialist : null,
+      placements: Array.isArray(batch.placements)
+        ? batch.placements.flatMap((placement) => {
+            const parsed = parseStoredPlacement(placement);
+            return parsed == null ? [] : [parsed];
+          })
+        : [],
     });
   }
   return batches;
+}
+
+function parseResumedPlacements(
+  rows: readonly { step: string; detail?: Record<string, unknown> | null }[],
+  workItemId: string,
+): AcceptedPlacement[] {
+  const inlineRow = rows.find((row) => row.step === "inline_review");
+  const accepted: AcceptedPlacement[] = [];
+  const seen = new Set<string>();
+  for (const batch of parseStoredInlineBatches(inlineRow?.detail ?? {})) {
+    if (batch.workItemId !== workItemId || batch.reviewId == null || batch.source == null) continue;
+    for (const placement of batch.placements) {
+      if (seen.has(placement.canonicalFingerprint)) continue;
+      seen.add(placement.canonicalFingerprint);
+      accepted.push({
+        kind: "resumed",
+        source: batch.source,
+        placement: {
+          finding: placement.finding,
+          inlineLine: placement.resolvedLine,
+          inlinePosted: true,
+        },
+        canonicalFingerprint: placement.canonicalFingerprint,
+        reviewId: batch.reviewId,
+      });
+    }
+  }
+  return accepted;
 }
 
 function parseReviewPublishStateRows(
@@ -364,6 +430,7 @@ export type ReviewExecutorPublishContext = {
   };
   shouldLinkToSummary: boolean;
   storedInlineFingerprints: string[];
+  resumedPlacements: AcceptedPlacement[];
   summaryCommentGithubId: number | null;
 };
 
@@ -438,6 +505,7 @@ export async function loadReviewExecutorPublishContext(
     publishState: parseReviewPublishStateRows(currentPublish, workItemId),
     shouldLinkToSummary,
     storedInlineFingerprints: mergeStoredInlineFingerprints(row?.fingerprint_details ?? []),
+    resumedPlacements: parseResumedPlacements(currentPublish, workItemId),
     summaryCommentGithubId:
       summaryCommentGithubId != null && Number.isFinite(summaryCommentGithubId)
         ? summaryCommentGithubId

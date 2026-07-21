@@ -146,6 +146,8 @@ export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */
 export const MAX_INLINE_REVIEW_COMMENTS = 50;
+/** Max incremental COMMENT review calls accepted during one orchestrated review run. */
+export const MAX_THREAD_PUBLISH_CALLS = 8;
 
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,
