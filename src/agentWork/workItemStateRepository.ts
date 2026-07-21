@@ -365,3 +365,21 @@ export async function shouldSkipWork(
     row.cancel_requested_at != null
   );
 }
+
+/**
+ * True when a review work item for this PR is still queued or running.
+ * Used by ciRefresh to avoid clobbering mid-run progress/summary comments (decision 20).
+ */
+export async function hasActiveReviewWorkItem(pool: Pool, resourceKey: string): Promise<boolean> {
+  const row = await queryOne<{ id: string }>(
+    pool,
+    `SELECT id
+       FROM agent_work_items
+      WHERE resource_key = $1
+        AND type = 'review'
+        AND status IN ('queued', 'running')
+      LIMIT 1`,
+    [resourceKey],
+  );
+  return row != null;
+}

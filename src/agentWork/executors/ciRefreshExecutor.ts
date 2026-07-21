@@ -1,3 +1,4 @@
+import type { Pool } from "pg";
 import type { Config } from "../../config.js";
 import { findIssueCommentBySentinel, updateIssueComment } from "../../github/reviewPublish.js";
 import { logDebug, logWarn } from "../../evlog.js";
@@ -12,7 +13,8 @@ import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.
 import { REVIEW_CI_SUMMARY_MAX_FAILURES, REVIEW_SUMMARY_SENTINEL } from "../../settings/index.js";
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
 import { mintInstallationToken } from "../durableJob.js";
-import type { CiRefreshJobData } from "../types.js";
+import { prResourceKey, type CiRefreshJobData } from "../types.js";
+import { hasActiveReviewWorkItem } from "../workItemStateRepository.js";
 
 const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SENTINELS] as const;
 
@@ -20,7 +22,22 @@ const SUMMARY_SENTINELS = [REVIEW_SUMMARY_SENTINEL, ...LEGACY_REVIEW_SUMMARY_SEN
  * Refreshes the CI cell on matching review summary comments for a head SHA after
  * workflow_run completed. Does not re-run the review agent.
  */
-export async function executeCiRefreshJob(cfg: Config, data: CiRefreshJobData): Promise<void> {
+export async function executeCiRefreshJob(
+  cfg: Config,
+  pool: Pool,
+  data: CiRefreshJobData,
+): Promise<void> {
+  const resourceKey = prResourceKey(data.owner, data.repo, data.prNumber);
+  if (await hasActiveReviewWorkItem(pool, resourceKey)) {
+    logDebug("ci_refresh_skipped_active_review", {
+      owner: data.owner,
+      repo: data.repo,
+      pr: data.prNumber,
+      resourceKey,
+    });
+    return;
+  }
+
   const installation = await mintInstallationToken(cfg, data.installationId);
   const author = createAgentCiSummaryAuthor(cfg);
 

@@ -7,6 +7,14 @@ import { reviewFindingSchema, type ReviewFinding } from "../reviewSchema.js";
 export const SPECIALIST_IDS = ["correctness", "security", "quality", "tests"] as const;
 export type SpecialistId = (typeof SPECIALIST_IDS)[number];
 
+/** Display labels for progress ticks, briefs, and maintainer-facing tables. */
+export const SPECIALIST_DISPLAY_LABEL: Record<SpecialistId, string> = {
+  correctness: "Correctness",
+  security: "Security",
+  quality: "Quality",
+  tests: "Tests",
+};
+
 const NOTES_MAX_CHARS = 4000;
 
 /**
