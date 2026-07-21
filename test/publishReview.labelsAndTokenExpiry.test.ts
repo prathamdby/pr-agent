@@ -118,7 +118,7 @@ describe("publishReview labels and token expiry", () => {
     );
   });
 
-  it("syncs quality effort without removing review effort", async () => {
+  it("uses the review effort family for a recognized legacy mode", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
       "Review effort 3/5",
       "Quality effort 1/5",
@@ -141,7 +141,7 @@ describe("publishReview labels and token expiry", () => {
       "o",
       "r",
       1,
-      ["Review effort 3/5", "bug", "Quality effort 4/5"],
+      ["Quality effort 1/5", "bug", "Review effort 4/5"],
       undefined,
     );
   });

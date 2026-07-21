@@ -139,7 +139,7 @@ describe("reviewRunMetrics", () => {
       initReviewRunMetrics({
         provider: "cursor",
         model: "composer-2.5",
-        mode: "review-security",
+        mode: "review",
       });
       setReviewRunMetricFields({ published: false, publishAttempts: 2 });
       logReviewRunCompleted({ extra: true });
@@ -148,7 +148,7 @@ describe("reviewRunMetrics", () => {
     expect(payload).toMatchObject({
       provider: "cursor",
       model: "composer-2.5",
-      mode: "review-security",
+      mode: "review",
       published: false,
       publishAttempts: 2,
       extra: true,
