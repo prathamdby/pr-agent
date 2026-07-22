@@ -4,6 +4,7 @@ import { AppError } from "../../errors/appError.js";
 import {
   claimSummaryCommentCreation,
   getProgressCommentRevision,
+  getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
   recordPublishStep as recordAgentWorkPublishStep,
 } from "../../agentWork/repository.js";
@@ -42,6 +43,7 @@ import {
   syncReviewLabels,
 } from "../run/reviewLabels.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
+import { resolveReviewWallClockMs } from "../run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/progressComment.js";
 import {
@@ -289,6 +291,25 @@ async function upsertSummaryCommentAtRevision(
     return { id: currentComment.id, updated: false, skipped: true };
   }
 
+  const stubPostedAtMs =
+    params.workItemId != null && params.progressRevision === 0
+      ? Date.now()
+      : params.workItemId != null
+        ? await getProgressStubPostedAtMs(client, params.resourceKey, params.reviewLens)
+        : null;
+
+  // Persist stubPostedAtMs before the GitHub comment upsert so it survives
+  // even when the subsequent recordAgentWorkPublishStep call fails.
+  if (params.workItemId != null && stubPostedAtMs != null) {
+    await recordAgentWorkPublishStep(client, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: params.reviewLens,
+      step: "progress_comment",
+      detail: { stubPostedAtMs },
+    });
+  }
+
   const result = await upsertSummaryCommentWithoutRevision({
     ...params,
     pool: client,
@@ -302,7 +323,11 @@ async function upsertSummaryCommentAtRevision(
       reviewLens: params.reviewLens,
       step: "progress_comment",
       githubId: result.id,
-      detail: { progressRevision: params.progressRevision, updated: result.updated },
+      detail: {
+        progressRevision: params.progressRevision,
+        updated: result.updated,
+        ...(stubPostedAtMs != null ? { stubPostedAtMs } : {}),
+      },
     });
   }
   return result;
@@ -424,6 +449,7 @@ export async function publishReviewSummaryOnly(params: {
   );
 
   const metricsSnapshot = snapshotReviewRunMetrics();
+  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
   const ciToken = params.getToken();
   const ciTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
   const ciSummary = await buildCiSummary({
@@ -440,6 +466,18 @@ export async function publishReviewSummaryOnly(params: {
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
     author: params.ciAuthor,
   });
+  const stubPostedAtMs = summaryCoordination
+    ? await getProgressStubPostedAtMs(
+        summaryCoordination.pool,
+        summaryCoordination.resourceKey,
+        mode,
+      )
+    : null;
+  const durationMs = resolveReviewWallClockMs({
+    stubPostedAtMs,
+    metricsStartedAtMs: metricsSnapshot?.startedAtMs,
+    endedAtMs: Date.now(),
+  });
   const summaryBody = renderReviewSummaryComment(params.payload, {
     ...params.ctx,
     summarySentinel,
@@ -450,11 +488,10 @@ export async function publishReviewSummaryOnly(params: {
     ciSummary,
     partialCoverageNote,
     runFooter: {
-      durationMs: metricsSnapshot?.wallClockMs ?? 0,
+      durationMs,
       model: params.cfg.piModel,
     },
   });
-  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
 
   let shouldAbort = false;
   try {

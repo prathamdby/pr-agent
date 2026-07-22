@@ -168,4 +168,19 @@ describe("reviewRunMetrics", () => {
     expect(JSON.stringify(payload)).not.toMatch(/submitReview|password|BEGIN RSA/i);
     infoSpy.mockRestore();
   });
+
+  it("seeds startedAtMs when provided at init", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+        startedAtMs: 1_000,
+      });
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot?.startedAtMs).toBe(1_000);
+      expect(snapshot?.wallClockMs).toBeGreaterThanOrEqual(0);
+    });
+  });
 });

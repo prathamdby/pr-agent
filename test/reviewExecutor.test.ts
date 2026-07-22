@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   logInfo: vi.fn(),
   logWarn: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
+  getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
   recordPublishStep: vi.fn(),
   shouldSkipWork: vi.fn(async () => false),
   getPullRequestHeadSha: vi.fn(async () => "head"),
@@ -43,6 +44,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: mocks.recordPublishStep,
   shouldSkipWork: mocks.shouldSkipWork,
   getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
+  getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
 }));
 
 vi.mock("../src/agentWork/reviewCheckRun.js", () => ({

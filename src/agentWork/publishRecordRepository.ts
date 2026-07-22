@@ -174,6 +174,29 @@ export async function getProgressCommentRevision(
   return row?.revision == null ? null : { workItemId: row.work_item_id, revision: row.revision };
 }
 
+/** Epoch ms when the progress stub (revision 0) was first recorded, if known. */
+export async function getProgressStubPostedAtMs(
+  pool: Pool | PoolClient,
+  resourceKey: string,
+  reviewLens: AnyReviewLens,
+): Promise<number | null> {
+  const row = await queryOne<{ stub_posted_at_ms: string | number | null }>(
+    pool,
+    `SELECT detail->>'stubPostedAtMs' AS stub_posted_at_ms
+       FROM publish_records
+      WHERE resource_key = $1
+        AND review_lens = $2
+        AND step = 'progress_comment'
+        AND status = 'completed'
+        AND jsonb_typeof(detail->'stubPostedAtMs') = 'number'
+      LIMIT 1`,
+    [resourceKey, reviewLens],
+  );
+  if (row?.stub_posted_at_ms == null) return null;
+  const value = Number(row.stub_posted_at_ms);
+  return Number.isFinite(value) ? value : null;
+}
+
 export async function getReviewCheckRunGithubId(
   pool: Pool,
   workItemId: string,

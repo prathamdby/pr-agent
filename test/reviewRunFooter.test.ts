@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatReviewDuration,
   renderReviewRunFooter,
+  resolveReviewWallClockMs,
   reviewLensFooterLabel,
   shortHeadSha,
 } from "../src/review/run/reviewRunFooter.js";
@@ -33,6 +34,48 @@ describe("formatReviewDuration", () => {
   it("clamps non-finite and negative values to 0s", () => {
     expect(formatReviewDuration(-5)).toBe("0s");
     expect(formatReviewDuration(Number.NaN)).toBe("0s");
+  });
+});
+
+describe("resolveReviewWallClockMs", () => {
+  it("prefers stub start over metrics start", () => {
+    expect(
+      resolveReviewWallClockMs({
+        stubPostedAtMs: 1_000,
+        metricsStartedAtMs: 2_000,
+        endedAtMs: 5_000,
+      }),
+    ).toBe(4_000);
+  });
+
+  it("falls back to metrics start when stub time is missing", () => {
+    expect(
+      resolveReviewWallClockMs({
+        stubPostedAtMs: null,
+        metricsStartedAtMs: 2_000,
+        endedAtMs: 5_000,
+      }),
+    ).toBe(3_000);
+  });
+
+  it("returns 0 when neither start is known", () => {
+    expect(
+      resolveReviewWallClockMs({
+        stubPostedAtMs: null,
+        metricsStartedAtMs: null,
+        endedAtMs: 5_000,
+      }),
+    ).toBe(0);
+  });
+
+  it("clamps inverted clocks to 0", () => {
+    expect(
+      resolveReviewWallClockMs({
+        stubPostedAtMs: 9_000,
+        metricsStartedAtMs: 1_000,
+        endedAtMs: 5_000,
+      }),
+    ).toBe(0);
   });
 });
 

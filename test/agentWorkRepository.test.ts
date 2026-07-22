@@ -12,6 +12,7 @@ import {
   claimQueuedWorkItem,
   claimSummaryCommentCreation,
   getProgressCommentRevision,
+  getProgressStubPostedAtMs,
   getWorkItem,
   recordReviewCheckRun,
   recordPublishStep,
@@ -169,6 +170,25 @@ describe("publish records", () => {
     vi.mocked(queryOne).mockResolvedValue(null);
 
     await expect(getProgressCommentRevision(pool, "o/r#1", "review")).resolves.toBeNull();
+  });
+
+  it("loads stubPostedAtMs from the progress publish record", async () => {
+    vi.mocked(queryOne).mockResolvedValue({ stub_posted_at_ms: "1710000000000" });
+
+    await expect(getProgressStubPostedAtMs(pool, "o/r#1", "review")).resolves.toBe(
+      1_710_000_000_000,
+    );
+
+    expect(queryOne).toHaveBeenLastCalledWith(pool, expect.stringContaining("stubPostedAtMs"), [
+      "o/r#1",
+      "review",
+    ]);
+  });
+
+  it("returns null when stubPostedAtMs is absent", async () => {
+    vi.mocked(queryOne).mockResolvedValue(null);
+
+    await expect(getProgressStubPostedAtMs(pool, "o/r#1", "review")).resolves.toBeNull();
   });
 
   it("atomically appends unique inline batches in one publish record row", async () => {
