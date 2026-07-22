@@ -21,15 +21,3 @@ export function formatAskReply(params: {
   }
   return [`**Question:** ${params.question.trim()}`, "", "**Answer:**", "", answer].join("\n");
 }
-
-export function formatAskFailureReply(params: {
-  question: string;
-  message: string;
-  replyTarget: ReplyTarget;
-}): string {
-  return formatAskReply({
-    question: params.question,
-    answer: params.message,
-    replyTarget: params.replyTarget,
-  });
-}

@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
   MAX_REVIEW_FOLLOW_UPS,
   MAX_REVIEW_PAYLOAD_FINDINGS,
@@ -12,7 +11,6 @@ import {
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
-  REVIEW_SUMMARY_SENTINEL,
   type ReviewValidationFailureKind,
 } from "../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "./findings/reviewFindingSort.js";
@@ -24,10 +22,6 @@ export type ReviewMode = "review";
 
 /** How a review run was triggered (automated webhook vs slash command). */
 export type WorkSource = "auto" | "slash";
-
-export function reviewSummarySentinelForMode(_mode: AnyReviewLens): string {
-  return REVIEW_SUMMARY_SENTINEL;
-}
 
 const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 

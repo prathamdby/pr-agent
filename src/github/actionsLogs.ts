@@ -22,8 +22,7 @@ export type DownloadActionsJobLogsResult =
   | { readonly ok: true; readonly text: string }
   | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
 
-/** True when Actions API is unavailable to this installation (missing permission or 404). */
-function isMissingActionsPermissionError(error: unknown): boolean {
+export function isMissingActionsPermissionError(error: unknown): boolean {
   const status = httpStatus(error);
   if (status !== 403 && status !== 404) return false;
   const message = error instanceof Error ? error.message : String(error);
@@ -34,10 +33,6 @@ function isMissingActionsPermissionError(error: unknown): boolean {
   );
 }
 
-/**
- * Lists Actions jobs for workflow runs on `headSha`.
- * Reports `actions_permission` when the installation cannot read Actions.
- */
 export async function listFailingActionsJobsForHead(
   token: string,
   owner: string,
@@ -98,7 +93,6 @@ export async function listFailingActionsJobsForHead(
   }
 }
 
-/** Downloads plain-text job logs, distinguishing permission misses from empty bodies. */
 export async function downloadActionsJobLogs(
   token: string,
   owner: string,

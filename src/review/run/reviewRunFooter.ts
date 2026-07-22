@@ -1,5 +1,4 @@
 import { escapeTableHtml } from "../../github/markdownFormat.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type ReviewRunFooterMeta = {
   readonly durationMs: number;
@@ -7,10 +6,6 @@ export type ReviewRunFooterMeta = {
 };
 
 const FOOTER_SEP = " ⋅ ";
-
-export function reviewLensFooterLabel(_mode: AnyReviewLens): string {
-  return "general";
-}
 
 /** Compact wall-clock duration (`45s`, `11m 20s`, `1h 2m`). */
 export function formatReviewDuration(durationMs: number): string {
@@ -62,13 +57,12 @@ export function shortHeadSha(headSha: string): string {
 /** Muted provenance line: `<sub>a1b2c3d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>`. */
 export function renderReviewRunFooter(params: {
   readonly headSha: string;
-  readonly mode: AnyReviewLens;
   readonly durationMs: number;
   readonly model: string;
 }): string {
   const parts = [
     shortHeadSha(params.headSha),
-    reviewLensFooterLabel(params.mode),
+    "general",
     formatReviewDuration(params.durationMs),
     params.model.trim() || "unknown",
   ].map((part) => escapeTableHtml(part));

@@ -18,7 +18,7 @@ import {
   coerceReviewPayloadInput,
   createReviewPayloadSchema,
   formatReviewValidationError,
-  reviewSummarySentinelForMode,
+  REVIEW_SUMMARY_SENTINEL,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
@@ -85,7 +85,7 @@ export function buildSubmitReviewTool(params: {
 } {
   const mode = params.mode ?? "review";
 
-  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const piTool: PiTool = {
     name: "submitReview",
     description: [
@@ -170,7 +170,6 @@ export function buildSubmitReviewTool(params: {
 
     const prepared = prepareReviewPayloadForPublish({
       payload: parsed.data,
-      mode,
       reviewMinConfidence: REVIEW_MIN_CONFIDENCE,
       severityFloor: params.severityFloor,
       cachedDiffIndex: params.cachedDiffIndex,

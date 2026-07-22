@@ -3,7 +3,7 @@ import { logWarn } from "../../evlog.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
-import { reviewSummarySentinelForMode } from "../reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { MAX_REVIEW_PUBLISH_CALLS } from "../../settings/index.js";
 
@@ -23,7 +23,7 @@ export async function publishReviewRunFailureNotice(params: {
   });
   const token = params.setup.getToken();
   const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
-  const sentinel = reviewSummarySentinelForMode(params.reviewMode);
+  const sentinel = REVIEW_SUMMARY_SENTINEL;
   try {
     await upsertReviewSummaryComment(
       token,

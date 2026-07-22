@@ -2,6 +2,7 @@ import { accessSync, constants } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { AppError } from "../../../errors/appError.js";
 import { DEFAULT_CURSOR_RIPGREP_PATH, ENV } from "../../../settings/index.js";
 import { captureCursorWorkerEvent, captureCursorWorkerFailure } from "./cursorAnalytics.js";
 
@@ -50,9 +51,11 @@ export function assertCursorRipgrepConfigured(): string {
     return configured;
   }
 
-  const error = new Error(
-    "Ripgrep path not configured for Cursor local agent. Call configureCursorRipgrepPath() at worker boot.",
-  );
+  const error = new AppError({
+    code: "cursor.ripgrep_boot_failed",
+    message:
+      "Ripgrep path not configured for Cursor local agent. Call configureCursorRipgrepPath() at worker boot.",
+  });
   captureCursorWorkerFailure("ripgrep_required", error);
   throw error;
 }

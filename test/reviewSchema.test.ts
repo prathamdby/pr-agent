@@ -6,7 +6,7 @@ import {
   isInlineSeverity,
   reviewEventForFindings,
   reviewPayloadSchema,
-  reviewSummarySentinelForMode,
+  REVIEW_SUMMARY_SENTINEL,
   selectInlineFindings,
 } from "../src/review/reviewSchema.js";
 import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings/index.js";
@@ -417,9 +417,9 @@ describe("formatReviewValidationError", () => {
   });
 });
 
-describe("reviewSummarySentinelForMode", () => {
+describe("REVIEW_SUMMARY_SENTINEL", () => {
   it("uses one live review mode and the general summary sentinel", () => {
     expectTypeOf<ReviewMode>().toEqualTypeOf<"review">();
-    expect(reviewSummarySentinelForMode("review")).toBe("## PR Agent Review");
+    expect(REVIEW_SUMMARY_SENTINEL).toBe("## PR Agent Review");
   });
 });

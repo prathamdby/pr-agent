@@ -26,7 +26,7 @@ import {
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/prompts/reviewTrustedContext.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../../review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../../review/reviewSchema.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
@@ -82,18 +82,6 @@ type Result<T> =
   | { readonly ok: false; readonly error: unknown };
 
 type SettledPriorInlineFeedback = Result<string | undefined>;
-
-async function tryCatchAsync<T>(
-  fn: () => Promise<T>,
-  onError?: (error: unknown) => void,
-): Promise<Result<T>> {
-  try {
-    return { ok: true, value: await fn() };
-  } catch (error: unknown) {
-    onError?.(error);
-    return { ok: false, error };
-  }
-}
 
 /** Load a discriminated result and render the ok branch into a trusted-context block. */
 async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string }>(params: {
@@ -306,7 +294,7 @@ async function runLightweightCompletionOrSkip(args: {
   return { done: true, result: { degraded: false } };
 }
 
-function buildPriorInlineFeedbackPromise(args: {
+async function buildPriorInlineFeedbackPromise(args: {
   readonly cfg: Config;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
@@ -322,17 +310,23 @@ function buildPriorInlineFeedbackPromise(args: {
       message: error instanceof Error ? error.message : String(error),
     });
   };
-  return tryCatchAsync(async () => {
+  try {
     const bot = await getAppBotIdentity(cfg);
-    return fetchPriorInlineFeedbackBlockForReview({
-      token: tokenState.installation.token,
-      owner: item.owner,
-      repo: item.repo,
-      prNumber: item.prNumber,
-      botUserId: bot.userId,
-      onPriorFeedbackError: logPriorFeedbackError,
-    });
-  }, logPriorFeedbackError);
+    return {
+      ok: true,
+      value: await fetchPriorInlineFeedbackBlockForReview({
+        token: tokenState.installation.token,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        botUserId: bot.userId,
+        onPriorFeedbackError: logPriorFeedbackError,
+      }),
+    };
+  } catch (error: unknown) {
+    logPriorFeedbackError(error);
+    return { ok: false, error };
+  }
 }
 
 async function handleReviewPublishResult(args: {
@@ -722,7 +716,7 @@ export async function executeReviewJob(
           mode: reviewLens,
           retryCommand: "/review",
         }),
-        reviewSummarySentinelForMode(reviewLens),
+        REVIEW_SUMMARY_SENTINEL,
         undefined,
         installation.expiresAtTs,
       );

@@ -257,15 +257,6 @@ function buildAuthorInput(
   };
 }
 
-/**
- * Builds a CI summary for the review progress stub or completed review summary.
- * Missing Checks permission yields a visible grant-Checks row. Missing Actions
- * permission on a failing head attaches a grant-Actions note. Other fetch errors
- * soft-fail to a short unavailable headline. The review itself still publishes.
- *
- * Failing non-lightweight paths fetch condensed Actions logs and optionally call
- * `author` for model-authored reason/fixHint fields (ADR 0026).
- */
 export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
   try {
     const loaded = await waitForTerminalCi(options);

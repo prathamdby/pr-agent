@@ -1,15 +1,10 @@
-export type FeatureItem = {
+type FeatureItem = {
   title: string;
   detail: string;
-  /** Short phrase shown under the step (command, event, or outcome). */
   cue: string;
-  /** Short phrase for schema.org SoftwareApplication.featureList */
   summary: string;
 };
 
-/**
- * Walkthrough of what happens after deploy - instructional, not a feature laundry list.
- */
 export const FEATURES: FeatureItem[] = [
   {
     title: "Deploy once on infrastructure you control",
@@ -35,8 +30,8 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "Results land in the pull request",
     detail:
-      "Inline threads show up on Files changed. A review summary lands in the conversation. Need more? Comment /describe, /review-security, /review-quality, /ask, or @-mention the bot - answers stay in the same thread.",
-    cue: "/review · /describe · /ask · @bot",
+      "Inline threads show up on Files changed. A review summary lands in the conversation. Need more? Comment /describe, /ask, /triage, or @-mention the bot - answers stay in the same thread.",
+    cue: "/review · /describe · /ask · /triage · @bot",
     summary: "Reviews and replies posted in the pull request",
   },
   {
@@ -48,7 +43,7 @@ export const FEATURES: FeatureItem[] = [
   },
 ];
 
-export type CapabilityItem = {
+type CapabilityItem = {
   title: string;
   trigger: string;
   detail: string;
@@ -66,19 +61,14 @@ export const CAPABILITIES: CapabilityItem[] = [
     detail: "Summary bullets and an optional diagram go into the PR body.",
   },
   {
-    title: "Ask for a security pass when the change touches risk",
-    trigger: "Comment /review-security on the PR",
-    detail: "Security notes are posted as a separate summary.",
-  },
-  {
-    title: "Ask for a quality pass before merge",
-    trigger: "Comment /review-quality on the PR",
-    detail: "Maintainability notes land in the PR conversation.",
-  },
-  {
     title: "Ask code questions without leaving GitHub",
     trigger: "Comment /ask … or @-mention the bot with your question",
     detail: "Get an answer in the same thread, right where the code lives.",
+  },
+  {
+    title: "Triage prior findings on the pull request",
+    trigger: "Comment /triage on the PR or an inline finding thread",
+    detail: "Verifies open findings and can push fixes for valid same-repo issues.",
   },
   {
     title: "Skip AI review when the PR is only docs",
@@ -87,7 +77,7 @@ export const CAPABILITIES: CapabilityItem[] = [
   },
 ];
 
-export type PricingPlan = {
+type PricingPlan = {
   title: string;
   price: string;
   detail: string;
@@ -113,7 +103,7 @@ export const PRICING_PLANS: PricingPlan[] = [
   },
 ];
 
-export type ProviderItem = {
+type ProviderItem = {
   name: string;
   detail: string;
 };
@@ -130,7 +120,7 @@ export const PROVIDERS: ProviderItem[] = [
   },
 ];
 
-export type FaqItem = {
+type FaqItem = {
   question: string;
   answer: string;
 };
@@ -139,7 +129,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "What is PR Agent?",
     answer:
-      "PR Agent reviews GitHub pull requests on your servers. You deploy webhook intake, a Postgres job queue, background workers, and AI agents. It posts reviews, PR descriptions, security notes, quality notes, and Q&A replies back to GitHub.",
+      "PR Agent reviews GitHub pull requests on your servers. You deploy webhook intake, a Postgres job queue, background workers, and AI agents. It posts reviews, PR descriptions, and Q&A replies back to GitHub.",
   },
   {
     question: "Is PR Agent a self-hosted alternative to CodeRabbit?",
@@ -178,7 +168,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   },
 ];
 
-export type AlternativeRow = {
+type AlternativeRow = {
   name: string;
   deployment: string;
   differentiator: string;

@@ -20,11 +20,10 @@ const APP_FIELDS = [
 ] as const;
 
 const SLASH_COMMANDS = [
-  { cmd: "/review", tip: "General bug-and-correctness pass on the diff" },
+  { cmd: "/review", tip: "Orchestrated review on the diff" },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
-  { cmd: "/review-security", tip: "Security lens when the change touches risk" },
-  { cmd: "/review-quality", tip: "Maintainability notes before you merge" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
+  { cmd: "/triage", tip: "Verify prior findings and fix valid ones" },
 ] as const;
 
 const COMPOSE_SNIPPET = `cp .env.example .env
@@ -141,8 +140,8 @@ export function Quickstart() {
               Open a PR and talk to it
             </h3>
             <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-              Install the app on a repo, open a pull request, and wait for the automatic pass - or
-              type a slash command in the conversation when you want a specific lens.
+              Install the app on a repo, open a pull request, and wait for the automatic pass — or
+              type a slash command in the conversation when you want more.
             </p>
             <ul className="surface-inset edge-self mt-5 divide-y divide-edge rounded-md">
               {SLASH_COMMANDS.map((item) => (

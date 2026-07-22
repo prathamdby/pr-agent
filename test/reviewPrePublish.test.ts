@@ -44,7 +44,7 @@ describe("prepareReviewPayloadForPublish", () => {
       ],
     });
 
-    const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
+    const result = prepareReviewPayloadForPublish({ payload });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.prepared.payload.findings).toHaveLength(1);
@@ -58,7 +58,7 @@ describe("prepareReviewPayloadForPublish", () => {
       findings: [makeFinding({ severity: "P2", detail, fixPrompt: "Fix the handler." })],
     });
 
-    const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
+    const result = prepareReviewPayloadForPublish({ payload });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.prepared.payload.findings[0]?.detail).toBe(detail);
@@ -69,7 +69,7 @@ describe("prepareReviewPayloadForPublish", () => {
       prCharacter: "Structured publish failed after 3/3 attempt(s). Check server logs.",
     });
 
-    const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
+    const result = prepareReviewPayloadForPublish({ payload });
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toMatch(/prCharacter/);
@@ -86,7 +86,7 @@ describe("prepareReviewPayloadForPublish", () => {
       ],
     });
 
-    const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
+    const result = prepareReviewPayloadForPublish({ payload });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.prepared.payload.findings[0]?.detail).toContain("[redacted]");
@@ -104,7 +104,7 @@ describe("prepareReviewPayloadForPublish", () => {
       ],
     });
 
-    const result = prepareReviewPayloadForPublish({ payload, mode: "review" });
+    const result = prepareReviewPayloadForPublish({ payload });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.prepared.placements).toEqual(
@@ -124,7 +124,6 @@ describe("prepareReviewPayloadForPublish", () => {
 
     const result = prepareReviewPayloadForPublish({
       payload,
-      mode: "review",
       reviewMinConfidence: 3,
     });
 

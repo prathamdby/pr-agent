@@ -1,7 +1,7 @@
 import { logInfo } from "../../evlog.js";
 import { AppError } from "../../errors/appError.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
-import { formatAskFailureReply, formatAskReply } from "./formatAskReply.js";
+import { formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
 import {
   ASK_FAILURE_MESSAGE,
@@ -89,14 +89,11 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       }
     }
 
-    const answerText =
-      lastText.length > 0
-        ? formatAskReply({ question, answer: lastText, replyTarget })
-        : formatAskFailureReply({
-            question,
-            message: ASK_FAILURE_MESSAGE,
-            replyTarget,
-          });
+    const answerText = formatAskReply({
+      question,
+      answer: lastText.length > 0 ? lastText : ASK_FAILURE_MESSAGE,
+      replyTarget,
+    });
 
     logInfo("ask_run_completed", {
       provider: cfg.agentProvider,

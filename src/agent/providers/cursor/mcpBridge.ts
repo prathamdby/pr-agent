@@ -304,9 +304,10 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     startTimeoutId = setTimeout(
       () =>
         reject(
-          new Error(
-            `MCP bridge HTTP server did not start within ${CURSOR_MCP_SERVER_START_TIMEOUT_MS}ms`,
-          ),
+          new AppError({
+            code: "cursor.mcp_start_timeout",
+            message: `MCP bridge HTTP server did not start within ${CURSOR_MCP_SERVER_START_TIMEOUT_MS}ms`,
+          }),
         ),
       CURSOR_MCP_SERVER_START_TIMEOUT_MS,
     );

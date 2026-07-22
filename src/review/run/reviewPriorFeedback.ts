@@ -68,10 +68,6 @@ function extractBotSeverity(body: string): BotFindingThread["severity"] {
   return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
 }
 
-function isTriageEligibleLens(lens: AnyReviewLens): boolean {
-  return isAnyReviewLens(lens);
-}
-
 const REVIEW_POINTER_LENS_MARKER_RE = /<!--\s*pr-agent:review-pointer\s+lens=([^\s>]+)\s*-->/;
 
 function findVerificationStubCommentId(
@@ -204,7 +200,7 @@ async function listBotReviewIds(
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
     const lens = classifyReviewLensFromPointerBody(review.body ?? "");
-    if (lens && isTriageEligibleLens(lens)) reviewIds.add(review.id);
+    if (lens && isAnyReviewLens(lens)) reviewIds.add(review.id);
   }
   return reviewIds;
 }
@@ -237,7 +233,7 @@ async function listBotReviewIdsForTriage(
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
     const lens = resolveReviewLensForTriage(review.body ?? "", review.id, publishRecordLenses);
-    if (lens && isTriageEligibleLens(lens)) {
+    if (lens && isAnyReviewLens(lens)) {
       reviewIds.set(review.id, lens);
     }
   }

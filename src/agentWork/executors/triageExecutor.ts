@@ -423,7 +423,10 @@ async function tryResumeStoredPush(params: {
 
   const parsed = parseStoredTriagePushDetail(storedPushDetail);
   if (!parsed) {
-    const error = new Error("Stored triage_push detail is invalid");
+    const error = new AppError({
+      code: "triage.invalid_stored_push",
+      message: "Stored triage_push detail is invalid",
+    });
     captureTriageFailure(params.analytics, "parse_stored_push", error);
     throw error;
   }
@@ -506,7 +509,10 @@ async function runFreshTriageAgent(params: {
         scope: params.scope,
       });
       if (!result.submitted || !result.payload) {
-        const error = new Error("Triage run ended without submitTriage");
+        const error = new AppError({
+          code: "triage.missing_submit",
+          message: "Triage run ended without submitTriage",
+        });
         captureTriageFailure(params.analytics, "agent_run", error, {
           submitted: result.submitted,
         });

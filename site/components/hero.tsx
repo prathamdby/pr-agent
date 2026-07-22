@@ -38,11 +38,6 @@ function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
   );
 }
 
-/**
- * Keep mobile and desktop layouts separate.
- * Below lg: in-flow, no min-h 100svh.
- * lg+: absolute artifact, two-column fold.
- */
 export function Hero() {
   return (
     <section aria-labelledby="hero-heading" className="grain relative overflow-x-hidden">

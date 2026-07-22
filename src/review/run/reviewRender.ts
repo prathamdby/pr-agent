@@ -31,7 +31,7 @@ import {
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
-import { reviewSummarySentinelForMode } from "../reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
@@ -83,10 +83,9 @@ export function renderRepeatNoBugsReviewBody(
 }
 
 export function renderLightweightReviewCompletion(
-  mode: AnyReviewLens,
   footer: { readonly headSha: string } & ReviewRunFooterMeta,
 ): string {
-  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const rows: string[] = [];
   rows.push(summarySentinel);
   rows.push("");
@@ -103,7 +102,6 @@ export function renderLightweightReviewCompletion(
   rows.push(
     renderReviewRunFooter({
       headSha: footer.headSha,
-      mode,
       durationMs: footer.durationMs,
       model: footer.model,
     }),
@@ -451,7 +449,6 @@ function buildReviewSummaryBody(
   rows.push(
     renderReviewRunFooter({
       headSha: ctx.headSha,
-      mode: ctx.mode,
       durationMs: ctx.runFooter.durationMs,
       model: ctx.runFooter.model,
     }),

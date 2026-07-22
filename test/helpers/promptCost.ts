@@ -6,12 +6,6 @@ export type PromptCost = {
   readonly estimatedTokens: number;
 };
 
-export type PromptCostBudget = {
-  readonly bytes: number;
-  readonly characters: number;
-  readonly estimatedTokens: number;
-};
-
 export function measurePromptCost(content: string): PromptCost {
   const characters = Array.from(content).length;
   return {
@@ -28,7 +22,7 @@ export function stableJson(value: unknown): string {
 export function assertPromptCostWithinBudget(params: {
   readonly name: string;
   readonly content: string;
-  readonly budget: PromptCostBudget;
+  readonly budget: PromptCost;
 }): PromptCost {
   const cost = measurePromptCost(params.content);
   assertDimension(params.name, "bytes", cost.bytes, params.budget.bytes, cost);

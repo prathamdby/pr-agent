@@ -1,14 +1,10 @@
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
-import { inTransaction } from "../../db/postgres.js";
+import { inTransaction, pgBossDb } from "../../db/postgres.js";
 import { DESCRIPTION_QUEUE, REVIEW_QUEUE, VERIFICATION_QUEUE } from "../../settings/index.js";
 import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
-import {
-  releaseSingletonSlot,
-  reviewSingletonSlotDb,
-  type SingletonSlotDb,
-} from "../singletonQueue.js";
+import { releaseSingletonSlot, type SingletonSlotDb } from "../singletonQueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
@@ -129,7 +125,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   }
   const correlation = jobCorrelation(event.id, headers);
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-  const slotDb = reviewSingletonSlotDb(client);
+  const slotDb = pgBossDb(client);
 
   if (plan.kinds.includes("review")) {
     const ackTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];

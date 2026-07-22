@@ -1,9 +1,5 @@
 import { GhCode } from "@/components/github-output/primitives";
 
-/**
- * Compact hero signature — a PR conversation snippet, not the full summary card.
- * Kept deliberately smaller than the gallery mocks.
- */
 export function ReviewArtifact() {
   return (
     <div className="relative w-full origin-bottom-right" aria-hidden="true">

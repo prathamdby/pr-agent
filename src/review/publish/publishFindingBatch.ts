@@ -171,7 +171,6 @@ export async function publishFindingBatch(
 ): Promise<FindingBatchResult> {
   const prepared = prepareReviewPayloadForPublish({
     payload: batchPayload(batch),
-    mode: "review",
     cachedDiffIndex: context.cachedDiffIndex,
     enforceInlineAnchorValidation: false,
   });
@@ -188,7 +187,6 @@ export async function publishFindingBatch(
   );
   const targets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
-    mode: "review",
     cachedDiffIndex: context.cachedDiffIndex,
     inlinePlacements: prepared.prepared.placements,
     storedInlineFingerprints: [...context.ledger.suppressionFingerprints],

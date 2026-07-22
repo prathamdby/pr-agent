@@ -3,18 +3,8 @@ import {
   formatReviewDuration,
   renderReviewRunFooter,
   resolveReviewWallClockMs,
-  reviewLensFooterLabel,
   shortHeadSha,
 } from "../src/review/run/reviewRunFooter.js";
-
-describe("reviewLensFooterLabel", () => {
-  it("uses one footer label for recognized review lenses", () => {
-    expect(reviewLensFooterLabel("review")).toBe("general");
-    expect(reviewLensFooterLabel("review-security")).toBe("general");
-    expect(reviewLensFooterLabel("review-quality")).toBe("general");
-    expect(reviewLensFooterLabel("review-tests")).toBe("general");
-  });
-});
 
 describe("formatReviewDuration", () => {
   it("formats seconds, minutes, and hours compactly", () => {
@@ -102,7 +92,6 @@ describe("renderReviewRunFooter", () => {
     expect(
       renderReviewRunFooter({
         headSha: "abc123def456",
-        mode: "review",
         durationMs: 680_000,
         model: "grok-4.5",
       }),
@@ -113,7 +102,6 @@ describe("renderReviewRunFooter", () => {
     expect(
       renderReviewRunFooter({
         headSha: "abc1234",
-        mode: "review-security",
         durationMs: 1_000,
         model: "evil<script>",
       }),
@@ -124,7 +112,6 @@ describe("renderReviewRunFooter", () => {
     expect(
       renderReviewRunFooter({
         headSha: "abc1234",
-        mode: "review",
         durationMs: 1_000,
         model: "",
       }),
@@ -132,7 +119,6 @@ describe("renderReviewRunFooter", () => {
     expect(
       renderReviewRunFooter({
         headSha: "abc1234",
-        mode: "review",
         durationMs: 1_000,
         model: "   ",
       }),

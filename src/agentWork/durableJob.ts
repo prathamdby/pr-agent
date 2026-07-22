@@ -11,7 +11,6 @@ import {
   type BotIdentity,
   type InstallationToken,
 } from "../github/appAuth.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/installationTokenExpiry.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providers/providerErrors.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
@@ -19,6 +18,7 @@ import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
+  INSTALLATION_TOKEN_FALLBACK_TTL_MS,
   TOKEN_FRESHNESS_BUFFER_MS,
   type GithubReactionContent,
 } from "../settings/index.js";
@@ -38,7 +38,6 @@ import {
   updateRunningWorkHeadSha,
 } from "./repository.js";
 import { getPullRequestHead, reactOnAckTargets } from "./githubPrSurface.js";
-import { isTerminalPgBossAttempt } from "./pgBossJob.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
@@ -493,7 +492,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function handleDurableExecutionError(error: unknown): Promise<void> {
     if (await recheckSkippableAndCancel("skipped_after_error")) return;
     const message = error instanceof Error ? error.message : String(error);
-    if (!isTerminalPgBossAttempt(spec.job)) {
+    if (!(spec.job.retryCount >= spec.job.retryLimit)) {
       await markRetryingOrCancel(error, message);
       return;
     }

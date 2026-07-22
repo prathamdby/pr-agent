@@ -47,7 +47,7 @@ import { resolveReviewWallClockMs } from "../run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
 import { parseProgressRevisionState, withProgressRevisionComment } from "../run/progressComment.js";
 import {
-  reviewSummarySentinelForMode,
+  REVIEW_SUMMARY_SENTINEL,
   type ReviewPayload,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
@@ -411,7 +411,7 @@ export async function publishReviewSummaryOnly(params: {
   const partialCoverageNote = coverage.kind === "partial" ? coverage.note : undefined;
   const { owner, repo, prNumber, headSha } = params.ctx;
   const mode = params.mode ?? "review";
-  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const summaryPlacements = params.ledger.accepted.map((accepted) => accepted.placement);
   const reviewComments: Awaited<ReturnType<typeof listPullRequestReviewCommentsForReview>> = [];
   for (const inlineReviewId of params.ledger.inlineReviewIds) {
@@ -676,13 +676,13 @@ export async function publishReviewSummaryOnly(params: {
         security: syncSecurityLabel,
         category: syncCategoryLabels,
       };
-      if (labelsAlreadySynced(currentLabels, params.payload, options, mode)) {
+      if (labelsAlreadySynced(currentLabels, params.payload, options)) {
         await params.recordPublishStep?.("labels", {
           meta: { labels: currentLabels, alreadySynced: true },
         });
       } else {
-        const managed = reviewLabelsFromPayload(params.payload, options, mode);
-        const next = syncReviewLabels(currentLabels, managed, mode);
+        const managed = reviewLabelsFromPayload(params.payload, options);
+        const next = syncReviewLabels(currentLabels, managed);
         await params.refreshLiveAuth?.();
         const labelsWriteToken = params.getToken();
         const labelsWriteTokenExpiresAtTs = params.getTokenExpiresAtTs?.();

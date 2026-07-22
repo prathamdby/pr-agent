@@ -20,7 +20,7 @@ import {
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
 } from "../../settings/index.js";
-import { reviewSummarySentinelForMode } from "../reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
@@ -175,7 +175,7 @@ export function renderReviewProgressComment(params: {
         : "Superseded by a newer pull request update."
       : REVIEW_PROGRESS_NOTE;
   return [
-    reviewSummarySentinelForMode(params.mode),
+    REVIEW_SUMMARY_SENTINEL,
     "",
     renderGitHubAlert(REVIEW_OVERVIEW_ALERT, progressNote),
     "",
@@ -195,7 +195,7 @@ export function renderReviewFailureNotice(params: {
   retryCommand: string;
 }): string {
   return [
-    reviewSummarySentinelForMode(params.mode),
+    REVIEW_SUMMARY_SENTINEL,
     "",
     renderGitHubAlert(
       REVIEW_FAILURE_ALERT,

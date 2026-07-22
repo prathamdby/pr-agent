@@ -1,7 +1,6 @@
 import { publishReview } from "../../src/review/publish/publishReview.js";
 import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
-import { planInlinePlacements } from "../../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewPayload } from "../../src/review/reviewSchema.js";
 import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 import {
@@ -15,10 +14,8 @@ import { createSubmitReviewState } from "../../src/review/publish/submitReviewTo
 export async function publishReviewForTest(
   params: Parameters<typeof publishReview>[0] & { mode?: AnyReviewLens },
 ): Promise<void> {
-  const mode = params.mode ?? "review";
   const prepared = prepareReviewPayloadForPublish({
     payload: params.payload,
-    mode,
     cachedDiffIndex: params.cachedDiffIndex,
   });
   if (!prepared.ok) {
@@ -47,20 +44,6 @@ export function testPlacements(
     inlineLine: inlinePosted ? (opts.inlineLine ?? finding.startLine) : null,
     inlinePosted,
   }));
-}
-
-export function planInlineFromPayload(
-  payload: ReviewPayload,
-  diffIndex?: CachedPrDiffIndex,
-): InlinePlacement[] {
-  return planInlinePlacements(payload.findings, diffIndex);
-}
-
-export function testPlacementsFromPayload(
-  payload: ReviewPayload,
-  inlinePosted = true,
-): InlinePlacement[] {
-  return testPlacements(payload.findings, { inlinePosted });
 }
 
 export function cachedDiffForLines(

@@ -48,7 +48,6 @@ function causeMessage(cause: unknown): string {
   }
 }
 
-/** JSON-safe snapshot of a non-Error throw value for context bags. */
 function jsonSafeRawValue(value: unknown): unknown {
   if (
     value === null ||
@@ -66,7 +65,6 @@ function jsonSafeRawValue(value: unknown): unknown {
   }
 }
 
-/** Wrap unknown values as AppError without losing an existing AppError. */
 export function toAppError(
   error: unknown,
   fallback: { readonly code: string; readonly context?: AppErrorContext },
@@ -96,7 +94,6 @@ function serializeCause(cause: unknown): SerializedAppError["errorCause"] {
   return { errorMessage: causeMessage(cause) };
 }
 
-/** JSON-safe bag for logs (and later analytics sinks). */
 export function serializeAppError(error: AppError): SerializedAppError {
   const errorCause = serializeCause(error.cause);
   return {
@@ -107,7 +104,6 @@ export function serializeAppError(error: AppError): SerializedAppError {
   };
 }
 
-/** Merge into logError meta; empty object when not an AppError. */
 export function errorLogFields(error: unknown): Partial<SerializedAppError> {
   if (!isAppError(error)) return {};
   return serializeAppError(error);

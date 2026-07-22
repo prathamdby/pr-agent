@@ -1,5 +1,4 @@
 import type { PgBoss } from "pg-boss";
-import type { PoolClient } from "pg";
 import { pgBossDb } from "../db/postgres.js";
 import { REVIEW_QUEUE } from "../settings/index.js";
 import { reviewSingletonKey } from "./types.js";
@@ -46,8 +45,4 @@ export async function releaseReviewSingletonSlot(
     skipJobId: opts?.skipJobId,
     skipWorkItemId: opts?.skipWorkItemId,
   });
-}
-
-export function reviewSingletonSlotDb(client: PoolClient): SingletonSlotDb {
-  return pgBossDb(client);
 }

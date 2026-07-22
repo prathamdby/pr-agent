@@ -21,7 +21,6 @@ import {
   type ReviewFinding,
   type ReviewPayload,
 } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type PreparedReviewPayload = {
   readonly payload: ReviewPayload;
@@ -42,7 +41,6 @@ export type PreparedFindingTargets = {
 
 export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
-  mode: AnyReviewLens;
   reviewMinConfidence?: number;
   severityFloor?: number;
   cachedDiffIndex?: CachedPrDiffIndex;
@@ -113,7 +111,6 @@ export function prepareReviewPayloadForPublish(params: {
 
 export function prepareFindingsForPublish(params: {
   payload: ReviewPayload;
-  mode: AnyReviewLens;
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
   storedInlineFingerprints?: readonly string[];

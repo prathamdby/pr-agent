@@ -9,7 +9,6 @@ import {
   type ReviewFindingCategory,
   type ReviewPayload,
 } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export function dominantReviewCategory(
   findings: readonly ReviewFinding[],
@@ -44,7 +43,6 @@ export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean; category: boolean },
-  _mode: AnyReviewLens = "review",
 ): boolean {
   if (opts.effort) {
     const effortPrefix = LABEL_REVIEW_EFFORT_PREFIX;
@@ -67,7 +65,6 @@ export function labelsAlreadySynced(
 export function reviewLabelsFromPayload(
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean; category: boolean },
-  _mode: AnyReviewLens = "review",
 ): string[] {
   const labels: string[] = [];
   if (opts.effort) {
@@ -83,11 +80,7 @@ export function reviewLabelsFromPayload(
   return labels;
 }
 
-export function syncReviewLabels(
-  currentLabels: string[],
-  nextManaged: string[],
-  _mode: AnyReviewLens = "review",
-): string[] {
+export function syncReviewLabels(currentLabels: string[], nextManaged: string[]): string[] {
   const preserved = currentLabels.filter(
     (name) =>
       !name.startsWith(LABEL_REVIEW_EFFORT_PREFIX) &&
