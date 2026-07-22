@@ -156,15 +156,15 @@ Run on your infrastructure with your GitHub App credentials and chosen LLM provi
 
 ## Features
 
-| Capability              | Auto on PR            | Slash command     | Notes                                                                                                  |
-| ----------------------- | --------------------- | ----------------- | ------------------------------------------------------------------------------------------------------ |
-| Orchestrated review     | opened                | `/review`         | Four specialists feed one `## PR Agent Review`; inline P0 to P2 appear on the Files tab                |
-| PR description          | opened (configurable) | `/describe`       | Merges under `## PR Agent Description`                                                                 |
-| Triage                  | No                    | `/triage`         | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`                      |
-| Verification            | synchronize           | No                | Re-checks open bot findings against the new head; edits verification stubs in place                    |
-| Ask                     | No                    | `/ask <question>` | Also `@bot` mentions; PR conversation or inline diff **code anchor**                                   |
-| Help                    | No                    | `/help`           | Worker-published guidance                                                                              |
-| Lightweight auto-review | docs-only trivial PRs | No                | Skips full **orchestrated review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md) |
+| Capability              | Auto on PR            | Slash command     | Notes                                                                                                                          |
+| ----------------------- | --------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Orchestrated review     | opened                | `/review`         | Four specialists feed one `## PR Agent Review`; inline P0–P3 appear on the Files tab when anchored (check fails only on P0–P2) |
+| PR description          | opened (configurable) | `/describe`       | Merges under `## PR Agent Description`                                                                                         |
+| Triage                  | No                    | `/triage`         | Fixes earlier findings, commits and pushes to the PR branch; `## PR Agent Triage`                                              |
+| Verification            | synchronize           | No                | Re-checks open bot findings against the new head; edits verification stubs in place                                            |
+| Ask                     | No                    | `/ask <question>` | Also `@bot` mentions; PR conversation or inline diff **code anchor**                                                           |
+| Help                    | No                    | `/help`           | Worker-published guidance                                                                                                      |
+| Lightweight auto-review | docs-only trivial PRs | No                | Skips full **orchestrated review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md)                         |
 
 | Deployment                                | Supported |
 | ----------------------------------------- | --------- |

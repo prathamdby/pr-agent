@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Operator-facing summary: [README.md](../../README.md) (What it does, Local development, Docker). Runbooks: [docs/agent-work-ops.md](../agent-work-ops.md).
+Accepted. Operator-facing summary: [README.md](../../README.md) (How It Works, Getting Started). Runbooks: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 
@@ -16,7 +16,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 2. **Postgres + pg-boss** — Use Postgres for app-owned workflow state and pg-boss for delivery, retries, heartbeat, expiration, dead-letter retention, and per-key queue policy.
 
-3. **Web/worker split** — `ROLE=web` serves `/health` and `/webhooks`. `ROLE=worker` runs acknowledgement, review, and ask workers from the same image.
+3. **Web/worker split** — `ROLE=web` serves `/health`, `/ready`, and `/webhooks`. `ROLE=worker` runs acknowledgement, CI-refresh, review, ask, description, triage, verification, and retention workers from the same image.
 
 4. **No PR-surface I/O on webhook fibers** — GitHub reactions, progress comments, ask replies, inline reviews, labels, and failure notices run in worker jobs. Webhook fibers verify, parse, dedupe, commit, enqueue, and return.
 
