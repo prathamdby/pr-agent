@@ -324,19 +324,44 @@ describe("reviewFinding category", () => {
 });
 
 describe("reviewPayload unknown fields", () => {
+  const baseInput = {
+    prCharacter: "Adds retry logic.",
+    findings: [],
+    estimatedEffort: 2,
+    relevantTests: "no" as const,
+    securityConcerns: null,
+    followUps: [] as string[],
+  };
+
   it("strips legacy mergeVerdict from parsed payload", () => {
     const parsed = reviewPayloadSchema.safeParse({
-      prCharacter: "Adds retry logic.",
-      findings: [],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
+      ...baseInput,
       mergeVerdict: { score: 4, rationale: "Minor issues only on this pass." },
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       expect("mergeVerdict" in parsed.data).toBe(false);
+    }
+  });
+
+  it("strips invalid mergeVerdict shapes", () => {
+    for (const bad of [
+      null,
+      "just a string",
+      { score: "high" },
+      { rationale: 42 },
+      {},
+      123,
+      true,
+    ]) {
+      const parsed = reviewPayloadSchema.safeParse({
+        ...baseInput,
+        mergeVerdict: bad,
+      });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect("mergeVerdict" in parsed.data).toBe(false);
+      }
     }
   });
 });
