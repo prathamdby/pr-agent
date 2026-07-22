@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
 import {
@@ -116,7 +116,7 @@ export async function getCompletedPublishStepDetailWithoutNewerStep(
 
 /** Returns true exactly once per (resourceKey, lens) until the claim row is deleted. */
 export async function claimSummaryCommentCreation(
-  pool: Pool,
+  pool: Pool | PoolClient,
   workItemId: string,
   resourceKey: string,
   reviewLens: AnyReviewLens,
@@ -132,7 +132,7 @@ export async function claimSummaryCommentCreation(
 }
 
 export async function getSummaryCommentGithubId(
-  pool: Pool,
+  pool: Pool | PoolClient,
   resourceKey: string,
   reviewLens: AnyReviewLens,
 ): Promise<number | null> {
@@ -152,6 +152,26 @@ export async function getSummaryCommentGithubId(
   if (!row?.github_id) return null;
   const id = Number(row.github_id);
   return Number.isFinite(id) ? id : null;
+}
+
+export async function getProgressCommentRevision(
+  pool: Pool | PoolClient,
+  resourceKey: string,
+  reviewLens: AnyReviewLens,
+): Promise<{ readonly workItemId: string; readonly revision: number } | null> {
+  const row = await queryOne<{ work_item_id: string; revision: number | null }>(
+    pool,
+    `SELECT work_item_id, (detail->>'progressRevision')::integer AS revision
+       FROM publish_records
+      WHERE resource_key = $1
+        AND review_lens = $2
+        AND step = 'progress_comment'
+        AND status = 'completed'
+        AND jsonb_typeof(detail->'progressRevision') = 'number'
+      LIMIT 1`,
+    [resourceKey, reviewLens],
+  );
+  return row?.revision == null ? null : { workItemId: row.work_item_id, revision: row.revision };
 }
 
 export async function getReviewCheckRunGithubId(
@@ -514,7 +534,7 @@ export async function loadReviewExecutorPublishContext(
 }
 
 export async function recordPublishStep(
-  pool: Pool,
+  pool: Pool | PoolClient,
   params: {
     workItemId: string;
     resourceKey: string;

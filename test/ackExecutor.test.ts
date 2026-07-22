@@ -99,16 +99,13 @@ describe("executeAckJob", () => {
         workItemId: "wi-1",
         resourceKey: "o/r#1",
         reviewLens: "review",
+        progressRevision: 0,
+        body: expect.stringContaining(
+          "<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->",
+        ),
       }),
     );
-    expect(recordPublishStep).toHaveBeenCalledWith(
-      pool,
-      expect.objectContaining({
-        workItemId: "wi-1",
-        step: "progress_comment",
-        githubId: 42,
-      }),
-    );
+    expect(recordPublishStep).not.toHaveBeenCalled();
     expect(ensureReviewCheckRunStarted).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
@@ -122,7 +119,7 @@ describe("executeAckJob", () => {
     );
   });
 
-  it("uses stored summary id without resolve scan when progress has no work item id", async () => {
+  it("uses revision coordination when progress has no work item id", async () => {
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(55);
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue({
       id: 55,
@@ -135,25 +132,17 @@ describe("executeAckJob", () => {
       progress: { lens: "review", headSha: "sha", source: "auto" },
     });
 
-    expect(getSummaryCommentGithubId).toHaveBeenCalledWith(pool, "o/r#1", "review");
-    expect(resolveVerifiedSummaryCommentRef).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      1,
-      expect.any(String),
-      55,
-      expect.any(Number),
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pool,
+        workItemId: undefined,
+        resourceKey: "o/r#1",
+        reviewLens: "review",
+        progressRevision: 0,
+      }),
     );
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      1,
-      expect.any(String),
-      expect.any(String),
-      { id: 55, url: "https://example.com/55" },
-      expect.any(Number),
-    );
+    expect(getSummaryCommentGithubId).not.toHaveBeenCalled();
+    expect(resolveVerifiedSummaryCommentRef).not.toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 });

@@ -11,6 +11,7 @@ import {
   loadReviewExecutorPublishContext,
   claimQueuedWorkItem,
   claimSummaryCommentCreation,
+  getProgressCommentRevision,
   getWorkItem,
   recordReviewCheckRun,
   recordPublishStep,
@@ -146,6 +147,28 @@ describe("listTriageEligibleInlineReviews", () => {
 });
 
 describe("publish records", () => {
+  it("loads the scoped progress revision from the progress publish record", async () => {
+    vi.mocked(queryOne).mockResolvedValue({ work_item_id: "wi-1", revision: 3 });
+
+    await expect(getProgressCommentRevision(pool, "o/r#1", "review")).resolves.toEqual({
+      workItemId: "wi-1",
+      revision: 3,
+    });
+
+    expect(queryOne).toHaveBeenLastCalledWith(
+      pool,
+      expect.stringContaining("step = 'progress_comment'"),
+      ["o/r#1", "review"],
+    );
+    expect(vi.mocked(queryOne).mock.calls.at(-1)?.[1]).toContain("progressRevision");
+  });
+
+  it("returns null when no progress revision has been recorded", async () => {
+    vi.mocked(queryOne).mockResolvedValue(null);
+
+    await expect(getProgressCommentRevision(pool, "o/r#1", "review")).resolves.toBeNull();
+  });
+
   it("atomically appends unique inline batches in one publish record row", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const scopedPool = { query } as unknown as Pool;

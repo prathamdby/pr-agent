@@ -60,6 +60,7 @@ export function createReviewPublishGithubMock(actual: typeof reviewPublish) {
 export function createAgentWorkRepositoryMock() {
   return {
     claimSummaryCommentCreation: vi.fn(async () => true),
+    getProgressCommentRevision: vi.fn(async () => null),
     getSummaryCommentGithubId: vi.fn(async () => null),
     recordPublishStep: vi.fn(),
   };

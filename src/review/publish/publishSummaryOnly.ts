@@ -1,8 +1,10 @@
 import type { Config } from "../../config.js";
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import {
   claimSummaryCommentCreation,
+  getProgressCommentRevision,
   getSummaryCommentGithubId,
+  recordPublishStep as recordAgentWorkPublishStep,
 } from "../../agentWork/repository.js";
 import {
   completeReviewCheckRun,
@@ -40,6 +42,7 @@ import {
 } from "../run/reviewLabels.js";
 import { renderReviewSummaryComment } from "../run/reviewRender.js";
 import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
+import { parseProgressRevisionState, withProgressRevisionComment } from "../run/progressComment.js";
 import {
   reviewSummarySentinelForMode,
   type ReviewPayload,
@@ -93,9 +96,17 @@ async function resolveKnownSummaryCommentRef(
   return resolved ? { id: resolved.id, url: resolved.url } : null;
 }
 
-export async function upsertSummaryCommentWithCreationClaim(params: {
-  pool: Pool;
-  workItemId: string;
+export type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5;
+
+type SummaryCommentUpsertResult = {
+  readonly id: number;
+  readonly updated: boolean;
+  readonly skipped?: true;
+};
+
+type SummaryCommentUpsertParams = {
+  pool: Pool | PoolClient;
+  workItemId?: string;
   resourceKey: string;
   reviewLens: AnyReviewLens;
   token: string;
@@ -106,7 +117,12 @@ export async function upsertSummaryCommentWithCreationClaim(params: {
   sentinel: string;
   expiresAtTs?: number;
   hintCommentId?: number | null;
-}): Promise<{ id: number; updated: boolean }> {
+  progressRevision?: ProgressCommentRevision;
+};
+
+async function upsertSummaryCommentWithoutRevision(
+  params: SummaryCommentUpsertParams,
+): Promise<SummaryCommentUpsertResult> {
   const {
     pool,
     workItemId,
@@ -141,6 +157,27 @@ export async function upsertSummaryCommentWithCreationClaim(params: {
       body,
       sentinel,
       knownFromStored,
+      expiresAtTs,
+    );
+  }
+
+  if (workItemId == null) {
+    const scanned = await findIssueCommentBySentinel(
+      token,
+      owner,
+      repo,
+      prNumber,
+      sentinel,
+      expiresAtTs,
+    );
+    return upsertReviewSummaryComment(
+      token,
+      owner,
+      repo,
+      prNumber,
+      body,
+      sentinel,
+      scanned,
       expiresAtTs,
     );
   }
@@ -218,6 +255,102 @@ export async function upsertSummaryCommentWithCreationClaim(params: {
     scanned,
     expiresAtTs,
   );
+}
+
+async function upsertSummaryCommentAtRevision(
+  params: Omit<SummaryCommentUpsertParams, "pool" | "progressRevision"> & {
+    readonly progressRevision: ProgressCommentRevision;
+  },
+  client: PoolClient,
+): Promise<SummaryCommentUpsertResult> {
+  const [storedRevision, currentComment] = await Promise.all([
+    getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
+    findIssueCommentBySentinel(
+      params.token,
+      params.owner,
+      params.repo,
+      params.prNumber,
+      params.sentinel,
+      params.expiresAtTs,
+    ),
+  ]);
+  const bodyRevision = currentComment ? parseProgressRevisionState(currentComment.body) : null;
+  const storedRevisionForRun =
+    storedRevision != null && storedRevision.workItemId === params.workItemId
+      ? storedRevision.revision
+      : -1;
+  const bodyRevisionForRun =
+    bodyRevision != null && bodyRevision.workItemId === params.workItemId
+      ? bodyRevision.revision
+      : -1;
+  const currentRevision = currentComment ? Math.max(storedRevisionForRun, bodyRevisionForRun) : -1;
+  if (currentComment && currentRevision >= params.progressRevision) {
+    return { id: currentComment.id, updated: false, skipped: true };
+  }
+
+  const result = await upsertSummaryCommentWithoutRevision({
+    ...params,
+    pool: client,
+    body: withProgressRevisionComment(params.body, params.progressRevision, params.workItemId),
+    hintCommentId: currentComment?.id ?? params.hintCommentId,
+  });
+  if (params.workItemId != null) {
+    await recordAgentWorkPublishStep(client, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: params.reviewLens,
+      step: "progress_comment",
+      githubId: result.id,
+      detail: { progressRevision: params.progressRevision, updated: result.updated },
+    });
+  }
+  return result;
+}
+
+export async function upsertSummaryCommentWithCreationClaim(
+  params: Omit<SummaryCommentUpsertParams, "pool"> & { readonly pool: Pool },
+): Promise<SummaryCommentUpsertResult> {
+  if (params.progressRevision == null) {
+    return upsertSummaryCommentWithoutRevision(params);
+  }
+
+  const client = await params.pool.connect();
+  const lockKey = JSON.stringify([params.resourceKey, params.reviewLens]);
+  let lockAcquired = false;
+  let outcome:
+    | { readonly kind: "success"; readonly value: SummaryCommentUpsertResult }
+    | { readonly kind: "error"; readonly error: unknown };
+  try {
+    await client.query("SELECT pg_advisory_lock(hashtextextended($1, 0))", [lockKey]);
+    lockAcquired = true;
+    outcome = {
+      kind: "success",
+      value: await upsertSummaryCommentAtRevision(
+        { ...params, progressRevision: params.progressRevision },
+        client,
+      ),
+    };
+  } catch (error) {
+    outcome = { kind: "error", error };
+  }
+
+  let unlockError: unknown;
+  if (lockAcquired) {
+    try {
+      await client.query("SELECT pg_advisory_unlock(hashtextextended($1, 0))", [lockKey]);
+    } catch (error) {
+      unlockError = error;
+      logWarn("review_progress_unlock_failed", {
+        resourceKey: params.resourceKey,
+        reviewLens: params.reviewLens,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  client.release(unlockError === undefined ? undefined : true);
+  if (outcome.kind === "error") throw outcome.error;
+  if (unlockError !== undefined) throw unlockError;
+  return outcome.value;
 }
 
 export type PublishSummaryOnlyResult =
@@ -306,6 +439,7 @@ export async function publishReviewSummaryOnly(params: {
       model: params.cfg.piModel,
     },
   });
+  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
 
   let shouldAbort = false;
   try {
@@ -354,7 +488,6 @@ export async function publishReviewSummaryOnly(params: {
     prNumber,
     labelsTokenExpiresAtTs,
   ).catch((error: unknown) => error);
-  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
   const summaryUpsert = summaryCoordination
     ? upsertSummaryCommentWithCreationClaim({
         ...summaryCoordination,
@@ -367,6 +500,7 @@ export async function publishReviewSummaryOnly(params: {
         sentinel: summarySentinel,
         expiresAtTs: summaryTokenExpiresAtTs,
         hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
+        progressRevision: 5,
       })
     : upsertReviewSummaryComment(
         summaryToken,
