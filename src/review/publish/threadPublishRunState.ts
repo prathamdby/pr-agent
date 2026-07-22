@@ -6,6 +6,11 @@ import type { ReviewFinding } from "../reviewSchema.js";
 export type ThreadPublishRunState = {
   postedFingerprints: Set<string>;
   postedInlineCount: number;
+  /**
+   * Judgment publish attempts this run (vs `MAX_THREAD_PUBLISH_CALLS`).
+   * Counts empty-after-suppression and failed GitHub attempts, not only durable successful batches.
+   * After the attempt budget, later findings are summary-only.
+   */
   batchCount: number;
   inlineReviewIds: number[];
   acceptedFindings: ReviewFinding[];

@@ -146,7 +146,11 @@ export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
 /** Max inline review threads attempted in one GitHub review submission. */
 export const MAX_INLINE_REVIEW_COMMENTS = 50;
-/** Max incremental inline thread publish calls in one review run. */
+/**
+ * Max judgment publish attempts per review run (vs `ThreadPublishRunState.batchCount`).
+ * Counts empty-after-suppression and failed GitHub attempts, not only durable successful batches.
+ * After this budget, later findings are summary-only.
+ */
 export const MAX_THREAD_PUBLISH_CALLS = 8;
 /** Max findings one specialist may return in a single findings report (orchestrator V2). */
 export const MAX_SPECIALIST_FINDINGS = 20;
