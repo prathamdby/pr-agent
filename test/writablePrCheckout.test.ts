@@ -80,8 +80,29 @@ describe("writable PR checkout", () => {
     TEST_TIMEOUT_MS,
   );
 
-  it("rejects bad subjects, sensitive paths, path escape, and uses -n", () => {
+  it("rejects bad subjects, oversized bodies, and uses -n", () => {
     expect(() => buildCommitCommandArgs({ files: ["x"], subject: "fix(scope): nope" })).toThrow();
+    expect(() =>
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject: "fix: guard null user",
+        body: [
+          "- One",
+          "- Two",
+          "- Three",
+          "- Four",
+          "- Five",
+          "- Six",
+        ],
+      }),
+    ).toThrow(/at most 5 bullets/);
+    expect(
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject: "fix: guard null user",
+        body: ["- Cover null user path"],
+      }),
+    ).toEqual(["commit", "-n", "-m", "fix: guard null user", "-m", "- Cover null user path"]);
     expect(buildCommitCommandArgs({ files: ["x"], subject: "fix: guard null user" })).toContain(
       "-n",
     );

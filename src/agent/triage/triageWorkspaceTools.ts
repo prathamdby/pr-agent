@@ -10,6 +10,7 @@ import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   SENSITIVE_PATH_PATTERNS,
+  TRIAGE_COMMIT_BODY_MAX_BULLETS,
   TRIAGE_NEW_FILE_MAX_BYTES,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
@@ -201,12 +202,12 @@ export function buildTriageWorkspaceTools(params: {
   });
 
   const commitFix = defineLocalTool({
-    description: "Commit the staged minimal fix for one finding. One call per threadRootCommentId.",
+    description: "Commit the minimal fix for one finding. One call per threadRootCommentId.",
     schema: z.object({
       threadRootCommentId: z.number().int().positive(),
       files: z.array(z.string().min(1)).min(1),
       subject: z.string().min(1),
-      body: z.array(z.string().min(1)).optional(),
+      body: z.array(z.string().min(1)).max(TRIAGE_COMMIT_BODY_MAX_BULLETS).optional(),
     }),
     run: async ({ threadRootCommentId, files, subject, body }) => {
       if (!inventoryIds.has(threadRootCommentId)) {

@@ -298,6 +298,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `TRIAGE_SKIP_REASON_MAX_CHARS`       | 300                                                 |
 | `TRIAGE_COMMIT_SUBJECT_MAX_CHARS`    | 50                                                  |
 | `TRIAGE_COMMIT_TYPES`                | feat, fix, refactor, docs, test, chore, style, perf |
+| `TRIAGE_COMMIT_BODY_MAX_BULLETS`     | 5                                                   |
 | `TRIAGE_COMMIT_MAX_FILES`            | 20                                                  |
 | `TRIAGE_MAX_COMMIT_DIFF_LINES`       | 200                                                 |
 | `TRIAGE_NEW_FILE_MAX_BYTES`          | 32768                                               |

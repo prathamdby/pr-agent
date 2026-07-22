@@ -7,6 +7,7 @@ import type { BotIdentity } from "../github/appAuth.js";
 import { AppError } from "../errors/appError.js";
 import {
   SENSITIVE_PATH_PATTERNS,
+  TRIAGE_COMMIT_BODY_MAX_BULLETS,
   TRIAGE_COMMIT_MAX_FILES,
   TRIAGE_COMMIT_SUBJECT_MAX_CHARS,
   TRIAGE_COMMIT_TYPES,
@@ -130,6 +131,13 @@ function validateSubject(subject: string): void {
 
 function validateBody(body: readonly string[] | undefined): string | undefined {
   if (!body || body.length === 0) return undefined;
+  if (body.length > TRIAGE_COMMIT_BODY_MAX_BULLETS) {
+    throw new AppError({
+      code: "pr_workspace.commit_body_too_many_bullets",
+      message: `Commit body accepts at most ${TRIAGE_COMMIT_BODY_MAX_BULLETS} bullets`,
+      context: { maxBullets: TRIAGE_COMMIT_BODY_MAX_BULLETS },
+    });
+  }
   for (const line of body) {
     if (!line.startsWith("- ")) {
       throw new AppError({
