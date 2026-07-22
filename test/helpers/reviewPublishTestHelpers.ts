@@ -1,7 +1,7 @@
 import { publishReview } from "../../src/review/publish/publishReview.js";
 import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
-import type { ReviewFinding, ReviewPayload } from "../../src/review/reviewSchema.js";
+import type { ReviewFinding } from "../../src/review/reviewSchema.js";
 import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
 import {
   createCachedPrDiffIndex,

@@ -8,6 +8,10 @@ type NormalizedFinding = {
   readonly detail: string;
 };
 
+function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
+  return aStart <= bEnd && bStart <= aEnd;
+}
+
 /** Drop duplicates when same file, overlapping lines, and matching title/detail; keep higher severity. */
 export function dedupeReviewFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
   const sorted = [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
@@ -23,10 +27,13 @@ export function dedupeReviewFindings(findings: readonly ReviewFinding[]): Review
     const key = `${normalized.finding.file}\0${normalized.title}\0${normalized.detail}`;
     const bucket = buckets.get(key) ?? [];
     if (
-      bucket.some(
-        (existing) =>
-          existing.finding.startLine <= normalized.finding.endLine &&
-          normalized.finding.startLine <= existing.finding.endLine,
+      bucket.some((existing) =>
+        rangesOverlap(
+          existing.finding.startLine,
+          existing.finding.endLine,
+          normalized.finding.startLine,
+          normalized.finding.endLine,
+        ),
       )
     ) {
       continue;

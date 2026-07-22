@@ -51,6 +51,10 @@ function assertDimension(
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value != null && !Array.isArray(value);
+}
+
 function sortJson(value: unknown): unknown {
   if (
     typeof value === "object" &&
@@ -61,10 +65,10 @@ function sortJson(value: unknown): unknown {
     return sortJson(value.toJSON());
   }
   if (Array.isArray(value)) return value.map(sortJson);
-  if (!(typeof value === "object" && value != null && !Array.isArray(value))) return value;
+  if (!isRecord(value)) return value;
   return Object.fromEntries(
     Object.keys(value)
       .toSorted()
-      .map((key) => [key, sortJson((value as Record<string, unknown>)[key])]),
+      .map((key) => [key, sortJson(value[key])]),
   );
 }
