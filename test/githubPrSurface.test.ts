@@ -16,8 +16,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(),
-  installationOctokit: () => ({
-    rest: {
+  installationOctokit: () => {
+    const rest = {
       reactions: {
         createForIssue: mocks.createForIssue,
         listForIssue: mocks.listForIssue,
@@ -29,8 +29,15 @@ vi.mock("../src/github/appAuth.js", () => ({
         listForPullRequestReviewComment: mocks.listForPullRequestReviewComment,
         deleteForPullRequestComment: mocks.deleteForPullRequestComment,
       },
-    },
-  }),
+    };
+    return {
+      rest,
+      paginate: async (fn: (...args: unknown[]) => unknown, opts: unknown) => {
+        const result = await fn(opts);
+        return (result as { data: unknown[] }).data;
+      },
+    };
+  },
 }));
 
 vi.mock("../src/evlog.js", async (importOriginal) => {
@@ -224,5 +231,90 @@ describe("reactOnAckTargets", () => {
     expect(mocks.createForIssue).toHaveBeenCalledWith(
       expect.objectContaining({ content: GITHUB_REACTION_PLUS_ONE }),
     );
+  });
+
+  it("replaces eyes on an issueComment target", async () => {
+    mocks.listForIssueComment.mockResolvedValue({
+      data: [{ id: 41, content: GITHUB_REACTION_EYES, user: { id: BOT_USER_ID } }],
+    });
+    mocks.createForIssueComment.mockResolvedValue({});
+    mocks.deleteForIssueComment.mockResolvedValue({});
+
+    await reactOnAckTargets(
+      "tok",
+      "o",
+      "r",
+      [{ kind: "issueComment", commentId: 55 }],
+      GITHUB_REACTION_PLUS_ONE,
+      BOT_USER_ID,
+    );
+
+    expect(mocks.listForIssueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ comment_id: 55 }),
+    );
+    expect(mocks.deleteForIssueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ comment_id: 55, reaction_id: 41 }),
+    );
+    expect(mocks.createForIssueComment).toHaveBeenCalledWith(
+      expect.objectContaining({ comment_id: 55, content: GITHUB_REACTION_PLUS_ONE }),
+    );
+  });
+
+  it("replaces eyes on a reviewComment target", async () => {
+    mocks.listForPullRequestReviewComment.mockResolvedValue({
+      data: [{ id: 51, content: GITHUB_REACTION_EYES, user: { id: BOT_USER_ID } }],
+    });
+    mocks.createForPullRequestReviewComment.mockResolvedValue({});
+    mocks.deleteForPullRequestComment.mockResolvedValue({});
+
+    await reactOnAckTargets(
+      "tok",
+      "o",
+      "r",
+      [{ kind: "reviewComment", commentId: 66 }],
+      GITHUB_REACTION_PLUS_ONE,
+      BOT_USER_ID,
+    );
+
+    expect(mocks.listForPullRequestReviewComment).toHaveBeenCalledWith(
+      expect.objectContaining({ comment_id: 66 }),
+    );
+    expect(mocks.deleteForPullRequestComment).toHaveBeenCalledWith(
+      expect.objectContaining({ comment_id: 66, reaction_id: 51 }),
+    );
+    expect(mocks.createForPullRequestReviewComment).toHaveBeenCalledWith(
+      expect.objectContaining({ comment_id: 66, content: GITHUB_REACTION_PLUS_ONE }),
+    );
+  });
+
+  it("logs and continues when a deleteReaction fails during replacement", async () => {
+    mocks.listForIssue.mockResolvedValue({
+      data: [
+        { id: 61, content: GITHUB_REACTION_EYES, user: { id: BOT_USER_ID } },
+        { id: 62, content: GITHUB_REACTION_MINUS_ONE, user: { id: BOT_USER_ID } },
+      ],
+    });
+    mocks.createForIssue.mockResolvedValue({});
+    mocks.deleteForIssue
+      .mockRejectedValueOnce(new Error("delete failed"))
+      .mockResolvedValueOnce({});
+    mocks.httpStatus.mockReturnValue(500);
+
+    await expect(
+      reactOnAckTargets(
+        "tok",
+        "o",
+        "r",
+        [{ kind: "pr", prNumber: 7 }],
+        GITHUB_REACTION_PLUS_ONE,
+        BOT_USER_ID,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mocks.logDebug).toHaveBeenCalledWith(
+      "ack_reaction_failed",
+      expect.objectContaining({ reaction: GITHUB_REACTION_PLUS_ONE }),
+    );
+    expect(mocks.createForIssue).not.toHaveBeenCalled();
   });
 });
