@@ -2,7 +2,7 @@ import type { AckTarget, AgentWorkItem } from "./types.js";
 
 /** Prefer persisted intake targets; otherwise rebuild from PR + known comment fields. */
 export function reactionTargetsForWorkItem(item: AgentWorkItem): readonly AckTarget[] {
-  const stored = "ackTargets" in item.payload ? item.payload.ackTargets : undefined;
+  const stored = item.payload.ackTargets;
   if (stored != null && stored.length > 0) return stored;
 
   const targets: AckTarget[] = [{ kind: "pr", prNumber: item.prNumber }];

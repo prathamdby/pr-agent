@@ -113,7 +113,6 @@ export type AskWorkPayload = {
   readonly codeAnchor?: CodeAnchor;
   readonly commenterId?: number;
   readonly commentId: number;
-  /** Ack targets captured at intake for completion/failure reactions. */
   readonly ackTargets?: readonly AckTarget[];
 };
 
@@ -122,7 +121,6 @@ export type DescriptionWorkPayload = {
   readonly repositorySizeKb?: number;
   readonly userSupplement?: string;
   readonly commenterId?: number;
-  /** Ack targets captured at intake for completion/failure reactions. */
   readonly ackTargets?: readonly AckTarget[];
 };
 
@@ -138,7 +136,6 @@ export type TriageWorkPayload = {
   readonly needsThreadRootResolution?: boolean;
   readonly replyTarget: ReplyTarget;
   readonly publishDegraded?: boolean;
-  /** Ack targets captured at intake for completion/failure reactions. */
   readonly ackTargets?: readonly AckTarget[];
 };
 
@@ -146,7 +143,6 @@ export type VerificationWorkPayload = {
   readonly source: "auto";
   readonly repositorySizeKb?: number;
   readonly pushBeforeSha?: string;
-  /** Ack targets captured at intake for completion/failure reactions. */
   readonly ackTargets?: readonly AckTarget[];
 };
 
