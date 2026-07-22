@@ -104,28 +104,28 @@ Canonical quick start steps live in [README.md](../README.md) **Getting Started*
 
 ### Scripts
 
-| Script                                 | Purpose                                          |
-| -------------------------------------- | ------------------------------------------------ |
-| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)                  |
-| `nub watch src/index.ts`               | Auto-restart dev entry                           |
-| `nub run build`                        | Compile to `dist/`                               |
-| `nub run start` / `node dist/index.js` | Run compiled `dist/`                             |
-| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                     |
-| `nub run lint`                         | Type-aware Oxlint (includes `site/`)             |
-| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`              |
-| `nub run lint:fix`                     | Oxlint with safe fixes                           |
-| `nub run fmt`                          | Format with Oxfmt                                |
-| `nub run fmt:check`                    | Check formatting                                 |
-| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`               |
-| `nub run check:effect-versions`        | Verify pinned Effect deps                        |
-| `nub run check:prod-deps`              | Production dependency graph guard                |
-| `nub run test`                         | Vitest (`test/**/*.test.ts`)                     |
-| `nub run test:watch`                   | Vitest watch mode                                |
-| `nub run test:integration`             | Vitest integration suite                         |
-| `nub run --node test`                  | Vitest via plain Node (escape hatch)             |
-| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)      |
-| `nub run site:build`                   | Landing site production build                    |
-| `nub run site:generate-og`             | Generate landing OG assets                       |
+| Script                                 | Purpose                                     |
+| -------------------------------------- | ------------------------------------------- |
+| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)             |
+| `nub watch src/index.ts`               | Auto-restart dev entry                      |
+| `nub run build`                        | Compile to `dist/`                          |
+| `nub run start` / `node dist/index.js` | Run compiled `dist/`                        |
+| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                |
+| `nub run lint`                         | Type-aware Oxlint (includes `site/`)        |
+| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`         |
+| `nub run lint:fix`                     | Oxlint with safe fixes                      |
+| `nub run fmt`                          | Format with Oxfmt                           |
+| `nub run fmt:check`                    | Check formatting                            |
+| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`          |
+| `nub run check:effect-versions`        | Verify pinned Effect deps                   |
+| `nub run check:prod-deps`              | Production dependency graph guard           |
+| `nub run test`                         | Vitest (`test/**/*.test.ts`)                |
+| `nub run test:watch`                   | Vitest watch mode                           |
+| `nub run test:integration`             | Vitest integration suite                    |
+| `nub run --node test`                  | Vitest via plain Node (escape hatch)        |
+| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`) |
+| `nub run site:build`                   | Landing site production build               |
+| `nub run site:generate-og`             | Generate landing OG assets                  |
 
 Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs.
 
