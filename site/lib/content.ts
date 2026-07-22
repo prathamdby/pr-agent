@@ -21,7 +21,7 @@ export const FEATURES: FeatureItem[] = [
   {
     title: "A pull request opens",
     detail:
-      "GitHub delivers a signed webhook. PR Agent records it, reacts with 👀 so the team knows work started, and queues a review for that head. 👍 marks completion; 👎 marks failure.",
+      "GitHub delivers a signed webhook. PR Agent records it, reacts with 👀 so the team knows work started, and queues a review for that head. 👀 is replaced by 👍 on completion or 👎 on failure.",
     cue: "pull_request opened",
     summary: "Automated AI pull request reviews",
   },

@@ -422,12 +422,26 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function publishOutcomeReaction(content: GithubReactionContent): Promise<void> {
     try {
       const token = installation ?? (await mintInstallationToken(spec.cfg, item.installationId));
+      let botUserId: number | undefined;
+      try {
+        botUserId = (await getCachedBotIdentity(spec.cfg)).userId;
+      } catch (identityError) {
+        logWarn("agent_work_outcome_reaction_bot_identity_failed", {
+          type: spec.type,
+          workItemId: item.id,
+          reaction: content,
+          message: sanitizeLogMessage(
+            identityError instanceof Error ? identityError.message : String(identityError),
+          ),
+        });
+      }
       await reactOnAckTargets(
         token.token,
         item.owner,
         item.repo,
         reactionTargetsForWorkItem(item),
         content,
+        botUserId,
         token.expiresAtTs,
       );
     } catch (error) {

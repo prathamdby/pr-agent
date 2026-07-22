@@ -22,7 +22,7 @@ Every GitHub interaction PR Agent acknowledges gets a visible reaction lifecycle
 
 1. Keep `GITHUB_REACTION_EYES`; add `GITHUB_REACTION_PLUS_ONE` (`+1`) and `GITHUB_REACTION_MINUS_ONE` (`-1`).
 2. Generalize `safeReaction` to take a reaction content argument (default remains `eyes` for call-site clarity — callers pass the constant explicitly).
-3. Add `reactOnAckTargets` helper that posts one reaction to each `AckTarget`, swallowing per-target failures the same way ack does today.
+3. Add `reactOnAckTargets` / `setLifecycleReaction` helpers that set one lifecycle reaction per `AckTarget`, deleting the bot's prior `eyes`/`+1`/`-1` on that target first (atomic replace), swallowing per-target failures the same way ack does today.
 
 ### Target resolution
 
@@ -46,6 +46,6 @@ Persist optional `ackTargets` on every work-item payload at intake (same targets
 
 ## Non-goals
 
-- Removing prior eyes reactions (GitHub keeps them; thumbs are additive).
-- Reacting on cancelled/superseded work.
+- Reacting on cancelled/superseded work (replacement run owns the next `eyes`).
+- Migrating historical stacked reactions already present on GitHub.
 - Changing check-run or commit-status emoji policy (those stay emoji-free).

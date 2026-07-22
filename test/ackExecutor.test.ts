@@ -14,7 +14,7 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
 }));
 
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getAppBotIdentity: vi.fn(),
+  getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
   getPullRequestHeadSha: vi.fn(),
   postAckReply: vi.fn(),
   reactOnAckTargets: vi.fn(),
@@ -85,6 +85,7 @@ describe("executeAckJob", () => {
       "r",
       ackData().targets,
       GITHUB_REACTION_EYES,
+      999,
       expect.any(Number),
     );
   });
@@ -98,6 +99,7 @@ describe("executeAckJob", () => {
     expect(postAckReply).toHaveBeenCalled();
     expect(reactOnAckTargets).toHaveBeenCalledTimes(2);
     expect(vi.mocked(reactOnAckTargets).mock.calls[1]?.[4]).toBe(GITHUB_REACTION_PLUS_ONE);
+    expect(vi.mocked(reactOnAckTargets).mock.calls[1]?.[5]).toBe(999);
   });
 
   it("does not plus-one when a durable work item will own the outcome reaction", async () => {
