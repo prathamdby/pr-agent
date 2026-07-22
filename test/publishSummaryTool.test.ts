@@ -30,7 +30,7 @@ function finding(line: number, severity: ReviewFinding["severity"] = "P1"): Revi
     endLine: line,
     title: `Original title ${line}`,
     detail: `Original detail ${line}.`,
-    fixPrompt: severity === "P3" ? undefined : `Original fix ${line}.`,
+    fixPrompt: `Original fix ${line}.`,
     confidence: 4,
     category: "bug",
   };

@@ -92,7 +92,7 @@ export function buildSubmitReviewTool(params: {
       "Submit the completed structured review exactly once.",
       "Pass a ReviewPayload object matching the tool schema; required top-level fields are enforced by validation.",
       `Publishes inline review threads and a PR conversation summary starting with \`${summarySentinel}\`.`,
-      "Each finding: severity P0|P1|P2|P3, file, startLine, endLine, title, detail; fixPrompt required for P0/P1/P2.",
+      "Each finding: severity P0|P1|P2|P3, file, startLine, endLine, title, detail; fixPrompt required for every finding including P3.",
     ].join(" "),
     parameters: SUBMIT_REVIEW_PARAMETERS,
   };

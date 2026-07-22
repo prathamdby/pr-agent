@@ -13,7 +13,7 @@ export const singlePassReviewContract = [
 ].join("\n");
 
 export const fixPromptFieldContract =
-  "fixPrompt (P0/P1/P2 only): one or two sentences naming the bug and the fix direction. Do not repeat the file or line (the server adds a location header). Under ~60 words.";
+  "fixPrompt: one or two sentences naming the bug and the fix direction. Do not repeat the file or line (the server adds a location header). Under ~60 words. Required for every finding, including P3, so `/triage` can autofix.";
 
 export const suggestedCodeAndConfidenceFieldContract = [
   "suggestedCode (optional): include only when the fix is a contiguous replacement for exactly the anchored startLine..endLine lines. Never use it for partial edits, context rewrites, or fixes needing nearby untouched lines.",
@@ -113,7 +113,7 @@ export const reviewPayloadCommonTail = [
 ].join("\n");
 
 export function inlineSeverityPlacement(summaryKind: string): string {
-  return `P0/P1/P2 appear as inline review threads on changed lines; P3 appears only as title + deep-link in the ${summaryKind} summary overview.`;
+  return `P0–P3 appear as inline review threads on changed lines when a diff anchor resolves; otherwise they appear as title + deep-link in the ${summaryKind} summary overview. Check runs still fail only for P0–P2.`;
 }
 
 export const reviewSecretsAndToolingNote =

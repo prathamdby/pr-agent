@@ -15,8 +15,9 @@ In src/a.ts lines 5-7, guard the map with a mutex.
 [P2] @src/b.ts lines 20-22
 In src/b.ts lines 20-22, adjust slice end index.
 
-[P3 — no inline thread] Typo in heading
-minor typo"
+[P3] @README.md line 1
+Fix the typo in the README heading.
+[inline thread omitted — summary only]"
 `;
 
 exports[`renderInlineThreadBody > P0 with fixPrompt accordion 1`] = `

@@ -180,12 +180,6 @@ function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boo
   const location = `@${finding.file} ${formatLineRange(finding.startLine, finding.endLine)}`;
   const lines: string[] = [];
 
-  if (finding.severity === "P3") {
-    lines.push(`[P3 — no inline thread] ${finding.title}`);
-    lines.push(finding.detail);
-    return lines.join("\n");
-  }
-
   lines.push(`[${finding.severity}] ${location}`);
   lines.push(finding.fixPrompt ? escapeCodeFenceBreakers(finding.fixPrompt) : "");
   if (!opts.inlinePosted) {

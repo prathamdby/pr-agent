@@ -12,6 +12,36 @@ import {
 import { MAX_INLINE_REVIEW_COMMENTS } from "../src/settings/index.js";
 
 describe("reviewDiffPlacement", () => {
+  it("posts P3 findings inline when the anchor resolves", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "src/x.ts",
+          patch: ["@@ -4,1 +4,2 @@", " context", "+added"].join("\n"),
+        },
+      ],
+    });
+
+    const placements = planInlinePlacements(
+      [
+        {
+          severity: "P3",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Minor polish",
+          detail: "d",
+          fixPrompt: "Tidy the advisory note.",
+        },
+      ],
+      index,
+    );
+
+    expect(placements[0]?.inlinePosted).toBe(true);
+    expect(placements[0]?.inlineLine).toBe(4);
+  });
+
   it("marks invalid anchors as summary-only", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {

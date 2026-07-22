@@ -56,10 +56,10 @@ export const reviewFindingSchema = z
         path: ["endLine"],
       });
     }
-    if (f.severity !== "P3" && (!f.fixPrompt || f.fixPrompt.trim().length === 0)) {
+    if (!f.fixPrompt || f.fixPrompt.trim().length === 0) {
       ctx.addIssue({
         code: "custom",
-        message: "fixPrompt is required for P0/P1/P2 findings",
+        message: "fixPrompt is required for P0/P1/P2/P3 findings",
         path: ["fixPrompt"],
       });
     }
@@ -394,15 +394,19 @@ export function formatReviewValidationError(error: z.ZodError): {
   lines.push(
     `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
-  lines.push(
-    "Each P0/P1/P2 finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.",
-  );
+  lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
   const firstIssue = error.issues[0];
   const failureKind = firstIssue ? zodIssueFailureKind(firstIssue) : "other";
   return { message: lines.join("\n"), failureKind, paths };
 }
 
+/** Severities that may post an inline review thread when a diff anchor resolves. */
 export function isInlineSeverity(severity: ReviewFinding["severity"]): boolean {
+  return severity === "P0" || severity === "P1" || severity === "P2" || severity === "P3";
+}
+
+/** Severities that fail the review check run (P3 stays advisory). */
+export function isCheckFailingSeverity(severity: ReviewFinding["severity"]): boolean {
   return severity === "P0" || severity === "P1" || severity === "P2";
 }
 

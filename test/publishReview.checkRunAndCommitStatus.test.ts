@@ -119,7 +119,13 @@ describe("publishReview check run completion", () => {
       ...baseParams,
       payload: {
         ...payload,
-        findings: [{ ...payload.findings[0], severity: "P3", fixPrompt: undefined }],
+        findings: [
+          {
+            ...payload.findings[0],
+            severity: "P3",
+            fixPrompt: "Polish the advisory copy.",
+          },
+        ],
       },
       publishState: testPublishState({ inlineReviewIds: [1] }),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),

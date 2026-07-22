@@ -8,7 +8,7 @@ import {
   type ReviewCheckRunConclusion,
 } from "../github/reviewPublish.js";
 import { checkRunFindingsSummary } from "../github/statusCopy.js";
-import { isInlineSeverity, type ReviewFinding } from "../review/reviewSchema.js";
+import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
@@ -31,7 +31,7 @@ export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "se
   conclusion: ReviewCheckRunConclusion;
   summary: string;
 } {
-  const bugCount = findings.filter((f) => isInlineSeverity(f.severity)).length;
+  const bugCount = findings.filter((f) => isCheckFailingSeverity(f.severity)).length;
   return {
     conclusion: bugCount > 0 ? "failure" : "success",
     summary: checkRunFindingsSummary(bugCount),

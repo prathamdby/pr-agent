@@ -2,6 +2,8 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   coerceReviewPayloadInput,
   formatReviewValidationError,
+  isCheckFailingSeverity,
+  isInlineSeverity,
   reviewEventForFindings,
   reviewPayloadSchema,
   reviewSummarySentinelForMode,
@@ -18,7 +20,7 @@ function makeFinding(severity: ReviewFinding["severity"], title: string): Review
     endLine: 1,
     title,
     detail: "d",
-    fixPrompt: severity === "P3" ? undefined : "fix",
+    fixPrompt: "fix",
   };
 }
 
@@ -72,19 +74,54 @@ describe("reviewEventForFindings", () => {
   });
 });
 
+describe("severity helpers", () => {
+  it("treats P0–P3 as inline-eligible and only P0–P2 as check-failing", () => {
+    expect(isInlineSeverity("P0")).toBe(true);
+    expect(isInlineSeverity("P1")).toBe(true);
+    expect(isInlineSeverity("P2")).toBe(true);
+    expect(isInlineSeverity("P3")).toBe(true);
+    expect(isCheckFailingSeverity("P0")).toBe(true);
+    expect(isCheckFailingSeverity("P1")).toBe(true);
+    expect(isCheckFailingSeverity("P2")).toBe(true);
+    expect(isCheckFailingSeverity("P3")).toBe(false);
+  });
+
+  it("requires fixPrompt for P3 findings", () => {
+    const parsed = reviewPayloadSchema.safeParse({
+      prCharacter: "Overview",
+      findings: [
+        {
+          severity: "P3",
+          file: "x.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Nit",
+          detail: "minor",
+        },
+      ],
+      estimatedEffort: 1,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(parsed.success).toBe(false);
+  });
+});
+
 describe("selectInlineFindings", () => {
-  it("returns all P0-P2 inline findings sorted by severity", () => {
+  it("returns all P0-P3 inline findings sorted by severity", () => {
     const selected = selectInlineFindings([
       makeFinding("P2", "p2"),
       makeFinding("P0", "p0"),
       makeFinding("P1", "p1"),
+      makeFinding("P3", "p3"),
     ]);
-    expect(selected.map((x) => x.title)).toEqual(["p0", "p1", "p2"]);
+    expect(selected.map((x) => x.title)).toEqual(["p0", "p1", "p2", "p3"]);
   });
 
-  it("excludes P3", () => {
+  it("includes P3 with higher severities", () => {
     const selected = selectInlineFindings([makeFinding("P3", "p3"), makeFinding("P1", "p1")]);
-    expect(selected.map((x) => x.title)).toEqual(["p1"]);
+    expect(selected.map((x) => x.title)).toEqual(["p1", "p3"]);
   });
 
   it("accepts more than eight findings", () => {
