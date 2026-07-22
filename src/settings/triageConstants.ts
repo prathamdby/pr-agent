@@ -43,6 +43,7 @@ export const TRIAGE_COMMIT_TYPES = [
   "style",
   "perf",
 ] as const;
+export const TRIAGE_COMMIT_BODY_MAX_BULLETS = 5;
 export const TRIAGE_COMMIT_MAX_FILES = 20;
 /** Staged-diff size cap per commitFix call (added + removed lines). */
 export const TRIAGE_MAX_COMMIT_DIFF_LINES = 200;

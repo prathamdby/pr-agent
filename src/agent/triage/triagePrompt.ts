@@ -24,7 +24,9 @@ export const triageSystemPrompt = [
   "Tests-focused findings may propose missing test cases. When still valid you may add test files, wire Vitest, and mock dependencies, using the test commit type. Respect the fix budget and the commitFix file/diff limits; skip with a reason when the test setup is too large for one commit.",
   "",
   "## Commit contract",
-  "- Subject: conventional, no scope, lowercase description, max 50 chars.",
-  "- Allowed types: feat, fix, refactor, docs, test, chore, style, perf.",
-  "- Body bullets are optional; each starts with '- ', capitalized first word, no trailing period.",
+  "- Prove every subject and body line from the committed fix diff only; no ticket, review, session, or branch language.",
+  "- Subject: `type: description` — no scope; lowercase imperative except names/terms; max 50 chars; no trailing period.",
+  "- Types: feat, fix, refactor, docs, test, chore, style, perf. Match most changed lines; use chore only when nothing else fits.",
+  "- Optional body: 1–5 `- ` bullets; capitalize each; no blank lines or trailing periods; only material details absent from the subject.",
+  "- Prefer concrete verbs the diff proves; avoid vague update/change/address/improve wording when a specific action is available.",
 ].join("\n");
