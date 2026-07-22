@@ -2,33 +2,11 @@ import { normalizeFindingSubstance } from "./reviewFindingFingerprint.js";
 import { compareReviewFindingsBySeverityFileLine } from "./reviewFindingSort.js";
 import type { ReviewFinding } from "../reviewSchema.js";
 
-function rangesOverlap(aStart: number, aEnd: number, bStart: number, bEnd: number): boolean {
-  return aStart <= bEnd && bStart <= aEnd;
-}
-
 type NormalizedFinding = {
   readonly finding: ReviewFinding;
   readonly title: string;
   readonly detail: string;
 };
-
-function dedupeKey(finding: NormalizedFinding): string {
-  return `${finding.finding.file}\0${finding.title}\0${finding.detail}`;
-}
-
-function isDuplicateFinding(existing: NormalizedFinding, candidate: NormalizedFinding): boolean {
-  if (
-    !rangesOverlap(
-      existing.finding.startLine,
-      existing.finding.endLine,
-      candidate.finding.startLine,
-      candidate.finding.endLine,
-    )
-  ) {
-    return false;
-  }
-  return true;
-}
 
 /** Drop duplicates when same file, overlapping lines, and matching title/detail; keep higher severity. */
 export function dedupeReviewFindings(findings: readonly ReviewFinding[]): ReviewFinding[] {
@@ -42,9 +20,17 @@ export function dedupeReviewFindings(findings: readonly ReviewFinding[]): Review
       title: normalizeFindingSubstance(candidate.title),
       detail: normalizeFindingSubstance(candidate.detail),
     };
-    const key = dedupeKey(normalized);
+    const key = `${normalized.finding.file}\0${normalized.title}\0${normalized.detail}`;
     const bucket = buckets.get(key) ?? [];
-    if (bucket.some((existing) => isDuplicateFinding(existing, normalized))) continue;
+    if (
+      bucket.some(
+        (existing) =>
+          existing.finding.startLine <= normalized.finding.endLine &&
+          normalized.finding.startLine <= existing.finding.endLine,
+      )
+    ) {
+      continue;
+    }
     bucket.push(normalized);
     buckets.set(key, bucket);
     kept.push(candidate);

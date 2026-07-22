@@ -175,10 +175,6 @@ export function resolveInlineAnchorLine(
   return anchor;
 }
 
-function formatRangePair([start, end]: [number, number]): string {
-  return start === end ? `${start}` : `${start}-${end}`;
-}
-
 export function renderAnchorMenuBlock(
   index: CachedPrDiffIndex,
   caps: { maxFiles: number; maxRangesPerFile: number },
@@ -196,7 +192,9 @@ export function renderAnchorMenuBlock(
   const shown = entries.slice(0, caps.maxFiles);
   for (const [filename, file] of shown) {
     const ranges = file.commentableRightLineRanges.slice(0, caps.maxRangesPerFile);
-    const formatted = ranges.map(formatRangePair).join(", ");
+    const formatted = ranges
+      .map(([start, end]) => (start === end ? `${start}` : `${start}-${end}`))
+      .join(", ");
     const rangeSuffix =
       file.commentableRightLineRanges.length > caps.maxRangesPerFile
         ? ` …${file.commentableRightLineRanges.length - caps.maxRangesPerFile} more ranges`

@@ -43,10 +43,6 @@ function withStubMarker(body: string): string {
   return `${VERIFICATION_STUB_MARKER}\n${body}`;
 }
 
-function skippedReplyBody(verdict: Extract<VerificationVerdict, { verdict: "skipped" }>): string {
-  return withStubMarker(redactReviewText(`**Verification**: Still open - ${verdict.reason}`));
-}
-
 function terminalSuccessStubBody(
   verdict: Extract<VerificationVerdict, { verdict: "fixed" | "already-resolved" }>,
 ): string {
@@ -230,7 +226,9 @@ export async function publishVerification(
       }
       case "skipped": {
         if (!changedFiles.has(thread.path)) break;
-        const body = skippedReplyBody(verdict);
+        const body = withStubMarker(
+          redactReviewText(`**Verification**: Still open - ${verdict.reason}`),
+        );
         const stubCommentId = await upsertStubComment({
           token: params.token,
           tokenExpiresAtTs: params.tokenExpiresAtTs,

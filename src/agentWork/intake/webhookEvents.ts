@@ -14,15 +14,11 @@ type EventRecord =
       readonly dedupeKey: string;
     };
 
-function bodySha(rawBody: Buffer): string {
-  return crypto.createHash("sha256").update(rawBody).digest("hex");
-}
-
 function webhookEventKeys(headers: WebhookHeaders): {
   readonly dedupeKey: string;
   readonly bodySha256: string;
 } {
-  const bodySha256 = bodySha(headers.rawBody);
+  const bodySha256 = crypto.createHash("sha256").update(headers.rawBody).digest("hex");
   return {
     dedupeKey: headers.delivery ? `delivery:${headers.delivery}` : `body:${bodySha256}`,
     bodySha256,

@@ -90,12 +90,6 @@ function renderSpecialistPhase(state: SpecialistPhase): string {
   }
 }
 
-function renderTerminalProgress(source: WorkSource): string {
-  return source === "slash"
-    ? "Superseded. Rescheduled for new head."
-    : "Superseded by a newer pull request update.";
-}
-
 /** Ack stub: Recon running, specialists waiting. */
 export function initialProgressTickState(): Extract<SpecialistTickState, { kind: "specialists" }> {
   return {
@@ -176,7 +170,9 @@ export function renderReviewProgressComment(params: {
   }
   const progressNote =
     params.tickState?.kind === "terminal"
-      ? renderTerminalProgress(params.source)
+      ? params.source === "slash"
+        ? "Superseded. Rescheduled for new head."
+        : "Superseded by a newer pull request update."
       : REVIEW_PROGRESS_NOTE;
   return [
     reviewSummarySentinelForMode(params.mode),

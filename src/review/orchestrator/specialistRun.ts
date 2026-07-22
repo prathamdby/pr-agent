@@ -55,13 +55,9 @@ function externalAbortError(): Error {
   return new Error("Specialist run aborted by external signal");
 }
 
-function stoppedError(): Error {
-  return new Error("Specialist run stopped before completion");
-}
-
 function assertCanContinue(params: RunSpecialistParams, deadlineMs: number): void {
   if (params.signal?.aborted) throw externalAbortError();
-  if (!params.shouldContinue()) throw stoppedError();
+  if (!params.shouldContinue()) throw new Error("Specialist run stopped before completion");
   if (Date.now() >= deadlineMs) throw timeoutError();
 }
 
@@ -271,10 +267,6 @@ async function runAttempt(
   }
 }
 
-function retryBackoffMs(attempts: number): number {
-  return RETRY_BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1);
-}
-
 function failureOutcome(params: {
   readonly specialist: SpecialistId;
   readonly startedAtMs: number;
@@ -346,7 +338,11 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
 
     if (classification === "rate_limit" || classification === "timeout") {
       try {
-        await waitBeforeStage(retryBackoffMs(attempts), params, deadlineMs);
+        await waitBeforeStage(
+          RETRY_BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1),
+          params,
+          deadlineMs,
+        );
       } catch (error) {
         lastError = error;
         classification = classifyProviderError(error);

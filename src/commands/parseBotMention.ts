@@ -3,10 +3,6 @@
  * Logins look like `pr-agent[bot]`; also accept the slug without the `[bot]` suffix.
  */
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Login forms that count as tagging this bot (full login + optional slug without `[bot]`). */
 export function botMentionLogins(botLogin: string): readonly string[] {
   const trimmed = botLogin.trim();
@@ -22,7 +18,7 @@ export function botMentionLogins(botLogin: string): readonly string[] {
 
 function mentionPattern(botLogin: string): RegExp {
   const alternation = botMentionLogins(botLogin)
-    .map((login) => escapeRegExp(login))
+    .map((login) => login.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
     .join("|");
   // Word-ish boundary: avoid matching `@pr-agent-extra` when login is `pr-agent`.
   return new RegExp(`(^|[^A-Za-z0-9_-])@(${alternation})(?![A-Za-z0-9_-])`, "gi");

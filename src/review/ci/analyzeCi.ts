@@ -68,31 +68,14 @@ type ExternalCiLoad =
     }
   | { readonly ok: false; readonly reason: "checks_permission" | "fetch_error" };
 
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 export function isOwnCiCheckName(name: string): boolean {
   return name.startsWith(OWN_CHECK_NAME_PREFIX);
-}
-
-function isOwnCommitStatusContext(context: string): boolean {
-  return context === OWN_COMMIT_STATUS_CONTEXT;
-}
-
-function isCheckPending(run: CiCheckRunSnapshot): boolean {
-  if (run.status === "completed") return false;
-  return PENDING_CHECK_STATUSES.has(run.status) || run.conclusion == null;
 }
 
 function isCheckFailing(run: CiCheckRunSnapshot): boolean {
   return (
     run.status === "completed" && run.conclusion != null && FAILING_CONCLUSIONS.has(run.conclusion)
   );
-}
-
-function isLegacyPending(status: CiLegacyStatus): boolean {
-  return PENDING_LEGACY_STATES.has(status.state);
 }
 
 function isLegacyFailing(status: CiLegacyStatus): boolean {
@@ -120,7 +103,7 @@ async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalC
     return {
       ok: true,
       checks: checks.filter((run) => !isOwnCiCheckName(run.name)),
-      statuses: statuses.filter((status) => !isOwnCommitStatusContext(status.context)),
+      statuses: statuses.filter((status) => status.context !== OWN_COMMIT_STATUS_CONTEXT),
     };
   } catch (error) {
     if (isMissingChecksPermissionError(error)) {
@@ -148,7 +131,12 @@ function classifySnapshot(
   if (checks.length === 0 && statuses.length === 0) return "none";
   const anyFailing = checks.some(isCheckFailing) || statuses.some(isLegacyFailing);
   if (anyFailing) return "failing";
-  const anyPending = checks.some(isCheckPending) || statuses.some(isLegacyPending);
+  const anyPending =
+    checks.some(
+      (run) =>
+        run.status !== "completed" &&
+        (PENDING_CHECK_STATUSES.has(run.status) || run.conclusion == null),
+    ) || statuses.some((status) => PENDING_LEGACY_STATES.has(status.state));
   if (anyPending) return "pending";
   return "passing";
 }
@@ -165,7 +153,7 @@ async function waitForTerminalCi(options: BuildCiSummaryOptions): Promise<Extern
     if (state !== "pending") return loaded;
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
-    await sleepMs(Math.min(pollMs, remaining));
+    await new Promise<void>((resolve) => setTimeout(resolve, Math.min(pollMs, remaining)));
     loaded = await loadExternalCi(options);
     if (!loaded.ok) return loaded;
   }
@@ -223,14 +211,6 @@ export function summarizeCiSnapshot(params: {
       return exhaustive;
     }
   }
-}
-
-function checksPermissionSummary(): CiSummary {
-  return {
-    status: "unavailable",
-    headline: REVIEW_CI_SUMMARY_GRANT_CHECKS,
-    failures: [],
-  };
 }
 
 function unavailableSummary(): CiSummary {
@@ -291,7 +271,11 @@ export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<Ci
     const loaded = await waitForTerminalCi(options);
     if (!loaded.ok) {
       return loaded.reason === "checks_permission"
-        ? checksPermissionSummary()
+        ? {
+            status: "unavailable",
+            headline: REVIEW_CI_SUMMARY_GRANT_CHECKS,
+            failures: [],
+          }
         : unavailableSummary();
     }
 

@@ -36,10 +36,6 @@ function categoryLabelForPayload(payload: ReviewPayload): string | undefined {
   return category == null ? undefined : `${LABEL_CATEGORY_PREFIX}${category}`;
 }
 
-function currentCategoryLabel(currentLabels: readonly string[]): string | undefined {
-  return currentLabels.find((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
-}
-
 export function hasManagedCategoryLabel(currentLabels: readonly string[]): boolean {
   return currentLabels.some((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
 }
@@ -62,7 +58,8 @@ export function labelsAlreadySynced(
   }
   if (opts.category) {
     const wantsCategory = categoryLabelForPayload(payload);
-    if (currentCategoryLabel(currentLabels) !== wantsCategory) return false;
+    if (currentLabels.find((label) => label.startsWith(LABEL_CATEGORY_PREFIX)) !== wantsCategory)
+      return false;
   }
   return true;
 }

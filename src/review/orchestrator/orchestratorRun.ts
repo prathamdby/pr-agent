@@ -86,12 +86,6 @@ async function settleBefore<T>(
   return result;
 }
 
-function tokenTtlMs(value: number | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
-    : TOKEN_FRESHNESS_BUFFER_MS;
-}
-
 function initialState(): OrchestratedRunState {
   return {
     recon: "running",
@@ -233,7 +227,12 @@ export async function runOrchestratedPrReview(
   });
   const setup = buildReviewRunSetup({
     ...params,
-    tokenTtlMs: tokenTtlMs(params.tokenTtlMs),
+    tokenTtlMs:
+      typeof params.tokenTtlMs === "number" &&
+      Number.isFinite(params.tokenTtlMs) &&
+      params.tokenTtlMs > 0
+        ? params.tokenTtlMs
+        : TOKEN_FRESHNESS_BUFFER_MS,
   });
   const briefTool = buildSpecialistBriefTool();
   const state = initialState();

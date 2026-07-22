@@ -74,10 +74,6 @@ export function attachSummaryCommentCoordination(
   return Object.assign(recordPublishStep, { summaryCommentCoordination: coordination });
 }
 
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 async function resolveKnownSummaryCommentRef(
   token: string,
   owner: string,
@@ -213,7 +209,7 @@ async function upsertSummaryCommentWithoutRevision(
         REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt - 1] ??
         REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1) ??
         0;
-      await sleepMs(delay);
+      await new Promise<void>((resolve) => setTimeout(resolve, delay));
     }
     const polledId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
     if (polledId == null) continue;

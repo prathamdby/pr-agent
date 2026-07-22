@@ -97,12 +97,6 @@ function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta
   };
 }
 
-function isSuppressed(placement: FingerprintedInlinePlacement, ledger: FindingLedger): boolean {
-  return fingerprintCandidates(placement.finding).some((candidate) =>
-    ledger.suppressionFingerprints.has(candidate),
-  );
-}
-
 function hasAcceptedFingerprint(
   placement: FingerprintedInlinePlacement,
   ledger: FindingLedger,
@@ -136,7 +130,11 @@ function acceptedSummaryPlacements(params: {
     params.planned.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
   return params.targets.flatMap((placement) => {
-    if (isSuppressed(placement, params.ledger)) {
+    if (
+      fingerprintCandidates(placement.finding).some((candidate) =>
+        params.ledger.suppressionFingerprints.has(candidate),
+      )
+    ) {
       if (hasAcceptedFingerprint(placement, params.ledger)) return [];
       return [summaryOnlyPlacement(placement, params.source, "historical")];
     }

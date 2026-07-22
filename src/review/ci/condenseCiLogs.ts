@@ -39,10 +39,6 @@ export function isDeprecationNoiseLine(line: string): boolean {
   return DEPRECATION_NOISE_RE.test(line);
 }
 
-function isErrorSignalLine(line: string): boolean {
-  return ERROR_SIGNAL_RE.test(line) && !isDeprecationNoiseLine(line);
-}
-
 /**
  * Keeps failed-step tails and error lines; drops Node/Actions deprecation noise unless
  * it is the only remaining signal.
@@ -59,7 +55,7 @@ export function condenseJobLogText(
     const line = lines[i] ?? "";
     if (isDeprecationNoiseLine(line)) continue;
     const isMarker = FAILED_STEP_MARKERS.some((re) => re.test(line));
-    const isError = isErrorSignalLine(line);
+    const isError = ERROR_SIGNAL_RE.test(line) && !isDeprecationNoiseLine(line);
     if (isMarker || isError) {
       sawRealError = true;
       const start = Math.max(0, i - 2);

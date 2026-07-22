@@ -54,10 +54,6 @@ type DurableExecutionContext = {
 const installationTokenCache = new Map<number, InstallationToken | Promise<InstallationToken>>();
 let botIdentityCache: Promise<BotIdentity> | undefined;
 
-function tokenIsFresh(token: InstallationToken): boolean {
-  return token.expiresAtTs - Date.now() > TOKEN_FRESHNESS_BUFFER_MS;
-}
-
 export function clearDurableAuthCachesForTest(): void {
   if (process.env.NODE_ENV === "test") {
     installationTokenCache.clear();
@@ -122,7 +118,7 @@ export async function mintInstallationToken(
   const cached = installationTokenCache.get(installationId);
   if (cached) {
     const token = await cached;
-    if (tokenIsFresh(token)) return token;
+    if (token.expiresAtTs - Date.now() > TOKEN_FRESHNESS_BUFFER_MS) return token;
   }
 
   const pending = (async () => {
@@ -251,10 +247,6 @@ function enterExecutingPhase(state: WorkItemPhaseState): void {
   state.phase = "executing";
 }
 
-function enterCompletingPhase(state: WorkItemPhaseState): void {
-  state.phase = "completing";
-}
-
 function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
   return state.phase === "executing";
 }
@@ -348,7 +340,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   };
 
   const recheckSkippableAndCancel = async (reason: string, notifyHook = true) => {
-    enterCompletingPhase(phaseState);
+    phaseState.phase = "completing";
     return cancelIfSkippable(reason, notifyHook);
   };
 

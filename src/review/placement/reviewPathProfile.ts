@@ -7,16 +7,17 @@ export type ReviewPathProfile = {
   readonly riskCategories: readonly ReviewPathRiskCategory[];
 };
 
-function matchesCategory(filename: string, category: ReviewPathRiskCategory): boolean {
-  return REVIEW_RISK_PATH_PATTERNS[category].some((pattern) => pattern.test(filename));
-}
-
 export function buildReviewPathProfile(changedFiles: readonly string[]): ReviewPathProfile {
   const found = new Set<ReviewPathRiskCategory>();
   const categories = Object.keys(REVIEW_RISK_PATH_PATTERNS) as ReviewPathRiskCategory[];
   for (const file of changedFiles) {
     for (const category of categories) {
-      if (!found.has(category) && matchesCategory(file, category)) found.add(category);
+      if (
+        !found.has(category) &&
+        REVIEW_RISK_PATH_PATTERNS[category].some((pattern) => pattern.test(file))
+      ) {
+        found.add(category);
+      }
     }
     if (found.size === categories.length) break;
   }

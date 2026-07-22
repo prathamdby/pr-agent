@@ -52,17 +52,15 @@ export async function createStartedBoss(cfg: BossConfig): Promise<PgBoss> {
   return boss;
 }
 
-const deadLetterQueueOptions = (cfg: QueueConfig): QueueOptions => ({
-  retryLimit: 0,
-  retryDelay: 0,
-  retryBackoff: false,
-  deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
-  retentionSeconds: cfg.queueRetentionSeconds,
-});
-
 export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise<void> {
   const defaults = queueDefaults(cfg);
-  const dlq = deadLetterQueueOptions(cfg);
+  const dlq: QueueOptions = {
+    retryLimit: 0,
+    retryDelay: 0,
+    retryBackoff: false,
+    deleteAfterSeconds: cfg.queueDeleteAfterSeconds,
+    retentionSeconds: cfg.queueRetentionSeconds,
+  };
   // DLQ rows are archival only; no workers subscribe to these queue names.
   const deadLetterQueues = [
     ACK_DEAD_LETTER_QUEUE,

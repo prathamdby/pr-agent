@@ -212,14 +212,6 @@ function errorStdout(error: unknown): string {
   return typeof error.stdout === "string" ? error.stdout : "";
 }
 
-function failedWithExitCode(error: unknown, code: number): boolean {
-  return errorCode(error) === code;
-}
-
-function failedWithMaxBuffer(error: unknown): boolean {
-  return errorCode(error) === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
-}
-
 function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
   const matches: GitGrepWorkspaceMatch[] = [];
   let offset = 0;
@@ -243,15 +235,15 @@ function parseGitGrepOutput(stdout: string): GitGrepWorkspaceMatch[] {
   return matches;
 }
 
-function literalPathspec(path: string): string {
-  return `:(literal)${path}`;
-}
-
 function pathspecChunks(paths?: readonly string[]): string[][] {
   if (paths == null) return [["."]];
   const chunks: string[][] = [];
   for (let i = 0; i < paths.length; i += LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE) {
-    chunks.push(paths.slice(i, i + LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE).map(literalPathspec));
+    chunks.push(
+      paths
+        .slice(i, i + LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE)
+        .map((path) => `:(literal)${path}`),
+    );
   }
   return chunks;
 }
@@ -288,8 +280,8 @@ async function gitGrepWorkspaceChunk(
       stdoutBytes: Buffer.byteLength(stdout),
     };
   } catch (error) {
-    if (failedWithExitCode(error, 1)) return { matches: [], truncated: false, stdoutBytes: 0 };
-    if (failedWithMaxBuffer(error)) {
+    if (errorCode(error) === 1) return { matches: [], truncated: false, stdoutBytes: 0 };
+    if (errorCode(error) === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") {
       const stdout = errorStdout(error);
       return {
         matches: parseGitGrepOutput(stdout),

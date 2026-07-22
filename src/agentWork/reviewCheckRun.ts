@@ -22,10 +22,6 @@ import {
   reserveReviewCheckRun,
 } from "./repository.js";
 
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 /** P0–P2 findings fail the check; empty or P3-only payloads pass. */
 export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
   conclusion: ReviewCheckRunConclusion;
@@ -50,7 +46,7 @@ export async function waitForReviewCheckRunGithubId(
   while (Date.now() < deadline) {
     const id = await getReviewCheckRunGithubId(pool, workItemId, reviewLens);
     if (id != null) return id;
-    await sleepMs(pollMs);
+    await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
   }
   return getReviewCheckRunGithubId(pool, workItemId, reviewLens);
 }

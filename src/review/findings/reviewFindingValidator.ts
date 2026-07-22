@@ -37,17 +37,13 @@ export type ReviewPayloadValidationResult =
       readonly anchorFailures: readonly AnchorFailure[];
     };
 
-function formatRangePair([start, end]: [number, number]): string {
-  return start === end ? `${start}` : `${start}-${end}`;
-}
-
 function formatSuggestedRanges(ranges: CommentableRightLineRanges): string {
   const shown = ranges.slice(0, REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE);
   const suffix =
     ranges.length > REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE
       ? ` …${ranges.length - REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE} more ranges`
       : "";
-  return `${shown.map(formatRangePair).join(", ")}${suffix}`;
+  return `${shown.map(([start, end]) => (start === end ? `${start}` : `${start}-${end}`)).join(", ")}${suffix}`;
 }
 
 function validatePlacementAnchor(

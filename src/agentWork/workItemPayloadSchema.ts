@@ -115,19 +115,16 @@ export class WorkItemPayloadValidationError extends AppError {
   }
 }
 
-function formatZodError(error: z.ZodError): string {
-  const issue = error.issues[0];
-  if (!issue) return "invalid payload";
-  const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
-  return `${path}: ${issue.message}`;
-}
-
 function parseWithSchema<T>(workType: WorkType, schema: z.ZodType<T>, raw: unknown): T {
   const result = schema.safeParse(raw);
   if (!result.success) {
+    const issue = result.error.issues[0];
+    const detail = !issue
+      ? "invalid payload"
+      : `${issue.path.length > 0 ? issue.path.join(".") : "(root)"}: ${issue.message}`;
     throw new WorkItemPayloadValidationError(
       workType,
-      `Invalid ${workType} work item payload: ${formatZodError(result.error)}`,
+      `Invalid ${workType} work item payload: ${detail}`,
     );
   }
   return result.data;

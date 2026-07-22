@@ -51,40 +51,26 @@ function assertDimension(
   cost: PromptCost,
 ): void {
   if (actual > allowed) {
-    throw new Error(budgetMessage(name, dimension, actual, allowed, cost));
+    throw new Error(
+      `${name} prompt cost exceeded ${dimension} budget: actual=${actual}, allowed=${allowed}, bytes=${cost.bytes}, characters=${cost.characters}, estimatedTokens=${cost.estimatedTokens}`,
+    );
   }
 }
 
-function budgetMessage(
-  name: string,
-  dimension: keyof PromptCost,
-  actual: number,
-  allowed: number,
-  cost: PromptCost,
-): string {
-  return `${name} prompt cost exceeded ${dimension} budget: actual=${actual}, allowed=${allowed}, bytes=${cost.bytes}, characters=${cost.characters}, estimatedTokens=${cost.estimatedTokens}`;
-}
-
 function sortJson(value: unknown): unknown {
-  if (hasToJson(value)) return sortJson(value.toJSON());
-  if (Array.isArray(value)) return value.map(sortJson);
-  if (!isRecord(value)) return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .toSorted()
-      .map((key) => [key, sortJson(value[key])]),
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value != null && !Array.isArray(value);
-}
-
-function hasToJson(value: unknown): value is { readonly toJSON: () => unknown } {
-  return (
+  if (
     typeof value === "object" &&
     value != null &&
     "toJSON" in value &&
     typeof value.toJSON === "function"
+  ) {
+    return sortJson(value.toJSON());
+  }
+  if (Array.isArray(value)) return value.map(sortJson);
+  if (!(typeof value === "object" && value != null && !Array.isArray(value))) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .toSorted()
+      .map((key) => [key, sortJson((value as Record<string, unknown>)[key])]),
   );
 }

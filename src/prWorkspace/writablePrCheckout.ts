@@ -101,10 +101,6 @@ function assertHeadRef(value: string): void {
   }
 }
 
-function isSensitivePath(path: string): boolean {
-  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
-}
-
 function validateSubject(subject: string): void {
   if (subject.length > TRIAGE_COMMIT_SUBJECT_MAX_CHARS) {
     throw new AppError({
@@ -194,7 +190,7 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
         context: { path: file },
       });
     }
-    if (isSensitivePath(file)) {
+    if (SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(file))) {
       throw new AppError({
         code: "pr_workspace.sensitive_path",
         message: `commitFix blocked sensitive path "${file}"`,

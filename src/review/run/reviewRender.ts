@@ -116,14 +116,10 @@ export function renderStaleReviewMetadataComment(params: {
   mode: AnyReviewLens;
   stale: boolean;
 }): string {
-  const headSha = sanitizeReviewMetaHeadSha(params.headSha);
+  const headSha = normalizeGitHeadSha(params.headSha) ?? "invalid";
   const lens = escapeHtmlCommentAttr(params.mode);
   const staleValue = params.stale ? "true" : "false";
   return `<!-- pr-agent:review-meta headSha=${headSha} lens=${lens} stale=${staleValue} -->`;
-}
-
-function sanitizeReviewMetaHeadSha(headSha: string): string {
-  return normalizeGitHeadSha(headSha) ?? "invalid";
 }
 
 function escapeHtmlCommentAttr(value: string): string {
@@ -132,16 +128,6 @@ function escapeHtmlCommentAttr(value: string): string {
 
 function formatLineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
-}
-
-function sortPlacements(placements: readonly InlinePlacement[]): InlinePlacement[] {
-  return [...placements].toSorted((a, b) =>
-    compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
-  );
-}
-
-function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
-  return [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
 }
 
 function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boolean }): string {
@@ -271,7 +257,7 @@ export function renderAgentFixPrompt(
   const placementByKey = new Map(
     placements.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
-  const sorted = sortFindingsForAgentFixPrompt(payload.findings);
+  const sorted = [...payload.findings].toSorted(compareReviewFindingsBySeverityFileLine);
 
   const blocks = sorted.map((f) => {
     const placement = placementByKey.get(reviewFindingPlacementKey(f));
@@ -340,7 +326,7 @@ type ReviewSummaryRenderCtx = RenderContext & {
   partialCoverageNote?: string;
 };
 
-/** Expects `ctx.placements` pre-sorted by severity, file, and line (`sortPlacements`). */
+/** Expects `ctx.placements` pre-sorted by severity, file, and line. */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
   ctx: ReviewSummaryRenderCtx,
@@ -479,7 +465,9 @@ export function fitReviewSummaryBody(
   ctx: ReviewSummaryRenderCtx,
   maxBodyChars: number,
 ): string {
-  const sortedPlacements = sortPlacements(ctx.placements);
+  const sortedPlacements = [...ctx.placements].toSorted((a, b) =>
+    compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
+  );
   const sortedCtx = { ...ctx, placements: sortedPlacements };
   const sortedCount = sortedPlacements.length;
 

@@ -59,25 +59,6 @@ function softwareApplicationJsonLd() {
   };
 }
 
-function webSiteJsonLd() {
-  return {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: PRODUCT_NAME,
-    description: SEO_DESCRIPTION,
-    url: SITE_ORIGIN,
-  };
-}
-
-function organizationJsonLd() {
-  return {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    name: "prathamdby",
-    url: "https://github.com/prathamdby",
-  };
-}
-
 function faqPageJsonLd() {
   return {
     "@context": "https://schema.org",
@@ -111,8 +92,19 @@ function itemListJsonLd() {
 
 export const JSON_LD_GRAPHS = [
   softwareApplicationJsonLd(),
-  webSiteJsonLd(),
-  organizationJsonLd(),
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: PRODUCT_NAME,
+    description: SEO_DESCRIPTION,
+    url: SITE_ORIGIN,
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "prathamdby",
+    url: "https://github.com/prathamdby",
+  },
   faqPageJsonLd(),
   itemListJsonLd(),
 ];

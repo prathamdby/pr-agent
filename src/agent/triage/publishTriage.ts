@@ -109,16 +109,12 @@ export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDe
   };
 }
 
-function shortSha(sha: string): string {
-  return sha.slice(0, 7);
-}
-
 function replyBody(
   verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>,
 ): string {
   if (verdict.verdict === "fixed") {
     return redactReviewText(
-      `**Triage**: Fixed in ${shortSha(verdict.commitSha)} - ${verdict.evidence}`,
+      `**Triage**: Fixed in ${verdict.commitSha.slice(0, 7)} - ${verdict.evidence}`,
     );
   }
   return redactReviewText(`**Triage**: Already resolved - ${verdict.evidence}`);
