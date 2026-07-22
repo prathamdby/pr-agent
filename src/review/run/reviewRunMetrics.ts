@@ -141,12 +141,16 @@ function createEmptyMetrics(meta: {
   provider: string;
   model: string;
   mode: string;
+  startedAtMs?: number;
 }): MutableReviewRunMetrics {
   return {
     provider: meta.provider,
     model: meta.model,
     mode: meta.mode,
-    startedAtMs: Date.now(),
+    startedAtMs:
+      typeof meta.startedAtMs === "number" && Number.isFinite(meta.startedAtMs)
+        ? meta.startedAtMs
+        : Date.now(),
     published: false,
     publishAttempts: 0,
     submitCallCount: 0,
@@ -323,6 +327,7 @@ export function initReviewRunMetrics(meta: {
   provider: string;
   model: string;
   mode: string;
+  startedAtMs?: number;
 }): void {
   const logger = tryUseLogger();
   if (!logger) return;

@@ -56,6 +56,7 @@ import {
 } from "../reviewCheckRun.js";
 import {
   loadReviewExecutorPublishContext,
+  getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
@@ -610,10 +611,12 @@ export async function executeReviewJob(
     execute: async (item, env) => {
       const reviewLens = item.reviewLens;
       const payload = item.payload;
+      const stubPostedAtMs = await getProgressStubPostedAtMs(pool, item.resourceKey, reviewLens);
       initReviewRunMetrics({
         provider: cfg.agentProvider,
         model: cfg.piModel,
         mode: reviewLens,
+        ...(stubPostedAtMs != null ? { startedAtMs: stubPostedAtMs } : {}),
       });
 
       const staleHeadResult = await handleStaleHeadReschedule({

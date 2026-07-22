@@ -10,6 +10,7 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
+  getProgressStubPostedAtMs: vi.fn(async () => null),
   shouldSkipWork: vi.fn(),
   recordPublishStep: vi.fn(async () => undefined),
 }));
@@ -23,6 +24,7 @@ import {
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
 import {
+  getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
@@ -131,6 +133,37 @@ describe("tryLightweightAutoReviewCompletion", () => {
       undefined,
       undefined,
     );
+  });
+
+  it("uses progress stub start time for the footer duration", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T12:10:00.000Z"));
+    vi.mocked(getProgressStubPostedAtMs).mockResolvedValue(Date.parse("2026-07-22T12:00:00.000Z"));
+
+    await tryLightweightAutoReviewCompletion(pool, {
+      item: autoReviewItem({ headSha: "abc123def456" }),
+      reviewLens: "review",
+      token: "tok",
+      model: "grok-4.5",
+      preflight: {
+        files: [{ filename: "README.md" }],
+        truncated: false,
+        fileCount: 1,
+        totalChanges: 1,
+      },
+    });
+
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      1,
+      expect.stringContaining("<sub>abc123d ⋅ general ⋅ 10m ⋅ grok-4.5</sub>"),
+      expect.any(String),
+      undefined,
+      undefined,
+    );
+    vi.useRealTimers();
   });
 
   it("uses stored summary id without scanning when verified", async () => {

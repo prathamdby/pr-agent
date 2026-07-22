@@ -28,6 +28,27 @@ export function formatReviewDuration(durationMs: number): string {
   return `${seconds}s`;
 }
 
+/**
+ * Footer wall-clock: progress stub post → freeze before final summary.
+ * Start precedence: stubPostedAtMs → metricsStartedAtMs → endedAtMs (duration 0).
+ */
+export function resolveReviewWallClockMs(params: {
+  readonly stubPostedAtMs: number | null | undefined;
+  readonly metricsStartedAtMs: number | null | undefined;
+  readonly endedAtMs: number;
+}): number {
+  const endedAtMs = Number.isFinite(params.endedAtMs) ? params.endedAtMs : 0;
+  const startedAtMs =
+    finiteTimestampMs(params.stubPostedAtMs) ??
+    finiteTimestampMs(params.metricsStartedAtMs) ??
+    endedAtMs;
+  return Math.max(0, endedAtMs - startedAtMs);
+}
+
+function finiteTimestampMs(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 /** Normalized 7–40 hex SHA, or null when invalid. */
 export function normalizeGitHeadSha(headSha: string): string | null {
   const normalized = headSha.trim().toLowerCase();

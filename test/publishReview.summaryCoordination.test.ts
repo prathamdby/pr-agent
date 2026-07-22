@@ -38,6 +38,7 @@ import {
 import {
   claimSummaryCommentCreation,
   getProgressCommentRevision,
+  getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
   recordPublishStep,
 } from "../src/agentWork/repository.js";
@@ -71,6 +72,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getProgressCommentRevision).mockResolvedValue(null);
+    vi.mocked(getProgressStubPostedAtMs).mockResolvedValue(null);
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(null);
     vi.mocked(claimSummaryCommentCreation).mockResolvedValue(true);
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue(null);
@@ -213,6 +215,58 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     const lockKey = query.mock.calls[0]?.[1]?.[0];
     expect(lockKey).toBe(JSON.stringify(["o/r#1", "review"]));
     expect(lockKey).not.toContain("\u0000");
+  });
+
+  it("records stubPostedAtMs on revision 0 and preserves it on later ticks", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-22T12:00:00.000Z"));
+
+    await upsertSummaryCommentWithCreationClaim({
+      ...claimBase,
+      pool: lockedPool,
+      progressRevision: 0,
+    });
+
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "progress_comment",
+        detail: expect.objectContaining({
+          progressRevision: 0,
+          stubPostedAtMs: Date.parse("2026-07-22T12:00:00.000Z"),
+        }),
+      }),
+    );
+
+    const stubPostedAtMs = Date.parse("2026-07-22T12:00:00.000Z");
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 0 });
+    vi.mocked(getProgressStubPostedAtMs).mockResolvedValue(stubPostedAtMs);
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 99,
+      url: "https://example.com/99",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=0 -->`,
+    });
+    vi.setSystemTime(new Date("2026-07-22T12:05:00.000Z"));
+
+    await upsertSummaryCommentWithCreationClaim({
+      ...claimBase,
+      pool: lockedPool,
+      progressRevision: 2,
+    });
+
+    expect(recordPublishStep).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        step: "progress_comment",
+        detail: {
+          progressRevision: 2,
+          updated: false,
+          stubPostedAtMs,
+        },
+      }),
+    );
+    vi.useRealTimers();
   });
 
   it("allows a new work item to restart progress at revision zero", async () => {

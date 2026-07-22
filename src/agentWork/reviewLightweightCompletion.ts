@@ -2,13 +2,19 @@ import type { Pool } from "pg";
 import { evaluateTrivialChangeExemption } from "../review/run/reviewChangeGate.js";
 import type { ReviewPreflightMetadata } from "../review/placement/reviewPreflightFiles.js";
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
+import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
 import { reviewSummarySentinelForMode, type ReviewMode } from "../review/reviewSchema.js";
 import {
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
 } from "../github/reviewPublish.js";
-import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
+import {
+  getProgressStubPostedAtMs,
+  getSummaryCommentGithubId,
+  recordPublishStep,
+  shouldSkipWork,
+} from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 
 export type LightweightAutoReviewResult =
@@ -49,9 +55,18 @@ export async function tryLightweightAutoReviewCompletion(
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
+  const stubPostedAtMs = await getProgressStubPostedAtMs(
+    pool,
+    params.item.resourceKey,
+    params.reviewLens,
+  );
   const body = renderLightweightReviewCompletion(params.reviewLens, {
     headSha: params.item.headSha,
-    durationMs: metricsSnapshot?.wallClockMs ?? 0,
+    durationMs: resolveReviewWallClockMs({
+      stubPostedAtMs,
+      metricsStartedAtMs: metricsSnapshot?.startedAtMs,
+      endedAtMs: Date.now(),
+    }),
     model: params.model,
   });
   const sentinel = reviewSummarySentinelForMode(params.reviewLens);
