@@ -546,9 +546,7 @@ export async function loadReviewExecutorPublishContext(
   const currentPublish = row?.current_publish ?? [];
   const shouldLinkToSummary = row?.prior_summary_exists ?? false;
   const summaryCommentGithubId =
-    shouldLinkToSummary && row?.latest_summary_github_id
-      ? Number(row.latest_summary_github_id)
-      : null;
+    row?.latest_summary_github_id != null ? Number(row.latest_summary_github_id) : null;
   return {
     publishState: parseReviewPublishStateRows(currentPublish, workItemId),
     shouldLinkToSummary,

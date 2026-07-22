@@ -109,7 +109,7 @@ describe("loadReviewExecutorPublishContext", () => {
     expect(vi.mocked(queryOne).mock.calls[0]?.[2]).toEqual(["o/r#1", "review", "wi-1"]);
   });
 
-  it("omits summary comment hint when no prior summary publish exists", async () => {
+  it("returns the progress stub github id even when no prior summary publish exists", async () => {
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [],
       prior_summary_exists: false,
@@ -121,7 +121,7 @@ describe("loadReviewExecutorPublishContext", () => {
       loadReviewExecutorPublishContext(pool, "wi-2", "o/r#1", "review-security"),
     ).resolves.toMatchObject({
       shouldLinkToSummary: false,
-      summaryCommentGithubId: null,
+      summaryCommentGithubId: 1001,
     });
   });
 });

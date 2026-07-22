@@ -5,12 +5,12 @@ import {
   reviewFindingPlacementKey,
 } from "../placement/reviewDiffPlacement.js";
 import { publishInlineReviewComments } from "../placement/reviewInlinePublish.js";
-import { renderInlineThreadBody, renderReviewPointerLensMarker } from "../run/reviewRender.js";
 import {
-  MAX_INLINE_REVIEW_COMMENTS,
-  MAX_THREAD_PUBLISH_CALLS,
-  REVIEW_POINTER_BODY,
-} from "../../settings/index.js";
+  renderInlineThreadBody,
+  renderReviewPointerLensMarker,
+  renderSpecialistReviewBody,
+} from "../run/reviewRender.js";
+import { MAX_INLINE_REVIEW_COMMENTS, MAX_THREAD_PUBLISH_CALLS } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
 import {
   fingerprintCandidates,
@@ -62,6 +62,8 @@ export type FindingBatchContext = {
   readonly ctx: ReviewPublishContext;
   readonly source: FindingSource;
   readonly workItemId?: string;
+  /** URL of the review progress comment (progress stub / final summary). Required to publish. */
+  readonly progressCommentUrl?: string;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs?: () => number | undefined;
   readonly refreshLiveAuth?: () => Promise<void>;
@@ -248,6 +250,15 @@ export async function publishFindingBatch(
     };
   }
 
+  const progressCommentUrl = context.progressCommentUrl?.trim();
+  if (!progressCommentUrl) {
+    throw new AppError({
+      code: "review.progress_comment_url_required",
+      message:
+        "Progress comment URL is required before publishing a specialist review batch; the progress stub must exist first",
+    });
+  }
+
   const inlineResult = await publishInlineReviewComments(
     context.ctx.owner,
     context.ctx.repo,
@@ -256,7 +267,12 @@ export async function publishFindingBatch(
       getToken: context.getToken,
       getTokenExpiresAtTs: context.getTokenExpiresAtTs,
       refreshLiveAuth: context.refreshLiveAuth,
-      renderReviewBody: () => `${REVIEW_POINTER_BODY}\n${renderReviewPointerLensMarker("review")}`,
+      renderReviewBody: () =>
+        renderSpecialistReviewBody({
+          specialist: context.source,
+          progressCommentUrl,
+          lensMarker: renderReviewPointerLensMarker("review"),
+        }),
       event: "COMMENT",
       commitId: context.ctx.headSha,
       inlinePlacements: targets.inline,

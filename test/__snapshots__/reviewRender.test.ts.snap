@@ -92,9 +92,21 @@ Adjust slice end index to include the last item.
 </details>"
 `;
 
-exports[`renderReviewPointerBody > wraps agent fix prompt in accordion with pointer line 1`] = `
-"> [!NOTE]
-> Full review is in the PR conversation. Expand below to copy fixes for your coding agent.
+exports[`renderReviewSummaryComment > drops finding rows from the tail when compact mode still exceeds the body budget 1`] = `
+"## PR Agent Review
+
+> [!NOTE]
+> Adds a retry wrapper around the webhook dispatcher.
+
+<table>
+<tbody>
+<tr><td><strong>Effort</strong></td><td>Moderate · <code>3/5</code></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f0.ts#L1">Bug 0</a></strong><br><em>Summary only · <code>src/f0.ts</code> · line 1</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f1.ts#L2">Bug 1</a></strong><br><em>Summary only · <code>src/f1.ts</code> · line 2</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
+<tr><td><strong>Relevant tests</strong></td><td>partial</td></tr>
+<tr><td><strong>Security</strong></td><td>None found on this pass</td></tr>
+</tbody>
+</table>
 
 <details>
 <summary>Fix all findings (agent prompt)</summary>
@@ -108,39 +120,62 @@ Head SHA: abc123def456
 
 Findings:
 
-[P1] @src/x.ts line 4
-Fix src/x.ts line 4.
+[P2] @src/f0.ts line 1
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f1.ts line 2
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f10.ts line 11
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f11.ts line 12
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f2.ts line 3
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f3.ts line 4
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f4.ts line 5
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f5.ts line 6
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f6.ts line 7
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f7.ts line 8
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f8.ts line 9
+Fix it.
+[inline thread omitted — summary only]
+
+[P2] @src/f9.ts line 10
+Fix it.
+[inline thread omitted — summary only]
 \`\`\`
 
 </details>
-<!-- pr-agent:review-pointer lens=review -->"
-`;
-
-exports[`renderReviewSummaryComment > drops finding rows from the tail when compact mode still exceeds the body budget 1`] = `
-"## PR Agent Review
-
-> [!NOTE]
-> Adds a retry wrapper around the webhook dispatcher.
-
-<table>
-<tbody>
-<tr><td><strong>Effort</strong></td><td>Moderate · <code>3/5</code></td></tr>
-<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f0.ts#L1">Bug 0</a></strong><br><em>Summary only · <code>src/f0.ts</code> · line 1</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
-<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f1.ts#L2">Bug 1</a></strong><br><em>Summary only · <code>src/f1.ts</code> · line 2</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
-<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f10.ts#L11">Bug 10</a></strong><br><em>Summary only · <code>src/f10.ts</code> · line 11</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
-<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f11.ts#L12">Bug 11</a></strong><br><em>Summary only · <code>src/f11.ts</code> · line 12</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
-<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f2.ts#L3">Bug 2</a></strong><br><em>Summary only · <code>src/f2.ts</code> · line 3</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
-<tr><td><strong>P2</strong></td><td><strong><a href="https://github.com/acme/widgets/blob/abc123def456/src/f3.ts#L4">Bug 3</a></strong><br><em>Summary only · <code>src/f3.ts</code> · line 4</em><br><em>Expand Prompt to fix below (summary-only).</em></td></tr>
-<tr><td><strong>Relevant tests</strong></td><td>partial</td></tr>
-<tr><td><strong>Security</strong></td><td>None found on this pass</td></tr>
-</tbody>
-</table>
 
 > [!NOTE]
 > Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.
 
 > [!NOTE]
-> 6 finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.
+> 10 finding(s) omitted from this summary due to GitHub comment size limits — see inline threads where posted.
 
 <!-- pr-agent:review-meta headSha=abc123def456 lens=review stale=false -->
 

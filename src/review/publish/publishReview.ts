@@ -1,4 +1,5 @@
 import type { Config } from "../../config.js";
+import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
@@ -61,6 +62,12 @@ export async function publishReview(
     source: "review",
     workItemId:
       params.workItemId ?? params.recordPublishStep?.summaryCommentCoordination?.workItemId,
+    progressCommentUrl: reviewCheckDetailsUrl(
+      params.owner,
+      params.repo,
+      params.prNumber,
+      params.summaryCommentIdHint,
+    ),
     getToken,
     getTokenExpiresAtTs,
     cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),

@@ -7,6 +7,7 @@ import {
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
 
 const settingsOverrides = vi.hoisted(
@@ -65,6 +66,8 @@ function findingAt(line: number): ReviewFinding {
   };
 }
 
+const PROGRESS_COMMENT_URL = "https://github.com/o/r/pull/1#issuecomment-99";
+
 function batchContext(
   ledger: FindingLedger,
   recordPublishStep = vi.fn(async () => undefined),
@@ -80,6 +83,7 @@ function batchContext(
     },
     source: "correctness",
     workItemId: "wi-1",
+    progressCommentUrl: PROGRESS_COMMENT_URL,
     getToken: () => "token",
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
     recordPublishStep,
@@ -180,6 +184,32 @@ describe("publishFindingBatch", () => {
         (placement) => placement.kind === "summary_only" && placement.reason === "cap",
       ),
     ).toHaveLength(3);
+  });
+
+  it("publishes Note + specialist tagline linked to the progress stub", async () => {
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, { source: "security" }),
+    );
+
+    expect(result.kind).toBe("published");
+    const reviewParams = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4];
+    expect(reviewParams?.body).toContain(
+      `Track this run on the [progress stub](${PROGRESS_COMMENT_URL}) in the PR conversation.`,
+    );
+    expect(reviewParams?.body).toContain("Here's what the security found.");
+    expect(reviewParams?.body).not.toContain(REVIEW_POINTER_BODY);
+    expect(reviewParams?.body).not.toContain("Fix all findings (agent prompt)");
+  });
+
+  it("fails clearly when the progress comment URL is missing", async () => {
+    await expect(
+      publishFindingBatch(
+        [finding],
+        batchContext(createFindingLedger(), undefined, { progressCommentUrl: undefined }),
+      ),
+    ).rejects.toThrow(/progress comment/i);
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 
   it("stops before the GitHub write when the run was superseded", async () => {

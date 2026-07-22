@@ -49,10 +49,11 @@ describe("publishReview core", () => {
     vi.clearAllMocks();
   });
 
-  it("uses COMMENT for P1 and publishes the incremental review pointer", async () => {
+  it("uses COMMENT for P1 and publishes the specialist Note + tagline body", async () => {
     const publishState = testPublishState();
     await publishReviewForTest({
       ...baseParams,
+      summaryCommentIdHint: 99,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
@@ -64,7 +65,9 @@ describe("publishReview core", () => {
       1,
       expect.objectContaining({
         event: "COMMENT",
-        body: expect.stringContaining(REVIEW_POINTER_BODY),
+        body: expect.stringContaining(
+          "Track this run on the [progress stub](https://github.com/o/r/pull/1#issuecomment-99)",
+        ),
         commitId: "sha",
         comments: [
           expect.objectContaining({
@@ -76,6 +79,9 @@ describe("publishReview core", () => {
       }),
       undefined,
     );
+    const reviewBody = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4]?.body;
+    expect(reviewBody).toContain("Here's what the review found.");
+    expect(reviewBody).not.toContain(REVIEW_POINTER_BODY);
     expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith(
       "t",
       "o",
@@ -347,11 +353,12 @@ describe("publishReview core", () => {
     expect(summaryBody.match(/Bug/g)).toHaveLength(1);
   });
 
-  it("uses the general sentinel and pointer for recognized legacy modes", async () => {
+  it("uses the general sentinel and specialist Note body for recognized legacy modes", async () => {
     const publishState = testPublishState();
     await publishReviewForTest({
       ...baseParams,
       mode: "review-security",
+      summaryCommentIdHint: 99,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
@@ -362,7 +369,9 @@ describe("publishReview core", () => {
       "r",
       1,
       expect.objectContaining({
-        body: expect.stringContaining(REVIEW_POINTER_BODY),
+        body: expect.stringContaining(
+          "Track this run on the [progress stub](https://github.com/o/r/pull/1#issuecomment-99)",
+        ),
         event: "COMMENT",
       }),
       undefined,
@@ -379,7 +388,7 @@ describe("publishReview core", () => {
     );
   });
 
-  it("links pointer when shouldLinkToSummary and comment verifies", async () => {
+  it("links specialist body to the progress stub when shouldLinkToSummary and comment verifies", async () => {
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
       id: 99,
       url: "https://github.com/o/r/pull/1#issuecomment-99",
@@ -400,7 +409,11 @@ describe("publishReview core", () => {
       "o",
       "r",
       1,
-      expect.objectContaining({ body: expect.stringContaining(REVIEW_POINTER_BODY) }),
+      expect.objectContaining({
+        body: expect.stringContaining(
+          "Track this run on the [progress stub](https://github.com/o/r/pull/1#issuecomment-99)",
+        ),
+      }),
       undefined,
     );
     expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
@@ -415,26 +428,19 @@ describe("publishReview core", () => {
     );
   });
 
-  it("falls back to plain pointer when shouldLinkToSummary but no verified comment", async () => {
+  it("fails incremental review publish when progress comment URL is unavailable", async () => {
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce(null);
 
-    await publishReviewForTest({
-      ...baseParams,
-      shouldLinkToSummary: true,
-      publishState: testPublishState(),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
-
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        body: expect.stringContaining(REVIEW_POINTER_BODY),
+    await expect(
+      publishReviewForTest({
+        ...baseParams,
+        shouldLinkToSummary: true,
+        summaryCommentIdHint: null,
+        publishState: testPublishState(),
+        cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       }),
-      undefined,
-    );
+    ).rejects.toThrow(/progress comment/i);
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 
   it("does not create a zero-comment review when a repeated run has no findings", async () => {

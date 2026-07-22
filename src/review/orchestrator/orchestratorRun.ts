@@ -1,4 +1,5 @@
 import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
+import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import type {
   AgentRunnerSendOptions,
@@ -245,6 +246,12 @@ export async function runOrchestratedPrReview(
       hasDescriptionAgentBlock: params.hasDescriptionAgentBlock ?? false,
     },
     workItemId: params.workItemId,
+    progressCommentUrl: reviewCheckDetailsUrl(
+      params.owner,
+      params.repo,
+      params.prNumber,
+      params.summaryCommentIdHint,
+    ),
     getToken: setup.getToken,
     getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
     refreshLiveAuth: setup.refreshLiveAuth,
