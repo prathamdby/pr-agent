@@ -100,11 +100,11 @@ describe("executeAckJob", () => {
         resourceKey: "o/r#1",
         reviewLens: "review",
         progressRevision: 0,
-        body: expect.stringContaining(
-          "<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->",
-        ),
+        body: expect.stringMatching(/Recon[\s\S]*Waiting/),
       }),
     );
+    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
     expect(recordPublishStep).not.toHaveBeenCalled();
     expect(ensureReviewCheckRunStarted).toHaveBeenCalledWith(
       pool,

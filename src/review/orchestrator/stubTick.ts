@@ -6,7 +6,7 @@ import { upsertSummaryCommentWithCreationClaim } from "../publish/publishReview.
 import { reviewSummarySentinelForMode, type WorkSource } from "../reviewSchema.js";
 import { renderReviewProgressComment, type SpecialistTickState } from "../run/progressComment.js";
 
-type SpecialistProgressRevision = 1 | 2 | 3 | 4;
+type ProgressTickRevision = 1 | 2 | 3 | 4 | 5;
 type SpecialistStatusTick = Extract<SpecialistTickState, { readonly kind: "specialists" }>;
 type TerminalTick = Extract<SpecialistTickState, { readonly kind: "terminal" }>;
 
@@ -30,11 +30,11 @@ type TickProgressCommentBase = {
 export type TickProgressCommentArgs = TickProgressCommentBase &
   (
     | {
-        readonly progressRevision: SpecialistProgressRevision;
+        readonly progressRevision: ProgressTickRevision;
         readonly tickState: SpecialistStatusTick;
       }
     | {
-        readonly progressRevision: 5;
+        readonly progressRevision: 6;
         readonly tickState: TerminalTick;
       }
   );

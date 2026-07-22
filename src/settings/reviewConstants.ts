@@ -33,7 +33,7 @@ export const REVIEW_POINTER_NOTE_LEAD =
   "Full review is in the PR conversation. Expand below to copy fixes for your coding agent.";
 export const REVIEW_SECURITY_DEFAULT = "None found on this pass";
 export const REVIEW_PROGRESS_SOURCE_AUTO = "Pull request update";
-export const REVIEW_PROGRESS_SOURCE_SLASH = "slash command";
+export const REVIEW_PROGRESS_SOURCE_SLASH = "Slash command";
 
 /** Lightweight review completion (docs-only auto-review skip). */
 export const LIGHTWEIGHT_REVIEW_COMPLETION_LEAD =

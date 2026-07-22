@@ -41,11 +41,14 @@ export type ReviewRunGate = {
   readonly check: () => Promise<ReviewRunGateResult>;
 };
 
-type SpecialistRunPhase =
+export type SpecialistRunPhase =
+  | { readonly phase: "waiting" }
   | { readonly phase: "running" }
   | { readonly phase: "done"; readonly threadsPublished: number }
   | { readonly phase: "no_findings" }
   | { readonly phase: "failed" };
+
+export type ReconRunPhase = "running" | "done";
 
 type OrchestratedRunLifecycle =
   | { readonly kind: "running" }
@@ -59,6 +62,7 @@ type OrchestratedSummaryState =
   | { readonly kind: "failed" };
 
 export type OrchestratedRunState = {
+  recon: ReconRunPhase;
   readonly specialists: Record<SpecialistId, SpecialistRunPhase>;
   readonly outcomes: Partial<Record<SpecialistId, SpecialistOutcome>>;
   readonly completionOrder: SpecialistId[];
@@ -66,7 +70,8 @@ export type OrchestratedRunState = {
   briefFallback: boolean;
   judgment: "model" | "degraded";
   lifecycle: OrchestratedRunLifecycle;
-  progressRevision: 0 | 1 | 2 | 3 | 4 | 5;
+  /** 0 ack · 1 recon done · 2–5 specialist ticks · 6 terminal/summary */
+  progressRevision: 0 | 1 | 2 | 3 | 4 | 5 | 6;
   summary: OrchestratedSummaryState;
 };
 

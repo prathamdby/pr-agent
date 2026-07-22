@@ -683,7 +683,10 @@ describe("runOrchestratedPrReview", () => {
     expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
     expect(testState.publishOrder).toEqual([]);
     expect(testState.sessionDisposals).toBe(1);
-    expect(testState.ticks).toEqual([{ progressRevision: 5, kind: "terminal" }]);
+    expect(testState.ticks).toEqual([
+      { progressRevision: 1, kind: "specialists" },
+      { progressRevision: 6, kind: "terminal" },
+    ]);
   });
 
   it("finalizes returned reports deterministically at the model deadline", async () => {
@@ -728,6 +731,6 @@ describe("runOrchestratedPrReview", () => {
     }
     await run;
 
-    expect(testState.refreshes).toBe(9);
+    expect(testState.refreshes).toBe(10);
   });
 });

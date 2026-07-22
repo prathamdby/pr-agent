@@ -29,9 +29,10 @@ function specialistTickArgs() {
     mode: "review" as const,
     headSha: "a".repeat(40),
     source: "auto" as const,
-    progressRevision: 1 as const,
+    progressRevision: 2 as const,
     tickState: {
       kind: "specialists" as const,
+      recon: "done" as const,
       specialists: {
         correctness: { phase: "done" as const, threadsPublished: 0 },
         security: { phase: "running" as const },
@@ -69,8 +70,8 @@ describe("tickProgressComment", () => {
         reviewLens: "review",
         token: "fresh-token",
         expiresAtTs: 123_456,
-        progressRevision: 1,
-        body: expect.stringContaining("✅ 0 threads"),
+        progressRevision: 2,
+        body: expect.stringContaining("✅ No findings"),
       }),
     );
   });
@@ -94,7 +95,7 @@ describe("tickProgressComment", () => {
         owner: "o",
         repo: "r",
         pr: 1,
-        progressRevision: 1,
+        progressRevision: 2,
         message: "GitHub unavailable",
       }),
     );

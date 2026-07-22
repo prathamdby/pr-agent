@@ -36,16 +36,18 @@ function diffStat(diff: string): string {
 function verdictText(verdict: TriageVerdict): string {
   switch (verdict.verdict) {
     case "fixed":
-      return `fixed ${renderTableCode(shortSha(verdict.commitSha))}`;
+      return `Fixed ${renderTableCode(shortSha(verdict.commitSha))}`;
     case "already-resolved":
-      return "already resolved";
+      return "Already resolved";
     case "skipped":
-      return `skipped: ${escapeTableCellContent(verdict.reason)}`;
+      return `Skipped: ${escapeTableCellContent(verdict.reason)}`;
     case "dismissed":
-      return "dismissed";
+      return "Dismissed";
+    default: {
+      const exhaustive: never = verdict;
+      return exhaustive;
+    }
   }
-  const exhaustive: never = verdict;
-  return exhaustive;
 }
 
 function countVerdicts(payload: TriagePayload, previouslyResolvedCount: number): string {
@@ -59,11 +61,11 @@ function countVerdicts(payload: TriagePayload, previouslyResolvedCount: number):
     counts.set(verdict.verdict, (counts.get(verdict.verdict) ?? 0) + 1);
   }
   return [
-    `${counts.get("fixed")} fixed`,
-    `${counts.get("already-resolved")} already resolved`,
-    `${counts.get("skipped")} skipped`,
-    `${counts.get("dismissed")} dismissed`,
-    `${previouslyResolvedCount} previously resolved`,
+    `${counts.get("fixed")} Fixed`,
+    `${counts.get("already-resolved")} Already resolved`,
+    `${counts.get("skipped")} Skipped`,
+    `${counts.get("dismissed")} Dismissed`,
+    `${previouslyResolvedCount} Previously resolved`,
   ].join(" · ");
 }
 
