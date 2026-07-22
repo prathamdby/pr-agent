@@ -12,7 +12,7 @@ export const LEGACY_REVIEW_POINTER_BODIES = [
   "See the proposed test cases summary in the PR conversation.",
 ] as const;
 
-export type LegacyReviewLens = (typeof LEGACY_REVIEW_LENSES)[number];
+type LegacyReviewLens = (typeof LEGACY_REVIEW_LENSES)[number];
 export type AnyReviewLens = "review" | LegacyReviewLens;
 
 export function isAnyReviewLens(value: string): value is AnyReviewLens {

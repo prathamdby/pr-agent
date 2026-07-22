@@ -10,5 +10,3 @@ export type GithubReactionContent =
   | typeof GITHUB_REACTION_EYES
   | typeof GITHUB_REACTION_PLUS_ONE
   | typeof GITHUB_REACTION_MINUS_ONE;
-
-export const DEFAULT_COOLDOWN_SECONDS = 60;

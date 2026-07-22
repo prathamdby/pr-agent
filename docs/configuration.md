@@ -282,7 +282,6 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `TRIAGE_SUMMARY_SENTINEL`            | `## PR Agent Triage`                                |
 | `TRIAGE_ALREADY_IN_PROGRESS`         | duplicate `/triage` ack text                        |
 | `TRIAGE_FAILURE_MESSAGE`             | terminal failure PR comment                         |
-| `TRIAGE_NO_PRIOR_FINDINGS`           | legacy empty inventory text (deprecated alias)      |
 | `TRIAGE_NO_ELIGIBLE_FINDINGS`        | no triage-eligible unresolved findings report text  |
 | `TRIAGE_THREAD_NOT_ELIGIBLE`         | scoped thread not in inventory ack/report text      |
 | `TRIAGE_FULL_RUN_IN_PROGRESS`        | thread `/triage` while full-PR triage active ack    |
@@ -305,15 +304,14 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 
 ### Ask safety
 
-| Symbol                                                     | Default                                                                            |
-| ---------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `MAX_ASK_QUESTION_CHARS`                                   | 8192                                                                               |
-| `MAX_ASK_THREAD_TRANSCRIPT_CHARS`                          | 24000                                                                              |
-| `ASK_META_REFUSAL`                                         | meta-probe reply                                                                   |
-| `BOT_META_PATTERNS`                                        | regex set                                                                          |
-| `BOT_SECRET_PATTERNS`                                      | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens |
-| `SENSITIVE_PATH_PATTERNS`                                  | ask path gate for env files, key material, and credential stores                   |
-| `ASK_TOOLS_WITH_OWNER_REPO` / `ASK_TOOLS_WITH_PULL_NUMBER` | tool scope sets                                                                    |
+| Symbol                            | Default                                                                            |
+| --------------------------------- | ---------------------------------------------------------------------------------- |
+| `MAX_ASK_QUESTION_CHARS`          | 8192                                                                               |
+| `MAX_ASK_THREAD_TRANSCRIPT_CHARS` | 24000                                                                              |
+| `ASK_META_REFUSAL`                | meta-probe reply                                                                   |
+| `BOT_META_PATTERNS`               | regex set                                                                          |
+| `BOT_SECRET_PATTERNS`             | outbound redaction for auth headers, provider keys, JWTs, and secret-shaped tokens |
+| `SENSITIVE_PATH_PATTERNS`         | ask path gate for env files, key material, and credential stores                   |
 
 ### GitHub API
 
@@ -321,7 +319,6 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | ----------------------------------------- | ------- |
 | `TOKEN_FRESHNESS_BUFFER_MS`               | 60000   |
 | `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h      |
-| `DEFAULT_COOLDOWN_SECONDS`                | 60      |
 | `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2       |
 | `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3       |
 | `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000    |

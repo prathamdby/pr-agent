@@ -1,5 +1,3 @@
-/** Docs-only trivial change exemption for automated reviews. */
-
 import path from "node:path";
 
 export type PreflightFileEntry = {

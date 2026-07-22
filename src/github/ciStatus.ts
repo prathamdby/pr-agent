@@ -1,5 +1,5 @@
+import { isMissingActionsPermissionError } from "./actionsLogs.js";
 import { installationOctokit } from "./appAuth.js";
-import { httpStatus } from "./httpStatus.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
 import type {
   CiCheckAnnotation,
@@ -12,17 +12,7 @@ const CHECK_RUNS_MAX_PAGES = 5;
 const ANNOTATIONS_PAGE_SIZE = 50;
 const ANNOTATIONS_MAX_PAGES = 2;
 
-/** True when Checks API is unavailable to this installation (missing permission or 404). */
-export function isMissingChecksPermissionError(error: unknown): boolean {
-  const status = httpStatus(error);
-  if (status !== 403 && status !== 404) return false;
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes("Resource not accessible by integration") ||
-    message.includes("Not Found") ||
-    status === 404
-  );
-}
+export const isMissingChecksPermissionError = isMissingActionsPermissionError;
 
 export async function listCheckRunsForHead(
   token: string,

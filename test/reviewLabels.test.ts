@@ -40,31 +40,21 @@ describe("labelsAlreadySynced", () => {
 
   it("uses the review effort prefix for recognized legacy lenses", () => {
     expect(
-      labelsAlreadySynced(
-        ["Review effort 2/5", "Quality effort 4/5"],
-        basePayload,
-        {
-          effort: true,
-          security: false,
-          category: false,
-        },
-        "review-quality",
-      ),
+      labelsAlreadySynced(["Review effort 2/5", "Quality effort 4/5"], basePayload, {
+        effort: true,
+        security: false,
+        category: false,
+      }),
     ).toBe(true);
   });
 
   it("returns false when the review effort label is stale", () => {
     expect(
-      labelsAlreadySynced(
-        ["Review effort 1/5"],
-        basePayload,
-        {
-          effort: true,
-          security: false,
-          category: false,
-        },
-        "review-quality",
-      ),
+      labelsAlreadySynced(["Review effort 1/5"], basePayload, {
+        effort: true,
+        security: false,
+        category: false,
+      }),
     ).toBe(false);
   });
 
@@ -143,39 +133,13 @@ describe("hasManagedCategoryLabel", () => {
 });
 
 describe("reviewLabelsFromPayload", () => {
-  it("uses one effort prefix for recognized review lenses", () => {
+  it("uses the review effort prefix", () => {
     expect(
-      reviewLabelsFromPayload(
-        basePayload,
-        {
-          effort: true,
-          security: false,
-          category: false,
-        },
-        "review-security",
-      ),
-    ).toEqual(["Review effort 2/5"]);
-    expect(
-      reviewLabelsFromPayload(
-        basePayload,
-        {
-          effort: true,
-          security: false,
-          category: false,
-        },
-        "review-quality",
-      ),
-    ).toEqual(["Review effort 2/5"]);
-    expect(
-      reviewLabelsFromPayload(
-        basePayload,
-        {
-          effort: true,
-          security: false,
-          category: false,
-        },
-        "review-tests",
-      ),
+      reviewLabelsFromPayload(basePayload, {
+        effort: true,
+        security: false,
+        category: false,
+      }),
     ).toEqual(["Review effort 2/5"]);
   });
 
@@ -222,19 +186,19 @@ describe("syncReviewLabels", () => {
 
   it("replaces the review effort label family for recognized legacy lenses", () => {
     const current = ["Review effort 3/5", "Quality effort 1/5", "bug"];
-    const next = syncReviewLabels(current, ["Review effort 2/5"], "review-quality");
+    const next = syncReviewLabels(current, ["Review effort 2/5"]);
     expect(next).toEqual(["Quality effort 1/5", "bug", "Review effort 2/5"]);
   });
 
   it("replaces category labels without touching effort labels", () => {
     const current = ["Review effort 2/5", "Category: bug", "enhancement"];
-    const next = syncReviewLabels(current, ["Review effort 2/5", "Category: security"], "review");
+    const next = syncReviewLabels(current, ["Review effort 2/5", "Category: security"]);
     expect(next).toEqual(["enhancement", "Review effort 2/5", "Category: security"]);
   });
 
   it("removes stale category labels when payload has no dominant category", () => {
     const current = ["Category: bug", "enhancement"];
-    const next = syncReviewLabels(current, [], "review");
+    const next = syncReviewLabels(current, []);
     expect(next).toEqual(["enhancement"]);
   });
 });

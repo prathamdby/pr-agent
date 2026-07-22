@@ -3,7 +3,7 @@ import {
   clearInstallationOctokitCacheForTest,
   installationOctokit,
 } from "../src/github/appAuth.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../src/github/installationTokenExpiry.js";
+import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../src/settings/index.js";
 
 describe("installationOctokit", () => {
   beforeEach(() => {

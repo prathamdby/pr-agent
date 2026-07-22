@@ -1,10 +1,6 @@
 import { Section } from "@/components/section";
 import { FEATURES } from "@/lib/content";
 
-/**
- * How a review runs - full-width walkthrough, readable at every breakpoint.
- * No side-by-side sticky intro (that cramped the steps on tablet).
- */
 export function Features() {
   return (
     <Section id="features" labelledBy="features-heading">

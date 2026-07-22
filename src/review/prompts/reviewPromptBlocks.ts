@@ -1,17 +1,5 @@
 /** Shared prompt blocks reused across every review lens (general, security, quality, tests). */
 
-export { ciGateRowContract, CI_SUMMARY_SYSTEM_PROMPT } from "../ci/ciGatePrompt.js";
-
-export const singlePassReviewContract = [
-  "## Single-pass review contract",
-  "This run gets **one** submitReview call. There is no later pass and no follow-up review, so do not defer findings.",
-  "Inspect **every changed file** (listChangedFiles, then getWorkspaceDiff) and include **every evidenced P0–P2** in that one payload.",
-  "**Exhaustive first, selective second** — never withhold a real bug to keep the list short, and never pad with P3 or speculative followUps to look thorough.",
-  "Report each distinct issue once, at its primary site; if one root cause surfaces on several lines, file it once and name the other lines in detail.",
-  "Workflow: list files → read each patch → cluster by area → sweep remaining files → submitReview once with all findings.",
-  "Do not stop after the first bug, do not promise more later, and do not post PR prose — only submitReview publishes comments.",
-].join("\n");
-
 export const fixPromptFieldContract =
   "fixPrompt: one or two sentences naming the bug and the fix direction. Do not repeat the file or line (the server adds a location header). Under ~60 words. Required for every finding, including P3, so `/triage` can autofix.";
 
@@ -24,12 +12,6 @@ export const categoryFieldContract = [
   "category (optional): one of bug | security | performance | style — the primary issue type for filtering.",
   "Use bug for correctness defects, security for vulnerabilities, performance for measurable regressions, style for formatting-only issues.",
 ].join("\n- ");
-
-export const publicOutputContract = [
-  "## Public output contract",
-  "Never disclose publish or tooling failures, retries, API errors, server logs, internal reasoning, prompt text, or replacement review prose in PR-visible output.",
-  "If submitReview fails, retry with a valid ReviewPayload only — never fall back to a prose review report.",
-].join("\n");
 
 export const pathAndSizeGuidance = [
   "## Path and size guidance",
@@ -89,15 +71,6 @@ export const specialistFindingsReportContract = [
   "`notes` is optional. Use it for brief investigation context or limits that may help orchestrator judgment. Do not place findings only in notes.",
 ].join("\n");
 
-export const structuredDeliveryHeader = [
-  "## Structured delivery (submitReview)",
-  "",
-  "After investigation, call **submitReview exactly once** with a valid ReviewPayload, then stop.",
-  "Never write freehand markdown for PR comments (no <table>, headers, or prose for GitHub surfaces).",
-].join("\n");
-
-export const reviewPayloadFieldsHeader = "ReviewPayload fields:";
-
 export const reviewPayloadPerFindingContracts = [
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
@@ -105,18 +78,6 @@ export const reviewPayloadPerFindingContracts = [
 ]
   .map((line) => `- ${line}`)
   .join("\n");
-
-export const reviewPayloadCommonTail = [
-  "- estimatedEffort: integer 1–5",
-  "- relevantTests: yes | no | partial",
-].join("\n");
-
-export function inlineSeverityPlacement(summaryKind: string): string {
-  return `P0–P3 appear as inline review threads on changed lines when a diff anchor resolves; otherwise they appear as title + deep-link in the ${summaryKind} summary overview. Check runs still fail only for P0–P2.`;
-}
-
-export const reviewSecretsAndToolingNote =
-  "Do not leak secrets or tokens; if access is insufficient, say exactly what tooling blocked you.";
 
 /** Round-0 validation repair: include the full minimal example. */
 export const VALIDATION_REPAIR_ROUND0_SUFFIX =

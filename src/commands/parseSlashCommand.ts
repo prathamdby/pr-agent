@@ -1,8 +1,5 @@
 import { firstNonEmptyLine } from "./firstNonEmptyLine.js";
 
-/**
- * First meaningful line must start with `/command` (plan: case-sensitive token).
- */
 const SLASH_COMMAND_RE = /^\/([a-z0-9-]+)(?:\s|$)/;
 
 export function parseSlashCommand(body: string): string | null {

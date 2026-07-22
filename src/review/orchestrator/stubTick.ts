@@ -3,7 +3,7 @@ import { logWarn } from "../../evlog.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { upsertSummaryCommentWithCreationClaim } from "../publish/publishReview.js";
-import { reviewSummarySentinelForMode, type WorkSource } from "../reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, type WorkSource } from "../reviewSchema.js";
 import { renderReviewProgressComment, type SpecialistTickState } from "../run/progressComment.js";
 
 type ProgressTickRevision = 1 | 2 | 3 | 4 | 5;
@@ -62,7 +62,7 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
         progressRevision: args.progressRevision,
         progressWorkItemId: args.workItemId,
       }),
-      sentinel: reviewSummarySentinelForMode(args.mode),
+      sentinel: REVIEW_SUMMARY_SENTINEL,
       expiresAtTs,
       hintCommentId: args.hintCommentId,
       progressRevision: args.progressRevision,

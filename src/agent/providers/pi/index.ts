@@ -210,7 +210,10 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
             idleRejected = true;
             void session.abort();
             rejectOnIdle?.(
-              new Error(`Provider prompt timeout: no activity for ${idleTimeoutMs}ms`),
+              new AppError({
+                code: "pi.prompt_idle_timeout",
+                message: `Provider prompt timeout: no activity for ${idleTimeoutMs}ms`,
+              }),
             );
           };
           const startIdleTimer = () => {

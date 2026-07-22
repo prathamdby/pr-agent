@@ -47,21 +47,28 @@ type SubmissionState = {
   validationError: string | null;
 };
 
-function timeoutError(): Error {
-  return new Error("Specialist timeout deadline exceeded");
+function timeoutError(): AppError {
+  return new AppError({
+    code: "review.specialist_timeout",
+    message: "Specialist timeout deadline exceeded",
+  });
 }
 
-function externalAbortError(): Error {
-  return new Error("Specialist run aborted by external signal");
-}
-
-function stoppedError(): Error {
-  return new Error("Specialist run stopped before completion");
+function externalAbortError(): AppError {
+  return new AppError({
+    code: "review.specialist_aborted",
+    message: "Specialist run aborted by external signal",
+  });
 }
 
 function assertCanContinue(params: RunSpecialistParams, deadlineMs: number): void {
   if (params.signal?.aborted) throw externalAbortError();
-  if (!params.shouldContinue()) throw stoppedError();
+  if (!params.shouldContinue()) {
+    throw new AppError({
+      code: "review.specialist_stopped",
+      message: "Specialist run stopped before completion",
+    });
+  }
   if (Date.now() >= deadlineMs) throw timeoutError();
 }
 
@@ -263,16 +270,15 @@ async function runAttempt(
 
     if (!state.report) {
       assertCanContinue(params, deadlineMs);
-      throw new Error(state.validationError ?? "Specialist did not submit a valid report");
+      throw new AppError({
+        code: "review.specialist_invalid_report",
+        message: state.validationError ?? "Specialist did not submit a valid report",
+      });
     }
     return state.report;
   } finally {
     if (!cleanupDeferred) await session.dispose();
   }
-}
-
-function retryBackoffMs(attempts: number): number {
-  return RETRY_BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1);
 }
 
 function failureOutcome(params: {
@@ -304,7 +310,10 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
   const deadlineMs = startedAtMs + params.timeoutMs;
   let attempts = 0;
   let ordinaryRetryUsed = false;
-  let lastError: unknown = new Error("Specialist did not start");
+  let lastError: unknown = new AppError({
+    code: "review.specialist_not_started",
+    message: "Specialist did not start",
+  });
   let classification: ProviderErrorKind = "unknown";
 
   try {
@@ -346,7 +355,11 @@ export async function runSpecialist(params: RunSpecialistParams): Promise<Specia
 
     if (classification === "rate_limit" || classification === "timeout") {
       try {
-        await waitBeforeStage(retryBackoffMs(attempts), params, deadlineMs);
+        await waitBeforeStage(
+          RETRY_BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1),
+          params,
+          deadlineMs,
+        );
       } catch (error) {
         lastError = error;
         classification = classifyProviderError(error);

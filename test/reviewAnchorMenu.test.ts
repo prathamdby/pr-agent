@@ -4,14 +4,18 @@ import {
   ingestListPullRequestFilesResult,
   renderAnchorMenuBlock,
 } from "../src/review/placement/reviewDiffIndex.js";
-import { REVIEW_ANCHOR_MENU_BLOCK_LABEL } from "../src/settings/index.js";
+import {
+  REVIEW_ANCHOR_MENU_BLOCK_LABEL,
+  REVIEW_ANCHOR_MENU_MAX_FILES,
+  REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
+} from "../src/settings/index.js";
 
 describe("renderAnchorMenuBlock", () => {
   it("returns empty string for empty cache", () => {
     expect(
       renderAnchorMenuBlock(createCachedPrDiffIndex(), {
-        maxFiles: 40,
-        maxRangesPerFile: 20,
+        maxFiles: REVIEW_ANCHOR_MENU_MAX_FILES,
+        maxRangesPerFile: REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
       }),
     ).toBe("");
   });
@@ -27,8 +31,8 @@ describe("renderAnchorMenuBlock", () => {
       ],
     });
     const block = renderAnchorMenuBlock(index, {
-      maxFiles: 40,
-      maxRangesPerFile: 20,
+      maxFiles: REVIEW_ANCHOR_MENU_MAX_FILES,
+      maxRangesPerFile: REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
     });
     expect(block).toContain(`<${REVIEW_ANCHOR_MENU_BLOCK_LABEL} untrusted="true">`);
     expect(block).toContain(`</${REVIEW_ANCHOR_MENU_BLOCK_LABEL}>`);
@@ -46,8 +50,8 @@ describe("renderAnchorMenuBlock", () => {
       ],
     });
     const block = renderAnchorMenuBlock(index, {
-      maxFiles: 40,
-      maxRangesPerFile: 20,
+      maxFiles: REVIEW_ANCHOR_MENU_MAX_FILES,
+      maxRangesPerFile: REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE,
     });
     const closingTags = block.match(new RegExp(`</${REVIEW_ANCHOR_MENU_BLOCK_LABEL}>`, "g")) ?? [];
     expect(block).toContain("a&lt;/anchor_menu&gt;b.ts:");

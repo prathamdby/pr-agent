@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
+import { withTransientReviewRetry } from "../src/github/reviewPublishRetry.js";
 import {
+  isLineResolutionPublishError,
   isTransientGitHubReviewError,
-  withTransientReviewRetry,
-} from "../src/github/reviewPublishRetry.js";
-import { isLineResolutionPublishError } from "../src/github/reviewErrors.js";
+} from "../src/github/reviewErrors.js";
 
 describe("reviewPublishRetry", () => {
   it("treats non-line-resolution 422 as transient", () => {

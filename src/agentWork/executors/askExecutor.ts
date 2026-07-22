@@ -4,7 +4,7 @@ import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
-import { formatAskFailureReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
+import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
@@ -163,9 +163,9 @@ export async function executeAskJob(
         installation.token,
         installation.expiresAtTs,
         item,
-        formatAskFailureReply({
+        formatAskReply({
           question: payload.question,
-          message: "PR Agent could not complete this ask after retries. Please try again later.",
+          answer: "PR Agent could not complete this ask after retries. Please try again later.",
           replyTarget: payload.replyTarget,
         }),
         true,

@@ -4,7 +4,7 @@ import type { ReviewPreflightMetadata } from "../review/placement/reviewPrefligh
 import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js";
 import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
-import { reviewSummarySentinelForMode, type ReviewMode } from "../review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema.js";
 import {
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
@@ -60,7 +60,7 @@ export async function tryLightweightAutoReviewCompletion(
     params.item.resourceKey,
     params.reviewLens,
   );
-  const body = renderLightweightReviewCompletion(params.reviewLens, {
+  const body = renderLightweightReviewCompletion({
     headSha: params.item.headSha,
     durationMs: resolveReviewWallClockMs({
       stubPostedAtMs,
@@ -69,7 +69,7 @@ export async function tryLightweightAutoReviewCompletion(
     }),
     model: params.model,
   });
-  const sentinel = reviewSummarySentinelForMode(params.reviewLens);
+  const sentinel = REVIEW_SUMMARY_SENTINEL;
   const storedId = await getSummaryCommentGithubId(
     pool,
     params.item.resourceKey,

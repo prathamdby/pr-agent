@@ -60,10 +60,6 @@ function fullDatabaseId(value: unknown): number | null {
   return null;
 }
 
-function pageInfoValue(page: ReviewThreadsPage) {
-  return page.repository?.pullRequest?.reviewThreads?.pageInfo;
-}
-
 export async function listReviewThreadResolution(
   token: string,
   owner: string,
@@ -93,7 +89,7 @@ export async function listReviewThreadResolution(
       });
     }
 
-    const pageInfo = pageInfoValue(page);
+    const pageInfo = page.repository?.pullRequest?.reviewThreads?.pageInfo;
     if (pageInfo?.hasNextPage !== true) break;
     cursor = typeof pageInfo.endCursor === "string" ? pageInfo.endCursor : null;
     if (!cursor) break;

@@ -80,7 +80,6 @@ export function mergeCiSummaryWithFacts(input: CiAuthorInput, llm: CiSummaryLlmF
   };
 }
 
-/** Production author: one tool-free agent turn, JSON out. Soft-fails to null. */
 export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
   return async (input) => {
     if (input.status !== "failing") {
@@ -122,7 +121,6 @@ export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
   };
 }
 
-/** Facts-only failing summary when the LLM call is skipped or fails. */
 export function factsOnlyFailingSummary(input: CiAuthorInput): CiSummary {
   const nameList = input.failingNames.slice(0, 3).join(", ");
   const more = input.failingNames.length > 3 ? ` (+${input.failingNames.length - 3} more)` : "";

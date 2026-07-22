@@ -1,14 +1,6 @@
 import { REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS } from "../settings/index.js";
 import { isTransientGitHubReviewError } from "./reviewErrors.js";
 
-export { isTransientGitHubReviewError } from "./reviewErrors.js";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 export async function withTransientReviewRetry<T>(
   fn: () => Promise<T>,
   delaysMs: readonly number[] = REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
@@ -22,7 +14,9 @@ export async function withTransientReviewRetry<T>(
       if (attempt >= delaysMs.length || !isTransientGitHubReviewError(error)) {
         throw error;
       }
-      await sleep(delaysMs[attempt]);
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, delaysMs[attempt]);
+      });
     }
   }
   throw lastError;

@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
-import { reviewSummarySentinelForMode } from "../../review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
 import {
   DEFERRED_HEAD_SHA,
@@ -77,7 +77,7 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
       progressWorkItemId: data.workItemId,
     });
     const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
-    const sentinel = reviewSummarySentinelForMode(data.progress.lens);
+    const sentinel = REVIEW_SUMMARY_SENTINEL;
     await upsertSummaryCommentWithCreationClaim({
       pool,
       workItemId: data.workItemId,

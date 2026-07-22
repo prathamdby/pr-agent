@@ -55,7 +55,6 @@ describe("findingPipeline", () => {
       payload: payload({
         findings: [finding({ startLine: 99, endLine: 99, confidence: 1 })],
       }),
-      mode: "review",
       reviewMinConfidence: 3,
       cachedDiffIndex: index,
     });
@@ -74,7 +73,6 @@ describe("findingPipeline", () => {
 
     const result = prepareReviewPayloadForPublish({
       payload: payload({ findings: [secretFinding] }),
-      mode: "review",
     });
 
     expect(result.ok).toBe(true);
@@ -90,7 +88,6 @@ describe("findingPipeline", () => {
 
     const result = prepareFindingsForPublish({
       payload: payload({ findings: [suppressed, capped, kept] }),
-      mode: "review",
       inlinePlacements: [placement(suppressed), placement(capped), placement(kept)],
       storedInlineFingerprints: [fingerprintFinding(suppressed, "review")],
       maxInlineComments: 1,
@@ -112,7 +109,6 @@ describe("findingPipeline", () => {
     const item = finding();
     const result = prepareFindingsForPublish({
       payload: payload({ findings: [item] }),
-      mode: "review-security",
       inlinePlacements: [placement(item)],
     });
 

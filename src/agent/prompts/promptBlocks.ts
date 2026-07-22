@@ -1,10 +1,9 @@
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function neutralizeUntrustedBlockTags(label: string, text: string): string {
   const tagGap = "[\\s\\p{Cf}\\p{Cc}]*";
-  const labelPattern = label.split("").map(escapeRegExp).join(tagGap);
+  const labelPattern = label
+    .split("")
+    .map((value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join(tagGap);
   const tagPattern = new RegExp(
     `<${tagGap}/?${tagGap}${labelPattern}(?=[\\s>/\\p{Cf}\\p{Cc}])[^>]*>`,
     "giu",

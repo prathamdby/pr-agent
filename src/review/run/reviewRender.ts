@@ -31,7 +31,7 @@ import {
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
-import { reviewSummarySentinelForMode } from "../reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
@@ -83,10 +83,9 @@ export function renderRepeatNoBugsReviewBody(
 }
 
 export function renderLightweightReviewCompletion(
-  mode: AnyReviewLens,
   footer: { readonly headSha: string } & ReviewRunFooterMeta,
 ): string {
-  const summarySentinel = reviewSummarySentinelForMode(mode);
+  const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const rows: string[] = [];
   rows.push(summarySentinel);
   rows.push("");
@@ -103,7 +102,6 @@ export function renderLightweightReviewCompletion(
   rows.push(
     renderReviewRunFooter({
       headSha: footer.headSha,
-      mode,
       durationMs: footer.durationMs,
       model: footer.model,
     }),
@@ -116,14 +114,10 @@ export function renderStaleReviewMetadataComment(params: {
   mode: AnyReviewLens;
   stale: boolean;
 }): string {
-  const headSha = sanitizeReviewMetaHeadSha(params.headSha);
+  const headSha = normalizeGitHeadSha(params.headSha) ?? "invalid";
   const lens = escapeHtmlCommentAttr(params.mode);
   const staleValue = params.stale ? "true" : "false";
   return `<!-- pr-agent:review-meta headSha=${headSha} lens=${lens} stale=${staleValue} -->`;
-}
-
-function sanitizeReviewMetaHeadSha(headSha: string): string {
-  return normalizeGitHeadSha(headSha) ?? "invalid";
 }
 
 function escapeHtmlCommentAttr(value: string): string {
@@ -132,16 +126,6 @@ function escapeHtmlCommentAttr(value: string): string {
 
 function formatLineRange(startLine: number, endLine: number): string {
   return startLine === endLine ? `line ${startLine}` : `lines ${startLine}-${endLine}`;
-}
-
-function sortPlacements(placements: readonly InlinePlacement[]): InlinePlacement[] {
-  return [...placements].toSorted((a, b) =>
-    compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
-  );
-}
-
-function sortFindingsForAgentFixPrompt(findings: ReviewFinding[]): ReviewFinding[] {
-  return [...findings].toSorted(compareReviewFindingsBySeverityFileLine);
 }
 
 function renderFindingFixBlock(finding: ReviewFinding, opts: { inlinePosted: boolean }): string {
@@ -271,7 +255,7 @@ export function renderAgentFixPrompt(
   const placementByKey = new Map(
     placements.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
-  const sorted = sortFindingsForAgentFixPrompt(payload.findings);
+  const sorted = [...payload.findings].toSorted(compareReviewFindingsBySeverityFileLine);
 
   const blocks = sorted.map((f) => {
     const placement = placementByKey.get(reviewFindingPlacementKey(f));
@@ -340,7 +324,7 @@ type ReviewSummaryRenderCtx = RenderContext & {
   partialCoverageNote?: string;
 };
 
-/** Expects `ctx.placements` pre-sorted by severity, file, and line (`sortPlacements`). */
+/** Expects `ctx.placements` pre-sorted by severity, file, and line. */
 function buildReviewSummaryBody(
   payload: ReviewPayload,
   ctx: ReviewSummaryRenderCtx,
@@ -465,7 +449,6 @@ function buildReviewSummaryBody(
   rows.push(
     renderReviewRunFooter({
       headSha: ctx.headSha,
-      mode: ctx.mode,
       durationMs: ctx.runFooter.durationMs,
       model: ctx.runFooter.model,
     }),
@@ -479,7 +462,9 @@ export function fitReviewSummaryBody(
   ctx: ReviewSummaryRenderCtx,
   maxBodyChars: number,
 ): string {
-  const sortedPlacements = sortPlacements(ctx.placements);
+  const sortedPlacements = [...ctx.placements].toSorted((a, b) =>
+    compareReviewFindingsBySeverityFileLine(a.finding, b.finding),
+  );
   const sortedCtx = { ...ctx, placements: sortedPlacements };
   const sortedCount = sortedPlacements.length;
 

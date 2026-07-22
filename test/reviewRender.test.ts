@@ -24,12 +24,8 @@ import {
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
-import {
-  testPlacementsFromPayload,
-  planInlineFromPayload,
-  cachedDiffForFiles,
-  testPlacements,
-} from "./helpers/reviewPublishTestHelpers.js";
+import { planInlinePlacements } from "../src/review/placement/reviewDiffPlacement.js";
+import { cachedDiffForFiles, testPlacements } from "./helpers/reviewPublishTestHelpers.js";
 
 const ctx = {
   owner: "acme",
@@ -55,7 +51,7 @@ describe("renderReviewSummaryComment", () => {
   it("(a) no findings", () => {
     const body = renderReviewSummaryComment(basePayload(), {
       ...ctx,
-      placements: testPlacementsFromPayload(basePayload()),
+      placements: testPlacements(basePayload().findings),
     });
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain("[!NOTE]");
@@ -70,7 +66,7 @@ describe("renderReviewSummaryComment", () => {
   it("renders a CI gate row when a CI summary is provided", () => {
     const body = renderReviewSummaryComment(basePayload(), {
       ...ctx,
-      placements: testPlacementsFromPayload(basePayload()),
+      placements: testPlacements(basePayload().findings),
       ciSummary: {
         status: "failing",
         headline: "❌ CI failing — lint",
@@ -97,7 +93,7 @@ describe("renderReviewSummaryComment", () => {
   it("shows the CI gate row when Checks permission is missing", () => {
     const body = renderReviewSummaryComment(basePayload(), {
       ...ctx,
-      placements: testPlacementsFromPayload(basePayload()),
+      placements: testPlacements(basePayload().findings),
       ciSummary: {
         status: "unavailable",
         headline:
@@ -270,7 +266,7 @@ describe("renderReviewSummaryComment", () => {
     });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     const tableClose = body.indexOf("</table>");
     const fixAll = body.indexOf(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
@@ -382,7 +378,7 @@ describe("renderReviewSummaryComment", () => {
     });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     expect(body).toContain("Webhook secret compared");
   });
@@ -391,7 +387,7 @@ describe("renderReviewSummaryComment", () => {
     const payload = basePayload({ prCharacter: "Adds auth | breaks table" });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     expect(body).toContain("[!NOTE]");
     expect(body).toContain("Adds auth | breaks table");
@@ -402,7 +398,7 @@ describe("renderReviewSummaryComment", () => {
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       mode: "review-security",
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
@@ -415,7 +411,7 @@ describe("renderReviewSummaryComment", () => {
     });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     expect(body).toContain("foo | bar");
     expect(body).toContain("baz | qux");
@@ -459,7 +455,7 @@ describe("renderReviewSummaryComment", () => {
     const payload = basePayload({ findings });
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload, false),
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
     });
 
     expect(body.length).toBeLessThanOrEqual(REVIEW_SUMMARY_BODY_MAX_CHARS);
@@ -484,7 +480,7 @@ describe("renderReviewSummaryComment", () => {
       payload,
       {
         ...ctx,
-        placements: testPlacementsFromPayload(payload, false),
+        placements: testPlacements(payload.findings, { inlinePosted: false }),
       },
       2_500,
     );
@@ -501,7 +497,7 @@ describe("renderReviewSummaryComment", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     expect(body).not.toContain("Merge verdict");
     expect(body).not.toContain("No blocking findings on this pass");
@@ -543,7 +539,7 @@ describe("renderReviewSummaryComment", () => {
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       hasDescriptionAgentBlock: true,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     expect(body).toContain(
       "See the [file walkthrough](https://github.com/acme/widgets/pull/42) in the PR description.",
@@ -554,7 +550,7 @@ describe("renderReviewSummaryComment", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacementsFromPayload(payload),
+      placements: testPlacements(payload.findings),
     });
     expect(body).not.toContain("file walkthrough");
   });
@@ -739,8 +735,8 @@ describe("renderAgentFixPrompt", () => {
     const prompt = renderAgentFixPrompt(
       payload,
       renderCtx,
-      planInlineFromPayload(
-        payload,
+      planInlinePlacements(
+        payload.findings,
         cachedDiffForFiles([
           { file: "src/a.ts", lines: [5, 6, 7] },
           { file: "src/b.ts", lines: [20, 21, 22] },
@@ -789,7 +785,7 @@ describe("renderAgentFixPrompt", () => {
     const prompt = renderAgentFixPrompt(
       payload,
       renderCtx,
-      planInlineFromPayload(payload, diffIndex),
+      planInlinePlacements(payload.findings, diffIndex),
     );
 
     expect(prompt.indexOf("[P1]")).toBeLessThan(prompt.indexOf("[P2]"));
@@ -811,7 +807,11 @@ describe("renderAgentFixPrompt", () => {
         },
       ],
     });
-    const prompt = renderAgentFixPrompt(payload, renderCtx, planInlineFromPayload(payload));
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+    );
 
     expect(prompt).toContain("@src/single.ts line 9");
     expect(prompt).not.toContain("lines 9-9");
@@ -831,7 +831,11 @@ describe("renderAgentFixPrompt", () => {
         },
       ],
     });
-    const prompt = renderAgentFixPrompt(payload, renderCtx, planInlineFromPayload(payload));
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+    );
 
     expect(prompt).toContain("[inline thread omitted — summary only]");
     expect(prompt).not.toContain("[inline thread omitted — severity cap]");
@@ -942,7 +946,7 @@ describe("renderLightweightReviewCompletion", () => {
   };
 
   it("preserves sentinel, alert, and table structure", () => {
-    const body = renderLightweightReviewCompletion("review", lightweightFooter);
+    const body = renderLightweightReviewCompletion(lightweightFooter);
     expect(body).toContain("## PR Agent Review");
     expect(body).toContain("[!NOTE]");
     expect(body).toContain("<table>");
@@ -950,12 +954,7 @@ describe("renderLightweightReviewCompletion", () => {
     expect(body).not.toContain("—");
     expect(body).toContain("Use /review for a full review.");
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 12s ⋅ grok-4.5</sub>");
-  });
-
-  it("uses the general sentinel and footer for recognized legacy modes", () => {
-    const body = renderLightweightReviewCompletion("review-security", lightweightFooter);
     expect(body).toContain(REVIEW_SUMMARY_SENTINEL);
-    expect(body).toContain("<sub>abc123d ⋅ general ⋅ 12s ⋅ grok-4.5</sub>");
   });
 });
 
@@ -965,7 +964,7 @@ describe("review hardening render helpers", () => {
       ...ctx,
       mode: "review",
       staleReview: true,
-      placements: testPlacementsFromPayload(basePayload()),
+      placements: testPlacements(basePayload().findings),
     });
     expect(body).toContain(
       renderStaleReviewMetadataComment({

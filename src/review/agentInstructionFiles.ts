@@ -7,7 +7,7 @@ import {
   MAX_AGENT_INSTRUCTION_FILE_BYTES,
 } from "../settings/index.js";
 
-export type AgentInstructionFilename = (typeof AGENT_INSTRUCTION_FILENAMES)[number];
+type AgentInstructionFilename = (typeof AGENT_INSTRUCTION_FILENAMES)[number];
 
 export type AgentInstructionFile = {
   readonly filename: AgentInstructionFilename;

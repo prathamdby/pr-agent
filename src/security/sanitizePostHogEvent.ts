@@ -19,11 +19,6 @@ const STACK_FRAME_STRING_KEYS = [
 
 const STACK_FRAME_STRING_ARRAY_KEYS = ["pre_context", "post_context"] as const;
 
-function redactStringArray(value: unknown): unknown {
-  if (!Array.isArray(value)) return value;
-  return value.map((entry) => (typeof entry === "string" ? redactOutboundSecrets(entry) : entry));
-}
-
 function sanitizeStackFrame(frame: unknown): unknown {
   if (typeof frame !== "object" || frame == null) return frame;
   const next: Record<string, unknown> = { ...(frame as Record<string, unknown>) };
@@ -32,7 +27,12 @@ function sanitizeStackFrame(frame: unknown): unknown {
     if (typeof value === "string") next[key] = redactOutboundSecrets(value);
   }
   for (const key of STACK_FRAME_STRING_ARRAY_KEYS) {
-    if (key in next) next[key] = redactStringArray(next[key]);
+    if (key in next) {
+      const value = next[key];
+      next[key] = Array.isArray(value)
+        ? value.map((entry) => (typeof entry === "string" ? redactOutboundSecrets(entry) : entry))
+        : value;
+    }
   }
   return next;
 }

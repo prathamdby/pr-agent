@@ -29,7 +29,7 @@ import type {
   FindingSource,
 } from "../orchestrator/orchestratorTypes.js";
 
-export type StoredInlineBatch = {
+type StoredInlineBatch = {
   readonly version: 2;
   readonly batchId: string;
   readonly workItemId: string;
@@ -97,12 +97,6 @@ function emptyDelta(overrides?: Partial<FindingLedgerDelta>): FindingLedgerDelta
   };
 }
 
-function isSuppressed(placement: FingerprintedInlinePlacement, ledger: FindingLedger): boolean {
-  return fingerprintCandidates(placement.finding).some((candidate) =>
-    ledger.suppressionFingerprints.has(candidate),
-  );
-}
-
 function hasAcceptedFingerprint(
   placement: FingerprintedInlinePlacement,
   ledger: FindingLedger,
@@ -136,7 +130,11 @@ function acceptedSummaryPlacements(params: {
     params.planned.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
   );
   return params.targets.flatMap((placement) => {
-    if (isSuppressed(placement, params.ledger)) {
+    if (
+      fingerprintCandidates(placement.finding).some((candidate) =>
+        params.ledger.suppressionFingerprints.has(candidate),
+      )
+    ) {
       if (hasAcceptedFingerprint(placement, params.ledger)) return [];
       return [summaryOnlyPlacement(placement, params.source, "historical")];
     }
@@ -173,7 +171,6 @@ export async function publishFindingBatch(
 ): Promise<FindingBatchResult> {
   const prepared = prepareReviewPayloadForPublish({
     payload: batchPayload(batch),
-    mode: "review",
     cachedDiffIndex: context.cachedDiffIndex,
     enforceInlineAnchorValidation: false,
   });
@@ -190,7 +187,6 @@ export async function publishFindingBatch(
   );
   const targets = prepareFindingsForPublish({
     payload: prepared.prepared.payload,
-    mode: "review",
     cachedDiffIndex: context.cachedDiffIndex,
     inlinePlacements: prepared.prepared.placements,
     storedInlineFingerprints: [...context.ledger.suppressionFingerprints],

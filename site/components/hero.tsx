@@ -38,17 +38,11 @@ function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
   );
 }
 
-/**
- * Explicitly scoped layouts — do not merge these into one class fight:
- * - < lg : mobile + iPad (in-flow, no min-h 100svh)
- * - lg+  : restored desktop fold (absolute artifact, two-column band)
- */
 export function Hero() {
   return (
     <section aria-labelledby="hero-heading" className="grain relative overflow-x-hidden">
       <DiffField />
 
-      {/* Mobile + tablet (< lg) */}
       <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-10 pt-28 sm:px-6 sm:pb-12 sm:pt-32 md:pb-14 lg:hidden">
         <div className="grid min-w-0 items-start gap-6 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] md:gap-8">
           <p className="min-w-0 font-display text-[clamp(3.25rem,14vw,5.5rem)] leading-[0.85] tracking-[-0.03em] text-ink md:text-[clamp(3.5rem,7vw,5.5rem)]">
@@ -67,7 +61,6 @@ export function Hero() {
           </div>
         </div>
 
-        {/* md+ (iPad): headline | CTA like desktop. Mobile stays stacked. */}
         <div className="mt-8 border-t border-edge pt-7 md:mt-10 md:grid md:grid-cols-[minmax(0,1.4fr)_auto] md:items-end md:gap-8 md:pt-8">
           <div className="min-w-0">
             <HeroCopy headingId="hero-heading" />
@@ -78,7 +71,6 @@ export function Hero() {
         </div>
       </div>
 
-      {/* Desktop (lg+) — previous fold composition */}
       <div className="relative z-10 mx-auto hidden min-h-[100svh] w-full max-w-6xl flex-col px-6 pb-16 pt-32 lg:flex">
         <div className="relative min-h-[22rem] flex-1">
           <p className="relative z-20 max-w-[10ch] font-display text-[clamp(4.5rem,10vw,9rem)] leading-[0.85] tracking-[-0.03em] text-ink">

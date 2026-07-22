@@ -2,7 +2,6 @@ type IconProps = {
   readonly className?: string;
 };
 
-/** Diagonal outbound arrow — house mark for CTAs, not the stock right chevron. */
 export function OutboundArrow({ className }: IconProps) {
   return (
     <svg

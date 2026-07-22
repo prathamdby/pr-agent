@@ -31,20 +31,6 @@ const EXAMPLES: readonly OutputExample[] = [
     detail: "Question and answer on the PR conversation.",
     kind: "ask",
   },
-  {
-    command: "/review-security",
-    label: "Security review",
-    detail: "Same summary shape under ## PR Agent Security Review.",
-    kind: "review",
-    lens: "review-security",
-  },
-  {
-    command: "/review-quality",
-    label: "Quality review",
-    detail: "Same summary shape under ## PR Agent Quality Review.",
-    kind: "review",
-    lens: "review-quality",
-  },
 ];
 
 function ExampleBody({ example }: { readonly example: OutputExample }) {
@@ -62,10 +48,6 @@ function ExampleBody({ example }: { readonly example: OutputExample }) {
   }
 }
 
-/**
- * Desktop/tablet zig-zag moves the WHOLE block (caption + mock), not a
- * caption|mock split that leaves a dead column beside a tall card.
- */
 export function Gallery() {
   return (
     <Section id="examples" labelledBy="examples-heading">

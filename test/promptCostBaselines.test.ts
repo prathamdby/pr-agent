@@ -18,7 +18,7 @@ import {
   assertPromptCostWithinBudget,
   measurePromptCost,
   stableJson,
-  type PromptCostBudget,
+  type PromptCost,
 } from "./helpers/promptCost.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
@@ -26,7 +26,7 @@ import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 type PromptSurface = {
   readonly name: string;
   readonly content: string;
-  readonly budget: PromptCostBudget;
+  readonly budget: PromptCost;
 };
 
 const SEVERITIES = ["P0", "P1", "P2", "P3"] as const;

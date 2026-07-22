@@ -182,7 +182,7 @@ describe("listPullRequestLabels", () => {
     });
 
     const current = await listPullRequestLabels("tok", "o", "r", 7);
-    const next = syncReviewLabels(current, ["Review effort 2/5"], "review");
+    const next = syncReviewLabels(current, ["Review effort 2/5"]);
 
     expect(current).toHaveLength(COMMENTS_PAGE_SIZE + 2);
     expect(next).toContain("must-preserve");

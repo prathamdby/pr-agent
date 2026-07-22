@@ -11,7 +11,6 @@ import {
   type BotIdentity,
   type InstallationToken,
 } from "../github/appAuth.js";
-import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/installationTokenExpiry.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providers/providerErrors.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
@@ -19,6 +18,7 @@ import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
+  INSTALLATION_TOKEN_FALLBACK_TTL_MS,
   TOKEN_FRESHNESS_BUFFER_MS,
   type GithubReactionContent,
 } from "../settings/index.js";
@@ -38,7 +38,6 @@ import {
   updateRunningWorkHeadSha,
 } from "./repository.js";
 import { getPullRequestHead, reactOnAckTargets } from "./githubPrSurface.js";
-import { isTerminalPgBossAttempt } from "./pgBossJob.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
@@ -53,10 +52,6 @@ type DurableExecutionContext = {
 
 const installationTokenCache = new Map<number, InstallationToken | Promise<InstallationToken>>();
 let botIdentityCache: Promise<BotIdentity> | undefined;
-
-function tokenIsFresh(token: InstallationToken): boolean {
-  return token.expiresAtTs - Date.now() > TOKEN_FRESHNESS_BUFFER_MS;
-}
 
 export function clearDurableAuthCachesForTest(): void {
   if (process.env.NODE_ENV === "test") {
@@ -122,7 +117,7 @@ export async function mintInstallationToken(
   const cached = installationTokenCache.get(installationId);
   if (cached) {
     const token = await cached;
-    if (tokenIsFresh(token)) return token;
+    if (token.expiresAtTs - Date.now() > TOKEN_FRESHNESS_BUFFER_MS) return token;
   }
 
   const pending = (async () => {
@@ -251,10 +246,6 @@ function enterExecutingPhase(state: WorkItemPhaseState): void {
   state.phase = "executing";
 }
 
-function enterCompletingPhase(state: WorkItemPhaseState): void {
-  state.phase = "completing";
-}
-
 function isSkipCheckSuppressed(state: WorkItemPhaseState): boolean {
   return state.phase === "executing";
 }
@@ -348,7 +339,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   };
 
   const recheckSkippableAndCancel = async (reason: string, notifyHook = true) => {
-    enterCompletingPhase(phaseState);
+    phaseState.phase = "completing";
     return cancelIfSkippable(reason, notifyHook);
   };
 
@@ -501,7 +492,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function handleDurableExecutionError(error: unknown): Promise<void> {
     if (await recheckSkippableAndCancel("skipped_after_error")) return;
     const message = error instanceof Error ? error.message : String(error);
-    if (!isTerminalPgBossAttempt(spec.job)) {
+    if (!(spec.job.retryCount >= spec.job.retryLimit)) {
       await markRetryingOrCancel(error, message);
       return;
     }

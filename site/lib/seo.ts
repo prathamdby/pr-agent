@@ -30,7 +30,7 @@ export const SEO_KEYWORDS = [
   "Docker code review",
 ];
 
-export function softwareApplicationJsonLd() {
+function softwareApplicationJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -59,26 +59,7 @@ export function softwareApplicationJsonLd() {
   };
 }
 
-export function webSiteJsonLd() {
-  return {
-    "@context": "https://schema.org",
-    "@type": "WebSite",
-    name: PRODUCT_NAME,
-    description: SEO_DESCRIPTION,
-    url: SITE_ORIGIN,
-  };
-}
-
-export function organizationJsonLd() {
-  return {
-    "@context": "https://schema.org",
-    "@type": "Organization",
-    name: "prathamdby",
-    url: "https://github.com/prathamdby",
-  };
-}
-
-export function faqPageJsonLd() {
+function faqPageJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
@@ -93,7 +74,7 @@ export function faqPageJsonLd() {
   };
 }
 
-export function itemListJsonLd() {
+function itemListJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "ItemList",
@@ -111,8 +92,19 @@ export function itemListJsonLd() {
 
 export const JSON_LD_GRAPHS = [
   softwareApplicationJsonLd(),
-  webSiteJsonLd(),
-  organizationJsonLd(),
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: PRODUCT_NAME,
+    description: SEO_DESCRIPTION,
+    url: SITE_ORIGIN,
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "prathamdby",
+    url: "https://github.com/prathamdby",
+  },
   faqPageJsonLd(),
   itemListJsonLd(),
 ];

@@ -14,11 +14,11 @@ import {
   type SpecialistId,
 } from "./orchestratorTypes.js";
 
-export const publishThreadSchema = z.object({
+const publishThreadSchema = z.object({
   findings: z.array(reviewFindingSchema),
 });
 
-export type PublishedThreadOverlapHint = {
+type PublishedThreadOverlapHint = {
   readonly findingId: string;
   readonly severity: ReviewFinding["severity"];
   readonly file: string;

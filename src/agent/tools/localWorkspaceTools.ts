@@ -39,10 +39,6 @@ const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
 
 const BINARY_SAMPLE_BYTES = 8192;
 
-function looksBinary(sample: Buffer): boolean {
-  return sample.includes(0);
-}
-
 function primePathGate(
   workspace: LocalPrWorkspace,
   pathGate: AskPathGate,
@@ -137,7 +133,7 @@ export function buildLocalWorkspaceTools(
       }
       const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
       const buf = await readFile(safePath);
-      if (looksBinary(buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)))) {
+      if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) {
         return {
           path: normalized,
           refused: true,

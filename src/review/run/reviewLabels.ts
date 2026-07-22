@@ -9,7 +9,6 @@ import {
   type ReviewFindingCategory,
   type ReviewPayload,
 } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export function dominantReviewCategory(
   findings: readonly ReviewFinding[],
@@ -36,10 +35,6 @@ function categoryLabelForPayload(payload: ReviewPayload): string | undefined {
   return category == null ? undefined : `${LABEL_CATEGORY_PREFIX}${category}`;
 }
 
-function currentCategoryLabel(currentLabels: readonly string[]): string | undefined {
-  return currentLabels.find((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
-}
-
 export function hasManagedCategoryLabel(currentLabels: readonly string[]): boolean {
   return currentLabels.some((label) => label.startsWith(LABEL_CATEGORY_PREFIX));
 }
@@ -48,7 +43,6 @@ export function labelsAlreadySynced(
   currentLabels: string[],
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean; category: boolean },
-  _mode: AnyReviewLens = "review",
 ): boolean {
   if (opts.effort) {
     const effortPrefix = LABEL_REVIEW_EFFORT_PREFIX;
@@ -62,7 +56,8 @@ export function labelsAlreadySynced(
   }
   if (opts.category) {
     const wantsCategory = categoryLabelForPayload(payload);
-    if (currentCategoryLabel(currentLabels) !== wantsCategory) return false;
+    if (currentLabels.find((label) => label.startsWith(LABEL_CATEGORY_PREFIX)) !== wantsCategory)
+      return false;
   }
   return true;
 }
@@ -70,7 +65,6 @@ export function labelsAlreadySynced(
 export function reviewLabelsFromPayload(
   payload: ReviewPayload,
   opts: { effort: boolean; security: boolean; category: boolean },
-  _mode: AnyReviewLens = "review",
 ): string[] {
   const labels: string[] = [];
   if (opts.effort) {
@@ -86,11 +80,7 @@ export function reviewLabelsFromPayload(
   return labels;
 }
 
-export function syncReviewLabels(
-  currentLabels: string[],
-  nextManaged: string[],
-  _mode: AnyReviewLens = "review",
-): string[] {
+export function syncReviewLabels(currentLabels: string[], nextManaged: string[]): string[] {
   const preserved = currentLabels.filter(
     (name) =>
       !name.startsWith(LABEL_REVIEW_EFFORT_PREFIX) &&

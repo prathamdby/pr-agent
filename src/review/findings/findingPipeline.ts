@@ -21,7 +21,6 @@ import {
   type ReviewFinding,
   type ReviewPayload,
 } from "../reviewSchema.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export type PreparedReviewPayload = {
   readonly payload: ReviewPayload;
@@ -40,14 +39,8 @@ export type PreparedFindingTargets = {
   };
 };
 
-function passesSeverityFloor(severity: ReviewFinding["severity"], severityFloor?: number): boolean {
-  if (severityFloor == null) return true;
-  return REVIEW_SEVERITY_RANK[severity] <= severityFloor;
-}
-
 export function prepareReviewPayloadForPublish(params: {
   payload: ReviewPayload;
-  mode: AnyReviewLens;
   reviewMinConfidence?: number;
   severityFloor?: number;
   cachedDiffIndex?: CachedPrDiffIndex;
@@ -61,9 +54,10 @@ export function prepareReviewPayloadForPublish(params: {
   const confidenceFiltered = deduped.filter(
     (finding) => finding.confidence == null || finding.confidence >= minConfidence,
   );
-  const severityFiltered = confidenceFiltered.filter((finding) =>
-    passesSeverityFloor(finding.severity, params.severityFloor),
-  );
+  const severityFiltered = confidenceFiltered.filter((finding) => {
+    if (params.severityFloor == null) return true;
+    return REVIEW_SEVERITY_RANK[finding.severity] <= params.severityFloor;
+  });
   const candidate = { ...normalized, findings: severityFiltered };
   const dedupedCount = normalized.findings.length - deduped.length;
 
@@ -117,7 +111,6 @@ export function prepareReviewPayloadForPublish(params: {
 
 export function prepareFindingsForPublish(params: {
   payload: ReviewPayload;
-  mode: AnyReviewLens;
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
   storedInlineFingerprints?: readonly string[];

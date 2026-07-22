@@ -8,15 +8,11 @@ import { AgentWorkScheduler } from "../agentWork/scheduler.js";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
-import { WebhookHandlersLive } from "./services/webhookHandlers.js";
+import { WebhookHandlersCore } from "./services/webhookHandlers.js";
 import { WEBHOOK_MAX_BODY_BYTES } from "../settings/index.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
   return Array.isArray(v) ? v.join(", ") : v;
-}
-
-function requestPath(url: string): string {
-  return url.split("?")[0] ?? url;
 }
 
 type BodyReadResult =
@@ -92,20 +88,13 @@ function readNodeRawBody(req: IncomingMessage, maxBodyBytes: number): Promise<Bo
   });
 }
 
-function payloadTooLargeResponse() {
-  return HttpServerResponse.text("payload too large", {
-    status: 413,
-    contentType: "text/plain; charset=utf-8",
-  });
-}
-
 function buildEffectWebhookApp(cfg: Config) {
   return HttpRouter.empty.pipe(
     HttpRouter.all(
       "*",
       Effect.gen(function* () {
         const req = yield* HttpServerRequest.HttpServerRequest;
-        const path = requestPath(req.url);
+        const path = req.url.split("?")[0] ?? req.url;
 
         if (req.method === "GET" && path === "/health") {
           return HttpServerResponse.text("ok", {
@@ -129,7 +118,10 @@ function buildEffectWebhookApp(cfg: Config) {
 
         const body = yield* readRawBody(req, WEBHOOK_MAX_BODY_BYTES);
         if (body.kind === "too_large") {
-          return payloadTooLargeResponse();
+          return HttpServerResponse.text("payload too large", {
+            status: 413,
+            contentType: "text/plain; charset=utf-8",
+          });
         }
 
         const intakeLog = createOperationLogger({
@@ -168,7 +160,7 @@ export function buildEffectWebhookLayer(
 ) {
   const appLayer = Layer.mergeAll(
     schedulerLayer,
-    WebhookHandlersLive.pipe(Layer.provide(schedulerLayer)),
+    WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)),
   );
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
   return buildEffectWebhookApp(cfg).pipe(

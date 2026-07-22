@@ -20,7 +20,7 @@ const frontmatterSchema = z
   })
   .passthrough();
 
-export type RepoPolicyRule = {
+type RepoPolicyRule = {
   readonly filename: string;
   readonly relativePath: string;
   readonly alwaysApply: boolean;

@@ -20,7 +20,7 @@ import {
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
 } from "../../settings/index.js";
-import { reviewSummarySentinelForMode } from "../reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
@@ -38,7 +38,7 @@ const PROGRESS_REVISION_RE =
 
 type SpecialistPhase = SpecialistRunPhase;
 
-export type ReconPhase = ReconRunPhase;
+type ReconPhase = ReconRunPhase;
 
 export type SpecialistTickState =
   | {
@@ -90,12 +90,6 @@ function renderSpecialistPhase(state: SpecialistPhase): string {
   }
 }
 
-function renderTerminalProgress(source: WorkSource): string {
-  return source === "slash"
-    ? "Superseded. Rescheduled for new head."
-    : "Superseded by a newer pull request update.";
-}
-
 /** Ack stub: Recon running, specialists waiting. */
 export function initialProgressTickState(): Extract<SpecialistTickState, { kind: "specialists" }> {
   return {
@@ -110,7 +104,7 @@ export function initialProgressTickState(): Extract<SpecialistTickState, { kind:
   };
 }
 
-export function renderProgressRevisionComment(revision: number, workItemId?: string): string {
+function renderProgressRevisionComment(revision: number, workItemId?: string): string {
   return workItemId == null
     ? `<!-- pr-agent:progress-revision ${revision} -->`
     : `<!-- pr-agent:progress-revision workItemId=${encodeURIComponent(workItemId)} value=${revision} -->`;
@@ -176,10 +170,12 @@ export function renderReviewProgressComment(params: {
   }
   const progressNote =
     params.tickState?.kind === "terminal"
-      ? renderTerminalProgress(params.source)
+      ? params.source === "slash"
+        ? "Superseded. Rescheduled for new head."
+        : "Superseded by a newer pull request update."
       : REVIEW_PROGRESS_NOTE;
   return [
-    reviewSummarySentinelForMode(params.mode),
+    REVIEW_SUMMARY_SENTINEL,
     "",
     renderGitHubAlert(REVIEW_OVERVIEW_ALERT, progressNote),
     "",
@@ -199,7 +195,7 @@ export function renderReviewFailureNotice(params: {
   retryCommand: string;
 }): string {
   return [
-    reviewSummarySentinelForMode(params.mode),
+    REVIEW_SUMMARY_SENTINEL,
     "",
     renderGitHubAlert(
       REVIEW_FAILURE_ALERT,

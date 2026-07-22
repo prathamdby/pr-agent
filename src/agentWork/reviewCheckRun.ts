@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { logWarn } from "../evlog.js";
+import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { httpStatus } from "../github/httpStatus.js";
 import {
   createReviewCheckRun,
@@ -21,10 +22,6 @@ import {
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "./repository.js";
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 /** P0–P2 findings fail the check; empty or P3-only payloads pass. */
 export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
@@ -50,20 +47,9 @@ export async function waitForReviewCheckRunGithubId(
   while (Date.now() < deadline) {
     const id = await getReviewCheckRunGithubId(pool, workItemId, reviewLens);
     if (id != null) return id;
-    await sleepMs(pollMs);
+    await new Promise<void>((resolve) => setTimeout(resolve, pollMs));
   }
   return getReviewCheckRunGithubId(pool, workItemId, reviewLens);
-}
-
-function isMissingChecksPermissionError(error: unknown): boolean {
-  const status = httpStatus(error);
-  if (status !== 403 && status !== 404) return false;
-  const message = error instanceof Error ? error.message : String(error);
-  return (
-    message.includes("Resource not accessible by integration") ||
-    message.includes("Not Found") ||
-    status === 404
-  );
 }
 
 function logCheckRunWarning(
@@ -71,14 +57,14 @@ function logCheckRunWarning(
   error: unknown,
   fields: Record<string, string | number | undefined>,
 ): void {
-  if (isMissingChecksPermissionError(error)) return;
+  if (isMissingActionsPermissionError(error)) return;
   logWarn(event, {
     ...fields,
     message: error instanceof Error ? error.message : String(error),
   });
 }
 
-export function reviewCheckRunName(_mode: AnyReviewLens): string {
+export function reviewCheckRunName(): string {
   return "PR Agent Review";
 }
 
@@ -324,7 +310,7 @@ export async function ensureReviewCheckRunStarted(
   const existing = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
   if (existing != null) return existing;
 
-  const name = reviewCheckRunName(params.reviewLens);
+  const name = reviewCheckRunName();
   const reservation = await reserveReviewCheckRunSlot(pool, params, name);
   if (reservation.kind === "existing") return reservation.githubId;
   if (reservation.kind === "resolved") return reservation.githubId;
@@ -359,7 +345,7 @@ export async function completeReviewCheckRun(
   if (checkRunId == null) return false;
 
   const completedAt = new Date().toISOString();
-  const name = reviewCheckRunName(params.reviewLens);
+  const name = reviewCheckRunName();
   try {
     await updateReviewCheckRun(
       params.token,

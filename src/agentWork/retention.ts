@@ -11,14 +11,8 @@ export type RetentionResult = {
 };
 
 /**
- * Delete terminal agent work items and aged webhook events. Work items go first so
- * their `webhook_event_id` references clear before the webhook rows are removed
- * (the FK is ON DELETE SET NULL, so either order is safe).
- *
- * Each table is drained in fixed-size batches (`RETENTION_DELETE_BATCH_SIZE`); every
- * batch is its own implicit transaction (`pool.query`) so a large backlog never holds
- * one long open transaction. The two tables run concurrently via `Promise.all`. A
- * batch that deletes fewer rows than the batch size means the table is drained.
+ * Delete aged terminal work items then webhook events, in batches, so a large
+ * backlog never holds one long transaction.
  */
 export async function runRetention(
   pool: Pool,

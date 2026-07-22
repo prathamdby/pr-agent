@@ -1,11 +1,6 @@
 import { Section } from "@/components/section";
 import { CAPABILITIES } from "@/lib/content";
 
-function commandHint(trigger: string): string | null {
-  const match = trigger.match(/\/[a-z-]+/);
-  return match?.[0] ?? null;
-}
-
 export function Capabilities() {
   return (
     <Section id="capabilities" labelledBy="capabilities-heading" raised>
@@ -23,7 +18,7 @@ export function Capabilities() {
 
       <ul className="mt-12 grid gap-x-12 gap-y-9 md:grid-cols-2">
         {CAPABILITIES.map((cap) => {
-          const command = commandHint(cap.trigger);
+          const command = cap.trigger.match(/\/[a-z-]+/)?.[0] ?? null;
           return (
             <li key={cap.title} className="min-w-0">
               {command ? (

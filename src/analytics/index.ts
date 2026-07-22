@@ -4,7 +4,6 @@ import type { AnalyticsSink, CaptureEventInput } from "./types.js";
 let sink: AnalyticsSink = noopAnalyticsSink;
 let enabled = false;
 
-/** Enable PostHog only when projectToken is non-empty; otherwise keep the no-op sink. */
 export async function initAnalytics(opts: {
   readonly projectToken: string;
   readonly host: string;
@@ -21,7 +20,6 @@ export async function initAnalytics(opts: {
   enabled = true;
 }
 
-/** Explicit no-op sink for tests that exercise capture call sites without boot. */
 export function initNoOpAnalytics(): void {
   sink = noopAnalyticsSink;
   enabled = false;

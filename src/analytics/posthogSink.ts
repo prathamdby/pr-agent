@@ -2,10 +2,6 @@ import { PostHog, type EventMessage } from "posthog-node";
 import { sanitizePostHogEvent } from "../security/sanitizePostHogEvent.js";
 import type { AnalyticsSink } from "./types.js";
 
-function beforeSend(event: EventMessage | null): EventMessage | null {
-  return sanitizePostHogEvent(event) as EventMessage | null;
-}
-
 export function createPostHogSink(opts: {
   readonly projectToken: string;
   readonly host: string;
@@ -13,7 +9,7 @@ export function createPostHogSink(opts: {
   const client = new PostHog(opts.projectToken, {
     ...(opts.host ? { host: opts.host } : {}),
     enableExceptionAutocapture: true,
-    before_send: beforeSend,
+    before_send: (event) => sanitizePostHogEvent(event) as EventMessage | null,
   });
 
   return {
