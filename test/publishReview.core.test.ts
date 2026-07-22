@@ -220,7 +220,7 @@ describe("publishReview core", () => {
     expect(publishState.inlineReviewIds).toEqual([]);
   });
 
-  it("skips PR review when only P3 findings", async () => {
+  it("skips PR review when only unanchored P3 findings", async () => {
     const publishState = testPublishState();
 
     await publishReviewForTest({
@@ -236,6 +236,7 @@ describe("publishReview core", () => {
             endLine: 1,
             title: "Typo",
             detail: "minor",
+            fixPrompt: "Fix the typo.",
           },
         ],
       },
@@ -244,6 +245,34 @@ describe("publishReview core", () => {
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
+  });
+
+  it("posts inline review for anchored P3 findings", async () => {
+    const publishState = testPublishState();
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState,
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+      payload: {
+        ...payload,
+        findings: [
+          {
+            severity: "P3",
+            file: "src/x.ts",
+            startLine: 4,
+            endLine: 4,
+            title: "Minor polish",
+            detail: "Advisory nits on the new line.",
+            fixPrompt: "Tidy the advisory copy.",
+          },
+        ],
+      },
+    });
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(publishState.inlineReviewIds).not.toEqual([]);
   });
 
   it("uses COMMENT when only P2 findings", async () => {
@@ -450,6 +479,7 @@ describe("publishReview core", () => {
             endLine: 1,
             title: "Typo",
             detail: "minor",
+            fixPrompt: "Fix the typo.",
           },
         ],
       },

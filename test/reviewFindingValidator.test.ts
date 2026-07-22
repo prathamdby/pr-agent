@@ -75,6 +75,7 @@ describe("validateReviewPayload", () => {
               endLine: 1,
               title: "Typo",
               detail: "minor",
+              fixPrompt: "Fix the typo.",
             },
           ],
         }),

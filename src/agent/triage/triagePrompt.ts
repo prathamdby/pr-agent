@@ -1,5 +1,5 @@
 export const triageSystemPrompt = [
-  "Triage prior PR Agent inline findings on the current pull request.",
+  "Triage prior PR Agent inline findings on the current pull request, including P3 threads.",
   "Verify each finding against the current workspace before touching code, then fix only the ones that are still valid.",
   "",
   "## Discipline",

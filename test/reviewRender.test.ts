@@ -202,6 +202,7 @@ describe("renderReviewSummaryComment", () => {
           endLine: 1,
           title: "Typo in heading",
           detail: "minor",
+          fixPrompt: "Fix the typo in the README heading.",
         },
       ],
     });
@@ -220,6 +221,7 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Summary only");
     expect(body).toContain(REVIEW_FINDING_FOOTNOTE_INLINE);
     expect(body).not.toContain("<summary>Prompt to fix</summary>");
+    expect(body).toContain("<summary>Prompt to fix — P3 · Typo in heading</summary>");
   });
 
   it("shows fix prompt details for summary-only findings", () => {
@@ -696,6 +698,7 @@ describe("renderAgentFixPrompt", () => {
           endLine: 1,
           title: "Typo in heading",
           detail: "minor typo",
+          fixPrompt: "Fix the typo in the README heading.",
         },
       ],
     });
@@ -716,13 +719,13 @@ describe("renderAgentFixPrompt", () => {
     expect(prompt).toContain("Pull request: #42");
     expect(prompt).toContain("Head SHA: abc123def456");
     expect(prompt.indexOf("[P0] @src/a.ts")).toBeLessThan(prompt.indexOf("[P2] @src/b.ts"));
-    expect(prompt.indexOf("[P2] @src/b.ts")).toBeLessThan(
-      prompt.indexOf("[P3 — no inline thread]"),
-    );
+    expect(prompt.indexOf("[P2] @src/b.ts")).toBeLessThan(prompt.indexOf("[P3] @README.md"));
     expect(prompt).toContain("In src/a.ts lines 5-7, guard the map with a mutex.");
     expect(prompt).not.toContain("Concurrent writes without lock.");
-    expect(prompt).toContain("[P3 — no inline thread] Typo in heading");
-    expect(prompt).toContain("minor typo");
+    expect(prompt).toContain("[P3] @README.md line 1");
+    expect(prompt).toContain("Fix the typo in the README heading.");
+    expect(prompt).toContain("[inline thread omitted — summary only]");
+    expect(prompt).not.toContain("minor typo");
   });
 
   it("tags unanchored P0–P2 findings as summary-only in agent fix prompt", () => {

@@ -24,7 +24,7 @@ This is the first pr-agent feature that writes to a user branch. It needs a smal
 
 6. **Dismissed is maintainer-owned.** A dismissed verdict requires human reply evidence and is never auto-resolved.
 
-7. **Current and legacy findings are triage-eligible.** Triage inventory includes specialist findings from current `review` runs plus recognized legacy `review-security`, `review-quality`, and `review-tests` threads. Mode is resolved from the `pr-agent:review-pointer` HTML marker, legacy pointer strings, or `publish_records` backfill. `REVIEW_POINTER_NOTE_LEAD` alone never makes a thread eligible.
+7. **Current and legacy findings are triage-eligible.** Triage inventory includes specialist findings from current `review` runs plus recognized legacy `review-security`, `review-quality`, and `review-tests` threads (P0–P3 when posted as inline threads). Mode is resolved from the `pr-agent:review-pointer` HTML marker, legacy pointer strings, or `publish_records` backfill. `REVIEW_POINTER_NOTE_LEAD` alone never makes a thread eligible.
 
 8. **Scoped invocation.** PR-conversation `/triage` runs on all unresolved eligible findings. Inline-thread `/triage` runs on one finding. One active triage job per PR remains; thread `/triage` during a full-PR run acks that full triage is already in progress.
 
