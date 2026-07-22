@@ -291,6 +291,25 @@ async function upsertSummaryCommentAtRevision(
     return { id: currentComment.id, updated: false, skipped: true };
   }
 
+  const stubPostedAtMs =
+    params.workItemId != null && params.progressRevision === 0
+      ? Date.now()
+      : params.workItemId != null
+        ? await getProgressStubPostedAtMs(client, params.resourceKey, params.reviewLens)
+        : null;
+
+  // Persist stubPostedAtMs before the GitHub comment upsert so it survives
+  // even when the subsequent recordAgentWorkPublishStep call fails.
+  if (params.workItemId != null && stubPostedAtMs != null) {
+    await recordAgentWorkPublishStep(client, {
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: params.reviewLens,
+      step: "progress_comment",
+      detail: { stubPostedAtMs },
+    });
+  }
+
   const result = await upsertSummaryCommentWithoutRevision({
     ...params,
     pool: client,
@@ -298,10 +317,6 @@ async function upsertSummaryCommentAtRevision(
     hintCommentId: currentComment?.id ?? params.hintCommentId,
   });
   if (params.workItemId != null) {
-    const stubPostedAtMs =
-      params.progressRevision === 0
-        ? Date.now()
-        : await getProgressStubPostedAtMs(client, params.resourceKey, params.reviewLens);
     await recordAgentWorkPublishStep(client, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
