@@ -86,14 +86,7 @@ describe("writable PR checkout", () => {
       buildCommitCommandArgs({
         files: ["x"],
         subject: "fix: guard null user",
-        body: [
-          "- One",
-          "- Two",
-          "- Three",
-          "- Four",
-          "- Five",
-          "- Six",
-        ],
+        body: ["- One", "- Two", "- Three", "- Four", "- Five", "- Six"],
       }),
     ).toThrow(/at most 5 bullets/);
     expect(
