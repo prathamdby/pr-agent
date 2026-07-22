@@ -11,10 +11,12 @@ import {
   loadReviewExecutorPublishContext,
   claimQueuedWorkItem,
   claimSummaryCommentCreation,
+  getProgressCommentRevision,
   getWorkItem,
   recordReviewCheckRun,
   recordPublishStep,
   reserveReviewCheckRun,
+  hasActiveReviewWorkItem,
 } from "../src/agentWork/repository.js";
 import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
 
@@ -25,14 +27,57 @@ describe("loadReviewExecutorPublishContext", () => {
     vi.clearAllMocks();
   });
 
-  it("maps one batched publish_records query into executor context", async () => {
+  it("restores current batch review ids and merges stored fingerprints", async () => {
+    const postedFinding = {
+      severity: "P1",
+      file: "src/a.ts",
+      startLine: 10,
+      endLine: 10,
+      title: "Missing null check",
+      detail: "The payload can be null.",
+      fixPrompt: "Guard the payload before dereferencing it.",
+    };
     vi.mocked(queryOne).mockResolvedValue({
       current_publish: [
-        { step: "inline_review", github_id: "42" },
+        {
+          step: "inline_review",
+          github_id: "43",
+          detail: {
+            batches: [
+              { batchId: "old", workItemId: "wi-0", reviewId: 41, fingerprints: ["fp-old"] },
+              {
+                batchId: "one",
+                workItemId: "wi-1",
+                specialist: "correctness",
+                reviewId: 42,
+                fingerprints: ["fp-1"],
+                placements: [
+                  {
+                    finding: postedFinding,
+                    resolvedLine: 10,
+                    canonicalFingerprint: "fp-1",
+                  },
+                ],
+              },
+              { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
+            ],
+          },
+        },
         { step: "summary_comment", github_id: "99" },
       ],
       prior_summary_exists: true,
-      fingerprint_details: [{ detail: { fingerprints: ["fp-1", "fp-2"] } }],
+      fingerprint_details: [
+        {
+          detail: {
+            fingerprints: ["fp-legacy"],
+            batches: [
+              { batchId: "old", workItemId: "wi-0", reviewId: 41, fingerprints: ["fp-old"] },
+              { batchId: "one", workItemId: "wi-1", reviewId: 42, fingerprints: ["fp-1"] },
+              { batchId: "two", workItemId: "wi-1", reviewId: 43, fingerprints: ["fp-2"] },
+            ],
+          },
+        },
+      ],
       latest_summary_github_id: "1001",
     });
 
@@ -40,12 +85,21 @@ describe("loadReviewExecutorPublishContext", () => {
       loadReviewExecutorPublishContext(pool, "wi-1", "o/r#1", "review"),
     ).resolves.toEqual({
       publishState: {
-        inlinePublished: true,
         summaryPublished: true,
-        inlineReviewId: 42,
+        inlineReviewIds: [42, 43],
+        threadCallCount: 2,
       },
       shouldLinkToSummary: true,
-      storedInlineFingerprints: ["fp-1", "fp-2"],
+      storedInlineFingerprints: ["fp-legacy", "fp-old", "fp-1", "fp-2"],
+      resumedPlacements: [
+        {
+          kind: "resumed",
+          source: "correctness",
+          placement: { finding: postedFinding, inlineLine: 10, inlinePosted: true },
+          canonicalFingerprint: "fp-1",
+          reviewId: 42,
+        },
+      ],
       summaryCommentGithubId: 1001,
     });
 
@@ -94,7 +148,55 @@ describe("listTriageEligibleInlineReviews", () => {
   });
 });
 
-describe("review check run publish records", () => {
+describe("publish records", () => {
+  it("loads the scoped progress revision from the progress publish record", async () => {
+    vi.mocked(queryOne).mockResolvedValue({ work_item_id: "wi-1", revision: 3 });
+
+    await expect(getProgressCommentRevision(pool, "o/r#1", "review")).resolves.toEqual({
+      workItemId: "wi-1",
+      revision: 3,
+    });
+
+    expect(queryOne).toHaveBeenLastCalledWith(
+      pool,
+      expect.stringContaining("step = 'progress_comment'"),
+      ["o/r#1", "review"],
+    );
+    expect(vi.mocked(queryOne).mock.calls.at(-1)?.[1]).toContain("progressRevision");
+  });
+
+  it("returns null when no progress revision has been recorded", async () => {
+    vi.mocked(queryOne).mockResolvedValue(null);
+
+    await expect(getProgressCommentRevision(pool, "o/r#1", "review")).resolves.toBeNull();
+  });
+
+  it("atomically appends unique inline batches in one publish record row", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const scopedPool = { query } as unknown as Pool;
+    const batch = {
+      batchId: "batch-1",
+      workItemId: "wi-1",
+      reviewId: 42,
+      fingerprints: ["fp-1"],
+    };
+
+    await recordPublishStep(scopedPool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      reviewLens: "review",
+      step: "inline_review",
+      githubId: 42,
+      detail: batch,
+    });
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringContaining("jsonb_set"),
+      expect.arrayContaining([JSON.stringify({ batches: [batch] })]),
+    );
+    expect(vi.mocked(query).mock.calls[0]?.[0]).toContain("batchId");
+  });
+
   it("uses the shared-step conflict predicate that matches the partial index", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const scopedPool = { query } as unknown as Pool;
@@ -165,6 +267,21 @@ describe("review check run publish records", () => {
   });
 });
 
+describe("active review work", () => {
+  it("checks queued and running review work for one PR resource", async () => {
+    vi.mocked(queryOne).mockResolvedValue({ active: true });
+
+    await expect(hasActiveReviewWorkItem(pool, "o/r#1")).resolves.toBe(true);
+
+    expect(queryOne).toHaveBeenCalledWith(
+      pool,
+      expect.stringContaining("status IN ('queued', 'running')"),
+      ["o/r#1"],
+    );
+    expect(vi.mocked(queryOne).mock.calls.at(-1)?.[1]).toContain("type = 'review'");
+  });
+});
+
 function reviewRow(overrides: Record<string, unknown> = {}) {
   return {
     id: "wi-1",
@@ -201,6 +318,18 @@ describe("mapWorkItem payload boundary", () => {
       payload: { mode: "review", source: "auto", legacyFlag: true },
     });
   });
+
+  it.each(["review-security", "review-quality", "review-tests"] as const)(
+    "normalizes stored %s database rows to the live review mode",
+    async (reviewLens) => {
+      vi.mocked(queryOne).mockResolvedValue(reviewRow({ review_lens: reviewLens }));
+
+      await expect(getWorkItem(pool, "wi-1")).resolves.toMatchObject({
+        type: "review",
+        reviewLens: "review",
+      });
+    },
+  );
 
   it("rejects malformed payloads at getWorkItem", async () => {
     vi.mocked(queryOne).mockResolvedValue(reviewRow({ payload: { question: "wrong type shape" } }));

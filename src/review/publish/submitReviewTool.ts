@@ -19,14 +19,15 @@ import {
   createReviewPayloadSchema,
   formatReviewValidationError,
   reviewSummarySentinelForMode,
-  type ReviewMode,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 
 export type SubmitReviewState = {
   published: boolean;
-  inlinePublished: boolean;
-  inlineReviewId: number | null;
+  inlineReviewIds: number[];
+  threadCallCount: number;
   lastValidationError: string | null;
   publishCallCount: number;
   publishCallsExhausted: boolean;
@@ -39,13 +40,15 @@ const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
   unrepresentable: "any",
 }) as PiTool["parameters"];
 
-export function createSubmitReviewState(
-  initial?: Partial<Pick<SubmitReviewState, "published" | "inlinePublished" | "inlineReviewId">>,
-): SubmitReviewState {
+export function createSubmitReviewState(initial?: {
+  readonly published?: boolean;
+  readonly inlineReviewIds?: readonly number[];
+  readonly threadCallCount?: number;
+}): SubmitReviewState {
   return {
     published: initial?.published ?? false,
-    inlinePublished: initial?.inlinePublished ?? false,
-    inlineReviewId: initial?.inlineReviewId ?? null,
+    inlineReviewIds: [...(initial?.inlineReviewIds ?? [])],
+    threadCallCount: initial?.threadCallCount ?? 0,
     lastValidationError: null,
     publishCallCount: 0,
     publishCallsExhausted: false,
@@ -60,7 +63,7 @@ export function buildSubmitReviewTool(params: {
   getToken?: () => string;
   getTokenExpiresAtTs?: () => number;
   ctx: ReviewPublishContext;
-  mode?: ReviewMode;
+  mode?: AnyReviewLens;
   state: SubmitReviewState;
   cachedDiffIndex?: CachedPrDiffIndex;
   canEnforceDiffCacheBeforeSubmit?: () => boolean;
@@ -72,6 +75,8 @@ export function buildSubmitReviewTool(params: {
   ) => Promise<void>;
   shouldAbortPublish?: () => Promise<boolean>;
   storedInlineFingerprints?: readonly string[];
+  workItemId?: string;
+  resumedPlacements?: readonly AcceptedPlacement[];
   publishAbortState?: { staleHead?: boolean };
   severityFloor?: number;
 }): {
@@ -234,19 +239,24 @@ export function buildSubmitReviewTool(params: {
     try {
       await publishReview({
         token: params.getToken?.() ?? params.token,
+        getToken: params.getToken,
         tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
+        getTokenExpiresAtTs: params.getTokenExpiresAtTs,
         mode,
         cfg: params.cfg,
         ...params.ctx,
         payload: prepared.prepared.payload,
         dedupedFindingCount: prepared.prepared.dedupedCount,
-        inlinePlacements: prepared.prepared.placements,
         publishState: params.state,
         cachedDiffIndex: params.cachedDiffIndex,
         shouldLinkToSummary: params.shouldLinkToSummary,
         summaryCommentIdHint: params.summaryCommentIdHint,
         recordPublishStep: params.recordPublishStep,
         storedInlineFingerprints: params.storedInlineFingerprints,
+        workItemId: params.workItemId,
+        resumedPlacements: params.resumedPlacements,
+        shouldAbortPublish: params.shouldAbortPublish,
+        publishAbortState: params.publishAbortState,
         staleReview: params.publishAbortState?.staleHead === true,
         ciSummaryAuthor: createAgentCiSummaryAuthor(params.cfg),
       });
@@ -271,6 +281,10 @@ export function buildSubmitReviewTool(params: {
           : "Review publish failed. Retry submitReview with a valid ReviewPayload if publish budget remains.",
         cause: e,
       });
+    }
+
+    if (params.state.publishSuperseded) {
+      return { ok: false, publishSuperseded: true };
     }
 
     params.state.published = true;

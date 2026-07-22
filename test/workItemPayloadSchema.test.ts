@@ -35,6 +35,16 @@ const validByType = {
 } as const satisfies Record<WorkType, () => unknown>;
 
 describe("parseWorkItemPayload", () => {
+  it.each(["review-security", "review-quality", "review-tests"] as const)(
+    "normalizes stored %s payloads to the live review mode",
+    (mode) => {
+      expect(parseWorkItemPayload("review", { mode, source: "auto" })).toEqual({
+        mode: "review",
+        source: "auto",
+      });
+    },
+  );
+
   it("accepts a valid payload for each work item type", () => {
     for (const type of Object.keys(validByType) as WorkType[]) {
       expect(parseWorkItemPayload(type, validByType[type]())).toEqual(validByType[type]());

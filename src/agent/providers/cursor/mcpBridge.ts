@@ -42,6 +42,7 @@ export type McpBridgeOptions = {
 
 export type McpBridgeHandle = {
   readonly mcpServers: Record<string, McpServerConfig>;
+  readonly abort: () => Promise<void>;
   readonly dispose: () => Promise<void>;
 };
 
@@ -162,7 +163,10 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
   const bearerToken = crypto.randomBytes(CURSOR_MCP_TOKEN_BYTES).toString("hex");
   const endpointPath = `/mcp/${crypto.randomUUID()}`;
   const pendingCalls = new Set<AbortController>();
+  let aborted = false;
   let disposed = false;
+  let abortPromise: Promise<void> | undefined;
+  let disposePromise: Promise<void> | undefined;
 
   const mcpServer = new McpProtocolServer(
     { name: "pr-agent-tool-bridge", version: "1.0.0" },
@@ -184,6 +188,13 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
       safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
       return {
         content: [{ type: "text", text: "MCP bridge disposed" }],
+        isError: true,
+      };
+    }
+    if (aborted) {
+      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
+      return {
+        content: [{ type: "text", text: "MCP bridge aborted" }],
         isError: true,
       };
     }
@@ -324,18 +335,28 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     },
   };
 
-  const dispose = async (): Promise<void> => {
-    if (disposed) return;
-    disposed = true;
-    for (const controller of pendingCalls) {
-      controller.abort();
+  const abort = (): Promise<void> => {
+    if (!abortPromise) {
+      aborted = true;
+      for (const controller of pendingCalls) controller.abort();
+      abortPromise = Promise.resolve();
     }
-    pendingCalls.clear();
-    await Promise.allSettled([transport.close(), mcpServer.close()]);
-    await new Promise<void>((resolve, reject) => {
-      httpServer.close((err) => (err ? reject(err) : resolve()));
-      httpServer.closeIdleConnections?.();
-    });
+    return abortPromise;
+  };
+
+  const dispose = (): Promise<void> => {
+    if (!disposePromise) {
+      disposed = true;
+      disposePromise = (async () => {
+        await abort();
+        await Promise.allSettled([transport.close(), mcpServer.close()]);
+        await new Promise<void>((resolve, reject) => {
+          httpServer.close((err) => (err ? reject(err) : resolve()));
+          httpServer.closeIdleConnections?.();
+        });
+      })();
+    }
+    return disposePromise;
   };
 
   options.signal?.addEventListener(
@@ -346,5 +367,5 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     { once: true },
   );
 
-  return { mcpServers, dispose };
+  return { mcpServers, abort, dispose };
 }

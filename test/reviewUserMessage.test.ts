@@ -9,7 +9,6 @@ function baseReviewParams(
     repo: "hello-world",
     prNumber: 42,
     headSha: "abc123",
-    reviewMode: "review-security",
     userSupplement,
   };
 }
@@ -31,5 +30,14 @@ describe("buildReviewRunUserContent", () => {
 
     expect(content).not.toContain("user_supplement");
     expect(content).not.toContain("Additional instruction");
+  });
+
+  it("uses the general closing instruction", () => {
+    const content = buildReviewRunUserContent(baseReviewParams());
+
+    expect(content).toContain(
+      "Perform an exhaustive review: inspect every changed file, then call submitReview exactly once with all evidenced P0–P2 findings.",
+    );
+    expect(content).not.toContain("security review");
   });
 });

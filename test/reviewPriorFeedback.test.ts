@@ -5,12 +5,11 @@ import {
   formatPriorInlineFeedbackBlock,
   type PriorInlineFeedbackThread,
 } from "../src/review/run/reviewPriorFeedback.js";
-import {
-  REVIEW_POINTER_BODY,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
-} from "../src/settings/index.js";
+import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
+import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
+
+const [SECURITY_REVIEW_POINTER_BODY, QUALITY_REVIEW_POINTER_BODY, TESTS_REVIEW_POINTER_BODY] =
+  LEGACY_REVIEW_POINTER_BODIES;
 
 vi.mock("../src/github/appAuth.js", () => ({
   installationOctokit: vi.fn(),
@@ -65,7 +64,7 @@ describe("reviewPriorFeedback", () => {
     expect(block).toContain("&lt;inject&gt;");
   });
 
-  it("includes human replies without pullRequestReviewId", async () => {
+  it("includes legacy security threads in new review prior feedback", async () => {
     const botUserId = 1;
     const humanUserId = 2;
     const reviewId = 100;
@@ -78,7 +77,7 @@ describe("reviewPriorFeedback", () => {
               {
                 id: reviewId,
                 user: { id: botUserId },
-                body: REVIEW_POINTER_BODY,
+                body: SECURITY_REVIEW_POINTER_BODY,
               },
             ],
           })),
@@ -110,7 +109,7 @@ describe("reviewPriorFeedback", () => {
       },
     } as never);
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual(["False positive — already handled upstream"]);
@@ -171,7 +170,7 @@ describe("reviewPriorFeedback", () => {
       },
     } as never);
 
-    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, "review", botUserId);
+    const threads = await fetchPriorInlineReviewFeedback("token", "o", "r", 1, botUserId);
 
     expect(threads).toHaveLength(1);
     expect(threads[0]?.humanReplies).toEqual([

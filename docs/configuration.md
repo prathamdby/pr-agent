@@ -59,6 +59,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | Name                      | Env var                            | Default                     | Notes                                                                                                                                                                                                                                |
 | ------------------------- | ---------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Provider prompt timeout   | `PROVIDER_PROMPT_TIMEOUT_MS`       | `300000`                    | inactivity cap: abort if no provider activity this long                                                                                                                                                                              |
+| Specialist timeout        | `REVIEW_SPECIALIST_TIMEOUT_MS`     | `900000`                    | total wall-clock budget for one specialist, including jitter, retries, and validation repair                                                                                                                                         |
 | Slash command allowlist   | `SLASH_ALLOWED_ASSOCIATIONS`       | `OWNER,MEMBER,COLLABORATOR` | comma-separated GitHub comment author associations allowed to run slash commands; valid values: `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `NONE`, `MANNEQUIN`; set `*` to allow all |
 | Review worker concurrency | `REVIEW_CONCURRENCY`               | `2`                         | pg-boss review queue workers                                                                                                                                                                                                         |
 | Ask worker concurrency    | `ASK_CONCURRENCY`                  | `1`                         | pg-boss ask queue workers                                                                                                                                                                                                            |
@@ -144,7 +145,6 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                           |
 | `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened — `pull_request` actions accepted at webhook intake (not the auto-enqueue map)                                       |
 | `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize`; `reopened` enqueues nothing (see [features.md](features.md)) |
-| `AUTOMATED_REVIEW_LENS`                    | `review`                                                                                                                                           |
 | `DESCRIPTION_PUBLISH_LENS`                 | `description`                                                                                                                                      |
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                              |
 | `TRIAGE_PUBLISH_LENS`                      | `triage`                                                                                                                                           |
@@ -155,66 +155,70 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 
 ### Review output
 
-Review check runs are always on: the worker posts GitHub check run `PR Agent Review` (or a lens-specific name) on the PR head, starts `in_progress`, then completes `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Requires GitHub App Checks read/write; soft-fails if that permission is missing. Use the check name in branch protection rules.
+Review check runs are always on. The worker posts `PR Agent Review` on the PR head and starts it as `in_progress`. Full-coverage runs complete with `failure` for any P0/P1/P2 finding and `success` when findings are empty or P3-only. Partial specialist coverage completes as `neutral`; the optional commit status reports `error`. Checks require GitHub App read/write permission and soft-fail when that permission is missing.
 
-| Symbol                                                                                                                 | Role                                                                                                                                                                        |
-| ---------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `REVIEW_SUMMARY_SENTINEL`                                                                                              | PR conversation summary marker                                                                                                                                              |
-| `SECURITY_REVIEW_SUMMARY_SENTINEL`                                                                                     | Security summary marker                                                                                                                                                     |
-| `QUALITY_REVIEW_SUMMARY_SENTINEL`                                                                                      | Code-quality summary marker                                                                                                                                                 |
-| `TESTS_REVIEW_SUMMARY_SENTINEL`                                                                                        | Tests summary marker (`/review-tests` lens)                                                                                                                                 |
-| `REVIEW_POINTER_BODY` / `SECURITY_REVIEW_POINTER_BODY` / `QUALITY_REVIEW_POINTER_BODY` / `TESTS_REVIEW_POINTER_BODY`   | Files-tab pointer text (repeat no-bugs fallback)                                                                                                                            |
-| `REVIEW_POINTER_NOTE_LEAD`                                                                                             | First-publish pointer NOTE body                                                                                                                                             |
-| `REVIEW_POINTER_BODY_MAX_CHARS`                                                                                        | 60000                                                                                                                                                                       |
-| `REVIEW_EFFORT_WORDS`                                                                                                  | Light → Heavy labels for effort row                                                                                                                                         |
-| `REVIEW_OVERVIEW_ALERT` / `REVIEW_FAILURE_ALERT`                                                                       | GitHub alert types (`NOTE`, `CAUTION`)                                                                                                                                      |
-| `REVIEW_PROGRESS_NOTE`                                                                                                 | In-progress NOTE body                                                                                                                                                       |
-| `REVIEW_PROGRESS_SOURCE_AUTO` / `REVIEW_PROGRESS_SOURCE_SLASH`                                                         | Progress table source labels                                                                                                                                                |
-| `LIGHTWEIGHT_REVIEW_COMPLETION_*`                                                                                      | Docs-only auto-review skip copy                                                                                                                                             |
-| `REVIEW_CHECK_RUN_RESERVATION_STALE_MS`                                                                                | 300000                                                                                                                                                                      |
-| `REVIEW_CHECK_RUN_WAIT_FOR_ID_MS` / `REVIEW_CHECK_RUN_WAIT_POLL_MS`                                                    | 15000 / 100 — poll for a peer-started check run id before giving up                                                                                                         |
-| `REVIEW_CI_SUMMARY_WAIT_MS` / `REVIEW_CI_SUMMARY_WAIT_POLL_MS` / `REVIEW_CI_SUMMARY_MAX_FAILURES`                      | 15000 / 2000 / 3 — CI summary gate wait, poll, and max failing checks                                                                                                       |
-| `REVIEW_CI_SUMMARY_LOG_MAX_BYTES` / `REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS` / `REVIEW_CI_SUMMARY_LOG_MAX_JOBS`       | 24000 / 12000 / 3 — condensed Actions log caps for the CI-summary LLM call                                                                                                  |
-| `REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS` / `REVIEW_CI_SUMMARY_REASON_MAX_CHARS` / `REVIEW_CI_SUMMARY_FIX_HINT_MAX_CHARS` | 240 / 400 / 280 — model-authored CI field caps                                                                                                                              |
-| `REVIEW_CI_SUMMARY_GRANT_CHECKS` / `REVIEW_CI_SUMMARY_GRANT_ACTIONS` / `REVIEW_CI_SUMMARY_UNAVAILABLE`                 | User-visible CI-row copy when Checks/Actions permission is missing, or status fetch fails                                                                                   |
-| `REVIEW_SIZE_TIER_*`                                                                                                   | Advisory small/medium/large tier thresholds                                                                                                                                 |
-| `REVIEW_RISK_PATH_PATTERNS`                                                                                            | Path categories for trusted review context                                                                                                                                  |
-| `REVIEW_FINDING_FOOTNOTE_INLINE` / `REVIEW_FINDING_FOOTNOTE_SUMMARY`                                                   | Finding row footnotes                                                                                                                                                       |
-| `REVIEW_FINDINGS_NONE`                                                                                                 | Empty findings table cell                                                                                                                                                   |
-| `REVIEW_SECURITY_DEFAULT`                                                                                              | Default security row when null                                                                                                                                              |
-| `AGENT_FIX_PROMPT_ACCORDION_SUMMARY`                                                                                   | Pointer accordion title                                                                                                                                                     |
-| `MAX_REVIEW_FOLLOW_UPS`                                                                                                | 5                                                                                                                                                                           |
-| `REVIEW_FINDING_TITLE_MAX_CHARS`                                                                                       | 80                                                                                                                                                                          |
-| `REVIEW_FINDING_DETAIL_MAX_CHARS`                                                                                      | 4000                                                                                                                                                                        |
-| `REVIEW_FINDING_FIX_PROMPT_MAX_CHARS`                                                                                  | 2000                                                                                                                                                                        |
-| `REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS`                                                                              | 2000                                                                                                                                                                        |
-| `REVIEW_OVERVIEW_MAX_CHARS`                                                                                            | 8000                                                                                                                                                                        |
-| `REVIEW_OVERVIEW_COMPACT_MAX_CHARS`                                                                                    | 500                                                                                                                                                                         |
-| `REVIEW_SECURITY_CONCERNS_MAX_CHARS`                                                                                   | 4000                                                                                                                                                                        |
-| `REVIEW_FOLLOW_UP_MAX_CHARS`                                                                                           | 2000                                                                                                                                                                        |
-| `REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS`                                                                             | 300                                                                                                                                                                         |
-| `MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS`                                                                                 | regex set (`safe to merge`, `ready to merge`, `good to merge`) — clamped when P0/P1 open                                                                                    |
-| `REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK`                                                                            | `No blocking findings on this pass` — mechanical fallback when verdict absent and no blocking findings                                                                      |
-| `REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX`                                                                        | `blocking finding(s) open on this pass` — mechanical fallback when verdict absent and P0/P1 open                                                                            |
-| `REVIEW_SUMMARY_BODY_MAX_CHARS`                                                                                        | 60000                                                                                                                                                                       |
-| `REVIEW_SUMMARY_COMPACTION_NOTE`                                                                                       | Public note when summary is compacted                                                                                                                                       |
-| `REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX`                                                                               | Public note when finding rows are omitted                                                                                                                                   |
-| `MAX_REVIEW_PAYLOAD_FINDINGS`                                                                                          | 128                                                                                                                                                                         |
-| `MAX_INLINE_REVIEW_COMMENTS`                                                                                           | 50                                                                                                                                                                          |
-| `REVIEW_EFFORT_MIN` / `REVIEW_EFFORT_MAX`                                                                              | 1–5                                                                                                                                                                         |
-| `REVIEW_SEVERITY_RANK`                                                                                                 | P0–P3 ordering                                                                                                                                                              |
-| Label prefixes                                                                                                         | `LABEL_REVIEW_EFFORT_PREFIX`, `LABEL_SECURITY_EFFORT_PREFIX`, `LABEL_QUALITY_EFFORT_PREFIX`, `LABEL_TESTS_EFFORT_PREFIX`, `LABEL_SECURITY_CONCERN`, `LABEL_CATEGORY_PREFIX` |
-| `REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE`                                                                          | 50                                                                                                                                                                          |
-| `REPO_POLICY_DIRNAME`                                                                                                  | `.pr-agent` directory at checkout root                                                                                                                                      |
-| `REPO_POLICY_EXTENSION`                                                                                                | `.mdc`                                                                                                                                                                      |
-| `MAX_REPO_POLICY_BYTES`                                                                                                | 32768 (aggregate content across accepted rules)                                                                                                                             |
-| `MAX_REPO_POLICY_FILE_BYTES`                                                                                           | 8192                                                                                                                                                                        |
-| `MAX_REPO_POLICY_FILES`                                                                                                | 20                                                                                                                                                                          |
-| `MAX_REPO_POLICY_PATH_PATTERN_CHARS`                                                                                   | 200                                                                                                                                                                         |
-| `MAX_REPO_POLICY_INSTRUCTION_CHARS`                                                                                    | 1000                                                                                                                                                                        |
-| `AGENT_INSTRUCTION_FILENAMES`                                                                                          | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` (repo-root load order)                                                                                                                |
-| `MAX_AGENT_INSTRUCTION_BYTES`                                                                                          | 65536 (aggregate content across accepted root files)                                                                                                                        |
-| `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                     | 32768                                                                                                                                                                       |
+Operators using branch protection must replace required checks named `PR Agent Security Review`, `PR Agent Quality Review`, or `PR Agent Tests Review` with `PR Agent Review`. New runs no longer create the three old check names.
+
+| Symbol                                                                                                                 | Role                                                                                                   |
+| ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `REVIEW_SUMMARY_SENTINEL`                                                                                              | PR conversation summary marker                                                                         |
+| `LEGACY_REVIEW_SUMMARY_SENTINELS`                                                                                      | Historical review summary markers retained for recognition                                             |
+| `REVIEW_POINTER_BODY`                                                                                                  | Files-tab pointer text (repeat no-bugs fallback)                                                       |
+| `LEGACY_REVIEW_POINTER_BODIES`                                                                                         | Historical files-tab pointer text retained for recognition                                             |
+| `REVIEW_POINTER_NOTE_LEAD`                                                                                             | First-publish pointer NOTE body                                                                        |
+| `REVIEW_POINTER_BODY_MAX_CHARS`                                                                                        | 60000                                                                                                  |
+| `REVIEW_EFFORT_WORDS`                                                                                                  | Light → Heavy labels for effort row                                                                    |
+| `REVIEW_OVERVIEW_ALERT` / `REVIEW_FAILURE_ALERT`                                                                       | GitHub alert types (`NOTE`, `CAUTION`)                                                                 |
+| `REVIEW_PROGRESS_NOTE`                                                                                                 | In-progress NOTE body                                                                                  |
+| `REVIEW_PROGRESS_SOURCE_AUTO` / `REVIEW_PROGRESS_SOURCE_SLASH`                                                         | Progress table source labels                                                                           |
+| `LIGHTWEIGHT_REVIEW_COMPLETION_*`                                                                                      | Docs-only auto-review skip copy                                                                        |
+| `REVIEW_CHECK_RUN_RESERVATION_STALE_MS`                                                                                | 300000                                                                                                 |
+| `REVIEW_CHECK_RUN_WAIT_FOR_ID_MS` / `REVIEW_CHECK_RUN_WAIT_POLL_MS`                                                    | 15000 / 100 — poll for a peer-started check run id before giving up                                    |
+| `REVIEW_CI_SUMMARY_WAIT_MS` / `REVIEW_CI_SUMMARY_WAIT_POLL_MS` / `REVIEW_CI_SUMMARY_MAX_FAILURES`                      | 15000 / 2000 / 3 — CI summary gate wait, poll, and max failing checks                                  |
+| `REVIEW_CI_SUMMARY_LOG_MAX_BYTES` / `REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS` / `REVIEW_CI_SUMMARY_LOG_MAX_JOBS`       | 24000 / 12000 / 3 — condensed Actions log caps for the CI-summary LLM call                             |
+| `REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS` / `REVIEW_CI_SUMMARY_REASON_MAX_CHARS` / `REVIEW_CI_SUMMARY_FIX_HINT_MAX_CHARS` | 240 / 400 / 280 — model-authored CI field caps                                                         |
+| `REVIEW_CI_SUMMARY_GRANT_CHECKS` / `REVIEW_CI_SUMMARY_GRANT_ACTIONS` / `REVIEW_CI_SUMMARY_UNAVAILABLE`                 | User-visible CI-row copy when Checks/Actions permission is missing, or status fetch fails              |
+| `REVIEW_SIZE_TIER_*`                                                                                                   | Advisory small/medium/large tier thresholds                                                            |
+| `REVIEW_RISK_PATH_PATTERNS`                                                                                            | Path categories for trusted review context                                                             |
+| `REVIEW_FINDING_FOOTNOTE_INLINE` / `REVIEW_FINDING_FOOTNOTE_SUMMARY`                                                   | Finding row footnotes                                                                                  |
+| `REVIEW_FINDINGS_NONE`                                                                                                 | Empty findings table cell                                                                              |
+| `REVIEW_SECURITY_DEFAULT`                                                                                              | Default security row when null                                                                         |
+| `AGENT_FIX_PROMPT_ACCORDION_SUMMARY`                                                                                   | Pointer accordion title                                                                                |
+| `MAX_REVIEW_FOLLOW_UPS`                                                                                                | 5                                                                                                      |
+| `REVIEW_FINDING_TITLE_MAX_CHARS`                                                                                       | 80                                                                                                     |
+| `REVIEW_FINDING_DETAIL_MAX_CHARS`                                                                                      | 4000                                                                                                   |
+| `REVIEW_FINDING_FIX_PROMPT_MAX_CHARS`                                                                                  | 2000                                                                                                   |
+| `REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS`                                                                              | 2000                                                                                                   |
+| `REVIEW_OVERVIEW_MAX_CHARS`                                                                                            | 8000                                                                                                   |
+| `REVIEW_OVERVIEW_COMPACT_MAX_CHARS`                                                                                    | 500                                                                                                    |
+| `REVIEW_SECURITY_CONCERNS_MAX_CHARS`                                                                                   | 4000                                                                                                   |
+| `REVIEW_FOLLOW_UP_MAX_CHARS`                                                                                           | 2000                                                                                                   |
+| `REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS`                                                                             | 300                                                                                                    |
+| `MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS`                                                                                 | regex set (`safe to merge`, `ready to merge`, `good to merge`) — clamped when P0/P1 open               |
+| `REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK`                                                                            | `No blocking findings on this pass` — mechanical fallback when verdict absent and no blocking findings |
+| `REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX`                                                                        | `blocking finding(s) open on this pass` — mechanical fallback when verdict absent and P0/P1 open       |
+| `REVIEW_SUMMARY_BODY_MAX_CHARS`                                                                                        | 60000                                                                                                  |
+| `REVIEW_SUMMARY_COMPACTION_NOTE`                                                                                       | Public note when summary is compacted                                                                  |
+| `REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX`                                                                               | Public note when finding rows are omitted                                                              |
+| `MAX_REVIEW_PAYLOAD_FINDINGS`                                                                                          | 128                                                                                                    |
+| `MAX_SPECIALIST_FINDINGS`                                                                                              | 20 findings per specialist report                                                                      |
+| `MAX_INLINE_REVIEW_COMMENTS`                                                                                           | 50                                                                                                     |
+| `MAX_THREAD_PUBLISH_CALLS`                                                                                             | 8 incremental COMMENT reviews per orchestrated run                                                     |
+| `REVIEW_FINALIZATION_WINDOW_MS`                                                                                        | 30000 reserved after model work for abort, durable writes, summary, checks, status, and labels         |
+| `REVIEW_EFFORT_MIN` / `REVIEW_EFFORT_MAX`                                                                              | 1–5                                                                                                    |
+| `REVIEW_SEVERITY_RANK`                                                                                                 | P0–P3 ordering                                                                                         |
+| Label prefixes                                                                                                         | `LABEL_REVIEW_EFFORT_PREFIX`, `LABEL_SECURITY_CONCERN`, `LABEL_CATEGORY_PREFIX`                        |
+| `REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE`                                                                          | 50                                                                                                     |
+| `REPO_POLICY_DIRNAME`                                                                                                  | `.pr-agent` directory at checkout root                                                                 |
+| `REPO_POLICY_EXTENSION`                                                                                                | `.mdc`                                                                                                 |
+| `MAX_REPO_POLICY_BYTES`                                                                                                | 32768 (aggregate content across accepted rules)                                                        |
+| `MAX_REPO_POLICY_FILE_BYTES`                                                                                           | 8192                                                                                                   |
+| `MAX_REPO_POLICY_FILES`                                                                                                | 20                                                                                                     |
+| `MAX_REPO_POLICY_PATH_PATTERN_CHARS`                                                                                   | 200                                                                                                    |
+| `MAX_REPO_POLICY_INSTRUCTION_CHARS`                                                                                    | 1000                                                                                                   |
+| `AGENT_INSTRUCTION_FILENAMES`                                                                                          | `AGENTS.md`, `CLAUDE.md`, `GEMINI.md` (repo-root load order)                                           |
+| `MAX_AGENT_INSTRUCTION_BYTES`                                                                                          | 65536 (aggregate content across accepted root files)                                                   |
+| `MAX_AGENT_INSTRUCTION_FILE_BYTES`                                                                                     | 32768                                                                                                  |
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
@@ -226,7 +230,7 @@ Flat directory of Cursor-style `.mdc` rule files, read from the PR head checkout
 | `alwaysApply`      | boolean            | optional              | `true` always includes the rule; omit both keys to always apply; `false` requires a matching glob |
 | body               | markdown           | 1000 chars            | Instruction prose injected into trusted context when the rule applies                             |
 
-Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured `submitReview` path or change output schemas.
+Legacy `.pr-agent.yml` is ignored. Rules augment prompts only. They never replace the structured specialist and summary contracts or change output schemas.
 
 #### Root agent instruction files (`AGENTS.md` / `CLAUDE.md` / `GEMINI.md`)
 
@@ -244,32 +248,35 @@ alwaysApply: false
 Treat missing session checks as P1 minimum. Flag any new outbound HTTP without timeout.
 ```
 
-### Review / ask agent loops
+### Review orchestration and agent loops
 
-| Symbol                                   | Default                                |
-| ---------------------------------------- | -------------------------------------- |
-| `MAX_TOOL_ROUNDS`                        | 24 (review investigation cap)          |
-| `MAX_REVIEW_PUBLISH_ATTEMPTS`            | 3                                      |
-| `MAX_REVIEW_PUBLISH_CALLS`               | 2                                      |
-| `REVIEW_MIN_CONFIDENCE`                  | 1 (drop scored findings below this)    |
-| `MAX_PR_FILES_LISTED`                    | 300 (≤ GitHub API cap 3000)            |
-| `MAX_PR_FILES_PATCH_BYTES`               | 500000                                 |
-| `REVIEW_ANCHOR_MENU_MAX_FILES`           | 40                                     |
-| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | 20                                     |
-| `MAX_TOOL_ROUNDS_DESCRIBE`               | 16                                     |
-| `MAX_TOOL_ROUNDS_TRIAGE`                 | 32                                     |
-| `MAX_TOOL_ROUNDS_VERIFICATION`           | 32                                     |
-| `MAX_TRIAGE_FIXES_PER_RUN`               | 10                                     |
-| `MAX_ASK_TOOL_ROUNDS`                    | 12                                     |
-| `MAX_ASK_FINALIZE_ROUNDS`                | 2                                      |
-| `VALIDATION_REPAIR_ROUNDS`               | 3                                      |
-| `PUBLISH_RECOVERY_ROUNDS`                | 4                                      |
-| `PUBLISH_RECOVERY_PROMPTS`               | recovery nudge strings                 |
-| `PUBLISH_BUDGET_EXHAUSTED_MESSAGE`       | submitReview guard                     |
-| `REVIEW_DIFF_CACHE_REQUIRED_MESSAGE`     | submitReview diff-cache guard          |
-| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | untrusted anchor menu block label      |
-| `ReviewValidationFailureKind`            | validation failure metric categories   |
-| `ReviewPhase`                            | review harness phase metric categories |
+An orchestrated review computes its hard return deadline from the pg-boss job start time as `expireInSeconds * 0.8`. Model work stops `REVIEW_FINALIZATION_WINDOW_MS` before that deadline. Each specialist attempt uses the smaller of `REVIEW_SPECIALIST_TIMEOUT_MS` and the remaining model window.
+
+| Symbol                                   | Default / role                                                  |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| `MAX_TOOL_ROUNDS`                        | 24 for orchestrator reconnaissance and specialist investigation |
+| `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 per specialist judgment turn                                  |
+| `INITIAL_JITTER_MAX_MS`                  | 3000 maximum stagger before a specialist starts                 |
+| `RETRY_BACKOFF_BASE_MS`                  | 500 base for classified provider retry backoff                  |
+| `MAX_REVIEW_PUBLISH_CALLS`               | 2 valid calls for the retained structured review tool contract  |
+| `REVIEW_MIN_CONFIDENCE`                  | 1, drop scored findings below this                              |
+| `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                  |
+| `MAX_PR_FILES_PATCH_BYTES`               | 500000                                                          |
+| `REVIEW_ANCHOR_MENU_MAX_FILES`           | 40                                                              |
+| `REVIEW_ANCHOR_MENU_MAX_RANGES_PER_FILE` | 20                                                              |
+| `MAX_TOOL_ROUNDS_DESCRIBE`               | 16                                                              |
+| `MAX_TOOL_ROUNDS_TRIAGE`                 | 32                                                              |
+| `MAX_TOOL_ROUNDS_VERIFICATION`           | 32                                                              |
+| `MAX_TRIAGE_FIXES_PER_RUN`               | 10                                                              |
+| `MAX_ASK_TOOL_ROUNDS`                    | 12                                                              |
+| `MAX_ASK_FINALIZE_ROUNDS`                | 2                                                               |
+| `VALIDATION_REPAIR_ROUNDS`               | 3                                                               |
+| `PUBLISH_RECOVERY_ROUNDS`                | 4 summary recovery sends                                        |
+| `PUBLISH_BUDGET_EXHAUSTED_MESSAGE`       | Structured review tool guard                                    |
+| `REVIEW_DIFF_CACHE_REQUIRED_MESSAGE`     | Structured review diff-cache guard                              |
+| `REVIEW_ANCHOR_MENU_BLOCK_LABEL`         | Untrusted anchor menu block label                               |
+| `ReviewValidationFailureKind`            | Validation failure metric categories                            |
+| `ReviewPhase`                            | Review metric categories                                        |
 
 ### Triage
 

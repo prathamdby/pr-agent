@@ -1,242 +1,36 @@
 import type { Config } from "../../config.js";
-import type { Pool } from "pg";
-import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
-import {
-  findIssueCommentBySentinel,
-  listPullRequestLabels,
-  listPullRequestReviewCommentsForReview,
-  resolveVerifiedSummaryCommentRef,
-  setPullRequestLabels,
-  setReviewCommitStatus,
-  upsertReviewSummaryComment,
-} from "../../github/reviewPublish.js";
-import {
-  claimSummaryCommentCreation,
-  getSummaryCommentGithubId,
-} from "../../agentWork/repository.js";
-import {
-  completeReviewCheckRun,
-  reviewCheckDetailsUrl,
-  reviewCheckRunOutcome,
-} from "../../agentWork/reviewCheckRun.js";
-import {
-  labelsAlreadySynced,
-  reviewLabelsFromPayload,
-  syncReviewLabels,
-  dominantReviewCategory,
-  hasManagedCategoryLabel,
-} from "../run/reviewLabels.js";
-import { logWarn, logDebug } from "../../evlog.js";
-import {
-  REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
-  REVIEW_CI_SUMMARY_MAX_FAILURES,
-  REVIEW_CI_SUMMARY_WAIT_MS,
-  REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-} from "../../settings/index.js";
-import { buildCiSummary } from "../ci/analyzeCi.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
+import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
+import { applyFindingLedgerDelta, createFindingLedger } from "../orchestrator/orchestratorTypes.js";
 import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
-import { renderReviewSummaryComment } from "../run/reviewRender.js";
-import { snapshotReviewRunMetrics } from "../run/reviewRunMetrics.js";
-import {
-  type FingerprintedInlinePlacement,
-  type InlinePlacement,
-} from "../placement/reviewDiffPlacement.js";
-import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
-import { runInlinePublishPhase } from "../run/reviewPublishInlinePhase.js";
-import { mergeInlineFingerprintRecords } from "../findings/reviewFindingFingerprint.js";
-import { prepareFindingsForPublish } from "../findings/findingPipeline.js";
-import {
-  reviewEventForFindings,
-  reviewSummarySentinelForMode,
-  type ReviewMode,
-  type ReviewPayload,
-  type ReviewPublishContext,
-} from "../reviewSchema.js";
+import type { ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import type { SubmitReviewState } from "./submitReviewTool.js";
+import { publishFindingBatch } from "./publishFindingBatch.js";
+import {
+  publishReviewSummaryOnly,
+  type RecordPublishStepWithCoordination,
+} from "./publishSummaryOnly.js";
 
-export type SummaryCommentCoordination = {
-  pool: Pool;
-  workItemId: string;
-  resourceKey: string;
-};
-
-export type RecordPublishStepFn = (
-  step: "inline_review" | "summary_comment" | "labels",
-  detail?: { githubId?: string | number; meta?: Record<string, unknown> },
-) => Promise<void>;
-
-export type RecordPublishStepWithCoordination = RecordPublishStepFn & {
-  summaryCommentCoordination?: SummaryCommentCoordination;
-};
-
-export function attachSummaryCommentCoordination(
-  recordPublishStep: RecordPublishStepFn,
-  coordination: SummaryCommentCoordination,
-): RecordPublishStepWithCoordination {
-  const wrapped = recordPublishStep as RecordPublishStepWithCoordination;
-  wrapped.summaryCommentCoordination = coordination;
-  return wrapped;
-}
-
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function resolveKnownSummaryCommentRef(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  sentinel: string,
-  hintCommentId: number | null | undefined,
-  expiresAtTs?: number,
-): Promise<{ id: number; url: string } | null> {
-  const resolved = await resolveVerifiedSummaryCommentRef(
-    token,
-    owner,
-    repo,
-    prNumber,
-    sentinel,
-    hintCommentId,
-    expiresAtTs,
-  );
-  return resolved ? { id: resolved.id, url: resolved.url } : null;
-}
-
-export async function upsertSummaryCommentWithCreationClaim(params: {
-  pool: Pool;
-  workItemId: string;
-  resourceKey: string;
-  reviewLens: ReviewMode;
-  token: string;
-  owner: string;
-  repo: string;
-  prNumber: number;
-  body: string;
-  sentinel: string;
-  expiresAtTs?: number;
-  hintCommentId?: number | null;
-}): Promise<{ id: number; updated: boolean }> {
-  const {
-    pool,
-    workItemId,
-    resourceKey,
-    reviewLens,
-    token,
-    owner,
-    repo,
-    prNumber,
-    body,
-    sentinel,
-    expiresAtTs,
-  } = params;
-
-  const storedId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
-  const hintId = params.hintCommentId ?? storedId ?? null;
-  const knownFromStored = await resolveKnownSummaryCommentRef(
-    token,
-    owner,
-    repo,
-    prNumber,
-    sentinel,
-    hintId,
-    expiresAtTs,
-  );
-  if (knownFromStored) {
-    return upsertReviewSummaryComment(
-      token,
-      owner,
-      repo,
-      prNumber,
-      body,
-      sentinel,
-      knownFromStored,
-      expiresAtTs,
-    );
-  }
-
-  const claimWon = await claimSummaryCommentCreation(pool, workItemId, resourceKey, reviewLens);
-  if (claimWon) {
-    const scanned = await findIssueCommentBySentinel(
-      token,
-      owner,
-      repo,
-      prNumber,
-      sentinel,
-      expiresAtTs,
-    );
-    return upsertReviewSummaryComment(
-      token,
-      owner,
-      repo,
-      prNumber,
-      body,
-      sentinel,
-      scanned,
-      expiresAtTs,
-    );
-  }
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) {
-      const delay =
-        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS[attempt - 1] ??
-        REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS.at(-1)!;
-      await sleepMs(delay);
-    }
-    const polledId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
-    if (polledId == null) continue;
-    const knownFromPoll = await resolveKnownSummaryCommentRef(
-      token,
-      owner,
-      repo,
-      prNumber,
-      sentinel,
-      polledId,
-      expiresAtTs,
-    );
-    if (knownFromPoll) {
-      return upsertReviewSummaryComment(
-        token,
-        owner,
-        repo,
-        prNumber,
-        body,
-        sentinel,
-        knownFromPoll,
-        expiresAtTs,
-      );
-    }
-  }
-
-  const scanned = await findIssueCommentBySentinel(
-    token,
-    owner,
-    repo,
-    prNumber,
-    sentinel,
-    expiresAtTs,
-  );
-  return upsertReviewSummaryComment(
-    token,
-    owner,
-    repo,
-    prNumber,
-    body,
-    sentinel,
-    scanned,
-    expiresAtTs,
-  );
-}
+export {
+  attachSummaryCommentCoordination,
+  upsertSummaryCommentWithCreationClaim,
+} from "./publishSummaryOnly.js";
+export type {
+  RecordPublishStepFn,
+  RecordPublishStepWithCoordination,
+  SummaryCommentCoordination,
+} from "./publishSummaryOnly.js";
 
 export async function publishReview(
   params: ReviewPublishContext & {
     token: string;
-    mode?: ReviewMode;
+    getToken?: () => string;
+    getTokenExpiresAtTs?: () => number | undefined;
+    mode?: AnyReviewLens;
     cfg: Pick<Config, "piModel" | "features">;
     payload: ReviewPayload;
     tokenExpiresAtTs?: number;
-    /** Set when payload was already normalized, deduped, and validated by submitReview. */
     dedupedFindingCount?: number;
     publishState: SubmitReviewState;
     cachedDiffIndex?: CachedPrDiffIndex;
@@ -245,312 +39,64 @@ export async function publishReview(
     staleReview?: boolean;
     recordPublishStep?: RecordPublishStepWithCoordination;
     storedInlineFingerprints?: readonly string[];
-    /** Reuse placements already computed during prepare; recomputed when omitted. */
-    inlinePlacements?: readonly InlinePlacement[];
-    /** CI LLM author from the orchestrator; omitted skips model-authored failure digests. */
     ciSummaryAuthor?: CiSummaryAuthor;
+    workItemId?: string;
+    resumedPlacements?: readonly AcceptedPlacement[];
+    shouldAbortPublish?: () => Promise<boolean>;
+    publishAbortState?: { readonly staleHead?: boolean };
   },
 ): Promise<void> {
-  const { token, owner, repo, prNumber, headSha, cfg, payload, publishState } = params;
-  const tokenExpiresAtTs = params.tokenExpiresAtTs;
-  const mode = params.mode ?? "review";
-  const summarySentinel = reviewSummarySentinelForMode(mode);
-  const storedInlineFingerprints = params.storedInlineFingerprints ?? [];
-  const inlineReviewFingerprints = (placements: readonly FingerprintedInlinePlacement[]) =>
-    mergeInlineFingerprintRecords(storedInlineFingerprints, placements);
-
-  const preparedFindings = prepareFindingsForPublish({
-    payload,
-    mode,
-    cachedDiffIndex: params.cachedDiffIndex,
-    inlinePlacements: params.inlinePlacements,
-    storedInlineFingerprints,
+  const resumedPlacements = params.resumedPlacements ?? [];
+  let ledger = createFindingLedger({
+    accepted: resumedPlacements,
+    suppressionFingerprints: params.storedInlineFingerprints,
+    inlineReviewIds: params.publishState.inlineReviewIds,
+    postedInlineCount: resumedPlacements.length,
+    threadCallCount: params.publishState.threadCallCount,
   });
-  const placements = preparedFindings.placements;
-  const inlineFindings = preparedFindings.inline;
-  const event = reviewEventForFindings(payload.findings);
-  let summaryPlacements: InlinePlacement[] = [...placements];
-  let inlineReviewId = publishState.inlineReviewId;
-  const diffCacheEmpty = params.cachedDiffIndex == null || params.cachedDiffIndex.files.size === 0;
-  if (diffCacheEmpty) {
-    logDebug("review_diff_cache_empty", {
-      mode,
-      owner,
-      repo,
-      pr: prNumber,
-      truncated: params.cachedDiffIndex?.truncated ?? false,
-    });
-  }
-
-  const renderCtx = {
-    owner,
-    repo,
-    prNumber,
-    headSha,
-    hasDescriptionAgentBlock: params.hasDescriptionAgentBlock ?? false,
-  };
-
-  let summaryCommentUrl: string | undefined;
-  let knownSummaryCommentRef: { id: number; url: string } | null = null;
-  if (params.shouldLinkToSummary) {
-    const resolvedSummary = await resolveVerifiedSummaryCommentRef(
-      token,
-      owner,
-      repo,
-      prNumber,
-      summarySentinel,
-      params.summaryCommentIdHint,
-      tokenExpiresAtTs,
-    );
-    summaryCommentUrl = resolvedSummary?.url;
-    knownSummaryCommentRef = resolvedSummary
-      ? { id: resolvedSummary.id, url: resolvedSummary.url }
-      : null;
-  }
-
-  const publishMetaBase = {
-    inlineCount: inlineFindings.length,
-    summaryOnlyCount: preparedFindings.summaryOnly.length,
-    inlineCommentCapExcluded: preparedFindings.dropped.inlineCommentCapExcluded,
-    anchorUnresolved: preparedFindings.dropped.anchorUnresolved,
-    dedupedFindingCount: params.dedupedFindingCount ?? 0,
-    suppressedInlineCount: preparedFindings.dropped.suppressedInlineCount,
-    diffCacheEmpty,
-  };
-
-  if (!publishState.inlinePublished) {
-    const inlinePhase = await runInlinePublishPhase({
-      token,
-      mode,
-      payload,
-      ctx: renderCtx,
-      placements,
-      inlineFindings,
-      event,
-      summaryCommentUrl,
-      shouldLinkToSummary: params.shouldLinkToSummary ?? false,
-      publishState,
-      publishMetaBase,
-      inlineReviewFingerprints,
-      tokenExpiresAtTs,
-      recordPublishStep: params.recordPublishStep,
-    });
-    summaryPlacements = inlinePhase.summaryPlacements;
-    inlineReviewId = inlinePhase.inlineReviewId;
-    publishState.inlinePublished = true;
-  }
-
-  if (inlineReviewId != null) {
-    try {
-      const reviewComments = await listPullRequestReviewCommentsForReview(
-        token,
-        owner,
-        repo,
-        prNumber,
-        inlineReviewId,
-        tokenExpiresAtTs,
-      );
-      summaryPlacements = enrichPlacementsWithInlineCommentUrls(summaryPlacements, reviewComments);
-    } catch (e) {
-      logWarn("review_inline_comment_urls_failed", {
-        mode,
-        owner,
-        repo,
-        pr: prNumber,
-        reviewId: inlineReviewId,
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
-
-  const metricsSnapshot = snapshotReviewRunMetrics();
-  const ciSummary = await buildCiSummary({
-    token,
-    owner,
-    repo,
-    headSha,
-    expiresAtTs: tokenExpiresAtTs,
-    waitMs: REVIEW_CI_SUMMARY_WAIT_MS,
-    waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
-    maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
-    author: params.ciSummaryAuthor,
+  const getToken = params.getToken ?? (() => params.token);
+  const getTokenExpiresAtTs = params.getTokenExpiresAtTs ?? (() => params.tokenExpiresAtTs);
+  const batchResult = await publishFindingBatch(params.payload.findings, {
+    ctx: params,
+    source: "review",
+    workItemId:
+      params.workItemId ?? params.recordPublishStep?.summaryCommentCoordination?.workItemId,
+    getToken,
+    getTokenExpiresAtTs,
+    cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),
+    recordPublishStep: params.recordPublishStep,
+    shouldAbortPublish: params.shouldAbortPublish,
+    publishAbortState: params.publishAbortState,
+    ledger,
   });
-  const summaryBody = renderReviewSummaryComment(payload, {
-    ...renderCtx,
-    summarySentinel,
-    placements: summaryPlacements,
-    mode,
-    staleReview: params.staleReview ?? false,
-    cachedDiffIndex: params.cachedDiffIndex,
-    ciSummary,
-    runFooter: {
-      durationMs: metricsSnapshot?.wallClockMs ?? 0,
-      model: cfg.piModel,
-    },
-  });
-
-  const labelsPromise = listPullRequestLabels(token, owner, repo, prNumber, tokenExpiresAtTs).catch(
-    (e: unknown) => e,
-  );
-
-  let summaryUpsert: Promise<{ id: number; updated: boolean }>;
-  const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
-  if (summaryCoordination) {
-    summaryUpsert = upsertSummaryCommentWithCreationClaim({
-      ...summaryCoordination,
-      reviewLens: mode,
-      token,
-      owner,
-      repo,
-      prNumber,
-      body: summaryBody,
-      sentinel: summarySentinel,
-      expiresAtTs: tokenExpiresAtTs,
-      hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
-    });
-  } else {
-    summaryUpsert = upsertReviewSummaryComment(
-      token,
-      owner,
-      repo,
-      prNumber,
-      summaryBody,
-      summarySentinel,
-      knownSummaryCommentRef,
-      tokenExpiresAtTs,
-    );
-  }
-  const [summary, currentLabels] = await Promise.all([summaryUpsert, labelsPromise]);
-  await params.recordPublishStep?.("summary_comment", {
-    githubId: summary.id,
-    meta: { updated: summary.updated, ...publishMetaBase },
-  });
-  logDebug("review_published_summary", {
-    mode,
-    owner,
-    repo,
-    pr: prNumber,
-    commentId: summary.id,
-    updated: summary.updated,
-  });
-
-  const checkOutcome = reviewCheckRunOutcome(payload.findings);
-  const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
-
-  if (summaryCoordination) {
-    await completeReviewCheckRun(summaryCoordination.pool, {
-      token,
-      tokenExpiresAtTs,
-      owner,
-      repo,
-      prNumber,
-      workItemId: summaryCoordination.workItemId,
-      resourceKey: summaryCoordination.resourceKey,
-      reviewLens: mode,
-      conclusion: checkOutcome.conclusion,
-      summary: checkOutcome.summary,
-      detailsUrl: targetUrl,
-    });
-  }
-
-  if (cfg.features.commitStatus) {
-    try {
-      await setReviewCommitStatus(
-        token,
-        owner,
-        repo,
-        headSha,
-        {
-          state: checkOutcome.conclusion === "failure" ? "failure" : "success",
-          description: checkOutcome.summary,
-          targetUrl,
-        },
-        tokenExpiresAtTs,
-      );
-    } catch (e) {
-      logWarn("review_commit_status_failed", {
-        mode,
-        owner,
-        repo,
-        pr: prNumber,
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
-  }
-
-  if (currentLabels instanceof Error) {
-    logWarn("review_labels_fetch_failed", {
-      mode,
-      owner,
-      repo,
-      pr: prNumber,
-      message: currentLabels.message,
-    });
-    return;
-  }
-  if (!Array.isArray(currentLabels)) {
-    logWarn("review_labels_fetch_failed", {
-      mode,
-      owner,
-      repo,
-      pr: prNumber,
-      message: `listPullRequestLabels returned non-array: ${String(currentLabels)}`,
-    });
+  if (batchResult.kind === "stopped") {
+    params.publishState.publishSuperseded = true;
     return;
   }
 
-  const wantsCategoryLabel = dominantReviewCategory(payload.findings) != null;
-  const syncCategoryLabels =
-    mode === "review" && (wantsCategoryLabel || hasManagedCategoryLabel(currentLabels));
-  const syncEffortLabel = cfg.features.reviewLabels !== "off";
-  const syncSecurityLabel = cfg.features.reviewLabels === "effort+security";
-  const shouldSyncLabels = syncEffortLabel || syncSecurityLabel || syncCategoryLabels;
+  ledger = applyFindingLedgerDelta(ledger, batchResult.delta);
+  params.publishState.inlineReviewIds = [...ledger.inlineReviewIds];
+  params.publishState.threadCallCount = ledger.threadCallCount;
 
-  if (shouldSyncLabels) {
-    try {
-      if (
-        labelsAlreadySynced(
-          currentLabels,
-          payload,
-          {
-            effort: syncEffortLabel,
-            security: syncSecurityLabel,
-            category: syncCategoryLabels,
-          },
-          mode,
-        )
-      ) {
-        await params.recordPublishStep?.("labels", {
-          meta: { labels: currentLabels, alreadySynced: true },
-        });
-        return;
-      }
-      const managed = reviewLabelsFromPayload(
-        payload,
-        {
-          effort: syncEffortLabel,
-          security: syncSecurityLabel,
-          category: syncCategoryLabels,
-        },
-        mode,
-      );
-      const next = syncReviewLabels(currentLabels, managed, mode);
-      await setPullRequestLabels(token, owner, repo, prNumber, next, tokenExpiresAtTs);
-      await params.recordPublishStep?.("labels", { meta: { labels: next } });
-      logDebug("review_labels_synced", {
-        owner,
-        repo,
-        pr: prNumber,
-        labels: next,
-      });
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      logWarn("review_labels_sync_failed", {
-        owner,
-        repo,
-        pr: prNumber,
-        message,
-      });
-    }
+  const summaryResult = await publishReviewSummaryOnly({
+    cfg: params.cfg,
+    ctx: params,
+    getToken,
+    getTokenExpiresAtTs,
+    payload: params.payload,
+    ledger,
+    mode: params.mode,
+    cachedDiffIndex: params.cachedDiffIndex,
+    shouldLinkToSummary: params.shouldLinkToSummary,
+    summaryCommentIdHint: params.summaryCommentIdHint,
+    staleReview: params.staleReview,
+    recordPublishStep: params.recordPublishStep,
+    ciAuthor: params.ciSummaryAuthor,
+    shouldAbortPublish: params.shouldAbortPublish,
+    publishAbortState: params.publishAbortState,
+    dedupedFindingCount: params.dedupedFindingCount,
+  });
+  if (summaryResult.kind === "stopped") {
+    params.publishState.publishSuperseded = true;
   }
 }

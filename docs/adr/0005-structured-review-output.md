@@ -4,6 +4,11 @@
 
 Accepted.
 
+Amended by [ADR 0028](0028-orchestrated-review.md). `ReviewPayload` remains the
+validated summary tool contract. The orchestrated run now publishes inline
+findings incrementally before the final summary instead of calling
+`submitReview` once for the whole run.
+
 ## Context
 
 The review agent previously instructed the model to submit a GitHub pull request review **and** a freehand PR conversation comment. Both surfaces repeated the same severity-tagged findings. PR-Agent solves layout drift with a structured intermediate and server-side render, but collapses findings into one conversation comment with deep-links—we keep **inline review threads** on the Files Changed tab as the primary surface.

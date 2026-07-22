@@ -148,6 +148,13 @@ export const streamCursor: StreamFunction<"cursor-sdk"> = (model, context, optio
         },
       );
 
+      if (options?.signal?.aborted) {
+        await run.cancel().catch(() => undefined);
+        partial.stopReason = "aborted";
+        stream.push({ type: "error", reason: "aborted", error: partial });
+        return;
+      }
+
       const result = await run.wait();
       const streamedText = textDeltas.join("");
       const finalText = extractFinalText(result.result, streamedText);

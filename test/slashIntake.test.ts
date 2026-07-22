@@ -10,7 +10,6 @@ import {
   ACK_QUEUE,
   DESCRIPTION_ALREADY_IN_PROGRESS,
   DESCRIPTION_QUEUE,
-  REVIEW_QUEUE,
   SLASH_HELP_BODY,
   TRIAGE_QUEUE,
 } from "../src/settings/index.js";
@@ -57,8 +56,14 @@ describe("applySlashCommandIntake", () => {
     initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
 
-  it("records unknown slash commands without acking", async () => {
-    const boss = { send: vi.fn() } as unknown as PgBoss;
+  it("replies to unknown slash commands", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+    } as unknown as PgBoss;
     const client = makeClient();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
@@ -72,7 +77,17 @@ describe("applySlashCommandIntake", () => {
       scheduler.submitSlashCommand(makeSlashInput("/cc looks good"), intakeLog),
     );
 
-    expect(boss.send).not.toHaveBeenCalled();
+    expect(sentJobs).toEqual([
+      expect.objectContaining({
+        queue: ACK_QUEUE,
+        data: expect.objectContaining({
+          reply: {
+            target: { kind: "prConversation", prNumber: 7 },
+            body: "Unknown command `/cc`. Run `/help` for available commands.",
+          },
+        }),
+      }),
+    ]);
     expect(intakeLog.getContext().events).toEqual([
       expect.objectContaining({
         event: "ignored_unknown_slash_command",
@@ -112,7 +127,7 @@ describe("applySlashCommandIntake", () => {
     );
   });
 
-  it("enqueues a review work item with the review-tests lens", async () => {
+  it("routes removed review lens commands to the unknown-command reply", async () => {
     const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
     const boss = {
       send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
@@ -120,25 +135,7 @@ describe("applySlashCommandIntake", () => {
         return "job-1";
       }),
     } as unknown as PgBoss;
-    const workItemInserts: unknown[][] = [];
-    const client = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("INSERT INTO webhook_events")) {
-          return { rows: [{ id: "event-1" }] };
-        }
-        if (sql.includes("SELECT id")) {
-          return { rows: [] };
-        }
-        if (sql.includes("INSERT INTO agent_work_items")) {
-          workItemInserts.push(params ?? []);
-          return { rows: [{ id: "work-review-tests" }] };
-        }
-        if (sql.includes("INSERT INTO publish_records")) {
-          return { rows: [] };
-        }
-        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
-      }),
-    } as unknown as PoolClient;
+    const client = makeClient();
     vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
 
     const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
@@ -148,17 +145,24 @@ describe("applySlashCommandIntake", () => {
     });
 
     await Effect.runPromise(
-      scheduler.submitSlashCommand(makeSlashInput("/review-tests"), intakeLog),
+      scheduler.submitSlashCommand(makeSlashInput("/review-security"), intakeLog),
     );
 
-    expect(workItemInserts).toHaveLength(1);
-    expect(workItemInserts[0]).toContain("review-tests");
-    expect(sentJobs.map((j) => j.queue)).toContain(REVIEW_QUEUE);
+    expect(sentJobs).toEqual([
+      expect.objectContaining({
+        queue: ACK_QUEUE,
+        data: expect.objectContaining({
+          reply: {
+            target: { kind: "prConversation", prNumber: 7 },
+            body: "Unknown command `/review-security`. Run `/help` for available commands.",
+          },
+        }),
+      }),
+    ]);
     expect(intakeLog.getContext().events).toContainEqual(
       expect.objectContaining({
-        event: "agent_work_enqueued",
-        type: "review",
-        lens: "review-tests",
+        event: "ignored_unknown_slash_command",
+        command: "review-security",
       }),
     );
   });

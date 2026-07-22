@@ -206,4 +206,42 @@ describe("streamCursor", () => {
 
     expect(result.stopReason).toBe("aborted");
   });
+
+  it("cancels a run returned after the abort signal fires", async () => {
+    const controller = new AbortController();
+    const cancel = vi.fn(async () => undefined);
+    const wait = vi.fn().mockResolvedValue({
+      status: "completed",
+      result: "late result",
+      id: "run-race",
+    });
+    const run = { cancel, wait };
+    let resolveSend: ((value: typeof run) => void) | undefined;
+    const send = vi.fn(
+      () =>
+        new Promise<typeof run>((resolve) => {
+          resolveSend = resolve;
+        }),
+    );
+    vi.mocked(Agent.create).mockResolvedValue({
+      send,
+      [Symbol.asyncDispose]: vi.fn(),
+    } as unknown as Awaited<ReturnType<typeof Agent.create>>);
+
+    const context = baseContext();
+    attachExecutors(context);
+    const resultPromise = streamCursor(model, context, {
+      apiKey: "cursor_test_key",
+      signal: controller.signal,
+    }).result();
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+
+    controller.abort();
+    resolveSend?.(run);
+
+    const result = await resultPromise;
+    expect(result.stopReason).toBe("aborted");
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
 });

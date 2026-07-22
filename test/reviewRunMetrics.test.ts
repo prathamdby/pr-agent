@@ -91,7 +91,13 @@ describe("reviewRunMetrics", () => {
           totalTokens: 18,
         },
       });
-      setReviewRunMetricFields({ published: true, publishAttempts: 1 });
+      setReviewRunMetricFields({
+        published: true,
+        publishAttempts: 1,
+        specialistOutcomes: { report: 2, empty: 1, error: 1 },
+        threadBatches: 2,
+        briefFallback: true,
+      });
 
       const snapshot = snapshotReviewRunMetrics();
       expect(snapshot).toMatchObject({
@@ -127,6 +133,9 @@ describe("reviewRunMetrics", () => {
         estimatedTurnCount: 1,
         findingsCount: 1,
         severities: ["P1"],
+        specialistOutcomes: { report: 2, empty: 1, error: 1 },
+        threadBatches: 2,
+        briefFallback: true,
       });
       expect(snapshot?.wallClockMs).toBeGreaterThanOrEqual(0);
     });
@@ -139,7 +148,7 @@ describe("reviewRunMetrics", () => {
       initReviewRunMetrics({
         provider: "cursor",
         model: "composer-2.5",
-        mode: "review-security",
+        mode: "review",
       });
       setReviewRunMetricFields({ published: false, publishAttempts: 2 });
       logReviewRunCompleted({ extra: true });
@@ -148,7 +157,7 @@ describe("reviewRunMetrics", () => {
     expect(payload).toMatchObject({
       provider: "cursor",
       model: "composer-2.5",
-      mode: "review-security",
+      mode: "review",
       published: false,
       publishAttempts: 2,
       extra: true,

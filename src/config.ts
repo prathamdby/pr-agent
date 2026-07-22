@@ -32,6 +32,7 @@ import {
   DEFAULT_PI_PROVIDER,
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
+  DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
   DEFAULT_QUEUE_HEARTBEAT_SECONDS,
@@ -259,6 +260,10 @@ export async function loadConfig() {
     ENV.PROVIDER_PROMPT_TIMEOUT_MS,
     DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   );
+  const reviewSpecialistTimeoutMs = readPositiveNumber(
+    ENV.REVIEW_SPECIALIST_TIMEOUT_MS,
+    DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
+  );
   const reviewConcurrency = readPositiveNumber(ENV.REVIEW_CONCURRENCY, DEFAULT_REVIEW_CONCURRENCY);
   const askConcurrency = readPositiveNumber(ENV.ASK_CONCURRENCY, DEFAULT_ASK_CONCURRENCY);
   const ackConcurrency = readPositiveNumber(ENV.ACK_CONCURRENCY, DEFAULT_ACK_CONCURRENCY);
@@ -388,6 +393,7 @@ export async function loadConfig() {
     modelsJsonPath,
     modelProviderKeys,
     providerPromptTimeoutMs,
+    reviewSpecialistTimeoutMs,
     reviewConcurrency,
     askConcurrency,
     ackConcurrency,

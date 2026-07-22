@@ -3,41 +3,41 @@ import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt
 import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
 import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
 import {
-  structuredDeliveryHeader,
   VALIDATION_REPAIR_REMINDER,
   VALIDATION_REPAIR_ROUND0_SUFFIX,
   securityTripwiresGuidance,
   proseContractGuidance,
   agentInstructionFilesGuidance,
+  specialistFindingsReportContract,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 
-const LENS_PROMPTS = [
-  ["general", buildAutomatedSystemPrompt()],
+const SPECIALIST_PROMPTS = [
+  ["correctness", buildAutomatedSystemPrompt()],
   ["security", automatedSecuritySystemPrompt],
   ["quality", automatedQualitySystemPrompt],
   ["tests", automatedReviewTestsSystemPrompt],
 ] as const;
 
 describe("review prompt shared contract blocks", () => {
-  it("reuses the shared structured delivery header in every lens", () => {
-    for (const [name, prompt] of LENS_PROMPTS) {
-      expect(prompt, `${name} should include shared delivery header`).toContain(
-        structuredDeliveryHeader,
+  it("reuses the shared findings-report contract in every specialist", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
+      expect(prompt, `${name} should include the findings-report contract`).toContain(
+        specialistFindingsReportContract,
       );
     }
   });
 
-  it("keeps single-pass submitReview obligations in every lens", () => {
-    for (const [name, prompt] of LENS_PROMPTS) {
-      expect(prompt, `${name} should require one submitReview call`).toContain(
-        "submitReview exactly once",
+  it("requires one specialist report in every review", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
+      expect(prompt, `${name} should require one findings report`).toContain(
+        "submit_findings_report` exactly once",
       );
     }
   });
 });
 
-describe("review lens-specific obligations", () => {
+describe("specialist-specific obligations", () => {
   it("keeps general correctness reporting gate", () => {
     expect(buildAutomatedSystemPrompt()).toContain("you report problems, not prescriptions");
   });
@@ -46,7 +46,9 @@ describe("review lens-specific obligations", () => {
     expect(automatedSecuritySystemPrompt).toContain(
       "Do not report general correctness bugs, style issues, or non-security logic errors",
     );
-    expect(automatedSecuritySystemPrompt).toContain("Security lens: set category to security");
+    expect(automatedSecuritySystemPrompt).toContain(
+      "Security specialist: set category to security",
+    );
   });
 
   it("keeps quality restructuring prescriptions", () => {
@@ -59,25 +61,24 @@ describe("review lens-specific obligations", () => {
     expect(automatedReviewTestsSystemPrompt).toContain("draft test skeleton");
   });
 
-  it("includes security tripwires and prose contracts only in the general lens", () => {
-    const [general] = LENS_PROMPTS;
-    expect(general[1]).toContain(securityTripwiresGuidance);
-    expect(general[1]).toContain(proseContractGuidance);
+  it("includes security tripwires and prose contracts only for correctness", () => {
+    const [correctness] = SPECIALIST_PROMPTS;
+    expect(correctness[1]).toContain(securityTripwiresGuidance);
+    expect(correctness[1]).toContain(proseContractGuidance);
 
-    for (const [name, prompt] of LENS_PROMPTS.slice(1)) {
+    for (const [name, prompt] of SPECIALIST_PROMPTS.slice(1)) {
       expect(
         prompt,
-        `${name} lens must not carry the general-lens security tripwires block`,
+        `${name} must not carry the correctness security-tripwires block`,
       ).not.toContain(securityTripwiresGuidance);
-      expect(
-        prompt,
-        `${name} lens must not carry the general-lens prose contracts block`,
-      ).not.toContain(proseContractGuidance);
+      expect(prompt, `${name} must not carry the correctness prose-contracts block`).not.toContain(
+        proseContractGuidance,
+      );
     }
   });
 
-  it("includes agent instruction files guidance in every review lens", () => {
-    for (const [name, prompt] of LENS_PROMPTS) {
+  it("includes agent instruction files guidance in every specialist review", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
       expect(prompt, `${name} should include agent instruction files guidance`).toContain(
         agentInstructionFilesGuidance,
       );

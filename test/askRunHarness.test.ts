@@ -16,6 +16,7 @@ vi.mock("../src/agent/providers/index.js", () => ({
   resolveAgentRunnerProvider: () => ({
     createSession: vi.fn(async () => ({
       send: sendMock,
+      abort: vi.fn(async () => undefined),
       restrictToTools: restrictToToolsMock,
       restoreTools: restoreToolsMock,
       dispose: disposeMock,

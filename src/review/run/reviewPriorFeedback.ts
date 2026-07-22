@@ -4,15 +4,16 @@ import {
   MAX_PRIOR_INLINE_FEEDBACK_THREADS,
   MAX_PRIOR_INLINE_REPLY_CHARS,
   REVIEW_POINTER_BODY,
-  QUALITY_REVIEW_POINTER_BODY,
-  SECURITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
   VERIFICATION_STUB_MARKER,
 } from "../../settings/index.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { escapeTablePlainCell } from "../../github/markdownFormat.js";
-import type { ReviewMode } from "../reviewSchema.js";
+import {
+  LEGACY_REVIEW_POINTER_BODIES,
+  isAnyReviewLens,
+  type AnyReviewLens,
+} from "../../settings/legacyReviewLenses.js";
 
 export type PriorInlineFeedbackThread = {
   path: string;
@@ -25,7 +26,7 @@ export type PriorInlineFeedbackThread = {
 
 export type BotFindingThread = {
   rootCommentId: number;
-  lens: ReviewMode;
+  lens: AnyReviewLens;
   path: string;
   line: number;
   severity: "P0" | "P1" | "P2" | "P3" | null;
@@ -67,13 +68,8 @@ function extractBotSeverity(body: string): BotFindingThread["severity"] {
   return match ? (`P${match[1]}` as BotFindingThread["severity"]) : null;
 }
 
-function isTriageEligibleLens(lens: ReviewMode): boolean {
-  return (
-    lens === "review" ||
-    lens === "review-security" ||
-    lens === "review-quality" ||
-    lens === "review-tests"
-  );
+function isTriageEligibleLens(lens: AnyReviewLens): boolean {
+  return isAnyReviewLens(lens);
 }
 
 const REVIEW_POINTER_LENS_MARKER_RE = /<!--\s*pr-agent:review-pointer\s+lens=([^\s>]+)\s*-->/;
@@ -97,27 +93,19 @@ function findVerificationStubCommentId(
   return legacy?.id;
 }
 
-export function parseReviewPointerLensMarker(body: string): ReviewMode | null {
+export function parseReviewPointerLensMarker(body: string): AnyReviewLens | null {
   const match = REVIEW_POINTER_LENS_MARKER_RE.exec(body);
   if (!match) return null;
   const lens = match[1];
-  if (
-    lens === "review" ||
-    lens === "review-security" ||
-    lens === "review-quality" ||
-    lens === "review-tests"
-  ) {
-    return lens;
-  }
-  return null;
+  return isAnyReviewLens(lens) ? lens : null;
 }
 
-export function classifyReviewLensFromPointerBody(body: string): ReviewMode | null {
+export function classifyReviewLensFromPointerBody(body: string): AnyReviewLens | null {
   const markerLens = parseReviewPointerLensMarker(body);
   if (markerLens) return markerLens;
-  if (body.includes(SECURITY_REVIEW_POINTER_BODY)) return "review-security";
-  if (body.includes(QUALITY_REVIEW_POINTER_BODY)) return "review-quality";
-  if (body.includes(TESTS_REVIEW_POINTER_BODY)) return "review-tests";
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[0])) return "review-security";
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[1])) return "review-quality";
+  if (body.includes(LEGACY_REVIEW_POINTER_BODIES[2])) return "review-tests";
   if (body.includes(REVIEW_POINTER_BODY)) return "review";
   return null;
 }
@@ -125,8 +113,8 @@ export function classifyReviewLensFromPointerBody(body: string): ReviewMode | nu
 function resolveReviewLensForTriage(
   body: string,
   reviewId: number,
-  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
-): ReviewMode | null {
+  publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
+): AnyReviewLens | null {
   const fromBody = classifyReviewLensFromPointerBody(body);
   if (fromBody) return fromBody;
   const fromRecords = publishRecordLenses?.get(reviewId);
@@ -189,12 +177,11 @@ export async function fetchReviewCommentParentGraph(
   return comments.map((comment) => ({ id: comment.id, inReplyToId: comment.inReplyToId }));
 }
 
-async function listBotReviewIdsForLens(
+async function listBotReviewIds(
   token: string,
   owner: string,
   repo: string,
   pullNumber: number,
-  mode: ReviewMode,
   botUserId: number,
 ): Promise<Set<number>> {
   const octokit = installationOctokit(token);
@@ -217,7 +204,7 @@ async function listBotReviewIdsForLens(
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
     const lens = classifyReviewLensFromPointerBody(review.body ?? "");
-    if (lens === mode) reviewIds.add(review.id);
+    if (lens && isTriageEligibleLens(lens)) reviewIds.add(review.id);
   }
   return reviewIds;
 }
@@ -228,8 +215,8 @@ async function listBotReviewIdsForTriage(
   repo: string,
   pullNumber: number,
   botUserId: number,
-  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
-): Promise<Map<number, ReviewMode>> {
+  publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
+): Promise<Map<number, AnyReviewLens>> {
   const octokit = installationOctokit(token);
   const reviews = await paginateOctokitPages({
     perPage: COMMENTS_PAGE_SIZE,
@@ -246,7 +233,7 @@ async function listBotReviewIdsForTriage(
     },
   });
 
-  const reviewIds = new Map<number, ReviewMode>();
+  const reviewIds = new Map<number, AnyReviewLens>();
   for (const review of reviews) {
     if (review.user?.id !== botUserId || review.id == null) continue;
     const lens = resolveReviewLensForTriage(review.body ?? "", review.id, publishRecordLenses);
@@ -297,11 +284,10 @@ export async function fetchPriorInlineReviewFeedback(
   owner: string,
   repo: string,
   pullNumber: number,
-  mode: ReviewMode,
   botUserId: number,
 ): Promise<PriorInlineFeedbackThread[]> {
   const [reviewIds, comments] = await Promise.all([
-    listBotReviewIdsForLens(token, owner, repo, pullNumber, mode, botUserId),
+    listBotReviewIds(token, owner, repo, pullNumber, botUserId),
     listPullRequestReviewComments(token, owner, repo, pullNumber),
   ]);
   if (reviewIds.size === 0) return [];
@@ -352,7 +338,7 @@ export async function fetchBotFindingThreads(
   repo: string,
   pullNumber: number,
   botUserId: number,
-  publishRecordLenses?: ReadonlyMap<number, ReviewMode>,
+  publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
 ): Promise<BotFindingThread[]> {
   const [comments, reviewIds] = await Promise.all([
     listPullRequestReviewComments(token, owner, repo, pullNumber),

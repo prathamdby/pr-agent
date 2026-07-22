@@ -46,7 +46,7 @@ export async function cancelUnenqueuedStaleHeadReplacement(
 ): Promise<void> {
   if (replacementEnqueued) return;
   try {
-    const reviewKey = reviewSingletonKey(parent.resourceKey, parent.reviewLens);
+    const reviewKey = reviewSingletonKey(parent.resourceKey);
     if (await replacementReviewJobExists(boss, reviewKey, replacementWorkItemId)) return;
     if (!(await markQueuedWorkCancelled(pool, replacementWorkItemId, error))) {
       logWarn("agent_work_replacement_cancel_failed", {
@@ -248,11 +248,11 @@ export async function enqueueSlashReviewReschedule(
 ): Promise<void> {
   const reviewLens = item.reviewLens;
   const correlation = item.webhookEventId ? { webhookEventId: item.webhookEventId } : {};
-  const reviewKey = reviewSingletonKey(item.resourceKey, reviewLens);
+  const reviewKey = reviewSingletonKey(item.resourceKey);
 
   await inTransaction(pool, async (client) => {
     const db = pgBossDb(client);
-    await releaseReviewSingletonSlot(boss, item.resourceKey, reviewLens, {
+    await releaseReviewSingletonSlot(boss, item.resourceKey, {
       db,
       skipJobId: activePgBossJobId,
       skipWorkItemId: workItemId,

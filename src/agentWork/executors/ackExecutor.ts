@@ -1,15 +1,10 @@
 import type { Pool } from "pg";
 import type { Config } from "../../config.js";
-import {
-  resolveVerifiedSummaryCommentRef,
-  upsertReviewSummaryComment,
-} from "../../github/reviewPublish.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import { reviewSummarySentinelForMode } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
 import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
-import { getSummaryCommentGithubId, recordPublishStep } from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
 import { renderReviewProgressComment } from "../../review/run/progressComment.js";
@@ -81,58 +76,26 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
       headSha,
       source: data.progress.source,
       ciSummary,
+      progressRevision: 0,
+      progressWorkItemId: data.workItemId,
     });
     const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
     const sentinel = reviewSummarySentinelForMode(data.progress.lens);
-    let summary;
+    await upsertSummaryCommentWithCreationClaim({
+      pool,
+      workItemId: data.workItemId,
+      resourceKey,
+      reviewLens: data.progress.lens,
+      token: installation.token,
+      owner: data.owner,
+      repo: data.repo,
+      prNumber: data.prNumber,
+      body,
+      sentinel,
+      expiresAtTs: installation.expiresAtTs,
+      progressRevision: 0,
+    });
     if (data.workItemId) {
-      summary = await upsertSummaryCommentWithCreationClaim({
-        pool,
-        workItemId: data.workItemId,
-        resourceKey,
-        reviewLens: data.progress.lens,
-        token: installation.token,
-        owner: data.owner,
-        repo: data.repo,
-        prNumber: data.prNumber,
-        body,
-        sentinel,
-        expiresAtTs: installation.expiresAtTs,
-      });
-    } else {
-      const storedId = await getSummaryCommentGithubId(pool, resourceKey, data.progress.lens);
-      const verified =
-        storedId != null
-          ? await resolveVerifiedSummaryCommentRef(
-              installation.token,
-              data.owner,
-              data.repo,
-              data.prNumber,
-              sentinel,
-              storedId,
-              installation.expiresAtTs,
-            )
-          : null;
-      summary = await upsertReviewSummaryComment(
-        installation.token,
-        data.owner,
-        data.repo,
-        data.prNumber,
-        body,
-        sentinel,
-        verified ? { id: verified.id, url: verified.url } : undefined,
-        installation.expiresAtTs,
-      );
-    }
-    if (data.workItemId) {
-      await recordPublishStep(pool, {
-        workItemId: data.workItemId,
-        resourceKey: `${data.owner}/${data.repo}#${data.prNumber}`,
-        reviewLens: data.progress.lens,
-        step: "progress_comment",
-        githubId: summary.id,
-        detail: { updated: summary.updated },
-      });
       await ensureReviewCheckRunStarted(pool, {
         token: installation.token,
         tokenExpiresAtTs: installation.expiresAtTs,

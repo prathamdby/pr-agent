@@ -219,6 +219,32 @@ describe("piAgentRunnerProvider.send", () => {
     expect(result.usage).toBeUndefined();
   });
 
+  it("shares one underlying abort across concurrent callers", async () => {
+    let releaseAbort: (() => void) | undefined;
+    const session = buildMockSession(() => undefined);
+    session.abort = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseAbort = resolve;
+        }),
+    );
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    const runnerSession = await piAgentRunnerProvider.createSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const firstAbort = runnerSession.abort();
+    const secondAbort = runnerSession.abort();
+    expect(session.abort).toHaveBeenCalledTimes(1);
+
+    releaseAbort?.();
+    await expect(Promise.all([firstAbort, secondAbort])).resolves.toEqual([undefined, undefined]);
+  });
+
   it("returns exact usage when mocked turn events include provider token data", async () => {
     const session = buildMockSession((emit) => {
       emit({

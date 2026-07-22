@@ -1,23 +1,11 @@
 /** Review output sentinels and labels. */
 export const REVIEW_SUMMARY_SENTINEL = "## PR Agent Review";
-export const SECURITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Security Review";
-export const QUALITY_REVIEW_SUMMARY_SENTINEL = "## PR Agent Quality Review";
-export const TESTS_REVIEW_SUMMARY_SENTINEL = "## PR Agent Tests Review";
 export const LABEL_REVIEW_EFFORT_PREFIX = "Review effort ";
-export const LABEL_SECURITY_EFFORT_PREFIX = "Security effort ";
-export const LABEL_QUALITY_EFFORT_PREFIX = "Quality effort ";
-export const LABEL_TESTS_EFFORT_PREFIX = "Tests effort ";
 export const LABEL_SECURITY_CONCERN = "Possible security concern";
 export const LABEL_CATEGORY_PREFIX = "Category: ";
 export const REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE = 50;
 
 export const REVIEW_POINTER_BODY = "See the structured review summary in the PR conversation.";
-export const SECURITY_REVIEW_POINTER_BODY =
-  "See the security review summary in the PR conversation.";
-export const QUALITY_REVIEW_POINTER_BODY =
-  "See the code-quality review summary in the PR conversation.";
-export const TESTS_REVIEW_POINTER_BODY =
-  "See the proposed test cases summary in the PR conversation.";
 export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";
@@ -156,8 +144,12 @@ export const REVIEW_CI_SUMMARY_GRANT_ACTIONS =
 export const REVIEW_CI_SUMMARY_UNAVAILABLE = "CI status unavailable";
 /** Soft sanity ceiling on findings count (not a review-quality cap). */
 export const MAX_REVIEW_PAYLOAD_FINDINGS = 128;
+/** Max findings accepted from one specialist report. */
+export const MAX_SPECIALIST_FINDINGS = 20;
 /** Max inline review threads attempted in one GitHub review submission. */
 export const MAX_INLINE_REVIEW_COMMENTS = 50;
+/** Max incremental COMMENT review calls accepted during one orchestrated review run. */
+export const MAX_THREAD_PUBLISH_CALLS = 8;
 
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,
@@ -166,17 +158,8 @@ export const REVIEW_SEVERITY_RANK = {
   P3: 3,
 } as const;
 
-export const PROSE_ONLY_NUDGE =
-  "You replied with text only. Call submitReview now with a complete ReviewPayload.";
-
-export const PUBLISH_RECOVERY_ROUNDS = 4;
-export const PUBLISH_RECOVERY_PROMPTS = [
-  "You ended with a text reply but never called submitReview. Call submitReview exactly once now with a complete ReviewPayload based on your analysis above. Do not continue investigating unless required to fix payload validation.",
-  "The structured review was still not published. You must call submitReview now with a valid ReviewPayload. No prose-only replies.",
-  "Final publish attempt: call submitReview immediately with your ReviewPayload.",
-] as const;
-
 export const VALIDATION_REPAIR_ROUNDS = 3;
+export const PUBLISH_RECOVERY_ROUNDS = 4;
 
 export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
   "Review publish budget exhausted for this run. Do not call submitReview again.";
@@ -212,7 +195,7 @@ export type ReviewPhase =
 
 /** Review agent caps. */
 export const MAX_TOOL_ROUNDS = 24;
-export const MAX_REVIEW_PUBLISH_ATTEMPTS = 3;
+export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
 export const MAX_REVIEW_PUBLISH_CALLS = 2;
 export const REVIEW_MIN_CONFIDENCE = 1;
 /** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */

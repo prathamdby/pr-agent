@@ -1,0 +1,145 @@
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import { z } from "zod";
+import { AppError, toAppError } from "../../errors/appError.js";
+import {
+  type FindingBatchContext,
+  type FindingBatchResult,
+  publishFindingBatch,
+} from "../publish/publishFindingBatch.js";
+import { reviewFindingSchema, type ReviewFinding } from "../reviewSchema.js";
+import {
+  applyFindingLedgerDelta,
+  createFindingLedger,
+  type FindingLedger,
+  type SpecialistId,
+} from "./orchestratorTypes.js";
+
+export const publishThreadSchema = z.object({
+  findings: z.array(reviewFindingSchema),
+});
+
+export type PublishedThreadOverlapHint = {
+  readonly findingId: string;
+  readonly severity: ReviewFinding["severity"];
+  readonly file: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly title: string;
+  readonly detail: string;
+};
+
+export type PublishThreadToolResult = FindingBatchResult & {
+  readonly publishedThreadOverlapHints: readonly PublishedThreadOverlapHint[];
+};
+
+type PublishThreadToolParams = Omit<FindingBatchContext, "source" | "ledger"> & {
+  readonly initialLedger?: FindingLedger;
+};
+
+function formatValidationError(error: z.ZodError): string {
+  return [
+    "publish_thread validation failed:",
+    ...error.issues.map(
+      (issue) => `- ${issue.path.length > 0 ? issue.path.join(".") : "(root)"}: ${issue.message}`,
+    ),
+  ].join("\n");
+}
+
+function overlapHints(
+  ledger: FindingLedger,
+  submittedFindings: readonly ReviewFinding[],
+): PublishedThreadOverlapHint[] {
+  const submittedFiles = new Set(submittedFindings.map((finding) => finding.file));
+  return ledger.accepted.flatMap((accepted) => {
+    if (accepted.kind === "summary_only") return [];
+    const { finding } = accepted.placement;
+    if (!submittedFiles.has(finding.file)) return [];
+    return [
+      {
+        findingId: accepted.canonicalFingerprint,
+        severity: finding.severity,
+        file: finding.file,
+        startLine: finding.startLine,
+        endLine: finding.endLine,
+        title: finding.title,
+        detail: finding.detail,
+      },
+    ];
+  });
+}
+
+export function buildPublishThreadTool(params: PublishThreadToolParams): {
+  readonly piTool: PiTool;
+  readonly executor: (args: Record<string, unknown>) => Promise<PublishThreadToolResult>;
+  readonly setSource: (source: SpecialistId) => void;
+  readonly getLedger: () => FindingLedger;
+  readonly getPublishedBatchCount: () => number;
+  readonly getStopReason: () => "superseded" | "stale_head" | null;
+} {
+  let source: SpecialistId | null = null;
+  let stopReason: "superseded" | "stale_head" | null = null;
+  let publishedBatchCount = 0;
+  const { initialLedger, ...batchContext } = params;
+  let ledger = initialLedger ?? createFindingLedger();
+  const piTool: PiTool = {
+    name: "publish_thread",
+    description:
+      "Publish one judged batch of review findings. An empty findings array is valid when no candidate survives judgment.",
+    parameters: z.toJSONSchema(publishThreadSchema),
+  };
+  const executor = async (args: Record<string, unknown>): Promise<PublishThreadToolResult> => {
+    const parsed = publishThreadSchema.safeParse(args);
+    if (!parsed.success) {
+      throw new AppError({
+        code: "review.publish_thread_validation_failed",
+        message: formatValidationError(parsed.error),
+      });
+    }
+    if (source == null) {
+      throw new AppError({
+        code: "review.publish_thread_source_required",
+        message: "Select the active specialist before calling publish_thread",
+      });
+    }
+
+    let result: FindingBatchResult;
+    try {
+      result = await publishFindingBatch(parsed.data.findings, {
+        ...batchContext,
+        source,
+        ledger,
+      });
+    } catch (error) {
+      throw toAppError(error, {
+        code: "review.publish_thread_failed",
+        context: {
+          owner: params.ctx.owner,
+          repo: params.ctx.repo,
+          pr: params.ctx.prNumber,
+          source,
+        },
+      });
+    }
+    if (result.kind !== "stopped") {
+      ledger = applyFindingLedgerDelta(ledger, result.delta);
+      if (result.kind === "published") publishedBatchCount += 1;
+    } else {
+      stopReason = result.reason;
+    }
+    return {
+      ...result,
+      publishedThreadOverlapHints: overlapHints(ledger, parsed.data.findings),
+    };
+  };
+
+  return {
+    piTool,
+    executor,
+    setSource: (nextSource) => {
+      source = nextSource;
+    },
+    getLedger: () => ledger,
+    getPublishedBatchCount: () => publishedBatchCount,
+    getStopReason: () => stopReason,
+  };
+}

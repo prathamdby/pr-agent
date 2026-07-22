@@ -1,3 +1,4 @@
+import type { AgentRunnerTurn } from "../../agent/providers/interface.js";
 import { logInfo, tryUseLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
 
@@ -90,6 +91,9 @@ export type ReviewRunMetricsSnapshot = {
   readonly severities: readonly string[];
   readonly wallClockMs: number;
   readonly lightweight?: boolean;
+  readonly specialistOutcomes: Record<string, number>;
+  readonly threadBatches: number;
+  readonly briefFallback: boolean;
 };
 
 type MutableReviewRunMetrics = {
@@ -128,6 +132,9 @@ type MutableReviewRunMetrics = {
   findingsCount: number;
   severities: string[];
   lightweight?: boolean;
+  specialistOutcomes: Record<string, number>;
+  threadBatches: number;
+  briefFallback: boolean;
 };
 
 function createEmptyMetrics(meta: {
@@ -170,6 +177,9 @@ function createEmptyMetrics(meta: {
     estimatedTurnCount: 0,
     findingsCount: 0,
     severities: [],
+    specialistOutcomes: {},
+    threadBatches: 0,
+    briefFallback: false,
   };
 }
 
@@ -288,6 +298,14 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
   }
 }
 
+export function recordAgentTurnMetrics(turn: AgentRunnerTurn): void {
+  recordReviewMetric({
+    kind: "model_turn",
+    ...(turn.usage ? { usage: turn.usage } : {}),
+    ...(turn.prompt ? { prompt: turn.prompt } : {}),
+  });
+}
+
 export async function recordReviewPhaseSpan<T>(phase: string, run: () => Promise<T>): Promise<T> {
   const startedAt = Date.now();
   try {
@@ -314,13 +332,28 @@ export function initReviewRunMetrics(meta: {
 }
 
 export function setReviewRunMetricFields(
-  fields: Partial<Pick<MutableReviewRunMetrics, "published" | "publishAttempts" | "lightweight">>,
+  fields: Partial<
+    Pick<
+      MutableReviewRunMetrics,
+      | "published"
+      | "publishAttempts"
+      | "lightweight"
+      | "specialistOutcomes"
+      | "threadBatches"
+      | "briefFallback"
+    >
+  >,
 ): void {
   const metrics = getOrInitMetrics();
   if (!metrics) return;
   if (fields.published !== undefined) metrics.published = fields.published;
   if (fields.publishAttempts !== undefined) metrics.publishAttempts = fields.publishAttempts;
   if (fields.lightweight !== undefined) metrics.lightweight = fields.lightweight;
+  if (fields.specialistOutcomes !== undefined) {
+    metrics.specialistOutcomes = { ...fields.specialistOutcomes };
+  }
+  if (fields.threadBatches !== undefined) metrics.threadBatches = fields.threadBatches;
+  if (fields.briefFallback !== undefined) metrics.briefFallback = fields.briefFallback;
 }
 
 export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
@@ -363,6 +396,9 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     findingsCount: metrics.findingsCount,
     severities: [...metrics.severities],
     wallClockMs,
+    specialistOutcomes: { ...metrics.specialistOutcomes },
+    threadBatches: metrics.threadBatches,
+    briefFallback: metrics.briefFallback,
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
   };
 }

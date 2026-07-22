@@ -4,7 +4,8 @@ import type {
   FingerprintedInlinePlacement,
   InlinePlacement,
 } from "../placement/reviewDiffPlacement.js";
-import type { ReviewFinding, ReviewMode } from "../reviewSchema.js";
+import type { ReviewFinding } from "../reviewSchema.js";
+import { LEGACY_REVIEW_LENSES, type AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 
 export function normalizeFindingSubstance(text: string): string {
   return text
@@ -14,8 +15,16 @@ export function normalizeFindingSubstance(text: string): string {
     .replace(/\s+/g, " ");
 }
 
-export function fingerprintFinding(finding: ReviewFinding, mode: ReviewMode): string {
+export function fingerprintFinding(finding: ReviewFinding, mode: AnyReviewLens): string {
   const lineBucket = Math.floor(finding.startLine / REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE);
+  return fingerprintFindingInLineBucket(finding, mode, lineBucket);
+}
+
+function fingerprintFindingInLineBucket(
+  finding: ReviewFinding,
+  mode: AnyReviewLens,
+  lineBucket: number,
+): string {
   const material = [
     mode,
     finding.file,
@@ -24,6 +33,17 @@ export function fingerprintFinding(finding: ReviewFinding, mode: ReviewMode): st
     String(lineBucket),
   ].join("|");
   return crypto.createHash("sha256").update(material).digest("hex").slice(0, 16);
+}
+
+export function fingerprintCandidates(finding: ReviewFinding): readonly string[] {
+  const currentBucket = Math.floor(finding.startLine / REVIEW_FINDING_FINGERPRINT_LINE_BUCKET_SIZE);
+  const buckets = [currentBucket, currentBucket - 1, currentBucket + 1].filter(
+    (bucket) => bucket >= 0,
+  );
+  const modes: readonly AnyReviewLens[] = ["review", ...LEGACY_REVIEW_LENSES];
+  return buckets.flatMap((bucket) =>
+    modes.map((mode) => fingerprintFindingInLineBucket(finding, mode, bucket)),
+  );
 }
 
 export type StoredInlineFingerprints = {
@@ -42,7 +62,7 @@ export function parseStoredInlineFingerprints(
 
 export function fingerprintInlinePlacements(
   placements: readonly InlinePlacement[],
-  mode: ReviewMode,
+  mode: AnyReviewLens,
 ): FingerprintedInlinePlacement[] {
   return placements.map((placement) => ({
     ...placement,
@@ -58,7 +78,9 @@ export function suppressInlinePlacementsByFingerprint(
   let suppressedInlineCount = 0;
   const next = placements.map((placement) => {
     if (!placement.inlinePosted) return placement;
-    if (!stored.has(placement.inlineFingerprint)) return placement;
+    if (!fingerprintCandidates(placement.finding).some((candidate) => stored.has(candidate))) {
+      return placement;
+    }
     suppressedInlineCount += 1;
     return { ...placement, inlinePosted: false };
   });

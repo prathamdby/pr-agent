@@ -10,7 +10,7 @@ Many repositories already document agent behavior in root files such as `AGENTS.
 
 ## Decision
 
-1. **Statically load** `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` from the PR head checkout root on every **Review run** (all lenses).
+1. **Statically load** `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` from the PR head checkout root on every orchestrated review run.
 2. **Inject** accepted bodies into a sibling trusted-context block, parallel to repo policy, with separate aggregate/per-file byte budgets large enough for real instruction docs (not the short `.mdc` instruction-char squash).
 3. **Preserve newlines** in the rendered block; do not expand `@include` pointers.
 4. **Treat present files as binding** for that review: evidenced violations matching the lens reporting gate are ordinary findings; prompts may cite these filenames when they appear in trusted context.
@@ -20,7 +20,7 @@ Many repositories already document agent behavior in root files such as `AGENTS.
 
 - Reviews of agent-scaffolded repos can enforce the repo’s own agent contracts without requiring a `.pr-agent/` migration.
 - Pointer-only `CLAUDE.md` bodies remain thin unless the agent opens the target via tools.
-- Prompt cost budgets for every review lens grow by the shared guidance block.
+- The orchestrator and all specialists receive the shared guidance block, which increases their prompt cost.
 
 ## Reversal
 

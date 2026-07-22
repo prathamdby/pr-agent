@@ -103,7 +103,9 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
       await bridge.dispose();
       throw error;
     }
-    let disposed = false;
+    const activeSends = new Set<AbortController>();
+    let abortPromise: Promise<void> | undefined;
+    let disposePromise: Promise<void> | undefined;
 
     const syncRunContext = (maxToolRounds?: number) => {
       activeMaxToolRounds = maxToolRounds;
@@ -124,6 +126,20 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
 
     return {
       async send(prompt: string, opts?: AgentRunnerSendOptions) {
+        if (abortPromise) {
+          throw new AppError({
+            code: "agent.session_aborted",
+            message: "Agent runner session aborted",
+          });
+        }
+        if (disposePromise) {
+          throw new AppError({
+            code: "agent.session_disposed",
+            message: "Agent runner session disposed",
+          });
+        }
+        const abortController = new AbortController();
+        activeSends.add(abortController);
         toolRoundCounter.count = 0;
         syncRunContext(opts?.maxToolRounds ?? activeMaxToolRounds);
         context.messages.push({
@@ -134,18 +150,32 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         const { text: sendText, inputChars } = buildCursorSendText(context, {
           reuseAgentConversation: true,
         });
-        const assistant = await complete(model, context, {
-          apiKey: cfg.cursorApiKey,
-        });
-        context.messages.push(assistant);
-        return {
-          text: assistantText(assistant),
-          prompt: {
-            inputCharacters: inputChars,
-            inputBytes: Buffer.byteLength(sendText, "utf8"),
-          },
-          usage: estimatedUsageFromTokenCounts(assistant.usage.input, assistant.usage.output),
-        };
+        try {
+          const assistant = await complete(model, context, {
+            apiKey: cfg.cursorApiKey,
+            signal: abortController.signal,
+          });
+          context.messages.push(assistant);
+          return {
+            text: assistantText(assistant),
+            prompt: {
+              inputCharacters: inputChars,
+              inputBytes: Buffer.byteLength(sendText, "utf8"),
+            },
+            usage: estimatedUsageFromTokenCounts(assistant.usage.input, assistant.usage.output),
+          };
+        } finally {
+          activeSends.delete(abortController);
+        }
+      },
+      abort() {
+        if (!abortPromise) {
+          abortPromise = (async () => {
+            for (const controller of activeSends) controller.abort();
+            await bridge.abort();
+          })();
+        }
+        return abortPromise;
       },
       restrictToTools(nextTools, nextExecutors) {
         if (savedTools === null) {
@@ -164,16 +194,19 @@ export const cursorAgentRunnerProvider: AgentRunnerProvider = {
         savedTools = null;
         savedExecutors = null;
       },
-      async dispose() {
-        if (disposed) return;
-        disposed = true;
-        const disposeAgent = agent[Symbol.asyncDispose];
-        await Promise.allSettled([
-          typeof disposeAgent === "function"
-            ? Promise.resolve(disposeAgent.call(agent))
-            : Promise.resolve(),
-          bridge.dispose(),
-        ]);
+      dispose() {
+        if (!disposePromise) {
+          disposePromise = (async () => {
+            const disposeAgent = agent[Symbol.asyncDispose];
+            await Promise.allSettled([
+              typeof disposeAgent === "function"
+                ? Promise.resolve(disposeAgent.call(agent))
+                : Promise.resolve(),
+              bridge.dispose(),
+            ]);
+          })();
+        }
+        return disposePromise;
       },
     };
   },

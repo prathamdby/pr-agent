@@ -14,9 +14,6 @@ import {
   renderReviewSummaryComment,
   renderStaleReviewMetadataComment,
   fitReviewSummaryBody,
-  SECURITY_REVIEW_POINTER_BODY,
-  QUALITY_REVIEW_POINTER_BODY,
-  TESTS_REVIEW_POINTER_BODY,
 } from "../src/review/run/reviewRender.js";
 import {
   REVIEW_FINDING_FOOTNOTE_INLINE,
@@ -27,10 +24,7 @@ import {
 } from "../src/settings/index.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeReviewPayload } from "./helpers/reviewPayloadFactory.js";
-import {
-  REVIEW_SUMMARY_SENTINEL,
-  SECURITY_REVIEW_SUMMARY_SENTINEL,
-} from "../src/review/reviewSchema.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import {
   testPlacementsFromPayload,
   planInlineFromPayload,
@@ -370,17 +364,15 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Adds auth | breaks table");
   });
 
-  it("uses security sentinel when requested", () => {
+  it("uses the general summary identity for recognized legacy modes", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       mode: "review-security",
-      summarySentinel: SECURITY_REVIEW_SUMMARY_SENTINEL,
       placements: testPlacementsFromPayload(payload),
     });
-    expect(body).toContain("## PR Agent Security Review");
-    expect(body).not.toContain("## PR Agent Review\n");
-    expect(body).toContain("<sub>abc123d ⋅ security ⋅ 11m 20s ⋅ grok-4.5</sub>");
+    expect(body).toContain("## PR Agent Review");
+    expect(body).toContain("<sub>abc123d ⋅ general ⋅ 11m 20s ⋅ grok-4.5</sub>");
   });
 
   it("escapes pipes in security and follow-ups table cells", () => {
@@ -1006,7 +998,7 @@ describe("renderRepeatNoBugsReviewBody", () => {
 
   it("links to summary when URL is verified (security)", () => {
     const body = renderRepeatNoBugsReviewBody("review-security", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated security review](${url}).`);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
   });
 
   it("falls back to plain pointer when URL is missing (general)", () => {
@@ -1016,27 +1008,27 @@ describe("renderRepeatNoBugsReviewBody", () => {
 
   it("falls back to plain pointer when URL is missing (security)", () => {
     const body = renderRepeatNoBugsReviewBody("review-security");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${SECURITY_REVIEW_POINTER_BODY}`);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
   });
 
   it("links to summary when URL is verified (quality)", () => {
     const body = renderRepeatNoBugsReviewBody("review-quality", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated code-quality review](${url}).`);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
   });
 
   it("falls back to plain pointer when URL is missing (quality)", () => {
     const body = renderRepeatNoBugsReviewBody("review-quality");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${QUALITY_REVIEW_POINTER_BODY}`);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
   });
 
   it("links to summary when URL is verified (tests)", () => {
     const body = renderRepeatNoBugsReviewBody("review-tests", url);
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated test-case proposals](${url}).`);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}, [see the updated review](${url}).`);
   });
 
   it("falls back to plain pointer when URL is missing (tests)", () => {
     const body = renderRepeatNoBugsReviewBody("review-tests");
-    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${TESTS_REVIEW_POINTER_BODY}`);
+    expect(body).toBe(`${REPEAT_NO_BUGS_PREFIX}. ${REVIEW_POINTER_BODY}`);
   });
 });
 
@@ -1058,10 +1050,10 @@ describe("renderLightweightReviewCompletion", () => {
     expect(body).toContain("<sub>abc123d ⋅ general ⋅ 12s ⋅ grok-4.5</sub>");
   });
 
-  it("uses security sentinel for security lens", () => {
+  it("uses the general sentinel and footer for recognized legacy modes", () => {
     const body = renderLightweightReviewCompletion("review-security", lightweightFooter);
-    expect(body).toContain(SECURITY_REVIEW_SUMMARY_SENTINEL);
-    expect(body).toContain("<sub>abc123d ⋅ security ⋅ 12s ⋅ grok-4.5</sub>");
+    expect(body).toContain(REVIEW_SUMMARY_SENTINEL);
+    expect(body).toContain("<sub>abc123d ⋅ general ⋅ 12s ⋅ grok-4.5</sub>");
   });
 });
 

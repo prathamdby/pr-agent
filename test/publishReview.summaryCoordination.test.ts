@@ -1,3 +1,4 @@
+import type { Pool, PoolClient } from "pg";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
@@ -20,6 +21,11 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   return createReviewCheckRunMock();
 });
 
+vi.mock("../src/evlog.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/evlog.js")>();
+  return { ...actual, logWarn: vi.fn() };
+});
+
 import {
   findIssueCommentBySentinel,
   resolveVerifiedSummaryCommentRef,
@@ -31,11 +37,23 @@ import {
 } from "../src/review/publish/publishReview.js";
 import {
   claimSummaryCommentCreation,
+  getProgressCommentRevision,
   getSummaryCommentGithubId,
+  recordPublishStep,
 } from "../src/agentWork/repository.js";
+import { logWarn } from "../src/evlog.js";
 
 const baseParams = publishReviewTestBaseParams;
-const pool = {} as import("pg").Pool;
+
+function createLockedPool() {
+  const query = vi.fn(async (_sql: string, _values?: unknown[]) => ({ rows: [] }));
+  const release = vi.fn();
+  const client = { query, release } as unknown as PoolClient;
+  const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+  return { client, pool, query, release };
+}
+
+const { pool, query: lockQuery } = createLockedPool();
 const claimBase = {
   pool,
   workItemId: "wi-1",
@@ -52,6 +70,7 @@ const claimBase = {
 describe("upsertSummaryCommentWithCreationClaim", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue(null);
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(null);
     vi.mocked(claimSummaryCommentCreation).mockResolvedValue(true);
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue(null);
@@ -151,11 +170,214 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     );
     vi.useRealTimers();
   });
+
+  it("does not let a delayed specialist tick overwrite the final summary", async () => {
+    const { pool: lockedPool, query, release } = createLockedPool();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 5 });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n\nfinal\n<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->`,
+    });
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 1,
+      }),
+    ).resolves.toEqual({ id: 88, updated: false, skipped: true });
+
+    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+    expect(recordPublishStep).not.toHaveBeenCalled();
+    expect(query.mock.calls[0]?.[0]).toContain("pg_advisory_lock");
+    expect(query.mock.calls.at(-1)?.[0]).toContain("pg_advisory_unlock");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("uses a stable NUL-free advisory lock key", async () => {
+    const { pool: lockedPool, query } = createLockedPool();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 5 });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->`,
+    });
+
+    await upsertSummaryCommentWithCreationClaim({
+      ...claimBase,
+      pool: lockedPool,
+      progressRevision: 1,
+    });
+
+    const lockKey = query.mock.calls[0]?.[1]?.[0];
+    expect(lockKey).toBe(JSON.stringify(["o/r#1", "review"]));
+    expect(lockKey).not.toContain("\u0000");
+  });
+
+  it("allows a new work item to restart progress at revision zero", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({
+      workItemId: "wi-old",
+      revision: 5,
+    });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-old value=5 -->`,
+    });
+    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      source: "hint",
+    });
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 0,
+      }),
+    ).resolves.toMatchObject({ id: 99 });
+
+    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      1,
+      expect.stringContaining("workItemId=wi-1 value=0"),
+      REVIEW_SUMMARY_SENTINEL,
+      { id: 88, url: "https://example.com/88" },
+      undefined,
+    );
+  });
+
+  it("recovers from a crash after the GitHub write using the body revision marker", async () => {
+    const { pool: lockedPool, release } = createLockedPool();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue(null);
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue(null);
+    vi.mocked(recordPublishStep).mockRejectedValueOnce(new Error("record failed"));
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).rejects.toThrow("record failed");
+
+    const writtenBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(writtenBody).toContain("workItemId=wi-1 value=2");
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 99,
+      url: "https://example.com/99",
+      body: writtenBody ?? "",
+    });
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).resolves.toEqual({ id: 99, updated: false, skipped: true });
+
+    expect(upsertReviewSummaryComment).toHaveBeenCalledOnce();
+    expect(recordPublishStep).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledTimes(2);
+  });
+
+  it("records a revision after the GitHub upsert and unlocks on failure", async () => {
+    const { client, pool: lockedPool, query, release } = createLockedPool();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 0 });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=0 -->`,
+    });
+    vi.mocked(upsertReviewSummaryComment).mockRejectedValueOnce(new Error("write failed"));
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 2,
+      }),
+    ).rejects.toThrow("write failed");
+
+    expect(getProgressCommentRevision).toHaveBeenCalledWith(client, "o/r#1", "review");
+    expect(recordPublishStep).not.toHaveBeenCalled();
+    expect(query.mock.calls.at(-1)?.[0]).toContain("pg_advisory_unlock");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("releases the client when advisory lock acquisition fails", async () => {
+    const { pool: lockedPool, query, release } = createLockedPool();
+    query.mockRejectedValueOnce(new Error("lock failed"));
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 1,
+      }),
+    ).rejects.toThrow("lock failed");
+
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[0]).toContain("pg_advisory_lock");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("destroys the client and surfaces an unlock-only failure", async () => {
+    const { pool: lockedPool, query, release } = createLockedPool();
+    query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("unlock failed"));
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 5 });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->`,
+    });
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 1,
+      }),
+    ).rejects.toThrow("unlock failed");
+
+    expect(release).toHaveBeenCalledWith(true);
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_progress_unlock_failed",
+      expect.objectContaining({ resourceKey: "o/r#1", reviewLens: "review" }),
+    );
+  });
+
+  it("preserves the operation error when unlock also fails", async () => {
+    const { pool: lockedPool, query, release } = createLockedPool();
+    query.mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("unlock failed"));
+    vi.mocked(getProgressCommentRevision).mockRejectedValueOnce(new Error("operation failed"));
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        progressRevision: 1,
+      }),
+    ).rejects.toThrow("operation failed");
+
+    expect(release).toHaveBeenCalledWith(true);
+    expect(logWarn).toHaveBeenCalledWith(
+      "review_progress_unlock_failed",
+      expect.objectContaining({ message: "unlock failed" }),
+    );
+  });
 });
 
 describe("publishReview summary coordination", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getProgressCommentRevision).mockResolvedValue(null);
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(88);
     vi.mocked(claimSummaryCommentCreation).mockResolvedValue(true);
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue({
@@ -166,7 +388,7 @@ describe("publishReview summary coordination", () => {
     vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 88, updated: true });
   });
 
-  it("uses stored progress id without sentinel scan", async () => {
+  it("publishes the final summary at revision five under the progress lock", async () => {
     const recordPublishStep = attachSummaryCommentCoordination(vi.fn(), {
       pool,
       workItemId: "wi-1",
@@ -180,16 +402,18 @@ describe("publishReview summary coordination", () => {
       recordPublishStep,
     });
 
-    expect(findIssueCommentBySentinel).not.toHaveBeenCalled();
+    expect(findIssueCommentBySentinel).toHaveBeenCalled();
     expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
       "t",
       "o",
       "r",
       1,
-      expect.any(String),
+      expect.stringContaining("<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->"),
       REVIEW_SUMMARY_SENTINEL,
       { id: 88, url: "https://example.com/88" },
       undefined,
     );
+    expect(lockQuery.mock.calls.some(([sql]) => sql.includes("pg_advisory_lock"))).toBe(true);
+    expect(lockQuery.mock.calls.some(([sql]) => sql.includes("pg_advisory_unlock"))).toBe(true);
   });
 });

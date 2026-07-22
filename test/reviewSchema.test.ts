@@ -1,15 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   coerceReviewPayloadInput,
   formatReviewValidationError,
   reviewEventForFindings,
   reviewPayloadSchema,
   reviewSummarySentinelForMode,
-  reviewRetrySlashCommandForMode,
   selectInlineFindings,
 } from "../src/review/reviewSchema.js";
 import { REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS } from "../src/settings/index.js";
-import type { ReviewFinding } from "../src/review/reviewSchema.js";
+import type { ReviewFinding, ReviewMode } from "../src/review/reviewSchema.js";
 
 function makeFinding(severity: ReviewFinding["severity"], title: string): ReviewFinding {
   return {
@@ -388,21 +387,8 @@ describe("formatReviewValidationError", () => {
 });
 
 describe("reviewSummarySentinelForMode", () => {
-  it("returns the quality sentinel for review-quality", () => {
-    expect(reviewSummarySentinelForMode("review-quality")).toBe("## PR Agent Quality Review");
-  });
-
-  it("returns the tests sentinel for review-tests", () => {
-    expect(reviewSummarySentinelForMode("review-tests")).toBe("## PR Agent Tests Review");
-  });
-});
-
-describe("reviewRetrySlashCommandForMode", () => {
-  it("returns /review-quality for review-quality mode", () => {
-    expect(reviewRetrySlashCommandForMode("review-quality")).toBe("/review-quality");
-  });
-
-  it("returns /review-tests for review-tests mode", () => {
-    expect(reviewRetrySlashCommandForMode("review-tests")).toBe("/review-tests");
+  it("uses one live review mode and the general summary sentinel", () => {
+    expectTypeOf<ReviewMode>().toEqualTypeOf<"review">();
+    expect(reviewSummarySentinelForMode("review")).toBe("## PR Agent Review");
   });
 });

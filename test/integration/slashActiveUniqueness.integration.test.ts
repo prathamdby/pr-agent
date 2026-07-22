@@ -165,7 +165,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(loserAcks.length).toBe(ackForResource.length - 1);
   });
 
-  it("allows concurrent slash reviews with different lenses", async () => {
+  it("keeps one review when a removed lens command arrives concurrently", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
     const lenses = ["review", "review-security"] as const;
 
@@ -204,7 +204,7 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
         ORDER BY review_lens`,
       [resourceKey],
     );
-    expect(rows.map((r) => r.review_lens)).toEqual(["review", "review-security"]);
+    expect(rows.map((r) => r.review_lens)).toEqual(["review"]);
   });
 
   it("does not uniqueness-block auto description inserts beside active slash work", async () => {

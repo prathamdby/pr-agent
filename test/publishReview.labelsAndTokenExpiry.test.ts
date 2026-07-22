@@ -118,7 +118,7 @@ describe("publishReview labels and token expiry", () => {
     );
   });
 
-  it("syncs quality effort without removing review effort", async () => {
+  it("uses the review effort family for a recognized legacy mode", async () => {
     vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
       "Review effort 3/5",
       "Quality effort 1/5",
@@ -141,7 +141,7 @@ describe("publishReview labels and token expiry", () => {
       "o",
       "r",
       1,
-      ["Review effort 3/5", "bug", "Quality effort 4/5"],
+      ["Quality effort 1/5", "bug", "Review effort 4/5"],
       undefined,
     );
   });
@@ -194,14 +194,14 @@ describe("publishReview labels and token expiry", () => {
       "r",
       1,
       expect.objectContaining({
-        event: "REQUEST_CHANGES",
+        event: "COMMENT",
         commitId: "sha",
       }),
       tokenExpiresAtTs,
     );
   });
 
-  it("forwards tokenExpiresAtTs on repeat no-bugs review creation", async () => {
+  it("does not create a zero-comment review on repeat no-bugs publish", async () => {
     const tokenExpiresAtTs = 1_700_000_000_000;
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
       id: 99,
@@ -218,16 +218,7 @@ describe("publishReview labels and token expiry", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        event: "COMMENT",
-      }),
-      tokenExpiresAtTs,
-    );
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 
   it("does not fail publish when label sync throws", async () => {

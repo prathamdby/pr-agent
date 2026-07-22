@@ -7,6 +7,7 @@ export const DEFAULT_AGENT_PROVIDER = "pi" as const;
 export const DEFAULT_PI_PROVIDER = "openai";
 export const DEFAULT_PI_MODEL = "gpt-4o-mini";
 export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 300_000;
+export const DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS = 900_000;
 
 export const DEFAULT_REVIEW_CONCURRENCY = 2;
 export const DEFAULT_ASK_CONCURRENCY = 1;

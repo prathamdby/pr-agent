@@ -1,7 +1,10 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
-import type { WorkSource, ReviewMode } from "../reviewSchema.js";
+import type { WorkSource } from "../reviewSchema.js";
+import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
+import type { RecordPublishStepWithCoordination } from "../publish/publishSummaryOnly.js";
 
 export type ReviewRunParams = {
   readonly cfg: Config;
@@ -12,7 +15,7 @@ export type ReviewRunParams = {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  readonly mode?: ReviewMode;
+  readonly mode?: AnyReviewLens;
   readonly userSupplement?: string;
   readonly trustedContext?: string;
   readonly cwd?: string;
@@ -22,15 +25,14 @@ export type ReviewRunParams = {
   readonly hasDescriptionAgentBlock?: boolean;
   readonly initialPublishState?: {
     readonly published?: boolean;
-    readonly inlinePublished?: boolean;
-    readonly inlineReviewId?: number | null;
+    readonly inlineReviewIds?: readonly number[];
+    readonly threadCallCount?: number;
   };
-  readonly recordPublishStep?: (
-    step: "inline_review" | "summary_comment" | "labels",
-    detail?: { readonly githubId?: string | number; readonly meta?: Record<string, unknown> },
-  ) => Promise<void>;
+  readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly storedInlineFingerprints?: readonly string[];
+  readonly workItemId?: string;
+  readonly resumedPlacements?: readonly AcceptedPlacement[];
   readonly refreshInstallationToken?: () => Promise<{
     readonly token: string;
     readonly expiresAtTs: number;

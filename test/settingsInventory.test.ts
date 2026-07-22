@@ -25,8 +25,9 @@ describe("settings inventory", () => {
     expect(envValues).toContain("CURSOR_RIPGREP_PATH");
     expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
     expect(envValues).toContain("POSTHOG_HOST");
+    expect(envValues).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
     expect(new Set(envValues).size).toBe(envValues.length);
-    expect(envValues.length).toBe(48);
+    expect(envValues.length).toBe(49);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

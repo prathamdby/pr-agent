@@ -10,52 +10,42 @@ import {
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
 } from "../placement/reviewDiffIndex.js";
-import { automatedSecuritySystemPrompt } from "../../agent/prompts/securityPrompt.js";
-import { automatedQualitySystemPrompt } from "../../agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../../agent/prompts/reviewTestsPrompt.js";
-import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
-import {
-  buildSubmitReviewTool,
-  createSubmitReviewState,
-  type SubmitReviewState,
-} from "../publish/submitReviewTool.js";
-import type { ReviewMode } from "../reviewSchema.js";
-import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
-
-function systemPromptForReviewMode(reviewMode: ReviewMode): string {
-  switch (reviewMode) {
-    case "review-security":
-      return automatedSecuritySystemPrompt;
-    case "review-quality":
-      return automatedQualitySystemPrompt;
-    case "review-tests":
-      return automatedReviewTestsSystemPrompt;
-    case "review":
-      return buildAutomatedSystemPrompt();
-  }
-  const exhaustive: never = reviewMode;
-  return exhaustive;
-}
+import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 
 export type ReviewRunSetup = {
-  readonly systemPrompt: string;
-  readonly userContent: string;
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  readonly orchestratorUserContent: string;
+  readonly workspaceTools: {
+    readonly piTools: PiTool[];
+    readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  };
   readonly cachedDiffIndex: CachedPrDiffIndex;
-  readonly submitState: SubmitReviewState;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
+  readonly refreshLiveAuth: () => Promise<void>;
 };
 
-/** True while the harness should keep investigating or retrying publish. */
-export function shouldContinueReviewRun(setup: Pick<ReviewRunSetup, "submitState">): boolean {
-  return !setup.submitState.published && !setup.submitState.publishSuperseded;
-}
-
 const TOKEN_REFRESH_TOOL = "getPullRequest";
+
+function buildOrchestratorUserContent(params: {
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly headSha: string;
+  readonly userSupplement?: string;
+  readonly trustedContext?: string;
+}): string {
+  return [
+    `Target repository: ${params.owner}/${params.repo}`,
+    `Pull request #: ${params.prNumber}`,
+    `Head commit SHA: ${params.headSha}`,
+    params.userSupplement
+      ? `\n${wrapUntrustedBlock("user_supplement", params.userSupplement)}\n`
+      : "",
+    params.trustedContext ? `\n${params.trustedContext}\n` : "",
+  ].join("\n");
+}
 
 export function buildReviewRunSetup(params: {
   cfg: Config;
@@ -66,30 +56,13 @@ export function buildReviewRunSetup(params: {
   repo: string;
   prNumber: number;
   headSha: string;
-  reviewMode: ReviewMode;
   userSupplement?: string;
   trustedContext?: string;
   workspace: LocalPrWorkspace;
-  initialPublishState?: {
-    published?: boolean;
-    inlinePublished?: boolean;
-    inlineReviewId?: number | null;
-  };
-  shouldLinkToSummary?: boolean;
-  summaryCommentIdHint?: number | null;
-  hasDescriptionAgentBlock?: boolean;
-  recordPublishStep?: (
-    step: "inline_review" | "summary_comment" | "labels",
-    detail?: { githubId?: string | number; meta?: Record<string, unknown> },
-  ) => Promise<void>;
-  shouldAbortPublish?: () => Promise<boolean>;
-  storedInlineFingerprints?: readonly string[];
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;
   }>;
-  publishAbortState?: { staleHead?: boolean };
-  severityFloor?: number;
 }): ReviewRunSetup {
   const {
     cfg,
@@ -99,19 +72,12 @@ export function buildReviewRunSetup(params: {
     repo,
     prNumber,
     headSha,
-    reviewMode,
     userSupplement,
     trustedContext,
   } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
-  const submitState: SubmitReviewState = createSubmitReviewState({
-    published: params.initialPublishState?.published,
-    inlinePublished: params.initialPublishState?.inlinePublished,
-    inlineReviewId: params.initialPublishState?.inlineReviewId,
-  });
-
   const pathGate = createAskPathGate();
   const refreshableGh = createRefreshableToolExecutors({
     initialToken: token,
@@ -133,86 +99,31 @@ export function buildReviewRunSetup(params: {
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
-  const buildSubmit = () =>
-    buildSubmitReviewTool({
-      cfg,
-      token: refreshableGh.getToken(),
-      getToken: () => refreshableGh.getToken(),
-      tokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs(),
-      getTokenExpiresAtTs: () => refreshableGh.getTokenExpiresAtTs(),
-      ctx: {
-        owner,
-        repo,
-        prNumber,
-        headSha,
-        hasDescriptionAgentBlock: params.hasDescriptionAgentBlock ?? false,
-      },
-      mode: reviewMode,
-      state: submitState,
-      cachedDiffIndex,
-      shouldLinkToSummary: params.shouldLinkToSummary,
-      summaryCommentIdHint: params.summaryCommentIdHint,
-      recordPublishStep: params.recordPublishStep,
-      shouldAbortPublish: params.shouldAbortPublish,
-      storedInlineFingerprints: params.storedInlineFingerprints,
-      publishAbortState: params.publishAbortState,
-      severityFloor: params.severityFloor,
-    });
-
-  let submitBundle = buildSubmit();
   const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
-  executors.submitReview = async (args) => {
-    if (submitState.published) {
-      return {
-        ok: true,
-        alreadyPublished: true,
-        message: "Stop further investigation; the review has been published.",
-      };
-    }
-    return submitBundle.executor(args);
+  const workspaceTools = {
+    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools],
+    executors: { ...executors },
   };
-
   const refreshBeforeTool = async (toolName: string) => {
-    if (refreshableGh.githubExecutorNames.has(toolName) || toolName === "submitReview") {
+    if (refreshableGh.githubExecutorNames.has(toolName)) {
       await refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL);
-      if (toolName === "submitReview") {
-        submitBundle = buildSubmit();
-      }
     }
   };
 
   return {
-    systemPrompt: systemPromptForReviewMode(reviewMode),
-    userContent: buildReviewRunUserContent({
+    orchestratorUserContent: buildOrchestratorUserContent({
       owner,
       repo,
       prNumber,
       headSha,
-      reviewMode,
       userSupplement,
       trustedContext,
     }),
-    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, submitBundle.piTool],
-    executors,
+    workspaceTools,
     cachedDiffIndex,
-    submitState,
     getToken: refreshableGh.getToken,
     getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
     refreshBeforeTool,
-  };
-}
-
-export function buildSubmitOnlyReviewSessionTools(setup: ReviewRunSetup): {
-  piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const submitTool = setup.piTools.find((tool) => tool.name === "submitReview");
-  const submitReview = setup.executors.submitReview;
-  if (!submitTool || !submitReview) {
-    return { piTools: setup.piTools, executors: setup.executors };
-  }
-  return {
-    piTools: [submitTool],
-    executors: { submitReview },
+    refreshLiveAuth: () => refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL),
   };
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { publishInlineReviewComments } from "../src/review/placement/reviewInlinePublish.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
@@ -7,11 +7,21 @@ vi.mock("../src/github/reviewPublish.js", () => ({
   createPullRequestReviewWithComments: vi.fn(),
 }));
 
-vi.mock("../src/github/reviewPublishRetry.js", () => ({
-  withTransientReviewRetry: (fn: () => Promise<unknown>) => fn(),
-}));
-
 import { createPullRequestReviewWithComments } from "../src/github/reviewPublish.js";
+
+function liveAuth(
+  overrides: {
+    readonly getToken?: () => string;
+    readonly getTokenExpiresAtTs?: () => number | undefined;
+    readonly refreshLiveAuth?: () => Promise<void>;
+  } = {},
+) {
+  return {
+    getToken: overrides.getToken ?? (() => "token"),
+    getTokenExpiresAtTs: overrides.getTokenExpiresAtTs,
+    refreshLiveAuth: overrides.refreshLiveAuth,
+  };
+}
 
 function finding(severity: ReviewFinding["severity"], file: string, line: number): ReviewFinding {
   return {
@@ -34,6 +44,10 @@ describe("publishInlineReviewComments", () => {
     vi.mocked(createPullRequestReviewWithComments).mockReset();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("drops failing anchor and publishes the rest", async () => {
     vi.mocked(createPullRequestReviewWithComments)
       .mockRejectedValueOnce(new Error("Line could not be resolved"))
@@ -41,8 +55,10 @@ describe("publishInlineReviewComments", () => {
 
     const p1 = placement(finding("P1", "src/a.ts", 1));
     const p2 = placement(finding("P2", "src/b.ts", 2));
+    const refreshLiveAuth = vi.fn(async () => undefined);
 
-    const result = await publishInlineReviewComments("token", "o", "r", 1, {
+    const result = await publishInlineReviewComments("o", "r", 1, {
+      ...liveAuth({ refreshLiveAuth }),
       renderReviewBody: () => "pointer",
       event: "COMMENT",
       commitId: "sha",
@@ -57,6 +73,7 @@ describe("publishInlineReviewComments", () => {
     expect(result.anchorDroppedPlacements[0]?.finding.file).toBe("src/b.ts");
     expect(result.lineResolutionFallback).toBe(true);
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(2);
+    expect(refreshLiveAuth).toHaveBeenCalledTimes(2);
   });
 
   it("drops the hinted failing anchor when GitHub identifies it", async () => {
@@ -75,7 +92,8 @@ describe("publishInlineReviewComments", () => {
     const p2 = placement(finding("P2", "src/b.ts", 2));
     const p3 = placement(finding("P3", "src/c.ts", 3));
 
-    const result = await publishInlineReviewComments("token", "o", "r", 1, {
+    const result = await publishInlineReviewComments("o", "r", 1, {
+      ...liveAuth(),
       renderReviewBody: () => "pointer",
       event: "COMMENT",
       commitId: "sha",
@@ -108,7 +126,8 @@ describe("publishInlineReviewComments", () => {
       url: "https://example.com/review/9",
     });
 
-    const result = await publishInlineReviewComments("token", "o", "r", 1, {
+    const result = await publishInlineReviewComments("o", "r", 1, {
+      ...liveAuth(),
       renderReviewBody: () => "pointer",
       event: "COMMENT",
       commitId: "sha",
@@ -136,7 +155,8 @@ describe("publishInlineReviewComments", () => {
     );
     const renderCommentBody = vi.fn((f: ReviewFinding) => f.title);
 
-    const result = await publishInlineReviewComments("token", "o", "r", 1, {
+    const result = await publishInlineReviewComments("o", "r", 1, {
+      ...liveAuth(),
       renderReviewBody: () => "pointer",
       event: "COMMENT",
       commitId: "sha",
@@ -159,7 +179,8 @@ describe("publishInlineReviewComments", () => {
       inlinePosted: true,
     };
 
-    const result = await publishInlineReviewComments("token", "o", "r", 1, {
+    const result = await publishInlineReviewComments("o", "r", 1, {
+      ...liveAuth(),
       renderReviewBody: () => "pointer",
       event: "COMMENT",
       commitId: "sha",
@@ -179,13 +200,13 @@ describe("publishInlineReviewComments", () => {
     });
     const expiresAtTs = 1_700_000_000_000;
 
-    await publishInlineReviewComments("token", "o", "r", 1, {
+    await publishInlineReviewComments("o", "r", 1, {
+      ...liveAuth({ getTokenExpiresAtTs: () => expiresAtTs }),
       renderReviewBody: () => "pointer",
       event: "COMMENT",
       commitId: "sha",
       inlinePlacements: [placement(finding("P1", "src/a.ts", 1))],
       renderCommentBody: (f) => f.title,
-      expiresAtTs,
     });
 
     expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
@@ -200,5 +221,43 @@ describe("publishInlineReviewComments", () => {
       }),
       expiresAtTs,
     );
+  });
+
+  it("refreshes auth and reads the new token before a transient retry", async () => {
+    vi.useFakeTimers();
+    vi.mocked(createPullRequestReviewWithComments)
+      .mockRejectedValueOnce(Object.assign(new Error("service unavailable"), { status: 503 }))
+      .mockResolvedValueOnce({ id: 9, url: "https://example.com/review/9" });
+    let token = "old-token";
+    let expiresAtTs = 100;
+    let refreshCount = 0;
+    const refreshLiveAuth = vi.fn(async () => {
+      refreshCount += 1;
+      if (refreshCount === 2) {
+        token = "new-token";
+        expiresAtTs = 200;
+      }
+    });
+
+    const publish = publishInlineReviewComments("o", "r", 1, {
+      ...liveAuth({
+        getToken: () => token,
+        getTokenExpiresAtTs: () => expiresAtTs,
+        refreshLiveAuth,
+      }),
+      renderReviewBody: () => "pointer",
+      event: "COMMENT",
+      commitId: "sha",
+      inlinePlacements: [placement(finding("P1", "src/a.ts", 1))],
+      renderCommentBody: (f) => f.title,
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await expect(publish).resolves.toMatchObject({ review: { id: 9 } });
+    expect(refreshLiveAuth).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[0]).toBe("old-token");
+    expect(vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[5]).toBe(100);
+    expect(vi.mocked(createPullRequestReviewWithComments).mock.calls[1]?.[0]).toBe("new-token");
+    expect(vi.mocked(createPullRequestReviewWithComments).mock.calls[1]?.[5]).toBe(200);
   });
 });

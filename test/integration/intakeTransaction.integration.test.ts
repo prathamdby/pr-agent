@@ -29,7 +29,6 @@ const intakeCfg = makeTestConfig({
 });
 import {
   ACK_QUEUE,
-  AUTOMATED_REVIEW_LENS,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_QUEUE_DELETE_AFTER_SECONDS,
   DEFAULT_QUEUE_EXPIRE_IN_SECONDS,
@@ -192,10 +191,7 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
   }
 
   async function reviewJobsFor(ref: PrRef) {
-    const key = reviewSingletonKey(
-      prResourceKey(ref.owner, ref.repo, ref.prNumber),
-      AUTOMATED_REVIEW_LENS,
-    );
+    const key = reviewSingletonKey(prResourceKey(ref.owner, ref.repo, ref.prNumber));
     return boss.findJobs(REVIEW_QUEUE, { key });
   }
 

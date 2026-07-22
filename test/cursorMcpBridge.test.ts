@@ -156,4 +156,45 @@ describe("createMcpBridge", () => {
       },
     );
   });
+
+  it("aborts pending calls and rejects new calls without disposing the bridge", async () => {
+    let executorStarted: (() => void) | undefined;
+    let releaseExecutor: (() => void) | undefined;
+    const bridge = await createMcpBridge({
+      tools: [{ name: "pending", description: "pending", parameters: { type: "object" } }],
+      executors: {
+        pending: async () => {
+          executorStarted?.();
+          await new Promise<void>((resolve) => {
+            releaseExecutor = resolve;
+          });
+          return "late result";
+        },
+      },
+    });
+    const client = await connectClient(expectHttpMcpConfig(bridge.mcpServers["pr-agent"]));
+    const started = new Promise<void>((resolve) => {
+      executorStarted = resolve;
+    });
+
+    try {
+      const pendingCall = client.callTool({ name: "pending", arguments: {} });
+      await started;
+
+      await Promise.all([bridge.abort(), bridge.abort()]);
+
+      await expect(pendingCall).resolves.toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: "MCP tool call aborted" }],
+      });
+      await expect(client.callTool({ name: "pending", arguments: {} })).resolves.toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: "MCP bridge aborted" }],
+      });
+    } finally {
+      releaseExecutor?.();
+      await client.close();
+      await bridge.dispose();
+    }
+  });
 });
