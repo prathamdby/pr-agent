@@ -137,11 +137,15 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `DESCRIPTION_QUEUE`                        | `agent-work-description`                                                                                                                           |
 | `TRIAGE_QUEUE`                             | `agent-work-triage`                                                                                                                                |
 | `VERIFICATION_QUEUE`                       | `agent-work-verification`                                                                                                                          |
+| `ACK_DEAD_LETTER_QUEUE`                    | `agent-work-ack-dead`                                                                                                                              |
+| `REVIEW_DEAD_LETTER_QUEUE`                 | `agent-work-review-dead`                                                                                                                           |
+| `ASK_DEAD_LETTER_QUEUE`                    | `agent-work-ask-dead`                                                                                                                              |
+| `DESCRIPTION_DEAD_LETTER_QUEUE`            | `agent-work-description-dead`                                                                                                                      |
+| `TRIAGE_DEAD_LETTER_QUEUE`                 | `agent-work-triage-dead`                                                                                                                           |
 | `VERIFICATION_DEAD_LETTER_QUEUE`           | `agent-work-verification-dead`                                                                                                                     |
 | `CI_REFRESH_DEAD_LETTER_QUEUE`             | `agent-work-ci-refresh-dead`                                                                                                                       |
 | `RETENTION_QUEUE`                          | `agent-work-retention` — scheduled cleanup sweep                                                                                                   |
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                                 |
-| `*_DEAD_LETTER_QUEUE`                      | DLQ names                                                                                                                                          |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                           |
 | `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened — `pull_request` actions accepted at webhook intake (not the auto-enqueue map)                                       |
 | `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize`; `reopened` enqueues nothing (see [features.md](features.md)) |
@@ -252,8 +256,6 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | ---------------------------------------- | --------------------------------------------------------------- |
 | `MAX_TOOL_ROUNDS`                        | 24 for orchestrator reconnaissance and specialist investigation |
 | `ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS`  | 4 per specialist judgment turn                                  |
-| `INITIAL_JITTER_MAX_MS`                  | 3000 maximum stagger before a specialist starts                 |
-| `RETRY_BACKOFF_BASE_MS`                  | 500 base for classified provider retry backoff                  |
 | `MAX_REVIEW_PUBLISH_CALLS`               | 2 valid calls for the retained structured review tool contract  |
 | `REVIEW_MIN_CONFIDENCE`                  | 1, drop scored findings below this                              |
 | `MAX_PR_FILES_LISTED`                    | 300, within the GitHub API cap                                  |
@@ -392,4 +394,6 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `LOG_MAX_WIDE_EVENTS`               | 128                                           |
 | `HEALTH_DB_PING_TIMEOUT_MS`         | 2000 (`/ready` Postgres ping budget)          |
 
-Prompt prose (investigator contracts) remains in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, and `src/agent/description/`.
+Prompt prose (investigator contracts) remains in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`.
+
+Private specialist orchestration constants (not exported from `src/settings/`): `INITIAL_JITTER_MAX_MS` (`3000`) and `RETRY_BACKOFF_BASE_MS` (`500`) live in `src/review/orchestrator/specialistRun.ts`.

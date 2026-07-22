@@ -26,7 +26,7 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 - **Library docs lookup:** review and ask agents get Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api`. Set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [ADR 0003](adr/0003-context7-docs-tool.md).
 - **Cursor provider:** set **`AGENT_PROVIDER=cursor`**, **`CURSOR_API_KEY`**, and **`PI_MODEL`** (e.g. `composer-2.5`). The worker registers the pi-ai `cursor-sdk` API and runs Cursor local agents with an HTTP MCP bridge to pr-agent's workspace, Context7, and orchestrated review tools. See [ADR 0013](adr/0013-cursor-sdk-provider.md).
 - **Bot identity** for self-suppression is cached per **`GITHUB_APP_ID`**, so multiple GitHub Apps in one process do not share the same cache entry.
-- **`WEBHOOK_TIMEOUT_MS`** (default `10000`) is the webhook intake response budget. Intake that exceeds this budget minus `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS` returns **`503`** before GitHub reports a delivery timeout. Worker jobs are still supervised separately.
+- **`WEBHOOK_TIMEOUT_MS`** (code constant, default `10000`) is the webhook intake response budget. Intake that exceeds this budget minus `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS` returns **`503`** before GitHub reports a delivery timeout. Worker jobs are still supervised separately.
 - **`/triage`:** trigger-only autofix work type. Post `/triage` on the PR conversation to triage unresolved findings from current specialist runs and recognized legacy lens threads. Reply `/triage` inside a bot inline finding thread to scope the run to that finding. Triage skips fork PR pushes, fixes same-repo findings in an isolated writable checkout, commits with validated messages, pushes without force, replies or resolves only after push succeeds, and upserts **`## PR Agent Triage`**. The bot push triggers a normal `synchronize` verification run. GitHub App needs **Contents: read/write** for this command.
 - **Verification runs:** auto-triggered on `pull_request` `synchronize` (`FEATURE_VERIFICATION=auto`, the default; `off` disables). Read-only: re-checks open bot inline findings against the new head. **Fixed** and **already-resolved** threads are resolved without a new reply; if a prior verification stub exists, it is edited in place to a short fixed/already-resolved line so a stale still-open signal is not left behind. **Still-open** findings on files changed in the push update one verification stub comment in place. **Dismissed** findings edit that stub (evidence + policy suggestion) and then resolve the thread. No ack reaction, progress comment, or summary comment is posted.
 - **Policy suggestions for dismissed findings:** when triage or verification dismisses a finding, the bot drafts a paste-ready `.pr-agent/*.mdc` suggestion. Verification grounds the suggestion in the checkout’s existing rules when exactly one rule matches the finding path (append fragment); otherwise it proposes a new `.mdc` starter. Triage always proposes a new `.mdc` starter.
@@ -35,7 +35,7 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 
 ## Large PRs and GitHub rate limits
 
-- **`@octokit/plugin-throttling`** paces all installation-token REST calls (review tools, publish, reactions). Tune via env: `MAX_PR_FILES_LISTED` (default `300`), `MAX_PR_FILES_PATCH_BYTES` (default `500000`).
+- **`@octokit/plugin-throttling`** paces all installation-token REST calls (review tools, publish, reactions). File listing and patch caps are code constants in `src/settings/reviewConstants.ts`: `MAX_PR_FILES_LISTED` (default `300`), `MAX_PR_FILES_PATCH_BYTES` (default `500000`).
 - On tool failures, logs emit `github_tool_request_error` with `x-github-request-id`, `x-ratelimit-*`, and a classification. Capture a redacted sample when debugging production limits.
 - See [ADR 0007](adr/0007-github-api-rate-limits.md) for policy (secondary-limit retries and truncation trade-offs).
 
@@ -104,22 +104,28 @@ Canonical quick start steps live in [README.md](../README.md) **Getting Started*
 
 ### Scripts
 
-| Script                                 | Purpose                              |
-| -------------------------------------- | ------------------------------------ |
-| `nub src/index.ts`                     | Run `src/index.ts` (`ROLE` env)      |
-| `nub watch src/index.ts`               | Auto-restart dev entry               |
-| `nub run build`                        | Compile to `dist/`                   |
-| `nub run start` / `node dist/index.js` | Run compiled `dist/`                 |
-| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)         |
-| `nub run lint`                         | Type-aware Oxlint                    |
-| `nub run lint:fix`                     | Oxlint with safe fixes               |
-| `nub run fmt`                          | Format with Oxfmt                    |
-| `nub run fmt:check`                    | Check formatting                     |
-| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`   |
-| `nub run check:effect-versions`        | Verify pinned Effect deps            |
-| `nub run test`                         | Vitest (`test/**/*.test.ts`)         |
-| `nub run test:watch`                   | Vitest watch mode                    |
-| `nub run --node test`                  | Vitest via plain Node (escape hatch) |
+| Script                                 | Purpose                                          |
+| -------------------------------------- | ------------------------------------------------ |
+| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)                  |
+| `nub watch src/index.ts`               | Auto-restart dev entry                           |
+| `nub run build`                        | Compile to `dist/`                               |
+| `nub run start` / `node dist/index.js` | Run compiled `dist/`                             |
+| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                     |
+| `nub run lint`                         | Type-aware Oxlint (includes `site/`)             |
+| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`              |
+| `nub run lint:fix`                     | Oxlint with safe fixes                           |
+| `nub run fmt`                          | Format with Oxfmt                                |
+| `nub run fmt:check`                    | Check formatting                                 |
+| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`               |
+| `nub run check:effect-versions`        | Verify pinned Effect deps                        |
+| `nub run check:prod-deps`              | Production dependency graph guard                |
+| `nub run test`                         | Vitest (`test/**/*.test.ts`)                     |
+| `nub run test:watch`                   | Vitest watch mode                                |
+| `nub run test:integration`             | Vitest integration suite                         |
+| `nub run --node test`                  | Vitest via plain Node (escape hatch)             |
+| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)      |
+| `nub run site:build`                   | Landing site production build                    |
+| `nub run site:generate-og`             | Generate landing OG assets                       |
 
 Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs.
 
@@ -141,5 +147,5 @@ Agent index: [AGENTS.md](../AGENTS.md).
 - **`/ask`** applies deterministic outbound redaction (tokens, host URLs, PEM blocks) before posting replies; obvious bot-internals probes get an **Ask meta refusal** without an LLM call ([ADR 0010](adr/0010-ask-red-team-hardening.md)).
 - **Triage report comments** run through the same public-output redactor before upsert to GitHub (normal and report-only paths).
 - **PostHog** is optional: enabled only when `POSTHOG_PROJECT_TOKEN` is non-empty (`src/analytics` facade; empty token means no SDK load). When enabled, exception autocapture stays on and a central `before_send` sanitizer redacts secret-shaped substrings in `$exception_list` values/stack strings and `error_message` properties for both explicit and autocaptured exceptions ([ADR 0010](adr/0010-ask-red-team-hardening.md)). `logError` also forwards terminal failures into PostHog with `AppError` fields when present.
-- Structured logging uses [evlog](https://www.evlog.dev) with `service: pr-agent`. `LOG_LEVEL` maps to evlog `minLevel` (default `info`). `LOG_MAX_WIDE_EVENTS` (default `128`) caps sub-events per webhook/worker operation. `LOG_REDACT` (default true) redacts secret-shaped substrings from logs. `LOG_PRETTY` defaults to off in production (JSON lines).
+- Structured logging uses [evlog](https://www.evlog.dev) with `service: pr-agent`. `LOG_LEVEL` maps to evlog `minLevel` (default `info`). `LOG_MAX_WIDE_EVENTS` (code constant, default `128`) caps sub-events per webhook/worker operation. `LOG_REDACT` (default true) redacts secret-shaped substrings from logs. `LOG_PRETTY` defaults to off in production (JSON lines).
 - Production logging should stay at `info` unless debugging a specific review run (`LOG_LEVEL=debug`).

@@ -5,7 +5,7 @@ Queue inspection, retry, and recovery for pg-boss workers. For behaviour and dep
 ## Services
 
 - `pr-agent-web` verifies GitHub webhooks, writes durable intake rows, enqueues jobs, and returns quickly. Slash commands and `@bot` mentions (ask) enqueue on the request fiber after association checks; bot identity for mention matching is cached per app id.
-- `pr-agent-worker` processes acknowledgement, review, ask, description, triage, verification, and CI-refresh queues.
+- `pr-agent-worker` processes acknowledgement, review, ask, description, triage, verification, CI-refresh, and retention queues.
 - `postgres` stores pg-boss jobs plus app-owned workflow tables.
 
 ## Inspect Queue Health
@@ -29,6 +29,8 @@ Worker startup logs `agent_queue_stats` for each queue and `agent_review_queue_b
 - `/triage` uses `agent-work-triage` plus `triage_push`, `triage_thread_actions`, and `triage_report` publish records. A stale push posts the triage report without thread replies; re-run `/triage` after the PR branch settles.
 - Verification uses `agent-work-verification` plus the `verification_thread_actions` publish record. It is read-only with no ack/progress/summary comment; a failed job leaves finding threads untouched and records `agent_work_items.status = 'failed'`.
 - Ask (`/ask` or `@bot` mention) uses `agent-work-ask`. One ask work item per `webhook_event_id` (partial unique index). Thread transcript load failures soft-degrade to question-only context.
+- CI-refresh uses `agent-work-ci-refresh` after a matching `workflow_run` completed delivery. It edits only the CI cell on the matching review summary for that head SHA. A failed job leaves the prior CI cell unchanged; redelivery or a later completed run can retry.
+- Retention uses `agent-work-retention` on a pg-boss cron (`RETENTION_CRON`). It deletes aged `webhook_events` and terminal `agent_work_items` in batches (`RETENTION_DELETE_BATCH_SIZE`). If the sweep fails, rows remain until the next successful cron tick; no PR-surface I/O is involved.
 
 ## Local Development
 
