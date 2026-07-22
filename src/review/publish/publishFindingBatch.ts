@@ -12,7 +12,6 @@ import {
   REVIEW_POINTER_BODY,
 } from "../../settings/index.js";
 import { AppError } from "../../errors/appError.js";
-import { logWarn } from "../../evlog.js";
 import {
   fingerprintCandidates,
   fingerprintInlinePlacements,
@@ -241,19 +240,7 @@ export async function publishFindingBatch(
     });
   }
 
-  let shouldAbort = false;
-  try {
-    shouldAbort = (await context.shouldAbortPublish?.()) ?? false;
-  } catch (error) {
-    logWarn("review_finding_batch_abort_check_failed", {
-      source: context.source,
-      owner: context.ctx.owner,
-      repo: context.ctx.repo,
-      pr: context.ctx.prNumber,
-      message: error instanceof Error ? error.message : String(error),
-    });
-    shouldAbort = true;
-  }
+  const shouldAbort = (await context.shouldAbortPublish?.()) ?? false;
   if (shouldAbort) {
     return {
       kind: "stopped",

@@ -194,6 +194,22 @@ describe("publishFindingBatch", () => {
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 
+  it("propagates abort-check failures so the durable job can retry", async () => {
+    const abortCheckError = new Error("temporary head lookup failure");
+
+    await expect(
+      publishFindingBatch(
+        [finding],
+        batchContext(createFindingLedger(), undefined, {
+          shouldAbortPublish: async () => {
+            throw abortCheckError;
+          },
+        }),
+      ),
+    ).rejects.toBe(abortCheckError);
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+  });
+
   it("reports a stale head when the publish gate records one", async () => {
     const result = await publishFindingBatch(
       [finding],
