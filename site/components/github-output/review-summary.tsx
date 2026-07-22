@@ -88,21 +88,6 @@ const FINDINGS: Record<ReviewLens, readonly Finding[]> = {
   ],
 };
 
-const VERDICT: Record<ReviewLens, { score: string; rationale: string }> = {
-  review: {
-    score: "3/5",
-    rationale: "Fix the intake race before merge on this pass.",
-  },
-  "review-security": {
-    score: "2/5",
-    rationale: "Resolve the timing-safe compare before merge on this pass.",
-  },
-  "review-quality": {
-    score: "4/5",
-    rationale: "No blocking findings on this pass.",
-  },
-};
-
 const SECURITY_ROW: Record<ReviewLens, string> = {
   review: "None found on this pass",
   "review-security": "Timing-safe compare gap on webhook verification.",
@@ -115,7 +100,6 @@ type ReviewSummaryMockProps = {
 
 export function ReviewSummaryMock({ lens = "review" }: ReviewSummaryMockProps) {
   const findings = FINDINGS[lens];
-  const verdict = VERDICT[lens];
 
   const rows = [
     {
@@ -139,14 +123,6 @@ export function ReviewSummaryMock({ lens = "review" }: ReviewSummaryMockProps) {
     })),
     { label: "Relevant tests", value: "partial" },
     { label: "Security", value: SECURITY_ROW[lens] },
-    {
-      label: "Merge verdict",
-      value: (
-        <>
-          <GhCode>{verdict.score}</GhCode> · {verdict.rationale}
-        </>
-      ),
-    },
   ];
 
   return (

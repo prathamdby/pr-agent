@@ -323,51 +323,45 @@ describe("reviewFinding category", () => {
   });
 });
 
-describe("reviewPayload mergeVerdict", () => {
-  it("accepts optional mergeVerdict with score and rationale", () => {
+describe("reviewPayload unknown fields", () => {
+  const baseInput = {
+    prCharacter: "Adds retry logic.",
+    findings: [],
+    estimatedEffort: 2,
+    relevantTests: "no" as const,
+    securityConcerns: null,
+    followUps: [] as string[],
+  };
+
+  it("strips legacy mergeVerdict from parsed payload", () => {
     const parsed = reviewPayloadSchema.safeParse({
-      prCharacter: "Adds retry logic.",
-      findings: [],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
+      ...baseInput,
       mergeVerdict: { score: 4, rationale: "Minor issues only on this pass." },
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.mergeVerdict?.score).toBe(4);
-      expect(parsed.data.mergeVerdict?.rationale).toBe("Minor issues only on this pass.");
+      expect("mergeVerdict" in parsed.data).toBe(false);
     }
   });
 
-  it("accepts payload without mergeVerdict", () => {
-    const parsed = reviewPayloadSchema.safeParse({
-      prCharacter: "Adds retry logic.",
-      findings: [],
-      estimatedEffort: 2,
-      relevantTests: "no",
-      securityConcerns: null,
-      followUps: [],
-    });
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      expect(parsed.data.mergeVerdict).toBeUndefined();
-    }
-  });
-
-  it("rejects mergeVerdict with out-of-range score", () => {
-    for (const score of [0, 6]) {
+  it("strips invalid mergeVerdict shapes", () => {
+    for (const bad of [
+      null,
+      "just a string",
+      { score: "high" },
+      { rationale: 42 },
+      {},
+      123,
+      true,
+    ]) {
       const parsed = reviewPayloadSchema.safeParse({
-        prCharacter: "x",
-        findings: [],
-        estimatedEffort: 1,
-        relevantTests: "no",
-        securityConcerns: null,
-        followUps: [],
-        mergeVerdict: { score, rationale: "ok" },
+        ...baseInput,
+        mergeVerdict: bad,
       });
-      expect(parsed.success).toBe(false);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect("mergeVerdict" in parsed.data).toBe(false);
+      }
     }
   });
 });

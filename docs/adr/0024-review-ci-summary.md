@@ -6,7 +6,7 @@ Superseded by [ADR 0026](0026-llm-authored-ci-summary.md).
 
 ## Context
 
-Maintainers (and their coding agents) often open a PR Agent review summary, then still spend tokens reading GitHub Actions logs to learn why CI failed. The review summary already hosts overview gates (effort, findings, tests, security, merge verdict). A natural gap is an external-CI gate: either a green “all passing” signal or a concise failure digest with a fix direction.
+Maintainers (and their coding agents) often open a PR Agent review summary, then still spend tokens reading GitHub Actions logs to learn why CI failed. The review summary already hosts overview gates (effort, findings, tests, security). A natural gap is an external-CI gate: either a green “all passing” signal or a concise failure digest with a fix direction.
 
 Alternatives considered:
 
@@ -16,7 +16,7 @@ Alternatives considered:
 
 ## Decision
 
-1. **Always on.** Ack and publish always attempt a **CI** table row (after Security, before Merge verdict).
+1. **Always on.** Ack and publish always attempt a **CI** table row (after Security).
 2. **Server-derived `CiSummary`** is computed outside `ReviewPayload` and passed into the summary / progress stub renderers.
 3. **Ack path** uses a lightweight snapshot (no annotation digests, no wait). **Publish path** may briefly wait/poll for terminal external checks (`REVIEW_CI_SUMMARY_WAIT_MS`), then digests failing check annotations and check output into reason + fix-hint lines (capped by `REVIEW_CI_SUMMARY_MAX_FAILURES`).
 4. **Exclude PR Agent’s own check runs** (and the optional `pr-agent/review` commit status) so the feature never waits on itself.

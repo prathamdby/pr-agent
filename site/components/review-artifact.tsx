@@ -51,7 +51,7 @@ export function ReviewArtifact() {
           <div className="surface-inset edge-self px-2.5 py-2">
             <p className="font-mono text-[11px] text-ink-mute">## PR Agent Review</p>
             <p className="mt-1 text-xs text-ink-soft">
-              Merge verdict <GhCode>3/5</GhCode> on this pass. Fix the intake race before merge.
+              Effort <GhCode>3/5</GhCode>. Fix the intake race before merge.
             </p>
           </div>
         </div>

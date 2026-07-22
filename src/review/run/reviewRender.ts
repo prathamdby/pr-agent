@@ -31,8 +31,6 @@ import {
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
   REVIEW_SUMMARY_FINDINGS_OMITTED_SUFFIX,
-  REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK,
-  REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX,
 } from "../../settings/index.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
@@ -499,20 +497,6 @@ function buildReviewSummaryBody(
   if (shouldRenderCiSummaryRow(ctx.ciSummary)) {
     tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(ctx.ciSummary)]);
   }
-
-  const blockingCount = payload.findings.filter(
-    (f) => f.severity === "P0" || f.severity === "P1",
-  ).length;
-  tableRows.push([
-    renderTableStrong("Merge verdict"),
-    payload.mergeVerdict != null
-      ? `${renderTableCode(`${payload.mergeVerdict.score}/5`)} · ${escapeTablePlainCell(payload.mergeVerdict.rationale)}`
-      : escapeTablePlainCell(
-          blockingCount > 0
-            ? `${blockingCount} ${REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX}`
-            : REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK,
-        ),
-  ]);
 
   for (const item of payload.followUps) {
     tableRows.push([renderTableStrong("Follow-ups"), escapeTablePlainCell(item)]);

@@ -12,13 +12,6 @@ export function redactReviewPayloadSecrets(payload: ReviewPayload): ReviewPayloa
     securityConcerns:
       payload.securityConcerns == null ? null : redactReviewText(payload.securityConcerns),
     followUps: payload.followUps.map((item) => redactReviewText(item)),
-    mergeVerdict:
-      payload.mergeVerdict == null
-        ? payload.mergeVerdict
-        : {
-            score: payload.mergeVerdict.score,
-            rationale: redactReviewText(payload.mergeVerdict.rationale),
-          },
     findings: payload.findings.map((finding) => ({
       ...finding,
       title: redactReviewText(finding.title),
