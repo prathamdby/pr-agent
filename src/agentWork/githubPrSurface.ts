@@ -112,30 +112,27 @@ async function listLifecycleReactions(
 ): Promise<readonly ListedReaction[]> {
   const octokit = installationOctokit(token, expiresAtTs);
   if (target.kind === "pr") {
-    const { data } = await octokit.rest.reactions.listForIssue({
+    return octokit.paginate(octokit.rest.reactions.listForIssue, {
       owner,
       repo,
       issue_number: target.prNumber,
       per_page: 100,
-    });
-    return data;
+    }) as Promise<readonly ListedReaction[]>;
   }
   if (target.kind === "issueComment") {
-    const { data } = await octokit.rest.reactions.listForIssueComment({
+    return octokit.paginate(octokit.rest.reactions.listForIssueComment, {
       owner,
       repo,
       comment_id: target.commentId,
       per_page: 100,
-    });
-    return data;
+    }) as Promise<readonly ListedReaction[]>;
   }
-  const { data } = await octokit.rest.reactions.listForPullRequestReviewComment({
+  return octokit.paginate(octokit.rest.reactions.listForPullRequestReviewComment, {
     owner,
     repo,
     comment_id: target.commentId,
     per_page: 100,
-  });
-  return data;
+  }) as Promise<readonly ListedReaction[]>;
 }
 
 async function deleteReaction(
