@@ -328,6 +328,8 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `PR_COMMITS_PAGE_SIZE`                    | 100     |
 | `PR_COMMITS_MAX_PAGES`                    | 20      |
 | `GITHUB_REACTION_EYES`                    | eyes    |
+| `GITHUB_REACTION_PLUS_ONE`                | +1      |
+| `GITHUB_REACTION_MINUS_ONE`               | -1      |
 
 ### Local PR workspace
 

@@ -35,12 +35,28 @@ const CodeAnchorSchema = z.looseObject({
   diffHunk: z.string().optional(),
 });
 
+const AckTargetSchema = z.discriminatedUnion("kind", [
+  z.looseObject({
+    kind: z.literal("pr"),
+    prNumber: z.number().int().positive(),
+  }),
+  z.looseObject({
+    kind: z.literal("issueComment"),
+    commentId: z.number().int().positive(),
+  }),
+  z.looseObject({
+    kind: z.literal("reviewComment"),
+    commentId: z.number().int().positive(),
+  }),
+]);
+
 const ReviewWorkPayloadSchema = z.looseObject({
   mode: ReviewModeSchema,
   source: WorkSourceSchema,
   repositorySizeKb: z.number().optional(),
   userSupplement: z.string().optional(),
   commenterId: z.number().int().optional(),
+  ackTargets: z.array(AckTargetSchema).optional(),
   publishDegraded: z.boolean().optional(),
   staleHeadRescheduled: z.boolean().optional(),
   staleHeadReplacementWorkItemId: z.string().min(1).optional(),
@@ -54,6 +70,7 @@ const AskWorkPayloadSchema = z.looseObject({
   codeAnchor: CodeAnchorSchema.optional(),
   commenterId: z.number().int().optional(),
   commentId: z.number().int().positive(),
+  ackTargets: z.array(AckTargetSchema).optional(),
 });
 
 const DescriptionWorkPayloadSchema = z.looseObject({
@@ -61,6 +78,7 @@ const DescriptionWorkPayloadSchema = z.looseObject({
   repositorySizeKb: z.number().optional(),
   userSupplement: z.string().optional(),
   commenterId: z.number().int().optional(),
+  ackTargets: z.array(AckTargetSchema).optional(),
 });
 
 const TriageWorkPayloadSchema = z.looseObject({
@@ -73,12 +91,14 @@ const TriageWorkPayloadSchema = z.looseObject({
   needsThreadRootResolution: z.boolean().optional(),
   replyTarget: ReplyTargetSchema,
   publishDegraded: z.boolean().optional(),
+  ackTargets: z.array(AckTargetSchema).optional(),
 });
 
 const VerificationWorkPayloadSchema = z.looseObject({
   source: z.literal("auto"),
   repositorySizeKb: z.number().optional(),
   pushBeforeSha: z.string().min(1).optional(),
+  ackTargets: z.array(AckTargetSchema).optional(),
 });
 
 export class WorkItemPayloadValidationError extends AppError {

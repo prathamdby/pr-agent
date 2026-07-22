@@ -144,6 +144,7 @@ async function applyPlannedAutomatedPullRequestIntake(
             webhookEventId: event.id,
             ref,
             source: "auto",
+            ackTargets,
           }),
         enqueue: (workItemId) => enqueueReview(boss, client, ref, workItemId, correlation),
         queueName: REVIEW_QUEUE,
@@ -172,6 +173,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   }
 
   if (plan.kinds.includes("description")) {
+    const descriptionAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
       ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
         target: {
@@ -183,6 +185,7 @@ async function applyPlannedAutomatedPullRequestIntake(
             webhookEventId: event.id,
             ref,
             source: "auto",
+            ackTargets: descriptionAckTargets,
           }),
         enqueue: (workItemId) => enqueueDescription(boss, client, ref, workItemId, correlation),
         queueName: DESCRIPTION_QUEUE,
@@ -193,6 +196,7 @@ async function applyPlannedAutomatedPullRequestIntake(
   }
 
   if (plan.kinds.includes("verification")) {
+    const verificationAckTargets: AckTarget[] = [{ kind: "pr", prNumber: ref.prNumber }];
     events.push(
       ...(await dispatchAutomatedKind(boss, client, slotDb, resourceKey, correlation, {
         target: {
@@ -204,6 +208,7 @@ async function applyPlannedAutomatedPullRequestIntake(
             webhookEventId: event.id,
             ref,
             pushBeforeSha,
+            ackTargets: verificationAckTargets,
           }),
         enqueue: (workItemId) => enqueueVerification(boss, client, ref, workItemId, correlation),
         queueName: VERIFICATION_QUEUE,

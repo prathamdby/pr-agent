@@ -119,6 +119,7 @@ export async function promoteAskFromWebhookEvent(
     commentId: input.commentId,
     commenterId: input.commenterId,
     codeAnchor: input.codeAnchor,
+    ackTargets: input.ackTargets,
   });
 
   if (!askInsert.created) {
