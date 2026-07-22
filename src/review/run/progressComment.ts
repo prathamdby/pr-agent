@@ -25,20 +25,20 @@ import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
-import { SPECIALIST_IDS, type SpecialistId } from "../orchestrator/orchestratorTypes.js";
+import {
+  SPECIALIST_IDS,
+  type ReconRunPhase,
+  type SpecialistId,
+  type SpecialistRunPhase,
+} from "../orchestrator/orchestratorTypes.js";
 import { renderStaleReviewMetadataComment } from "./reviewRender.js";
 
 const PROGRESS_REVISION_RE =
   /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
 
-type SpecialistPhase =
-  | { readonly phase: "waiting" }
-  | { readonly phase: "running" }
-  | { readonly phase: "done"; readonly threadsPublished: number }
-  | { readonly phase: "no_findings" }
-  | { readonly phase: "failed" };
+type SpecialistPhase = SpecialistRunPhase;
 
-export type ReconPhase = "running" | "done";
+export type ReconPhase = ReconRunPhase;
 
 export type SpecialistTickState =
   | {
