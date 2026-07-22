@@ -69,6 +69,8 @@ import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
 import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
+import { getPullRequestHeadSha } from "../src/agentWork/githubPrSurface.js";
+import { TOKEN_FRESHNESS_BUFFER_MS } from "../src/settings/index.js";
 import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
@@ -622,6 +624,53 @@ describe("executeReviewJob", () => {
     // Full publish gate still consults shouldSkipWork first.
     mocks.shouldSkipWork.mockResolvedValueOnce(true);
     expect(await params.shouldAbortPublish()).toBe(true);
+  });
+
+  it("refreshes a near-expiry token before the publish-gate head check", async () => {
+    const nearExpiry = Date.now() + TOKEN_FRESHNESS_BUFFER_MS - 1_000;
+    const freshExpiry = Date.now() + 3_600_000;
+    const callOrder: string[] = [];
+
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.execute(makeItem("slash"), {
+        installation: {
+          token: "stale-tok",
+          expiresAtTs: nearExpiry,
+          ttlMs: TOKEN_FRESHNESS_BUFFER_MS,
+        },
+        headSha: "head",
+        pullRequest,
+      });
+    });
+
+    vi.spyOn(durableJob, "makeInstallationTokenRefresher").mockImplementation(
+      (_cfg, _installationId, holder) => async () => {
+        callOrder.push("refresh");
+        holder.installation = {
+          token: "fresh-tok",
+          expiresAtTs: freshExpiry,
+          ttlMs: 3_600_000,
+        };
+        return { token: "fresh-tok", expiresAtTs: freshExpiry };
+      },
+    );
+
+    vi.mocked(getPullRequestHeadSha).mockImplementation(async (token, _o, _r, _p, expiresAtTs) => {
+      callOrder.push(`head:${token}:${expiresAtTs}`);
+      return "head";
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    const params = mocks.runOrchestratedPrReview.mock.calls[0]?.[0] as {
+      shouldAbortPublish: () => Promise<boolean>;
+    };
+
+    mocks.shouldSkipWork.mockResolvedValue(false);
+    expect(await params.shouldAbortPublish()).toBe(false);
+
+    expect(callOrder).toEqual([`refresh`, `head:fresh-tok:${freshExpiry}`]);
+    expect(getPullRequestHeadSha).toHaveBeenCalledWith("fresh-tok", "o", "r", 1, freshExpiry);
   });
 
   it("threads hasDescriptionAgentBlock true when PR body contains the description header", async () => {

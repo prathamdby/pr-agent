@@ -35,6 +35,7 @@ import { buildOrchestratorSystemPrompt } from "./prompts/orchestratorPrompts.js"
 import { buildPublishSummaryTool, createSummaryCaptureState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
 import { createRunAbortScope } from "./runAbortScope.js";
+import type { SpecialistOutcomeSummary } from "./specialistReport.js";
 import { tickProgressComment } from "./stubTick.js";
 
 function tokenTtlMsOrDefault(value: number | undefined): number {
@@ -402,7 +403,7 @@ function finish(args: {
   readonly publishAttempts: number;
   readonly publishSuperseded: boolean;
   readonly runState: ThreadPublishRunState;
-  readonly specialistOutcomes: Record<string, string>;
+  readonly specialistOutcomes: SpecialistOutcomeSummary;
   readonly briefFallback: boolean;
   readonly judgmentDegraded: boolean;
 }): ReviewRunResult {

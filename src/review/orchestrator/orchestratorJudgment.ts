@@ -17,12 +17,17 @@ import type { OrchestratorSendResult } from "./orchestratorSend.js";
 import type { OrchestratorSessionController } from "./orchestratorSessionController.js";
 import type { PublishThreadToolHandle } from "./publishThreadTool.js";
 import { isDeadlineSpecialistError, type RunAbortScope } from "./runAbortScope.js";
-import { SPECIALIST_IDS, type SpecialistId, type SpecialistOutcome } from "./specialistReport.js";
+import {
+  SPECIALIST_IDS,
+  type SpecialistId,
+  type SpecialistOutcome,
+  type SpecialistOutcomeSummary,
+} from "./specialistReport.js";
 import { runSpecialist } from "./specialistRun.js";
 
 export type JudgmentPhaseResult = {
   readonly lastText: string;
-  readonly specialistOutcomes: Record<string, string>;
+  readonly specialistOutcomes: SpecialistOutcomeSummary;
   readonly specialistTicks: SpecialistTickState;
   readonly outcomes: SpecialistOutcome[];
   readonly superseded: boolean;
@@ -66,7 +71,7 @@ export async function runJudgmentPhase(
 ): Promise<JudgmentPhaseResult> {
   let lastText = "";
   const specialistTicks = params.specialistTicks;
-  const specialistOutcomes: Record<string, string> = {};
+  const specialistOutcomes: SpecialistOutcomeSummary = {};
   const staggerMs = resolveSpecialistDispatchStaggerMs(params.specialistDispatchStaggerMs);
 
   const dispatchNowMs = params.now();
@@ -149,8 +154,8 @@ export async function runJudgmentPhase(
         return;
       }
       default: {
-        const _exhaustive: never = outcome;
-        return _exhaustive;
+        const exhaustive: never = outcome;
+        return exhaustive;
       }
     }
   };

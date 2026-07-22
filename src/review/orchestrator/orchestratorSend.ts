@@ -18,6 +18,18 @@ export type OrchestratorSendResult =
     };
 
 /**
+ * True when a non-ok send reflects actual session/tool failure.
+ * Deadline / superseded / skipped are terminal gate states and must not change session health.
+ */
+export function isOrchestratorSendDegradation(result: OrchestratorSendResult): result is {
+  readonly ok: false;
+  readonly error: AppError;
+  readonly reason: "failed";
+} {
+  return !result.ok && result.reason === "failed";
+}
+
+/**
  * Send once; on throw retry once. Races each attempt against the hard run deadline only
  * (decision 17/18). External cheap cancel is owned by {@link RunAbortScope}'s monitor, which
  * calls `session.abort()` — this path does not poll `shouldCancelRun`. Clears every timer
@@ -135,7 +147,6 @@ function failureReasonFromUnknown(error: unknown): OrchestratorSendFailureReason
   const reason = error.context?.reason;
   if (reason === "deadline" || reason === "superseded") return reason;
   if (error.code === "review.orchestrator_send_deadline") return "deadline";
-  if (error.code === "review.orchestrator_send_superseded") return "superseded";
   if (error.code === "review.orchestrator_send_skipped") return "skipped";
   return undefined;
 }

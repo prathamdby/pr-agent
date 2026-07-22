@@ -9,7 +9,7 @@ import type {
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import { buildDeterministicBrief, renderChangedFilesSummary } from "./briefFallback.js";
 import { buildSpecialistBriefTool, type SpecialistBrief } from "./briefTool.js";
-import type { OrchestratorSendResult } from "./orchestratorSend.js";
+import { isOrchestratorSendDegradation, type OrchestratorSendResult } from "./orchestratorSend.js";
 import type { OrchestratorSessionController } from "./orchestratorSessionController.js";
 import { renderReconInstruction } from "./prompts/orchestratorPrompts.js";
 import type { RunAbortScope } from "./runAbortScope.js";
@@ -70,7 +70,7 @@ export async function runReconPhase(params: RunReconPhaseParams): Promise<ReconP
   });
   if (reconSend.ok) {
     lastText = reconSend.turn.text;
-  } else {
+  } else if (isOrchestratorSendDegradation(reconSend)) {
     params.controller.markDegraded();
     logWarn("review_recon_degraded", {
       owner: params.owner,
@@ -108,7 +108,9 @@ export async function runReconPhase(params: RunReconPhaseParams): Promise<ReconP
             phase: "recon_repair",
           });
           if (repairSend.ok) lastText = repairSend.turn.text;
-          else params.controller.markDegraded();
+          else if (isOrchestratorSendDegradation(repairSend)) {
+            params.controller.markDegraded();
+          }
         } finally {
           params.session.restoreTools();
         }

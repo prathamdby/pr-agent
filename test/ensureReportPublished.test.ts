@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppError } from "../src/errors/appError.js";
 import { ensureReportPublished } from "../src/review/orchestrator/ensureReportPublished.js";
 import { createOrchestratorSessionController } from "../src/review/orchestrator/orchestratorSessionController.js";
 import { createThreadPublishRunState } from "../src/review/publish/threadPublishRunState.js";
@@ -161,5 +162,144 @@ describe("ensureReportPublished", () => {
     expect(publishFindingBatch).not.toHaveBeenCalled();
     expect(runState.acceptedFindings).toHaveLength(1);
     expect(result.shouldProgressTick).toBe(false);
+  });
+
+  it.each([
+    { reason: "failed" as const, marksDegraded: true },
+    { reason: "deadline" as const, marksDegraded: false },
+    { reason: "superseded" as const, marksDegraded: false },
+    { reason: "skipped" as const, marksDegraded: false },
+  ])(
+    "judgment send reason=$reason marks degraded=$marksDegraded and never progress-ticks",
+    async ({ reason, marksDegraded }) => {
+      publishFindingBatch.mockResolvedValueOnce({ kind: "empty" });
+      const controller = createOrchestratorSessionController();
+      const sendTurn = vi.fn(async () => ({
+        ok: false as const,
+        reason,
+        error: new AppError({
+          code: `review.orchestrator_send_${reason}`,
+          message: `${reason} send`,
+          context: { reason },
+        }),
+      }));
+
+      const result = await ensureReportPublished({
+        outcome: report,
+        cfg: makeTestConfig(),
+        ctx: {
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: "sha",
+          hasDescriptionAgentBlock: false,
+        },
+        token: testTokenHandle(),
+        recordPublishStep: vi.fn(async () => undefined),
+        runState: createThreadPublishRunState(),
+        abort: makeAbort(),
+        controller,
+        threadTool: {
+          beginTurn: vi.fn(),
+          hadSuccessfulCallThisTurn: vi.fn(() => false),
+          getLastError: vi.fn(() => null),
+          clearLastError: vi.fn(),
+        },
+        sendTurn,
+      });
+
+      expect(sendTurn).toHaveBeenCalledWith(expect.objectContaining({ phase: "judgment" }));
+      expect(controller.isDegraded()).toBe(marksDegraded);
+      expect(result.shouldProgressTick).toBe(false);
+      expect(result.tick).toEqual({ phase: "done", threadsPublished: 0 });
+      expect(publishFindingBatch).toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { reason: "failed" as const, marksDegraded: true },
+    { reason: "deadline" as const, marksDegraded: false },
+    { reason: "superseded" as const, marksDegraded: false },
+    { reason: "skipped" as const, marksDegraded: false },
+  ])(
+    "judgment_repair reason=$reason marks degraded=$marksDegraded",
+    async ({ reason, marksDegraded }) => {
+      publishFindingBatch.mockResolvedValueOnce({ kind: "empty" });
+      const controller = createOrchestratorSessionController();
+      const sendTurn = vi.fn(async (args: { phase: string }) => {
+        if (args.phase === "judgment") {
+          return { ok: true as const, turn: { text: "judged" } };
+        }
+        return {
+          ok: false as const,
+          reason,
+          error: new AppError({
+            code: `review.orchestrator_send_${reason}`,
+            message: `${reason} repair`,
+            context: { reason },
+          }),
+        };
+      });
+
+      await ensureReportPublished({
+        outcome: report,
+        cfg: makeTestConfig(),
+        ctx: {
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: "sha",
+          hasDescriptionAgentBlock: false,
+        },
+        token: testTokenHandle(),
+        recordPublishStep: vi.fn(async () => undefined),
+        runState: createThreadPublishRunState(),
+        abort: makeAbort(),
+        controller,
+        threadTool: {
+          beginTurn: vi.fn(),
+          hadSuccessfulCallThisTurn: vi.fn(() => false),
+          getLastError: vi.fn(() => "publish_thread validation failed"),
+          clearLastError: vi.fn(),
+        },
+        sendTurn,
+      });
+
+      expect(sendTurn).toHaveBeenCalledWith(expect.objectContaining({ phase: "judgment_repair" }));
+      expect(controller.isDegraded()).toBe(marksDegraded);
+    },
+  );
+
+  it("marks degraded when judgment succeeds but publish_thread is never called", async () => {
+    publishFindingBatch.mockResolvedValueOnce({ kind: "empty" });
+    const controller = createOrchestratorSessionController();
+    const sendTurn = vi.fn(async () => ({ ok: true as const, turn: { text: "no tool" } }));
+
+    await ensureReportPublished({
+      outcome: report,
+      cfg: makeTestConfig(),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionAgentBlock: false,
+      },
+      token: testTokenHandle(),
+      recordPublishStep: vi.fn(async () => undefined),
+      runState: createThreadPublishRunState(),
+      abort: makeAbort(),
+      controller,
+      threadTool: {
+        beginTurn: vi.fn(),
+        hadSuccessfulCallThisTurn: vi.fn(() => false),
+        getLastError: vi.fn(() => null),
+        clearLastError: vi.fn(),
+      },
+      sendTurn,
+    });
+
+    expect(controller.isDegraded()).toBe(true);
+    expect(publishFindingBatch).toHaveBeenCalled();
   });
 });

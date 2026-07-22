@@ -68,3 +68,9 @@ export type SpecialistOutcome =
     }
   | { specialist: SpecialistId; kind: "empty"; durationMs: number }
   | { specialist: SpecialistId; kind: "error"; error: AppError; durationMs: number };
+
+/**
+ * Per-specialist outcome kinds for metrics / finish snapshots.
+ * Partial because early supersede can leave specialist keys absent.
+ */
+export type SpecialistOutcomeSummary = Partial<Record<SpecialistId, SpecialistOutcome["kind"]>>;

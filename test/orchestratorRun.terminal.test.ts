@@ -22,7 +22,7 @@ import {
 function hangUntilSessionAbort(session: SessionHooks): Promise<never> {
   return new Promise((_resolve, reject) => {
     const error = new AppError({
-      code: "review.orchestrator_send_superseded",
+      code: "agent.session_aborted",
       message: "Orchestrator session aborted",
       context: { reason: "superseded" },
     });

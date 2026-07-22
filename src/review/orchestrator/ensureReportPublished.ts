@@ -9,7 +9,7 @@ import type { ThreadPublishRunState } from "../publish/threadPublishRunState.js"
 import type { SpecialistTickState } from "../run/progressComment.js";
 import { accumulateUnjudgedReportAsSummaryOnly, publishUnjudgedReport } from "./degradedPublish.js";
 import type { InstallationTokenHandle } from "../../github/installationTokenHandle.js";
-import type { OrchestratorSendResult } from "./orchestratorSend.js";
+import { isOrchestratorSendDegradation, type OrchestratorSendResult } from "./orchestratorSend.js";
 import type { OrchestratorSessionController } from "./orchestratorSessionController.js";
 import { renderJudgmentTurn } from "./prompts/orchestratorPrompts.js";
 import type { PublishThreadToolHandle } from "./publishThreadTool.js";
@@ -107,11 +107,13 @@ export async function ensureReportPublished(
   });
 
   if (!judgmentSend.ok) {
-    controller.markDegraded();
-    logWarn("review_judgment_degraded", {
-      specialist: outcome.specialist,
-      message: judgmentSend.error.message,
-    });
+    if (isOrchestratorSendDegradation(judgmentSend)) {
+      controller.markDegraded();
+      logWarn("review_judgment_degraded", {
+        specialist: outcome.specialist,
+        message: judgmentSend.error.message,
+      });
+    }
     await publishReportFallback(params);
     return {
       tick: { phase: "done", threadsPublished: 0 },
@@ -129,6 +131,8 @@ export async function ensureReportPublished(
     };
   }
 
+  let gatedSend = false;
+
   if (threadTool.getLastError() != null && abort.shouldKeepRunning()) {
     await runValidationRepairLoop({
       rounds: 1,
@@ -142,7 +146,8 @@ export async function ensureReportPublished(
           phase: "judgment_repair",
         });
         if (repairSend.ok) lastText = repairSend.turn.text;
-        else controller.markDegraded();
+        else if (isOrchestratorSendDegradation(repairSend)) controller.markDegraded();
+        else gatedSend = true;
       },
     });
   }
@@ -155,16 +160,24 @@ export async function ensureReportPublished(
         phase: "judgment_submit_repair",
       });
       if (repairSend.ok) lastText = repairSend.turn.text;
-      else {
+      else if (isOrchestratorSendDegradation(repairSend)) {
+        controller.markDegraded();
         logWarn("review_judgment_submit_repair_failed", {
           specialist: outcome.specialist,
           message: repairSend.error.message,
         });
+      } else {
+        gatedSend = true;
       }
     }
   }
 
   if (!threadTool.hadSuccessfulCallThisTurn()) {
+    // Successful send(s) without the required tool call are judgment degradation,
+    // unless a later send stopped on a terminal gate (deadline / skipped / superseded).
+    if (!gatedSend && abort.shouldKeepRunning()) {
+      controller.markDegraded();
+    }
     logWarn("review_judgment_missing_publish_thread", {
       specialist: outcome.specialist,
     });

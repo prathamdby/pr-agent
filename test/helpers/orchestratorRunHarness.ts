@@ -103,7 +103,7 @@ export function installOrchestratorSession(
   const pendingAbortRejects = new Set<(error: unknown) => void>();
   const abort = vi.fn(() => {
     const error = new AppError({
-      code: "review.orchestrator_send_superseded",
+      code: "agent.session_aborted",
       message: "Orchestrator session aborted",
       context: { reason: "superseded" },
     });

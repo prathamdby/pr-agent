@@ -46,8 +46,8 @@ function renderSpecialistTickCell(tick: SpecialistTickPhase): string {
     case "failed":
       return escapeTableHtml("⚠️ failed (coverage partial)");
     default: {
-      const _exhaustive: never = tick;
-      return _exhaustive;
+      const exhaustive: never = tick;
+      return exhaustive;
     }
   }
 }

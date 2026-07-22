@@ -13,7 +13,7 @@ import type { RecordPublishStepWithCoordination } from "../publish/summaryCommen
 import type { ThreadPublishRunState } from "../publish/threadPublishRunState.js";
 import type { SpecialistBrief } from "./briefTool.js";
 import type { InstallationTokenHandle } from "../../github/installationTokenHandle.js";
-import type { OrchestratorSendResult } from "./orchestratorSend.js";
+import { isOrchestratorSendDegradation, type OrchestratorSendResult } from "./orchestratorSend.js";
 import type { OrchestratorSessionController } from "./orchestratorSessionController.js";
 import { renderSynthesisTurn } from "./prompts/orchestratorPrompts.js";
 import type { CapturedSummaryOverview } from "./publishSummaryTool.js";
@@ -103,6 +103,7 @@ export async function runSummaryPhase(params: RunSummaryPhaseParams): Promise<Su
 
     if (synthesisSend.ok) {
       lastText = synthesisSend.turn.text;
+      let gatedSend = false;
       if (
         !params.summaryTool.hasCaptured() &&
         params.summaryTool.getLastError() != null &&
@@ -123,7 +124,11 @@ export async function runSummaryPhase(params: RunSummaryPhaseParams): Promise<Su
                 params.abort.shouldKeepRunning() && !params.summaryTool.hasCaptured(),
             });
             if (repairSend.ok) lastText = repairSend.turn.text;
-            else params.controller.markDegraded();
+            else if (isOrchestratorSendDegradation(repairSend)) {
+              params.controller.markDegraded();
+            } else {
+              gatedSend = true;
+            }
           },
         });
       }
@@ -143,12 +148,20 @@ export async function runSummaryPhase(params: RunSummaryPhaseParams): Promise<Su
             shouldSend: () => params.abort.shouldKeepRunning() && !params.summaryTool.hasCaptured(),
           });
           if (recovery.ok) lastText = recovery.turn.text;
-          else break;
+          else {
+            if (isOrchestratorSendDegradation(recovery)) params.controller.markDegraded();
+            else gatedSend = true;
+            break;
+          }
         }
       }
-    }
-
-    if (!params.summaryTool.hasCaptured() && !params.abort.isSuperseded()) {
+      // Successful send(s) without the required tool call are synthesis degradation,
+      // unless a later send stopped on a terminal gate (deadline / skipped / superseded).
+      if (!params.summaryTool.hasCaptured() && !gatedSend && params.abort.shouldKeepRunning()) {
+        params.controller.markDegraded();
+        logSynthesisDegraded = true;
+      }
+    } else if (isOrchestratorSendDegradation(synthesisSend)) {
       params.controller.markDegraded();
       logSynthesisDegraded = true;
     }

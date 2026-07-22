@@ -300,4 +300,35 @@ describe("runOrchestratedPrReview (degraded / resume)", () => {
       }),
     );
   });
+
+  it.each([undefined, Number.NaN, 0] as const)(
+    "defaults invalid tokenTtlMs=%j, logs warning, and completes without throw",
+    async (tokenTtlMs) => {
+      const warnSpy = vi.spyOn(evlog, "logWarn");
+      mocks.runSpecialist.mockImplementation(async (args: { specialist: SpecialistId }) =>
+        emptyOutcome(args.specialist),
+      );
+
+      installOrchestratorSession(mocks, {
+        onRecon: async (executors) => {
+          await submitDefaultBrief(executors);
+        },
+        onSynthesis: async (executors) => {
+          await executors.publish_summary!({
+            prCharacter: "ttl defaulted",
+            estimatedEffort: 1,
+            relevantTests: "no",
+            securityConcerns: null,
+            followUps: [],
+          });
+        },
+      });
+
+      await expect(runOrchestratedPrReview(baseParams({ tokenTtlMs }))).resolves.toMatchObject({
+        published: true,
+      });
+
+      expect(warnSpy).toHaveBeenCalledWith("review_token_ttl_defaulted", { mode: "review" });
+    },
+  );
 });

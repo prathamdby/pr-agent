@@ -1,5 +1,6 @@
 import { logInfo, tryUseLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
+import type { SpecialistOutcomeSummary } from "../orchestrator/specialistReport.js";
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }
@@ -90,7 +91,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly severities: readonly string[];
   readonly wallClockMs: number;
   readonly lightweight?: boolean;
-  readonly specialistOutcomes?: Record<string, string>;
+  readonly specialistOutcomes?: SpecialistOutcomeSummary;
   readonly threadBatches?: number;
   readonly briefFallback?: boolean;
   readonly judgmentDegraded?: boolean;
@@ -132,7 +133,7 @@ type MutableReviewRunMetrics = {
   findingsCount: number;
   severities: string[];
   lightweight?: boolean;
-  specialistOutcomes?: Record<string, string>;
+  specialistOutcomes?: SpecialistOutcomeSummary;
   threadBatches?: number;
   briefFallback?: boolean;
   judgmentDegraded?: boolean;
