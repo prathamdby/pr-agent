@@ -471,6 +471,37 @@ describe("renderReviewSummaryComment", () => {
     expect(body).not.toContain("No blocking findings on this pass");
   });
 
+  it("does not render a blocking-count fallback when blocking findings are present", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P0",
+          file: "src/x.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Critical bug",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+        {
+          severity: "P1",
+          file: "src/y.ts",
+          startLine: 2,
+          endLine: 2,
+          title: "High bug",
+          detail: "d",
+          fixPrompt: "fix",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings),
+    });
+    expect(body).not.toContain("blocking finding");
+    expect(body).not.toContain("Blocking finding");
+  });
+
   it("appends description link when hasDescriptionAgentBlock is true", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
