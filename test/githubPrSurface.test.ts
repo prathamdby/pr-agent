@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   deleteForIssueComment: vi.fn(),
   createForPullRequestReviewComment: vi.fn(),
   listForPullRequestReviewComment: vi.fn(),
-  deleteForPullRequestReviewComment: vi.fn(),
+  deleteForPullRequestComment: vi.fn(),
   logDebug: vi.fn(),
   httpStatus: vi.fn(),
 }));
@@ -27,7 +27,7 @@ vi.mock("../src/github/appAuth.js", () => ({
         deleteForIssueComment: mocks.deleteForIssueComment,
         createForPullRequestReviewComment: mocks.createForPullRequestReviewComment,
         listForPullRequestReviewComment: mocks.listForPullRequestReviewComment,
-        deleteForPullRequestReviewComment: mocks.deleteForPullRequestReviewComment,
+        deleteForPullRequestComment: mocks.deleteForPullRequestComment,
       },
     },
   }),
