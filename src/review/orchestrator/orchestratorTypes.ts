@@ -1,8 +1,29 @@
+import type { AppError } from "../../errors/appError.js";
+import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
 export const SPECIALIST_IDS = ["correctness", "security", "quality", "tests"] as const;
 export type SpecialistId = (typeof SPECIALIST_IDS)[number];
 export type FindingSource = SpecialistId | "review";
+
+export type SpecialistOutcome =
+  | {
+      readonly kind: "report";
+      readonly specialist: SpecialistId;
+      readonly report: SpecialistReport & { readonly status: "findings" };
+      readonly durationMs: number;
+    }
+  | {
+      readonly kind: "empty";
+      readonly specialist: SpecialistId;
+      readonly durationMs: number;
+    }
+  | {
+      readonly kind: "error";
+      readonly specialist: SpecialistId;
+      readonly error: AppError;
+      readonly durationMs: number;
+    };
 
 export function isFindingSource(value: unknown): value is FindingSource {
   return value === "review" || SPECIALIST_IDS.some((specialist) => specialist === value);
