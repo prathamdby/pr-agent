@@ -22,7 +22,7 @@ Constraints that still hold:
 
 2. **Option B — separate cheap CI-summary call.** Finding investigation stays CI-free. At publish (and on CI-complete refresh), run a small tool-free LLM turn: condensed `<ci_context>` in → structured CI fields out. Ack stays facts-only (no LLM): `⏳ CI still running` / green / red headline without failure digests.
 
-3. **`CiSummary` remains outside `ReviewPayload`.** It is a validated sibling merged at publish/refresh. Placement unchanged: after Security, before Merge verdict.
+3. **`CiSummary` remains outside `ReviewPayload`.** It is a validated sibling merged at publish/refresh. Placement unchanged: after Security in the overview gate table.
 
 4. **Actions: read** is required for job-log download. Soft-fail without breaking the review: missing Checks shows a grant-Checks CI row; missing Actions on a red head keeps the failure row, falls back to check output when possible, and adds a grant-Actions note.
 

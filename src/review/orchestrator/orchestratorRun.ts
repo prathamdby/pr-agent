@@ -201,8 +201,6 @@ function deterministicPayload(params: {
   readonly state: OrchestratedRunState;
   readonly findings: ReviewPayload["findings"];
 }): ReviewPayload {
-  const severities = new Set(params.findings.map((finding) => finding.severity));
-  const score = severities.has("P0") || severities.has("P1") ? 2 : severities.has("P2") ? 3 : 5;
   const degraded = params.state.judgment === "degraded";
   return {
     prCharacter: degraded
@@ -213,14 +211,6 @@ function deterministicPayload(params: {
     relevantTests: "partial",
     securityConcerns: null,
     followUps: [],
-    mergeVerdict: {
-      score,
-      rationale: degraded
-        ? "Judgment degraded. Review the accepted findings before merging."
-        : params.findings.length === 0
-          ? "No findings were accepted on this pass."
-          : "Accepted findings remain on this pass.",
-    },
   };
 }
 

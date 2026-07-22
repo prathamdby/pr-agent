@@ -79,10 +79,6 @@ function summaryInput(ids: readonly string[]) {
     relevantTests: "partial",
     securityConcerns: null,
     followUps: ["Add a regression test."],
-    mergeVerdict: {
-      score: 3,
-      rationale: "Blocking findings remain on this pass.",
-    },
   };
 }
 
@@ -207,10 +203,10 @@ describe("buildPublishSummaryTool", () => {
     await expect(
       tool.executor({
         ...summaryInput(["finding-1"]),
-        mergeVerdict: { score: 5, rationale: "Safe to merge on this pass." },
+        securityConcerns: "Structured publish failed after 2/3 attempt(s).",
       }),
     ).rejects.toMatchObject({ code: "review.publish_summary_semantic_validation_failed" });
-    expect(state.lastValidationError).toContain("score must be <= 3");
+    expect(state.lastValidationError).toContain("securityConcerns");
     expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
   });
 

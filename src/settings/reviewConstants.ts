@@ -98,16 +98,6 @@ export const REVIEW_OVERVIEW_COMPACT_MAX_CHARS = 500;
 export const REVIEW_SECURITY_CONCERNS_MAX_CHARS = 4000;
 export const REVIEW_FOLLOW_UP_MAX_CHARS = 2000;
 
-/** Merge verdict (ADR 0019): model-authored readiness assessment, consistency-clamped. */
-export const REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS = 300;
-export const MERGE_VERDICT_SAFE_TO_MERGE_PATTERNS: readonly RegExp[] = [
-  /safe to merge/i,
-  /ready to merge/i,
-  /good to merge/i,
-];
-export const REVIEW_MERGE_VERDICT_NO_BLOCKING_FALLBACK = "No blocking findings on this pass";
-export const REVIEW_MERGE_VERDICT_BLOCKING_FALLBACK_SUFFIX =
-  "blocking finding(s) open on this pass";
 export const REVIEW_SUMMARY_BODY_MAX_CHARS = 60_000;
 export const REVIEW_SUMMARY_COMPACTION_NOTE =
   "Some finding details were shortened to fit GitHub comment size limits. See inline threads where posted.";

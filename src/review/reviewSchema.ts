@@ -10,7 +10,6 @@ import {
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
-  REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
   REVIEW_SUMMARY_SENTINEL,
@@ -73,12 +72,6 @@ export function createReviewPayloadSchema() {
     relevantTests: z.enum(["yes", "no", "partial"]),
     securityConcerns: z.string().max(REVIEW_SECURITY_CONCERNS_MAX_CHARS).nullable(),
     followUps: z.array(z.string().max(REVIEW_FOLLOW_UP_MAX_CHARS)).max(MAX_REVIEW_FOLLOW_UPS),
-    mergeVerdict: z
-      .object({
-        score: z.number().int().min(1).max(5),
-        rationale: z.string().min(1).max(REVIEW_MERGE_VERDICT_RATIONALE_MAX_CHARS),
-      })
-      .optional(),
   });
 }
 

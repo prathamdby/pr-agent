@@ -90,12 +90,9 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("CI failing");
     expect(body).toContain("Unexpected any");
     expect(body).toContain("re-push");
-    // CI sits after Security and before Merge verdict.
+    // CI sits after Security in the overview gate table.
     expect(body.indexOf("<strong>Security</strong>")).toBeLessThan(
       body.indexOf("<strong>CI</strong>"),
-    );
-    expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(
-      body.indexOf("<strong>Merge verdict</strong>"),
     );
   });
 
@@ -464,49 +461,14 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toMatchSnapshot();
   });
 
-  it("renders merge verdict row when mergeVerdict is present", () => {
-    const payload = basePayload({
-      mergeVerdict: { score: 4, rationale: "No blocking issues on this pass." },
-    });
-    const body = renderReviewSummaryComment(payload, {
-      ...ctx,
-      placements: testPlacementsFromPayload(payload),
-    });
-    expect(body).toContain("Merge verdict");
-    expect(body).toContain("<code>4/5</code>");
-    expect(body).toContain("No blocking issues on this pass.");
-  });
-
-  it("renders mechanical fallback when mergeVerdict is absent and no P0/P1", () => {
+  it("does not render a merge verdict row", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: testPlacementsFromPayload(payload),
     });
-    expect(body).toContain("Merge verdict");
-    expect(body).toContain("No blocking findings on this pass");
-  });
-
-  it("renders blocking-count fallback when mergeVerdict is absent and P1 present", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/x.ts",
-          startLine: 4,
-          endLine: 4,
-          title: "Bug",
-          detail: "Bad logic.",
-          fixPrompt: "Fix it.",
-        },
-      ],
-    });
-    const body = renderReviewSummaryComment(payload, {
-      ...ctx,
-      placements: testPlacements(payload.findings),
-    });
-    expect(body).toContain("Merge verdict");
-    expect(body).toContain("1 blocking finding(s) open on this pass");
+    expect(body).not.toContain("Merge verdict");
+    expect(body).not.toContain("No blocking findings on this pass");
   });
 
   it("appends description link when hasDescriptionAgentBlock is true", () => {

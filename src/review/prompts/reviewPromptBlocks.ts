@@ -109,7 +109,6 @@ export const reviewPayloadPerFindingContracts = [
 export const reviewPayloadCommonTail = [
   "- estimatedEffort: integer 1–5",
   "- relevantTests: yes | no | partial",
-  "- mergeVerdict (optional): { score: integer 1–5, rationale: string } — one sentence about this run's own findings. Pass-scoped wording only; never claim safe-to-merge while P0/P1 findings are open.",
 ].join("\n");
 
 export function inlineSeverityPlacement(summaryKind: string): string {

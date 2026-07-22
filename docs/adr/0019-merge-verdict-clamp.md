@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0029](0029-remove-merge-verdict.md).
 
 ## Context
 
