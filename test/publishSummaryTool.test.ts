@@ -3,6 +3,7 @@ import {
   createFindingLedger,
   type AcceptedPlacement,
   type FindingLedger,
+  type ReviewCoverage,
 } from "../src/review/orchestrator/orchestratorTypes.js";
 import {
   buildPublishSummaryTool,
@@ -88,7 +89,7 @@ function summaryInput(ids: readonly string[]) {
 function buildTool(params: {
   getLedger: () => FindingLedger;
   getToken?: () => string;
-  getPartialCoverageNote?: () => string | undefined;
+  getCoverage?: () => ReviewCoverage;
   state?: ReturnType<typeof createPublishSummaryState>;
 }) {
   return buildPublishSummaryTool({
@@ -102,7 +103,7 @@ function buildTool(params: {
     },
     getToken: params.getToken ?? (() => "token"),
     getLedger: params.getLedger,
-    getPartialCoverageNote: params.getPartialCoverageNote ?? (() => undefined),
+    getCoverage: params.getCoverage ?? (() => ({ kind: "full" })),
     state: params.state ?? createPublishSummaryState(),
   });
 }
@@ -280,19 +281,21 @@ describe("buildPublishSummaryTool", () => {
     expect(state.published).toBe(true);
   });
 
-  it("reads the partial coverage note after tool construction", async () => {
+  it("reads coverage after tool construction", async () => {
     const ledger = createFindingLedger({ accepted: [accepted("finding-1", finding(10))] });
-    let partialCoverageNote: string | undefined;
+    let coverage: ReviewCoverage = { kind: "full" };
     const tool = buildTool({
       getLedger: () => ledger,
-      getPartialCoverageNote: () => partialCoverageNote,
+      getCoverage: () => coverage,
     });
-    partialCoverageNote = "Coverage partial: security specialist failed.";
+    coverage = {
+      kind: "partial",
+      failed: ["security"],
+      note: "Coverage partial: security specialist failed.",
+    };
 
     await tool.executor(summaryInput(["finding-1"]));
 
-    expect(vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0].partialCoverageNote).toBe(
-      partialCoverageNote,
-    );
+    expect(vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0].coverage).toEqual(coverage);
   });
 });

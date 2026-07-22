@@ -188,6 +188,7 @@ describe("executeReviewJob", () => {
       publishState: {
         summaryPublished: false,
         inlineReviewIds: [],
+        threadCallCount: 0,
       },
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],
@@ -221,6 +222,32 @@ describe("executeReviewJob", () => {
 
     expect(mocks.loadPublishContext).toHaveBeenCalledTimes(1);
     expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
+  });
+
+  it("passes the resumed thread call count into the review run", async () => {
+    mocks.loadPublishContext.mockResolvedValueOnce({
+      publishState: {
+        summaryPublished: false,
+        inlineReviewIds: [41],
+        threadCallCount: 8,
+      },
+      shouldLinkToSummary: false,
+      storedInlineFingerprints: [],
+      resumedPlacements: [],
+      summaryCommentGithubId: null,
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runFullPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialPublishState: {
+          published: false,
+          inlineReviewIds: [41],
+          threadCallCount: 8,
+        },
+      }),
+    );
   });
 
   it("skips preflight for slash reviews", async () => {

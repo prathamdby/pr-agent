@@ -73,8 +73,12 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
   readonly executor: (args: Record<string, unknown>) => Promise<PublishThreadToolResult>;
   readonly setSource: (source: SpecialistId) => void;
   readonly getLedger: () => FindingLedger;
+  readonly getPublishedBatchCount: () => number;
+  readonly getStopReason: () => "superseded" | "stale_head" | null;
 } {
   let source: SpecialistId | null = null;
+  let stopReason: "superseded" | "stale_head" | null = null;
+  let publishedBatchCount = 0;
   const { initialLedger, ...batchContext } = params;
   let ledger = initialLedger ?? createFindingLedger();
   const piTool: PiTool = {
@@ -118,6 +122,9 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     }
     if (result.kind !== "stopped") {
       ledger = applyFindingLedgerDelta(ledger, result.delta);
+      if (result.kind === "published") publishedBatchCount += 1;
+    } else {
+      stopReason = result.reason;
     }
     return {
       ...result,
@@ -132,5 +139,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       source = nextSource;
     },
     getLedger: () => ledger,
+    getPublishedBatchCount: () => publishedBatchCount,
+    getStopReason: () => stopReason,
   };
 }

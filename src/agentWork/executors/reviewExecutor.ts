@@ -449,6 +449,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     initialPublishState: {
       published: publishState.summaryPublished,
       inlineReviewIds: publishState.inlineReviewIds,
+      threadCallCount: publishState.threadCallCount,
     },
     recordPublishStep: attachSummaryCommentCoordination(
       (step, detail) =>

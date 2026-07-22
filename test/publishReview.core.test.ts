@@ -109,6 +109,21 @@ describe("publishReview core", () => {
     expect(summaryBody).toContain("Bug");
   });
 
+  it("keeps a later finding summary-only after resuming eight thread calls", async () => {
+    const publishState = testPublishState({ threadCallCount: 8 });
+
+    await publishReviewForTest({
+      ...baseParams,
+      publishState,
+      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
+    });
+
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4]).toContain("Summary only");
+    expect(publishState.threadCallCount).toBe(9);
+  });
+
   it("does not record a zero-comment inline review when all findings are suppressed", async () => {
     const finding = payload.findings[0];
     const stored = fingerprintFinding(finding, "review");

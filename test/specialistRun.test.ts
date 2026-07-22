@@ -5,7 +5,8 @@ import { makeTestConfig } from "./helpers/config.js";
 type AttemptBehavior =
   | { readonly kind: "report"; readonly report: Record<string, unknown> }
   | { readonly kind: "error"; readonly error: Error }
-  | { readonly kind: "pending_create" }
+  | { readonly kind: "pending_create"; readonly settleAfterMs: number }
+  | { readonly kind: "pending_send"; readonly settleAfterMs: number }
   | { readonly kind: "no_report" }
   | { readonly kind: "pending" };
 
@@ -66,7 +67,17 @@ describe("runSpecialist", () => {
       const behavior = runnerMocks.behaviors.shift();
       if (!behavior) throw new Error("missing specialist test behavior");
       if (behavior.kind === "pending_create") {
-        return new Promise<AgentRunnerSession>(() => undefined);
+        const session: TestSession = {
+          send: vi.fn(async () => ({ text: "" })),
+          abort: vi.fn(async () => undefined),
+          restrictToTools: vi.fn(),
+          restoreTools: vi.fn(),
+          dispose: vi.fn(async () => undefined),
+        };
+        runnerMocks.sessions.push(session);
+        return new Promise<AgentRunnerSession>((resolve) => {
+          setTimeout(() => resolve(session), behavior.settleAfterMs);
+        });
       }
       let rejectPending: ((error: Error) => void) | undefined;
       const abort = vi.fn(async () => {
@@ -75,6 +86,11 @@ describe("runSpecialist", () => {
       const session: TestSession = {
         send: vi.fn(async () => {
           if (behavior.kind === "error") throw behavior.error;
+          if (behavior.kind === "pending_send") {
+            return new Promise<{ readonly text: string }>((resolve) => {
+              setTimeout(() => resolve({ text: "" }), behavior.settleAfterMs);
+            });
+          }
           if (behavior.kind === "pending") {
             return new Promise<{ readonly text: string }>((_, reject) => {
               rejectPending = reject;
@@ -201,9 +217,9 @@ describe("runSpecialist", () => {
     );
   });
 
-  it("applies the deadline while creating a session", async () => {
+  it("returns at the hard deadline and disposes after a late send settles", async () => {
     vi.useFakeTimers();
-    runnerMocks.behaviors.push({ kind: "pending_create" });
+    runnerMocks.behaviors.push({ kind: "pending_send", settleAfterMs: 200 });
     let outcome: Awaited<ReturnType<typeof runSpecialist>> | undefined;
 
     void runSpecialist(specialistArgs({ timeoutMs: 100 })).then((result) => {
@@ -218,6 +234,35 @@ describe("runSpecialist", () => {
         context: { classification: "timeout", attempts: 1 },
       },
     });
+    expect(runnerMocks.sessions[0]?.abort).toHaveBeenCalledTimes(1);
+    expect(runnerMocks.sessions[0]?.dispose).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns at the hard deadline and cleans up a late session creation afterward", async () => {
+    vi.useFakeTimers();
+    runnerMocks.behaviors.push({ kind: "pending_create", settleAfterMs: 200 });
+    let outcome: Awaited<ReturnType<typeof runSpecialist>> | undefined;
+
+    void runSpecialist(specialistArgs({ timeoutMs: 100 })).then((result) => {
+      outcome = result;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(outcome).toMatchObject({
+      kind: "error",
+      error: {
+        code: "review.specialist_failed",
+        context: { classification: "timeout", attempts: 1 },
+      },
+    });
+    expect(runnerMocks.sessions[0]?.dispose).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(runnerMocks.sessions[0]?.abort).toHaveBeenCalledTimes(1);
+    expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
   });
 
   it("preserves the ordinary retry after a rate limit failure", async () => {

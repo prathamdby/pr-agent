@@ -98,6 +98,7 @@ describe("buildPublishThreadTool", () => {
     ]);
     expect(tool.getLedger().postedInlineCount).toBe(2);
     expect(tool.getLedger().threadCallCount).toBe(2);
+    expect(tool.getPublishedBatchCount()).toBe(2);
   });
 
   it("retains budget-exhausted findings as summary-only ledger entries", async () => {
@@ -118,6 +119,7 @@ describe("buildPublishThreadTool", () => {
       }),
     ]);
     expect(tool.getLedger().threadBudgetExhausted).toBe(true);
+    expect(tool.getPublishedBatchCount()).toBe(1);
   });
 
   it("reads the live token getter for each publish call", async () => {
@@ -145,6 +147,7 @@ describe("buildPublishThreadTool", () => {
       code: "review.publish_thread_source_required",
     });
     expect(tool.getLedger()).toEqual(createFindingLedger());
+    expect(tool.getPublishedBatchCount()).toBe(0);
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 
@@ -174,5 +177,6 @@ describe("buildPublishThreadTool", () => {
     });
 
     expect(tool.getLedger()).toEqual(createFindingLedger());
+    expect(tool.getPublishedBatchCount()).toBe(0);
   });
 });

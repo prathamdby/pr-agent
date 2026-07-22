@@ -20,10 +20,16 @@ import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
+import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 
 export type ReviewRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
+  readonly orchestratorUserContent: string;
+  readonly workspaceTools: {
+    readonly piTools: PiTool[];
+    readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  };
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
@@ -31,6 +37,7 @@ export type ReviewRunSetup = {
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
+  readonly refreshLiveAuth: () => Promise<void>;
 };
 
 /** True while the harness should keep investigating or retrying publish. */
@@ -39,6 +46,25 @@ export function shouldContinueReviewRun(setup: Pick<ReviewRunSetup, "submitState
 }
 
 const TOKEN_REFRESH_TOOL = "getPullRequest";
+
+function buildOrchestratorUserContent(params: {
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly headSha: string;
+  readonly userSupplement?: string;
+  readonly trustedContext?: string;
+}): string {
+  return [
+    `Target repository: ${params.owner}/${params.repo}`,
+    `Pull request #: ${params.prNumber}`,
+    `Head commit SHA: ${params.headSha}`,
+    params.userSupplement
+      ? `\n${wrapUntrustedBlock("user_supplement", params.userSupplement)}\n`
+      : "",
+    params.trustedContext ? `\n${params.trustedContext}\n` : "",
+  ].join("\n");
+}
 
 export function buildReviewRunSetup(params: {
   cfg: Config;
@@ -56,6 +82,7 @@ export function buildReviewRunSetup(params: {
   initialPublishState?: {
     published?: boolean;
     inlineReviewIds?: readonly number[];
+    threadCallCount?: number;
   };
   shouldLinkToSummary?: boolean;
   summaryCommentIdHint?: number | null;
@@ -143,6 +170,10 @@ export function buildReviewRunSetup(params: {
 
   let submitBundle = buildSubmit();
   const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
+  const workspaceTools = {
+    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools],
+    executors: { ...executors },
+  };
   executors.submitReview = async (args) => {
     if (submitState.published) {
       return {
@@ -173,6 +204,15 @@ export function buildReviewRunSetup(params: {
       userSupplement,
       trustedContext,
     }),
+    orchestratorUserContent: buildOrchestratorUserContent({
+      owner,
+      repo,
+      prNumber,
+      headSha,
+      userSupplement,
+      trustedContext,
+    }),
+    workspaceTools,
     piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, submitBundle.piTool],
     executors,
     cachedDiffIndex,
@@ -180,6 +220,7 @@ export function buildReviewRunSetup(params: {
     getToken: refreshableGh.getToken,
     getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
     refreshBeforeTool,
+    refreshLiveAuth: () => refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL),
   };
 }
 

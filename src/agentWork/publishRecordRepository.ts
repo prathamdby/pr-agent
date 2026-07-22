@@ -421,6 +421,7 @@ function parseReviewPublishStateRows(
 ): {
   summaryPublished: boolean;
   inlineReviewIds: number[];
+  threadCallCount: number;
 } {
   const steps = new Set(rows.map((row) => row.step));
   const inlineRow = rows.find((row) => row.step === "inline_review");
@@ -440,6 +441,9 @@ function parseReviewPublishStateRows(
   return {
     summaryPublished: steps.has("summary_comment"),
     inlineReviewIds: [...inlineReviewIds],
+    threadCallCount:
+      batches.filter((batch) => batch.workItemId === workItemId).length ||
+      (batches.length === 0 && inlineReviewIds.size > 0 ? 1 : 0),
   };
 }
 
@@ -447,6 +451,7 @@ export type ReviewExecutorPublishContext = {
   publishState: {
     summaryPublished: boolean;
     inlineReviewIds: number[];
+    threadCallCount: number;
   };
   shouldLinkToSummary: boolean;
   storedInlineFingerprints: string[];

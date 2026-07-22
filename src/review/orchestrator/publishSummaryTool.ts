@@ -15,7 +15,7 @@ import {
   type ReviewFinding,
   type ReviewPayload,
 } from "../reviewSchema.js";
-import type { AcceptedPlacement, FindingLedger } from "./orchestratorTypes.js";
+import type { AcceptedPlacement, FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
 
 const summaryFindingCopySchema = z.object({
   findingId: z.string().min(1),
@@ -35,6 +35,7 @@ export const publishSummarySchema = createReviewPayloadSchema()
 export type PublishSummaryState = {
   published: boolean;
   lastValidationError: string | null;
+  stoppedReason: "superseded" | "stale_head" | null;
 };
 
 export type PublishSummaryToolResult =
@@ -47,11 +48,11 @@ export type PublishSummaryToolResult =
 
 type PublishSummaryToolParams = Omit<
   Parameters<typeof publishReviewSummaryOnly>[0],
-  "payload" | "ledger" | "partialCoverageNote"
+  "payload" | "ledger" | "coverage"
 > & {
   readonly state: PublishSummaryState;
   readonly getLedger: () => FindingLedger;
-  readonly getPartialCoverageNote: () => string | undefined;
+  readonly getCoverage: () => ReviewCoverage;
 };
 
 type SummaryInput = z.infer<typeof publishSummarySchema>;
@@ -63,6 +64,7 @@ export function createPublishSummaryState(initial?: {
   return {
     published: initial?.published ?? false,
     lastValidationError: null,
+    stoppedReason: null,
   };
 }
 
@@ -206,7 +208,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   readonly piTool: PiTool;
   readonly executor: (args: Record<string, unknown>) => Promise<PublishSummaryToolResult>;
 } {
-  const { state, getLedger, getPartialCoverageNote, ...publishContext } = params;
+  const { state, getLedger, getCoverage, ...publishContext } = params;
   const piTool: PiTool = {
     name: "publish_summary",
     description:
@@ -247,12 +249,11 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     const summaryLedger = ledgerWithFindingCopy(ledger, payload.findings);
     let result: PublishSummaryOnlyResult;
     try {
-      const partialCoverageNote = getPartialCoverageNote();
       result = await publishReviewSummaryOnly({
         ...publishContext,
         payload,
         ledger: summaryLedger,
-        partialCoverageNote,
+        coverage: getCoverage(),
       });
     } catch (error) {
       throw toAppError(error, {
@@ -265,10 +266,12 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       });
     }
     if (result.kind === "stopped") {
+      state.stoppedReason = result.reason;
       return { ok: false, reason: result.reason };
     }
 
     state.published = true;
+    state.stoppedReason = null;
     return { ok: true, summaryCommentId: result.summaryCommentId };
   };
 

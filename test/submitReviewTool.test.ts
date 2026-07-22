@@ -83,6 +83,12 @@ describe("submitReview tool", () => {
     ]);
   });
 
+  it("seeds the resumed thread call count independently from review ids", () => {
+    expect(
+      createSubmitReviewState({ inlineReviewIds: [41], threadCallCount: 8 }).threadCallCount,
+    ).toBe(8);
+  });
+
   it("forwards the work item and resumed placements to the V1 publisher", async () => {
     const resumedPlacement: AcceptedPlacement = {
       kind: "resumed",

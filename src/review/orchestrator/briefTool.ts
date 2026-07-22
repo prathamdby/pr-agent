@@ -39,8 +39,11 @@ export function buildSpecialistBriefTool(): {
   readonly piTool: PiTool;
   readonly executor: AgentRunnerToolExecutor;
   readonly getBrief: () => SpecialistBrief | null;
+  readonly getValidationError: () => string | null;
+  readonly clearValidationError: () => void;
 } {
   let brief: SpecialistBrief | null = null;
+  let validationError: string | null = null;
   const piTool: PiTool = {
     name: "submit_specialist_brief",
     description: "Submit the structured specialist brief after completing PR reconnaissance.",
@@ -49,13 +52,23 @@ export function buildSpecialistBriefTool(): {
   const executor: AgentRunnerToolExecutor = async (args) => {
     const parsed = specialistBriefSchema.safeParse(args);
     if (!parsed.success) {
-      return { accepted: false, error: formatValidationError(parsed.error) };
+      validationError = formatValidationError(parsed.error);
+      return { accepted: false, error: validationError };
     }
     brief = parsed.data;
+    validationError = null;
     return { accepted: true };
   };
 
-  return { piTool, executor, getBrief: () => brief };
+  return {
+    piTool,
+    executor,
+    getBrief: () => brief,
+    getValidationError: () => validationError,
+    clearValidationError: () => {
+      validationError = null;
+    },
+  };
 }
 
 export function renderBriefMessage(brief: SpecialistBrief, specialist: SpecialistId): string {

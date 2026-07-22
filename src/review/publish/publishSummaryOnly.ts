@@ -1,5 +1,6 @@
 import type { Config } from "../../config.js";
 import type { Pool, PoolClient } from "pg";
+import { AppError } from "../../errors/appError.js";
 import {
   claimSummaryCommentCreation,
   getProgressCommentRevision,
@@ -30,7 +31,7 @@ import {
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { buildCiSummary } from "../ci/analyzeCi.js";
 import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
-import type { FindingLedger } from "../orchestrator/orchestratorTypes.js";
+import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
@@ -362,6 +363,7 @@ export async function publishReviewSummaryOnly(params: {
   readonly ctx: ReviewPublishContext;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs?: () => number | undefined;
+  readonly refreshLiveAuth?: () => Promise<void>;
   readonly payload: ReviewPayload;
   readonly ledger: FindingLedger;
   readonly mode?: AnyReviewLens;
@@ -371,11 +373,21 @@ export async function publishReviewSummaryOnly(params: {
   readonly staleReview?: boolean;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly ciAuthor?: CiSummaryAuthor;
-  readonly partialCoverageNote?: string;
+  readonly coverage?: ReviewCoverage;
+  readonly remainingFinalizationMs?: () => number;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly dedupedFindingCount?: number;
 }): Promise<PublishSummaryOnlyResult> {
+  const coverage = params.coverage ?? { kind: "full" };
+  if (coverage.kind === "none") {
+    throw new AppError({
+      code: "review.summary_coverage_none",
+      message: "Cannot publish a review summary when every specialist failed",
+      context: { failedSpecialists: coverage.failed },
+    });
+  }
+  const partialCoverageNote = coverage.kind === "partial" ? coverage.note : undefined;
   const { owner, repo, prNumber, headSha } = params.ctx;
   const mode = params.mode ?? "review";
   const summarySentinel = reviewSummarySentinelForMode(mode);
@@ -420,7 +432,10 @@ export async function publishReviewSummaryOnly(params: {
     repo,
     headSha,
     expiresAtTs: ciTokenExpiresAtTs,
-    waitMs: REVIEW_CI_SUMMARY_WAIT_MS,
+    waitMs: Math.max(
+      0,
+      Math.min(REVIEW_CI_SUMMARY_WAIT_MS, params.remainingFinalizationMs?.() ?? Infinity),
+    ),
     waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
     author: params.ciAuthor,
@@ -433,7 +448,7 @@ export async function publishReviewSummaryOnly(params: {
     staleReview: params.staleReview ?? false,
     cachedDiffIndex: params.cachedDiffIndex,
     ciSummary,
-    partialCoverageNote: params.partialCoverageNote,
+    partialCoverageNote,
     runFooter: {
       durationMs: metricsSnapshot?.wallClockMs ?? 0,
       model: params.cfg.piModel,
@@ -461,6 +476,7 @@ export async function publishReviewSummaryOnly(params: {
     };
   }
 
+  await params.refreshLiveAuth?.();
   const summaryToken = params.getToken();
   const summaryTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
   let knownSummaryCommentRef: { id: number; url: string } | null = null;
@@ -479,6 +495,7 @@ export async function publishReviewSummaryOnly(params: {
       : null;
   }
 
+  await params.refreshLiveAuth?.();
   const labelsToken = params.getToken();
   const labelsTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
   const labelsPromise = listPullRequestLabels(
@@ -535,9 +552,14 @@ export async function publishReviewSummaryOnly(params: {
     updated: summary.updated,
   });
 
-  const checkOutcome = reviewCheckRunOutcome(params.payload.findings);
+  const findingsOutcome = reviewCheckRunOutcome(params.payload.findings);
+  const checkOutcome: ReturnType<typeof reviewCheckRunOutcome> =
+    coverage.kind === "partial"
+      ? { conclusion: "neutral", summary: coverage.note }
+      : findingsOutcome;
   const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
   if (summaryCoordination) {
+    await params.refreshLiveAuth?.();
     const checkToken = params.getToken();
     const checkTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
     await completeReviewCheckRun(summaryCoordination.pool, {
@@ -557,6 +579,7 @@ export async function publishReviewSummaryOnly(params: {
 
   if (params.cfg.features.commitStatus) {
     try {
+      await params.refreshLiveAuth?.();
       const commitStatusToken = params.getToken();
       const commitStatusTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
       await setReviewCommitStatus(
@@ -565,7 +588,12 @@ export async function publishReviewSummaryOnly(params: {
         repo,
         headSha,
         {
-          state: checkOutcome.conclusion === "failure" ? "failure" : "success",
+          state:
+            coverage.kind === "partial"
+              ? "error"
+              : checkOutcome.conclusion === "failure"
+                ? "failure"
+                : "success",
           description: checkOutcome.summary,
           targetUrl,
         },
@@ -622,6 +650,7 @@ export async function publishReviewSummaryOnly(params: {
       } else {
         const managed = reviewLabelsFromPayload(params.payload, options, mode);
         const next = syncReviewLabels(currentLabels, managed, mode);
+        await params.refreshLiveAuth?.();
         const labelsWriteToken = params.getToken();
         const labelsWriteTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
         await setPullRequestLabels(

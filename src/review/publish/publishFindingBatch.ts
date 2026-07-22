@@ -65,6 +65,7 @@ export type FindingBatchContext = {
   readonly workItemId?: string;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs?: () => number | undefined;
+  readonly refreshLiveAuth?: () => Promise<void>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly shouldAbortPublish?: () => Promise<boolean>;
@@ -260,19 +261,19 @@ export async function publishFindingBatch(
     };
   }
 
-  const token = context.getToken();
   const inlineResult = await publishInlineReviewComments(
-    token,
     context.ctx.owner,
     context.ctx.repo,
     context.ctx.prNumber,
     {
+      getToken: context.getToken,
+      getTokenExpiresAtTs: context.getTokenExpiresAtTs,
+      refreshLiveAuth: context.refreshLiveAuth,
       renderReviewBody: () => `${REVIEW_POINTER_BODY}\n${renderReviewPointerLensMarker("review")}`,
       event: "COMMENT",
       commitId: context.ctx.headSha,
       inlinePlacements: targets.inline,
       renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
-      expiresAtTs: context.getTokenExpiresAtTs?.(),
     },
   );
 

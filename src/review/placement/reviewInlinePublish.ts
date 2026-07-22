@@ -13,12 +13,14 @@ import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindi
 import type { ReviewFinding } from "../reviewSchema.js";
 
 type InlinePublishParams<TPlacement extends InlinePlacement> = {
+  getToken: () => string;
+  getTokenExpiresAtTs?: () => number | undefined;
+  refreshLiveAuth?: () => Promise<void>;
   renderReviewBody: (anchorDroppedPlacements: readonly InlinePlacement[]) => string;
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   commitId?: string;
   inlinePlacements: readonly TPlacement[];
   renderCommentBody: (finding: ReviewFinding) => string;
-  expiresAtTs?: number;
 };
 
 export type InlinePublishResult<TPlacement extends InlinePlacement = InlinePlacement> = {
@@ -82,7 +84,6 @@ function fallbackLineResolutionDrop<TPlacement extends InlinePlacement>(
 }
 
 export async function publishInlineReviewComments<TPlacement extends InlinePlacement>(
-  token: string,
   owner: string,
   repo: string,
   pullNumber: number,
@@ -111,16 +112,19 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
         comments,
         commitId: params.commitId,
       };
-      const review = await withTransientReviewRetry(() =>
-        createPullRequestReviewWithComments(
+      const review = await withTransientReviewRetry(async () => {
+        await params.refreshLiveAuth?.();
+        const token = params.getToken();
+        const expiresAtTs = params.getTokenExpiresAtTs?.();
+        return createPullRequestReviewWithComments(
           token,
           owner,
           repo,
           pullNumber,
           reviewParams,
-          params.expiresAtTs,
-        ),
-      );
+          expiresAtTs,
+        );
+      });
       return {
         review,
         postedPlacements: attemptPlacements,

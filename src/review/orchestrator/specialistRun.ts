@@ -131,21 +131,42 @@ async function runWithinDeadline<T>(params: {
   readonly run: () => Promise<T>;
   readonly signal?: AbortSignal;
   readonly deadlineMs: number;
+  readonly cancel?: () => Promise<void>;
+  readonly deferCleanup?: () => Promise<void>;
+  readonly onCleanupDeferred?: () => void;
 }): Promise<T> {
   const remainingMs = params.deadlineMs - Date.now();
   if (remainingMs <= 0) throw timeoutError();
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onExternalAbort: (() => void) | undefined;
-  const cancelled = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(timeoutError()), remainingMs);
-    onExternalAbort = () => reject(externalAbortError());
+  type OperationResult =
+    | { readonly kind: "settled"; readonly value: T }
+    | { readonly kind: "rejected"; readonly error: unknown }
+    | { readonly kind: "cancelled"; readonly error: Error };
+  const cancelled = new Promise<OperationResult>((resolve) => {
+    timer = setTimeout(() => resolve({ kind: "cancelled", error: timeoutError() }), remainingMs);
+    onExternalAbort = () => resolve({ kind: "cancelled", error: externalAbortError() });
     params.signal?.addEventListener("abort", onExternalAbort, { once: true });
     if (params.signal?.aborted) onExternalAbort();
   });
 
+  const operation = params.run();
+  const settled: Promise<OperationResult> = operation.then(
+    (value) => ({ kind: "settled", value }),
+    (error: unknown) => ({ kind: "rejected", error }),
+  );
   try {
-    return await Promise.race([params.run(), cancelled]);
+    const result = await Promise.race([settled, cancelled]);
+    if (result.kind === "settled") return result.value;
+    if (result.kind === "rejected") throw result.error;
+    const cancel = params.cancel?.();
+    if (cancel) void cancel.catch(() => undefined);
+    if (params.deferCleanup) {
+      params.onCleanupDeferred?.();
+      void settled.then(() => params.deferCleanup?.()).catch(() => undefined);
+    }
+    throw result.error;
   } finally {
     if (timer) clearTimeout(timer);
     if (onExternalAbort) params.signal?.removeEventListener("abort", onExternalAbort);
@@ -167,29 +188,16 @@ async function createSessionWithinDeadline(
       [SUBMIT_TOOL_NAME]: submitTool.executor,
     },
   });
-  let accepted = false;
-
-  try {
-    const session = await runWithinDeadline({
-      run: () => creation,
-      signal: params.signal,
-      deadlineMs,
-    });
-    accepted = true;
-    return session;
-  } finally {
-    if (!accepted) {
-      void creation
-        .then(async (session) => {
-          try {
-            await session.abort();
-          } finally {
-            await session.dispose();
-          }
-        })
-        .catch(() => undefined);
-    }
-  }
+  return runWithinDeadline({
+    run: () => creation,
+    signal: params.signal,
+    deadlineMs,
+    deferCleanup: async () => {
+      const session = await creation;
+      await session.abort().catch(() => undefined);
+      await session.dispose().catch(() => undefined);
+    },
+  });
 }
 
 async function runAttempt(
@@ -200,6 +208,7 @@ async function runAttempt(
   const state: SubmissionState = { report: null, validationError: null };
   const submitTool = buildSubmitTool(state);
   const session = await createSessionWithinDeadline(params, deadlineMs, submitTool);
+  let cleanupDeferred = false;
 
   const send = (
     activeSession: AgentRunnerSession,
@@ -210,6 +219,11 @@ async function runAttempt(
       run: () => activeSession.send(prompt, opts),
       signal: params.signal,
       deadlineMs,
+      cancel: () => activeSession.abort(),
+      deferCleanup: () => activeSession.dispose(),
+      onCleanupDeferred: () => {
+        cleanupDeferred = true;
+      },
     });
 
   try {
@@ -252,13 +266,8 @@ async function runAttempt(
       throw new Error(state.validationError ?? "Specialist did not submit a valid report");
     }
     return state.report;
-  } catch (error) {
-    if (params.signal?.aborted || classifyProviderError(error) === "timeout") {
-      await session.abort().catch(() => undefined);
-    }
-    throw error;
   } finally {
-    await session.dispose();
+    if (!cleanupDeferred) await session.dispose();
   }
 }
 

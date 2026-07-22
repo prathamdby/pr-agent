@@ -21,6 +21,7 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
         ];
       },
     ),
+    findIssueCommentBySentinel: vi.fn(async () => null),
     resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
     upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
     listPullRequestLabels: vi.fn(async () => []),
@@ -41,8 +42,12 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 
 import {
   listPullRequestReviewCommentsForReview,
+  setReviewCommitStatus,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
+import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
+import { attachSummaryCommentCoordination } from "../src/review/publish/publishSummaryOnly.js";
+import type { Pool, PoolClient } from "pg";
 
 function finding(line: number): ReviewFinding {
   return {
@@ -105,7 +110,11 @@ describe("publishReviewSummaryOnly", () => {
       getToken: () => "t",
       payload,
       ledger,
-      partialCoverageNote: "Coverage partial: security specialist failed.",
+      coverage: {
+        kind: "partial",
+        failed: ["security"],
+        note: "Coverage partial: security specialist failed.",
+      },
     });
 
     expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
@@ -144,6 +153,94 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result).toEqual({ kind: "stopped", reason: "stale_head" });
+    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+  });
+
+  it("forces a neutral check and error commit status for partial coverage", async () => {
+    const client = {
+      query: vi.fn(async () => ({ rows: [] })),
+      release: vi.fn(),
+    } as unknown as PoolClient;
+    const pool = { connect: vi.fn(async () => client) } as unknown as Pool;
+    const recordPublishStep = attachSummaryCommentCoordination(async () => undefined, {
+      pool,
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+    });
+    const result = await publishReviewSummaryOnly({
+      cfg: makeTestConfig({
+        features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
+      }),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionAgentBlock: false,
+      },
+      getToken: () => "t",
+      payload: {
+        prCharacter: "One finding with partial coverage.",
+        findings: [finding(10)],
+        estimatedEffort: 2,
+        relevantTests: "partial",
+        securityConcerns: null,
+        followUps: [],
+      },
+      ledger: createFindingLedger(),
+      recordPublishStep,
+      coverage: {
+        kind: "partial",
+        failed: ["security"],
+        note: "Coverage partial: security specialist failed.",
+      },
+    });
+
+    expect(result.kind).toBe("published");
+    expect(completeReviewCheckRun).toHaveBeenCalledWith(
+      recordPublishStep.summaryCommentCoordination?.pool,
+      expect.objectContaining({
+        conclusion: "neutral",
+        summary: "Coverage partial: security specialist failed.",
+      }),
+    );
+    expect(setReviewCommitStatus).toHaveBeenCalledWith(
+      "t",
+      "o",
+      "r",
+      "sha",
+      expect.objectContaining({ state: "error" }),
+      undefined,
+    );
+  });
+
+  it("rejects summary publication when every specialist failed", async () => {
+    await expect(
+      publishReviewSummaryOnly({
+        cfg: makeTestConfig(),
+        ctx: {
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: "sha",
+          hasDescriptionAgentBlock: false,
+        },
+        getToken: () => "t",
+        payload: {
+          prCharacter: "No coverage.",
+          findings: [],
+          estimatedEffort: 1,
+          relevantTests: "no",
+          securityConcerns: null,
+          followUps: [],
+        },
+        ledger: createFindingLedger(),
+        coverage: {
+          kind: "none",
+          failed: ["correctness", "security", "quality", "tests"],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "review.summary_coverage_none" });
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 });

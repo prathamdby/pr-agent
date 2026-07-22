@@ -44,7 +44,6 @@ export async function publishReview(
     resumedPlacements?: readonly AcceptedPlacement[];
     shouldAbortPublish?: () => Promise<boolean>;
     publishAbortState?: { readonly staleHead?: boolean };
-    partialCoverageNote?: string;
   },
 ): Promise<void> {
   const resumedPlacements = params.resumedPlacements ?? [];
@@ -53,7 +52,7 @@ export async function publishReview(
     suppressionFingerprints: params.storedInlineFingerprints,
     inlineReviewIds: params.publishState.inlineReviewIds,
     postedInlineCount: resumedPlacements.length,
-    threadCallCount: params.publishState.inlineReviewIds.length,
+    threadCallCount: params.publishState.threadCallCount,
   });
   const getToken = params.getToken ?? (() => params.token);
   const getTokenExpiresAtTs = params.getTokenExpiresAtTs ?? (() => params.tokenExpiresAtTs);
@@ -77,6 +76,7 @@ export async function publishReview(
 
   ledger = applyFindingLedgerDelta(ledger, batchResult.delta);
   params.publishState.inlineReviewIds = [...ledger.inlineReviewIds];
+  params.publishState.threadCallCount = ledger.threadCallCount;
 
   const summaryResult = await publishReviewSummaryOnly({
     cfg: params.cfg,
@@ -92,7 +92,6 @@ export async function publishReview(
     staleReview: params.staleReview,
     recordPublishStep: params.recordPublishStep,
     ciAuthor: params.ciSummaryAuthor,
-    partialCoverageNote: params.partialCoverageNote,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
     dedupedFindingCount: params.dedupedFindingCount,

@@ -86,6 +86,7 @@ describe("loadReviewExecutorPublishContext", () => {
       publishState: {
         summaryPublished: true,
         inlineReviewIds: [42, 43],
+        threadCallCount: 2,
       },
       shouldLinkToSummary: true,
       storedInlineFingerprints: ["fp-legacy", "fp-old", "fp-1", "fp-2"],

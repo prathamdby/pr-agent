@@ -23,6 +23,7 @@ type TickProgressCommentBase = {
   readonly ciSummary?: CiSummary | null;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number | undefined;
+  readonly refreshLiveAuth?: () => Promise<void>;
   readonly hintCommentId?: number | null;
 };
 
@@ -40,6 +41,7 @@ export type TickProgressCommentArgs = TickProgressCommentBase &
 
 export async function tickProgressComment(args: TickProgressCommentArgs): Promise<void> {
   try {
+    await args.refreshLiveAuth?.();
     const token = args.getToken();
     const expiresAtTs = args.getTokenExpiresAtTs();
     await upsertSummaryCommentWithCreationClaim({

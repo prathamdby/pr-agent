@@ -29,7 +29,12 @@ import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
 
 const payload = publishReviewTestPayload;
 const baseParams = publishReviewTestBaseParams;
-const pool = {} as import("pg").Pool;
+const pool = {
+  connect: vi.fn(async () => ({
+    query: vi.fn(async () => undefined),
+    release: vi.fn(),
+  })),
+} as unknown as import("pg").Pool;
 
 describe("publishReview check run completion", () => {
   beforeEach(() => {

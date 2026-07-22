@@ -27,6 +27,7 @@ import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 export type SubmitReviewState = {
   published: boolean;
   inlineReviewIds: number[];
+  threadCallCount: number;
   lastValidationError: string | null;
   publishCallCount: number;
   publishCallsExhausted: boolean;
@@ -42,10 +43,12 @@ const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
 export function createSubmitReviewState(initial?: {
   readonly published?: boolean;
   readonly inlineReviewIds?: readonly number[];
+  readonly threadCallCount?: number;
 }): SubmitReviewState {
   return {
     published: initial?.published ?? false,
     inlineReviewIds: [...(initial?.inlineReviewIds ?? [])],
+    threadCallCount: initial?.threadCallCount ?? 0,
     lastValidationError: null,
     publishCallCount: 0,
     publishCallsExhausted: false,

@@ -104,6 +104,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
         "review",
       );
       expect(context.publishState.inlineReviewIds).toEqual([41, 42]);
+      expect(context.publishState.threadCallCount).toBe(2);
       expect(context.storedInlineFingerprints.toSorted()).toEqual(["fp-1", "fp-2", "fp-legacy"]);
       expect(context.resumedPlacements).toEqual([
         {

@@ -204,6 +204,7 @@ export type ReviewPhase =
 
 /** Review agent caps. */
 export const MAX_TOOL_ROUNDS = 24;
+export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
 export const MAX_REVIEW_PUBLISH_ATTEMPTS = 3;
 export const MAX_REVIEW_PUBLISH_CALLS = 2;
 export const REVIEW_MIN_CONFIDENCE = 1;

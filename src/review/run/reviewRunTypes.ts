@@ -4,6 +4,7 @@ import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
+import type { RecordPublishStepWithCoordination } from "../publish/publishSummaryOnly.js";
 
 export type ReviewRunParams = {
   readonly cfg: Config;
@@ -25,11 +26,9 @@ export type ReviewRunParams = {
   readonly initialPublishState?: {
     readonly published?: boolean;
     readonly inlineReviewIds?: readonly number[];
+    readonly threadCallCount?: number;
   };
-  readonly recordPublishStep?: (
-    step: "inline_review" | "summary_comment" | "labels",
-    detail?: { readonly githubId?: string | number; readonly meta?: Record<string, unknown> },
-  ) => Promise<void>;
+  readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly storedInlineFingerprints?: readonly string[];
   readonly workItemId?: string;
