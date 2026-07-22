@@ -1,7 +1,7 @@
 import { getAppBotIdentity, installationOctokit } from "../github/appAuth.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
 import { logDebug } from "../evlog.js";
-import { GITHUB_REACTION_EYES } from "../settings/index.js";
+import { GITHUB_REACTION_EYES, type GithubReactionContent } from "../settings/index.js";
 import type { AckJobData, AckTarget } from "./types.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import { httpStatus } from "../github/httpStatus.js";
@@ -42,6 +42,7 @@ export async function safeReaction(
   owner: string,
   repo: string,
   target: AckTarget,
+  content: GithubReactionContent = GITHUB_REACTION_EYES,
   expiresAtTs?: number,
 ): Promise<void> {
   const octokit = installationOctokit(token, expiresAtTs);
@@ -51,21 +52,21 @@ export async function safeReaction(
         owner,
         repo,
         issue_number: target.prNumber,
-        content: GITHUB_REACTION_EYES,
+        content,
       });
     } else if (target.kind === "issueComment") {
       await octokit.rest.reactions.createForIssueComment({
         owner,
         repo,
         comment_id: target.commentId,
-        content: GITHUB_REACTION_EYES,
+        content,
       });
     } else {
       await octokit.rest.reactions.createForPullRequestReviewComment({
         owner,
         repo,
         comment_id: target.commentId,
-        content: GITHUB_REACTION_EYES,
+        content,
       });
     }
   } catch (e: unknown) {
@@ -75,7 +76,7 @@ export async function safeReaction(
         owner,
         repo,
         target,
-        reaction: GITHUB_REACTION_EYES,
+        reaction: content,
         status,
       });
       return;
@@ -83,6 +84,32 @@ export async function safeReaction(
     if (status === 422) return;
     throw e;
   }
+}
+
+/** Post one reaction to each target; per-target failures are logged and do not abort siblings. */
+export async function reactOnAckTargets(
+  token: string,
+  owner: string,
+  repo: string,
+  targets: readonly AckTarget[],
+  content: GithubReactionContent,
+  expiresAtTs?: number,
+): Promise<void> {
+  await Promise.all(
+    targets.map(async (target) => {
+      try {
+        await safeReaction(token, owner, repo, target, content, expiresAtTs);
+      } catch (e) {
+        logDebug("ack_reaction_failed", {
+          owner,
+          repo,
+          targetKind: target.kind,
+          reaction: content,
+          message: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }),
+  );
 }
 
 export async function postSlashReply(

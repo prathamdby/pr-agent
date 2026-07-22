@@ -1,9 +1,13 @@
 import type { Pool } from "pg";
 import type { Config } from "../../config.js";
-import { logDebug, logWarn } from "../../evlog.js";
+import { logWarn } from "../../evlog.js";
 import { reviewSummarySentinelForMode } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
-import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
+import {
+  DEFERRED_HEAD_SHA,
+  GITHUB_REACTION_EYES,
+  GITHUB_REACTION_PLUS_ONE,
+} from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
@@ -15,7 +19,7 @@ import {
   getAppBotIdentity,
   getPullRequestHeadSha,
   postAckReply,
-  safeReaction,
+  reactOnAckTargets,
 } from "../githubPrSurface.js";
 import type { AckJobData } from "../types.js";
 
@@ -33,25 +37,13 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   }
   const installation = await mintInstallationToken(cfg, data.installationId);
 
-  await Promise.all(
-    data.targets.map(async (target) => {
-      try {
-        await safeReaction(
-          installation.token,
-          data.owner,
-          data.repo,
-          target,
-          installation.expiresAtTs,
-        );
-      } catch (e) {
-        logDebug("ack_reaction_failed", {
-          owner: data.owner,
-          repo: data.repo,
-          targetKind: target.kind,
-          message: e instanceof Error ? e.message : String(e),
-        });
-      }
-    }),
+  await reactOnAckTargets(
+    installation.token,
+    data.owner,
+    data.repo,
+    data.targets,
+    GITHUB_REACTION_EYES,
+    installation.expiresAtTs,
   );
 
   if (data.progress) {
@@ -116,5 +108,17 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
 
   if (data.reply) {
     await postAckReply(installation.token, data, data.reply.body, installation.expiresAtTs);
+  }
+
+  // Ack-only interactions (help / disabled / usage) finish here — no durable work item.
+  if (data.reply && data.workItemId == null) {
+    await reactOnAckTargets(
+      installation.token,
+      data.owner,
+      data.repo,
+      data.targets,
+      GITHUB_REACTION_PLUS_ONE,
+      installation.expiresAtTs,
+    );
   }
 }

@@ -20,7 +20,7 @@ Production failures during small bursts showed that webhook acknowledgement, Git
 
 4. **No PR-surface I/O on webhook fibers** — GitHub reactions, progress comments, ask replies, inline reviews, labels, and failure notices run in worker jobs. Webhook fibers verify, parse, dedupe, commit, enqueue, and return.
 
-5. **Review progress comment lifecycle** — A high-priority acknowledgement job posts 👀 reactions and a minimal progress comment identified by the review summary sentinel. Review completion, reruns, terminal failures, and structured-publish fallback edit the same comment.
+5. **Review progress comment lifecycle** — A high-priority acknowledgement job posts 👀 reactions and a minimal progress comment identified by the review summary sentinel. Review completion, reruns, terminal failures, and structured-publish fallback edit the same comment. Terminal success/failure also add 👍 / 👎 outcome reactions on the ack targets.
 
 6. **Fresh token execution** — Jobs store `installationId`; workers mint installation tokens immediately before GitHub operations.
 

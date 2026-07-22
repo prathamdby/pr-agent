@@ -95,6 +95,7 @@ export type ReviewWorkPayload = {
   readonly repositorySizeKb?: number;
   readonly userSupplement?: string;
   readonly commenterId?: number;
+  readonly ackTargets?: readonly AckTarget[];
   /** Set when the run finished but structured publish did not succeed */
   readonly publishDegraded?: boolean;
   /** Set on a one-time replacement run after stale head at publish time */
@@ -112,6 +113,8 @@ export type AskWorkPayload = {
   readonly codeAnchor?: CodeAnchor;
   readonly commenterId?: number;
   readonly commentId: number;
+  /** Ack targets captured at intake for completion/failure reactions. */
+  readonly ackTargets?: readonly AckTarget[];
 };
 
 export type DescriptionWorkPayload = {
@@ -119,6 +122,8 @@ export type DescriptionWorkPayload = {
   readonly repositorySizeKb?: number;
   readonly userSupplement?: string;
   readonly commenterId?: number;
+  /** Ack targets captured at intake for completion/failure reactions. */
+  readonly ackTargets?: readonly AckTarget[];
 };
 
 export type TriageScope = "all" | "thread";
@@ -133,12 +138,16 @@ export type TriageWorkPayload = {
   readonly needsThreadRootResolution?: boolean;
   readonly replyTarget: ReplyTarget;
   readonly publishDegraded?: boolean;
+  /** Ack targets captured at intake for completion/failure reactions. */
+  readonly ackTargets?: readonly AckTarget[];
 };
 
 export type VerificationWorkPayload = {
   readonly source: "auto";
   readonly repositorySizeKb?: number;
   readonly pushBeforeSha?: string;
+  /** Ack targets captured at intake for completion/failure reactions. */
+  readonly ackTargets?: readonly AckTarget[];
 };
 
 type WorkItemBase = PrRef & {

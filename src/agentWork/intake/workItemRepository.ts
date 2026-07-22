@@ -4,6 +4,7 @@ import { AppError } from "../../errors/appError.js";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type {
+  AckTarget,
   AskWorkPayload,
   DescriptionWorkPayload,
   ReviewWorkPayload,
@@ -225,6 +226,7 @@ type ReviewWorkItemParams = {
   priority?: number;
   userSupplement?: string;
   commenterId?: number;
+  ackTargets?: readonly AckTarget[];
 };
 
 export async function createReviewWorkItem(
@@ -247,6 +249,7 @@ export async function createReviewWorkItem(
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
     commenterId: params.commenterId,
+    ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
   } satisfies ReviewWorkPayload;
 
   if (params.source === "slash") {
@@ -298,6 +301,7 @@ type DescriptionWorkItemParams = {
   ref: PrRef;
   userSupplement?: string;
   commenterId?: number;
+  ackTargets?: readonly AckTarget[];
 };
 
 export async function createDescriptionWorkItem(
@@ -319,6 +323,7 @@ export async function createDescriptionWorkItem(
     repositorySizeKb: params.ref.repositorySizeKb,
     userSupplement: params.userSupplement,
     commenterId: params.commenterId,
+    ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
   } satisfies DescriptionWorkPayload;
 
   if (params.source === "slash") {
@@ -362,6 +367,7 @@ export async function createTriageWorkItem(
     threadAnchorCommentId?: number;
     needsThreadRootResolution?: boolean;
     replyTarget: ReplyTarget;
+    ackTargets?: readonly AckTarget[];
   },
 ): Promise<SlashActiveWorkInsertResult> {
   const id = crypto.randomUUID();
@@ -384,6 +390,7 @@ export async function createTriageWorkItem(
       threadAnchorCommentId: params.threadAnchorCommentId,
       needsThreadRootResolution: params.needsThreadRootResolution,
       replyTarget: params.replyTarget,
+      ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
     } satisfies TriageWorkPayload,
     conflict: "slash_active",
   });
@@ -395,6 +402,7 @@ export async function createVerificationWorkItem(
     webhookEventId: string;
     ref: PrRef;
     pushBeforeSha?: string;
+    ackTargets?: readonly AckTarget[];
   },
 ): Promise<string> {
   const id = crypto.randomUUID();
@@ -412,6 +420,7 @@ export async function createVerificationWorkItem(
       source: "auto",
       repositorySizeKb: params.ref.repositorySizeKb,
       ...(params.pushBeforeSha != null ? { pushBeforeSha: params.pushBeforeSha } : {}),
+      ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
     } satisfies VerificationWorkPayload,
     conflict: "none",
   });
@@ -446,6 +455,7 @@ export async function createAskWorkItem(
     commentId: number;
     commenterId: number;
     codeAnchor?: CodeAnchor;
+    ackTargets?: readonly AckTarget[];
   },
 ): Promise<ConflictAwareInsertResult> {
   const id = crypto.randomUUID();
@@ -456,6 +466,7 @@ export async function createAskWorkItem(
     commentId: params.commentId,
     commenterId: params.commenterId,
     codeAnchor: params.codeAnchor,
+    ...(params.ackTargets != null ? { ackTargets: params.ackTargets } : {}),
   } satisfies AskWorkPayload;
   return insertAgentWorkItem(client, {
     id,

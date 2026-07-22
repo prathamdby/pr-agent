@@ -147,6 +147,7 @@ async function handleSlashDescribe(ctx: SlashIntakeContext): Promise<void> {
     source: "slash",
     userSupplement: clampStoredCommentText(`User invoked /describe with:\n${ctx.input.body}`),
     commenterId: ctx.input.commenterId,
+    ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
     await enqueueSlashAck(ctx, {
@@ -237,6 +238,7 @@ async function handleSlashTriage(ctx: SlashIntakeContext): Promise<void> {
     threadAnchorCommentId: ctx.input.threadAnchorCommentId,
     needsThreadRootResolution: ctx.input.needsThreadRootResolution,
     replyTarget: ctx.input.replyTarget,
+    ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
     const winner = await fetchActiveTriageWorkItem(ctx.client, resourceKey);
@@ -291,6 +293,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     source: "slash",
     userSupplement: clampStoredCommentText(`User invoked /review with:\n${ctx.input.body}`),
     commenterId: ctx.input.commenterId,
+    ackTargets: ctx.baseAck.targets,
   });
   if (!insert.created) {
     await enqueueSlashAck(ctx, {

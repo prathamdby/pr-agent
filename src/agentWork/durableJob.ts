@@ -14,8 +14,14 @@ import {
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../github/installationTokenExpiry.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providers/providerErrors.js";
-import { DEFERRED_HEAD_SHA, TOKEN_FRESHNESS_BUFFER_MS } from "../settings/index.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
+import {
+  DEFERRED_HEAD_SHA,
+  GITHUB_REACTION_MINUS_ONE,
+  GITHUB_REACTION_PLUS_ONE,
+  TOKEN_FRESHNESS_BUFFER_MS,
+  type GithubReactionContent,
+} from "../settings/index.js";
 import {
   claimQueuedWorkItem,
   claimWorkForExecution,
@@ -31,8 +37,9 @@ import {
   shouldSkipWork,
   updateRunningWorkHeadSha,
 } from "./repository.js";
-import { getPullRequestHead } from "./githubPrSurface.js";
+import { getPullRequestHead, reactOnAckTargets } from "./githubPrSurface.js";
 import { isTerminalPgBossAttempt } from "./pgBossJob.js";
+import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { isWorkItemType } from "./types.js";
@@ -412,6 +419,27 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
   }
 
+  async function publishOutcomeReaction(content: GithubReactionContent): Promise<void> {
+    try {
+      const token = installation ?? (await mintInstallationToken(spec.cfg, item.installationId));
+      await reactOnAckTargets(
+        token.token,
+        item.owner,
+        item.repo,
+        reactionTargetsForWorkItem(item),
+        content,
+        token.expiresAtTs,
+      );
+    } catch (error) {
+      logWarn("agent_work_outcome_reaction_failed", {
+        type: spec.type,
+        workItemId: item.id,
+        reaction: content,
+        message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+      });
+    }
+  }
+
   async function completeDurableExecution(result: DurableExecutionResult): Promise<void> {
     if (await recheckSkippableAndCancel("skipped_after_execute", false)) return;
     if (result.rescheduled) {
@@ -424,6 +452,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
     logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
+    await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
   }
 
   async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
@@ -469,6 +498,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     await invokeRescheduleAbort(error);
     await invokeTerminalFailureHook(error);
+    await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);
     logError(
       "agent_work_failed",
       {

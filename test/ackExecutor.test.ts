@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
 import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
 import type { AckJobData } from "../src/agentWork/types.js";
+import { GITHUB_REACTION_EYES, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
 
 vi.mock("../src/agentWork/durableJob.js", () => ({
   mintInstallationToken: vi.fn(async () => ({
@@ -16,7 +17,7 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getAppBotIdentity: vi.fn(),
   getPullRequestHeadSha: vi.fn(),
   postAckReply: vi.fn(),
-  safeReaction: vi.fn(),
+  reactOnAckTargets: vi.fn(),
 }));
 
 vi.mock("../src/github/reviewPublish.js", () => ({
@@ -42,7 +43,7 @@ vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
   ensureReviewCheckRunStarted: vi.fn(),
 }));
 
-import { safeReaction } from "../src/agentWork/githubPrSurface.js";
+import { postAckReply, reactOnAckTargets } from "../src/agentWork/githubPrSurface.js";
 import {
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
@@ -74,16 +75,40 @@ describe("executeAckJob", () => {
     vi.clearAllMocks();
   });
 
-  it("reacts to every target even when one reaction fails", async () => {
-    vi.mocked(safeReaction)
-      .mockResolvedValueOnce(undefined)
-      .mockRejectedValueOnce(new Error("reaction failed"))
-      .mockResolvedValueOnce(undefined);
-
+  it("posts eyes on every ack target", async () => {
     await expect(executeAckJob(cfg, pool, ackData())).resolves.toBeUndefined();
 
-    expect(safeReaction).toHaveBeenCalledTimes(3);
-    expect(vi.mocked(safeReaction).mock.calls.map((call) => call[3])).toEqual(ackData().targets);
+    expect(reactOnAckTargets).toHaveBeenCalledTimes(1);
+    expect(reactOnAckTargets).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      ackData().targets,
+      GITHUB_REACTION_EYES,
+      expect.any(Number),
+    );
+  });
+
+  it("adds plus-one after ack-only replies with no durable work item", async () => {
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      reply: { target: { kind: "prConversation", prNumber: 1 }, body: "help" },
+    });
+
+    expect(postAckReply).toHaveBeenCalled();
+    expect(reactOnAckTargets).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(reactOnAckTargets).mock.calls[1]?.[4]).toBe(GITHUB_REACTION_PLUS_ONE);
+  });
+
+  it("does not plus-one when a durable work item will own the outcome reaction", async () => {
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-1",
+      reply: { target: { kind: "prConversation", prNumber: 1 }, body: "hint" },
+    });
+
+    expect(reactOnAckTargets).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reactOnAckTargets).mock.calls[0]?.[4]).toBe(GITHUB_REACTION_EYES);
   });
 
   it("uses coordinated summary upsert for progress with work item id", async () => {
