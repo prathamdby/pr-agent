@@ -172,9 +172,23 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
           toCodingAgentTool(tool, executors[tool.name], refreshBeforeTool),
         ),
       });
+      let abortPromise: Promise<void> | undefined;
+
+      const abort = (): Promise<void> => {
+        abortPromise ??= (async () => {
+          await session.abort();
+        })();
+        return abortPromise;
+      };
 
       return {
         async send(prompt: string, opts?: AgentRunnerSendOptions) {
+          if (abortPromise) {
+            throw new AppError({
+              code: "agent.session_aborted",
+              message: "Agent runner session aborted",
+            });
+          }
           let sessionToolTurnCount = 0;
           let finalText = "";
           let aggregatedUsage: ReturnType<typeof exactUsageFromProviderUsage> | undefined;
@@ -246,6 +260,7 @@ export const piAgentRunnerProvider: AgentRunnerProvider = {
             unsubscribe();
           }
         },
+        abort,
         // customTools are fixed at session creation; restrictToTools only toggles active names.
         restrictToTools(nextTools, _executors) {
           session.setActiveToolsByName(nextTools.map((tool) => tool.name));

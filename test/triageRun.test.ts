@@ -57,6 +57,7 @@ describe("triage run", () => {
         });
         return { text: "done" };
       }),
+      abort: vi.fn(async () => undefined),
       restrictToTools: vi.fn(),
       restoreTools: vi.fn(),
       dispose: vi.fn(),
@@ -79,6 +80,7 @@ describe("triage run", () => {
   it("does not publish prose-only endings", async () => {
     providerState.createSession.mockImplementation(async () => ({
       send: vi.fn(async () => ({ text: "I am done" })),
+      abort: vi.fn(async () => undefined),
       restrictToTools: vi.fn(),
       restoreTools: vi.fn(),
       dispose: vi.fn(),

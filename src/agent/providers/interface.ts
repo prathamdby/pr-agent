@@ -16,6 +16,7 @@ export type AgentRunnerSendOptions = {
 
 export type AgentRunnerSession = {
   readonly send: (prompt: string, opts?: AgentRunnerSendOptions) => Promise<AgentRunnerTurn>;
+  readonly abort: () => Promise<void>;
   readonly restrictToTools: (
     tools: readonly PiTool[],
     executors: Record<string, AgentRunnerToolExecutor>,

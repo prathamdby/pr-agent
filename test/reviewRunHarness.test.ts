@@ -18,6 +18,7 @@ import { REVIEW_PAYLOAD_MINIMAL_EXAMPLE } from "../src/review/reviewSchema.js";
 const sendMock = vi.fn(async (_message: string) => ({ text: "done" }));
 const createSessionMock = vi.fn(async (_params: unknown) => ({
   send: sendMock,
+  abort: vi.fn(async () => undefined),
   restrictToTools: vi.fn(),
   restoreTools: vi.fn(),
   dispose: vi.fn(async () => undefined),

@@ -29,6 +29,7 @@ const reviewRunMocks = vi.hoisted(() => {
       state.capturedExecutors = params.executors;
       return {
         send: sendMock,
+        abort: vi.fn(async () => undefined),
         restrictToTools: vi.fn(),
         restoreTools: vi.fn(),
         dispose: vi.fn(async () => undefined),
