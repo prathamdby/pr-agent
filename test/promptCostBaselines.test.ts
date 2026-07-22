@@ -58,7 +58,8 @@ describe("prompt cost baselines", () => {
 
   it("keeps review prompt behavior-critical phrases", () => {
     const prompt = buildAutomatedSystemPrompt();
-    expect(prompt).toContain("submitReview exactly once");
+    expect(prompt).toContain("submit_findings_report");
+    expect(prompt).toContain("no_findings");
     for (const severity of SEVERITIES) {
       expect(prompt).toContain(severity);
     }
