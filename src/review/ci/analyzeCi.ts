@@ -76,7 +76,7 @@ export function isOwnCiCheckName(name: string): boolean {
   return name.startsWith(OWN_CHECK_NAME_PREFIX);
 }
 
-export function isOwnCommitStatusContext(context: string): boolean {
+function isOwnCommitStatusContext(context: string): boolean {
   return context === OWN_COMMIT_STATUS_CONTEXT;
 }
 

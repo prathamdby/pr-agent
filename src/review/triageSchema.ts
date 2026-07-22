@@ -37,11 +37,11 @@ export type TriageVerdict = z.infer<typeof TriageVerdictSchema>;
 export type TriagePayload = z.infer<typeof TriagePayloadSchema>;
 
 /**
- * Verification verdict schema — shared verdict vocabulary with triage but read-only.
+ * Same verdict vocabulary as triage, but read-only.
  * "fixed" cites the user's pushed commit sha (no committed-by-bot check).
  * "dismissed" still requires maintainer reply evidence.
  */
-export const VerificationVerdictSchema = TriageVerdictSchema;
+const VerificationVerdictSchema = TriageVerdictSchema;
 
 export const VerificationPayloadSchema = z.object({
   verdicts: z.array(VerificationVerdictSchema).min(1).max(MAX_TRIAGE_FINDINGS),

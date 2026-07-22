@@ -39,7 +39,7 @@ export function isDeprecationNoiseLine(line: string): boolean {
   return DEPRECATION_NOISE_RE.test(line);
 }
 
-export function isErrorSignalLine(line: string): boolean {
+function isErrorSignalLine(line: string): boolean {
   return ERROR_SIGNAL_RE.test(line) && !isDeprecationNoiseLine(line);
 }
 

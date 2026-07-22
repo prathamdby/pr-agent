@@ -6,7 +6,6 @@ import type { Config } from "../config.js";
 import { AppError } from "../errors/appError.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
-import { httpStatus } from "./httpStatus.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "./installationTokenExpiry.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
@@ -186,35 +185,4 @@ async function resolveBotIdentityViaAppSlug(
     username: `${slug}[bot]`,
   });
   return { userId: user.id, login: user.login };
-}
-
-/**
- * Mint bot identity for the authenticated installation, with the public-slug fallback.
- * Caching is the caller's responsibility — production callers should go through the
- * `BotIdentity` Effect service.
- */
-export async function mintBotIdentity(
-  cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">,
-  installationToken: string,
-): Promise<BotIdentity> {
-  const o = installationOctokit(installationToken);
-  let u: BotIdentity;
-  try {
-    const { data } = await o.rest.users.getAuthenticated();
-    u = { userId: data.id, login: data.login };
-  } catch (e: unknown) {
-    const status = httpStatus(e);
-    if (status !== 403) throw e;
-
-    logDebug("resolved_bot_identity_fallback_jwt_slug", {
-      githubAppId: cfg.githubAppId,
-    });
-    u = await resolveBotIdentityViaAppSlug(cfg);
-  }
-
-  logDebug("resolved_bot_identity", {
-    login: u.login,
-    githubAppId: cfg.githubAppId,
-  });
-  return u;
 }

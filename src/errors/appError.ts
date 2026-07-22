@@ -7,7 +7,7 @@ export type AppErrorInit = {
   readonly cause?: unknown;
 };
 
-export type SerializedCause =
+type SerializedCause =
   | SerializedAppError
   | { readonly errorMessage: string; readonly errorName?: string };
 

@@ -38,7 +38,7 @@ const PROGRESS_REVISION_RE =
 
 type SpecialistPhase = SpecialistRunPhase;
 
-export type ReconPhase = ReconRunPhase;
+type ReconPhase = ReconRunPhase;
 
 export type SpecialistTickState =
   | {
@@ -110,7 +110,7 @@ export function initialProgressTickState(): Extract<SpecialistTickState, { kind:
   };
 }
 
-export function renderProgressRevisionComment(revision: number, workItemId?: string): string {
+function renderProgressRevisionComment(revision: number, workItemId?: string): string {
   return workItemId == null
     ? `<!-- pr-agent:progress-revision ${revision} -->`
     : `<!-- pr-agent:progress-revision workItemId=${encodeURIComponent(workItemId)} value=${revision} -->`;

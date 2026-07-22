@@ -7,7 +7,7 @@ const WORKFLOW_RUNS_MAX_PAGES = 2;
 const JOBS_PAGE_SIZE = 50;
 const JOBS_MAX_PAGES = 2;
 
-export type ActionsJobSnapshot = {
+type ActionsJobSnapshot = {
   readonly id: number;
   readonly name: string;
   readonly conclusion: string | null;
@@ -23,7 +23,7 @@ export type DownloadActionsJobLogsResult =
   | { readonly ok: false; readonly reason: "actions_permission" | "empty" };
 
 /** True when Actions API is unavailable to this installation (missing permission or 404). */
-export function isMissingActionsPermissionError(error: unknown): boolean {
+function isMissingActionsPermissionError(error: unknown): boolean {
   const status = httpStatus(error);
   if (status !== 403 && status !== 404) return false;
   const message = error instanceof Error ? error.message : String(error);

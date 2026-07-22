@@ -25,7 +25,7 @@ export type SpecialistOutcome =
       readonly durationMs: number;
     };
 
-export type ReviewRunGateResult =
+type ReviewRunGateResult =
   | { readonly kind: "continue" }
   | { readonly kind: "stop"; readonly reason: "superseded" | "stale_head" }
   | { readonly kind: "finalize"; readonly reason: "deadline" };

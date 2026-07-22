@@ -4,9 +4,6 @@ export const TRIAGE_ALREADY_IN_PROGRESS =
   "A `/triage` run is already queued or in progress for this pull request.";
 export const TRIAGE_FAILURE_MESSAGE =
   "PR Agent could not complete the triage run after retries. Try `/triage` again later.";
-export const TRIAGE_NO_PRIOR_FINDINGS =
-  "No prior PR Agent inline findings to triage on this pull request. Run `/review` first.";
-
 export const TRIAGE_NO_ELIGIBLE_FINDINGS =
   "No triage-eligible unresolved PR Agent inline findings on this pull request.";
 export const TRIAGE_THREAD_NOT_ELIGIBLE =

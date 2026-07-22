@@ -88,25 +88,6 @@ export type ReviewPublishContext = {
   hasDescriptionAgentBlock: boolean;
 };
 
-export const REVIEW_PAYLOAD_MINIMAL_EXAMPLE = {
-  prCharacter: "Adds retry logic to the webhook dispatcher.",
-  findings: [
-    {
-      severity: "P1",
-      file: "src/handler.ts",
-      startLine: 42,
-      endLine: 42,
-      title: "Missing await on promise",
-      detail: "The handler returns before the async work completes.",
-      fixPrompt: "Await the promise before returning so errors propagate.",
-    },
-  ],
-  estimatedEffort: 2,
-  relevantTests: "partial",
-  securityConcerns: null,
-  followUps: [],
-} as const;
-
 const SEVERITY_ALIAS: Record<string, ReviewFinding["severity"]> = {
   CRITICAL: "P0",
   HIGH: "P1",

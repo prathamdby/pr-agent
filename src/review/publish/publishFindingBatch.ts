@@ -29,7 +29,7 @@ import type {
   FindingSource,
 } from "../orchestrator/orchestratorTypes.js";
 
-export type StoredInlineBatch = {
+type StoredInlineBatch = {
   readonly version: 2;
   readonly batchId: string;
   readonly workItemId: string;

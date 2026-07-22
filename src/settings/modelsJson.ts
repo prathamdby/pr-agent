@@ -6,7 +6,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { AppError } from "../errors/appError.js";
 
 /** Fixed project-root catalog filename (Pi native `models.json` format). */
-export const MODELS_JSON_FILENAME = "models.json";
+const MODELS_JSON_FILENAME = "models.json";
 
 export type ResolveModelsJsonPathOptions = {
   readonly cwd?: string;

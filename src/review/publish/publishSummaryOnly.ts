@@ -99,7 +99,7 @@ async function resolveKnownSummaryCommentRef(
   return resolved ? { id: resolved.id, url: resolved.url } : null;
 }
 
-export type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 type SummaryCommentUpsertResult = {
   readonly id: number;

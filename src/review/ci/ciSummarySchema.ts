@@ -7,7 +7,7 @@ import {
 } from "../../settings/index.js";
 
 /** Structured fields the CI-summary LLM must return (status/names come from server facts). */
-export function createCiSummaryLlmSchema() {
+function createCiSummaryLlmSchema() {
   return z.object({
     headline: z.string().min(1).max(REVIEW_CI_SUMMARY_HEADLINE_MAX_CHARS),
     failures: z

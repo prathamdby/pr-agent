@@ -71,24 +71,5 @@ export const SENSITIVE_PATH_PATTERNS: readonly RegExp[] = [
   /\.key$/i,
 ];
 
-export const ASK_TOOLS_WITH_OWNER_REPO = new Set([
-  "getPullRequest",
-  "listPullRequests",
-  "listPullRequestFiles",
-  "listPullRequestReviews",
-  "getFileContent",
-  "listCommits",
-  "getCommit",
-  "getBlame",
-  "getRepository",
-  "listBranches",
-]);
-
-export const ASK_TOOLS_WITH_PULL_NUMBER = new Set([
-  "getPullRequest",
-  "listPullRequestFiles",
-  "listPullRequestReviews",
-]);
-
 export const MAX_ASK_TOOL_ROUNDS = 12;
 export const MAX_ASK_FINALIZE_ROUNDS = 2;

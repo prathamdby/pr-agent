@@ -17,11 +17,6 @@ export {
   attachSummaryCommentCoordination,
   upsertSummaryCommentWithCreationClaim,
 } from "./publishSummaryOnly.js";
-export type {
-  RecordPublishStepFn,
-  RecordPublishStepWithCoordination,
-  SummaryCommentCoordination,
-} from "./publishSummaryOnly.js";
 
 export async function publishReview(
   params: ReviewPublishContext & {

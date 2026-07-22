@@ -30,7 +30,7 @@ export const SEO_KEYWORDS = [
   "Docker code review",
 ];
 
-export function softwareApplicationJsonLd() {
+function softwareApplicationJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -59,7 +59,7 @@ export function softwareApplicationJsonLd() {
   };
 }
 
-export function webSiteJsonLd() {
+function webSiteJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "WebSite",
@@ -69,7 +69,7 @@ export function webSiteJsonLd() {
   };
 }
 
-export function organizationJsonLd() {
+function organizationJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "Organization",
@@ -78,7 +78,7 @@ export function organizationJsonLd() {
   };
 }
 
-export function faqPageJsonLd() {
+function faqPageJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",
@@ -93,7 +93,7 @@ export function faqPageJsonLd() {
   };
 }
 
-export function itemListJsonLd() {
+function itemListJsonLd() {
   return {
     "@context": "https://schema.org",
     "@type": "ItemList",

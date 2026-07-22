@@ -9,6 +9,7 @@ import { isSlashAssociationAllowed } from "../../commands/slashAssociation.js";
 import { AgentWorkScheduler } from "../../agentWork/scheduler.js";
 import type { WebhookHeaders } from "../../agentWork/types.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
+import { IGNORED_BOT_SLASH_COMMAND, IGNORED_UNAUTHORIZED_SLASH } from "../../settings/index.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
 import { prNumbersForWorkflowRunHead } from "../../webhook/payloads/workflowRunEvent.js";
@@ -75,11 +76,11 @@ export const WebhookHandlersCore = Layer.effect(
       Effect.gen(function* () {
         const bot = yield* resolveBotIdentityEffect(cfg);
         if (commenterId === bot.userId) {
-          yield* scheduler.recordIgnored(headers, "ignored_bot_slash_command", intakeLog);
+          yield* scheduler.recordIgnored(headers, IGNORED_BOT_SLASH_COMMAND, intakeLog);
           return null;
         }
         if (!isSlashAssociationAllowed(cfg.slashAllowedAssociations, association)) {
-          yield* scheduler.recordIgnored(headers, "ignored_unauthorized_slash", intakeLog);
+          yield* scheduler.recordIgnored(headers, IGNORED_UNAUTHORIZED_SLASH, intakeLog);
           return null;
         }
         return bot;
@@ -311,5 +312,3 @@ export const WebhookHandlersCore = Layer.effect(
     });
   }),
 );
-
-export const WebhookHandlersLive = WebhookHandlersCore;

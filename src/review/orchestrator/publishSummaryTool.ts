@@ -26,7 +26,7 @@ const summaryFindingCopySchema = z.object({
   category: reviewFindingSchema.shape.category,
 });
 
-export const publishSummarySchema = createReviewPayloadSchema()
+const publishSummarySchema = createReviewPayloadSchema()
   .omit({ findings: true })
   .extend({
     findings: z.array(summaryFindingCopySchema).max(MAX_REVIEW_PAYLOAD_FINDINGS),

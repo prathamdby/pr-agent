@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 import { VERIFICATION_PUBLISH_LENS } from "../settings/index.js";
 import { recordPublishStep } from "./repository.js";
 
-export type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
+type VerificationThreadVerdict = "skipped" | "dismissed" | "fixed" | "already-resolved";
 
 export type VerificationThreadState = {
   readonly stubCommentId?: number;

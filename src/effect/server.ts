@@ -8,7 +8,7 @@ import { AgentWorkScheduler } from "../agentWork/scheduler.js";
 import type { Config } from "../config.js";
 import { createOperationLogger } from "../evlog.js";
 import { processWebhookPostRequestEffect } from "./programs/processWebhookRequestEffect.js";
-import { WebhookHandlersLive } from "./services/webhookHandlers.js";
+import { WebhookHandlersCore } from "./services/webhookHandlers.js";
 import { WEBHOOK_MAX_BODY_BYTES } from "../settings/index.js";
 
 function singleHeader(v: string | string[] | undefined): string | undefined {
@@ -168,7 +168,7 @@ export function buildEffectWebhookLayer(
 ) {
   const appLayer = Layer.mergeAll(
     schedulerLayer,
-    WebhookHandlersLive.pipe(Layer.provide(schedulerLayer)),
+    WebhookHandlersCore.pipe(Layer.provide(schedulerLayer)),
   );
   const serverLayer = NodeHttpServer.layer(serverFactory, { port: cfg.port });
   return buildEffectWebhookApp(cfg).pipe(
