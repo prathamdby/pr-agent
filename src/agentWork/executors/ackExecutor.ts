@@ -25,15 +25,15 @@ import type { AckJobData } from "../types.js";
 
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
-  if (data.commenterId != null) {
-    try {
-      const bot = await getAppBotIdentity(cfg);
-      if (bot.userId === data.commenterId) return;
-    } catch (e) {
-      logWarn("ack_bot_identity_check_failed", {
-        message: e instanceof Error ? e.message : String(e),
-      });
-    }
+  let botUserId: number | undefined;
+  try {
+    const bot = await getAppBotIdentity(cfg);
+    botUserId = bot.userId;
+    if (data.commenterId != null && bot.userId === data.commenterId) return;
+  } catch (e) {
+    logWarn("ack_bot_identity_check_failed", {
+      message: e instanceof Error ? e.message : String(e),
+    });
   }
   const installation = await mintInstallationToken(cfg, data.installationId);
 
@@ -43,6 +43,7 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
     data.repo,
     data.targets,
     GITHUB_REACTION_EYES,
+    botUserId,
     installation.expiresAtTs,
   );
 
@@ -118,6 +119,7 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
       data.repo,
       data.targets,
       GITHUB_REACTION_PLUS_ONE,
+      botUserId,
       installation.expiresAtTs,
     );
   }

@@ -38,6 +38,11 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(),
 }));
 
+vi.mock("../src/agentWork/githubPrSurface.js", () => ({
+  getPullRequestHead: vi.fn(async () => ({ headSha: "x", pullRequest: {} })),
+  reactOnAckTargets: vi.fn(),
+}));
+
 vi.mock("../src/evlog.js", () => ({
   logInfo: vi.fn(),
   logWarn: vi.fn(),
@@ -48,6 +53,8 @@ import * as repo from "../src/agentWork/repository.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
 import * as evlog from "../src/evlog.js";
+import { reactOnAckTargets } from "../src/agentWork/githubPrSurface.js";
+import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
@@ -448,6 +455,67 @@ describe("runDurableWorkItem", () => {
 
     expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
     expect(repo.markWorkCompleted).toHaveBeenCalled();
+  });
+
+  it("publishes plus-one outcome reaction after successful completion", async () => {
+    mockFetchedItem(
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "auto",
+          ackTargets: [{ kind: "pr", prNumber: 1 }],
+        },
+      }),
+    );
+    const execute = vi.fn().mockResolvedValue({});
+
+    await runReviewWorkItem({ execute });
+
+    expect(reactOnAckTargets).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      [{ kind: "pr", prNumber: 1 }],
+      GITHUB_REACTION_PLUS_ONE,
+      999,
+      expect.any(Number),
+    );
+  });
+
+  it("publishes minus-one outcome reaction after terminal failure", async () => {
+    mockFetchedItem(
+      makeItem({
+        payload: {
+          mode: "review",
+          source: "auto",
+          ackTargets: [{ kind: "pr", prNumber: 1 }],
+        },
+      }),
+    );
+    const execute = vi.fn().mockRejectedValue(new Error("dead"));
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(reactOnAckTargets).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      [{ kind: "pr", prNumber: 1 }],
+      GITHUB_REACTION_MINUS_ONE,
+      999,
+      expect.any(Number),
+    );
+  });
+
+  it("does not publish outcome reaction when cancelled after execute", async () => {
+    mockFetchedItem(makeItem());
+    vi.mocked(repo.shouldSkipWork).mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const execute = vi.fn().mockResolvedValue({});
+
+    await runReviewWorkItem({ execute });
+
+    expect(repo.markWorkCancelled).toHaveBeenCalled();
+    expect(reactOnAckTargets).not.toHaveBeenCalled();
   });
 
   it("on non-terminal pg-boss attempt: marks retrying and rethrows", async () => {
