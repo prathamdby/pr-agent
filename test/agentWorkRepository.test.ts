@@ -16,6 +16,7 @@ import {
   recordReviewCheckRun,
   recordPublishStep,
   reserveReviewCheckRun,
+  hasActiveReviewWorkItem,
 } from "../src/agentWork/repository.js";
 import { WorkItemPayloadValidationError } from "../src/agentWork/workItemPayloadSchema.js";
 
@@ -263,6 +264,21 @@ describe("publish records", () => {
       expect.stringContaining("ON CONFLICT (work_item_id, review_lens, step)"),
       expect.arrayContaining(["wi-1", "o/r#1", "review", "123"]),
     );
+  });
+});
+
+describe("active review work", () => {
+  it("checks queued and running review work for one PR resource", async () => {
+    vi.mocked(queryOne).mockResolvedValue({ active: true });
+
+    await expect(hasActiveReviewWorkItem(pool, "o/r#1")).resolves.toBe(true);
+
+    expect(queryOne).toHaveBeenCalledWith(
+      pool,
+      expect.stringContaining("status IN ('queued', 'running')"),
+      ["o/r#1"],
+    );
+    expect(vi.mocked(queryOne).mock.calls.at(-1)?.[1]).toContain("type = 'review'");
   });
 });
 

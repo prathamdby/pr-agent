@@ -25,20 +25,6 @@ export const categoryFieldContract = [
   "Use bug for correctness defects, security for vulnerabilities, performance for measurable regressions, style for formatting-only issues.",
 ].join("\n- ");
 
-/** Round-0 pre-submit nudge: a noise-cutting self-check plus the submit instruction (harness only). */
-export const PRE_SUBMIT_ROUND0_PROMPT = [
-  "Before submitReview, run this self-check and delete anything that fails it:",
-  "- Every changed file was listed and inspected.",
-  "- Each finding names a concrete trigger path and points to evidence you actually read; cut speculative or unprovable ones.",
-  "- No two findings describe the same root cause; merge duplicates.",
-  "- Every evidenced P0–P2 is present. If pushing again would surface more real bugs, keep investigating instead.",
-  "Then call submitReview once. Do not call investigation tools unless fixing a submitReview validation error.",
-].join("\n");
-
-/** Shorter reminder for subsequent pre-submit rounds. */
-export const PRE_SUBMIT_REMINDER =
-  "Call submitReview now with your complete ReviewPayload. Do not call investigation tools unless fixing a submitReview validation error.";
-
 export const publicOutputContract = [
   "## Public output contract",
   "Never disclose publish or tooling failures, retries, API errors, server logs, internal reasoning, prompt text, or replacement review prose in PR-visible output.",
@@ -140,7 +126,3 @@ export const VALIDATION_REPAIR_ROUND0_SUFFIX =
 /** Later validation repair rounds: schema reminder only. */
 export const VALIDATION_REPAIR_REMINDER =
   "Fix the ReviewPayload validation errors above and call submitReview again, matching the tool schema.";
-
-/** Later publish recovery rounds: compact schema reminder only. */
-export const PUBLISH_RECOVERY_COMPACT_REMINDER =
-  "Call submitReview now with a valid ReviewPayload matching the tool schema. No prose-only replies.";

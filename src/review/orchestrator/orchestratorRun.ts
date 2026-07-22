@@ -22,9 +22,9 @@ import { publishReviewRunFailureNotice } from "../run/reviewRunFallback.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
+  recordAgentTurnMetrics,
   setReviewRunMetricFields,
 } from "../run/reviewRunMetrics.js";
-import { recordAgentTurnMetrics } from "../run/reviewRunAgentSend.js";
 import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
 import { buildSpecialistBriefTool, renderBriefMessage, type SpecialistBrief } from "./briefTool.js";
@@ -239,7 +239,6 @@ export async function runOrchestratedPrReview(
   const setup = buildReviewRunSetup({
     ...params,
     tokenTtlMs: tokenTtlMs(params.tokenTtlMs),
-    reviewMode,
   });
   const briefTool = buildSpecialistBriefTool();
   const state = initialState();

@@ -372,3 +372,18 @@ export async function shouldSkipWork(
     row.cancel_requested_at != null
   );
 }
+
+export async function hasActiveReviewWorkItem(pool: Pool, resourceKey: string): Promise<boolean> {
+  const row = await queryOne<{ active: boolean }>(
+    pool,
+    `SELECT EXISTS (
+       SELECT 1
+         FROM agent_work_items
+        WHERE resource_key = $1
+          AND type = 'review'
+          AND status IN ('queued', 'running')
+     ) AS active`,
+    [resourceKey],
+  );
+  return row?.active ?? false;
+}

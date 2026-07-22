@@ -19,7 +19,6 @@ export async function publishReviewRunFailureNotice(params: {
   logWarn("agent_publish_fallback", {
     mode: params.reviewMode,
     publishAttempts: params.publishAttempts,
-    publishCallCount: params.setup.submitState.publishCallCount,
     maxPublishCalls: MAX_REVIEW_PUBLISH_CALLS,
   });
   const token = params.setup.getToken();

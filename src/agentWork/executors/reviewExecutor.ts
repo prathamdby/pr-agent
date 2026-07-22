@@ -10,8 +10,12 @@ import {
   type ListPullRequestFilesResult,
   type PullRequestForFileList,
 } from "../../github/listPullRequestFiles.js";
-import { runFullPrReview } from "../../review/run/reviewRun.js";
+import { runOrchestratedPrReview } from "../../review/orchestrator/orchestratorRun.js";
 import type { ReviewRunResult } from "../../review/run/reviewRunTypes.js";
+import type {
+  ReviewRunGate,
+  ReviewRunTiming,
+} from "../../review/orchestrator/orchestratorTypes.js";
 import { loadRepoPolicy, renderRepoPolicyBlock } from "../../review/repoPolicy.js";
 import {
   loadAgentInstructionFiles,
@@ -42,6 +46,7 @@ import {
   REPO_POLICY_DIRNAME,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
+  REVIEW_FINALIZATION_WINDOW_MS,
 } from "../../settings/index.js";
 import { tryLightweightAutoReviewCompletion } from "../reviewLightweightCompletion.js";
 import {
@@ -69,6 +74,7 @@ import {
 import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
+import { isInstallationTokenNearExpiry } from "../../github/installationTokenExpiry.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -109,6 +115,59 @@ type ReviewExecutionResult = StaleSlashReviewRescheduleResult | { readonly degra
 type LightweightPhaseResult =
   | { readonly done: true; readonly result: ReviewExecutionResult }
   | { readonly done: false; readonly prefetchedPrFiles: ListPullRequestFilesResult | undefined };
+
+function reviewRunTimingFromJob(job: JobWithMetadata<ReviewJobData>): ReviewRunTiming {
+  const startedOnMs = job.startedOn.getTime();
+  const returnByMs = startedOnMs + job.expireInSeconds * 1000 * 0.8;
+  const modelStopAtMs = Math.max(startedOnMs, returnByMs - REVIEW_FINALIZATION_WINDOW_MS);
+  return {
+    returnByMs,
+    modelStopAtMs,
+    remainingModelMs: (now = Date.now()) => Math.max(0, modelStopAtMs - now),
+    remainingTotalMs: (now = Date.now()) => Math.max(0, returnByMs - now),
+  };
+}
+
+function reviewRunGate(args: {
+  readonly pool: Pool;
+  readonly item: ReviewWorkItem;
+  readonly headSha: string;
+  readonly timing: ReviewRunTiming;
+  readonly tokenState: TokenState;
+  readonly refreshInstallationToken: () => Promise<{ token: string; expiresAtTs: number }>;
+  readonly publishAbortState: { staleHead?: boolean };
+  readonly staleHeadAtPublish: { value: boolean };
+}): ReviewRunGate {
+  const deadlineReached = () =>
+    Date.now() >= args.timing.modelStopAtMs || Date.now() >= args.timing.returnByMs;
+  return {
+    check: async () => {
+      if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
+      if (await shouldSkipWork(args.pool, args.item)) {
+        return { kind: "stop", reason: "superseded" };
+      }
+      if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
+      if (isInstallationTokenNearExpiry(args.tokenState.installation.expiresAtTs)) {
+        await args.refreshInstallationToken();
+      }
+      if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
+      const latestHeadSha = await getPullRequestHeadSha(
+        args.tokenState.installation.token,
+        args.item.owner,
+        args.item.repo,
+        args.item.prNumber,
+        args.tokenState.installation.expiresAtTs,
+      );
+      if (latestHeadSha !== args.headSha) {
+        args.staleHeadAtPublish.value = true;
+        args.publishAbortState.staleHead = true;
+        return { kind: "stop", reason: "stale_head" };
+      }
+      if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
+      return { kind: "continue" };
+    },
+  };
+}
 
 async function handleStaleHeadReschedule(args: {
   readonly pool: Pool;
@@ -353,6 +412,7 @@ async function handleReviewPublishResult(args: {
 }
 
 async function runFullReviewAgainstRepositoryView(args: {
+  readonly job: JobWithMetadata<ReviewJobData>;
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
@@ -424,7 +484,23 @@ async function runFullReviewAgainstRepositoryView(args: {
     agentInstructionFilesBlock,
   });
 
-  const result = await runFullPrReview({
+  const timing = reviewRunTimingFromJob(args.job);
+  const refreshInstallationToken = makeInstallationTokenRefresher(
+    cfg,
+    item.installationId,
+    tokenState,
+  );
+  const gate = reviewRunGate({
+    pool,
+    item,
+    headSha,
+    timing,
+    tokenState,
+    refreshInstallationToken,
+    publishAbortState,
+    staleHeadAtPublish,
+  });
+  const result = await runOrchestratedPrReview({
     cfg,
     token: tokenState.installation.token,
     tokenExpiresAtTs: tokenState.installation.expiresAtTs,
@@ -466,6 +542,10 @@ async function runFullReviewAgainstRepositoryView(args: {
     reviewSource: payload.source,
     staleHeadRescheduled: payload.staleHeadRescheduled,
     publishAbortState,
+    timing,
+    gate,
+    prTitle: (pullRequest as { title?: string } | undefined)?.title ?? "",
+    prBody: (pullRequest as { body?: string | null } | undefined)?.body ?? null,
     shouldAbortPublish: async () => {
       if (await shouldSkipWork(pool, item)) return true;
       const latestHeadSha = await getPullRequestHeadSha(
@@ -482,7 +562,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       }
       return false;
     },
-    refreshInstallationToken: makeInstallationTokenRefresher(cfg, item.installationId, tokenState),
+    refreshInstallationToken,
   });
 
   if (staleHeadAtPublish.value && payload.source === "slash" && !payload.staleHeadRescheduled) {
@@ -592,6 +672,7 @@ export async function executeReviewJob(
         ),
         async (repositoryView) =>
           runFullReviewAgainstRepositoryView({
+            job,
             cfg,
             pool,
             item,

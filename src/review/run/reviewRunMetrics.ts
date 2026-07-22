@@ -1,3 +1,4 @@
+import type { AgentRunnerTurn } from "../../agent/providers/interface.js";
 import { logInfo, tryUseLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
 
@@ -295,6 +296,14 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
       void exhaustive;
     }
   }
+}
+
+export function recordAgentTurnMetrics(turn: AgentRunnerTurn): void {
+  recordReviewMetric({
+    kind: "model_turn",
+    ...(turn.usage ? { usage: turn.usage } : {}),
+    ...(turn.prompt ? { prompt: turn.prompt } : {}),
+  });
 }
 
 export async function recordReviewPhaseSpan<T>(phase: string, run: () => Promise<T>): Promise<T> {

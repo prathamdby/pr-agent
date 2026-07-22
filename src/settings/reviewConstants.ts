@@ -158,17 +158,8 @@ export const REVIEW_SEVERITY_RANK = {
   P3: 3,
 } as const;
 
-export const PROSE_ONLY_NUDGE =
-  "You replied with text only. Call submitReview now with a complete ReviewPayload.";
-
-export const PUBLISH_RECOVERY_ROUNDS = 4;
-export const PUBLISH_RECOVERY_PROMPTS = [
-  "You ended with a text reply but never called submitReview. Call submitReview exactly once now with a complete ReviewPayload based on your analysis above. Do not continue investigating unless required to fix payload validation.",
-  "The structured review was still not published. You must call submitReview now with a valid ReviewPayload. No prose-only replies.",
-  "Final publish attempt: call submitReview immediately with your ReviewPayload.",
-] as const;
-
 export const VALIDATION_REPAIR_ROUNDS = 3;
+export const PUBLISH_RECOVERY_ROUNDS = 4;
 
 export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
   "Review publish budget exhausted for this run. Do not call submitReview again.";
@@ -205,7 +196,6 @@ export type ReviewPhase =
 /** Review agent caps. */
 export const MAX_TOOL_ROUNDS = 24;
 export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
-export const MAX_REVIEW_PUBLISH_ATTEMPTS = 3;
 export const MAX_REVIEW_PUBLISH_CALLS = 2;
 export const REVIEW_MIN_CONFIDENCE = 1;
 /** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */

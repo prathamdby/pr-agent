@@ -146,7 +146,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               boss,
               CI_REFRESH_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
-              (job) => executeCiRefreshJob(cfg, job.data),
+              (job) => executeCiRefreshJob(cfg, pool, job.data),
             ),
             registerMetadataQueue<ReviewJobData>(
               boss,

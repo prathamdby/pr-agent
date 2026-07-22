@@ -10,40 +10,21 @@ import {
   type CachedPrDiffIndex,
   wrapListPullRequestFilesDiffIngestion,
 } from "../placement/reviewDiffIndex.js";
-import { buildAutomatedSystemPrompt } from "../prompts/reviewSystemPrompt.js";
-import {
-  buildSubmitReviewTool,
-  createSubmitReviewState,
-  type SubmitReviewState,
-} from "../publish/submitReviewTool.js";
-import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { buildReviewRunUserContent } from "../prompts/reviewUserMessage.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
-import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 
 export type ReviewRunSetup = {
-  readonly systemPrompt: string;
-  readonly userContent: string;
   readonly orchestratorUserContent: string;
   readonly workspaceTools: {
     readonly piTools: PiTool[];
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   };
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
-  readonly submitState: SubmitReviewState;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
   readonly refreshLiveAuth: () => Promise<void>;
 };
-
-/** True while the harness should keep investigating or retrying publish. */
-export function shouldContinueReviewRun(setup: Pick<ReviewRunSetup, "submitState">): boolean {
-  return !setup.submitState.published && !setup.submitState.publishSuperseded;
-}
 
 const TOKEN_REFRESH_TOOL = "getPullRequest";
 
@@ -75,32 +56,13 @@ export function buildReviewRunSetup(params: {
   repo: string;
   prNumber: number;
   headSha: string;
-  reviewMode: AnyReviewLens;
   userSupplement?: string;
   trustedContext?: string;
   workspace: LocalPrWorkspace;
-  initialPublishState?: {
-    published?: boolean;
-    inlineReviewIds?: readonly number[];
-    threadCallCount?: number;
-  };
-  shouldLinkToSummary?: boolean;
-  summaryCommentIdHint?: number | null;
-  hasDescriptionAgentBlock?: boolean;
-  recordPublishStep?: (
-    step: "inline_review" | "summary_comment" | "labels",
-    detail?: { githubId?: string | number; meta?: Record<string, unknown> },
-  ) => Promise<void>;
-  shouldAbortPublish?: () => Promise<boolean>;
-  storedInlineFingerprints?: readonly string[];
-  workItemId?: string;
-  resumedPlacements?: readonly AcceptedPlacement[];
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;
   }>;
-  publishAbortState?: { staleHead?: boolean };
-  severityFloor?: number;
 }): ReviewRunSetup {
   const {
     cfg,
@@ -110,15 +72,12 @@ export function buildReviewRunSetup(params: {
     repo,
     prNumber,
     headSha,
-    reviewMode,
     userSupplement,
     trustedContext,
   } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
-  const submitState: SubmitReviewState = createSubmitReviewState(params.initialPublishState);
-
   const pathGate = createAskPathGate();
   const refreshableGh = createRefreshableToolExecutors({
     initialToken: token,
@@ -140,70 +99,18 @@ export function buildReviewRunSetup(params: {
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
-  const buildSubmit = () =>
-    buildSubmitReviewTool({
-      cfg,
-      token: refreshableGh.getToken(),
-      getToken: () => refreshableGh.getToken(),
-      tokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs(),
-      getTokenExpiresAtTs: () => refreshableGh.getTokenExpiresAtTs(),
-      ctx: {
-        owner,
-        repo,
-        prNumber,
-        headSha,
-        hasDescriptionAgentBlock: params.hasDescriptionAgentBlock ?? false,
-      },
-      mode: reviewMode,
-      state: submitState,
-      cachedDiffIndex,
-      shouldLinkToSummary: params.shouldLinkToSummary,
-      summaryCommentIdHint: params.summaryCommentIdHint,
-      recordPublishStep: params.recordPublishStep,
-      shouldAbortPublish: params.shouldAbortPublish,
-      storedInlineFingerprints: params.storedInlineFingerprints,
-      workItemId: params.workItemId,
-      resumedPlacements: params.resumedPlacements,
-      publishAbortState: params.publishAbortState,
-      severityFloor: params.severityFloor,
-    });
-
-  let submitBundle = buildSubmit();
   const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
   const workspaceTools = {
     piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools],
     executors: { ...executors },
   };
-  executors.submitReview = async (args) => {
-    if (submitState.published) {
-      return {
-        ok: true,
-        alreadyPublished: true,
-        message: "Stop further investigation; the review has been published.",
-      };
-    }
-    return submitBundle.executor(args);
-  };
-
   const refreshBeforeTool = async (toolName: string) => {
-    if (refreshableGh.githubExecutorNames.has(toolName) || toolName === "submitReview") {
+    if (refreshableGh.githubExecutorNames.has(toolName)) {
       await refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL);
-      if (toolName === "submitReview") {
-        submitBundle = buildSubmit();
-      }
     }
   };
 
   return {
-    systemPrompt: buildAutomatedSystemPrompt(),
-    userContent: buildReviewRunUserContent({
-      owner,
-      repo,
-      prNumber,
-      headSha,
-      userSupplement,
-      trustedContext,
-    }),
     orchestratorUserContent: buildOrchestratorUserContent({
       owner,
       repo,
@@ -213,28 +120,10 @@ export function buildReviewRunSetup(params: {
       trustedContext,
     }),
     workspaceTools,
-    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, submitBundle.piTool],
-    executors,
     cachedDiffIndex,
-    submitState,
     getToken: refreshableGh.getToken,
     getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
     refreshBeforeTool,
     refreshLiveAuth: () => refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL),
-  };
-}
-
-export function buildSubmitOnlyReviewSessionTools(setup: ReviewRunSetup): {
-  piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const submitTool = setup.piTools.find((tool) => tool.name === "submitReview");
-  const submitReview = setup.executors.submitReview;
-  if (!submitTool || !submitReview) {
-    return { piTools: setup.piTools, executors: setup.executors };
-  }
-  return {
-    piTools: [submitTool],
-    executors: { submitReview },
   };
 }
