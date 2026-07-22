@@ -38,7 +38,6 @@ export type RenderableCiSummary = CiSummary & {
   readonly status: "passing" | "failing" | "pending" | "unavailable";
 };
 
-/** Whether the CI row should appear in the summary / stub table. */
 export function shouldRenderCiSummaryRow(
   summary: CiSummary | null | undefined,
 ): summary is RenderableCiSummary {
@@ -60,7 +59,6 @@ export function patchCiSummaryCellInCommentBody(body: string, summary: CiSummary
   return body.replace(CI_SUMMARY_CELL_RE, renderCiSummaryCell(summary));
 }
 
-/** True when the body already has a CI cell region (pending or terminal). */
 export function commentBodyHasCiSummaryCell(body: string): boolean {
   return CI_SUMMARY_CELL_RE.test(body);
 }

@@ -157,10 +157,7 @@ export const REVIEW_DIFF_CACHE_REQUIRED_MESSAGE =
 /** Review harness: anchor menu block header (untrusted user content). */
 export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";
 
-/**
- * ReviewValidationFailureKind — taxonomy for Zod validation failures on ReviewPayload.
- * Used by review harness metrics and repair prompts.
- */
+/** Zod ReviewPayload failure kinds for harness metrics and repair prompts. */
 export type ReviewValidationFailureKind =
   | "missing_field"
   | "wrong_type"
