@@ -1,8 +1,12 @@
-# ADR 0011 — Review pointer link (2nd+ review per lens)
+# ADR 0011 — Review pointer link on later runs
 
 ## Status
 
 Accepted.
+
+Amended by [ADR 0028](0028-orchestrated-review.md). The rule now applies to the
+single general review summary for the pull request. Per-lens wording below is
+historical.
 
 ## Context
 

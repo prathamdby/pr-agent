@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted.
+Superseded by [ADR 0028](0028-orchestrated-review.md). Quality is now one fixed
+specialist inside the orchestrated review run. The command, sentinel, and mode
+described below remain recognized only as legacy artifacts.
 
 ## Context
 
