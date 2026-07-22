@@ -238,11 +238,11 @@ describe("publishVerification", () => {
     expect(mocks.updateComment).toHaveBeenCalledWith(
       expect.objectContaining({
         comment_id: 555,
-        body: expect.stringContaining("**Verification**: fixed"),
+        body: expect.stringContaining("**Verification**: Fixed"),
       }),
     );
     expect(mocks.updateComment.mock.calls[0]?.[0]?.body).toContain(VERIFICATION_STUB_MARKER);
-    expect(mocks.updateComment.mock.calls[0]?.[0]?.body).not.toContain("still open");
+    expect(mocks.updateComment.mock.calls[0]?.[0]?.body).not.toContain("Still open");
     expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
   });
 
@@ -274,7 +274,7 @@ describe("publishVerification", () => {
         body: expect.stringContaining(VERIFICATION_STUB_MARKER),
       }),
     );
-    expect(mocks.createReply.mock.calls[0]?.[0]?.body).toContain("still open");
+    expect(mocks.createReply.mock.calls[0]?.[0]?.body).toContain("Still open");
   });
 
   it("edits an existing stub in place on later still-open publishes", async () => {
@@ -363,7 +363,7 @@ describe("publishVerification", () => {
     expect(mocks.createReply).not.toHaveBeenCalled();
     expect(mocks.updateComment).toHaveBeenCalledTimes(1);
     const body = mocks.updateComment.mock.calls[0]?.[0]?.body as string;
-    expect(body).toContain("dismissed");
+    expect(body).toContain("Dismissed");
     expect(body).toContain("Append this to `.pr-agent/src.mdc`:");
     expect(body).not.toContain("pathInstructions");
     expect(body).not.toContain(".pr-agent.yml");
@@ -490,7 +490,7 @@ describe("publishVerification", () => {
     expect(mocks.createReply).toHaveBeenCalledWith(
       expect.objectContaining({
         comment_id: 2,
-        body: expect.stringContaining("still open"),
+        body: expect.stringContaining("Still open"),
       }),
     );
   });
@@ -565,7 +565,7 @@ describe("publishVerification", () => {
     expect(mocks.updateComment).toHaveBeenCalledWith(
       expect.objectContaining({
         comment_id: 555,
-        body: expect.stringContaining("**Verification**: fixed"),
+        body: expect.stringContaining("**Verification**: Fixed"),
       }),
     );
     expect(mocks.resolve).toHaveBeenCalledTimes(1);

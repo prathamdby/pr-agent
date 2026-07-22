@@ -97,7 +97,7 @@ async function resolveKnownSummaryCommentRef(
   return resolved ? { id: resolved.id, url: resolved.url } : null;
 }
 
-export type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5;
+export type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
 type SummaryCommentUpsertResult = {
   readonly id: number;
@@ -517,7 +517,7 @@ export async function publishReviewSummaryOnly(params: {
         sentinel: summarySentinel,
         expiresAtTs: summaryTokenExpiresAtTs,
         hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
-        progressRevision: 5,
+        progressRevision: 6,
       })
     : upsertReviewSummaryComment(
         summaryToken,

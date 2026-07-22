@@ -44,13 +44,13 @@ function withStubMarker(body: string): string {
 }
 
 function skippedReplyBody(verdict: Extract<VerificationVerdict, { verdict: "skipped" }>): string {
-  return withStubMarker(redactReviewText(`**Verification**: still open - ${verdict.reason}`));
+  return withStubMarker(redactReviewText(`**Verification**: Still open - ${verdict.reason}`));
 }
 
 function terminalSuccessStubBody(
   verdict: Extract<VerificationVerdict, { verdict: "fixed" | "already-resolved" }>,
 ): string {
-  const label = verdict.verdict === "fixed" ? "fixed" : "already resolved";
+  const label = verdict.verdict === "fixed" ? "Fixed" : "Already resolved";
   return withStubMarker(redactReviewText(`**Verification**: ${label}`));
 }
 
@@ -59,7 +59,7 @@ function dismissedReplyBody(
   thread: BotFindingThread,
   policyResult: RepoPolicyResult,
 ): string {
-  const evidence = redactReviewText(`**Verification**: dismissed - ${verdict.evidence}`);
+  const evidence = redactReviewText(`**Verification**: Dismissed - ${verdict.evidence}`);
   const suggestion = renderPolicySuggestionForDismissed({
     filePath: thread.path,
     dismissalEvidence: verdict.evidence,

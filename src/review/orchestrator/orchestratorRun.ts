@@ -93,11 +93,12 @@ function tokenTtlMs(value: number | undefined): number {
 
 function initialState(): OrchestratedRunState {
   return {
+    recon: "running",
     specialists: {
-      correctness: { phase: "running" },
-      security: { phase: "running" },
-      quality: { phase: "running" },
-      tests: { phase: "running" },
+      correctness: { phase: "waiting" },
+      security: { phase: "waiting" },
+      quality: { phase: "waiting" },
+      tests: { phase: "waiting" },
     },
     outcomes: {},
     completionOrder: [],
@@ -174,18 +175,21 @@ function transitionTools(
   session.restrictToTools(tools, executors);
 }
 
-function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 1 | 2 | 3 | 4 {
+/** Specialist completion ticks occupy revisions 2–5 (revision 1 is recon-done). */
+function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 2 | 3 | 4 | 5 {
   switch (revision) {
     case 0:
-      return 1;
     case 1:
       return 2;
     case 2:
       return 3;
     case 3:
-    case 4:
-    case 5:
       return 4;
+    case 4:
+      return 5;
+    case 5:
+    case 6:
+      return 5;
     default: {
       const exhaustive: never = revision;
       return exhaustive;
@@ -487,7 +491,8 @@ export async function runOrchestratedPrReview(
 
   const writeTick = async (): Promise<void> => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
-    if (!coordination || state.progressRevision === 0 || state.progressRevision === 5) return;
+    const revision = state.progressRevision;
+    if (!coordination || revision === 0 || revision === 6) return;
     await tickProgressComment({
       pool: coordination.pool,
       workItemId: coordination.workItemId,
@@ -498,8 +503,12 @@ export async function runOrchestratedPrReview(
       mode: reviewMode,
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
-      progressRevision: state.progressRevision,
-      tickState: { kind: "specialists", specialists: state.specialists },
+      progressRevision: revision,
+      tickState: {
+        kind: "specialists",
+        recon: state.recon,
+        specialists: state.specialists,
+      },
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
       refreshLiveAuth: setup.refreshLiveAuth,
@@ -507,10 +516,21 @@ export async function runOrchestratedPrReview(
     });
   };
 
+  const markReconDoneAndTick = async (): Promise<void> => {
+    state.recon = "done";
+    for (const specialist of SPECIALIST_IDS) {
+      state.specialists[specialist] = { phase: "running" };
+    }
+    if (state.progressRevision === 0) {
+      state.progressRevision = 1;
+      await writeTick();
+    }
+  };
+
   const writeTerminalTick = async (reason: "superseded" | "stale_head"): Promise<void> => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     if (!coordination) return;
-    state.progressRevision = 5;
+    state.progressRevision = 6;
     await tickProgressComment({
       pool: coordination.pool,
       workItemId: coordination.workItemId,
@@ -521,7 +541,7 @@ export async function runOrchestratedPrReview(
       mode: reviewMode,
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
-      progressRevision: 5,
+      progressRevision: 6,
       tickState: { kind: "terminal", reason },
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
@@ -699,6 +719,7 @@ export async function runOrchestratedPrReview(
         sessionRetired,
       });
     }
+    await markReconDoneAndTick();
 
     const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
     for (const specialist of SPECIALIST_IDS) {

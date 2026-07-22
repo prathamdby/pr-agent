@@ -177,7 +177,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
       id: 88,
       url: "https://example.com/88",
-      body: `${REVIEW_SUMMARY_SENTINEL}\n\nfinal\n<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->`,
+      body: `${REVIEW_SUMMARY_SENTINEL}\n\nfinal\n<!-- pr-agent:progress-revision workItemId=wi-1 value=6 -->`,
     });
 
     await expect(
@@ -201,7 +201,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
       id: 88,
       url: "https://example.com/88",
-      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->`,
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=6 -->`,
     });
 
     await upsertSummaryCommentWithCreationClaim({
@@ -224,7 +224,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
       id: 88,
       url: "https://example.com/88",
-      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-old value=5 -->`,
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-old value=6 -->`,
     });
     vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue({
       id: 88,
@@ -335,7 +335,7 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
       id: 88,
       url: "https://example.com/88",
-      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->`,
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-1 value=6 -->`,
     });
 
     await expect(
@@ -408,7 +408,7 @@ describe("publishReview summary coordination", () => {
       "o",
       "r",
       1,
-      expect.stringContaining("<!-- pr-agent:progress-revision workItemId=wi-1 value=5 -->"),
+      expect.stringContaining("<!-- pr-agent:progress-revision workItemId=wi-1 value=6 -->"),
       REVIEW_SUMMARY_SENTINEL,
       { id: 88, url: "https://example.com/88" },
       undefined,

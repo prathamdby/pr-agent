@@ -109,7 +109,7 @@ describe("publishReview check run completion", () => {
       pool,
       expect.objectContaining({
         conclusion: "success",
-        summary: "no findings",
+        summary: "No findings",
       }),
     );
   });
@@ -130,7 +130,7 @@ describe("publishReview check run completion", () => {
       pool,
       expect.objectContaining({
         conclusion: "success",
-        summary: "no findings",
+        summary: "No findings",
       }),
     );
   });

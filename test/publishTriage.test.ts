@@ -164,7 +164,7 @@ describe("publishTriage", () => {
     expect(result.degraded).toBe(true);
     expect(mocks.createReply).toHaveBeenCalledTimes(1);
     expect(mocks.createReply).toHaveBeenCalledWith(
-      expect.objectContaining({ comment_id: 2, body: expect.stringContaining("already resolved") }),
+      expect.objectContaining({ comment_id: 2, body: expect.stringContaining("Already resolved") }),
     );
     expect(mocks.resolve).toHaveBeenCalledWith("tok", "node-2", undefined);
     expect(mocks.upsert.mock.calls[0]?.[4]).toContain("head changed");
@@ -385,9 +385,9 @@ describe("publishTriage", () => {
     const body = mocks.upsert.mock.calls[0]?.[4] as string;
     expect(body.startsWith(TRIAGE_SUMMARY_SENTINEL)).toBe(true);
     expect(body).toContain("| Severity | Finding | Location | Verdict | Thread |");
-    expect(body).toContain("already resolved");
+    expect(body).toContain("Already resolved");
     expect(body).toContain(
-      "0 fixed · 1 already resolved · 0 skipped · 0 dismissed · 0 previously resolved",
+      "0 Fixed · 1 Already resolved · 0 Skipped · 0 Dismissed · 0 Previously resolved",
     );
   });
 

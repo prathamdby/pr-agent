@@ -118,10 +118,10 @@ function replyBody(
 ): string {
   if (verdict.verdict === "fixed") {
     return redactReviewText(
-      `**Triage**: fixed in ${shortSha(verdict.commitSha)} - ${verdict.evidence}`,
+      `**Triage**: Fixed in ${shortSha(verdict.commitSha)} - ${verdict.evidence}`,
     );
   }
-  return redactReviewText(`**Triage**: already resolved - ${verdict.evidence}`);
+  return redactReviewText(`**Triage**: Already resolved - ${verdict.evidence}`);
 }
 
 async function replyToThread(

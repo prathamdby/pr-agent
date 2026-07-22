@@ -7,6 +7,7 @@ import {
   updateReviewCheckRun,
   type ReviewCheckRunConclusion,
 } from "../github/reviewPublish.js";
+import { checkRunFindingsSummary } from "../github/statusCopy.js";
 import { isInlineSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
@@ -31,13 +32,10 @@ export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "se
   summary: string;
 } {
   const bugCount = findings.filter((f) => isInlineSeverity(f.severity)).length;
-  if (bugCount > 0) {
-    return {
-      conclusion: "failure",
-      summary: `${bugCount} finding${bugCount === 1 ? "" : "s"}`,
-    };
-  }
-  return { conclusion: "success", summary: "no findings" };
+  return {
+    conclusion: bugCount > 0 ? "failure" : "success",
+    summary: checkRunFindingsSummary(bugCount),
+  };
 }
 
 export async function waitForReviewCheckRunGithubId(

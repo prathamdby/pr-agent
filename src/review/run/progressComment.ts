@@ -6,6 +6,14 @@ import {
   renderTableStrong,
 } from "../../github/markdownFormat.js";
 import {
+  STATUS_DONE,
+  STATUS_FAILED,
+  STATUS_NO_FINDINGS,
+  STATUS_RUNNING,
+  STATUS_WAITING,
+  statusFindings,
+} from "../../github/statusCopy.js";
+import {
   REVIEW_FAILURE_ALERT,
   REVIEW_OVERVIEW_ALERT,
   REVIEW_PROGRESS_NOTE,
@@ -24,14 +32,18 @@ const PROGRESS_REVISION_RE =
   /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
 
 type SpecialistPhase =
+  | { readonly phase: "waiting" }
   | { readonly phase: "running" }
   | { readonly phase: "done"; readonly threadsPublished: number }
   | { readonly phase: "no_findings" }
   | { readonly phase: "failed" };
 
+export type ReconPhase = "running" | "done";
+
 export type SpecialistTickState =
   | {
       readonly kind: "specialists";
+      readonly recon: ReconPhase;
       readonly specialists: Readonly<Record<SpecialistId, SpecialistPhase>>;
     }
   | {
@@ -46,16 +58,31 @@ const SPECIALIST_LABELS: Record<SpecialistId, string> = {
   tests: "Tests",
 };
 
+function renderReconPhase(phase: ReconPhase): string {
+  switch (phase) {
+    case "running":
+      return STATUS_RUNNING;
+    case "done":
+      return STATUS_DONE;
+    default: {
+      const exhaustive: never = phase;
+      return exhaustive;
+    }
+  }
+}
+
 function renderSpecialistPhase(state: SpecialistPhase): string {
   switch (state.phase) {
+    case "waiting":
+      return STATUS_WAITING;
     case "running":
-      return "⏳ running";
+      return STATUS_RUNNING;
     case "done":
-      return `✅ ${state.threadsPublished} ${state.threadsPublished === 1 ? "thread" : "threads"}`;
+      return statusFindings(state.threadsPublished);
     case "no_findings":
-      return "⚪ no findings";
+      return STATUS_NO_FINDINGS;
     case "failed":
-      return "⚠️ failed (coverage partial)";
+      return STATUS_FAILED;
     default: {
       const exhaustive: never = state;
       return exhaustive;
@@ -67,6 +94,20 @@ function renderTerminalProgress(source: WorkSource): string {
   return source === "slash"
     ? "Superseded. Rescheduled for new head."
     : "Superseded by a newer pull request update.";
+}
+
+/** Ack stub: Recon running, specialists waiting. */
+export function initialProgressTickState(): Extract<SpecialistTickState, { kind: "specialists" }> {
+  return {
+    kind: "specialists",
+    recon: "running",
+    specialists: {
+      correctness: { phase: "waiting" },
+      security: { phase: "waiting" },
+      quality: { phase: "waiting" },
+      tests: { phase: "waiting" },
+    },
+  };
 }
 
 export function renderProgressRevisionComment(revision: number, workItemId?: string): string {
@@ -122,6 +163,10 @@ export function renderReviewProgressComment(params: {
     tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(params.ciSummary)]);
   }
   if (params.tickState?.kind === "specialists") {
+    tableRows.push([
+      renderTableStrong("Recon"),
+      escapeTableHtml(renderReconPhase(params.tickState.recon)),
+    ]);
     for (const specialist of SPECIALIST_IDS) {
       tableRows.push([
         renderTableStrong(SPECIALIST_LABELS[specialist]),

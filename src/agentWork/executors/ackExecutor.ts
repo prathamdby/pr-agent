@@ -7,7 +7,10 @@ import { DEFERRED_HEAD_SHA } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
-import { renderReviewProgressComment } from "../../review/run/progressComment.js";
+import {
+  initialProgressTickState,
+  renderReviewProgressComment,
+} from "../../review/run/progressComment.js";
 import {
   getAppBotIdentity,
   getPullRequestHeadSha,
@@ -76,6 +79,7 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
       headSha,
       source: data.progress.source,
       ciSummary,
+      tickState: initialProgressTickState(),
       progressRevision: 0,
       progressWorkItemId: data.workItemId,
     });

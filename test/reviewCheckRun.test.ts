@@ -82,11 +82,11 @@ describe("review check run lifecycle", () => {
     });
     expect(reviewCheckRunOutcome([])).toEqual({
       conclusion: "success",
-      summary: "no findings",
+      summary: "No findings",
     });
     expect(reviewCheckRunOutcome([{ severity: "P3" }])).toEqual({
       conclusion: "success",
-      summary: "no findings",
+      summary: "No findings",
     });
   });
 
@@ -312,7 +312,7 @@ describe("review check run lifecycle", () => {
     const pending = completeReviewCheckRun(pool, {
       ...startParams,
       conclusion: "success",
-      summary: "no findings",
+      summary: "No findings",
     });
     await vi.runAllTimersAsync();
     await expect(pending).resolves.toBe(true);
@@ -342,7 +342,7 @@ describe("review check run lifecycle", () => {
       completeReviewCheckRun(pool, {
         ...startParams,
         conclusion: "success",
-        summary: "no findings",
+        summary: "No findings",
       }),
     ).resolves.toBe(true);
 
@@ -366,7 +366,7 @@ describe("review check run lifecycle", () => {
       completeReviewCheckRun(pool, {
         ...startParams,
         conclusion: "success",
-        summary: "no findings",
+        summary: "No findings",
       }),
     ).resolves.toBe(false);
 

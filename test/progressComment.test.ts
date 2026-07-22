@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
 import {
+  initialProgressTickState,
   parseProgressRevision,
   parseProgressRevisionState,
   renderReviewFailureNotice,
   renderReviewProgressComment,
 } from "../src/review/run/progressComment.js";
-import { REVIEW_PROGRESS_NOTE, REVIEW_SUMMARY_SENTINEL } from "../src/settings/index.js";
+import {
+  REVIEW_PROGRESS_NOTE,
+  REVIEW_PROGRESS_SOURCE_SLASH,
+  REVIEW_SUMMARY_SENTINEL,
+} from "../src/settings/index.js";
+import {
+  STATUS_FAILED,
+  STATUS_NO_FINDINGS,
+  STATUS_RUNNING,
+  STATUS_WAITING,
+} from "../src/github/statusCopy.js";
 
 describe("progressComment fallback wording", () => {
   it("uses neutral failure notice without attempt counts or server logs", () => {
@@ -21,22 +32,38 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toMatch(/\d+\/\d+/);
   });
 
-  it("renders progress with NOTE alert and metadata table", () => {
+  it("renders progress with NOTE alert, metadata table, and full roster", () => {
     const body = renderReviewProgressComment({
       mode: "review",
       headSha: "abc123",
       source: "auto",
+      tickState: initialProgressTickState(),
     });
     expect(body).toContain("[!NOTE]");
     expect(body).toContain(REVIEW_PROGRESS_NOTE);
     expect(body).toContain("<strong>Head</strong>");
     expect(body).toContain("<code>abc123</code>");
     expect(body).toContain("Pull request update");
+    expect(body).toContain("<strong>Recon</strong>");
+    expect(body).toContain(STATUS_RUNNING);
+    expect(body).toContain(STATUS_WAITING);
+    expect(body).toContain("<strong>Correctness</strong>");
     expect(body).not.toContain("| | |");
     expect(body).toContain("<table>");
     expect(body).not.toContain("<strong>CI</strong>");
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
     expect(parseProgressRevision(body)).toBe(0);
+  });
+
+  it("capitalizes slash source labels", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "slash",
+      tickState: initialProgressTickState(),
+    });
+    expect(body).toContain(REVIEW_PROGRESS_SOURCE_SLASH);
+    expect(body).not.toContain("slash command");
   });
 
   it("includes a CI row when a renderable CI summary is provided", () => {
@@ -49,6 +76,7 @@ describe("progressComment fallback wording", () => {
         headline: "✅ All CI is passing",
         failures: [],
       },
+      tickState: initialProgressTickState(),
     });
     expect(body).toContain("<strong>CI</strong>");
     expect(body).toContain("All CI is passing");
@@ -62,6 +90,7 @@ describe("progressComment fallback wording", () => {
       progressRevision: 3,
       tickState: {
         kind: "specialists",
+        recon: "done",
         specialists: {
           correctness: { phase: "done", threadsPublished: 0 },
           security: { phase: "done", threadsPublished: 2 },
@@ -72,12 +101,16 @@ describe("progressComment fallback wording", () => {
     });
 
     expect(body.indexOf("<strong>Source</strong>")).toBeLessThan(
+      body.indexOf("<strong>Recon</strong>"),
+    );
+    expect(body.indexOf("<strong>Recon</strong>")).toBeLessThan(
       body.indexOf("<strong>Correctness</strong>"),
     );
-    expect(body).toContain("✅ 0 threads");
-    expect(body).toContain("✅ 2 threads");
-    expect(body).toContain("⏳ running");
-    expect(body).toContain("⚪ no findings");
+    expect(body).toContain(STATUS_NO_FINDINGS);
+    expect(body).toContain("✅ 2 findings");
+    expect(body).toContain(STATUS_RUNNING);
+    expect(body).not.toContain("0 threads");
+    expect(body).not.toContain("no findings");
     expect(parseProgressRevision(body)).toBe(3);
   });
 
@@ -88,6 +121,7 @@ describe("progressComment fallback wording", () => {
       source: "slash",
       tickState: {
         kind: "specialists",
+        recon: "done",
         specialists: {
           correctness: { phase: "running" },
           security: { phase: "running" },
@@ -97,16 +131,18 @@ describe("progressComment fallback wording", () => {
       },
     });
 
-    expect(body).toContain("⚠️ failed (coverage partial)");
+    expect(body).toContain(STATUS_FAILED);
+    expect(body).not.toContain("coverage partial");
   });
 
-  it("renders one published thread with singular copy", () => {
+  it("renders one published finding with singular copy", () => {
     const body = renderReviewProgressComment({
       mode: "review",
       headSha: "abc123",
       source: "auto",
       tickState: {
         kind: "specialists",
+        recon: "done",
         specialists: {
           correctness: { phase: "done", threadsPublished: 1 },
           security: { phase: "running" },
@@ -116,8 +152,8 @@ describe("progressComment fallback wording", () => {
       },
     });
 
-    expect(body).toContain("✅ 1 thread");
-    expect(body).not.toContain("✅ 1 threads");
+    expect(body).toContain("✅ 1 finding");
+    expect(body).not.toContain("✅ 1 findings");
   });
 
   it.each([
@@ -131,7 +167,7 @@ describe("progressComment fallback wording", () => {
         mode: "review",
         headSha: "abc123",
         source,
-        progressRevision: 5,
+        progressRevision: 6,
         tickState: { kind: "terminal", reason },
       });
 
@@ -140,7 +176,7 @@ describe("progressComment fallback wording", () => {
       expect(body).toContain(
         `<!-- pr-agent:review-meta headSha=invalid lens=review stale=${String(stale)} -->`,
       );
-      expect(parseProgressRevision(body)).toBe(5);
+      expect(parseProgressRevision(body)).toBe(6);
     },
   );
 
