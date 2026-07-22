@@ -26,6 +26,7 @@ export const publishReviewTestBaseParams = {
   prNumber: 1,
   headSha: "sha",
   hasDescriptionAgentBlock: false,
+  summaryCommentIdHint: 99,
   cfg: {
     piModel: "gpt-4o-mini",
     features: { ...makeTestConfig().features, reviewLabels: "off" as const },

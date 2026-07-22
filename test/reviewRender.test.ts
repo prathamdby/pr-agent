@@ -3,15 +3,14 @@ import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REPEAT_NO_BUGS_PREFIX,
   REVIEW_POINTER_BODY,
-  REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
   renderAgentFixPrompt,
   renderInlineThreadBody,
   renderLightweightReviewCompletion,
   renderRepeatNoBugsReviewBody,
-  renderReviewPointerBody,
   renderReviewPointerLensMarker,
   renderReviewSummaryComment,
+  renderSpecialistReviewBody,
   renderStaleReviewMetadataComment,
   fitReviewSummaryBody,
 } from "../src/review/run/reviewRender.js";
@@ -29,7 +28,6 @@ import {
   testPlacementsFromPayload,
   planInlineFromPayload,
   cachedDiffForFiles,
-  cachedDiffForLines,
   testPlacements,
 } from "./helpers/reviewPublishTestHelpers.js";
 
@@ -245,6 +243,42 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("Summary only");
     expect(body).toContain("<summary>Prompt to fix — P1 · Bug</summary>");
     expect(body).toContain("Fix src/x.ts line 4.");
+  });
+
+  it("appends aggregate Fix All accordion after the findings table covering all specialists", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P0",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Null deref",
+          detail: "Missing guard.",
+          fixPrompt: "Guard null in src/a.ts.",
+        },
+        {
+          severity: "P1",
+          file: "src/b.ts",
+          startLine: 2,
+          endLine: 2,
+          title: "Auth bypass",
+          detail: "Missing check.",
+          fixPrompt: "Add auth check in src/b.ts.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacementsFromPayload(payload),
+    });
+    const tableClose = body.indexOf("</table>");
+    const fixAll = body.indexOf(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
+    expect(tableClose).toBeGreaterThan(-1);
+    expect(fixAll).toBeGreaterThan(tableClose);
+    expect(body).toContain("Guard null in src/a.ts.");
+    expect(body).toContain("Add auth check in src/b.ts.");
+    expect(body).not.toContain(REVIEW_POINTER_BODY);
   });
 
   it("escapes pipes and newlines in summary-only detail table cells", () => {
@@ -804,183 +838,55 @@ describe("renderAgentFixPrompt", () => {
   });
 });
 
-describe("renderReviewPointerBody", () => {
-  const renderCtx = {
-    owner: "acme",
-    repo: "widgets",
-    prNumber: 42,
-    headSha: "abc123def456",
-    hasDescriptionAgentBlock: false,
-  };
+describe("renderSpecialistReviewBody", () => {
+  const progressCommentUrl = "https://github.com/acme/widgets/pull/42#issuecomment-99";
 
-  it("renders fix prompt text mentioning submitReview without redaction", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/x.ts",
-          startLine: 4,
-          endLine: 4,
-          title: "Bug",
-          detail: "Bad logic.",
-          fixPrompt: "Call submitReview after fixing.",
-        },
-        {
-          severity: "P2",
-          file: "src/y.ts",
-          startLine: 2,
-          endLine: 2,
-          title: "Other",
-          detail: "Also bad.",
-          fixPrompt: "Fix src/y.ts line 2.",
-        },
-      ],
-    });
-    const { body } = renderReviewPointerBody(payload, {
-      ...renderCtx,
-      mode: "review",
-      placements: planInlineFromPayload(
-        payload,
-        cachedDiffForFiles([
-          { file: "src/x.ts", lines: [4] },
-          { file: "src/y.ts", lines: [2] },
-        ]),
-      ),
+  it("renders NOTE then specialist tagline with progress stub link and no Fix All", () => {
+    const body = renderSpecialistReviewBody({
+      specialist: "security",
+      progressCommentUrl,
     });
 
-    expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
     expect(body).toContain("[!NOTE]");
-    expect(body).toContain("Call submitReview after fixing.");
-    expect(body).toContain("Fix src/y.ts line 2.");
-    expect(body).not.toContain("[redacted internal details]");
-  });
-
-  it("wraps agent fix prompt in accordion with pointer line", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/x.ts",
-          startLine: 4,
-          endLine: 4,
-          title: "Bug",
-          detail: "Bad logic.",
-          fixPrompt: "Fix src/x.ts line 4.",
-        },
-      ],
-    });
-    const { body, truncated } = renderReviewPointerBody(payload, {
-      ...renderCtx,
-      mode: "review",
-      placements: planInlineFromPayload(payload, cachedDiffForLines("src/x.ts", [4])),
-    });
-
-    expect(truncated).toBe(false);
-    expect(body).toMatchSnapshot();
-    expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
-    expect(body).toContain("[!NOTE]");
-    expect(body).toContain("<details>");
-    expect(body).toContain(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
-    expect(body).toContain("Fix src/x.ts line 4.");
-  });
-
-  it("uses security pointer line for review-security mode", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P0",
-          file: "src/auth.ts",
-          startLine: 1,
-          endLine: 3,
-          title: "Auth bypass",
-          detail: "Missing check.",
-          fixPrompt: "Add auth guard.",
-        },
-      ],
-    });
-    const { body } = renderReviewPointerBody(payload, {
-      ...renderCtx,
-      mode: "review-security",
-      placements: planInlineFromPayload(payload),
-    });
-
-    expect(body).toContain(REVIEW_POINTER_NOTE_LEAD);
-    expect(body).toContain("Add auth guard.");
-  });
-
-  it("uses markdown link when summaryCommentUrl is provided", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/x.ts",
-          startLine: 4,
-          endLine: 4,
-          title: "Bug",
-          detail: "Bad logic.",
-          fixPrompt: "Fix it.",
-        },
-      ],
-    });
-    const { body } = renderReviewPointerBody(payload, {
-      ...renderCtx,
-      mode: "review",
-      summaryCommentUrl: "https://github.com/acme/widgets/pull/42#issuecomment-123",
-      placements: planInlineFromPayload(payload),
-    });
-
     expect(body).toContain(
-      "[View the updated review.](https://github.com/acme/widgets/pull/42#issuecomment-123)",
+      `Track this run on the [progress stub](${progressCommentUrl}) in the PR conversation.`,
     );
+    expect(body).toContain("Here's what the security found.");
+    expect(body.indexOf("[!NOTE]")).toBeLessThan(body.indexOf("Here's what the security found."));
+    expect(body).not.toContain(REVIEW_POINTER_BODY);
     expect(body).not.toContain(REVIEW_POINTER_NOTE_LEAD);
+    expect(body).not.toContain("<details>");
+    expect(body).not.toContain(AGENT_FIX_PROMPT_ACCORDION_SUMMARY);
   });
 
-  it("truncates agent fix prompt when assembled body exceeds max chars", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/big.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Large fix prompt",
-          detail: "d",
-          fixPrompt: "x".repeat(REVIEW_POINTER_BODY_MAX_CHARS),
-        },
-      ],
-    });
-    const { body, truncated } = renderReviewPointerBody(payload, {
-      ...renderCtx,
-      mode: "review",
-      placements: planInlineFromPayload(payload),
-    });
-
-    expect(truncated).toBe(true);
-    expect(body).toContain(renderReviewPointerLensMarker("review"));
-    expect(body).toContain("...[truncated; see inline threads and PR summary]");
+  it("swaps the specialist id in the tagline", () => {
+    expect(
+      renderSpecialistReviewBody({
+        specialist: "correctness",
+        progressCommentUrl,
+      }),
+    ).toContain("Here's what the correctness found.");
+    expect(
+      renderSpecialistReviewBody({
+        specialist: "quality",
+        progressCommentUrl,
+      }),
+    ).toContain("Here's what the quality found.");
+    expect(
+      renderSpecialistReviewBody({
+        specialist: "tests",
+        progressCommentUrl,
+      }),
+    ).toContain("Here's what the tests found.");
   });
 
-  it("appends the lens marker after truncation", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/big.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Large fix prompt",
-          detail: "d",
-          fixPrompt: "x".repeat(REVIEW_POINTER_BODY_MAX_CHARS),
-        },
-      ],
+  it("appends the review pointer lens marker for triage recognition", () => {
+    const body = renderSpecialistReviewBody({
+      specialist: "security",
+      progressCommentUrl,
+      lensMarker: renderReviewPointerLensMarker("review"),
     });
-    const { body } = renderReviewPointerBody(payload, {
-      ...renderCtx,
-      mode: "review-security",
-      placements: planInlineFromPayload(payload),
-    });
-
-    expect(body.endsWith(renderReviewPointerLensMarker("review-security"))).toBe(true);
+    expect(body.endsWith(renderReviewPointerLensMarker("review"))).toBe(true);
   });
 });
 
@@ -1090,55 +996,5 @@ describe("review hardening render helpers", () => {
       "<!-- pr-agent:review-meta headSha=abc1234 lens=review-security stale=true -->",
     );
     expect(comment.slice(4, -3)).not.toContain("--");
-  });
-
-  it("escapes finding titles in dropped inline anchor note", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "<script>alert(1)</script>",
-          detail: "detail",
-          fixPrompt: "fix",
-        },
-      ],
-    });
-    const placements = testPlacementsFromPayload(payload);
-    const { body } = renderReviewPointerBody(payload, {
-      ...ctx,
-      mode: "review",
-      placements,
-      droppedInlinePlacements: placements,
-    });
-    expect(body).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
-    expect(body).not.toContain("<script>");
-  });
-
-  it("includes dropped inline anchor note on review pointer body", () => {
-    const payload = basePayload({
-      findings: [
-        {
-          severity: "P1",
-          file: "src/a.ts",
-          startLine: 1,
-          endLine: 1,
-          title: "Bug",
-          detail: "detail",
-          fixPrompt: "fix",
-        },
-      ],
-    });
-    const placements = testPlacementsFromPayload(payload);
-    const { body } = renderReviewPointerBody(payload, {
-      ...ctx,
-      mode: "review",
-      placements,
-      droppedInlinePlacements: placements,
-    });
-    expect(body).toContain("Inline anchors skipped");
-    expect(body).toContain("src/a.ts");
   });
 });

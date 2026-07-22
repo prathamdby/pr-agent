@@ -54,6 +54,7 @@ function buildTool(getToken: () => string, shouldAbortPublish?: () => Promise<bo
       hasDescriptionAgentBlock: false,
     },
     workItemId: "wi-1",
+    progressCommentUrl: "https://github.com/o/r/pull/1#issuecomment-99",
     getToken,
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
     recordPublishStep: vi.fn(async () => undefined),

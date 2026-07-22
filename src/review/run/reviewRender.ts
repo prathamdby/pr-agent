@@ -12,7 +12,6 @@ import {
 import {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   AGENT_FIX_PROMPT_PREAMBLE,
-  AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
   LIGHTWEIGHT_REVIEW_COMPLETION_HINT,
   LIGHTWEIGHT_REVIEW_COMPLETION_LEAD,
   LIGHTWEIGHT_REVIEW_COMPLETION_REASON,
@@ -24,9 +23,6 @@ import {
   REVIEW_OVERVIEW_ALERT,
   REVIEW_OVERVIEW_COMPACT_MAX_CHARS,
   REVIEW_POINTER_BODY,
-  REVIEW_POINTER_BODY_MAX_CHARS,
-  REVIEW_POINTER_NOTE_LEAD,
-  REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS,
   REVIEW_SECURITY_DEFAULT,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
@@ -37,6 +33,7 @@ import { reviewFindingPlacementKey } from "../placement/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import { reviewSummarySentinelForMode } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { FindingSource } from "../orchestrator/orchestratorTypes.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import {
@@ -51,7 +48,6 @@ export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
   REPEAT_NO_BUGS_PREFIX,
   REVIEW_POINTER_BODY,
-  REVIEW_POINTER_BODY_MAX_CHARS,
   REVIEW_POINTER_NOTE_LEAD,
 } from "../../settings/index.js";
 
@@ -74,11 +70,6 @@ function blobLineUrl(ctx: RenderContext, file: string, startLine: number, endLin
 function formatEffortLabelHtml(effort: number): string {
   const word = REVIEW_EFFORT_WORDS[effort - 1] ?? REVIEW_EFFORT_WORDS[2];
   return `${escapeTableHtml(word)} · ${renderTableCode(`${effort}/5`)}`;
-}
-
-function renderReviewPointerLine(_mode: AnyReviewLens, summaryCommentUrl?: string): string {
-  if (!summaryCommentUrl) return REVIEW_POINTER_BODY;
-  return `[View the updated review.](${summaryCommentUrl})`;
 }
 
 export function renderRepeatNoBugsReviewBody(
@@ -137,27 +128,6 @@ function sanitizeReviewMetaHeadSha(headSha: string): string {
 
 function escapeHtmlCommentAttr(value: string): string {
   return value.replace(HTML_COMMENT_DASH_RE, "-&#45;").replace(HTML_COMMENT_CLOSE_RE, "&gt;");
-}
-
-function renderDroppedInlineAnchorNote(
-  droppedPlacements: readonly InlinePlacement[],
-): string | null {
-  if (droppedPlacements.length === 0) return null;
-  const lines = droppedPlacements
-    .slice(0, REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS)
-    .map(
-      (placement) =>
-        `- ${placement.finding.severity} \`${placement.finding.file}\` L${placement.finding.startLine}: ${escapeTablePlainCell(placement.finding.title)}`,
-    );
-  const omitted = droppedPlacements.length - lines.length;
-  if (omitted > 0) {
-    lines.push(`- …and ${omitted} more`);
-  }
-  return [
-    "",
-    "**Inline anchors skipped** (findings remain in the PR conversation summary):",
-    ...lines,
-  ].join("\n");
 }
 
 function formatLineRange(startLine: number, endLine: number): string {
@@ -224,6 +194,7 @@ type FindingTableFields = {
 type SummaryRenderOptions = {
   compact: boolean;
   includeSummaryAccordions: boolean;
+  includeAgentFixAccordion: boolean;
   compactionNote?: boolean;
   findingRowLimit?: number;
   omittedFindingCount?: number;
@@ -322,21 +293,8 @@ export function renderAgentFixPrompt(
   ].join("\n");
 }
 
-function renderPointerLead(mode: AnyReviewLens, summaryCommentUrl?: string): string {
-  if (summaryCommentUrl) {
-    return renderReviewPointerLine(mode, summaryCommentUrl);
-  }
-  return renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_POINTER_NOTE_LEAD);
-}
-
-function assembleReviewPointerBody(
-  pointerLine: string,
-  agentFixPrompt: string,
-  droppedNote: string | null,
-): string {
-  const parts = [
-    pointerLine,
-    "",
+function assembleAgentFixAccordion(agentFixPrompt: string): string {
+  return [
     "<details>",
     `<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`,
     "",
@@ -345,70 +303,29 @@ function assembleReviewPointerBody(
     "```",
     "",
     "</details>",
-  ];
-  if (droppedNote) {
-    parts.push(droppedNote);
-  }
-  return parts.join("\n");
-}
-
-function truncateAgentFixPromptForPointerBody(
-  agentFixPrompt: string,
-  pointerLine: string,
-  droppedNote: string | null,
-  maxBodyChars: number,
-): {
-  prompt: string;
-  truncated: boolean;
-} {
-  const wrapperOverhead = assembleReviewPointerBody(pointerLine, "", droppedNote).length;
-  const maxPromptChars = Math.max(0, maxBodyChars - wrapperOverhead);
-
-  if (agentFixPrompt.length <= maxPromptChars) {
-    return { prompt: agentFixPrompt, truncated: false };
-  }
-
-  const suffixBudget = AGENT_FIX_PROMPT_TRUNCATION_SUFFIX.length;
-  const cutAt = Math.max(0, maxPromptChars - suffixBudget);
-  return {
-    prompt: agentFixPrompt.slice(0, cutAt) + AGENT_FIX_PROMPT_TRUNCATION_SUFFIX,
-    truncated: true,
-  };
+  ].join("\n");
 }
 
 export function renderReviewPointerLensMarker(mode: AnyReviewLens): string {
   return `<!-- pr-agent:review-pointer lens=${escapeHtmlCommentAttr(mode)} -->`;
 }
 
-export function renderReviewPointerBody(
-  payload: ReviewPayload,
-  ctx: RenderContext & {
-    mode: AnyReviewLens;
-    summaryCommentUrl?: string;
-    placements: readonly InlinePlacement[];
-    droppedInlinePlacements?: readonly InlinePlacement[];
-  },
-): { body: string; truncated: boolean } {
-  const pointerLine = renderPointerLead(ctx.mode, ctx.summaryCommentUrl);
-  const droppedNote = renderDroppedInlineAnchorNote(ctx.droppedInlinePlacements ?? []);
-  let agentFixPrompt = renderAgentFixPrompt(payload, ctx, ctx.placements);
-  let truncated = false;
-
-  let body = assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote);
-  if (body.length > REVIEW_POINTER_BODY_MAX_CHARS) {
-    const result = truncateAgentFixPromptForPointerBody(
-      agentFixPrompt,
-      pointerLine,
-      droppedNote,
-      REVIEW_POINTER_BODY_MAX_CHARS,
-    );
-    agentFixPrompt = result.prompt;
-    truncated = result.truncated;
-    body = assembleReviewPointerBody(pointerLine, agentFixPrompt, droppedNote);
+/** Files-tab pull request review body for one specialist batch (Note + tagline only). */
+export function renderSpecialistReviewBody(params: {
+  readonly specialist: FindingSource;
+  readonly progressCommentUrl: string;
+  readonly lensMarker?: string;
+}): string {
+  const note = renderGitHubAlert(
+    REVIEW_OVERVIEW_ALERT,
+    `Track this run on the [progress stub](${params.progressCommentUrl}) in the PR conversation.`,
+  );
+  const tagline = `\`${params.specialist}\` Here's what the ${params.specialist} found.`;
+  const parts = [note, "", tagline];
+  if (params.lensMarker) {
+    parts.push(params.lensMarker);
   }
-
-  body = `${body}\n${renderReviewPointerLensMarker(ctx.mode)}`;
-  return { body, truncated };
+  return parts.join("\n");
 }
 
 type ReviewSummaryRenderCtx = RenderContext & {
@@ -508,6 +425,11 @@ function buildReviewSummaryBody(
     rows.push(...summaryOnlyAccordions);
   }
 
+  if (options.includeAgentFixAccordion && ctx.placements.length > 0) {
+    rows.push("");
+    rows.push(assembleAgentFixAccordion(renderAgentFixPrompt(payload, ctx, ctx.placements)));
+  }
+
   if (options.compactionNote) {
     rows.push("");
     rows.push(renderGitHubAlert(REVIEW_OVERVIEW_ALERT, REVIEW_SUMMARY_COMPACTION_NOTE));
@@ -564,6 +486,7 @@ export function fitReviewSummaryBody(
   const full = buildReviewSummaryBody(payload, sortedCtx, {
     compact: false,
     includeSummaryAccordions: true,
+    includeAgentFixAccordion: true,
   });
   if (full.length <= maxBodyChars) {
     return full;
@@ -572,6 +495,7 @@ export function fitReviewSummaryBody(
   const compact = buildReviewSummaryBody(payload, sortedCtx, {
     compact: true,
     includeSummaryAccordions: false,
+    includeAgentFixAccordion: true,
     compactionNote: true,
   });
   if (compact.length <= maxBodyChars) {
@@ -587,6 +511,7 @@ export function fitReviewSummaryBody(
     const trimmed = buildReviewSummaryBody(payload, sortedCtx, {
       compact: true,
       includeSummaryAccordions: false,
+      includeAgentFixAccordion: true,
       compactionNote: true,
       findingRowLimit: limit,
       omittedFindingCount: omitted,
@@ -603,12 +528,12 @@ export function fitReviewSummaryBody(
   return buildReviewSummaryBody(payload, sortedCtx, {
     compact: true,
     includeSummaryAccordions: false,
+    includeAgentFixAccordion: false,
     compactionNote: true,
     findingRowLimit: 0,
     omittedFindingCount: sortedCount,
   });
 }
-
 export function renderReviewSummaryComment(
   payload: ReviewPayload,
   ctx: ReviewSummaryRenderCtx,

@@ -37,6 +37,17 @@ describe("classifyReviewLensFromPointerBody", () => {
     expect(classifyReviewLensFromPointerBody(body)).toBe("review-security");
   });
 
+  it("recognizes the specialist Files-tab body via the lens marker", () => {
+    const body = [
+      "> [!NOTE]",
+      "> Track this run on the [progress stub](https://example.test#issuecomment-1) in the PR conversation.",
+      "",
+      "`security` Here's what the security found.",
+      renderReviewPointerLensMarker("review"),
+    ].join("\n");
+    expect(classifyReviewLensFromPointerBody(body)).toBe("review");
+  });
+
   it("classifies legacy pointer strings", () => {
     expect(classifyReviewLensFromPointerBody(REVIEW_POINTER_BODY)).toBe("review");
     expect(classifyReviewLensFromPointerBody(QUALITY_REVIEW_POINTER_BODY)).toBe("review-quality");

@@ -10,9 +10,6 @@ export const REPEAT_NO_BUGS_PREFIX = "No bugs found";
 export const AGENT_FIX_PROMPT_PREAMBLE =
   "Verify each finding against current code. Fix only still-valid issues, skip the rest with a brief reason, and keep changes minimal.";
 export const AGENT_FIX_PROMPT_ACCORDION_SUMMARY = "Fix all findings (agent prompt)";
-export const REVIEW_POINTER_BODY_MAX_CHARS = 60_000;
-export const AGENT_FIX_PROMPT_TRUNCATION_SUFFIX =
-  "\n...[truncated; see inline threads and PR summary]";
 
 /** Review comment formatting (GitHub markdown). */
 /** Effort 2–3 both map to "Moderate" on the 1–5 scale. */
@@ -89,7 +86,6 @@ export const REVIEW_FINDING_TITLE_MAX_CHARS = 80;
 export const REVIEW_FINDING_DETAIL_MAX_CHARS = 4000;
 export const REVIEW_FINDING_FIX_PROMPT_MAX_CHARS = 2000;
 export const REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS = 2000;
-export const REVIEW_DROPPED_INLINE_NOTE_MAX_FINDINGS = 10;
 export const REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS = [1_000, 3_000] as const;
 export const MAX_PRIOR_INLINE_FEEDBACK_THREADS = 20;
 export const MAX_PRIOR_INLINE_REPLY_CHARS = 500;
