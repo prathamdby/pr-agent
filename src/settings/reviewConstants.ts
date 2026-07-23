@@ -25,6 +25,7 @@ export const REVIEW_FAILURE_ALERT = "CAUTION";
 export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
 export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
+export const REVIEW_FINDING_FOOTNOTE_SUMMARY_P3 = "Included in Fix all findings below.";
 export const REVIEW_FINDINGS_NONE = "No issues on this pass.";
 export const REVIEW_POINTER_NOTE_LEAD =
   "Full review is in the PR conversation. Expand below to copy fixes for your coding agent.";

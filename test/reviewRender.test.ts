@@ -16,6 +16,7 @@ import {
 } from "../src/review/run/reviewRender.js";
 import {
   REVIEW_FINDING_FOOTNOTE_INLINE,
+  REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
   REVIEW_SUMMARY_BODY_MAX_CHARS,
   REVIEW_SUMMARY_COMPACTION_NOTE,
@@ -214,8 +215,45 @@ describe("renderReviewSummaryComment", () => {
     expect(body).toContain("minor");
     expect(body).toContain("Summary only");
     expect(body).toContain(REVIEW_FINDING_FOOTNOTE_INLINE);
+    expect(body).toContain(REVIEW_FINDING_FOOTNOTE_SUMMARY_P3);
     expect(body).not.toContain("<summary>Prompt to fix</summary>");
-    expect(body).toContain("<summary>Prompt to fix — P3 · Typo in heading</summary>");
+    expect(body).not.toContain("<summary>Prompt to fix — P3 · Typo in heading</summary>");
+    expect(body).toContain(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
+    expect(body).toContain("Fix the typo in the README heading.");
+  });
+
+  it("keeps summary-only P3 out of personal Prompt to fix accordions", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P3",
+          file: "src/nits.ts",
+          startLine: 3,
+          endLine: 3,
+          title: "Rename local",
+          detail: "cosmetic",
+          fixPrompt: "Rename the local in src/nits.ts.",
+        },
+        {
+          severity: "P3",
+          file: "src/nits.ts",
+          startLine: 8,
+          endLine: 8,
+          title: "Drop dead import",
+          detail: "unused",
+          fixPrompt: "Remove the unused import in src/nits.ts.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
+      ...ctx,
+      placements: testPlacements(payload.findings, { inlinePosted: false }),
+    });
+    expect(body).not.toContain("<summary>Prompt to fix — P3 ·");
+    expect(body).toContain(REVIEW_FINDING_FOOTNOTE_SUMMARY_P3);
+    expect(body).toContain(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
+    expect(body).toContain("Rename the local in src/nits.ts.");
+    expect(body).toContain("Remove the unused import in src/nits.ts.");
   });
 
   it("shows fix prompt details for summary-only findings", () => {
