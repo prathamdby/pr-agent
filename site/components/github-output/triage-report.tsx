@@ -119,7 +119,9 @@ export function TriageReportMock() {
           <GhGfmTable rows={ROWS} />
         </div>
         <section className="space-y-1">
-          <h4 className="text-xs font-semibold text-ink">Policy suggestions for dismissed findings</h4>
+          <h4 className="text-xs font-semibold text-ink">
+            Policy suggestions for dismissed findings
+          </h4>
           <p className="text-ink-soft">
             Commit these to <GhCode>.pr-agent/*.mdc</GhCode> to steer future reviews:
           </p>
