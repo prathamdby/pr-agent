@@ -1,4 +1,8 @@
 import { captureEvent, captureException } from "../analytics/index.js";
+import {
+  classifyFailure,
+  classifiedFailurePostHogProperties,
+} from "../errors/classifiedFailure.js";
 import type { TriageScope } from "./types.js";
 
 export type TriageAnalyticsRef = {
@@ -43,15 +47,17 @@ export function captureTriageFailure(
   properties?: Record<string, unknown>,
 ): void {
   const errorObj = error instanceof Error ? error : new Error(String(error));
+  const failure = classifyFailure(error, { phase: step });
   captureTriageEvent(ref, "triage failed", {
     step,
-    error_message: errorObj.message,
+    ...classifiedFailurePostHogProperties(failure),
     ...properties,
   });
   captureException(errorObj, distinctId(ref.installationId), {
     type: "triage",
     step,
     ...baseProperties(ref),
+    ...classifiedFailurePostHogProperties(failure),
     ...properties,
   });
 }

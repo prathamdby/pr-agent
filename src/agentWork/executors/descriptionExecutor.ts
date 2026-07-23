@@ -3,6 +3,11 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
 import { runFullPrDescription } from "../../agent/description/descriptionRun.js";
+import {
+  classifyFailure,
+  classifiedFailureLogFields,
+  classifiedFailurePostHogProperties,
+} from "../../errors/classifiedFailure.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import {
@@ -71,10 +76,25 @@ export async function executeDescriptionJob(
             ),
           });
           if (!result.published && !result.publishSuperseded) {
+            const failure = classifyFailure(new Error("Description was not published"), {
+              phase: "publish",
+            });
             logWarn("description_not_published", {
               owner: item.owner,
               repo: item.repo,
               pr: item.prNumber,
+              ...classifiedFailureLogFields(failure),
+            });
+            captureEvent({
+              distinctId: `installation:${item.installationId}`,
+              event: "description failed",
+              properties: {
+                owner: item.owner,
+                repo: item.repo,
+                pr_number: item.prNumber,
+                source: payload.source,
+                ...classifiedFailurePostHogProperties(failure),
+              },
             });
             return { degraded: true };
           }

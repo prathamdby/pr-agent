@@ -24,11 +24,11 @@ Soft-fail and “not published” paths often finish without throwing. Terminal 
 
 ## Approaches considered
 
-| Approach | Idea | Trade-off |
-| -------- | ---- | --------- |
+| Approach       | Idea                                                                                                                                                                                 | Trade-off                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
 | **A (chosen)** | Shared `ClassifiedFailure` + `classifyFailure(error, hints)`; persist last signal on `reviewRunMetrics` / run result; flatten into log meta and PostHog props at every failure event | Small surface; matches durable-job pattern; soft-fail readable without ALS magic |
-| B | Separate failure ring-buffer on logger context for all work types | Better “last N” history; more invasive; duplicates metrics store for review |
-| C | Analytics middleware auto-attaches classification from async context | Hard to test; opaque call sites; easy to attach stale/wrong signals |
+| B              | Separate failure ring-buffer on logger context for all work types                                                                                                                    | Better “last N” history; more invasive; duplicates metrics store for review      |
+| C              | Analytics middleware auto-attaches classification from async context                                                                                                                 | Hard to test; opaque call sites; easy to attach stale/wrong signals              |
 
 **Recommendation:** A. Put last-signal fields on `reviewRunMetrics` (already ALS-backed). For ask/description/triage/verification, classify at the catch / soft-fail site (error is in hand). Cap recent tool errors at N=3 on metrics for P1.
 
@@ -40,7 +40,7 @@ Internal type (camelCase, matching `AppError` / metrics style):
 type FailureDomain = "provider" | "github" | "internal" | "unknown";
 type ClassifiedErrorKind =
   | ProviderErrorKind // auth | quota | billing | rate_limit | timeout | unknown
-  | GithubErrorKind   // auth | forbidden | not_found | validation | rate_limit | unknown
+  | GithubErrorKind // auth | forbidden | not_found | validation | rate_limit | unknown
   | "validation"
   | "publish"
   | "cancelled"
@@ -50,31 +50,31 @@ type ClassifiedErrorKind =
 type ClassifiedFailure = {
   failureDomain: FailureDomain;
   errorKind: ClassifiedErrorKind;
-  errorCode?: string;       // AppError.code when present
-  errorMessage: string;     // sanitizeLogMessage, truncated
+  errorCode?: string; // AppError.code when present
+  errorMessage: string; // sanitizeLogMessage, truncated
   phase?: string;
   toolName?: string;
   provider?: string;
   model?: string;
-  causeChain?: string[];    // short sanitized messages, hard-capped (e.g. 5)
-  errorCount?: number;      // optional; tool_call_errors / retry count
+  causeChain?: string[]; // short sanitized messages, hard-capped (e.g. 5)
+  errorCount?: number; // optional; tool_call_errors / retry count
 };
 ```
 
 PostHog property names (snake_case, matching existing `provider_error_kind` / `pr_number`):
 
-| Field | PostHog key |
-| ----- | ----------- |
+| Field         | PostHog key      |
+| ------------- | ---------------- |
 | failureDomain | `failure_domain` |
-| errorKind | `error_kind` |
-| errorCode | `error_code` |
-| errorMessage | `error_message` |
-| phase | `phase` |
-| toolName | `tool_name` |
-| provider | `provider` |
-| model | `model` |
-| causeChain | `cause_chain` |
-| errorCount | `error_count` |
+| errorKind     | `error_kind`     |
+| errorCode     | `error_code`     |
+| errorMessage  | `error_message`  |
+| phase         | `phase`          |
+| toolName      | `tool_name`      |
+| provider      | `provider`       |
+| model         | `model`          |
+| causeChain    | `cause_chain`    |
+| errorCount    | `error_count`    |
 
 **Rules**
 
@@ -120,16 +120,16 @@ Orchestrator `sendWithRetry` / specialist failures / publish tool failures call 
 
 ### Call-site inventory (must instrument)
 
-| Surface | Events / logs | Source of signal |
-| ------- | ------------- | ---------------- |
-| Durable job | `agent_work_failed`, `agent_work_retrying`, PostHog `"work item failed"` | thrown error → `classifyFailure`; emit full contract (`failure_domain`, `error_kind`, `error_message`, …). Keep `provider_error_kind` when `failure_domain === "provider"` for back-compat (same value as `error_kind`). |
-| Review executor | `review_not_published`, PostHog `"review failed"` | metrics / result lastFailure; superseded path does **not** emit `"review failed"` as provider |
-| Review fallback | `agent_publish_fallback` | accept optional lastFailure; log kind+message |
-| Orchestrator | `review_synthesis_publish_salvage`, send retry/fail, session create fail | record + log classified fields |
-| Ask / description | soft-fail logs + add failure PostHog events where missing | classify at catch / not-published |
-| Triage | `captureTriageFailure` | merge classified PostHog props |
-| Verification | terminal failure paths | same contract |
-| Check-run completion | failure summaries already set; ensure complete-from-failure logs include classification when available | |
+| Surface              | Events / logs                                                                                          | Source of signal                                                                                                                                                                                                         |
+| -------------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Durable job          | `agent_work_failed`, `agent_work_retrying`, PostHog `"work item failed"`                               | thrown error → `classifyFailure`; emit full contract (`failure_domain`, `error_kind`, `error_message`, …). Keep `provider_error_kind` when `failure_domain === "provider"` for back-compat (same value as `error_kind`). |
+| Review executor      | `review_not_published`, PostHog `"review failed"`                                                      | metrics / result lastFailure; superseded path does **not** emit `"review failed"` as provider                                                                                                                            |
+| Review fallback      | `agent_publish_fallback`                                                                               | accept optional lastFailure; log kind+message                                                                                                                                                                            |
+| Orchestrator         | `review_synthesis_publish_salvage`, send retry/fail, session create fail                               | record + log classified fields                                                                                                                                                                                           |
+| Ask / description    | soft-fail logs + add failure PostHog events where missing                                              | classify at catch / not-published                                                                                                                                                                                        |
+| Triage               | `captureTriageFailure`                                                                                 | merge classified PostHog props                                                                                                                                                                                           |
+| Verification         | terminal failure paths                                                                                 | same contract                                                                                                                                                                                                            |
+| Check-run completion | failure summaries already set; ensure complete-from-failure logs include classification when available |                                                                                                                                                                                                                          |
 
 ### Provider adapters
 

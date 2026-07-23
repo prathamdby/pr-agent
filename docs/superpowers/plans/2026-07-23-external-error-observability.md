@@ -22,33 +22,35 @@
 
 ## File map
 
-| File | Responsibility |
-| ---- | -------------- |
-| `src/errors/classifiedFailure.ts` | Types, `classifyFailure`, log/PostHog mappers, sanitize/truncate |
-| `src/agent/providers/providerErrors.ts` | Expand credit/billing/402 matchers |
-| `src/github/githubErrors.ts` | `GithubErrorKind` + `classifyGithubError` |
-| `src/review/run/reviewRunMetrics.ts` | `lastFailure`, `recentToolErrors` (cap 3), `external_failure` / tool error text |
-| `src/review/run/reviewRunTypes.ts` | Optional `lastFailure` on `ReviewRunResult` |
-| `src/review/orchestrator/orchestratorRun.ts` | Record failures on send/salvage; return lastFailure |
-| `src/review/run/reviewRunFallback.ts` | Log classified fields on `agent_publish_fallback` |
-| `src/agentWork/durableJob.ts` | Full contract on retry/fail + PostHog |
-| `src/agentWork/executors/reviewExecutor.ts` | `"review failed"` + `review_not_published` props |
-| `src/agentWork/executors/askExecutor.ts` / `descriptionExecutor.ts` | Soft-fail classification |
-| `src/agentWork/triageAnalytics.ts` | Merge classified props into `triage failed` |
-| `docs/operations.md` | Query notes for new fields |
-| Tests under `test/` mirroring above |
+| File                                                                | Responsibility                                                                  |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `src/errors/classifiedFailure.ts`                                   | Types, `classifyFailure`, log/PostHog mappers, sanitize/truncate                |
+| `src/agent/providers/providerErrors.ts`                             | Expand credit/billing/402 matchers                                              |
+| `src/github/githubErrors.ts`                                        | `GithubErrorKind` + `classifyGithubError`                                       |
+| `src/review/run/reviewRunMetrics.ts`                                | `lastFailure`, `recentToolErrors` (cap 3), `external_failure` / tool error text |
+| `src/review/run/reviewRunTypes.ts`                                  | Optional `lastFailure` on `ReviewRunResult`                                     |
+| `src/review/orchestrator/orchestratorRun.ts`                        | Record failures on send/salvage; return lastFailure                             |
+| `src/review/run/reviewRunFallback.ts`                               | Log classified fields on `agent_publish_fallback`                               |
+| `src/agentWork/durableJob.ts`                                       | Full contract on retry/fail + PostHog                                           |
+| `src/agentWork/executors/reviewExecutor.ts`                         | `"review failed"` + `review_not_published` props                                |
+| `src/agentWork/executors/askExecutor.ts` / `descriptionExecutor.ts` | Soft-fail classification                                                        |
+| `src/agentWork/triageAnalytics.ts`                                  | Merge classified props into `triage failed`                                     |
+| `docs/operations.md`                                                | Query notes for new fields                                                      |
+| Tests under `test/` mirroring above                                 |
 
 ---
 
 ### Task 1: ClassifiedFailure core + expanded classifiers
 
 **Files:**
+
 - Create: `src/errors/classifiedFailure.ts`
 - Create: `src/github/githubErrors.ts`
 - Modify: `src/agent/providers/providerErrors.ts`
 - Test: `test/classifiedFailure.test.ts`, `test/providerErrors.test.ts`, `test/githubErrors.test.ts`
 
 **Interfaces:**
+
 - Produces: `ClassifiedFailure`, `classifyFailure`, `classifiedFailureLogFields`, `classifiedFailurePostHogProperties`, `classifyGithubError`, expanded `classifyProviderError`
 
 - [ ] **Step 1: Write failing classifier tests**
@@ -59,13 +61,17 @@ it("classifies insufficient credits as quota", () => {
   expect(classifyProviderError(new Error("Insufficient credits for model"))).toBe("quota");
 });
 it("classifies 402 payment_required as billing", () => {
-  expect(classifyProviderError(new Error("402 Payment Required: balance depleted"))).toBe("billing");
+  expect(classifyProviderError(new Error("402 Payment Required: balance depleted"))).toBe(
+    "billing",
+  );
 });
 
 // test/githubErrors.test.ts
 it("classifies Resource not accessible by integration as forbidden", () => {
   expect(
-    classifyGithubError(Object.assign(new Error("Resource not accessible by integration"), { status: 403 })),
+    classifyGithubError(
+      Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+    ),
   ).toBe("forbidden");
 });
 
@@ -153,10 +159,12 @@ git commit -m "feat: add ClassifiedFailure and expand provider/GitHub classifier
 ### Task 2: Persist last failure on reviewRunMetrics
 
 **Files:**
+
 - Modify: `src/review/run/reviewRunMetrics.ts`
 - Test: `test/reviewRunMetrics.test.ts`
 
 **Interfaces:**
+
 - Consumes: `ClassifiedFailure`, `classifyFailure`
 - Produces: snapshot fields `lastFailure`, `recentToolErrors`; `recordClassifiedFailure`; tool_call may include `errorMessage?`
 
@@ -198,6 +206,7 @@ git commit -m "feat: retain last classified failure on review run metrics"
 ### Task 3: Orchestrator + tool adapters record real failures; ReviewRunResult carries lastFailure
 
 **Files:**
+
 - Modify: `src/review/run/reviewRunTypes.ts`
 - Modify: `src/review/orchestrator/orchestratorRun.ts` (sendWithRetry catch, specialist error outcomes, salvage log, return)
 - Modify: `src/review/run/reviewRunFallback.ts`
@@ -205,6 +214,7 @@ git commit -m "feat: retain last classified failure on review run metrics"
 - Test: extend `test/orchestratorRun.test.ts` and/or focused unit tests for send/specialist/tool failure recording
 
 **Interfaces:**
+
 - Consumes: `recordClassifiedFailure`, `classifiedFailureLogFields`, `classifyFailure` (no forced `domain: "provider"`)
 - Produces: `ReviewRunResult.lastFailure?: ClassifiedFailure`
 
@@ -240,32 +250,36 @@ git commit -m "feat: thread last classified failure through orchestrator soft-fa
 ### Task 4: Review executor + durable job PostHog/evlog parity
 
 **Files:**
+
 - Modify: `src/agentWork/executors/reviewExecutor.ts`
 - Modify: `src/agentWork/durableJob.ts`
 - Test: `test/durableJobAnalytics.test.ts`; add/extend review executor analytics coverage
 
 **Interfaces:**
+
 - Consumes: `classifiedFailurePostHogProperties`, `classifiedFailureLogFields`, metrics snapshot / `result.lastFailure`
 
 - [ ] **Step 1: Write failing tests**
 
 ```ts
 // durableJobAnalytics — expect capture properties to include:
-failure_domain, error_kind, error_message
+(failure_domain, error_kind, error_message);
 // and provider_error_kind when domain is provider
 
 // review failed — when a prior provider credit error was recorded on the run
 // but publish soft-failed: MUST include failure_domain/error_kind/error_message.
 // Do NOT accept a synthetic-only "Review was not published" fallback when
 // snapshot/result already had lastFailure from tool/send/specialist.
-expect(capture).toHaveBeenCalledWith(expect.objectContaining({
-  event: "review failed",
-  properties: expect.objectContaining({
-    failure_domain: "provider",
-    error_kind: "quota",
-    error_message: expect.stringMatching(/credit/i),
+expect(capture).toHaveBeenCalledWith(
+  expect.objectContaining({
+    event: "review failed",
+    properties: expect.objectContaining({
+      failure_domain: "provider",
+      error_kind: "quota",
+      error_message: expect.stringMatching(/credit/i),
+    }),
   }),
-}));
+);
 ```
 
 - [ ] **Step 2: Run — expect FAIL**
@@ -288,12 +302,14 @@ git commit -m "feat: attach classified failure to review failed and work item fa
 ### Task 5: Ask / description / triage failure parity + ops docs
 
 **Files:**
+
 - Modify: `src/agentWork/executors/askExecutor.ts`, `descriptionExecutor.ts`
 - Modify: `src/agentWork/triageAnalytics.ts`
 - Modify: `docs/operations.md`
 - Test: `test/triageAnalytics.test.ts`; ask/description soft-fail PostHog tests
 
 **Interfaces:**
+
 - Consumes: `classifyFailure`, PostHog/log mappers
 
 - [ ] **Step 1: Write failing tests** — `captureTriageFailure` includes `failure_domain` + `error_kind`; non-superseded ask/description soft-fail emit PostHog `"ask failed"` / `"description failed"` with the same three required fields.
@@ -314,20 +330,20 @@ git commit -m "feat: parity classified failures for ask/description/triage; docu
 
 ## Spec coverage checklist
 
-| Spec requirement | Task |
-| ---------------- | ---- |
-| Shared ClassifiedFailure contract | 1 |
-| Expand provider credit/billing matchers | 1 |
-| GitHub GraphQL integration forbidden | 1 |
-| Superseded not provider | 1 |
-| reviewRunMetrics last tool/send failure | 2 |
-| Orchestrator send/salvage + soft-fail thread | 3 |
-| agent_publish_fallback fields | 3 |
-| review failed + review_not_published | 4 |
-| work item failed full contract | 4 |
-| Ask/description/triage parity | 5 |
-| ops doc query notes | 5 |
-| No PR-facing billing copy | all (no notice string changes) |
+| Spec requirement                             | Task                           |
+| -------------------------------------------- | ------------------------------ |
+| Shared ClassifiedFailure contract            | 1                              |
+| Expand provider credit/billing matchers      | 1                              |
+| GitHub GraphQL integration forbidden         | 1                              |
+| Superseded not provider                      | 1                              |
+| reviewRunMetrics last tool/send failure      | 2                              |
+| Orchestrator send/salvage + soft-fail thread | 3                              |
+| agent_publish_fallback fields                | 3                              |
+| review failed + review_not_published         | 4                              |
+| work item failed full contract               | 4                              |
+| Ask/description/triage parity                | 5                              |
+| ops doc query notes                          | 5                              |
+| No PR-facing billing copy                    | all (no notice string changes) |
 
 ## Self-review notes
 
