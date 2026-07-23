@@ -1,6 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
+import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
+
+export type { AgentLifecycleEvent } from "./lifecycleEvents.js";
 
 export type AgentSessionRole =
   | "orchestrator"
@@ -51,31 +54,6 @@ export type ToolPolicy = {
 export type AuthoritativeStructuredState = {
   readonly version: number;
   readonly payload: Readonly<Record<string, unknown>>;
-};
-
-export type AgentLifecycleEventKind =
-  | "turn"
-  | "tool"
-  | "retry"
-  | "compaction"
-  | "usage"
-  | "cancellation"
-  | "completion"
-  | "failure";
-
-/** Minimal event shape for the expand-phase seam; Task 3a widens allowlisted fields. */
-export type AgentLifecycleEvent = {
-  readonly kind: AgentLifecycleEventKind;
-  readonly role: AgentSessionRole;
-  readonly phase?: AgentSessionPhase;
-  readonly checkpointId?: string;
-  readonly toolName?: string;
-  readonly ok?: boolean;
-  readonly failureCode?: string;
-  readonly provider?: string;
-  readonly model?: string;
-  readonly attempt?: number;
-  readonly reason?: string;
 };
 
 export type PiSessionSendOptions = {

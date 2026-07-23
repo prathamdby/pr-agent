@@ -27,7 +27,12 @@ describe("settings inventory", () => {
     expect(envValues).toContain("POSTHOG_HOST");
     expect(envValues).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
     expect(new Set(envValues).size).toBe(envValues.length);
-    expect(envValues.length).toBe(49);
+    expect(envValues).toContain("PI_ORCHESTRATOR_PROVIDER");
+    expect(envValues).toContain("PI_ORCHESTRATOR_MODEL");
+    expect(envValues).toContain("PI_FALLBACK_PROVIDER");
+    expect(envValues).toContain("PI_FALLBACK_MODEL");
+    expect(envValues).toContain("PI_THINKING_CEILING");
+    expect(envValues.length).toBe(54);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

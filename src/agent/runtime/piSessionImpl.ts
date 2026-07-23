@@ -20,11 +20,12 @@ import {
   mergeExactUsage,
   promptMetadataFromText,
 } from "../providers/usageMetadata.js";
+import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
+import { resolveThinkingLevel } from "./thinkingPolicy.js";
 import type {
   AuthoritativeStructuredState,
   PiSession,
   PiSessionCreateParams,
-  ThinkingLevel,
 } from "./types.js";
 
 function toolResultToText(result: unknown): string {
@@ -113,23 +114,6 @@ function toCodingAgentTool(
   });
 }
 
-function clampThinkingLevel(level: ThinkingLevel, ceiling: ThinkingLevel): ThinkingLevel {
-  const order: readonly ThinkingLevel[] = [
-    "off",
-    "minimal",
-    "low",
-    "medium",
-    "high",
-    "xhigh",
-    "max",
-  ];
-  const levelIndex = order.indexOf(level);
-  const ceilingIndex = order.indexOf(ceiling);
-  if (levelIndex < 0) return "off";
-  if (ceilingIndex < 0) return level;
-  return order[Math.min(levelIndex, ceilingIndex)] ?? "off";
-}
-
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
   if (params.toolPolicy.allowBuiltin !== false) {
     throw new AppError({
@@ -140,6 +124,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
 
   const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
   let structuredState: AuthoritativeStructuredState = params.structuredState;
+  const emit = createSanitizedEventSink(params.eventSink);
 
   try {
     const authPath = join(agentDir, "auth.json");
@@ -196,10 +181,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     });
     await resourceLoader.reload();
     const allToolNames = params.tools.map((tool) => tool.name);
-    const initialThinking = clampThinkingLevel(
-      params.thinkingPolicy.levelForPhase("synthesis"),
-      params.thinkingPolicy.ceiling,
-    );
+    const initialThinking = resolveThinkingLevel({
+      policy: params.thinkingPolicy,
+      phase: "synthesis",
+    });
     const { session } = await createAgentSession({
       cwd: params.cwd ?? process.cwd(),
       agentDir,
@@ -219,7 +204,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     const abort = (): Promise<void> => {
       abortPromise ??= (async () => {
         await session.abort();
-        params.eventSink({
+        emit({
           kind: "cancellation",
           role: params.role,
           provider: params.primary.provider,
@@ -240,10 +225,10 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             message: "Agent runner session aborted",
           });
         }
-        const thinking = clampThinkingLevel(
-          params.thinkingPolicy.levelForPhase(opts.phase),
-          params.thinkingPolicy.ceiling,
-        );
+        const thinking = resolveThinkingLevel({
+          policy: params.thinkingPolicy,
+          phase: opts.phase,
+        });
         session.setThinkingLevel(thinking);
 
         let sessionToolTurnCount = 0;
@@ -278,7 +263,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           }, checkEveryMs);
         };
 
-        params.eventSink({
+        emit({
           kind: "turn",
           role: params.role,
           phase: opts.phase,
@@ -290,7 +275,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         const unsubscribe = session.subscribe((event) => {
           markActivity();
           if (event.type === "tool_execution_start") {
-            params.eventSink({
+            emit({
               kind: "tool",
               role: params.role,
               phase: opts.phase,
@@ -307,7 +292,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
               aggregatedUsage,
               exactUsageFromProviderUsage(event.message.usage),
             );
-            params.eventSink({
+            emit({
               kind: "usage",
               role: params.role,
               phase: opts.phase,
@@ -335,7 +320,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             await run;
           }
           const promptMeta = promptMetadataFromText(prompt);
-          params.eventSink({
+          emit({
             kind: "completion",
             role: params.role,
             phase: opts.phase,
@@ -348,7 +333,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
             ? { text: finalText, prompt: promptMeta, usage: aggregatedUsage }
             : { text: finalText, prompt: promptMeta };
         } catch (error) {
-          params.eventSink({
+          emit({
             kind: "failure",
             role: params.role,
             phase: opts.phase,

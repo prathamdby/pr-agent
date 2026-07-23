@@ -28,8 +28,13 @@ import {
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_REDACT,
+  DEFAULT_PI_FALLBACK_MODEL,
+  DEFAULT_PI_FALLBACK_PROVIDER,
   DEFAULT_PI_MODEL,
+  DEFAULT_PI_ORCHESTRATOR_MODEL,
+  DEFAULT_PI_ORCHESTRATOR_PROVIDER,
   DEFAULT_PI_PROVIDER,
+  DEFAULT_PI_THINKING_CEILING,
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
@@ -225,6 +230,35 @@ export async function loadConfig() {
 
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
+  const piOrchestratorProvider = optionalEnv(
+    ENV.PI_ORCHESTRATOR_PROVIDER,
+    DEFAULT_PI_ORCHESTRATOR_PROVIDER,
+  ).trim();
+  const piOrchestratorModel = optionalEnv(
+    ENV.PI_ORCHESTRATOR_MODEL,
+    DEFAULT_PI_ORCHESTRATOR_MODEL,
+  ).trim();
+  const piFallbackProvider = optionalEnv(
+    ENV.PI_FALLBACK_PROVIDER,
+    DEFAULT_PI_FALLBACK_PROVIDER,
+  ).trim();
+  const piFallbackModel = optionalEnv(ENV.PI_FALLBACK_MODEL, DEFAULT_PI_FALLBACK_MODEL).trim();
+  if ((piFallbackProvider && !piFallbackModel) || (!piFallbackProvider && piFallbackModel)) {
+    throw new AppError({
+      code: "config.fallback_model_incomplete",
+      message:
+        "PI_FALLBACK_PROVIDER and PI_FALLBACK_MODEL must both be set to enable fallback, or both left empty to disable it",
+      context: {
+        piFallbackProvider,
+        piFallbackModel,
+      },
+    });
+  }
+  const piThinkingCeiling = readEnum(
+    ENV.PI_THINKING_CEILING,
+    ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
+    DEFAULT_PI_THINKING_CEILING,
+  );
   const modelsJsonPath = resolveModelsJsonPath({
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
@@ -235,6 +269,22 @@ export async function loadConfig() {
     piModel,
     catalogCandidatePath,
   });
+  if (piOrchestratorProvider || piOrchestratorModel) {
+    await assertPiModelSelection({
+      modelsJsonPath,
+      piProvider: piOrchestratorProvider || piProvider,
+      piModel: piOrchestratorModel || piModel,
+      catalogCandidatePath,
+    });
+  }
+  if (piFallbackProvider && piFallbackModel) {
+    await assertPiModelSelection({
+      modelsJsonPath,
+      piProvider: piFallbackProvider,
+      piModel: piFallbackModel,
+      catalogCandidatePath,
+    });
+  }
 
   // Cursor credentials remain readable until removal (#351) but never select a runtime.
   const cursorApiKey = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
@@ -383,6 +433,11 @@ export async function loadConfig() {
     agentProvider,
     piProvider,
     piModel,
+    piOrchestratorProvider,
+    piOrchestratorModel,
+    piFallbackProvider,
+    piFallbackModel,
+    piThinkingCeiling,
     piApi,
     modelsJsonPath,
     modelProviderKeys,

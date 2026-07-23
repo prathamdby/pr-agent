@@ -6,6 +6,13 @@ export const DEFAULT_ROLE = "web" as const;
 export const DEFAULT_AGENT_PROVIDER = "pi" as const;
 export const DEFAULT_PI_PROVIDER = "openai";
 export const DEFAULT_PI_MODEL = "gpt-4o-mini";
+/** Empty means inherit general primary (`PI_PROVIDER` / `PI_MODEL`). */
+export const DEFAULT_PI_ORCHESTRATOR_PROVIDER = "";
+export const DEFAULT_PI_ORCHESTRATOR_MODEL = "";
+/** Empty means fallback disabled. */
+export const DEFAULT_PI_FALLBACK_PROVIDER = "";
+export const DEFAULT_PI_FALLBACK_MODEL = "";
+export const DEFAULT_PI_THINKING_CEILING = "high" as const;
 export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 300_000;
 export const DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS = 900_000;
 
