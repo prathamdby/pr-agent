@@ -73,9 +73,7 @@ describe("withOperationIntent", () => {
 
     expect(result).toBe("ok");
     expect(calls).toEqual(["persist", "mutate"]);
-    expect(persistOperationIntent).toHaveBeenCalledBefore(
-      vi.mocked(reconcileOperationIntent),
-    );
+    expect(persistOperationIntent).toHaveBeenCalledBefore(vi.mocked(reconcileOperationIntent));
   });
 
   it("reconciles to reconciled after a successful mutation", async () => {

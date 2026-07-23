@@ -1,9 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
-import {
-  persistOperationIntent,
-  reconcileOperationIntent,
-} from "./operationIntentRepository.js";
+import { persistOperationIntent, reconcileOperationIntent } from "./operationIntentRepository.js";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
@@ -54,9 +51,7 @@ export function verificationThreadOperationKey(rootCommentId: number): string {
   return `verification:thread:${rootCommentId}`;
 }
 
-export async function withOperationIntent<T>(
-  params: WithOperationIntentParams<T>,
-): Promise<T> {
+export async function withOperationIntent<T>(params: WithOperationIntentParams<T>): Promise<T> {
   await persistOperationIntent(params.client, {
     workItemId: params.workItemId,
     operationKey: params.operationKey,

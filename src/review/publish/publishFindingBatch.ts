@@ -263,26 +263,21 @@ export async function publishFindingBatch(
 
   const batchId = crypto.randomUUID();
   const inlineResult = await (context.operationIntent == null
-    ? publishInlineReviewComments(
-        context.ctx.owner,
-        context.ctx.repo,
-        context.ctx.prNumber,
-        {
-          getToken: context.getToken,
-          getTokenExpiresAtTs: context.getTokenExpiresAtTs,
-          refreshLiveAuth: context.refreshLiveAuth,
-          renderReviewBody: () =>
-            renderSpecialistReviewBody({
-              specialist: context.source,
-              progressCommentUrl,
-              lensMarker: renderReviewPointerLensMarker("review"),
-            }),
-          event: "COMMENT",
-          commitId: context.ctx.headSha,
-          inlinePlacements: targets.inline,
-          renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
-        },
-      )
+    ? publishInlineReviewComments(context.ctx.owner, context.ctx.repo, context.ctx.prNumber, {
+        getToken: context.getToken,
+        getTokenExpiresAtTs: context.getTokenExpiresAtTs,
+        refreshLiveAuth: context.refreshLiveAuth,
+        renderReviewBody: () =>
+          renderSpecialistReviewBody({
+            specialist: context.source,
+            progressCommentUrl,
+            lensMarker: renderReviewPointerLensMarker("review"),
+          }),
+        event: "COMMENT",
+        commitId: context.ctx.headSha,
+        inlinePlacements: targets.inline,
+        renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
+      })
     : withOperationIntent({
         client: context.operationIntent.client,
         workItemId: context.operationIntent.workItemId,
@@ -295,26 +290,21 @@ export async function publishFindingBatch(
           batchId,
         },
         mutate: () =>
-          publishInlineReviewComments(
-            context.ctx.owner,
-            context.ctx.repo,
-            context.ctx.prNumber,
-            {
-              getToken: context.getToken,
-              getTokenExpiresAtTs: context.getTokenExpiresAtTs,
-              refreshLiveAuth: context.refreshLiveAuth,
-              renderReviewBody: () =>
-                renderSpecialistReviewBody({
-                  specialist: context.source,
-                  progressCommentUrl,
-                  lensMarker: renderReviewPointerLensMarker("review"),
-                }),
-              event: "COMMENT",
-              commitId: context.ctx.headSha,
-              inlinePlacements: targets.inline,
-              renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
-            },
-          ),
+          publishInlineReviewComments(context.ctx.owner, context.ctx.repo, context.ctx.prNumber, {
+            getToken: context.getToken,
+            getTokenExpiresAtTs: context.getTokenExpiresAtTs,
+            refreshLiveAuth: context.refreshLiveAuth,
+            renderReviewBody: () =>
+              renderSpecialistReviewBody({
+                specialist: context.source,
+                progressCommentUrl,
+                lensMarker: renderReviewPointerLensMarker("review"),
+              }),
+            event: "COMMENT",
+            commitId: context.ctx.headSha,
+            inlinePlacements: targets.inline,
+            renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
+          }),
       }));
 
   const posted = inlineResult.postedPlacements;

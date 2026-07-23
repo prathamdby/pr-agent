@@ -107,9 +107,7 @@ export function intentDetailMatchesPublishRecord(
   if (typeof batchId === "string") {
     const batches = publishDetail.batches;
     if (!Array.isArray(batches)) return false;
-    return batches.some(
-      (batch) => isRecord(batch) && batch.batchId === batchId,
-    );
+    return batches.some((batch) => isRecord(batch) && batch.batchId === batchId);
   }
   return true;
 }
