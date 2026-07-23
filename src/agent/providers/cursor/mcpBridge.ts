@@ -185,14 +185,24 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
     const toolStarted = Date.now();
 
     if (disposed) {
-      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
+      safeRecordReviewMetric({
+        kind: "tool_call",
+        name: toolName,
+        ok: false,
+        errorMessage: "MCP bridge disposed",
+      });
       return {
         content: [{ type: "text", text: "MCP bridge disposed" }],
         isError: true,
       };
     }
     if (aborted) {
-      safeRecordReviewMetric({ kind: "tool_call", name: toolName, ok: false });
+      safeRecordReviewMetric({
+        kind: "tool_call",
+        name: toolName,
+        ok: false,
+        errorMessage: "MCP bridge aborted",
+      });
       return {
         content: [{ type: "text", text: "MCP bridge aborted" }],
         isError: true,
@@ -217,15 +227,14 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
         const counter = options.toolRoundCounter ?? { count: 0 };
         counter.count += 1;
         if (counter.count > maxToolRounds) {
+          const limitMessage = `Tool round limit (${maxToolRounds}) reached; call submitReview with your findings.`;
           safeRecordReviewMetric({
             kind: "tool_call",
             name: toolName,
             ok: false,
+            errorMessage: limitMessage,
           });
-          return executorResultToMcp(
-            `Tool round limit (${maxToolRounds}) reached; call submitReview with your findings.`,
-            true,
-          );
+          return executorResultToMcp(limitMessage, true);
         }
       }
       if (options.refreshBeforeTool) {
@@ -240,6 +249,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
           kind: "tool_call",
           name: toolName,
           ok: false,
+          errorMessage: `Unknown tool: ${toolName}`,
         });
         return {
           content: [{ type: "text", text: `Unknown tool: ${toolName}` }],
@@ -270,6 +280,7 @@ export async function createMcpBridge(options: McpBridgeOptions): Promise<McpBri
         kind: "tool_call",
         name: toolName,
         ok: false,
+        errorMessage: message,
         resultBytes: resultSize.resultBytes,
         resultCharacters: resultSize.resultCharacters,
       });
