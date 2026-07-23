@@ -9,10 +9,7 @@ import type {
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
-import {
-  classifyFailure,
-  classifiedFailureLogFields,
-} from "../../errors/classifiedFailure.js";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import {
   MAX_TOOL_ROUNDS,

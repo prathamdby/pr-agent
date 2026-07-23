@@ -1,8 +1,5 @@
 import type { AgentRunnerTurn } from "../../agent/providers/interface.js";
-import {
-  classifyFailure,
-  type ClassifiedFailure,
-} from "../../errors/classifiedFailure.js";
+import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import { logInfo, tryUseLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
 

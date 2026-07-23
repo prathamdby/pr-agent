@@ -542,9 +542,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         pr_number: item.prNumber,
         attempt_count: item.attemptCount,
         ...classifiedFailurePostHogProperties(failure),
-        ...(failure.failureDomain === "provider"
-          ? { provider_error_kind: providerErrorKind }
-          : {}),
+        ...(failure.failureDomain === "provider" ? { provider_error_kind: providerErrorKind } : {}),
       },
     });
   }

@@ -403,7 +403,16 @@ describe("executeReviewJob", () => {
         errorMessage: "Insufficient credits for model",
         phase: "synthesis",
       },
-      lastAssistant: { role: "assistant", content: [], stopReason: "stop", api: "openai-completions", provider: "openai", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, timestamp: 0 },
+      lastAssistant: {
+        role: "assistant",
+        content: [],
+        stopReason: "stop",
+        api: "openai-completions",
+        provider: "openai",
+        model: "m",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+        timestamp: 0,
+      },
     });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());

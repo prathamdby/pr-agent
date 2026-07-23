@@ -2,7 +2,11 @@ import {
   classifyProviderError,
   type ProviderErrorKind,
 } from "../agent/providers/providerErrors.js";
-import { classifyGithubError, looksLikeGithubError, type GithubErrorKind } from "../github/githubErrors.js";
+import {
+  classifyGithubError,
+  looksLikeGithubError,
+  type GithubErrorKind,
+} from "../github/githubErrors.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { isAppError } from "./appError.js";
 
@@ -107,10 +111,7 @@ function classifyFromErrorChain(error: unknown): {
  * Precedence: lifecycle hint → explicit domain hint → GitHub-shaped (incl. cause)
  * → provider → AppError/internal → unknown.
  */
-export function classifyFailure(
-  error: unknown,
-  hints?: ClassifyFailureHints,
-): ClassifiedFailure {
+export function classifyFailure(error: unknown, hints?: ClassifyFailureHints): ClassifiedFailure {
   if (hints?.lifecycle === "superseded") {
     return finalize(error, "internal", "superseded", hints);
   }
@@ -174,9 +175,7 @@ export function classifiedFailureLogFields(f: ClassifiedFailure): Record<string,
   };
 }
 
-export function classifiedFailurePostHogProperties(
-  f: ClassifiedFailure,
-): Record<string, unknown> {
+export function classifiedFailurePostHogProperties(f: ClassifiedFailure): Record<string, unknown> {
   return {
     failure_domain: f.failureDomain,
     error_kind: f.errorKind,
