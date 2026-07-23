@@ -2,14 +2,13 @@ import type { Api, AssistantMessage, ProviderId } from "@earendil-works/pi-ai";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { AgentRunnerSession, AgentRunnerTurn } from "../agent/providers/interface.js";
-import { CURSOR_API, CURSOR_PROVIDER } from "../agent/providers/cursor/models.js";
 
 export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
     role: "assistant",
     content: text ? [{ type: "text", text }] : [],
-    api: provider === CURSOR_PROVIDER ? CURSOR_API : (cfg.piApi as Api),
-    provider: (provider === CURSOR_PROVIDER ? CURSOR_PROVIDER : cfg.piProvider) as ProviderId,
+    api: cfg.piApi as Api,
+    provider: (provider || cfg.piProvider) as ProviderId,
     model: cfg.piModel,
     usage: {
       input: 0,

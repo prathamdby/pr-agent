@@ -11,7 +11,8 @@ import {
   MAX_ASK_FINALIZE_ROUNDS,
   MAX_ASK_TOOL_ROUNDS,
 } from "../../settings/index.js";
-import { resolveAgentRunnerProvider } from "../providers/index.js";
+import { adaptPiSessionToAgentRunner } from "../runtime/adaptPiSession.js";
+import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { buildAskUserContent } from "./askUserContent.js";
 import type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 import { classifyAskQuestionIntent } from "./askSafety.js";
@@ -63,8 +64,8 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   const tools = [...refreshableGh.bundle.piTools, ...ctx7.piTools];
   const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
 
-  const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
+  const piSession = await createFeaturePiSession({
+    role: "ask",
     cfg,
     cwd: params.cwd,
     systemPrompt: buildAskSystemPrompt(),
@@ -72,10 +73,11 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     executors,
     refreshBeforeTool: refreshableGh.refreshBeforeTool,
   });
+  const session = adaptPiSessionToAgentRunner(piSession, "ask");
   await primePathGatePromise;
 
   try {
-    const sendOpts = { maxToolRounds: MAX_ASK_TOOL_ROUNDS };
+    const sendOpts = { maxToolRounds: MAX_ASK_TOOL_ROUNDS, phase: "ask" as const };
     let lastText = (await session.send(buildAskUserContent(params), sendOpts)).text.trim();
 
     if (!lastText && MAX_ASK_FINALIZE_ROUNDS > 0) {

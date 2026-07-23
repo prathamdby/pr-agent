@@ -8,6 +8,19 @@ export type AgentRunnerToolExecutor = (args: Record<string, unknown>) => Promise
 
 export type AgentRunnerSendOptions = {
   readonly maxToolRounds?: number;
+  /** Optional Pi session phase for thinking/metrics attribution during migration. */
+  readonly phase?:
+    | "recon"
+    | "specialist"
+    | "judgment"
+    | "synthesis"
+    | "validation_repair"
+    | "publish_recovery"
+    | "ask"
+    | "description"
+    | "triage"
+    | "verification"
+    | "ci_summary";
 };
 
 export type AgentRunnerSession = {

@@ -12,16 +12,18 @@ const restrictToToolsMock = vi.fn();
 const restoreToolsMock = vi.fn();
 const disposeMock = vi.fn(async () => undefined);
 
-vi.mock("../src/agent/providers/index.js", () => ({
-  resolveAgentRunnerProvider: () => ({
-    createSession: vi.fn(async () => ({
-      send: sendMock,
-      abort: vi.fn(async () => undefined),
-      restrictToTools: restrictToToolsMock,
-      restoreTools: restoreToolsMock,
-      dispose: disposeMock,
-    })),
-  }),
+vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+  createFeaturePiSession: vi.fn(async () => ({
+    send: sendMock,
+    abort: vi.fn(async () => undefined),
+    restrictToTools: restrictToToolsMock,
+    restoreTools: restoreToolsMock,
+    dispose: disposeMock,
+  })),
+}));
+
+vi.mock("../src/agent/runtime/adaptPiSession.js", () => ({
+  adaptPiSessionToAgentRunner: (session) => session,
 }));
 
 import { runAskRun } from "../src/agent/ask/askRun.js";
@@ -58,7 +60,7 @@ describe("runAskRun finalize", () => {
     const result = await runAskRun(askParams);
 
     expect(sendMock).toHaveBeenCalledTimes(2);
-    expect(sendMock.mock.calls[0]?.[1]).toEqual({ maxToolRounds: 12 });
+    expect(sendMock.mock.calls[0]?.[1]).toEqual({ maxToolRounds: 12, phase: "ask" });
     expect(sendMock.mock.calls[1]?.[1]).toBeUndefined();
     expect(restrictToToolsMock).toHaveBeenCalledWith([], {});
     expect(restoreToolsMock).toHaveBeenCalled();

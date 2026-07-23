@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentRunnerProvider, AgentRunnerSession } from "../src/agent/providers/interface.js";
+import type { AgentRunnerSession } from "../src/agent/providers/interface.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 type AttemptBehavior =
@@ -22,11 +22,12 @@ const runnerMocks = vi.hoisted(() => ({
   sessions: [] as TestSession[],
 }));
 
-vi.mock("../src/agent/providers/index.js", () => ({
-  resolveAgentRunnerProvider: () =>
-    ({
-      createSession: runnerMocks.createSession,
-    }) satisfies AgentRunnerProvider,
+vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+  createFeaturePiSession: runnerMocks.createSession,
+}));
+
+vi.mock("../src/agent/runtime/adaptPiSession.js", () => ({
+  adaptPiSessionToAgentRunner: (session) => session,
 }));
 
 import { runSpecialist } from "../src/review/orchestrator/specialistRun.js";

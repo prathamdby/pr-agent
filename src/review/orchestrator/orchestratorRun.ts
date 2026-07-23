@@ -1,11 +1,12 @@
 import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
-import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import type {
   AgentRunnerSendOptions,
   AgentRunnerSession,
   AgentRunnerToolExecutor,
 } from "../../agent/providers/interface.js";
+import { adaptPiSessionToAgentRunner } from "../../agent/runtime/adaptPiSession.js";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
@@ -305,25 +306,24 @@ export async function runOrchestratedPrReview(
     publish_thread: publishThread.executor,
     publish_summary: publishSummary.executor,
   };
-  const provider = resolveAgentRunnerProvider(params.cfg);
-  const sessionParams = {
-    cfg: params.cfg,
-    cwd: params.cwd ?? params.workspace.agentCwd,
-    systemPrompt: orchestratorSystemPrompt,
-    tools: allTools,
-    executors: allExecutors,
-    refreshBeforeTool: async (toolName: string) => {
-      if (toolName === "publish_thread" || toolName === "publish_summary") {
-        await setup.refreshLiveAuth();
-        return;
-      }
-      await setup.refreshBeforeTool(toolName);
-    },
-  };
   let session: AgentRunnerSession | null = null;
   let sessionCreation: Promise<AgentRunnerSession> | null = null;
   try {
-    sessionCreation = provider.createSession(sessionParams);
+    sessionCreation = createFeaturePiSession({
+      role: "orchestrator",
+      cfg: params.cfg,
+      cwd: params.cwd ?? params.workspace.agentCwd,
+      systemPrompt: orchestratorSystemPrompt,
+      tools: allTools,
+      executors: allExecutors,
+      refreshBeforeTool: async (toolName: string) => {
+        if (toolName === "publish_thread" || toolName === "publish_summary") {
+          await setup.refreshLiveAuth();
+          return;
+        }
+        await setup.refreshBeforeTool(toolName);
+      },
+    }).then((piSession) => adaptPiSessionToAgentRunner(piSession, "recon"));
     const creation = await settleBefore(
       sessionCreation,
       Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
@@ -463,7 +463,7 @@ export async function runOrchestratedPrReview(
         };
       }
       try {
-        const sendPromise = session.send(prompt, options);
+        const sendPromise = session.send(prompt, { ...options, phase });
         const send = await settleBefore(
           sendPromise,
           Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),

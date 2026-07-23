@@ -6,12 +6,13 @@ import {
   classifyProviderError,
   type ProviderErrorKind,
 } from "../../agent/providers/providerErrors.js";
-import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
 import type {
   AgentRunnerSession,
   AgentRunnerToolExecutor,
   AgentRunnerTurn,
 } from "../../agent/providers/interface.js";
+import { adaptPiSessionToAgentRunner } from "../../agent/runtime/adaptPiSession.js";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
@@ -185,7 +186,8 @@ async function createSessionWithinDeadline(
   deadlineMs: number,
   submitTool: ReturnType<typeof buildSubmitTool>,
 ): Promise<AgentRunnerSession> {
-  const creation = resolveAgentRunnerProvider(params.cfg).createSession({
+  const creation = createFeaturePiSession({
+    role: "specialist",
     cfg: params.cfg,
     cwd: params.cwd,
     systemPrompt: specialistSystemPrompt(params.specialist),
@@ -194,7 +196,7 @@ async function createSessionWithinDeadline(
       ...params.workspaceTools.executors,
       [SUBMIT_TOOL_NAME]: submitTool.executor,
     },
-  });
+  }).then((session) => adaptPiSessionToAgentRunner(session, "specialist"));
   return runWithinDeadline({
     run: () => creation,
     signal: params.signal,

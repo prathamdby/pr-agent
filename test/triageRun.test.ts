@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentRunnerProvider } from "../src/agent/providers/interface.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { runFullPrTriage } from "../src/agent/triage/triageRun.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -8,13 +7,12 @@ const providerState = vi.hoisted(() => ({
   createSession: vi.fn(),
 }));
 
-vi.mock("../src/agent/providers/index.js", () => ({
-  resolveAgentRunnerProvider: vi.fn(
-    () =>
-      ({
-        createSession: providerState.createSession,
-      }) satisfies AgentRunnerProvider,
-  ),
+vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+  createFeaturePiSession: providerState.createSession,
+}));
+
+vi.mock("../src/agent/runtime/adaptPiSession.js", () => ({
+  adaptPiSessionToAgentRunner: (session) => session,
 }));
 
 const cfg = makeTestConfig();

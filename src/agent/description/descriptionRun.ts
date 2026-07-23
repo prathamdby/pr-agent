@@ -8,7 +8,8 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { resolveAgentRunnerProvider } from "../providers/index.js";
+import { adaptPiSessionToAgentRunner } from "../runtime/adaptPiSession.js";
+import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
 import {
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
@@ -65,8 +66,8 @@ export async function runFullPrDescription(params: {
   const tokenTtlMs = tokenTtlMsOrDefault(params.tokenTtlMs);
   const providerName = cfg.agentProvider;
   const setup = buildDescriptionRunSetup({ ...params, tokenTtlMs });
-  const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
+  const piSession = await createFeaturePiSession({
+    role: "description",
     cfg,
     cwd: params.cwd,
     systemPrompt: setup.systemPrompt,
@@ -74,6 +75,7 @@ export async function runFullPrDescription(params: {
     executors: setup.executors,
     refreshBeforeTool: setup.refreshBeforeTool,
   });
+  const session = adaptPiSessionToAgentRunner(piSession, "description");
 
   let lastText = "";
 

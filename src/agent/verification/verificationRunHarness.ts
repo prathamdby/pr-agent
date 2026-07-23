@@ -5,7 +5,8 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo } from "../../evlog.js";
-import { resolveAgentRunnerProvider } from "../providers/index.js";
+import { adaptPiSessionToAgentRunner } from "../runtime/adaptPiSession.js";
+import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { VerificationRunResult } from "./verificationRun.js";
 import {
   buildSubmitOnlyVerificationSessionTools,
@@ -35,14 +36,15 @@ export async function runVerificationHarness(params: {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.agentProvider;
   const setup = buildVerificationRunSetup(params);
-  const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
+  const piSession = await createFeaturePiSession({
+    role: "verification",
     cfg,
     cwd: params.rootDir,
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,
   });
+  const session = adaptPiSessionToAgentRunner(piSession, "verification");
 
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>

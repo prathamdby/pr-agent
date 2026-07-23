@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentRunnerProvider, AgentRunnerSession } from "../src/agent/providers/interface.js";
+import type { AgentRunnerSession } from "../src/agent/providers/interface.js";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
@@ -217,9 +217,12 @@ const runner = vi.hoisted(() => ({
   createSession: vi.fn(),
 }));
 
-vi.mock("../src/agent/providers/index.js", () => ({
-  resolveAgentRunnerProvider: () =>
-    ({ createSession: runner.createSession }) satisfies AgentRunnerProvider,
+vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+  createFeaturePiSession: runner.createSession,
+}));
+
+vi.mock("../src/agent/runtime/adaptPiSession.js", () => ({
+  adaptPiSessionToAgentRunner: (session) => session,
 }));
 
 import {
