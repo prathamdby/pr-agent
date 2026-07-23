@@ -19,6 +19,7 @@ import {
   REVIEW_EFFORT_WORDS,
   REVIEW_FINDING_FOOTNOTE_INLINE,
   REVIEW_FINDING_FOOTNOTE_SUMMARY,
+  REVIEW_FINDING_FOOTNOTE_SUMMARY_P3,
   REVIEW_FINDINGS_NONE,
   REVIEW_OVERVIEW_ALERT,
   REVIEW_OVERVIEW_COMPACT_MAX_CHARS,
@@ -203,10 +204,10 @@ function renderFindingTableCellHtml(
   if (!placement.inlinePosted && !compact) {
     parts.push(escapeTablePlainCell(findingFields.detail));
   }
+  const summaryFootnote =
+    f.severity === "P3" ? REVIEW_FINDING_FOOTNOTE_SUMMARY_P3 : REVIEW_FINDING_FOOTNOTE_SUMMARY;
   parts.push(
-    renderTableEm(
-      placement.inlinePosted ? REVIEW_FINDING_FOOTNOTE_INLINE : REVIEW_FINDING_FOOTNOTE_SUMMARY,
-    ),
+    renderTableEm(placement.inlinePosted ? REVIEW_FINDING_FOOTNOTE_INLINE : summaryFootnote),
   );
   return parts.join("<br>");
 }
@@ -371,6 +372,7 @@ function buildReviewSummaryBody(
       if (
         options.includeSummaryAccordions &&
         !placement.inlinePosted &&
+        f.severity !== "P3" &&
         f.fixPrompt != null &&
         f.fixPrompt.length > 0
       ) {
