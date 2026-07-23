@@ -5,7 +5,6 @@ import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { MAX_REVIEW_PUBLISH_CALLS } from "../../settings/index.js";
 
 export async function publishReviewRunFailureNotice(params: {
   readonly cfg: Config;
@@ -19,7 +18,6 @@ export async function publishReviewRunFailureNotice(params: {
   logWarn("agent_publish_fallback", {
     mode: params.reviewMode,
     publishAttempts: params.publishAttempts,
-    maxPublishCalls: MAX_REVIEW_PUBLISH_CALLS,
   });
   const token = params.setup.getToken();
   const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
