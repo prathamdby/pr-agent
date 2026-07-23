@@ -12,7 +12,7 @@ export function Capabilities() {
           What your team gets back in GitHub
         </h2>
         <p className="mt-4 text-sm leading-relaxed text-ink-mute">
-          Trigger a pass from a pull request comment, or let the automatic path run when a PR opens.
+          Ask from a pull request comment, or let the automatic path run when a pull request opens.
         </p>
       </div>
 

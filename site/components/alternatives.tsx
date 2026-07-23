@@ -11,8 +11,8 @@ export function Alternatives() {
         Pick PR Agent when hosted review is the problem
       </h2>
       <p className="mt-4 max-w-2xl text-sm leading-relaxed text-ink-mute">
-        CodeRabbit, Greptile, Cursor Bugbot, and Macroscope sell a hosted review layer. PR Agent is
-        for teams that want the reviewer, the AI keys, and the review data in their own account.
+        CodeRabbit, Greptile, Cursor Bugbot, and Macroscope sell hosted review. PR Agent is for
+        teams that want the reviewer, the AI keys, and the review data in their own account.
       </p>
 
       <div className="mt-12 overflow-x-auto">
