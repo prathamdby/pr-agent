@@ -19,7 +19,6 @@ export type ReviewMetricEvent =
       readonly durationMs?: number;
       readonly resultBytes?: number;
       readonly resultCharacters?: number;
-      /** Sanitized provider/tool failure text when ok is false. */
       readonly errorMessage?: string;
     }
   | {
@@ -455,7 +454,6 @@ export function logReviewRunCompleted(extra?: Record<string, unknown>): void {
   logInfo("review_run_completed", { ...snapshot, ...extra });
 }
 
-/** Persist a classified external/provider/GitHub failure for soft-fail terminal handlers. */
 export function recordClassifiedFailure(failure: ClassifiedFailure): void {
   recordReviewMetric({ kind: "external_failure", failure });
 }

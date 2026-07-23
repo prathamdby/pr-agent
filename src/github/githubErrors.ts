@@ -11,8 +11,7 @@ export type GithubErrorKind =
 function githubErrorText(error: unknown): string {
   if (error instanceof Error) return `${error.name} ${error.message}`.toLowerCase();
   if (typeof error === "object" && error != null && "message" in error) {
-    const message = Reflect.get(error, "message");
-    return String(message).toLowerCase();
+    return String((error as { message: unknown }).message).toLowerCase();
   }
   return String(error).toLowerCase();
 }

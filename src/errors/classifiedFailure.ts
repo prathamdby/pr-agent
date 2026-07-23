@@ -83,13 +83,14 @@ function classifyFromErrorChain(error: unknown): {
   domain: FailureDomain;
   kind: ClassifiedErrorKind;
 } {
-  for (const node of walkErrors(error)) {
+  const nodes = walkErrors(error);
+  for (const node of nodes) {
     if (looksLikeGithubError(node)) {
       const kind = classifyGithubError(node);
       if (kind !== "unknown") return { domain: "github", kind };
     }
   }
-  for (const node of walkErrors(error)) {
+  for (const node of nodes) {
     const kind = classifyProviderError(node);
     if (kind !== "unknown") return { domain: "provider", kind };
   }
