@@ -1,5 +1,6 @@
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { Config } from "../../config.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 
 export type CodeAnchor = {
@@ -31,6 +32,7 @@ export type AskRunParams = {
   }>;
   cwd?: string;
   workspace: LocalPrWorkspace;
+  durability?: FeatureSessionDurability;
 };
 
 export type AskRunResult = {

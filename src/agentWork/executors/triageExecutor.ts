@@ -507,6 +507,11 @@ async function runFreshTriageAgent(params: {
         inventory: params.inventory,
         cwd: checkout.dir,
         scope: params.scope,
+        durability: {
+          pool: params.pool,
+          workItemId: params.item.id,
+          installationId: params.item.installationId,
+        },
       });
       if (!result.submitted || !result.payload) {
         const error = new AppError({

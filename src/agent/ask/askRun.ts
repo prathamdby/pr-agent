@@ -72,6 +72,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     tools,
     executors,
     refreshBeforeTool: refreshableGh.refreshBeforeTool,
+    durability: params.durability,
   });
   const session = adaptPiSessionToAgentRunner(piSession, "ask");
   await primePathGatePromise;

@@ -24,6 +24,7 @@ import {
   shouldContinueDescriptionRun,
 } from "./descriptionRunSetup.js";
 import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 
 export type DescriptionRunResult = {
   lastAssistant: AssistantMessage;
@@ -56,6 +57,7 @@ export async function runFullPrDescription(params: {
     token: string;
     expiresAtTs: number;
   }>;
+  durability?: FeatureSessionDurability;
 }): Promise<DescriptionRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new AppError({
@@ -76,6 +78,7 @@ export async function runFullPrDescription(params: {
     tools: setup.piTools,
     executors: setup.executors,
     refreshBeforeTool: setup.refreshBeforeTool,
+    durability: params.durability,
   });
   const session = adaptPiSessionToAgentRunner(piSession, "description");
 

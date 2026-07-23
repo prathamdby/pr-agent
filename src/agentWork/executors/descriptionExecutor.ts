@@ -79,6 +79,11 @@ export async function executeDescriptionJob(
               item.installationId,
               tokenState,
             ),
+            durability: {
+              pool,
+              workItemId: item.id,
+              installationId: item.installationId,
+            },
           });
           if (!result.published && !result.publishSuperseded) {
             const failure = classifyFailure(new Error("Description was not published"), {

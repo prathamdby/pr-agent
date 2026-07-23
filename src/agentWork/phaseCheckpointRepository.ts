@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { AgentSessionRole, AuthoritativeStructuredState } from "../agent/runtime/types.js";
+import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 
 export type AgentPhaseCheckpointRow = {
@@ -55,7 +56,14 @@ export async function upsertAgentPhaseCheckpoint(
     ],
   );
   if (!row) {
-    throw new Error("upsertAgentPhaseCheckpoint returned no row");
+    throw new AppError({
+      code: "agent_phase_checkpoint.upsert_no_row",
+      message: "upsertAgentPhaseCheckpoint returned no row",
+      context: {
+        workItemId: params.workItemId,
+        sessionRole: params.sessionRole,
+      },
+    });
   }
   return {
     id: row.id,

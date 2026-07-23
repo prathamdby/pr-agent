@@ -323,6 +323,7 @@ export async function runOrchestratedPrReview(
       systemPrompt: orchestratorSystemPrompt,
       tools: allTools,
       executors: allExecutors,
+      durability: params.durability,
       refreshBeforeTool: async (toolName: string) => {
         if (toolName === "publish_thread" || toolName === "publish_summary") {
           await setup.refreshLiveAuth();
@@ -788,6 +789,7 @@ export async function runOrchestratedPrReview(
           ),
           shouldContinue: () => state.lifecycle.kind === "running",
           signal: controller.signal,
+          durability: params.durability,
         }),
       );
     }

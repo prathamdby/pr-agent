@@ -16,6 +16,7 @@ import {
 } from "./triageRunSetup.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import {
   TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
   TRIAGE_VALIDATION_REPAIR_ROUNDS,
@@ -35,6 +36,7 @@ export async function runTriageHarness(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly cwd?: string;
   readonly scope?: TriageScope;
+  readonly durability?: FeatureSessionDurability;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.agentProvider;
@@ -46,6 +48,7 @@ export async function runTriageHarness(params: {
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,
+    durability: params.durability,
   });
   const session = adaptPiSessionToAgentRunner(piSession, "triage");
 

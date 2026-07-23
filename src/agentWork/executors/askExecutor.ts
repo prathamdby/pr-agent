@@ -120,6 +120,11 @@ export async function executeAskJob(
               item.installationId,
               tokenState,
             ),
+            durability: {
+              pool,
+              workItemId: item.id,
+              installationId: item.installationId,
+            },
           });
           if (!(await askReplyPublished())) {
             await withOperationIntent({

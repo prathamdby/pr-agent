@@ -14,6 +14,7 @@ import {
   shouldContinueVerificationRun,
 } from "./verificationRunSetup.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import {
   VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
   VERIFICATION_VALIDATION_REPAIR_ROUNDS,
@@ -32,6 +33,7 @@ export async function runVerificationHarness(params: {
   readonly rootDir: string;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+  readonly durability?: FeatureSessionDurability;
 }): Promise<VerificationRunResult> {
   const { cfg, owner, repo, prNumber } = params;
   const providerName = cfg.agentProvider;
@@ -43,6 +45,7 @@ export async function runVerificationHarness(params: {
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,
+    durability: params.durability,
   });
   const session = adaptPiSessionToAgentRunner(piSession, "verification");
 

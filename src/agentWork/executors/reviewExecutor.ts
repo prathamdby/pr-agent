@@ -583,6 +583,11 @@ async function runFullReviewAgainstRepositoryView(args: {
       return false;
     },
     refreshInstallationToken,
+    durability: {
+      pool,
+      workItemId: item.id,
+      installationId: item.installationId,
+    },
   });
 
   if (staleHeadAtPublish.value && payload.source === "slash" && !payload.staleHeadRescheduled) {

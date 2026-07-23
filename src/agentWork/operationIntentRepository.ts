@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 
 export type OperationIntentStatus = "pending" | "reconciled" | "failed";
@@ -48,7 +49,16 @@ export async function persistOperationIntent(
       JSON.stringify(params.detail ?? {}),
     ],
   );
-  if (!row) throw new Error("persistOperationIntent returned no row");
+  if (!row) {
+    throw new AppError({
+      code: "operation_intent.persist_no_row",
+      message: "persistOperationIntent returned no row",
+      context: {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+      },
+    });
+  }
   return mapRow(row);
 }
 
