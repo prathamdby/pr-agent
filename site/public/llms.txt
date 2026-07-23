@@ -1,0 +1,27 @@
+# PR Agent
+
+> Self-hosted GitHub App for AI pull request reviews. You run webhook intake, Postgres, and workers. MIT licensed. No per-seat fee. You pay hosting and model usage.
+
+PR Agent accepts signed GitHub webhooks, records them in Postgres, and enqueues durable work with pg-boss. Workers run review, describe, ask, triage, and verification agents, then publish results back on the pull request. Slash commands are /review, /describe, /ask, and /triage. Automated review can also run on pull_request events.
+
+You keep model keys and review traffic in your own environment. Supported backends include OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and the Cursor SDK.
+
+## Docs
+
+- [Getting started](https://github.com/prathamdby/pr-agent#getting-started): GitHub App setup and Docker Compose deploy
+- [Features](https://github.com/prathamdby/pr-agent/blob/main/docs/features.md): FEATURE_* catalog and capability modes (off, manual, auto)
+- [Configuration](https://github.com/prathamdby/pr-agent/blob/main/docs/configuration.md): Environment variables and knobs
+- [Operations](https://github.com/prathamdby/pr-agent/blob/main/docs/operations.md): Deploy steps, runtime behaviour, and scripts
+- [Domain vocabulary](https://github.com/prathamdby/pr-agent/blob/main/CONTEXT.md): Product terms used in code and docs
+
+## Product
+
+- [Landing page](https://pr-agent-site.vercel.app/): Product overview, pricing, FAQ, and deploy steps
+- [Repository](https://github.com/prathamdby/pr-agent): Source, issues, and releases
+- [How it works](https://github.com/prathamdby/pr-agent#how-it-works): Web intake vs worker topology
+
+## Optional
+
+- [Agent work ops](https://github.com/prathamdby/pr-agent/blob/main/docs/agent-work-ops.md): Queue health and recovery runbook
+- [Architecture decisions](https://github.com/prathamdby/pr-agent/tree/main/docs/adr): ADRs for major design choices
+- [License](https://github.com/prathamdby/pr-agent/blob/main/LICENSE): MIT
