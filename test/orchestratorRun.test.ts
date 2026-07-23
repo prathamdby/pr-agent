@@ -246,14 +246,15 @@ function empty(specialist: SpecialistId): SpecialistOutcome {
   return { kind: "empty", specialist, durationMs: 1 };
 }
 
-function failed(specialist: SpecialistId): SpecialistOutcome {
+function failed(specialist: SpecialistId, message = `${specialist} failed`): SpecialistOutcome {
   return {
     kind: "error",
     specialist,
     durationMs: 1,
     error: new AppError({
       code: "review.specialist_failed",
-      message: `${specialist} failed`,
+      message,
+      cause: new Error(message),
     }),
   };
 }
@@ -608,6 +609,29 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: false });
     expect(testState.publishOrder).toEqual([]);
     expect(testState.failureNotices).toBe(1);
+  });
+
+  it("surfaces specialist insufficient-credits failure as lastFailure on soft-fail", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      const creditMessage = "Insufficient credits for model";
+      const run = runOrchestratedPrReview(params());
+      testState.outcomes.get("correctness")?.resolve(failed("correctness", creditMessage));
+      testState.outcomes.get("security")?.resolve(failed("security", creditMessage));
+      testState.outcomes.get("quality")?.resolve(failed("quality", creditMessage));
+      testState.outcomes.get("tests")?.resolve(failed("tests", creditMessage));
+
+      const result = await run;
+      expect(result).toMatchObject({
+        published: false,
+        lastFailure: {
+          failureDomain: "provider",
+          errorKind: "quota",
+        },
+      });
+      expect(result.lastFailure?.errorMessage.toLowerCase()).toContain("credit");
+      expect(snapshotReviewRunMetrics()?.lastFailure?.errorKind).toBe("quota");
+    });
   });
 
   it("publishes a deterministic summary when synthesis never calls publish_summary", async () => {
