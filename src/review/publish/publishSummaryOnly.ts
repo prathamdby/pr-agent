@@ -32,6 +32,7 @@ import {
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import { buildCiSummary } from "../ci/analyzeCi.js";
 import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
+import { preserveCiSummaryRowInCommentBody } from "../ci/renderCiSummary.js";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
 import { enrichPlacementsWithInlineCommentUrls } from "./placementEnrichment.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
@@ -309,7 +310,11 @@ async function upsertSummaryCommentAtRevision(
   const result = await upsertSummaryCommentWithoutRevision({
     ...params,
     pool: client,
-    body: withProgressRevisionComment(params.body, params.progressRevision, params.workItemId),
+    body: withProgressRevisionComment(
+      preserveCiSummaryRowInCommentBody(currentComment?.body ?? "", params.body),
+      params.progressRevision,
+      params.workItemId,
+    ),
     hintCommentId: currentComment?.id ?? params.hintCommentId,
   });
   if (params.workItemId != null) {

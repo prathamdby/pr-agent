@@ -538,7 +538,12 @@ export async function runOrchestratedPrReview(
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
       progressRevision: 6,
-      tickState: { kind: "terminal", reason },
+      tickState: {
+        kind: "terminal",
+        reason,
+        recon: state.recon,
+        specialists: state.specialists,
+      },
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
       refreshLiveAuth: setup.refreshLiveAuth,

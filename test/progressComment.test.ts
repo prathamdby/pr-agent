@@ -168,11 +168,42 @@ describe("progressComment fallback wording", () => {
         headSha: "abc123",
         source,
         progressRevision: 6,
-        tickState: { kind: "terminal", reason },
+        ciSummary: {
+          status: "pending",
+          headline: "⏳ CI is still running",
+          failures: [],
+        },
+        tickState: {
+          kind: "terminal",
+          reason,
+          recon: "done",
+          specialists: {
+            correctness: { phase: "done", threadsPublished: 1 },
+            security: { phase: "running" },
+            quality: { phase: "waiting" },
+            tests: { phase: "waiting" },
+          },
+        },
       });
 
       expect(body.startsWith(REVIEW_SUMMARY_SENTINEL)).toBe(true);
       expect(body).toContain(expected);
+      expect(body).toContain("<strong>CI</strong>");
+      expect(body).toContain("CI is still running");
+      expect(body).toContain("<strong>Recon</strong>");
+      expect(body).toContain("<strong>Correctness</strong>");
+      expect(body).toContain("<strong>Security</strong>");
+      expect(body).toContain("<strong>Quality</strong>");
+      expect(body).toContain("<strong>Tests</strong>");
+      expect(body).toContain("✅ 1 finding");
+      expect(body).toContain(STATUS_RUNNING);
+      expect(body).toContain(STATUS_WAITING);
+      expect(body.indexOf("<strong>Source</strong>")).toBeLessThan(
+        body.indexOf("<strong>CI</strong>"),
+      );
+      expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(
+        body.indexOf("<strong>Recon</strong>"),
+      );
       expect(body).toContain(
         `<!-- pr-agent:review-meta headSha=invalid lens=review stale=${String(stale)} -->`,
       );
