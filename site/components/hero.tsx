@@ -4,25 +4,17 @@ import { ReviewArtifact } from "@/components/review-artifact";
 import { DOCS_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
 
+const HERO_HEADING = "AI PR reviews on your own servers";
+
 const heroCopyClassName =
   "max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft";
 
-function HeroCopy({ headingId }: { readonly headingId?: string }) {
-  const copy = (
-    <>
-      AI PR reviews on <span className="text-bolt">your own servers</span>
-    </>
-  );
-
+function HeroCopy() {
   return (
     <>
-      {headingId ? (
-        <h1 id={headingId} className={heroCopyClassName}>
-          {copy}
-        </h1>
-      ) : (
-        <p className={heroCopyClassName}>{copy}</p>
-      )}
+      <p className={heroCopyClassName} aria-hidden="true">
+        AI PR reviews on <span className="text-bolt">your own servers</span>
+      </p>
       <p className="mt-3 max-w-[42ch] text-sm leading-relaxed text-ink-mute sm:text-base">
         Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model
         keys, your code never leaves.
@@ -51,6 +43,9 @@ function HeroCta({ align = "start" }: { readonly align?: "start" | "end" }) {
 export function Hero() {
   return (
     <section aria-labelledby="hero-heading" className="grain relative overflow-x-hidden">
+      <h1 id="hero-heading" className="sr-only">
+        {HERO_HEADING}
+      </h1>
       <DiffField />
 
       <div className="relative z-10 mx-auto w-full max-w-6xl px-4 pb-10 pt-28 sm:px-6 sm:pb-12 sm:pt-32 md:pb-14 lg:hidden">
@@ -73,7 +68,7 @@ export function Hero() {
 
         <div className="mt-8 border-t border-edge pt-7 md:mt-10 md:grid md:grid-cols-[minmax(0,1.4fr)_auto] md:items-end md:gap-8 md:pt-8">
           <div className="min-w-0">
-            <HeroCopy headingId="hero-heading" />
+            <HeroCopy />
           </div>
           <div className="mt-6 min-w-0 md:mt-0 md:justify-self-end md:text-right">
             <HeroCta />
