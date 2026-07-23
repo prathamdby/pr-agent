@@ -20,6 +20,11 @@ import {
   mergeExactUsage,
   promptMetadataFromText,
 } from "../providers/usageMetadata.js";
+import {
+  canCompactAtBoundary,
+  SERVER_COMPACTION_INSTRUCTIONS,
+  structuredStateReinjectionPrompt,
+} from "./compactionPolicy.js";
 import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
 import type {
@@ -124,6 +129,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
 
   const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
   let structuredState: AuthoritativeStructuredState = params.structuredState;
+  let pendingExternalMutation = false;
   const emit = createSanitizedEventSink(params.eventSink);
 
   try {
@@ -163,7 +169,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
     }
 
     const settingsManager = SettingsManager.inMemory({
-      compaction: { enabled: params.compactionPolicy.enabled },
+      compaction: {
+        enabled: params.compactionPolicy.enabled,
+      },
     });
     const resourceLoader = new DefaultResourceLoader({
       cwd: params.cwd ?? process.cwd(),
@@ -379,6 +387,41 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         });
       },
       getStructuredState: () => structuredState,
+      setStructuredState(state) {
+        structuredState = state;
+      },
+      setExternalMutationPending(pending) {
+        pendingExternalMutation = pending;
+      },
+      async compactIfNeeded(reason = "threshold") {
+        if (!params.compactionPolicy.enabled) return false;
+        const gate = canCompactAtBoundary({
+          turnSettled: true,
+          pendingExternalMutation,
+        });
+        if (!gate.ok) {
+          throw new AppError({
+            code: "runtime.compaction_blocked_pending_mutation",
+            message: "Compaction cannot run while an external mutation is unresolved",
+            context: { reason: gate.reason },
+          });
+        }
+        const instructions = [
+          params.compactionPolicy.instructions || SERVER_COMPACTION_INSTRUCTIONS,
+          structuredStateReinjectionPrompt(structuredState),
+        ].join("\n\n");
+        await session.compact(instructions);
+        emit({
+          kind: "compaction",
+          role: params.role,
+          provider: params.primary.provider,
+          model: params.primary.model,
+          reason,
+        });
+        // Re-assert authoritative state after compaction summary (advisory only).
+        await session.prompt(structuredStateReinjectionPrompt(structuredState));
+        return true;
+      },
     };
 
     return piSession;

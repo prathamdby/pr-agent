@@ -13,6 +13,9 @@ export const DEFAULT_PI_ORCHESTRATOR_MODEL = "";
 export const DEFAULT_PI_FALLBACK_PROVIDER = "";
 export const DEFAULT_PI_FALLBACK_MODEL = "";
 export const DEFAULT_PI_THINKING_CEILING = "high" as const;
+/** Empty disables encrypted resume snapshot persistence. */
+export const DEFAULT_AGENT_RESUME_SNAPSHOT_KEY = "";
+export const DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS = 600;
 export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 300_000;
 export const DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS = 900_000;
 

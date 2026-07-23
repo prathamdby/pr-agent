@@ -97,6 +97,14 @@ export type PiSession = {
   }) => Promise<PiSession>;
   /** Test/harness access to the latest authoritative structured state. */
   readonly getStructuredState: () => AuthoritativeStructuredState;
+  readonly setStructuredState: (state: AuthoritativeStructuredState) => void;
+  /** Block compaction while a GitHub mutation is unresolved. */
+  readonly setExternalMutationPending: (pending: boolean) => void;
+  /**
+   * Run compaction at a safe boundary, then re-inject authoritative structured state.
+   * No-ops when compaction policy is disabled.
+   */
+  readonly compactIfNeeded: (reason?: string) => Promise<boolean>;
 };
 
 export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
@@ -125,8 +133,9 @@ export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
 };
 
 export const DEFAULT_COMPACTION_POLICY: CompactionPolicy = {
-  enabled: false,
-  instructions: "",
+  enabled: true,
+  instructions:
+    "Compact the conversation to free context. Preserve the task goal and remaining work. Do not invent specialist reports, findings, publish outcomes, or checkpoint state.",
 };
 
 export const DEFAULT_TOOL_POLICY: ToolPolicy = {

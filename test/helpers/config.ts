@@ -29,6 +29,8 @@ const baseTestConfig: Config = {
   piFallbackProvider: "",
   piFallbackModel: "",
   piThinkingCeiling: "high",
+  agentResumeSnapshotKey: "",
+  agentResumeSnapshotMarginSeconds: 600,
   piApi: "openai-responses",
   modelsJsonPath: null,
   modelProviderKeys: {

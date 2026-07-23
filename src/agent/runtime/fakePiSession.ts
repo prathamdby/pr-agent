@@ -2,6 +2,10 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../../errors/appError.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import { promptMetadataFromText } from "../providers/usageMetadata.js";
+import {
+  canCompactAtBoundary,
+  structuredStateReinjectionPrompt,
+} from "./compactionPolicy.js";
 import type {
   AgentLifecycleEvent,
   AuthoritativeStructuredState,
@@ -59,10 +63,15 @@ export function createFakePiSession(
       script = next;
     },
     markCompactionBoundary() {
-      if (pendingExternalMutation) {
+      const gate = canCompactAtBoundary({
+        turnSettled: true,
+        pendingExternalMutation,
+      });
+      if (!gate.ok) {
         throw new AppError({
           code: "runtime.compaction_blocked_pending_mutation",
           message: "Compaction cannot run while an external mutation is unresolved",
+          context: { reason: gate.reason },
         });
       }
       compactionCount += 1;
@@ -78,6 +87,7 @@ export function createFakePiSession(
         version: structuredState.version,
         payload: { ...structuredState.payload },
       };
+      void structuredStateReinjectionPrompt(structuredState);
     },
     setPendingExternalMutation(pending) {
       pendingExternalMutation = pending;
@@ -183,6 +193,37 @@ export function createFakePiSession(
       return next.session;
     },
     getStructuredState: () => structuredState,
+    setStructuredState(state) {
+      structuredState = state;
+    },
+    setExternalMutationPending(pending) {
+      pendingExternalMutation = pending;
+    },
+    async compactIfNeeded(reason = "threshold") {
+      if (!params.compactionPolicy.enabled) return false;
+      const gate = canCompactAtBoundary({
+        turnSettled: true,
+        pendingExternalMutation,
+      });
+      if (!gate.ok) {
+        throw new AppError({
+          code: "runtime.compaction_blocked_pending_mutation",
+          message: "Compaction cannot run while an external mutation is unresolved",
+          context: { reason: gate.reason },
+        });
+      }
+      controls.markCompactionBoundary();
+      emit({
+        kind: "turn",
+        role: params.role,
+        phase: "synthesis",
+        checkpointId: "post-compaction",
+        provider: activeModel.provider,
+        model: activeModel.model,
+      });
+      void reason;
+      return true;
+    },
   };
 
   return { session, controls };

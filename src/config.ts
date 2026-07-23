@@ -35,6 +35,8 @@ import {
   DEFAULT_PI_ORCHESTRATOR_PROVIDER,
   DEFAULT_PI_PROVIDER,
   DEFAULT_PI_THINKING_CEILING,
+  DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
+  DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
@@ -259,6 +261,14 @@ export async function loadConfig() {
     ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
     DEFAULT_PI_THINKING_CEILING,
   );
+  const agentResumeSnapshotKey = optionalEnv(
+    ENV.AGENT_RESUME_SNAPSHOT_KEY,
+    DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
+  ).trim();
+  const agentResumeSnapshotMarginSeconds = readNonNegativeNumber(
+    ENV.AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
+    DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
+  );
   const modelsJsonPath = resolveModelsJsonPath({
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
@@ -438,6 +448,8 @@ export async function loadConfig() {
     piFallbackProvider,
     piFallbackModel,
     piThinkingCeiling,
+    agentResumeSnapshotKey,
+    agentResumeSnapshotMarginSeconds,
     piApi,
     modelsJsonPath,
     modelProviderKeys,

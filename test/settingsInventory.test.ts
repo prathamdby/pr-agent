@@ -32,7 +32,9 @@ describe("settings inventory", () => {
     expect(envValues).toContain("PI_FALLBACK_PROVIDER");
     expect(envValues).toContain("PI_FALLBACK_MODEL");
     expect(envValues).toContain("PI_THINKING_CEILING");
-    expect(envValues.length).toBe(54);
+    expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_KEY");
+    expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS");
+    expect(envValues.length).toBe(56);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

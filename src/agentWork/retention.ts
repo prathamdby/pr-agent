@@ -2,12 +2,14 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
+import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
 export type RetentionResult = {
   readonly workItemsDeleted: number;
   readonly webhookEventsDeleted: number;
+  readonly resumeSnapshotsDeleted: number;
 };
 
 /**
@@ -18,7 +20,7 @@ export async function runRetention(
   pool: Pool,
   cfg: Pick<Config, "agentWorkRetentionSeconds" | "webhookEventsRetentionSeconds">,
 ): Promise<RetentionResult> {
-  const [workItemsDeleted, webhookEventsDeleted] = await Promise.all([
+  const [workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted] = await Promise.all([
     (async () => {
       let deleted = 0;
       for (;;) {
@@ -56,8 +58,9 @@ export async function runRetention(
       }
       return deleted;
     })(),
+    deleteExpiredResumeSnapshots(pool),
   ]);
-  return { workItemsDeleted, webhookEventsDeleted };
+  return { workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted };
 }
 
 export async function ensureRetentionSchedule(
