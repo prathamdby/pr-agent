@@ -81,6 +81,11 @@ it("does not label superseded as provider", () => {
   expect(f.failureDomain).toBe("internal");
   expect(f.errorKind).toBe("superseded");
 });
+it("maps stale_head lifecycle to internal/cancelled", () => {
+  const f = classifyFailure(new Error("head moved"), { lifecycle: "stale_head" });
+  expect(f.failureDomain).toBe("internal");
+  expect(f.errorKind).toBe("cancelled");
+});
 ```
 
 - [ ] **Step 2: Run tests — expect FAIL** (`classifyFailure` / matchers missing)
@@ -190,27 +195,37 @@ git commit -m "feat: retain last classified failure on review run metrics"
 
 ---
 
-### Task 3: Orchestrator records send/salvage failures; ReviewRunResult carries lastFailure
+### Task 3: Orchestrator + tool adapters record real failures; ReviewRunResult carries lastFailure
 
 **Files:**
 - Modify: `src/review/run/reviewRunTypes.ts`
-- Modify: `src/review/orchestrator/orchestratorRun.ts` (sendWithRetry catch, salvage log, return)
+- Modify: `src/review/orchestrator/orchestratorRun.ts` (sendWithRetry catch, specialist error outcomes, salvage log, return)
 - Modify: `src/review/run/reviewRunFallback.ts`
-- Test: extend `test/orchestratorRun.test.ts` and/or a focused unit test that mocks send failure
+- Modify: provider tool_call sites that emit `ok: false` without text (e.g. `src/agent/providers/pi/index.ts`, cursor MCP bridge) to pass `errorMessage` (sanitized) or call `recordClassifiedFailure`
+- Test: extend `test/orchestratorRun.test.ts` and/or focused unit tests for send/specialist/tool failure recording
 
 **Interfaces:**
-- Consumes: `recordClassifiedFailure`, `classifiedFailureLogFields`
+- Consumes: `recordClassifiedFailure`, `classifiedFailureLogFields`, `classifyFailure` (no forced `domain: "provider"`)
 - Produces: `ReviewRunResult.lastFailure?: ClassifiedFailure`
 
-- [ ] **Step 1: Write failing test** — when orchestrator send fails with insufficient credits (existing harness pattern), metrics/result expose `lastFailure.errorKind === "quota"` and `review_synthesis_publish_salvage` / completed result includes it. Prefer the smallest existing orchestrator test hook.
+**Classification precedence (required):** lifecycle hint → GitHub-shaped error (including `cause` chain) → provider classifier → AppError/internal → unknown. Never force `domain: "provider"` on send/tool catch.
+
+**`stale_head` mapping:** `ClassifyFailureHints.lifecycle: "stale_head"` → `failureDomain: "internal"`, `errorKind: "cancelled"` (same family as cancelled; message may say stale head). Do not invent a new kind.
+
+- [ ] **Step 1: Write failing tests**
+  - Send / specialist / tool failure with “Insufficient credits” leaves `lastFailure.errorKind === "quota"` on metrics and `ReviewRunResult`.
+  - Failed `tool_call` producers pass enough text for classification (not only `ok: false`).
+  - GitHub-shaped publish error classifies as `failureDomain: "github"` (not provider).
 
 - [ ] **Step 2: Run — expect FAIL**
 
 - [ ] **Step 3: Implement**
-  - In `sendWithRetry` catch: `recordClassifiedFailure(classifyFailure(appError, { phase, domain: "provider" }))`
-  - On salvage `logWarn("review_synthesis_publish_salvage", { ..., ...classifiedFailureLogFields(last) })`
+  - `sendWithRetry` catch: `recordClassifiedFailure(classifyFailure(appError, { phase }))` — no forced domain.
+  - Specialist `outcome.kind === "error"`: record classified failure from `outcome.error` with phase/specialist hints before/alongside `review_specialist_failed`.
+  - Publish-tool / GitHub failures: record with auto domain detection (cause-aware).
+  - Pi / cursor MCP: on `ok: false`, pass `errorMessage` (or record classified failure) so metrics retain the reason.
+  - Salvage + `publishReviewRunFailureNotice` / `publishFailureNotice`: always attach `snapshot.lastFailure` (or result field), not only when salvage/send path set it locally.
   - Return `lastFailure: snapshotReviewRunMetrics()?.lastFailure ?? undefined`
-  - `publishReviewRunFailureNotice` accepts optional `lastFailure` and logs it on `agent_publish_fallback`
 
 - [ ] **Step 4: Run — expect PASS**
 
@@ -239,7 +254,10 @@ git commit -m "feat: thread last classified failure through orchestrator soft-fa
 failure_domain, error_kind, error_message
 // and provider_error_kind when domain is provider
 
-// review failed — when result.published=false and lastFailure is quota:
+// review failed — when a prior provider credit error was recorded on the run
+// but publish soft-failed: MUST include failure_domain/error_kind/error_message.
+// Do NOT accept a synthetic-only "Review was not published" fallback when
+// snapshot/result already had lastFailure from tool/send/specialist.
 expect(capture).toHaveBeenCalledWith(expect.objectContaining({
   event: "review failed",
   properties: expect.objectContaining({
@@ -253,8 +271,9 @@ expect(capture).toHaveBeenCalledWith(expect.objectContaining({
 - [ ] **Step 2: Run — expect FAIL**
 
 - [ ] **Step 3: Implement**
-  - `handleReviewPublishResult`: for not-published (non-superseded), merge `classifiedFailurePostHogProperties(result.lastFailure ?? snapshot?.lastFailure ?? classifyFailure(new Error("Review was not published"), { phase: "publish" }))` into `"review failed"` and `review_not_published` log.
-  - Durable job: same for `agent_work_failed` / retrying / `"work item failed"`.
+  - `handleReviewPublishResult`: for not-published (non-superseded), require `result.lastFailure ?? snapshot?.lastFailure`. If present, merge `classifiedFailurePostHogProperties` into `"review failed"` and `review_not_published`. Synthetic fallback (`phase: "publish"`, kind `publish`/`unknown`) only when **no** prior signal exists — and a test must fail if a prior signal was dropped.
+  - Check-run completion on failure: when completing with `conclusion: "failure"`, log classified fields alongside the existing summary if `lastFailure` is available (same source as PostHog).
+  - Durable job: full contract on `agent_work_failed` / retrying / `"work item failed"`.
 
 - [ ] **Step 4: Run — expect PASS**
 
@@ -272,16 +291,16 @@ git commit -m "feat: attach classified failure to review failed and work item fa
 - Modify: `src/agentWork/executors/askExecutor.ts`, `descriptionExecutor.ts`
 - Modify: `src/agentWork/triageAnalytics.ts`
 - Modify: `docs/operations.md`
-- Test: `test/triageAnalytics.test.ts`; targeted ask/description soft-fail tests if harness exists, else unit-level on helper usage
+- Test: `test/triageAnalytics.test.ts`; ask/description soft-fail PostHog tests
 
 **Interfaces:**
 - Consumes: `classifyFailure`, PostHog/log mappers
 
-- [ ] **Step 1: Write failing tests** — `captureTriageFailure` includes `failure_domain` + `error_kind`; description/ask soft-fail logs include classified fields (and PostHog `"description failed"` / `"ask failed"` if introduced for parity).
+- [ ] **Step 1: Write failing tests** — `captureTriageFailure` includes `failure_domain` + `error_kind`; non-superseded ask/description soft-fail emit PostHog `"ask failed"` / `"description failed"` with the same three required fields.
 
-- [ ] **Step 2: Implement** — on `description_not_published` / ask terminal paths, classify and emit. Prefer adding `"ask failed"` / `"description failed"` PostHog events on soft-fail for parity with `"review failed"` (only when not superseded). Verification: durable job already covers thrown failures; if verification has a soft not-published path, attach the same fields.
+- [ ] **Step 2: Implement** — on `description_not_published` / ask soft-fail (and terminal failure hooks where needed), classify and emit `"ask failed"` / `"description failed"` (required, not optional). Verification: durable job covers thrown failures; attach classified fields on any soft not-published path if present.
 
-- [ ] **Step 3: Update `docs/operations.md`** — under PostHog bullet, document `failure_domain`, `error_kind`, `error_message` on `review failed`, `work item failed`, `triage failed`, and siblings; note superseded uses `error_kind=superseded` not provider.
+- [ ] **Step 3: Update `docs/operations.md`** — under PostHog bullet, document `failure_domain`, `error_kind`, `error_message` on `review failed`, `work item failed`, `ask failed`, `description failed`, `triage failed`; note superseded uses `error_kind=superseded` not provider.
 
 - [ ] **Step 4: Run `nub run check:code` and `nub run test`**
 
@@ -315,4 +334,5 @@ git commit -m "feat: parity classified failures for ask/description/triage; docu
 - No TBD placeholders.
 - Types consistent: `ClassifiedFailure` / `classifyFailure` / mappers used across tasks.
 - P1 “last N tool errors” capped at 3 via `recentToolErrors`.
-- Provider adapters: only if messages are currently swallowed — inspect during Task 3; normalize with `cause` preserved if a quick win; otherwise rely on classifier string matchers.
+- Provider tool_call sites that omit error text are in Task 3 (required), not optional.
+- Peer-review (2026-07-23): fixed soft-fail lastFailure threading, no forced provider domain, required ask/description PostHog events, stale_head→cancelled mapping.
