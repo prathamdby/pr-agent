@@ -40,16 +40,19 @@ type SpecialistPhase = SpecialistRunPhase;
 
 type ReconPhase = ReconRunPhase;
 
+type ProgressRoster = {
+  readonly recon: ReconPhase;
+  readonly specialists: Readonly<Record<SpecialistId, SpecialistPhase>>;
+};
+
 export type SpecialistTickState =
-  | {
+  | ({
       readonly kind: "specialists";
-      readonly recon: ReconPhase;
-      readonly specialists: Readonly<Record<SpecialistId, SpecialistPhase>>;
-    }
-  | {
+    } & ProgressRoster)
+  | ({
       readonly kind: "terminal";
       readonly reason: "superseded" | "stale_head";
-    };
+    } & ProgressRoster);
 
 const SPECIALIST_LABELS: Record<SpecialistId, string> = {
   correctness: "Correctness",
@@ -156,7 +159,7 @@ export function renderReviewProgressComment(params: {
   if (shouldRenderCiSummaryRow(params.ciSummary)) {
     tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(params.ciSummary)]);
   }
-  if (params.tickState?.kind === "specialists") {
+  if (params.tickState != null) {
     tableRows.push([
       renderTableStrong("Recon"),
       escapeTableHtml(renderReconPhase(params.tickState.recon)),

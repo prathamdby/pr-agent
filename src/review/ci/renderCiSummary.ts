@@ -62,3 +62,23 @@ export function patchCiSummaryCellInCommentBody(body: string, summary: CiSummary
 export function commentBodyHasCiSummaryCell(body: string): boolean {
   return CI_SUMMARY_CELL_RE.test(body);
 }
+
+const CI_SUMMARY_TABLE_ROW_RE =
+  /<tr><td><strong>CI<\/strong><\/td><td><!--\s*pr-agent:ci-summary\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*--><\/td><\/tr>/;
+
+const SOURCE_TABLE_ROW_RE = /<tr><td><strong>Source<\/strong><\/td><td>[\s\S]*?<\/td><\/tr>/;
+
+/**
+ * Keeps the prior CI gate row when a progress tick rewrites the stub without a
+ * fresh CI summary (ack posted it; specialist/terminal ticks should not drop it).
+ */
+export function preserveCiSummaryRowInCommentBody(
+  previousBody: string,
+  nextBody: string,
+): string {
+  if (commentBodyHasCiSummaryCell(nextBody)) return nextBody;
+  const ciRow = CI_SUMMARY_TABLE_ROW_RE.exec(previousBody)?.[0];
+  if (ciRow == null) return nextBody;
+  if (!SOURCE_TABLE_ROW_RE.test(nextBody)) return nextBody;
+  return nextBody.replace(SOURCE_TABLE_ROW_RE, (sourceRow) => `${sourceRow}\n${ciRow}`);
+}
