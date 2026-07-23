@@ -55,6 +55,7 @@ const testState = vi.hoisted(() => ({
   } | null,
   restrictionFailureTool: null as string | null,
   publishedBatchCount: 0,
+  synthesisPublishesSummary: true,
 }));
 
 vi.mock("../src/review/run/reviewRunSetup.js", () => ({
@@ -338,6 +339,7 @@ describe("runOrchestratedPrReview", () => {
     testState.sendDelay = null;
     testState.restrictionFailureTool = null;
     testState.publishedBatchCount = 0;
+    testState.synthesisPublishesSummary = true;
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.set(specialist, deferred());
     }
@@ -384,9 +386,15 @@ describe("runOrchestratedPrReview", () => {
             }
             await sessionParams.refreshBeforeTool?.("publish_thread");
             await executors.publish_thread?.({ findings: [] });
-          } else if (prompt.includes("Synthesize the final")) {
-            await sessionParams.refreshBeforeTool?.("publish_summary");
-            await executors.publish_summary?.({});
+          } else if (
+            prompt.includes("Synthesize the final") ||
+            prompt.includes("Call publish_summary now") ||
+            prompt.includes("Fix the summary and call publish_summary")
+          ) {
+            if (testState.synthesisPublishesSummary) {
+              await sessionParams.refreshBeforeTool?.("publish_summary");
+              await executors.publish_summary?.({});
+            }
           }
           return { text: "ok" };
         }),
@@ -600,6 +608,21 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: false });
     expect(testState.publishOrder).toEqual([]);
     expect(testState.failureNotices).toBe(1);
+  });
+
+  it("publishes a deterministic summary when synthesis never calls publish_summary", async () => {
+    testState.synthesisPublishesSummary = false;
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve(report("correctness"));
+    await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
+    expect(testState.publishOrder).toEqual(["correctness", "summary"]);
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.deterministicSummaries).toHaveLength(1);
   });
 
   it("falls back to a deterministic brief when recon never submits one", async () => {

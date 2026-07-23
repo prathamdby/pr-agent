@@ -891,10 +891,20 @@ export async function runOrchestratedPrReview(
         state.summary = { kind: "pending" };
       } else if (summaryState.published) {
         state.summary = { kind: "published" };
-      } else if (state.judgment === "degraded" || sessionRetired) {
-        await publishDeterministicSummary();
       } else {
-        await publishFailureNotice();
+        // Model/session stayed healthy but never landed publish_summary after recovery.
+        // Salvage accepted findings the same way as the degraded path instead of a hard fail.
+        if (state.judgment !== "degraded" && !sessionRetired) {
+          logWarn("review_synthesis_publish_salvage", {
+            owner: params.owner,
+            repo: params.repo,
+            pr: params.prNumber,
+            publishAttempts,
+            judgment: state.judgment,
+            lastValidationError: summaryState.lastValidationError,
+          });
+        }
+        await publishDeterministicSummary();
       }
       markCompleteUnlessStopped();
     }
