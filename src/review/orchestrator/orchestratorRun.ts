@@ -261,6 +261,13 @@ export async function runOrchestratedPrReview(
     refreshLiveAuth: setup.refreshLiveAuth,
     cachedDiffIndex: setup.cachedDiffIndex,
     recordPublishStep: params.recordPublishStep,
+    operationIntent: params.recordPublishStep?.summaryCommentCoordination
+      ? {
+          client: params.recordPublishStep.summaryCommentCoordination.pool,
+          workItemId: params.recordPublishStep.summaryCommentCoordination.workItemId,
+          resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
+        }
+      : undefined,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
     initialLedger: initialLedger(params),

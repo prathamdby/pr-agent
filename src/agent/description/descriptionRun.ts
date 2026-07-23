@@ -23,6 +23,7 @@ import {
   buildSubmitOnlyDescriptionSessionTools,
   shouldContinueDescriptionRun,
 } from "./descriptionRunSetup.js";
+import type { OperationIntentContext } from "../agentWork/withOperationIntent.js";
 
 export type DescriptionRunResult = {
   lastAssistant: AssistantMessage;
@@ -50,6 +51,7 @@ export async function runFullPrDescription(params: {
   workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
+  operationIntent?: OperationIntentContext;
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;

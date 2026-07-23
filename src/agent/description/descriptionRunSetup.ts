@@ -11,6 +11,7 @@ import {
   createSubmitDescriptionState,
   type SubmitDescriptionState,
 } from "./submitDescriptionTool.js";
+import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
 
 const TOKEN_REFRESH_TOOL = "getPullRequest";
 
@@ -43,6 +44,7 @@ export function buildDescriptionRunSetup(params: {
   workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
+  operationIntent?: OperationIntentContext;
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;
@@ -87,6 +89,7 @@ export function buildDescriptionRunSetup(params: {
       state: submitState,
       shouldAbortPublish: params.shouldAbortPublish,
       recordPublishStep: params.recordPublishStep,
+      operationIntent: params.operationIntent,
     });
 
   let submitBundle = buildSubmit();

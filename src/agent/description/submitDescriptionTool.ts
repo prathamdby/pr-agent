@@ -15,6 +15,12 @@ import {
   sanitizeMermaidDiagram,
   validateSanitizedMermaidFence,
 } from "./mermaidDiagram.js";
+import {
+  descriptionPrBodyOperationKey,
+  type OperationIntentContext,
+  withOperationIntent,
+} from "../../agentWork/withOperationIntent.js";
+import { DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 
 export type SubmitDescriptionState = {
   published: boolean;
@@ -52,6 +58,7 @@ export function buildSubmitDescriptionTool(params: {
   state: SubmitDescriptionState;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
+  operationIntent?: OperationIntentContext;
 }): {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
@@ -106,15 +113,32 @@ export function buildSubmitDescriptionTool(params: {
 
     params.state.lastValidationError = null;
 
-    const result = await publishDescriptionToPullRequest({
-      cfg: params.cfg,
-      token: params.token,
-      tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
-      owner: params.owner,
-      repo: params.repo,
-      prNumber: params.prNumber,
-      payload,
-    });
+    const publish = () =>
+      publishDescriptionToPullRequest({
+        cfg: params.cfg,
+        token: params.token,
+        tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
+        owner: params.owner,
+        repo: params.repo,
+        prNumber: params.prNumber,
+        payload,
+      });
+
+    const result =
+      params.operationIntent == null
+        ? await publish()
+        : await withOperationIntent({
+            client: params.operationIntent.client,
+            workItemId: params.operationIntent.workItemId,
+            operationKey: descriptionPrBodyOperationKey(params.operationIntent.resourceKey),
+            mutationKind: "github.pr_body",
+            detail: {
+              step: "pr_body",
+              resourceKey: params.operationIntent.resourceKey,
+              reviewLens: DESCRIPTION_PUBLISH_LENS,
+            },
+            mutate: publish,
+          });
 
     params.state.published = true;
     logInfo("description_published", {

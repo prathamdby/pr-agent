@@ -17,6 +17,7 @@ import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
+import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
@@ -121,13 +122,26 @@ export async function executeAskJob(
             ),
           });
           if (!(await askReplyPublished())) {
-            await publishAskAnswer(
-              tokenState.installation.token,
-              tokenState.installation.expiresAtTs,
-              item,
-              result.answer,
-              true,
-            );
+            await withOperationIntent({
+              client: pool,
+              workItemId: item.id,
+              operationKey: askReplyOperationKey(item.resourceKey),
+              mutationKind: "github.ask_reply",
+              detail: {
+                step: "ask_reply",
+                resourceKey: item.resourceKey,
+                reviewLens: ASK_PUBLISH_LENS,
+                replyTargetKind: payload.replyTarget.kind,
+              },
+              mutate: () =>
+                publishAskAnswer(
+                  tokenState.installation.token,
+                  tokenState.installation.expiresAtTs,
+                  item,
+                  result.answer,
+                  true,
+                ),
+            });
             answerDelivered = true;
             captureEvent({
               distinctId: `installation:${item.installationId}`,

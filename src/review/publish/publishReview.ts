@@ -57,6 +57,13 @@ export async function publishReview(
     source: "review",
     workItemId:
       params.workItemId ?? params.recordPublishStep?.summaryCommentCoordination?.workItemId,
+    operationIntent: params.recordPublishStep?.summaryCommentCoordination
+      ? {
+          client: params.recordPublishStep.summaryCommentCoordination.pool,
+          workItemId: params.recordPublishStep.summaryCommentCoordination.workItemId,
+          resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
+        }
+      : undefined,
     progressCommentUrl: reviewCheckDetailsUrl(
       params.owner,
       params.repo,

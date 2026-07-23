@@ -69,6 +69,11 @@ export async function executeDescriptionJob(
                 step: "pr_body",
                 detail,
               }),
+            operationIntent: {
+              client: pool,
+              workItemId: item.id,
+              resourceKey: item.resourceKey,
+            },
             refreshInstallationToken: makeInstallationTokenRefresher(
               cfg,
               item.installationId,

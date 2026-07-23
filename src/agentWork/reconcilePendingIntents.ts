@@ -1,0 +1,115 @@
+import type { Pool, PoolClient } from "pg";
+import { logInfo } from "../evlog.js";
+import { queryOne } from "../db/postgres.js";
+import {
+  listPendingOperationIntents,
+  reconcileOperationIntent,
+  type OperationIntentRow,
+} from "./operationIntentRepository.js";
+
+type ReconcilePendingIntentsResult = {
+  readonly reconciled: number;
+  readonly stillPending: number;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value != null;
+}
+
+async function findCompletedPublishRecordId(
+  client: Pool | PoolClient,
+  workItemId: string,
+  intent: OperationIntentRow,
+): Promise<string | null> {
+  const detail = intent.detail;
+  const step = detail.step;
+  if (typeof step !== "string") return null;
+
+  const values: unknown[] = [workItemId, step];
+  let query = `SELECT id
+                 FROM publish_records
+                WHERE work_item_id = $1
+                  AND step = $2
+                  AND status = 'completed'`;
+
+  const reviewLens = detail.reviewLens;
+  if (typeof reviewLens === "string") {
+    values.push(reviewLens);
+    query += ` AND review_lens = $${values.length}`;
+  }
+
+  const resourceKey = detail.resourceKey;
+  if (typeof resourceKey === "string") {
+    values.push(resourceKey);
+    query += ` AND resource_key = $${values.length}`;
+  }
+
+  const batchId = detail.batchId;
+  if (typeof batchId === "string") {
+    values.push(batchId);
+    query += ` AND detail @> jsonb_build_object('batches', jsonb_build_array(jsonb_build_object('batchId', $${values.length}::text)))`;
+  }
+
+  const threadRootCommentId = detail.threadRootCommentId;
+  if (typeof threadRootCommentId === "number") {
+    values.push(String(threadRootCommentId));
+    query += ` AND (
+      detail @> jsonb_build_object('actedThreadIds', jsonb_build_array(($${values.length}::text)::bigint))
+      OR detail @> jsonb_build_object('threadRootCommentId', ($${values.length}::text)::bigint)
+    )`;
+  }
+
+  query += " ORDER BY updated_at DESC LIMIT 1";
+
+  const row = await queryOne<{ id: string }>(client, query, values);
+  return row?.id ?? null;
+}
+
+export async function reconcilePendingIntents(
+  client: Pool | PoolClient,
+  workItemId: string,
+): Promise<ReconcilePendingIntentsResult> {
+  const pending = await listPendingOperationIntents(client, workItemId);
+  let reconciled = 0;
+
+  for (const intent of pending) {
+    const publishRecordId = await findCompletedPublishRecordId(client, workItemId, intent);
+    if (publishRecordId == null) continue;
+
+    const row = await reconcileOperationIntent(client, {
+      workItemId,
+      operationKey: intent.operationKey,
+      status: "reconciled",
+      publishRecordId,
+      detail: { reconciledFromPublishRecord: true },
+    });
+    if (row != null) reconciled += 1;
+  }
+
+  const stillPending = pending.length - reconciled;
+  if (reconciled > 0) {
+    logInfo("operation_intents_reconciled", {
+      workItemId,
+      reconciled,
+      stillPending,
+    });
+  }
+
+  return { reconciled, stillPending };
+}
+
+export function intentDetailMatchesPublishRecord(
+  intentDetail: Record<string, unknown>,
+  publishDetail: unknown,
+): boolean {
+  if (!isRecord(publishDetail)) return false;
+  const batchId = intentDetail.batchId;
+  if (typeof batchId === "string") {
+    const batches = publishDetail.batches;
+    if (!Array.isArray(batches)) return false;
+    return batches.some(
+      (batch) => isRecord(batch) && batch.batchId === batchId,
+    );
+  }
+  return true;
+}

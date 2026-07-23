@@ -48,6 +48,7 @@ import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewRes
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
+import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
 
 type DurableExecutionContext = {
   installation: InstallationToken;
@@ -557,6 +558,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       workItemId: item.id,
       resourceKey: item.resourceKey,
     });
+    await reconcilePendingIntents(spec.pool, item.id);
     const result = await spec.execute(item, execution);
     await completeDurableExecution(result);
   } catch (error) {
