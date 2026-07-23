@@ -1,5 +1,4 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import type { Config } from "../../config.js";
 import type { AgentRunnerTurn } from "./usageMetadata.js";
 
 export type { AgentRunnerTurn };
@@ -32,23 +31,4 @@ export type AgentRunnerSession = {
   ) => void;
   readonly restoreTools: () => void;
   readonly dispose: () => Promise<void>;
-};
-
-type AgentProviderBootResult = {
-  readonly modelCount: number;
-  readonly topModels: readonly string[];
-  readonly fastModels: readonly string[];
-  readonly ripgrepPath?: string;
-};
-
-export type AgentRunnerProvider = {
-  readonly boot?: (cfg: Config) => Promise<AgentProviderBootResult | undefined>;
-  readonly createSession: (params: {
-    readonly cfg: Config;
-    readonly cwd?: string;
-    readonly systemPrompt: string;
-    readonly tools: readonly PiTool[];
-    readonly executors: Record<string, AgentRunnerToolExecutor>;
-    readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
-  }) => Promise<AgentRunnerSession>;
 };
