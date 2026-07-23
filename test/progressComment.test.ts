@@ -198,8 +198,12 @@ describe("progressComment fallback wording", () => {
       expect(body).toContain("✅ 1 finding");
       expect(body).toContain(STATUS_RUNNING);
       expect(body).toContain(STATUS_WAITING);
-      expect(body.indexOf("<strong>Source</strong>")).toBeLessThan(body.indexOf("<strong>CI</strong>"));
-      expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(body.indexOf("<strong>Recon</strong>"));
+      expect(body.indexOf("<strong>Source</strong>")).toBeLessThan(
+        body.indexOf("<strong>CI</strong>"),
+      );
+      expect(body.indexOf("<strong>CI</strong>")).toBeLessThan(
+        body.indexOf("<strong>Recon</strong>"),
+      );
       expect(body).toContain(
         `<!-- pr-agent:review-meta headSha=invalid lens=review stale=${String(stale)} -->`,
       );

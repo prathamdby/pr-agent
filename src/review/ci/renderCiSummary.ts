@@ -72,10 +72,7 @@ const SOURCE_TABLE_ROW_RE = /<tr><td><strong>Source<\/strong><\/td><td>[\s\S]*?<
  * Keeps the prior CI gate row when a progress tick rewrites the stub without a
  * fresh CI summary (ack posted it; specialist/terminal ticks should not drop it).
  */
-export function preserveCiSummaryRowInCommentBody(
-  previousBody: string,
-  nextBody: string,
-): string {
+export function preserveCiSummaryRowInCommentBody(previousBody: string, nextBody: string): string {
   if (commentBodyHasCiSummaryCell(nextBody)) return nextBody;
   const ciRow = CI_SUMMARY_TABLE_ROW_RE.exec(previousBody)?.[0];
   if (ciRow == null) return nextBody;
