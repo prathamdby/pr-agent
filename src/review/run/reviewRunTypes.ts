@@ -1,5 +1,6 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
@@ -48,4 +49,6 @@ export type ReviewRunResult = {
   readonly published: boolean;
   readonly publishAttempts: number;
   readonly publishSuperseded: boolean;
+  /** Last classified external/internal failure from the run (soft-fail diagnostics). */
+  readonly lastFailure?: ClassifiedFailure;
 };

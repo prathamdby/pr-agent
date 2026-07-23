@@ -1,8 +1,14 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import { captureEvent } from "../../analytics/index.js";
 import { AppError } from "../../errors/appError.js";
-import { logInfo } from "../../evlog.js";
+import {
+  classifyFailure,
+  classifiedFailureLogFields,
+  classifiedFailurePostHogProperties,
+} from "../../errors/classifiedFailure.js";
+import { logInfo, logWarn } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { listCommitCompareFiles } from "../../github/compareCommitFiles.js";
@@ -199,7 +205,29 @@ export async function executeVerificationJob(
         policyResult: result.policyResult,
       });
 
-      return publish.degraded ? { degraded: true } : {};
+      if (publish.degraded) {
+        const failure = classifyFailure(new Error("Verification publish degraded"), {
+          phase: "publish",
+        });
+        logWarn("verification_publish_degraded", {
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+          ...classifiedFailureLogFields(failure),
+        });
+        captureEvent({
+          distinctId: `installation:${item.installationId}`,
+          event: "verification failed",
+          properties: {
+            owner: item.owner,
+            repo: item.repo,
+            pr_number: item.prNumber,
+            ...classifiedFailurePostHogProperties(failure),
+          },
+        });
+        return { degraded: true };
+      }
+      return {};
     },
   });
 }

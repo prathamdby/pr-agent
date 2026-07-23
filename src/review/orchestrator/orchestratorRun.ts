@@ -9,6 +9,7 @@ import type {
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
+import { classifyFailure, classifiedFailureLogFields } from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import {
   MAX_TOOL_ROUNDS,
@@ -25,7 +26,9 @@ import {
   initReviewRunMetrics,
   logReviewRunCompleted,
   recordAgentTurnMetrics,
+  recordClassifiedFailure,
   setReviewRunMetricFields,
+  snapshotReviewRunMetrics,
 } from "../run/reviewRunMetrics.js";
 import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
@@ -336,10 +339,20 @@ export async function runOrchestratedPrReview(
           await lateSession.dispose().catch(() => undefined);
         })
         .catch(() => undefined);
+      const deadlineFailure = classifyFailure(
+        new AppError({
+          code: "review.orchestrator_session_create_deadline",
+          message: "Orchestrator session create deadline reached",
+          context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
+        }),
+        { phase: "recon" },
+      );
+      recordClassifiedFailure(deadlineFailure);
       logWarn("review_orchestrator_session_create_deadline", {
         owner: params.owner,
         repo: params.repo,
         pr: params.prNumber,
+        ...classifiedFailureLogFields(deadlineFailure),
       });
     } else {
       state.judgment = "degraded";
@@ -347,7 +360,12 @@ export async function runOrchestratedPrReview(
         code: "review.orchestrator_session_create_failed",
         context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
       });
-      logWarn("review_orchestrator_session_create_failed", errorLogFields(appError));
+      const failure = classifyFailure(appError, { phase: "recon" });
+      recordClassifiedFailure(failure);
+      logWarn("review_orchestrator_session_create_failed", {
+        ...errorLogFields(appError),
+        ...classifiedFailureLogFields(failure),
+      });
     }
   } catch (error) {
     state.judgment = "degraded";
@@ -355,7 +373,12 @@ export async function runOrchestratedPrReview(
       code: "review.orchestrator_session_create_failed",
       context: { owner: params.owner, repo: params.repo, pr: params.prNumber },
     });
-    logWarn("review_orchestrator_session_create_failed", errorLogFields(appError));
+    const failure = classifyFailure(appError, { phase: "recon" });
+    recordClassifiedFailure(failure);
+    logWarn("review_orchestrator_session_create_failed", {
+      ...errorLogFields(appError),
+      ...classifiedFailureLogFields(failure),
+    });
   }
   const specialistControllers = new Map<SpecialistId, AbortController>();
   let sessionRetired = session == null;
@@ -468,23 +491,29 @@ export async function runOrchestratedPrReview(
           context: { phase, attempt },
         });
         firstError ??= appError;
+        const failure = classifyFailure(appError, { phase });
+        recordClassifiedFailure(failure);
         logWarn("review_orchestrator_send_retry", {
           phase,
           attempt,
           ...errorLogFields(appError),
+          ...classifiedFailureLogFields(failure),
         });
       }
     }
     await retireSession();
+    const terminalError =
+      firstError ??
+      new AppError({
+        code: "review.orchestrator_send_failed",
+        message: "Orchestrator send failed twice",
+        context: { phase },
+      });
+    const failure = classifyFailure(terminalError, { phase });
+    recordClassifiedFailure(failure);
     return {
       kind: "failed",
-      error:
-        firstError ??
-        new AppError({
-          code: "review.orchestrator_send_failed",
-          message: "Orchestrator send failed twice",
-          context: { phase },
-        }),
+      error: terminalError,
     };
   };
 
@@ -565,10 +594,16 @@ export async function runOrchestratedPrReview(
     } else if (outcome.kind === "error") {
       state.specialists[outcome.specialist] = { phase: "failed" };
       state.failedSpecialists.push(outcome.specialist);
+      const failure = classifyFailure(outcome.error, {
+        phase: "specialist",
+        toolName: outcome.specialist,
+      });
+      recordClassifiedFailure(failure);
       logWarn("review_specialist_failed", {
         specialist: outcome.specialist,
         durationMs: outcome.durationMs,
         ...errorLogFields(outcome.error),
+        ...classifiedFailureLogFields(failure),
       });
       await writeTick();
     }
@@ -663,6 +698,7 @@ export async function runOrchestratedPrReview(
 
   const publishFailureNotice = async (): Promise<void> => {
     await setup.refreshLiveAuth();
+    const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
     await publishReviewRunFailureNotice({
       cfg: params.cfg,
       setup,
@@ -671,6 +707,7 @@ export async function runOrchestratedPrReview(
       prNumber: params.prNumber,
       reviewMode,
       publishAttempts,
+      ...(lastFailure != null ? { lastFailure } : {}),
     });
     state.summary = { kind: "failed" };
   };
@@ -904,6 +941,7 @@ export async function runOrchestratedPrReview(
         // Model/session stayed healthy but never landed publish_summary after recovery.
         // Salvage accepted findings the same way as the degraded path instead of a hard fail.
         if (state.judgment !== "degraded" && !sessionRetired) {
+          const lastFailure = snapshotReviewRunMetrics()?.lastFailure;
           logWarn("review_synthesis_publish_salvage", {
             owner: params.owner,
             repo: params.repo,
@@ -911,6 +949,7 @@ export async function runOrchestratedPrReview(
             publishAttempts,
             judgment: state.judgment,
             lastValidationError: summaryState.lastValidationError,
+            ...(lastFailure != null ? classifiedFailureLogFields(lastFailure) : {}),
           });
         }
         await publishDeterministicSummary();
@@ -961,10 +1000,12 @@ export async function runOrchestratedPrReview(
     lastText,
     params.cfg.agentProvider,
   );
+  const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
   return {
     lastAssistant,
     published: summaryState.published,
     publishAttempts,
     publishSuperseded: state.lifecycle.kind === "stopped",
+    ...(lastFailure != null ? { lastFailure } : {}),
   };
 }

@@ -14,8 +14,22 @@ describe("classifyProviderError", () => {
     expect(classifyProviderError(new Error("quota exceeded"))).toBe("quota");
   });
 
+  it("classifies insufficient credits as quota", () => {
+    expect(classifyProviderError(new Error("Insufficient credits for model"))).toBe("quota");
+  });
+
+  it("classifies out of credits / balance as quota", () => {
+    expect(classifyProviderError(new Error("out of credits: balance is zero"))).toBe("quota");
+  });
+
   it("classifies billing failures", () => {
     expect(classifyProviderError(new Error("payment required"))).toBe("billing");
+  });
+
+  it("classifies 402 payment_required as billing", () => {
+    expect(classifyProviderError(new Error("402 Payment Required: balance depleted"))).toBe(
+      "billing",
+    );
   });
 
   it("classifies timeouts", () => {

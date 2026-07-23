@@ -16,11 +16,15 @@ export function classifyProviderError(error: unknown): ProviderErrorKind {
   if (/\b429\b|rate limit|too many requests|secondary rate/.test(text)) {
     return "rate_limit";
   }
-  if (/quota|insufficient credits|usage limit|token limit exceeded/.test(text)) {
-    return "quota";
-  }
-  if (/billing|payment required|subscription|plan limit/.test(text)) {
+  if (/billing|payment required|payment_required|\b402\b|subscription|plan limit/.test(text)) {
     return "billing";
+  }
+  if (
+    /quota|insufficient credits|out of credits|usage limit|token limit exceeded|\bcredits?\b|\bbalance\b/.test(
+      text,
+    )
+  ) {
+    return "quota";
   }
   if (/timeout|timed out|deadline exceeded|hang|stalled/.test(text)) {
     return "timeout";

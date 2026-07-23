@@ -3,6 +3,11 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { captureEvent } from "../../analytics/index.js";
+import {
+  classifyFailure,
+  classifiedFailureLogFields,
+  classifiedFailurePostHogProperties,
+} from "../../errors/classifiedFailure.js";
 import type { InstallationToken } from "../../github/appAuth.js";
 import {
   assertPullRequestFilesHeadSha,
@@ -200,8 +205,17 @@ async function completeCheckFromStoredSummary(args: {
   readonly tokenState: TokenState;
   readonly conclusion: "failure" | "cancelled";
   readonly summary: string;
+  readonly lastFailure?: ReviewRunResult["lastFailure"];
 }): Promise<void> {
-  const { pool, item, reviewLens, tokenState, conclusion, summary } = args;
+  const { pool, item, reviewLens, tokenState, conclusion, summary, lastFailure } = args;
+  if (conclusion === "failure" && lastFailure != null) {
+    logWarn("review_check_run_failure_classified", {
+      owner: item.owner,
+      repo: item.repo,
+      pr: item.prNumber,
+      ...classifiedFailureLogFields(lastFailure),
+    });
+  }
   const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
   await completeReviewCheckRun(pool, {
     token: tokenState.installation.token,
@@ -356,12 +370,18 @@ async function handleReviewPublishResult(args: {
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       });
     } else {
+      const snapshot = snapshotReviewRunMetrics();
+      const lastFailure =
+        result.lastFailure ??
+        snapshot?.lastFailure ??
+        classifyFailure(new Error("Review was not published"), { phase: "publish" });
       logWarn("review_not_published", {
         owner: item.owner,
         repo: item.repo,
         pr: item.prNumber,
         publishAttempts: result.publishAttempts,
         publishDegraded: true,
+        ...classifiedFailureLogFields(lastFailure),
       });
       captureEvent({
         distinctId: `installation:${item.installationId}`,
@@ -372,6 +392,10 @@ async function handleReviewPublishResult(args: {
           pr_number: item.prNumber,
           review_lens: reviewLens,
           publish_attempts: result.publishAttempts,
+          ...classifiedFailurePostHogProperties(lastFailure),
+          ...(snapshot?.toolCallErrors != null
+            ? { tool_call_errors: snapshot.toolCallErrors }
+            : {}),
         },
       });
       await completeCheckFromStoredSummary({
@@ -381,6 +405,7 @@ async function handleReviewPublishResult(args: {
         tokenState,
         conclusion: "failure",
         summary: "PR Agent could not publish a structured review.",
+        lastFailure,
       });
     }
   } else {

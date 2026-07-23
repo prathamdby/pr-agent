@@ -1,4 +1,8 @@
 import type { Config } from "../../config.js";
+import {
+  classifiedFailureLogFields,
+  type ClassifiedFailure,
+} from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
@@ -14,10 +18,12 @@ export async function publishReviewRunFailureNotice(params: {
   readonly prNumber: number;
   readonly reviewMode: AnyReviewLens;
   readonly publishAttempts: number;
+  readonly lastFailure?: ClassifiedFailure;
 }): Promise<void> {
   logWarn("agent_publish_fallback", {
     mode: params.reviewMode,
     publishAttempts: params.publishAttempts,
+    ...(params.lastFailure != null ? classifiedFailureLogFields(params.lastFailure) : {}),
   });
   const token = params.setup.getToken();
   const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();

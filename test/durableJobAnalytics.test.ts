@@ -146,6 +146,9 @@ describe("durableJob analytics forwarding", () => {
         owner: "acme",
         repo: "widgets",
         pr_number: 12,
+        failure_domain: expect.any(String),
+        error_kind: expect.any(String),
+        error_message: expect.any(String),
       }),
     });
     expect(client?.captureException).toHaveBeenCalledWith(
@@ -160,5 +163,52 @@ describe("durableJob analytics forwarding", () => {
         workItemId: "wi-1",
       }),
     );
+  });
+
+  it("classifies provider credit failures on work item failed", async () => {
+    const item = makeReviewWorkItem({
+      status: "running",
+      id: "wi-credits",
+      installationId: 99,
+      owner: "acme",
+      repo: "widgets",
+      prNumber: 12,
+    });
+    vi.mocked(repo.getWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.getWorkItemCore).mockResolvedValue(coreOf(item));
+    vi.mocked(repo.getWorkItemPayload).mockResolvedValue(item.payload);
+
+    const boom = new Error("Insufficient credits for model");
+    const execute = vi.fn().mockRejectedValue(boom);
+    const job = {
+      id: "job-credits",
+      data: { workItemId: item.id },
+      retryCount: 3,
+      retryLimit: 3,
+    } as unknown as JobWithMetadata<{ workItemId: string }>;
+
+    await expect(
+      runDurableWorkItem({
+        type: "review",
+        cfg,
+        pool,
+        boss,
+        job,
+        resolveHeadSha: async () => ({ headSha: "abc123" }),
+        execute,
+      }),
+    ).resolves.toBeUndefined();
+
+    const client = mockPostHog.instances[0];
+    expect(client?.capture).toHaveBeenCalledWith({
+      distinctId: "installation:99",
+      event: "work item failed",
+      properties: expect.objectContaining({
+        failure_domain: "provider",
+        error_kind: "quota",
+        error_message: expect.stringMatching(/credit/i),
+        provider_error_kind: "quota",
+      }),
+    });
   });
 });

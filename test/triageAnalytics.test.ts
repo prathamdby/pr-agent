@@ -52,6 +52,8 @@ describe("triageAnalytics", () => {
         event: "triage failed",
         properties: expect.objectContaining({
           step: "publish_push",
+          failure_domain: expect.any(String),
+          error_kind: expect.any(String),
           error_message: "push failed",
           inventory_count: 2,
         }),
@@ -74,6 +76,21 @@ describe("triageAnalytics", () => {
       expect.objectContaining({ message: "missing anchor" }),
       "installation:42",
       expect.objectContaining({ step: "inventory" }),
+    );
+  });
+
+  it("classifies provider credit failures on triage failed", () => {
+    captureTriageFailure(ref, "agent_run", new Error("Insufficient credits for model"));
+
+    expect(mocks.capture).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "triage failed",
+        properties: expect.objectContaining({
+          failure_domain: "provider",
+          error_kind: "quota",
+          error_message: expect.stringMatching(/credit/i),
+        }),
+      }),
     );
   });
 });

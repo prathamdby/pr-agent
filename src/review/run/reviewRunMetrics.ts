@@ -1,6 +1,9 @@
 import type { AgentRunnerTurn } from "../../agent/providers/interface.js";
+import { classifyFailure, type ClassifiedFailure } from "../../errors/classifiedFailure.js";
 import { logInfo, tryUseLogger } from "../../evlog.js";
 import type { ReviewPhase, ReviewValidationFailureKind } from "../../settings/index.js";
+
+const MAX_RECENT_TOOL_ERRORS = 3;
 
 export type ReviewMetricEvent =
   | { readonly kind: "phase_enter"; readonly phase: ReviewPhase }
@@ -16,6 +19,11 @@ export type ReviewMetricEvent =
       readonly durationMs?: number;
       readonly resultBytes?: number;
       readonly resultCharacters?: number;
+      readonly errorMessage?: string;
+    }
+  | {
+      readonly kind: "external_failure";
+      readonly failure: ClassifiedFailure;
     }
   | {
       readonly kind: "model_turn";
@@ -75,6 +83,8 @@ export type ReviewRunMetricsSnapshot = {
   readonly diffCacheEmptyAtFirstSubmit: boolean;
   readonly toolCallCount: number;
   readonly toolCallErrors: number;
+  readonly lastFailure: ClassifiedFailure | null;
+  readonly recentToolErrors: readonly ClassifiedFailure[];
   readonly toolResultBytes: number;
   readonly toolResultCharacters: number;
   readonly modelTurnCount: number;
@@ -117,6 +127,8 @@ type MutableReviewRunMetrics = {
   diffCacheEmptyAtFirstSubmit: boolean;
   toolCallCount: number;
   toolCallErrors: number;
+  lastFailure: ClassifiedFailure | null;
+  recentToolErrors: ClassifiedFailure[];
   toolResultBytes: number;
   toolResultCharacters: number;
   modelTurnCount: number;
@@ -167,6 +179,8 @@ function createEmptyMetrics(meta: {
     diffCacheEmptyAtFirstSubmit: false,
     toolCallCount: 0,
     toolCallErrors: 0,
+    lastFailure: null,
+    recentToolErrors: [],
     toolResultBytes: 0,
     toolResultCharacters: 0,
     modelTurnCount: 0,
@@ -242,11 +256,35 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
       break;
     case "tool_call":
       metrics.toolCallCount += 1;
-      if (!event.ok) metrics.toolCallErrors += 1;
+      if (!event.ok) {
+        metrics.toolCallErrors += 1;
+        if (event.errorMessage != null && event.errorMessage.length > 0) {
+          const failure = classifyFailure(new Error(event.errorMessage), {
+            toolName: event.name,
+            provider: metrics.provider,
+            model: metrics.model,
+            errorCount: metrics.toolCallErrors,
+          });
+          metrics.lastFailure = failure;
+          metrics.recentToolErrors.push(failure);
+          if (metrics.recentToolErrors.length > MAX_RECENT_TOOL_ERRORS) {
+            metrics.recentToolErrors.splice(
+              0,
+              metrics.recentToolErrors.length - MAX_RECENT_TOOL_ERRORS,
+            );
+          }
+        }
+      }
       if (event.resultBytes != null) metrics.toolResultBytes += event.resultBytes;
       if (event.resultCharacters != null) {
         metrics.toolResultCharacters += event.resultCharacters;
       }
+      break;
+    case "external_failure":
+      metrics.lastFailure = {
+        ...event.failure,
+        errorCount: event.failure.errorCount ?? metrics.toolCallErrors,
+      };
       break;
     case "submit_validated":
       for (const rule of event.coercions) {
@@ -386,6 +424,8 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     diffCacheEmptyAtFirstSubmit: metrics.diffCacheEmptyAtFirstSubmit,
     toolCallCount: metrics.toolCallCount,
     toolCallErrors: metrics.toolCallErrors,
+    lastFailure: metrics.lastFailure,
+    recentToolErrors: [...metrics.recentToolErrors],
     toolResultBytes: metrics.toolResultBytes,
     toolResultCharacters: metrics.toolResultCharacters,
     modelTurnCount: metrics.modelTurnCount,
@@ -412,4 +452,8 @@ export function logReviewRunCompleted(extra?: Record<string, unknown>): void {
   const snapshot = snapshotReviewRunMetrics();
   if (!snapshot) return;
   logInfo("review_run_completed", { ...snapshot, ...extra });
+}
+
+export function recordClassifiedFailure(failure: ClassifiedFailure): void {
+  recordReviewMetric({ kind: "external_failure", failure });
 }

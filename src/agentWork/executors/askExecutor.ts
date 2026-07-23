@@ -5,6 +5,11 @@ import { captureEvent } from "../../analytics/index.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
+import {
+  classifyFailure,
+  classifiedFailureLogFields,
+  classifiedFailurePostHogProperties,
+} from "../../errors/classifiedFailure.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
@@ -29,12 +34,14 @@ async function publishAskAnswer(
       await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
       return;
     } catch (e) {
+      const failure = classifyFailure(e, { phase: "publish", toolName: "ask_inline_reply" });
       logWarn("ask_inline_reply_failed", {
         owner: item.owner,
         repo: item.repo,
         pr: replyTarget.prNumber,
         inReplyToCommentId: replyTarget.inReplyToCommentId,
         message: e instanceof Error ? e.message : String(e),
+        ...classifiedFailureLogFields(failure),
       });
       const octokit = installationOctokit(token, tokenExpiresAtTs);
       await octokit.rest.issues.createComment({
@@ -140,12 +147,25 @@ export async function executeAskJob(
                 detail: { replyTargetKind: payload.replyTarget.kind },
               });
             } catch (e) {
+              const failure = classifyFailure(e, { phase: "publish" });
               logWarn("ask_publish_record_failed", {
                 owner: item.owner,
                 repo: item.repo,
                 pr: item.prNumber,
                 workItemId: item.id,
                 message: e instanceof Error ? e.message : String(e),
+                ...classifiedFailureLogFields(failure),
+              });
+              captureEvent({
+                distinctId: `installation:${item.installationId}`,
+                event: "ask failed",
+                properties: {
+                  owner: item.owner,
+                  repo: item.repo,
+                  pr_number: item.prNumber,
+                  reply_target_kind: payload.replyTarget.kind,
+                  ...classifiedFailurePostHogProperties(failure),
+                },
               });
               return { degraded: true };
             }
@@ -156,7 +176,21 @@ export async function executeAskJob(
         },
       );
     },
-    onTerminalFailure: async (item, installation) => {
+    onTerminalFailure: async (item, installation, error) => {
+      const failure = classifyFailure(error ?? new Error("Ask failed after retries"), {
+        phase: "ask",
+      });
+      captureEvent({
+        distinctId: `installation:${item.installationId}`,
+        event: "ask failed",
+        properties: {
+          owner: item.owner,
+          repo: item.repo,
+          pr_number: item.prNumber,
+          reply_target_kind: item.payload.replyTarget.kind,
+          ...classifiedFailurePostHogProperties(failure),
+        },
+      });
       if (!installation || answerDelivered) return;
       const payload = item.payload;
       await publishAskAnswer(

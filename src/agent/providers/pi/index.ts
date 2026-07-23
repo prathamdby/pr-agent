@@ -69,7 +69,12 @@ function toCodingAgentTool(
     parameters: tool.parameters as never,
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
       if (!executor) {
-        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
+        safeRecordToolCallMetric({
+          kind: "tool_call",
+          name: tool.name,
+          ok: false,
+          errorMessage: `No executor registered for tool ${tool.name}`,
+        });
         throw new AppError({
           code: "provider.missing_tool_executor",
           message: `No executor registered for tool ${tool.name}`,
@@ -94,7 +99,12 @@ function toCodingAgentTool(
           details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
         };
       } catch (error) {
-        safeRecordToolCallMetric({ kind: "tool_call", name: tool.name, ok: false });
+        safeRecordToolCallMetric({
+          kind: "tool_call",
+          name: tool.name,
+          ok: false,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
         throw error;
       }
     },

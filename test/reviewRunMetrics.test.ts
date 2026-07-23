@@ -183,4 +183,27 @@ describe("reviewRunMetrics", () => {
       expect(snapshot?.wallClockMs).toBeGreaterThanOrEqual(0);
     });
   });
+
+  it("retains lastFailure and recent tool errors when tool_call fails with error text", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "pi",
+        model: "m",
+        mode: "review",
+      });
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "publish_summary",
+        ok: false,
+        errorMessage: "Insufficient credits",
+      });
+      const snap = snapshotReviewRunMetrics();
+      expect(snap?.toolCallErrors).toBe(1);
+      expect(snap?.lastFailure?.errorKind).toBe("quota");
+      expect(snap?.lastFailure?.toolName).toBe("publish_summary");
+      expect(snap?.lastFailure?.errorMessage.toLowerCase()).toContain("credit");
+      expect(snap?.recentToolErrors).toHaveLength(1);
+    });
+  });
 });
