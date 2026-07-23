@@ -23,7 +23,7 @@ import {
   buildSubmitOnlyDescriptionSessionTools,
   shouldContinueDescriptionRun,
 } from "./descriptionRunSetup.js";
-import type { OperationIntentContext } from "../agentWork/withOperationIntent.js";
+import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
 
 export type DescriptionRunResult = {
   lastAssistant: AssistantMessage;
