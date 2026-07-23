@@ -4,6 +4,7 @@ import {
   CI_SUMMARY_CELL_START,
   commentBodyHasCiSummaryCell,
   patchCiSummaryCellInCommentBody,
+  preserveCiSummaryRowInCommentBody,
   renderCiSummaryCell,
   shouldRenderCiSummaryRow,
 } from "../src/review/ci/renderCiSummary.js";
@@ -142,5 +143,56 @@ describe("renderCiSummary", () => {
     };
     const body = `| CI | ${renderCiSummaryCell(summary)} |`;
     expect(patchCiSummaryCellInCommentBody(body, summary)).toBe(body);
+  });
+
+  it("preserves the prior CI table row when a progress rewrite omits CI", () => {
+    const ciRow = `<tr><td><strong>CI</strong></td><td>${renderCiSummaryCell({
+      status: "pending",
+      headline: "⏳ CI is still running",
+      failures: [],
+    })}</td></tr>`;
+    const previous = [
+      "<table>",
+      "<tbody>",
+      "<tr><td><strong>Head</strong></td><td><code>abc</code></td></tr>",
+      "<tr><td><strong>Source</strong></td><td>Pull request update</td></tr>",
+      ciRow,
+      "<tr><td><strong>Recon</strong></td><td>⏳ Running</td></tr>",
+      "</tbody>",
+      "</table>",
+    ].join("\n");
+    const next = [
+      "<table>",
+      "<tbody>",
+      "<tr><td><strong>Head</strong></td><td><code>abc</code></td></tr>",
+      "<tr><td><strong>Source</strong></td><td>Pull request update</td></tr>",
+      "<tr><td><strong>Recon</strong></td><td>✅ Done</td></tr>",
+      "</tbody>",
+      "</table>",
+    ].join("\n");
+
+    const preserved = preserveCiSummaryRowInCommentBody(previous, next);
+    expect(preserved).toContain("<strong>CI</strong>");
+    expect(preserved).toContain("CI is still running");
+    expect(preserved.indexOf("<strong>Source</strong>")).toBeLessThan(
+      preserved.indexOf("<strong>CI</strong>"),
+    );
+    expect(preserved.indexOf("<strong>CI</strong>")).toBeLessThan(
+      preserved.indexOf("<strong>Recon</strong>"),
+    );
+  });
+
+  it("does not duplicate CI when the next body already has a CI cell", () => {
+    const ciCell = renderCiSummaryCell({
+      status: "passing",
+      headline: "✅ All CI is passing",
+      failures: [],
+    });
+    const previous = `<tr><td><strong>CI</strong></td><td>${ciCell}</td></tr>`;
+    const next = [
+      "<tr><td><strong>Source</strong></td><td>Slash command</td></tr>",
+      `<tr><td><strong>CI</strong></td><td>${ciCell}</td></tr>`,
+    ].join("\n");
+    expect(preserveCiSummaryRowInCommentBody(previous, next)).toBe(next);
   });
 });

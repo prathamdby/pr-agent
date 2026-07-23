@@ -269,6 +269,58 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     vi.useRealTimers();
   });
 
+  it("preserves the prior CI row when a later progress tick omits CI", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    const priorBody = [
+      REVIEW_SUMMARY_SENTINEL,
+      "",
+      "<table>",
+      "<tbody>",
+      "<tr><td><strong>Head</strong></td><td><code>abc</code></td></tr>",
+      "<tr><td><strong>Source</strong></td><td>Pull request update</td></tr>",
+      "<tr><td><strong>CI</strong></td><td><!-- pr-agent:ci-summary -->⏳ CI is still running<!-- /pr-agent:ci-summary --></td></tr>",
+      "<tr><td><strong>Recon</strong></td><td>⏳ Running</td></tr>",
+      "</tbody>",
+      "</table>",
+      "<!-- pr-agent:progress-revision workItemId=wi-1 value=0 -->",
+    ].join("\n");
+    const nextBody = [
+      REVIEW_SUMMARY_SENTINEL,
+      "",
+      "<table>",
+      "<tbody>",
+      "<tr><td><strong>Head</strong></td><td><code>abc</code></td></tr>",
+      "<tr><td><strong>Source</strong></td><td>Pull request update</td></tr>",
+      "<tr><td><strong>Recon</strong></td><td>✅ Done</td></tr>",
+      "</tbody>",
+      "</table>",
+    ].join("\n");
+
+    vi.mocked(getProgressCommentRevision).mockResolvedValue({ workItemId: "wi-1", revision: 0 });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: priorBody,
+    });
+
+    await upsertSummaryCommentWithCreationClaim({
+      ...claimBase,
+      pool: lockedPool,
+      body: nextBody,
+      progressRevision: 1,
+    });
+
+    const writtenBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4] as string;
+    expect(writtenBody).toContain("<strong>CI</strong>");
+    expect(writtenBody).toContain("CI is still running");
+    expect(writtenBody.indexOf("<strong>Source</strong>")).toBeLessThan(
+      writtenBody.indexOf("<strong>CI</strong>"),
+    );
+    expect(writtenBody.indexOf("<strong>CI</strong>")).toBeLessThan(
+      writtenBody.indexOf("<strong>Recon</strong>"),
+    );
+  });
+
   it("allows a new work item to restart progress at revision zero", async () => {
     const { pool: lockedPool } = createLockedPool();
     vi.mocked(getProgressCommentRevision).mockResolvedValue({

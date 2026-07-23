@@ -48,7 +48,12 @@ const testState = vi.hoisted(() => ({
   deterministicSummaries: [] as Array<Record<string, unknown>>,
   deterministicCiAuthors: [] as Array<unknown>,
   summaryToolCiAuthors: [] as Array<unknown>,
-  ticks: [] as Array<{ readonly progressRevision: number; readonly kind: string }>,
+  ticks: [] as Array<{
+    readonly progressRevision: number;
+    readonly kind: string;
+    readonly recon?: string;
+    readonly specialists?: Record<string, { phase: string }>;
+  }>,
   createError: null as Error | null,
   createDelayMs: 0,
   sendDelay: null as {
@@ -173,13 +178,19 @@ vi.mock("../src/review/orchestrator/stubTick.js", () => ({
   tickProgressComment: vi.fn(
     async (params: {
       progressRevision: number;
-      tickState: { kind: string };
+      tickState: {
+        kind: string;
+        recon?: string;
+        specialists?: Record<string, { phase: string }>;
+      };
       refreshLiveAuth?: () => Promise<void>;
     }) => {
       await params.refreshLiveAuth?.();
       testState.ticks.push({
         progressRevision: params.progressRevision,
         kind: params.tickState.kind,
+        recon: params.tickState.recon,
+        specialists: params.tickState.specialists,
       });
     },
   ),
@@ -726,8 +737,28 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual([]);
     expect(testState.sessionDisposals).toBe(1);
     expect(testState.ticks).toEqual([
-      { progressRevision: 1, kind: "specialists" },
-      { progressRevision: 6, kind: "terminal" },
+      {
+        progressRevision: 1,
+        kind: "specialists",
+        recon: "done",
+        specialists: {
+          correctness: { phase: "running" },
+          security: { phase: "running" },
+          quality: { phase: "running" },
+          tests: { phase: "running" },
+        },
+      },
+      {
+        progressRevision: 6,
+        kind: "terminal",
+        recon: "done",
+        specialists: {
+          correctness: { phase: "running" },
+          security: { phase: "running" },
+          quality: { phase: "running" },
+          tests: { phase: "running" },
+        },
+      },
     ]);
   });
 
