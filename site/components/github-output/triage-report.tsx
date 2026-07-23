@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { GhCode, GhDetails, OutputFrame } from "@/components/github-output/primitives";
+import { GhCode, OutputFrame } from "@/components/github-output/primitives";
 
 /**
  * Mirrors `renderTriageReport` under `## PR Agent Triage`:
@@ -12,6 +12,7 @@ type TriageRow = {
   readonly path: string;
   readonly line: number;
   readonly verdict: ReactNode;
+  readonly threadUrl: string;
 };
 
 const ROWS: readonly TriageRow[] = [
@@ -25,6 +26,7 @@ const ROWS: readonly TriageRow[] = [
         Fixed <GhCode>a1b2c3d</GhCode>
       </>
     ),
+    threadUrl: "https://github.com/example/pr-agent/pull/1#discussion_r101",
   },
   {
     severity: "P2",
@@ -32,6 +34,7 @@ const ROWS: readonly TriageRow[] = [
     path: "src/review/publish.ts",
     line: 91,
     verdict: "Already resolved",
+    threadUrl: "https://github.com/example/pr-agent/pull/1#discussion_r102",
   },
   {
     severity: "P2",
@@ -39,6 +42,7 @@ const ROWS: readonly TriageRow[] = [
     path: "src/webhooks/intake.ts",
     line: 162,
     verdict: "Dismissed",
+    threadUrl: "https://github.com/example/pr-agent/pull/1#discussion_r103",
   },
 ];
 
@@ -66,15 +70,23 @@ function GhGfmTable({ rows }: { readonly rows: readonly TriageRow[] }) {
       </thead>
       <tbody>
         {rows.map((row) => (
-          <tr key={`${row.path}-${row.line}`} className="border-b border-edge/70 align-top last:border-b-0">
+          <tr
+            key={`${row.path}-${row.line}`}
+            className="border-b border-edge/70 align-top last:border-b-0"
+          >
             <td className="py-1.5 pr-2 font-semibold text-ink-soft">{row.severity}</td>
             <td className="py-1.5 pr-2 text-ink-mute">{row.finding}</td>
-            <td className="py-1.5 pr-2 whitespace-nowrap text-ink-mute">
+            <td className="whitespace-nowrap py-1.5 pr-2 text-ink-mute">
               <GhCode>{row.path}</GhCode> L{row.line}
             </td>
-            <td className="py-1.5 pr-2 whitespace-nowrap text-ink-mute">{row.verdict}</td>
+            <td className="whitespace-nowrap py-1.5 pr-2 text-ink-mute">{row.verdict}</td>
             <td className="py-1.5">
-              <span className="text-sky underline decoration-sky/40 underline-offset-2">thread</span>
+              <a
+                href={row.threadUrl}
+                className="text-sky underline decoration-sky/40 underline-offset-2"
+              >
+                thread
+              </a>
             </td>
           </tr>
         ))}
@@ -106,11 +118,12 @@ export function TriageReportMock() {
         <div className="overflow-x-auto">
           <GhGfmTable rows={ROWS} />
         </div>
-        <GhDetails summary="Policy suggestions for dismissed findings">
-          <p className="mb-1.5 text-ink-soft">
+        <section className="space-y-1">
+          <h4 className="text-xs font-semibold text-ink">Policy suggestions for dismissed findings</h4>
+          <p className="text-ink-soft">
             Commit these to <GhCode>.pr-agent/*.mdc</GhCode> to steer future reviews:
           </p>
-          <p className="mb-1.5">
+          <p>
             Create <GhCode>.pr-agent/src-webhooks-intake.mdc</GhCode> with:
           </p>
           <pre className="surface-inset edge-self overflow-x-auto p-2 font-mono text-[11px] leading-relaxed text-ink-soft">
@@ -122,7 +135,7 @@ alwaysApply: false
 
 Intentional: docs-only PRs skip the durable ack wait by design.`}</code>
           </pre>
-        </GhDetails>
+        </section>
       </div>
     </OutputFrame>
   );
