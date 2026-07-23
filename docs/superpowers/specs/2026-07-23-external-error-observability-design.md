@@ -122,7 +122,7 @@ Orchestrator `sendWithRetry` / specialist failures / publish tool failures call 
 
 | Surface | Events / logs | Source of signal |
 | ------- | ------------- | ---------------- |
-| Durable job | `agent_work_failed`, `agent_work_retrying`, PostHog `"work item failed"` | thrown error → `classifyFailure`; upgrade from `provider_error_kind` alone to full contract (keep `provider_error_kind` for back-compat or map from `error_kind` when domain=provider) |
+| Durable job | `agent_work_failed`, `agent_work_retrying`, PostHog `"work item failed"` | thrown error → `classifyFailure`; emit full contract (`failure_domain`, `error_kind`, `error_message`, …). Keep `provider_error_kind` when `failure_domain === "provider"` for back-compat (same value as `error_kind`). |
 | Review executor | `review_not_published`, PostHog `"review failed"` | metrics / result lastFailure; superseded path does **not** emit `"review failed"` as provider |
 | Review fallback | `agent_publish_fallback` | accept optional lastFailure; log kind+message |
 | Orchestrator | `review_synthesis_publish_salvage`, send retry/fail, session create fail | record + log classified fields |
