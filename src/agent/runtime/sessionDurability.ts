@@ -75,7 +75,11 @@ export async function saveResumeSnapshotIfConfigured(
 }
 
 export type LoadedResumeSnapshot =
-  | { readonly ok: true; readonly plaintext: ResumeSnapshotPlaintext; readonly checkpointId: string }
+  | {
+      readonly ok: true;
+      readonly plaintext: ResumeSnapshotPlaintext;
+      readonly checkpointId: string;
+    }
   | { readonly ok: false; readonly reason: string };
 
 export async function loadResumeSnapshotIfConfigured(
