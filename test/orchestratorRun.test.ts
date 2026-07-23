@@ -46,6 +46,8 @@ const testState = vi.hoisted(() => ({
   judgmentFailuresRemaining: 0,
   reconSubmitsBrief: true,
   deterministicSummaries: [] as Array<Record<string, unknown>>,
+  deterministicCiAuthors: [] as Array<unknown>,
+  summaryToolCiAuthors: [] as Array<unknown>,
   ticks: [] as Array<{ readonly progressRevision: number; readonly kind: string }>,
   createError: null as Error | null,
   createDelayMs: 0,
@@ -147,16 +149,23 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
 vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
   createPublishSummaryState: vi.fn(() => ({ published: false, lastValidationError: null })),
   buildPublishSummaryTool: vi.fn(
-    (params: { state: { published: boolean }; getCoverage: () => ReviewCoverage }) => ({
-      piTool: { name: "publish_summary", description: "summary", parameters: {} },
-      executor: vi.fn(async () => {
-        testState.publishOrder.push("summary");
-        const coverage = params.getCoverage();
-        testState.summaryNotes.push(coverage.kind === "partial" ? coverage.note : undefined);
-        params.state.published = true;
-        return { ok: true, summaryCommentId: 9 };
-      }),
-    }),
+    (params: {
+      state: { published: boolean };
+      getCoverage: () => ReviewCoverage;
+      ciAuthor?: unknown;
+    }) => {
+      testState.summaryToolCiAuthors.push(params.ciAuthor);
+      return {
+        piTool: { name: "publish_summary", description: "summary", parameters: {} },
+        executor: vi.fn(async () => {
+          testState.publishOrder.push("summary");
+          const coverage = params.getCoverage();
+          testState.summaryNotes.push(coverage.kind === "partial" ? coverage.note : undefined);
+          params.state.published = true;
+          return { ok: true, summaryCommentId: 9 };
+        }),
+      };
+    },
   ),
 }));
 
@@ -183,11 +192,14 @@ vi.mock("../src/review/run/reviewRunFallback.js", () => ({
 }));
 
 vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
-  publishReviewSummaryOnly: vi.fn(async (params: { readonly payload: Record<string, unknown> }) => {
-    testState.publishOrder.push("summary");
-    testState.deterministicSummaries.push(params.payload);
-    return { kind: "published", summaryCommentId: 10 };
-  }),
+  publishReviewSummaryOnly: vi.fn(
+    async (params: { readonly payload: Record<string, unknown>; readonly ciAuthor?: unknown }) => {
+      testState.publishOrder.push("summary");
+      testState.deterministicSummaries.push(params.payload);
+      testState.deterministicCiAuthors.push(params.ciAuthor);
+      return { kind: "published", summaryCommentId: 10 };
+    },
+  ),
 }));
 
 const runner = vi.hoisted(() => ({
@@ -333,6 +345,8 @@ describe("runOrchestratedPrReview", () => {
     testState.judgmentFailuresRemaining = 0;
     testState.reconSubmitsBrief = true;
     testState.deterministicSummaries.length = 0;
+    testState.deterministicCiAuthors.length = 0;
+    testState.summaryToolCiAuthors.length = 0;
     testState.ticks.length = 0;
     testState.createError = null;
     testState.createDelayMs = 0;
@@ -440,6 +454,8 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
+    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
+    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
   it("returns before returnByMs when session creation crosses modelStopAtMs", async () => {
