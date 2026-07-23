@@ -13,6 +13,11 @@ import {
 } from "../github/appAuth.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providers/providerErrors.js";
+import {
+  classifyFailure,
+  classifiedFailureLogFields,
+  classifiedFailurePostHogProperties,
+} from "../errors/classifiedFailure.js";
 import type { PullRequestForFileList } from "../github/listPullRequestFiles.js";
 import {
   DEFERRED_HEAD_SHA,
@@ -462,6 +467,7 @@ export async function runDurableWorkItem<T extends WorkType>(
 
   async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
     if (await markWorkRetrying(spec.pool, item.id, error)) {
+      const failure = classifyFailure(error);
       logWarn("agent_work_retrying", {
         type: spec.type,
         workItemId: item.id,
@@ -470,6 +476,7 @@ export async function runDurableWorkItem<T extends WorkType>(
         pgBossRetryCount: spec.job.retryCount,
         pgBossRetryLimit: spec.job.retryLimit,
         dbAttemptCount: item.attemptCount,
+        ...classifiedFailureLogFields(failure),
       });
       throw error;
     }
@@ -504,6 +511,8 @@ export async function runDurableWorkItem<T extends WorkType>(
     await invokeRescheduleAbort(error);
     await invokeTerminalFailureHook(error);
     await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);
+    const failure = classifyFailure(error);
+    const providerErrorKind = classifyProviderError(error);
     logError(
       "agent_work_failed",
       {
@@ -514,11 +523,12 @@ export async function runDurableWorkItem<T extends WorkType>(
         repo: item.repo,
         pr_number: item.prNumber,
         message: sanitizeLogMessage(message),
-        providerErrorKind: classifyProviderError(error),
+        providerErrorKind,
         pgBossRetryCount: spec.job.retryCount,
         pgBossRetryLimit: spec.job.retryLimit,
         dbAttemptCount: item.attemptCount,
         ...errorLogFields(error),
+        ...classifiedFailureLogFields(failure),
       },
       error,
     );
@@ -531,7 +541,10 @@ export async function runDurableWorkItem<T extends WorkType>(
         repo: item.repo,
         pr_number: item.prNumber,
         attempt_count: item.attemptCount,
-        provider_error_kind: classifyProviderError(error),
+        ...classifiedFailurePostHogProperties(failure),
+        ...(failure.failureDomain === "provider"
+          ? { provider_error_kind: providerErrorKind }
+          : {}),
       },
     });
   }

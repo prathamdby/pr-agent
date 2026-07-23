@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   getAppBotIdentity: vi.fn(),
   logInfo: vi.fn(),
   logWarn: vi.fn(),
+  captureEvent: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
   recordPublishStep: vi.fn(),
@@ -37,6 +38,11 @@ const mocks = vi.hoisted(() => ({
       _summaryCommentId?: string | number | null,
     ): string | undefined => undefined,
   ),
+}));
+
+vi.mock("../src/analytics/index.js", () => ({
+  captureEvent: (...args: unknown[]) => mocks.captureEvent(...args),
+  captureException: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -382,6 +388,42 @@ describe("executeReviewJob", () => {
         conclusion: "failure",
         summary: "PR Agent could not publish a structured review.",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
+      }),
+    );
+  });
+
+  it("emits review failed with prior provider credit lastFailure", async () => {
+    mocks.runOrchestratedPrReview.mockResolvedValue({
+      published: false,
+      publishAttempts: 2,
+      publishSuperseded: false,
+      lastFailure: {
+        failureDomain: "provider",
+        errorKind: "quota",
+        errorMessage: "Insufficient credits for model",
+        phase: "synthesis",
+      },
+      lastAssistant: { role: "assistant", content: [], stopReason: "stop", api: "openai-completions", provider: "openai", model: "m", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 }, timestamp: 0 },
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review failed",
+        properties: expect.objectContaining({
+          failure_domain: "provider",
+          error_kind: "quota",
+          error_message: expect.stringMatching(/credit/i),
+          publish_attempts: 2,
+        }),
+      }),
+    );
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "review_not_published",
+      expect.objectContaining({
+        failureDomain: "provider",
+        errorKind: "quota",
       }),
     );
   });
