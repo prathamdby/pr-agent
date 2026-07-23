@@ -42,7 +42,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:url",
-        content: SITE_ORIGIN,
+        content: `${SITE_ORIGIN}/`,
       },
       {
         property: "og:site_name",
@@ -66,7 +66,7 @@ export const Route = createRootRoute({
       },
       {
         property: "og:image:alt",
-        content: `${PRODUCT_NAME} - AI reviews your pull requests on your own servers`,
+        content: `${PRODUCT_NAME} - AI PR reviews on your own servers`,
       },
       {
         name: "twitter:card",
@@ -92,7 +92,7 @@ export const Route = createRootRoute({
       },
       {
         rel: "canonical",
-        href: SITE_ORIGIN,
+        href: `${SITE_ORIGIN}/`,
       },
       {
         rel: "icon",

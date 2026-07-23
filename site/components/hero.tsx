@@ -4,15 +4,25 @@ import { ReviewArtifact } from "@/components/review-artifact";
 import { DOCS_URL } from "@/lib/site";
 import { PRODUCT_NAME } from "@/lib/seo";
 
+const heroCopyClassName =
+  "max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft";
+
 function HeroCopy({ headingId }: { readonly headingId?: string }) {
+  const copy = (
+    <>
+      AI PR reviews on <span className="text-bolt">your own servers</span>
+    </>
+  );
+
   return (
     <>
-      <h1
-        id={headingId}
-        className="max-w-[28ch] font-display text-[clamp(1.35rem,2.6vw,2rem)] leading-[1.2] text-ink-soft"
-      >
-        AI reviews your pull requests on <span className="text-bolt">your own servers</span>
-      </h1>
+      {headingId ? (
+        <h1 id={headingId} className={heroCopyClassName}>
+          {copy}
+        </h1>
+      ) : (
+        <p className={heroCopyClassName}>{copy}</p>
+      )}
       <p className="mt-3 max-w-[42ch] text-sm leading-relaxed text-ink-mute sm:text-base">
         Same first pass every PR gets, without a per-seat bill. Your infrastructure, your model
         keys, your code never leaves.

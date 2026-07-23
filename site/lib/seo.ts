@@ -3,12 +3,13 @@ import { REPO_URL, SITE_ORIGIN } from "@/lib/site";
 
 export const PRODUCT_NAME = "PR Agent";
 
-export const SEO_TITLE = "PR Agent | AI PR Reviews on Your Own Servers";
+export const SEO_TITLE = "PR Agent | AI PR reviews on Your Own Servers";
 
 export const SEO_DESCRIPTION =
-  "AI reviews for GitHub pull requests on your servers. MIT-licensed, no per-seat fee, Docker Compose deploy, and bring your own model keys.";
+  "AI PR reviews for GitHub pull requests on your servers. MIT-licensed, no per-seat fee, Docker Compose deploy, and bring your own model keys.";
 
 export const SEO_KEYWORDS = [
+  "AI PR reviews",
   "PR Agent",
   "AI code review",
   "AI pull request review",
@@ -96,6 +97,7 @@ export const JSON_LD_GRAPHS = [
     "@context": "https://schema.org",
     "@type": "WebSite",
     name: PRODUCT_NAME,
+    alternateName: "AI PR reviews",
     description: SEO_DESCRIPTION,
     url: SITE_ORIGIN,
   },
