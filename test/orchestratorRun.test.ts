@@ -564,6 +564,7 @@ describe("runOrchestratedPrReview", () => {
       "security",
       "summary",
     ]);
+    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
   });
 
   it("records every successful orchestrator turn and only new thread batches", async () => {
@@ -639,6 +640,7 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
     expect(testState.failureNotices).toBe(0);
     expect(testState.deterministicSummaries).toHaveLength(1);
+    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
   it("falls back to a deterministic brief when recon never submits one", async () => {
@@ -669,6 +671,7 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
     expect(testState.sessionAborts).toBe(1);
     expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
+    expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
   it("preserves a report when judgment tool restriction throws", async () => {
