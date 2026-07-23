@@ -229,31 +229,15 @@ export async function loadConfig() {
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
   const catalogCandidatePath = modelsJsonPath ?? defaultModelsJsonCandidatePath();
-  // Cursor ignores models.json for PI_MODEL selection; still require a built-in PI_PROVIDER slug.
-  const piApi =
-    agentProvider === "pi"
-      ? await assertPiModelSelection({
-          modelsJsonPath,
-          piProvider,
-          piModel,
-          catalogCandidatePath,
-        })
-      : await assertPiModelSelection({
-          modelsJsonPath: null,
-          piProvider,
-          piModel,
-          catalogCandidatePath,
-        });
+  const piApi = await assertPiModelSelection({
+    modelsJsonPath,
+    piProvider,
+    piModel,
+    catalogCandidatePath,
+  });
 
-  const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
-  if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
-    throw new AppError({
-      code: "config.missing_env",
-      message: `Missing required environment variable: ${ENV.CURSOR_API_KEY}`,
-      context: { name: ENV.CURSOR_API_KEY },
-    });
-  }
-  const cursorApiKey = agentProvider === "cursor" ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
+  // Cursor credentials remain readable until removal (#351) but never select a runtime.
+  const cursorApiKey = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
   const cursorRipgrepPath = optionalEnv(
     ENV.CURSOR_RIPGREP_PATH,
     DEFAULT_CURSOR_RIPGREP_PATH,
@@ -436,4 +420,9 @@ export async function loadConfig() {
   };
 }
 
-export type Config = Awaited<ReturnType<typeof loadConfig>>;
+/** Expand-phase Config still names `cursor` so leftover Cursor tests compile until #351. */
+export type AgentProviderName = "pi" | "cursor";
+
+export type Config = Omit<Awaited<ReturnType<typeof loadConfig>>, "agentProvider"> & {
+  readonly agentProvider: AgentProviderName;
+};

@@ -52,6 +52,7 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
     },
     abort: vi.fn(),
     setActiveToolsByName: vi.fn(),
+    setThinkingLevel: vi.fn(),
     dispose: vi.fn(),
   };
 }
@@ -371,6 +372,7 @@ describe("piAgentRunnerProvider.send", () => {
       prompt: () => new Promise<void>(() => {}),
       abort,
       setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
     };
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
@@ -400,6 +402,7 @@ describe("piAgentRunnerProvider.send", () => {
         }),
       abort,
       setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
     };
     const emit = (event: unknown) => {
       for (const listener of listeners) listener(event);
@@ -471,6 +474,7 @@ describe("piAgentRunnerProvider.send", () => {
       prompt: async () => undefined,
       abort: vi.fn(),
       setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
       dispose,
     };
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);

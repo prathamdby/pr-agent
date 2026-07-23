@@ -1,0 +1,161 @@
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import type { Config } from "../../config.js";
+import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
+
+export type AgentSessionRole =
+  | "orchestrator"
+  | "specialist"
+  | "ask"
+  | "description"
+  | "triage"
+  | "verification"
+  | "ci_summary";
+
+export type ModelAssignment = {
+  readonly provider: string;
+  readonly model: string;
+};
+
+export type AgentSessionPhase =
+  | "recon"
+  | "specialist"
+  | "judgment"
+  | "synthesis"
+  | "validation_repair"
+  | "publish_recovery"
+  | "ask"
+  | "description"
+  | "triage"
+  | "verification"
+  | "ci_summary";
+
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export type ThinkingPolicy = {
+  readonly ceiling: ThinkingLevel;
+  /** Resolve the desired thinking level for a phase before clamping. */
+  readonly levelForPhase: (phase: AgentSessionPhase) => ThinkingLevel;
+};
+
+export type CompactionPolicy = {
+  readonly enabled: boolean;
+  readonly instructions: string;
+};
+
+export type ToolPolicy = {
+  /** Built-in shell/write/edit/filesystem tools stay disabled. */
+  readonly allowBuiltin: false;
+};
+
+/** Server-owned structured state re-injected after compaction / fallback. */
+export type AuthoritativeStructuredState = {
+  readonly version: number;
+  readonly payload: Readonly<Record<string, unknown>>;
+};
+
+export type AgentLifecycleEventKind =
+  | "turn"
+  | "tool"
+  | "retry"
+  | "compaction"
+  | "usage"
+  | "cancellation"
+  | "completion"
+  | "failure";
+
+/** Minimal event shape for the expand-phase seam; Task 3a widens allowlisted fields. */
+export type AgentLifecycleEvent = {
+  readonly kind: AgentLifecycleEventKind;
+  readonly role: AgentSessionRole;
+  readonly phase?: AgentSessionPhase;
+  readonly checkpointId?: string;
+  readonly toolName?: string;
+  readonly ok?: boolean;
+  readonly failureCode?: string;
+  readonly provider?: string;
+  readonly model?: string;
+  readonly attempt?: number;
+  readonly reason?: string;
+};
+
+export type PiSessionSendOptions = {
+  readonly phase: AgentSessionPhase;
+  readonly maxToolRounds?: number;
+  readonly deadlineMs?: number;
+  readonly checkpointId: string;
+};
+
+export type PiSessionCreateParams = {
+  readonly role: AgentSessionRole;
+  readonly primary: ModelAssignment;
+  readonly fallback?: ModelAssignment;
+  readonly thinkingPolicy: ThinkingPolicy;
+  readonly compactionPolicy: CompactionPolicy;
+  readonly toolPolicy: ToolPolicy;
+  readonly structuredState: AuthoritativeStructuredState;
+  readonly systemPrompt: string;
+  readonly cwd?: string;
+  readonly eventSink: (event: AgentLifecycleEvent) => void;
+  readonly cfg: Config;
+  readonly tools: readonly PiTool[];
+  readonly executors: Record<string, AgentRunnerToolExecutor>;
+  readonly refreshBeforeTool?: (toolName: string) => Promise<void>;
+};
+
+export type PiSession = {
+  readonly role: AgentSessionRole;
+  readonly primary: ModelAssignment;
+  readonly send: (prompt: string, opts: PiSessionSendOptions) => Promise<AgentRunnerTurn>;
+  readonly setActiveTools: (
+    tools: readonly PiTool[],
+    executors: Record<string, AgentRunnerToolExecutor>,
+  ) => void;
+  readonly restoreTools: () => void;
+  readonly abort: () => Promise<void>;
+  readonly dispose: () => Promise<void>;
+  readonly restartWithFallback: (params: {
+    readonly checkpointId: string;
+    readonly structuredState: AuthoritativeStructuredState;
+  }) => Promise<PiSession>;
+  /** Test/harness access to the latest authoritative structured state. */
+  readonly getStructuredState: () => AuthoritativeStructuredState;
+};
+
+export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
+  ceiling: "high",
+  levelForPhase: (phase) => {
+    switch (phase) {
+      case "recon":
+      case "specialist":
+      case "judgment":
+        return "medium";
+      case "synthesis":
+      case "validation_repair":
+      case "publish_recovery":
+      case "ask":
+      case "description":
+      case "triage":
+      case "verification":
+      case "ci_summary":
+        return "low";
+      default: {
+        const _exhaustive: never = phase;
+        return _exhaustive;
+      }
+    }
+  },
+};
+
+export const DEFAULT_COMPACTION_POLICY: CompactionPolicy = {
+  enabled: false,
+  instructions: "",
+};
+
+export const DEFAULT_TOOL_POLICY: ToolPolicy = {
+  allowBuiltin: false,
+};
+
+export const EMPTY_STRUCTURED_STATE: AuthoritativeStructuredState = {
+  version: 1,
+  payload: {},
+};
