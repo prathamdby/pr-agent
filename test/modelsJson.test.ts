@@ -68,7 +68,8 @@ describe("modelsJson helpers", () => {
   });
 
   it("assertBuiltinPiProvider rejects cursor", () => {
-    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/AGENT_PROVIDER=cursor/);
+    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/PI_PROVIDER=cursor/);
+    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/AGENT_PROVIDER=cursor has been removed/);
   });
 
   it("assertPiModelSelection accepts a custom provider from models.json", async () => {
@@ -339,33 +340,7 @@ describe("loadConfig models.json", () => {
     ).rejects.toThrow(/not found/);
   });
 
-  it("does not require models.json selection when AGENT_PROVIDER=cursor", async () => {
-    const dir = tempDir();
-    writeFileSync(
-      join(dir, "models.json"),
-      JSON.stringify({
-        providers: {
-          ollama: {
-            baseUrl: "http://127.0.0.1:11434/v1",
-            api: "openai-completions",
-            apiKey: "ollama",
-            models: [{ id: "llama3.1:8b" }],
-          },
-        },
-      }),
-    );
-    const cfg = await loadWithCwd(dir, {
-      AGENT_PROVIDER: "cursor",
-      CURSOR_API_KEY: "cursor_test_key",
-      PI_PROVIDER: "openai",
-      PI_MODEL: "composer-2.5",
-    });
-    expect(cfg.modelsJsonPath).toBe(join(dir, "models.json"));
-    expect(cfg.agentProvider).toBe("cursor");
-    expect(cfg.piModel).toBe("composer-2.5");
-  });
-
-  it("still rejects unknown PI_PROVIDER for cursor when models.json exists", async () => {
+  it("rejects AGENT_PROVIDER=cursor before models.json selection", async () => {
     const dir = tempDir();
     writeFileSync(
       join(dir, "models.json"),
@@ -384,9 +359,9 @@ describe("loadConfig models.json", () => {
       loadWithCwd(dir, {
         AGENT_PROVIDER: "cursor",
         CURSOR_API_KEY: "cursor_test_key",
-        PI_PROVIDER: "ollama",
+        PI_PROVIDER: "openai",
         PI_MODEL: "composer-2.5",
       }),
-    ).rejects.toThrow(/unknown/);
+    ).rejects.toThrow(/AGENT_PROVIDER=cursor is no longer supported/);
   });
 });

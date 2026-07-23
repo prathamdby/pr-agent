@@ -44,8 +44,10 @@ export function defaultModelsJsonCandidatePath(cwd: string = process.cwd()): str
 function assertNotCursorPiProvider(piProvider: string): void {
   if (piProvider === "cursor") {
     throw new AppError({
-      code: "settings.models_json_cursor_provider_deprecated",
-      message: "PI_PROVIDER=cursor is no longer supported. Set AGENT_PROVIDER=cursor instead.",
+      code: "settings.models_json_cursor_provider_removed",
+      message:
+        "PI_PROVIDER=cursor is no longer supported. Use a Pi catalog provider via PI_PROVIDER/PI_MODEL (and optional PI_ORCHESTRATOR_* / PI_FALLBACK_*). AGENT_PROVIDER=cursor has been removed.",
+      context: { piProvider },
     });
   }
 }

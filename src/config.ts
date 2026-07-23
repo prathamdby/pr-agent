@@ -207,11 +207,21 @@ export async function loadConfig() {
   const databaseUrl = requireEnv(ENV.DATABASE_URL);
 
   const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
+  // Still accept "cursor" in the enum so we can emit an explicit migration error
+  // instead of a generic unsupported-value message. Never silently fall back to Pi.
   const agentProvider = readEnum(
     ENV.AGENT_PROVIDER,
     ["pi", "cursor"] as const,
     DEFAULT_AGENT_PROVIDER,
   );
+  if (agentProvider === "cursor") {
+    throw new AppError({
+      code: "config.cursor_provider_removed",
+      message:
+        "AGENT_PROVIDER=cursor is no longer supported. Use the Pi runtime: set AGENT_PROVIDER=pi (or omit it), configure PI_PROVIDER/PI_MODEL (general sessions), optional PI_ORCHESTRATOR_PROVIDER/PI_ORCHESTRATOR_MODEL and PI_FALLBACK_PROVIDER/PI_FALLBACK_MODEL, and resolve models via the Pi built-in catalog or models.json. CURSOR_API_KEY and other Cursor settings are not reinterpreted as Pi credentials.",
+      context: { name: ENV.AGENT_PROVIDER, value: "cursor" },
+    });
+  }
 
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
