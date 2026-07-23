@@ -9,7 +9,7 @@ const APP_FIELDS = [
   },
   {
     label: "Subscribe to",
-    value: "pull_request · issue_comment · pull_request_review_comment",
+    value: "Pull requests · Issue comments · Pull request review comments",
     mono: false,
   },
   {
@@ -20,10 +20,10 @@ const APP_FIELDS = [
 ] as const;
 
 const SLASH_COMMANDS = [
-  { cmd: "/review", tip: "Orchestrated review on the diff" },
+  { cmd: "/review", tip: "Run a full review on the changes" },
   { cmd: "/describe", tip: "Write a readable summary into the PR body" },
   { cmd: "/ask …", tip: "Ask a question about the code in that thread" },
-  { cmd: "/triage", tip: "Verify prior findings and fix valid ones" },
+  { cmd: "/triage", tip: "Recheck earlier findings and fix valid ones" },
 ] as const;
 
 const COMPOSE_SNIPPET = `cp .env.example .env
@@ -71,7 +71,7 @@ export function Quickstart() {
         </h2>
         <p className="mt-4 text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
           Three steps from an empty machine to a review on a real pull request. You need Docker, a
-          GitHub App, and one AI provider key.
+          GitHub app, and one AI provider key.
         </p>
       </header>
 
@@ -80,11 +80,11 @@ export function Quickstart() {
           <StepNumber n="01" />
           <div className="min-w-0 max-w-2xl">
             <h3 className="text-lg font-medium leading-snug text-ink sm:text-xl">
-              Create a GitHub App
+              Create a GitHub app
             </h3>
             <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-              Register the app on your account or org, then point the webhook at the host where you
-              will run PR Agent.
+              Register the app on your account or org, then point GitHub at the host where you will
+              run PR Agent.
             </p>
             <dl className="mt-6 space-y-4">
               {APP_FIELDS.map((field) => (
@@ -124,8 +124,8 @@ export function Quickstart() {
               Fill .env and start the stack
             </h3>
             <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-              Copy the example env, drop in your GitHub App values and provider key, then bring the
-              web + worker services up with Compose.
+              Copy the example env, drop in your GitHub app values and provider key, then start PR
+              Agent with Compose.
             </p>
             <CodeBlock>{COMPOSE_SNIPPET}</CodeBlock>
             <p className="mt-6 text-xs font-medium text-ink-faint">Minimum keys to set</p>
@@ -140,8 +140,8 @@ export function Quickstart() {
               Open a PR and talk to it
             </h3>
             <p className="mt-2 text-[0.98rem] leading-relaxed text-ink-mute sm:text-base">
-              Install the app on a repo, open a pull request, and wait for the automatic pass — or
-              type a slash command in the conversation when you want more.
+              Install the app on a repo, open a pull request, and wait for the automatic pass. Or
+              type a command in the conversation when you want more.
             </p>
             <ul className="surface-inset edge-self mt-5 divide-y divide-edge rounded-md">
               {SLASH_COMMANDS.map((item) => (

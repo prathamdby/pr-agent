@@ -15,20 +15,20 @@ const EXAMPLES: readonly OutputExample[] = [
   {
     command: "/review",
     label: "Review summary",
-    detail: "PR conversation comment under ## PR Agent Review.",
+    detail: "A summary comment on the pull request conversation.",
     kind: "review",
     lens: "review",
   },
   {
     command: "/describe",
     label: "Description block",
-    detail: "Merged into the PR body under ## PR Agent Description.",
+    detail: "A readable summary merged into the pull request body.",
     kind: "describe",
   },
   {
     command: "/ask",
     label: "Ask reply",
-    detail: "Question and answer on the PR conversation.",
+    detail: "A question and answer right on the pull request.",
     kind: "ask",
   },
 ];
@@ -59,7 +59,7 @@ export function Gallery() {
           What lands on the pull request
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-ink-mute md:text-base">
-          Built from the same summary, description, and ask formats the worker publishes to GitHub.
+          Same summary, description, and ask formats PR Agent posts on a real pull request.
         </p>
       </div>
 

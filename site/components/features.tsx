@@ -12,8 +12,8 @@ export function Features() {
           How a pull request gets its first pass
         </h2>
         <p className="mt-4 text-base leading-relaxed text-ink-mute sm:text-[1.05rem]">
-          One deploy. After that, every PR follows the same path inside GitHub - no extra dashboard,
-          no per-seat bill from PR Agent.
+          One deploy. After that, every pull request follows the same path inside GitHub. No extra
+          dashboard, no per-seat bill from PR Agent.
         </p>
       </header>
 
