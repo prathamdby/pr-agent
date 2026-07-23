@@ -62,9 +62,9 @@ describe("loadConfig Cursor migration guard", () => {
     const { loadConfig } = await import("../src/config.js");
     const cfg = await loadConfig();
     expect(cfg.agentProvider).toBe("pi");
-    expect(cfg.cursorApiKey).toBe("cursor_should_not_become_openai");
     expect(cfg.modelProviderKeys.openai).toBe("openai_test_key");
-    expect(cfg.modelProviderKeys.openai).not.toBe(cfg.cursorApiKey);
+    expect(cfg.modelProviderKeys.openai).not.toBe("cursor_should_not_become_openai");
+    expect(cfg).not.toHaveProperty("cursorApiKey");
   });
 
   it("rejects legacy PI_PROVIDER=cursor with Pi migration guidance", async () => {

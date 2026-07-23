@@ -44,7 +44,9 @@ export function clampToModelSupportedLevel(
   }
   if (best) return best;
   // Desired below all supported — pick the lowest supported.
-  return [...supported].sort((a, b) => thinkingLevelIndex(a) - thinkingLevelIndex(b))[0] ?? "off";
+  return (
+    [...supported].toSorted((a, b) => thinkingLevelIndex(a) - thinkingLevelIndex(b))[0] ?? "off"
+  );
 }
 
 export function resolveThinkingLevel(params: {

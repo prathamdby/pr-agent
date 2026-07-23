@@ -96,7 +96,11 @@ export async function loadResumeSnapshot(
     readonly now?: Date;
   },
 ): Promise<
-  | { readonly ok: true; readonly plaintext: ResumeSnapshotPlaintext; readonly checkpointId: string }
+  | {
+      readonly ok: true;
+      readonly plaintext: ResumeSnapshotPlaintext;
+      readonly checkpointId: string;
+    }
   | { readonly ok: false; readonly reason: string }
 > {
   const row = await queryOne<{
@@ -177,9 +181,8 @@ export async function deleteExpiredResumeSnapshots(
   client: Pool | PoolClient,
   now: Date = new Date(),
 ): Promise<number> {
-  const result = await client.query(
-    `DELETE FROM agent_resume_snapshots WHERE expires_at <= $1`,
-    [now.toISOString()],
-  );
+  const result = await client.query(`DELETE FROM agent_resume_snapshots WHERE expires_at <= $1`, [
+    now.toISOString(),
+  ]);
   return result.rowCount ?? 0;
 }

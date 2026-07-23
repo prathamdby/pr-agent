@@ -17,7 +17,10 @@ describe("classifyFallbackEligibility", () => {
     ["auth", new Error("401 Unauthorized invalid api key")],
     [
       "config",
-      new AppError({ code: "config.missing_env", message: "Missing required environment variable" }),
+      new AppError({
+        code: "config.missing_env",
+        message: "Missing required environment variable",
+      }),
     ],
     ["invalid_request", new Error("invalid_request: malformed json body")],
     ["context_limit", new Error("maximum context length exceeded")],

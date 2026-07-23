@@ -21,8 +21,6 @@ import {
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_VERIFICATION_CONCURRENCY,
   DEFAULT_CONTEXT7_API_KEY,
-  DEFAULT_CURSOR_API_KEY,
-  DEFAULT_CURSOR_RIPGREP_PATH,
   DEFAULT_POSTHOG_PROJECT_TOKEN,
   DEFAULT_POSTHOG_HOST,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
@@ -296,12 +294,6 @@ export async function loadConfig() {
     });
   }
 
-  // Cursor credentials remain readable until removal (#351) but never select a runtime.
-  const cursorApiKey = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
-  const cursorRipgrepPath = optionalEnv(
-    ENV.CURSOR_RIPGREP_PATH,
-    DEFAULT_CURSOR_RIPGREP_PATH,
-  ).trim();
   const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
   const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
   const modelProviderKeys = {
@@ -477,8 +469,6 @@ export async function loadConfig() {
     retentionEnabled,
     installationGroupConcurrency,
     context7ApiKey,
-    cursorApiKey,
-    cursorRipgrepPath,
     posthogProjectToken,
     posthogHost,
     logLevel,

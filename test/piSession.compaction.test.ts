@@ -13,15 +13,15 @@ import { makeTestConfig } from "./helpers/config.js";
 
 describe("compaction policy", () => {
   it("requires a settled turn and no pending external mutation", () => {
-    expect(
-      canCompactAtBoundary({ turnSettled: false, pendingExternalMutation: false }).ok,
-    ).toBe(false);
-    expect(
-      canCompactAtBoundary({ turnSettled: true, pendingExternalMutation: true }).ok,
-    ).toBe(false);
-    expect(
-      canCompactAtBoundary({ turnSettled: true, pendingExternalMutation: false }).ok,
-    ).toBe(true);
+    expect(canCompactAtBoundary({ turnSettled: false, pendingExternalMutation: false }).ok).toBe(
+      false,
+    );
+    expect(canCompactAtBoundary({ turnSettled: true, pendingExternalMutation: true }).ok).toBe(
+      false,
+    );
+    expect(canCompactAtBoundary({ turnSettled: true, pendingExternalMutation: false }).ok).toBe(
+      true,
+    );
   });
 
   it("re-injects authoritative structured state and does not let summaries replace it", async () => {
@@ -62,7 +62,9 @@ describe("compaction policy", () => {
     expect(compacted).toBe(true);
     expect(controls.compactionCount()).toBe(1);
     expect(session.getStructuredState()).toEqual(authoritative);
-    expect(structuredStateReinjectionPrompt(authoritative)).toContain("Authoritative structured state");
+    expect(structuredStateReinjectionPrompt(authoritative)).toContain(
+      "Authoritative structured state",
+    );
     expect(structuredStateReinjectionPrompt(authoritative)).toContain("specialistReports");
   });
 });

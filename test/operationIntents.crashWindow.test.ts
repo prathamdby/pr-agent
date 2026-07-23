@@ -60,8 +60,7 @@ describe("operation intent crash windows", () => {
   it("treats publish records as authority over snapshot/checkpoint replay", () => {
     const publishRecord = { step: "ask_reply", status: "completed", githubId: "99" };
     const snapshot = { wantsToRepublish: true };
-    const shouldMutate =
-      publishRecord.status !== "completed" && snapshot.wantsToRepublish === true;
+    const shouldMutate = publishRecord.status !== "completed" && snapshot.wantsToRepublish;
     expect(shouldMutate).toBe(false);
   });
 });

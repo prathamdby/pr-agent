@@ -27,11 +27,7 @@ import {
 } from "./compactionPolicy.js";
 import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
-import type {
-  AuthoritativeStructuredState,
-  PiSession,
-  PiSessionCreateParams,
-} from "./types.js";
+import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
 
 function toolResultToText(result: unknown): string {
   if (result === undefined) return "";
@@ -120,13 +116,6 @@ function toCodingAgentTool(
 }
 
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
-  if (params.toolPolicy.allowBuiltin !== false) {
-    throw new AppError({
-      code: "runtime.builtin_tools_forbidden",
-      message: "Pi built-in tools cannot be enabled for pr-agent sessions",
-    });
-  }
-
   const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
   let structuredState: AuthoritativeStructuredState = params.structuredState;
   let pendingExternalMutation = false;

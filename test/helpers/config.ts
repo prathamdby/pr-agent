@@ -62,8 +62,6 @@ const baseTestConfig: Config = {
   installationGroupConcurrency: 2,
   slashAllowedAssociations: new Set(["OWNER", "MEMBER", "COLLABORATOR"]),
   context7ApiKey: "",
-  cursorApiKey: "",
-  cursorRipgrepPath: "",
   posthogProjectToken: "",
   posthogHost: "",
   logLevel: "error",

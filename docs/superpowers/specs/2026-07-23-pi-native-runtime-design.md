@@ -10,13 +10,13 @@ Replace the dual Cursor/Pi `AgentRunnerProvider` abstraction with one Pi-specifi
 
 ## Locked delivery decisions
 
-| Topic | Choice |
-| --- | --- |
-| Landing | **One branch / one PR** (`pd/feat/pi-native-runtime`) covering #342–#351 |
-| Order | Parent staging: guard → seam → events/policies → durability → call-site migration → Cursor removal. **Durability (#348/#349) before #350** even though the issue graph omits that edge |
-| ADR 0031 | **Create in-repo** as Accepted; supersede ADR 0013 and the runner-selection portion of ADR 0015 |
-| Git ops | Always via **prath-mode** (`commit` / `deslop` / `make-pr` leaves) |
-| Subagents | Implementer **Composer 2.5**; reviewer **Grok 4.5** when Task/orchestrate is available; main agent verifies |
+| Topic     | Choice                                                                                                                                                                                 |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Landing   | **One branch / one PR** (`pd/feat/pi-native-runtime`) covering #342–#351                                                                                                               |
+| Order     | Parent staging: guard → seam → events/policies → durability → call-site migration → Cursor removal. **Durability (#348/#349) before #350** even though the issue graph omits that edge |
+| ADR 0031  | **Create in-repo** as Accepted; supersede ADR 0013 and the runner-selection portion of ADR 0015                                                                                        |
+| Git ops   | Always via **prath-mode** (`commit` / `deslop` / `make-pr` leaves)                                                                                                                     |
+| Subagents | Implementer **Composer 2.5**; reviewer **Grok 4.5** when Task/orchestrate is available; main agent verifies                                                                            |
 
 ## Approaches considered
 
@@ -45,24 +45,24 @@ Durable side:
 
 ### Module layout (new)
 
-| Path | Responsibility |
-| --- | --- |
-| `src/agent/runtime/types.ts` | Roles, model assignment, policies, send options, lifecycle event union |
-| `src/agent/runtime/piSession.ts` | `PiSession` interface + factory |
-| `src/agent/runtime/piSessionImpl.ts` | Wraps current Pi SDK (`createAgentSession`) |
-| `src/agent/runtime/fakePiSession.ts` | Test double |
-| `src/agent/runtime/lifecycleEvents.ts` | Discriminated event types |
-| `src/agent/runtime/lifecycleSanitizer.ts` | Allowlist + redaction |
-| `src/agent/runtime/agentAudit.ts` | Metadata-only audit records from sanitized events |
-| `src/agent/runtime/modelPolicy.ts` | Orchestrator/general/fallback resolution + one-model-per-session |
-| `src/agent/runtime/fallbackClassification.ts` | Eligible vs ineligible failure categories |
-| `src/agent/runtime/thinkingPolicy.ts` | Phase → thinking level + clamp/ceiling |
-| `src/agent/runtime/compactionPolicy.ts` | Threshold, safe boundaries, re-inject instructions |
-| `src/agent/runtime/checkpoints.ts` | Phase checkpoint types + repository API |
-| `src/agent/runtime/operationIntents.ts` | Idempotent mutation intents |
-| `src/agent/runtime/resumeSnapshots.ts` | Encrypt/decrypt + retention |
-| `migrations/016_agent_runtime_durability.sql` | New tables |
-| `docs/adr/0031-pi-native-agent-runtime.md` | Architecture decision |
+| Path                                          | Responsibility                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------- |
+| `src/agent/runtime/types.ts`                  | Roles, model assignment, policies, send options, lifecycle event union |
+| `src/agent/runtime/piSession.ts`              | `PiSession` interface + factory                                        |
+| `src/agent/runtime/piSessionImpl.ts`          | Wraps current Pi SDK (`createAgentSession`)                            |
+| `src/agent/runtime/fakePiSession.ts`          | Test double                                                            |
+| `src/agent/runtime/lifecycleEvents.ts`        | Discriminated event types                                              |
+| `src/agent/runtime/lifecycleSanitizer.ts`     | Allowlist + redaction                                                  |
+| `src/agent/runtime/agentAudit.ts`             | Metadata-only audit records from sanitized events                      |
+| `src/agent/runtime/modelPolicy.ts`            | Orchestrator/general/fallback resolution + one-model-per-session       |
+| `src/agent/runtime/fallbackClassification.ts` | Eligible vs ineligible failure categories                              |
+| `src/agent/runtime/thinkingPolicy.ts`         | Phase → thinking level + clamp/ceiling                                 |
+| `src/agent/runtime/compactionPolicy.ts`       | Threshold, safe boundaries, re-inject instructions                     |
+| `src/agent/runtime/checkpoints.ts`            | Phase checkpoint types + repository API                                |
+| `src/agent/runtime/operationIntents.ts`       | Idempotent mutation intents                                            |
+| `src/agent/runtime/resumeSnapshots.ts`        | Encrypt/decrypt + retention                                            |
+| `migrations/016_agent_runtime_durability.sql` | New tables                                                             |
+| `docs/adr/0031-pi-native-agent-runtime.md`    | Architecture decision                                                  |
 
 Keep `src/agent/providers/pi/index.ts` during expand; fold into `piSessionImpl` during #350/#351. Delete `src/agent/providers/cursor/**` in #351.
 
@@ -70,13 +70,7 @@ Keep `src/agent/providers/pi/index.ts` during expand; fold into `piSessionImpl` 
 
 ```ts
 type AgentSessionRole =
-  | "orchestrator"
-  | "specialist"
-  | "ask"
-  | "description"
-  | "triage"
-  | "verification"
-  | "ci_summary";
+  "orchestrator" | "specialist" | "ask" | "description" | "triage" | "verification" | "ci_summary";
 
 type ModelAssignment = {
   readonly provider: string;
@@ -150,11 +144,11 @@ Audit records: append-only metadata derived from sanitized events; reuse `classi
 
 ### Model policy
 
-| Setting | Env | Default |
-| --- | --- | --- |
-| General primary | `PI_PROVIDER` / `PI_MODEL` | existing defaults |
+| Setting              | Env                                                  | Default                                 |
+| -------------------- | ---------------------------------------------------- | --------------------------------------- |
+| General primary      | `PI_PROVIDER` / `PI_MODEL`                           | existing defaults                       |
 | Orchestrator primary | `PI_ORCHESTRATOR_PROVIDER` / `PI_ORCHESTRATOR_MODEL` | fall back to general primary when unset |
-| Shared fallback | `PI_FALLBACK_PROVIDER` / `PI_FALLBACK_MODEL` | unset = fallback disabled |
+| Shared fallback      | `PI_FALLBACK_PROVIDER` / `PI_FALLBACK_MODEL`         | unset = fallback disabled               |
 
 Roles: orchestrator → orchestrator primary; all other sessions → general primary.
 
@@ -168,11 +162,11 @@ Recovery: dispose failed session; create **new** session with fallback model fro
 
 Map `AgentSessionPhase` → desired level:
 
-| Phase | Default level |
-| --- | --- |
-| `validation_repair`, `synthesis`, `publish_recovery` | `low` / `off` |
-| `recon`, `specialist`, `judgment` | `medium` (clamp under ceiling) |
-| ask/description/triage/verification/ci_summary | `low` |
+| Phase                                                | Default level                  |
+| ---------------------------------------------------- | ------------------------------ |
+| `validation_repair`, `synthesis`, `publish_recovery` | `low` / `off`                  |
+| `recon`, `specialist`, `judgment`                    | `medium` (clamp under ceiling) |
+| ask/description/triage/verification/ci_summary       | `low`                          |
 
 Ceilings via `PI_THINKING_CEILING` (default `high`). Clamp to nearest model-supported level; never throw on unsupported.
 

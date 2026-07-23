@@ -2,13 +2,9 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../../errors/appError.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import { promptMetadataFromText } from "../providers/usageMetadata.js";
-import {
-  canCompactAtBoundary,
-  structuredStateReinjectionPrompt,
-} from "./compactionPolicy.js";
+import { canCompactAtBoundary, structuredStateReinjectionPrompt } from "./compactionPolicy.js";
 import type {
   AgentLifecycleEvent,
-  AuthoritativeStructuredState,
   ModelAssignment,
   PiSession,
   PiSessionCreateParams,

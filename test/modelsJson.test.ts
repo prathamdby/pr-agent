@@ -69,7 +69,9 @@ describe("modelsJson helpers", () => {
 
   it("assertBuiltinPiProvider rejects cursor", () => {
     expect(() => assertBuiltinPiProvider("cursor")).toThrow(/PI_PROVIDER=cursor/);
-    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/AGENT_PROVIDER=cursor has been removed/);
+    expect(() => assertBuiltinPiProvider("cursor")).toThrow(
+      /AGENT_PROVIDER=cursor has been removed/,
+    );
   });
 
   it("assertPiModelSelection accepts a custom provider from models.json", async () => {

@@ -22,7 +22,6 @@ describe("settings inventory", () => {
     const envValues = Object.values(ENV);
     expect(envValues).toContain("PORT");
     expect(envValues).toContain("DATABASE_URL");
-    expect(envValues).toContain("CURSOR_RIPGREP_PATH");
     expect(envValues).toContain("POSTHOG_PROJECT_TOKEN");
     expect(envValues).toContain("POSTHOG_HOST");
     expect(envValues).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
@@ -34,7 +33,9 @@ describe("settings inventory", () => {
     expect(envValues).toContain("PI_THINKING_CEILING");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_KEY");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS");
-    expect(envValues.length).toBe(56);
+    expect(envValues).not.toContain("CURSOR_API_KEY");
+    expect(envValues).not.toContain("CURSOR_RIPGREP_PATH");
+    expect(envValues.length).toBe(54);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

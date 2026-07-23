@@ -45,8 +45,6 @@ export const DEFAULT_RETENTION_ENABLED = true;
 export const DEFAULT_INSTALLATION_GROUP_CONCURRENCY = 2;
 
 export const DEFAULT_CONTEXT7_API_KEY = "";
-export const DEFAULT_CURSOR_API_KEY = "";
-export const DEFAULT_CURSOR_RIPGREP_PATH = "";
 export const DEFAULT_POSTHOG_PROJECT_TOKEN = "";
 export const DEFAULT_POSTHOG_HOST = "";
 

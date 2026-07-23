@@ -40,11 +40,19 @@ describe("createPiSession seam", () => {
   it("creates a session with role, model assignment, and send options", async () => {
     const events: Array<{ kind: string }> = [];
     const mockSession = {
-      subscribe: vi.fn((listener: (event: { type: string; toolResults?: unknown[]; message?: { role: string; content: unknown[] } }) => void) => {
-        // emit terminal turn on prompt
-        (mockSession as { _listener?: typeof listener })._listener = listener;
-        return () => undefined;
-      }),
+      subscribe: vi.fn(
+        (
+          listener: (event: {
+            type: string;
+            toolResults?: unknown[];
+            message?: { role: string; content: unknown[] };
+          }) => void,
+        ) => {
+          // emit terminal turn on prompt
+          (mockSession as { _listener?: typeof listener })._listener = listener;
+          return () => undefined;
+        },
+      ),
       prompt: vi.fn(async () => {
         const listener = (mockSession as { _listener?: (event: unknown) => void })._listener;
         listener?.({
@@ -123,7 +131,9 @@ describe("createPiSession seam", () => {
     ];
     for (const file of featureFiles) {
       const text = await fs.readFile(file, "utf8");
-      expect(text.includes("createAgentSession"), file).toBe(false);
+      if (text.includes("createAgentSession")) {
+        throw new Error(`unexpected createAgentSession in ${file}`);
+      }
     }
   });
 });

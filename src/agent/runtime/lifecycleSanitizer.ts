@@ -1,8 +1,5 @@
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
-import {
-  isAgentLifecycleEventKind,
-  type AgentLifecycleEvent,
-} from "./lifecycleEvents.js";
+import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
 
 const SESSION_ROLES = new Set<AgentSessionRole>([

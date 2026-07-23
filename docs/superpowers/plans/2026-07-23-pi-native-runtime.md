@@ -28,16 +28,16 @@
 
 ## File map (target)
 
-| Path | Role |
-| --- | --- |
-| `src/agent/runtime/**` | New Pi session seam, policies, sanitizer, durability helpers |
-| `migrations/016_agent_runtime_durability.sql` | checkpoints, operation_intents, resume_snapshots |
-| `src/config.ts`, `src/settings/**` | migration guard, model/thinking/snapshot envs |
-| `src/agent/providers/pi/index.ts` | Fold into runtime during migrate; delete Cursor tree in #351 |
-| `src/agent/providers/cursor/**` | Delete in Task 10 |
-| Feature harnesses listed in Task 9 | Switch to `PiSession` |
-| `docs/adr/0031-pi-native-agent-runtime.md` | New ADR |
-| Tests under `test/` mirroring each task | Seam/harness/contract tests |
+| Path                                          | Role                                                         |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| `src/agent/runtime/**`                        | New Pi session seam, policies, sanitizer, durability helpers |
+| `migrations/016_agent_runtime_durability.sql` | checkpoints, operation_intents, resume_snapshots             |
+| `src/config.ts`, `src/settings/**`            | migration guard, model/thinking/snapshot envs                |
+| `src/agent/providers/pi/index.ts`             | Fold into runtime during migrate; delete Cursor tree in #351 |
+| `src/agent/providers/cursor/**`               | Delete in Task 10                                            |
+| Feature harnesses listed in Task 9            | Switch to `PiSession`                                        |
+| `docs/adr/0031-pi-native-agent-runtime.md`    | New ADR                                                      |
+| Tests under `test/` mirroring each task       | Seam/harness/contract tests                                  |
 
 ## Execution order (DAG)
 
@@ -61,12 +61,14 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 0: Branch, design/plan commit, ADR stub
 
 **Files:**
+
 - Create branch `pd/feat/pi-native-runtime`
 - Create: `docs/superpowers/specs/2026-07-23-pi-native-runtime-design.md` (from artifact)
 - Create: `docs/superpowers/plans/2026-07-23-pi-native-runtime.md` (from this plan)
 - Create: `docs/adr/0031-pi-native-agent-runtime.md` (Accepted; supersedes 0013 + runner-selection of 0015)
 
 **Acceptance:**
+
 - [ ] Branch exists from pre-change HEAD
 - [ ] Design + plan + ADR 0031 committed via prath-mode `commit`
 
@@ -75,15 +77,18 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 1: #342 Legacy Cursor migration guard
 
 **Files:**
+
 - Modify: `src/config.ts` — before accepting `agentProvider === "cursor"`, throw `AppError` `{ code: "config.cursor_provider_removed", message: ... }` naming `AGENT_PROVIDER` and pointing to Pi catalog + `PI_ORCHESTRATOR_*` / `PI_PROVIDER`/`PI_MODEL` / `PI_FALLBACK_*`
 - Modify: `src/settings/modelsJson.ts` — keep rejecting `PI_PROVIDER=cursor` with clear message (already partially present)
 - Modify: `test/configCursor.test.ts` (or replace with `test/configCursorMigration.test.ts`) — assert error text is actionable; assert `CURSOR_API_KEY` does not become a Pi credential when provider is pi
 - Modify: `test/settingsInventory.test.ts` as needed once keys change later (guard phase may keep Cursor keys until Task 8)
 
 **Interfaces:**
+
 - Produces: startup failure for `AGENT_PROVIDER=cursor` with no silent Pi fallback
 
 **Steps:**
+
 - [ ] Write failing config tests for migration error
 - [ ] Implement guard in `loadConfig()`
 - [ ] Run `nub run test -- test/configCursor.test.ts test/config.test.ts` (or new file)
@@ -96,16 +101,19 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 2: #343 Pi-specific session seam + fake
 
 **Files:**
+
 - Create: `src/agent/runtime/types.ts`, `piSession.ts`, `piSessionImpl.ts`, `fakePiSession.ts`
 - Modify: `src/agent/providers/pi/index.ts` — extract shared session construction into `piSessionImpl` **or** have impl call existing helpers; keep `piAgentRunnerProvider` working as a thin wrapper over the new seam for expand compatibility
 - Create: `test/piSession.seam.test.ts`, `test/fakePiSession.test.ts`
 - Modify: `docs/development.md` module layout row for `src/agent/runtime/`
 
 **Interfaces:**
+
 - Produces: `createPiSession(params)`, `PiSession`, `FakePiSession` supporting send/tools/events/compaction hooks/checkpoint recovery/fallback restart/abort/dispose
 - Consumes: existing Pi SDK wiring from `src/agent/providers/pi/index.ts`
 
 **Steps:**
+
 - [ ] Define types + interface (TDD against fake)
 - [ ] Implement SDK-backed session with event sink stub
 - [ ] Keep `resolveAgentRunnerProvider` + all current call sites green
@@ -119,6 +127,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 3a: #344 Sanitized lifecycle events + audit
 
 **Files:**
+
 - Create: `src/agent/runtime/lifecycleEvents.ts`, `lifecycleSanitizer.ts`, `agentAudit.ts`
 - Wire sanitizer inside `piSessionImpl` before `eventSink`
 - Create: `test/agentLifecycleEvents.test.ts`, `test/agentAudit.test.ts`
@@ -131,12 +140,14 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 3b: #345 Model policy + fallback classification
 
 **Files:**
+
 - Modify: `src/settings/envKeys.ts`, `defaults.ts`, `src/config.ts`, `docs/configuration.md`, `.env.example`
 - Create: `src/agent/runtime/modelPolicy.ts`, `fallbackClassification.ts`
 - Create: `test/modelPolicy.test.ts`, `test/fallbackClassification.test.ts`
 - Extend `ProviderErrorKind` / classification as needed for transport/5xx/model-unavailable without breaking existing kinds
 
 **Env:**
+
 - `PI_ORCHESTRATOR_PROVIDER` / `PI_ORCHESTRATOR_MODEL` (default → general)
 - `PI_FALLBACK_PROVIDER` / `PI_FALLBACK_MODEL` (optional; unset disables fallback)
 - Keep `PI_PROVIDER` / `PI_MODEL` as general primary
@@ -148,6 +159,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 3c: #346 Phase-aware thinking policy
 
 **Files:**
+
 - Create: `src/agent/runtime/thinkingPolicy.ts`
 - Modify: config for `PI_THINKING_CEILING` (default `high`)
 - Create: `test/thinkingPolicy.test.ts`
@@ -160,6 +172,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 4: #347 Compaction with state restoration
 
 **Files:**
+
 - Create: `src/agent/runtime/compactionPolicy.ts`, compaction instruction constants
 - Modify: `piSessionImpl` — enable compaction settings; gate on settled turn + no pending op intent; re-inject structured state after compaction_end
 - Create: `test/piSession.compaction.test.ts` using fake/harness
@@ -171,6 +184,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 5: #348 Agent phase checkpoints + operation intents
 
 **Files:**
+
 - Create: `migrations/016_agent_runtime_durability.sql` (checkpoints + operation_intents tables; snapshots table may be added here or in Task 6 — **prefer full 016 in Task 5 including snapshots empty schema, Task 6 fills crypto**)
 - Create: `src/agent/runtime/checkpoints.ts`, `operationIntents.ts`, repository modules under `src/agentWork/` if that matches existing publish-record style (`src/agentWork/phaseCheckpointRepository.ts`, `operationIntentRepository.ts`)
 - Modify publish paths (review/ask/description/triage/verification/CI) to: persist intent → mutate → reconcile publish_record → advance checkpoint
@@ -183,6 +197,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 6: #349 Encrypted resume snapshots
 
 **Files:**
+
 - Create: `src/agent/runtime/resumeSnapshots.ts`, `src/agentWork/resumeSnapshotRepository.ts`
 - Modify: config — `AGENT_RESUME_SNAPSHOT_KEY`, `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS` (default 600)
 - Wire retention cleanup in `src/agentWork/retention.ts`
@@ -195,6 +210,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 7: #350 Migrate all feature call sites
 
 **Files:**
+
 - Modify:
   - `src/review/orchestrator/orchestratorRun.ts`
   - `src/review/orchestrator/specialistRun.ts`
@@ -215,6 +231,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 8: #351 Remove Cursor code, tests, config, deps
 
 **Files:**
+
 - Delete: `src/agent/providers/cursor/**`, Cursor tests/fixtures, `src/settings/cursorConstants.ts`
 - Delete: `AgentRunnerProvider` interface + `resolveAgentRunnerProvider` if unused
 - Modify: `package.json` — remove `@cursor/sdk`, `@modelcontextprotocol/sdk`, `sqlite3` from `onlyBuiltDependencies` (confirm no other consumers first)
@@ -229,6 +246,7 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 ### Task 9: Final verification + PR
 
 **Steps:**
+
 - [ ] Grep gates: no `@cursor/sdk`, no `AGENT_PROVIDER=cursor` support, no `createAgentSession` outside `src/agent/runtime/`
 - [ ] `nub run check:code`
 - [ ] `nub run test` (and integration tests if persistence suites require them)
@@ -240,26 +258,26 @@ Parallelism note: after Task 2, Tasks 3a/3b/3c may run as parallel Composer 2.5 
 
 ## Testing strategy (summary)
 
-| Area | How |
-| --- | --- |
-| Config migration | Vitest on `loadConfig` with env fixtures |
-| Seam | Fake session unit tests + thin SDK wrapper tests |
-| Events | Contract tests on sanitizer allowlist |
-| Model/fallback | Table-driven classification |
-| Thinking/compaction | Policy unit + harness with fake |
-| Durability | Repo tests + crash-window publish tests |
-| Inventory | package.json + import grep tests |
-| Regression | Existing orchestrator/ask/description/triage/verification/CI suites |
+| Area                | How                                                                 |
+| ------------------- | ------------------------------------------------------------------- |
+| Config migration    | Vitest on `loadConfig` with env fixtures                            |
+| Seam                | Fake session unit tests + thin SDK wrapper tests                    |
+| Events              | Contract tests on sanitizer allowlist                               |
+| Model/fallback      | Table-driven classification                                         |
+| Thinking/compaction | Policy unit + harness with fake                                     |
+| Durability          | Repo tests + crash-window publish tests                             |
+| Inventory           | package.json + import grep tests                                    |
+| Regression          | Existing orchestrator/ask/description/triage/verification/CI suites |
 
 ## Risks
 
-| Risk | Mitigation |
-| --- | --- |
-| Large PR hard to review | Commit per task; PR body maps commits → sub-issues |
-| #350 vs durability gap | Delivery forces #348/#349 before migration |
-| Snapshot key ops burden | Document required worker env; clear startup error |
-| Pi SDK event shape drift | Sanitizer + seam tests; don't freeze raw event order |
-| MCP/sqlite removal breaks something else | Dependency analysis before delete (Task 8) |
+| Risk                                     | Mitigation                                           |
+| ---------------------------------------- | ---------------------------------------------------- |
+| Large PR hard to review                  | Commit per task; PR body maps commits → sub-issues   |
+| #350 vs durability gap                   | Delivery forces #348/#349 before migration           |
+| Snapshot key ops burden                  | Document required worker env; clear startup error    |
+| Pi SDK event shape drift                 | Sanitizer + seam tests; don't freeze raw event order |
+| MCP/sqlite removal breaks something else | Dependency analysis before delete (Task 8)           |
 
 ## Prath-mode / orchestrate ledger (execution)
 

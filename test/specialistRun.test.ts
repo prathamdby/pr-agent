@@ -27,7 +27,7 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
 }));
 
 vi.mock("../src/agent/runtime/adaptPiSession.js", () => ({
-  adaptPiSessionToAgentRunner: (session) => session,
+  adaptPiSessionToAgentRunner: (session: unknown) => session,
 }));
 
 import { runSpecialist } from "../src/review/orchestrator/specialistRun.js";

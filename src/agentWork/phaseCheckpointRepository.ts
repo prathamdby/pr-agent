@@ -1,10 +1,6 @@
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type {
-  AgentSessionPhase,
-  AgentSessionRole,
-  AuthoritativeStructuredState,
-} from "../agent/runtime/types.js";
+import type { AgentSessionRole, AuthoritativeStructuredState } from "../agent/runtime/types.js";
 import { queryOne } from "../db/postgres.js";
 
 export type AgentPhaseCheckpointRow = {
@@ -23,7 +19,7 @@ export async function upsertAgentPhaseCheckpoint(
     readonly workItemId: string;
     readonly sessionRole: AgentSessionRole;
     readonly checkpointId: string;
-    readonly phase: AgentSessionPhase | string;
+    readonly phase: string;
     readonly structuredState: AuthoritativeStructuredState;
   },
 ): Promise<AgentPhaseCheckpointRow> {

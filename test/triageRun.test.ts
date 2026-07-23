@@ -12,7 +12,7 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
 }));
 
 vi.mock("../src/agent/runtime/adaptPiSession.js", () => ({
-  adaptPiSessionToAgentRunner: (session) => session,
+  adaptPiSessionToAgentRunner: (session: unknown) => session,
 }));
 
 const cfg = makeTestConfig();
