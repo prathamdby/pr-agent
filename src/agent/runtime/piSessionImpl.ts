@@ -197,9 +197,14 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       sessionManager: SessionManager.inMemory(params.cwd ?? process.cwd()),
       noTools: "builtin",
       customTools: params.tools.map((tool) =>
-        toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool, (pending) => {
-          pendingExternalMutation = pending;
-        }),
+        toCodingAgentTool(
+          tool,
+          params.executors[tool.name],
+          params.refreshBeforeTool,
+          (pending) => {
+            pendingExternalMutation = pending;
+          },
+        ),
       ),
     });
 
