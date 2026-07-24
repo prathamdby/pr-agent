@@ -88,7 +88,7 @@ describe("withOperationIntent", () => {
       operationKey: "ask:reply:o/r#1",
       status: "reconciled",
       publishRecordId: "pub-1",
-      detail: undefined,
+      detail: { __result: "done" },
     });
   });
 
@@ -127,6 +127,28 @@ describe("withOperationIntent", () => {
       }),
     ).rejects.toBeInstanceOf(AppError);
 
+    expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
+  it("skips mutate when the intent is already reconciled", async () => {
+    const mutate = vi.fn(async () => "fresh");
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "reconciled",
+      publishRecordId: null,
+      detail: { __result: "prior" },
+    });
+
+    const result = await withOperationIntent({
+      ...baseParams,
+      mutate,
+    });
+
+    expect(result).toBe("prior");
+    expect(mutate).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
   });
 });

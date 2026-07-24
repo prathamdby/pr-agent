@@ -54,6 +54,7 @@ export async function saveResumeSnapshotIfConfigured(
   const ttlSeconds = computeResumeSnapshotTtlSeconds({
     queueRetryLimit: cfg.queueRetryLimit,
     queueRetryDelayMaxSeconds: cfg.queueRetryDelayMaxSeconds,
+    queueExpireInSeconds: cfg.queueExpireInSeconds,
     marginSeconds: cfg.agentResumeSnapshotMarginSeconds,
   });
   const expiresAt = new Date(Date.now() + ttlSeconds * 1000);

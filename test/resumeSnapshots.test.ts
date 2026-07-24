@@ -80,14 +80,15 @@ describe("resumeSnapshots", () => {
     );
   });
 
-  it("derives TTL from queue retry window plus margin", () => {
+  it("derives TTL from queue retry window, job expire, and margin", () => {
     expect(
       computeResumeSnapshotTtlSeconds({
         queueRetryLimit: 3,
         queueRetryDelayMaxSeconds: 300,
+        queueExpireInSeconds: 3600,
         marginSeconds: 600,
       }),
-    ).toBe(3 * 300 + 600);
+    ).toBe(3 * 300 + 3600 + 600);
   });
 
   it("requires 32-byte base64 key material", () => {

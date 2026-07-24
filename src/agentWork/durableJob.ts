@@ -517,6 +517,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       await recheckSkippableAndCancel("failure_race");
       return;
     }
+    await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     await invokeRescheduleAbort(error);
     await invokeTerminalFailureHook(error);
     await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);

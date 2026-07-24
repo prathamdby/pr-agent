@@ -65,6 +65,7 @@ function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
+  setExternalMutationPending?: (pending: boolean) => void,
 ): ReturnType<typeof defineTool> {
   return defineTool({
     name: tool.name,
@@ -85,6 +86,7 @@ function toCodingAgentTool(
           context: { toolName: tool.name },
         });
       }
+      setExternalMutationPending?.(true);
       try {
         if (refreshBeforeTool) {
           await refreshBeforeTool(tool.name);
@@ -110,6 +112,8 @@ function toCodingAgentTool(
           errorMessage: error instanceof Error ? error.message : String(error),
         });
         throw error;
+      } finally {
+        setExternalMutationPending?.(false);
       }
     },
   });
@@ -193,7 +197,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       sessionManager: SessionManager.inMemory(params.cwd ?? process.cwd()),
       noTools: "builtin",
       customTools: params.tools.map((tool) =>
-        toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool),
+        toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool, (pending) => {
+          pendingExternalMutation = pending;
+        }),
       ),
     });
 

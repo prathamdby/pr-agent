@@ -15,7 +15,6 @@ import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.
 import { specialistSystemPrompt } from "./prompts/specialistPersonas.js";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.js";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
-import type { FeatureSessionDurability } from "../../agent/runtime/sessionDurability.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
@@ -38,7 +37,6 @@ export type RunSpecialistParams = {
   readonly timeoutMs: number;
   readonly shouldContinue: () => boolean;
   readonly signal?: AbortSignal;
-  readonly durability?: FeatureSessionDurability;
 };
 
 type SubmissionState = {
@@ -194,7 +192,8 @@ async function createSessionWithinDeadline(
       ...params.workspaceTools.executors,
       [SUBMIT_TOOL_NAME]: submitTool.executor,
     },
-    durability: params.durability,
+    // Parallel specialists share session_role "specialist"; skip durability so
+    // concurrent checkpoint/snapshot writes cannot overwrite each other.
   });
   return runWithinDeadline({
     run: () => creation,

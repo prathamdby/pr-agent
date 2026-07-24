@@ -2,6 +2,7 @@ import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import { classifyFallbackEligibility } from "../../agent/runtime/fallbackClassification.js";
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
@@ -509,7 +510,6 @@ export async function runOrchestratedPrReview(
         });
       }
     }
-    await retireSession();
     const terminalError =
       firstError ??
       new AppError({
@@ -517,6 +517,48 @@ export async function runOrchestratedPrReview(
         message: "Orchestrator send failed twice",
         context: { phase },
       });
+
+    // After primary retry budget, attempt one fallback-model restart when eligible.
+    const primarySession = session;
+    if (primarySession && !sessionRetired) {
+      const fallback = classifyFallbackEligibility(terminalError);
+      if (fallback.eligible) {
+        try {
+          const structuredState = primarySession.getStructuredState();
+          const fallbackSession = await primarySession.restartWithFallback({
+            checkpointId: `${primarySession.role}:${phase}`,
+            structuredState,
+          });
+          session = fallbackSession;
+          const sendPromise = fallbackSession.send(prompt, {
+            ...options,
+            phase,
+            checkpointId: `${fallbackSession.role}:${phase}`,
+          });
+          const send = await settleBefore(
+            sendPromise,
+            Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
+          );
+          if (send.kind === "settled") {
+            recordAgentTurnMetrics(send.value);
+            logInfo("review_orchestrator_fallback_recovered", {
+              phase,
+              reason: fallback.reason,
+            });
+            return { kind: "sent", text: send.value.text };
+          }
+          void sendPromise.catch(() => undefined);
+        } catch (fallbackError) {
+          logWarn("review_orchestrator_fallback_failed", {
+            phase,
+            reason: fallback.reason,
+            ...errorLogFields(fallbackError),
+          });
+        }
+      }
+    }
+
+    await retireSession();
     const failure = classifyFailure(terminalError, { phase });
     recordClassifiedFailure(failure);
     return {
@@ -735,7 +777,8 @@ export async function runOrchestratedPrReview(
       else state.judgment = "degraded";
     }
 
-    if (briefTool.getBrief() == null && !sessionRetired && session) {
+    const reconSession = session;
+    if (briefTool.getBrief() == null && !sessionRetired && reconSession) {
       await runValidationRepairLoop({
         rounds: VALIDATION_REPAIR_ROUNDS,
         shouldContinue: () => briefTool.getBrief() == null && !sessionRetired,
@@ -743,7 +786,7 @@ export async function runOrchestratedPrReview(
           briefTool.getValidationError() ?? "No specialist brief was submitted.",
         clearValidationError: briefTool.clearValidationError,
         repair: async (validationError) => {
-          transitionTools(session, [briefTool.piTool], {
+          transitionTools(reconSession, [briefTool.piTool], {
             submit_specialist_brief: briefTool.executor,
           });
           const repair = await sendWithRetry(
@@ -789,7 +832,6 @@ export async function runOrchestratedPrReview(
           ),
           shouldContinue: () => state.lifecycle.kind === "running",
           signal: controller.signal,
-          durability: params.durability,
         }),
       );
     }

@@ -57,12 +57,13 @@ function tenantKey(masterKey: Buffer, installationId: number): Buffer {
 export function computeResumeSnapshotTtlSeconds(params: {
   readonly queueRetryLimit: number;
   readonly queueRetryDelayMaxSeconds: number;
+  readonly queueExpireInSeconds: number;
   readonly marginSeconds?: number;
 }): number {
   const margin = params.marginSeconds ?? DEFAULT_RESUME_SNAPSHOT_MARGIN_SECONDS;
   const retryWindow =
     Math.max(0, params.queueRetryLimit) * Math.max(0, params.queueRetryDelayMaxSeconds);
-  return retryWindow + margin;
+  return retryWindow + Math.max(0, params.queueExpireInSeconds) + margin;
 }
 
 export function encryptResumeSnapshot(params: {

@@ -52,12 +52,17 @@ export function verificationThreadOperationKey(rootCommentId: number): string {
 }
 
 export async function withOperationIntent<T>(params: WithOperationIntentParams<T>): Promise<T> {
-  await persistOperationIntent(params.client, {
+  const intent = await persistOperationIntent(params.client, {
     workItemId: params.workItemId,
     operationKey: params.operationKey,
     mutationKind: params.mutationKind,
     detail: params.detail,
   });
+
+  // A prior attempt already completed this mutation. Do not remutate.
+  if (intent.status === "reconciled") {
+    return ("__result" in intent.detail ? intent.detail.__result : undefined) as T;
+  }
 
   try {
     const result = await params.mutate();
@@ -66,7 +71,10 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
       operationKey: params.operationKey,
       status: "reconciled",
       publishRecordId: params.publishRecordId,
-      detail: params.reconcileDetail,
+      detail: {
+        ...params.reconcileDetail,
+        ...(result === undefined ? {} : { __result: result as unknown }),
+      },
     });
     return result;
   } catch (error) {
