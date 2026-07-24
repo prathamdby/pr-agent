@@ -131,6 +131,7 @@ describe("sessionDurability", () => {
       agentResumeSnapshotKey: SNAPSHOT_KEY,
       queueRetryLimit: 2,
       queueRetryDelayMaxSeconds: 100,
+      queueExpireInSeconds: 3600,
       agentResumeSnapshotMarginSeconds: 50,
     });
     const before = Date.now();
@@ -160,7 +161,7 @@ describe("sessionDurability", () => {
       toolPolicyVersion: RESUME_SNAPSHOT_TOOL_POLICY_VERSION,
       checkpointId: "orchestrator:recon",
     });
-    const expectedTtlMs = (2 * 100 + 50) * 1000;
+    const expectedTtlMs = (2 * 100 + 3600 + 50) * 1000;
     expect(call.expiresAt.getTime()).toBeGreaterThanOrEqual(before + expectedTtlMs - 1000);
     expect(call.expiresAt.getTime()).toBeLessThanOrEqual(after + expectedTtlMs + 1000);
   });
