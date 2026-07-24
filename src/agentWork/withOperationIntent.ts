@@ -85,9 +85,7 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
       status: "failed",
       detail: {
         ...params.reconcileDetail,
-        errorMessage: sanitizeLogMessage(
-          error instanceof Error ? error.message : String(error),
-        ),
+        errorMessage: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
       },
     });
     if (isAppError(error)) throw error;
