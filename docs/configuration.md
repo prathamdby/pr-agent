@@ -44,7 +44,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | App private key        | `GITHUB_APP_PRIVATE_KEY`               | —                        | required PEM                                                                                                                                |
 | Webhook HMAC secret    | `WEBHOOK_SECRET`                       | —                        | required                                                                                                                                    |
 | Postgres URL           | `DATABASE_URL`                         | —                        | required                                                                                                                                    |
-| Agent provider         | `AGENT_PROVIDER`                       | `pi`                     | Pi-only. `cursor` fails startup with a migration error (see ADR 0031)                                                                       |
+| Agent provider         | `AGENT_PROVIDER`                       | `pi`                     | Pi-only (`pi`). Other values fail as invalid enum (see ADR 0031)                                                                            |
 | General LLM provider   | `PI_PROVIDER`                          | `openai`                 | Primary model provider for Specialist, Ask, Description, Triage, Verification, and CI-summary sessions (built-in slug or `models.json` key) |
 | General LLM model      | `PI_MODEL`                             | `gpt-4o-mini`            | Primary model id for general sessions                                                                                                       |
 | Orchestrator provider  | `PI_ORCHESTRATOR_PROVIDER`             | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                            |
@@ -92,8 +92,7 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 Former env tuning knobs (tool-round caps, byte limits, timeouts, anchor-menu
 caps, CI-summary waits, workspace limits) are now code constants in
-`src/settings/*Constants.ts` — see the tables below. Stale env vars for those
-knobs are ignored.
+`src/settings/*Constants.ts` — see the tables below.
 
 ### Project `models.json` (optional Pi catalog)
 
@@ -106,7 +105,6 @@ When `AGENT_PROVIDER=pi`, `loadConfig()` loads an optional Pi `models.json` cata
 
 - Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). A non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
 - Present but invalid, or selection not found → `loadConfig()` throws.
-- `AGENT_PROVIDER=cursor` → file may exist but is ignored for model selection.
 - Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.

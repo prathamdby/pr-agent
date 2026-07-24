@@ -41,17 +41,6 @@ export function defaultModelsJsonCandidatePath(cwd: string = process.cwd()): str
   return join(cwd, MODELS_JSON_FILENAME);
 }
 
-function assertNotCursorPiProvider(piProvider: string): void {
-  if (piProvider === "cursor") {
-    throw new AppError({
-      code: "settings.models_json_cursor_provider_removed",
-      message:
-        "PI_PROVIDER=cursor is no longer supported. Use a Pi catalog provider via PI_PROVIDER/PI_MODEL (and optional PI_ORCHESTRATOR_* / PI_FALLBACK_*). AGENT_PROVIDER=cursor has been removed.",
-      context: { piProvider },
-    });
-  }
-}
-
 function builtinPiApi(piProvider: string, piModel: string): string {
   const model = getModel(piProvider as never, piModel as never);
   if (model?.api) return model.api;
@@ -65,7 +54,6 @@ function builtinPiApi(piProvider: string, piModel: string): string {
 }
 
 export function assertBuiltinPiProvider(piProvider: string): void {
-  assertNotCursorPiProvider(piProvider);
   const providers = getProviders() as readonly string[];
   if (!providers.includes(piProvider)) {
     throw new AppError({
@@ -88,7 +76,6 @@ export async function assertPiModelSelection(options: {
   readonly catalogCandidatePath?: string;
 }): Promise<string> {
   const { modelsJsonPath, piProvider, piModel } = options;
-  assertNotCursorPiProvider(piProvider);
 
   if (!modelsJsonPath) {
     const providers = getProviders() as readonly string[];

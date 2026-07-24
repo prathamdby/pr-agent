@@ -67,11 +67,8 @@ describe("modelsJson helpers", () => {
     expect(() => assertBuiltinPiProvider("not-a-real-provider")).toThrow(/unknown/);
   });
 
-  it("assertBuiltinPiProvider rejects cursor", () => {
-    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/PI_PROVIDER=cursor/);
-    expect(() => assertBuiltinPiProvider("cursor")).toThrow(
-      /AGENT_PROVIDER=cursor has been removed/,
-    );
+  it("assertBuiltinPiProvider rejects cursor as unknown", () => {
+    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/unknown/);
   });
 
   it("assertPiModelSelection accepts a custom provider from models.json", async () => {
@@ -342,7 +339,7 @@ describe("loadConfig models.json", () => {
     ).rejects.toThrow(/not found/);
   });
 
-  it("rejects AGENT_PROVIDER=cursor before models.json selection", async () => {
+  it("rejects AGENT_PROVIDER=cursor as an invalid enum before models.json selection", async () => {
     const dir = tempDir();
     writeFileSync(
       join(dir, "models.json"),
@@ -364,6 +361,6 @@ describe("loadConfig models.json", () => {
         PI_PROVIDER: "openai",
         PI_MODEL: "composer-2.5",
       }),
-    ).rejects.toThrow(/AGENT_PROVIDER=cursor is no longer supported/);
+    ).rejects.toThrow(/AGENT_PROVIDER must be one of pi/);
   });
 });

@@ -119,8 +119,6 @@ OPENAI_API_KEY=sk-...
 - **API keys**: set the env var for your provider. pr-agent loads **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, and **`GOOGLE_GENERATIVE_AI_API_KEY`** into the worker at startup. Other Pi providers use their standard env vars in the worker process (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). See the [Pi providers reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md) for the full key table, cloud setup (Azure, Bedrock, Vertex), and custom endpoints.
 - **Custom providers**: optional [`models.json`](models.json.example) in [Pi’s native format](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md). If the catalog is loaded, the worker uses it and still selects with `PI_PROVIDER` / `PI_MODEL`. If it is absent, behavior falls back to env + built-ins. Delivery options: put `models.json` at the repo root in the Docker build context (copied to `/app/models.json` when present), mount it at runtime, or set **`MODELS_JSON_PATH`**. See [docs/operations.md](docs/operations.md) (Docker) and [docs/configuration.md](docs/configuration.md).
 
-Legacy **`AGENT_PROVIDER=cursor`** fails startup with a migration error. Do **not** set `PI_PROVIDER=cursor`.
-
 Restart **`pr-agent-worker`** (or the `ROLE=worker` process) after changing provider env vars.
 
 ## Why Use PR Agent?
@@ -139,7 +137,7 @@ User-facing behavior is controlled by the `FEATURE_*` settings ([docs/features.m
 
 ### Self-hosted control
 
-Run on your infrastructure with your GitHub App credentials and chosen LLM provider (Pi/OpenAI, Cursor SDK, and others via `@earendil-works/pi-ai`).
+Run on your infrastructure with your GitHub App credentials and chosen LLM provider (Pi/OpenAI and others via `@earendil-works/pi-ai`).
 
 ## Features
 
@@ -157,7 +155,7 @@ Run on your infrastructure with your GitHub App credentials and chosen LLM provi
 | ----------------------------------------- | --------- |
 | Docker Compose (web + worker + Postgres)  | Yes       |
 | Bare Node + Postgres                      | Yes       |
-| Cursor provider (`AGENT_PROVIDER=cursor`) | Yes       |
+| Cursor provider (`AGENT_PROVIDER=cursor`) | No        |
 
 Slash commands are **case-sensitive** and must start the first non-empty line of a new comment. Full behaviour: [docs/operations.md](docs/operations.md).
 

@@ -9,46 +9,43 @@ const BASE_ENV = {
   DATABASE_URL: "postgres://u:p@localhost/db",
 };
 
-describe("loadConfig Cursor migration guard", () => {
+describe("loadConfig agent provider", () => {
   const saved = { ...process.env };
 
   afterEach(() => {
     process.env = { ...saved };
   });
 
-  it("rejects AGENT_PROVIDER=cursor with migration guidance", async () => {
+  it("rejects AGENT_PROVIDER=cursor as an invalid enum value", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
       AGENT_PROVIDER: "cursor",
-      PI_MODEL: "composer-2.5",
-      CURSOR_API_KEY: "cursor_test_key",
     };
     const { loadConfig } = await import("../src/config.js");
     await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
       expect(isAppError(error)).toBe(true);
       if (!isAppError(error)) return false;
-      expect(error.code).toBe("config.cursor_provider_removed");
-      expect(error.message).toContain("AGENT_PROVIDER=cursor");
-      expect(error.message).toContain("PI_PROVIDER");
-      expect(error.message).toContain("PI_MODEL");
-      expect(error.message).toContain("PI_ORCHESTRATOR");
-      expect(error.message).toContain("PI_FALLBACK");
-      expect(error.message).toMatch(/models\.json|catalog/i);
-      expect(error.message).toMatch(/not reinterpreted/i);
+      expect(error.code).toBe("config.invalid_enum");
+      expect(error.message).toBe("AGENT_PROVIDER must be one of pi");
       return true;
     });
   });
 
-  it("does not require CURSOR_API_KEY when rejecting cursor provider", async () => {
+  it("rejects PI_PROVIDER=cursor as an unknown provider", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-      AGENT_PROVIDER: "cursor",
-      CURSOR_API_KEY: "",
+      PI_PROVIDER: "cursor",
     };
     const { loadConfig } = await import("../src/config.js");
-    await expect(loadConfig()).rejects.toThrow(/AGENT_PROVIDER=cursor is no longer supported/);
+    await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
+      expect(isAppError(error)).toBe(true);
+      if (!isAppError(error)) return false;
+      expect(error.code).toMatch(/^settings\.models_json_unknown_provider/);
+      expect(error.message).toMatch(/PI_PROVIDER "cursor" is unknown/);
+      return true;
+    });
   });
 
   it("does not reinterpret CURSOR_API_KEY as a Pi credential", async () => {
@@ -65,24 +62,6 @@ describe("loadConfig Cursor migration guard", () => {
     expect(cfg.modelProviderKeys.openai).toBe("openai_test_key");
     expect(cfg.modelProviderKeys.openai).not.toBe("cursor_should_not_become_openai");
     expect(cfg).not.toHaveProperty("cursorApiKey");
-  });
-
-  it("rejects legacy PI_PROVIDER=cursor with Pi migration guidance", async () => {
-    process.env = {
-      ...BASE_ENV,
-      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-      PI_PROVIDER: "cursor",
-      CURSOR_API_KEY: "cursor_test_key",
-    };
-    const { loadConfig } = await import("../src/config.js");
-    await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
-      expect(isAppError(error)).toBe(true);
-      if (!isAppError(error)) return false;
-      expect(error.code).toBe("settings.models_json_cursor_provider_removed");
-      expect(error.message).toContain("PI_PROVIDER=cursor");
-      expect(error.message).toContain("AGENT_PROVIDER=cursor has been removed");
-      return true;
-    });
   });
 
   it("loads model provider keys without requiring them", async () => {

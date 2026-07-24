@@ -26,9 +26,9 @@ policy, durable checkpoints, and strict redaction.
 ## Decision
 
 1. Support one agent runtime: Pi coding-agent. Remove the Cursor SDK integration
-   and its exclusive dependencies after an explicit startup migration error for
-   legacy `AGENT_PROVIDER=cursor` (never silently reinterpret Cursor settings as
-   Pi settings).
+   and its exclusive dependencies. `AGENT_PROVIDER` accepts only `pi`; other
+   values fail as invalid enum. Do not silently reinterpret Cursor settings as
+   Pi settings.
 2. Replace the generic runner abstraction with one Pi-specific session seam owned
    by pr-agent (`src/agent/runtime/`). Feature harnesses must not import or
    construct raw Pi sessions. Raw Pi events stay inside the runtime module.
@@ -51,7 +51,7 @@ policy, durable checkpoints, and strict redaction.
 ## Consequences
 
 - One failure model and one test seam for agent sessions.
-- Breaking migration for existing Cursor deployments (explicit startup error).
+- Breaking change for Cursor deployments (`AGENT_PROVIDER=cursor` is invalid).
 - Worker images no longer need Cursor SDK, MCP bridge, or SQLite native builds
   once dependency analysis confirms Cursor was their only consumer.
 - Future alternate runners require demonstrated demand and a new ADR; do not
@@ -62,7 +62,7 @@ policy, durable checkpoints, and strict redaction.
 - **Keep dual runners with a richer shared interface** — every Pi capability
   either stalls or forks a second implementation; rejected.
 - **Silently map Cursor env to Pi** — unsafe credential/model reinterpretation;
-  rejected in favor of an explicit migration error.
+  rejected.
 - **Persist full conversations as audit data** — creates a second content store
   and expands retention risk; rejected in favor of metadata-only audit records
   and short-lived encrypted snapshots.
