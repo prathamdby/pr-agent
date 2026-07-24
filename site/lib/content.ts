@@ -114,10 +114,6 @@ export const PROVIDERS: ProviderItem[] = [
     detail:
       "Use OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more with your own API keys.",
   },
-  {
-    name: "Cursor models",
-    detail: "Use Cursor models while keeping the reviews running on your own servers.",
-  },
 ];
 
 type FaqItem = {
@@ -144,7 +140,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Does PR Agent replace Cursor Bugbot?",
     answer:
-      "PR Agent fits teams that want bug and correctness reviews on GitHub without sending that work through Cursor's cloud review service. You can still use Cursor models as the AI backend. Bugbot stays tied to the Cursor IDE. PR Agent is a review system you operate.",
+      "PR Agent fits teams that want bug and correctness reviews on GitHub without sending that work through a hosted IDE-tied review service. Bugbot stays tied to the Cursor IDE. PR Agent is a review system you operate with your own model keys.",
   },
   {
     question: "How does PR Agent compare to Macroscope?",
@@ -159,7 +155,7 @@ export const FAQ_ITEMS: FaqItem[] = [
   {
     question: "Which AI models does PR Agent support?",
     answer:
-      "PR Agent works with OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more, plus Cursor models. You pick the provider and set your own API key on the machine that runs reviews.",
+      "PR Agent works with OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and more via the Pi provider catalog. You pick the provider and set your own API key on the machine that runs reviews.",
   },
   {
     question: "Does PR Agent only work with GitHub?",

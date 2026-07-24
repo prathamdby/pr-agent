@@ -25,10 +25,9 @@ policy, durable checkpoints, and strict redaction.
 
 ## Decision
 
-1. Support one agent runtime: Pi coding-agent. Remove the Cursor SDK integration
-   and its exclusive dependencies. `AGENT_PROVIDER` accepts only `pi`; other
-   values fail as invalid enum. Do not silently reinterpret Cursor settings as
-   Pi settings.
+1. Support one agent runtime: Pi coding-agent. Remove the former dual-runtime
+   SDK integration and its exclusive dependencies. `AGENT_PROVIDER` accepts only
+   `pi`; other values fail as invalid enum.
 2. Replace the generic runner abstraction with one Pi-specific session seam owned
    by pr-agent (`src/agent/runtime/`). Feature harnesses must not import or
    construct raw Pi sessions. Raw Pi events stay inside the runtime module.
@@ -51,9 +50,10 @@ policy, durable checkpoints, and strict redaction.
 ## Consequences
 
 - One failure model and one test seam for agent sessions.
-- Breaking change for Cursor deployments (`AGENT_PROVIDER=cursor` is invalid).
-- Worker images no longer need Cursor SDK, MCP bridge, or SQLite native builds
-  once dependency analysis confirms Cursor was their only consumer.
+- Breaking change for deployments that still selected the removed dual runtime.
+- Worker images no longer need the removed dual-runtime SDK, MCP bridge, or
+  SQLite native builds once dependency analysis confirms they had no other
+  consumers.
 - Future alternate runners require demonstrated demand and a new ADR; do not
   reintroduce a generic capability-negotiation framework preemptively.
 
@@ -61,8 +61,8 @@ policy, durable checkpoints, and strict redaction.
 
 - **Keep dual runners with a richer shared interface** — every Pi capability
   either stalls or forks a second implementation; rejected.
-- **Silently map Cursor env to Pi** — unsafe credential/model reinterpretation;
-  rejected.
+- **Silently map removed dual-runtime env to Pi** — unsafe credential/model
+  reinterpretation; rejected.
 - **Persist full conversations as audit data** — creates a second content store
   and expands retention risk; rejected in favor of metadata-only audit records
   and short-lived encrypted snapshots.

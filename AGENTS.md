@@ -61,5 +61,5 @@ Skip doc updates when none of the above apply.
 - **Docker in cloud VMs** — needs `fuse-overlayfs` storage driver and `iptables-legacy`. The update script handles Docker installation; start `dockerd` manually if needed: `sudo dockerd &>/tmp/dockerd.log &`.
 - **Tests (`nub run test`)** are pure unit/integration tests and do not need Postgres or any running service. Use `nub run --node test` if Vitest shows augmentation-related flakiness.
 - **Lint/fmt commands**: `nub run lint` (oxlint, type-aware), `nub run typecheck` (tsc), `nub run fmt:check` (oxfmt). Combined: `nub run check:code`.
-- **Ignored build scripts warning** from Nub is expected for some transitive deps (`esbuild`, `protobufjs`). The worker image no longer needs a native `sqlite3` build for the agent runtime (Cursor SDK removed; see ADR 0031).
+- **Ignored build scripts warning** from Nub is expected for some transitive deps (`esbuild`, `protobufjs`). The worker image does not need a native `sqlite3` build for the agent runtime (see ADR 0031).
 - **Vercel site deploys** remain on pnpm via [`site/vercel.json`](site/vercel.json); all other surfaces use Nub in pnpm incumbent mode.

@@ -16,11 +16,11 @@ describe("loadConfig agent provider", () => {
     process.env = { ...saved };
   });
 
-  it("rejects AGENT_PROVIDER=cursor as an invalid enum value", async () => {
+  it("rejects unsupported AGENT_PROVIDER values as invalid enum", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-      AGENT_PROVIDER: "cursor",
+      AGENT_PROVIDER: "legacy",
     };
     const { loadConfig } = await import("../src/config.js");
     await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
@@ -32,36 +32,20 @@ describe("loadConfig agent provider", () => {
     });
   });
 
-  it("rejects PI_PROVIDER=cursor as an unknown provider", async () => {
+  it("rejects unknown PI_PROVIDER values", async () => {
     process.env = {
       ...BASE_ENV,
       GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-      PI_PROVIDER: "cursor",
+      PI_PROVIDER: "not-a-real-provider",
     };
     const { loadConfig } = await import("../src/config.js");
     await expect(loadConfig()).rejects.toSatisfy((error: unknown) => {
       expect(isAppError(error)).toBe(true);
       if (!isAppError(error)) return false;
       expect(error.code).toMatch(/^settings\.models_json_unknown_provider/);
-      expect(error.message).toMatch(/PI_PROVIDER "cursor" is unknown/);
+      expect(error.message).toMatch(/PI_PROVIDER "not-a-real-provider" is unknown/);
       return true;
     });
-  });
-
-  it("does not reinterpret CURSOR_API_KEY as a Pi credential", async () => {
-    process.env = {
-      ...BASE_ENV,
-      GITHUB_APP_PRIVATE_KEY: TEST_PRIVATE_KEY_PEM,
-      AGENT_PROVIDER: "pi",
-      CURSOR_API_KEY: "cursor_should_not_become_openai",
-      OPENAI_API_KEY: "openai_test_key",
-    };
-    const { loadConfig } = await import("../src/config.js");
-    const cfg = await loadConfig();
-    expect(cfg.agentProvider).toBe("pi");
-    expect(cfg.modelProviderKeys.openai).toBe("openai_test_key");
-    expect(cfg.modelProviderKeys.openai).not.toBe("cursor_should_not_become_openai");
-    expect(cfg).not.toHaveProperty("cursorApiKey");
   });
 
   it("loads model provider keys without requiring them", async () => {

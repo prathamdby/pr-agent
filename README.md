@@ -151,11 +151,10 @@ Run on your infrastructure with your GitHub App credentials and chosen LLM provi
 | Help                    | No                    | `/help`           | Worker-published guidance                                                                                                      |
 | Lightweight auto-review | docs-only trivial PRs | No                | Skips full **orchestrated review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md)                         |
 
-| Deployment                                | Supported |
-| ----------------------------------------- | --------- |
-| Docker Compose (web + worker + Postgres)  | Yes       |
-| Bare Node + Postgres                      | Yes       |
-| Cursor provider (`AGENT_PROVIDER=cursor`) | No        |
+| Deployment                               | Supported |
+| ---------------------------------------- | --------- |
+| Docker Compose (web + worker + Postgres) | Yes       |
+| Bare Node + Postgres                     | Yes       |
 
 Slash commands are **case-sensitive** and must start the first non-empty line of a new comment. Full behaviour: [docs/operations.md](docs/operations.md).
 
@@ -234,7 +233,7 @@ Postgres, pg-boss, and GitHub App credentials run on your infrastructure. Webhoo
 
 ### LLM providers
 
-Review, description, and ask content is sent to your configured model provider during worker runs only (Pi/OpenAI, Cursor, or others per `PI_PROVIDER` / `AGENT_PROVIDER`). See your provider's data policy (for example [OpenAI](https://openai.com/enterprise-privacy) or Cursor).
+Review, description, and ask content is sent to your configured model provider during worker runs only (per `PI_PROVIDER` / `PI_MODEL`). See your provider's data policy (for example [OpenAI](https://openai.com/enterprise-privacy)).
 
 ### Context7 (optional)
 

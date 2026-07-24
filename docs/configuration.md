@@ -224,7 +224,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
-Flat directory of Cursor-style `.mdc` rule files, read from the PR head checkout at review preflight. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
+Flat directory of `.mdc` rule files, read from the PR head checkout at review preflight. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
 
 | Frontmatter / body | Type               | Cap                   | Role                                                                                              |
 | ------------------ | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------- |

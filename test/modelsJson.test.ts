@@ -67,10 +67,6 @@ describe("modelsJson helpers", () => {
     expect(() => assertBuiltinPiProvider("not-a-real-provider")).toThrow(/unknown/);
   });
 
-  it("assertBuiltinPiProvider rejects cursor as unknown", () => {
-    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/unknown/);
-  });
-
   it("assertPiModelSelection accepts a custom provider from models.json", async () => {
     const dir = tempDir();
     const path = join(dir, "models.json");
@@ -339,7 +335,7 @@ describe("loadConfig models.json", () => {
     ).rejects.toThrow(/not found/);
   });
 
-  it("rejects AGENT_PROVIDER=cursor as an invalid enum before models.json selection", async () => {
+  it("rejects unsupported AGENT_PROVIDER before models.json selection", async () => {
     const dir = tempDir();
     writeFileSync(
       join(dir, "models.json"),
@@ -356,10 +352,9 @@ describe("loadConfig models.json", () => {
     );
     await expect(
       loadWithCwd(dir, {
-        AGENT_PROVIDER: "cursor",
-        CURSOR_API_KEY: "cursor_test_key",
+        AGENT_PROVIDER: "legacy",
         PI_PROVIDER: "openai",
-        PI_MODEL: "composer-2.5",
+        PI_MODEL: "gpt-4o-mini",
       }),
     ).rejects.toThrow(/AGENT_PROVIDER must be one of pi/);
   });

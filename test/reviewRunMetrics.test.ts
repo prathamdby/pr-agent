@@ -146,8 +146,8 @@ describe("reviewRunMetrics", () => {
     const infoSpy = vi.spyOn(evlog, "logInfo");
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
       initReviewRunMetrics({
-        provider: "cursor",
-        model: "composer-2.5",
+        provider: "openai",
+        model: "gpt-4o-mini",
         mode: "review",
       });
       setReviewRunMetricFields({ published: false, publishAttempts: 2 });
@@ -155,8 +155,8 @@ describe("reviewRunMetrics", () => {
     });
     const payload = infoSpy.mock.calls.find(([event]) => event === "review_run_completed")?.[1];
     expect(payload).toMatchObject({
-      provider: "cursor",
-      model: "composer-2.5",
+      provider: "openai",
+      model: "gpt-4o-mini",
       mode: "review",
       published: false,
       publishAttempts: 2,
