@@ -418,8 +418,26 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           model: params.primary.model,
           reason,
         });
-        // Re-assert authoritative state after compaction summary (advisory only).
-        await session.prompt(structuredStateReinjectionPrompt(structuredState));
+        try {
+          // Re-assert authoritative state after compaction summary (advisory only).
+          await session.prompt(structuredStateReinjectionPrompt(structuredState));
+        } catch (error) {
+          emit({
+            kind: "failure",
+            role: params.role,
+            provider: params.primary.provider,
+            model: params.primary.model,
+            ok: false,
+            failureCode: "runtime.compaction_reinjection_failed",
+          });
+          await abort();
+          if (error instanceof AppError) throw error;
+          throw new AppError({
+            code: "runtime.compaction_reinjection_failed",
+            message: "Failed to re-inject structured state after compaction",
+            cause: error,
+          });
+        }
         return true;
       },
     };

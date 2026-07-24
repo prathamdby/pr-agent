@@ -547,7 +547,14 @@ export async function runOrchestratedPrReview(
             });
             return { kind: "sent", text: send.value.text };
           }
-          void sendPromise.catch(() => undefined);
+          void sendPromise.catch((fallbackSendError) => {
+            logWarn("review_orchestrator_fallback_send_abandoned", {
+              phase,
+              reason: fallback.reason,
+              settleKind: send.kind,
+              ...errorLogFields(fallbackSendError),
+            });
+          });
         } catch (fallbackError) {
           logWarn("review_orchestrator_fallback_failed", {
             phase,

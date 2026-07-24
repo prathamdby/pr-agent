@@ -1,3 +1,4 @@
+import { logWarn } from "../../evlog.js";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
 import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
@@ -186,7 +187,8 @@ export function sanitizeAgentLifecycleEvent(raw: unknown): AgentLifecycleEvent |
     }
     default: {
       const _exhaustive: never = kind;
-      return _exhaustive;
+      logWarn("agent_lifecycle_unexpected_kind", { kind: String(_exhaustive) });
+      return null;
     }
   }
 }

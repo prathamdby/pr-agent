@@ -1,5 +1,6 @@
 import type { Pool, PoolClient } from "pg";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { persistOperationIntent, reconcileOperationIntent } from "./operationIntentRepository.js";
 
 export type OperationIntentContext = {
@@ -84,7 +85,9 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
       status: "failed",
       detail: {
         ...params.reconcileDetail,
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage: sanitizeLogMessage(
+          error instanceof Error ? error.message : String(error),
+        ),
       },
     });
     if (isAppError(error)) throw error;
