@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v pg_lsclusters >/dev/null; then
+  echo "PostgreSQL is not installed; run .agents/setup" >&2
+  exit 1
+fi
+
+while read -r version cluster _ status _; do
+  [[ -n "$version" ]] || continue
+  if [[ "$status" != "online" ]]; then
+    echo "==> Starting PostgreSQL $version/$cluster"
+    sudo pg_ctlcluster "$version" "$cluster" start
+  fi
+done < <(pg_lsclusters --no-header)
+
+if ! pg_isready --quiet --host localhost --port 5432; then
+  echo "PostgreSQL is not ready on localhost:5432" >&2
+  exit 1
+fi
+
+echo "==> PostgreSQL is ready"

@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+
+echo "==> Installing required system packages"
+missing_packages=()
+command -v curl >/dev/null || missing_packages+=(curl)
+command -v xz >/dev/null || missing_packages+=(xz-utils)
+command -v openssl >/dev/null || missing_packages+=(openssl)
+command -v psql >/dev/null || missing_packages+=(postgresql postgresql-client)
+command -v pg_lsclusters >/dev/null || missing_packages+=(postgresql)
+command -v pg_isready >/dev/null || missing_packages+=(postgresql-client)
+if ((${#missing_packages[@]})); then
+  sudo apt-get update
+  sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "${missing_packages[@]}"
+fi
+
+node_version="$(tr -d '[:space:]' < .node-version)"
+node_install="$HOME/.local/share/node-v$node_version"
+node_link="$HOME/.local/share/pr-agent-node"
+mkdir -p "$HOME/.local/bin" "$HOME/.local/share"
+
+if [[ ! -x "$node_install/bin/node" ]]; then
+  echo "==> Installing Node.js $node_version"
+  case "$(uname -m)" in
+    x86_64) node_arch="x64" ;;
+    aarch64|arm64) node_arch="arm64" ;;
+    *) echo "Unsupported architecture: $(uname -m)" >&2; exit 1 ;;
+  esac
+
+  node_dist="node-v${node_version}-linux-${node_arch}"
+  tmp_dir="$(mktemp -d)"
+  trap 'rm -rf "$tmp_dir"' EXIT
+  curl --fail --location --silent --show-error \
+    "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt" -o "$tmp_dir/SHASUMS256.txt"
+  curl --fail --location --silent --show-error \
+    "https://nodejs.org/dist/v${node_version}/${node_dist}.tar.xz" -o "$tmp_dir/${node_dist}.tar.xz"
+  (
+    cd "$tmp_dir"
+    grep " ${node_dist}\.tar\.xz$" SHASUMS256.txt | sha256sum --check --status
+  )
+  mkdir -p "$node_install"
+  tar -xJf "$tmp_dir/${node_dist}.tar.xz" --strip-components=1 -C "$node_install"
+  rm -rf "$tmp_dir"
+  trap - EXIT
+fi
+
+ln -sfn "$node_install" "$node_link"
+profile_marker="# pr-agent orb toolchain"
+if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+  cat >> "$HOME/.bash_profile" <<'EOF'
+
+# pr-agent orb toolchain
+export PATH="$HOME/.local/share/pr-agent-node/bin:$HOME/.local/bin:$PATH"
+EOF
+fi
+export PATH="$node_link/bin:$HOME/.local/bin:$PATH"
+
+echo "==> Installing Nub"
+if ! command -v nub >/dev/null; then
+  npm install --global --prefix "$HOME/.local" --ignore-scripts=false @nubjs/nub
+fi
+
+echo "==> Installing workspace dependencies"
+nub install
+
+if [[ ! -f .env ]]; then
+  echo "==> Creating local development environment"
+  cp -- .env.example .env
+  dev_private_key="$(openssl genrsa 2048 2>/dev/null)"
+  DEV_PRIVATE_KEY="$dev_private_key" node --input-type=module -e '
+    import { readFileSync, writeFileSync } from "node:fs";
+    const path = ".env";
+    const env = readFileSync(path, "utf8").replace(
+      /^GITHUB_APP_PRIVATE_KEY=.*$/m,
+      `GITHUB_APP_PRIVATE_KEY=${JSON.stringify(process.env.DEV_PRIVATE_KEY)}`,
+    );
+    writeFileSync(path, env);
+  '
+fi
+
+echo "==> Preparing PostgreSQL"
+"$repo_root/.agents/resume"
+
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'pr_agent'" | grep -q 1; then
+  sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE ROLE pr_agent LOGIN PASSWORD 'pr_agent'"
+fi
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'pr_agent'" | grep -q 1; then
+  sudo -u postgres createdb --owner=pr_agent pr_agent
+fi
+
+postgres_restart=false
+for setting in fsync full_page_writes synchronous_commit; do
+  if [[ "$(sudo -u postgres psql -tAc "SHOW $setting")" != "off" ]]; then
+    sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET $setting = off"
+    postgres_restart=true
+  fi
+done
+if [[ "$postgres_restart" == true ]]; then
+  echo "==> Applying development PostgreSQL tuning"
+  while read -r version cluster _ _ _; do
+    [[ -n "$version" ]] || continue
+    sudo pg_ctlcluster "$version" "$cluster" restart
+  done < <(pg_lsclusters --no-header)
+fi
+
+echo "==> Orb setup complete"
