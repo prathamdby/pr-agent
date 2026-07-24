@@ -11,7 +11,6 @@ import {
   MAX_ASK_FINALIZE_ROUNDS,
   MAX_ASK_TOOL_ROUNDS,
 } from "../../settings/index.js";
-import { adaptPiSessionToAgentRunner } from "../runtime/adaptPiSession.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { buildAskUserContent } from "./askUserContent.js";
 import type { AskRunParams, AskRunResult } from "./askRunTypes.js";
@@ -64,7 +63,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   const tools = [...refreshableGh.bundle.piTools, ...ctx7.piTools];
   const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
 
-  const piSession = await createFeaturePiSession({
+  const session = await createFeaturePiSession({
     role: "ask",
     cfg,
     cwd: params.cwd,
@@ -74,18 +73,26 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     refreshBeforeTool: refreshableGh.refreshBeforeTool,
     durability: params.durability,
   });
-  const session = adaptPiSessionToAgentRunner(piSession, "ask");
   await primePathGatePromise;
 
   try {
-    const sendOpts = { maxToolRounds: MAX_ASK_TOOL_ROUNDS, phase: "ask" as const };
+    const sendOpts = {
+      maxToolRounds: MAX_ASK_TOOL_ROUNDS,
+      phase: "ask" as const,
+      checkpointId: "ask:ask",
+    };
     let lastText = (await session.send(buildAskUserContent(params), sendOpts)).text.trim();
 
     if (!lastText && MAX_ASK_FINALIZE_ROUNDS > 0) {
-      session.restrictToTools([], {});
+      session.setActiveTools([], {});
       try {
         for (let round = 0; round < MAX_ASK_FINALIZE_ROUNDS && !lastText; round++) {
-          lastText = (await session.send(ASK_RETRY_NUDGE)).text.trim();
+          lastText = (
+            await session.send(ASK_RETRY_NUDGE, {
+              phase: "ask",
+              checkpointId: "ask:ask",
+            })
+          ).text.trim();
         }
       } finally {
         session.restoreTools();
@@ -99,7 +106,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     });
 
     logInfo("ask_run_completed", {
-      provider: cfg.agentProvider,
+      provider: cfg.piProvider,
       hasAnswer: lastText.length > 0,
       metaRefusal: false,
     });

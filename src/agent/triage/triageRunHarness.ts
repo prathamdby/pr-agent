@@ -6,7 +6,6 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo } from "../../evlog.js";
-import { adaptPiSessionToAgentRunner } from "../runtime/adaptPiSession.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { TriageRunResult } from "./triageRun.js";
 import {
@@ -39,9 +38,9 @@ export async function runTriageHarness(params: {
   readonly durability?: FeatureSessionDurability;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
-  const providerName = cfg.agentProvider;
+  const providerName = cfg.piProvider;
   const setup = buildTriageRunSetup(params);
-  const piSession = await createFeaturePiSession({
+  const session = await createFeaturePiSession({
     role: "triage",
     cfg,
     cwd: params.cwd,
@@ -50,8 +49,6 @@ export async function runTriageHarness(params: {
     executors: setup.executors,
     durability: params.durability,
   });
-  const session = adaptPiSessionToAgentRunner(piSession, "triage");
-
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
     runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt);
@@ -82,6 +79,8 @@ export async function runTriageHarness(params: {
             lastText = (
               await session.send(setup.userContent, {
                 maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
+                phase: "triage",
+                checkpointId: "triage:triage",
               })
             ).text;
           },

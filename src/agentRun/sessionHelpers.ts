@@ -1,7 +1,8 @@
 import type { Api, AssistantMessage, ProviderId } from "@earendil-works/pi-ai";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { AgentRunnerSession, AgentRunnerTurn } from "../agent/providers/interface.js";
+import type { AgentRunnerTurn } from "../agent/providers/interface.js";
+import type { PiSession } from "../agent/runtime/types.js";
 
 export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
@@ -24,18 +25,24 @@ export function assistantFromText(cfg: Config, text: string, provider: string): 
 }
 
 export async function runSubmitOnlyRound(
-  session: AgentRunnerSession,
+  session: PiSession,
   submitOnly: {
     readonly piTools: readonly PiTool[];
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   },
   prompt: string,
-  send: (session: AgentRunnerSession, prompt: string) => Promise<AgentRunnerTurn> = (
+  send: (session: PiSession, prompt: string) => Promise<AgentRunnerTurn> = (
     activeSession,
     activePrompt,
-  ) => activeSession.send(activePrompt),
+  ) => {
+    const phase = activeSession.role === "orchestrator" ? "synthesis" : activeSession.role;
+    return activeSession.send(activePrompt, {
+      phase,
+      checkpointId: `${activeSession.role}:${phase}`,
+    });
+  },
 ): Promise<string> {
-  session.restrictToTools(submitOnly.piTools, submitOnly.executors);
+  session.setActiveTools(submitOnly.piTools, submitOnly.executors);
   try {
     return (await send(session, prompt)).text;
   } finally {

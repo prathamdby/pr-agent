@@ -3,7 +3,6 @@
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_ROLE = "web" as const;
 
-export const DEFAULT_AGENT_PROVIDER = "pi" as const;
 export const DEFAULT_PI_PROVIDER = "openai";
 export const DEFAULT_PI_MODEL = "gpt-4o-mini";
 /** Empty means inherit general primary (`PI_PROVIDER` / `PI_MODEL`). */

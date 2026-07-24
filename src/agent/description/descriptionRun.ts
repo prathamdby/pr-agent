@@ -8,7 +8,6 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { adaptPiSessionToAgentRunner } from "../runtime/adaptPiSession.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
 import {
@@ -68,9 +67,9 @@ export async function runFullPrDescription(params: {
 
   const { cfg, owner, repo, prNumber } = params;
   const tokenTtlMs = tokenTtlMsOrDefault(params.tokenTtlMs);
-  const providerName = cfg.agentProvider;
+  const providerName = cfg.piProvider;
   const setup = buildDescriptionRunSetup({ ...params, tokenTtlMs });
-  const piSession = await createFeaturePiSession({
+  const session = await createFeaturePiSession({
     role: "description",
     cfg,
     cwd: params.cwd,
@@ -80,8 +79,6 @@ export async function runFullPrDescription(params: {
     refreshBeforeTool: setup.refreshBeforeTool,
     durability: params.durability,
   });
-  const session = adaptPiSessionToAgentRunner(piSession, "description");
-
   let lastText = "";
 
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
@@ -117,6 +114,8 @@ export async function runFullPrDescription(params: {
             lastText = (
               await session.send(setup.userContent, {
                 maxToolRounds: MAX_TOOL_ROUNDS_DESCRIBE,
+                phase: "description",
+                checkpointId: "description:description",
               })
             ).text;
           },

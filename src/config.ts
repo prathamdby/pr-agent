@@ -16,7 +16,6 @@ import {
   VERIFICATION_FEATURE_MODES,
   type Features,
   DEFAULT_ACK_CONCURRENCY,
-  DEFAULT_AGENT_PROVIDER,
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_VERIFICATION_CONCURRENCY,
@@ -212,7 +211,6 @@ export async function loadConfig() {
   const databaseUrl = requireEnv(ENV.DATABASE_URL);
 
   const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
-  const agentProvider = readEnum(ENV.AGENT_PROVIDER, ["pi"] as const, DEFAULT_AGENT_PROVIDER);
 
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
@@ -418,7 +416,6 @@ export async function loadConfig() {
     databaseUrl,
     role,
     features,
-    agentProvider,
     piProvider,
     piModel,
     piOrchestratorProvider,
@@ -463,8 +460,4 @@ export async function loadConfig() {
   };
 }
 
-export type AgentProviderName = "pi";
-
-export type Config = Omit<Awaited<ReturnType<typeof loadConfig>>, "agentProvider"> & {
-  readonly agentProvider: AgentProviderName;
-};
+export type Config = Awaited<ReturnType<typeof loadConfig>>;

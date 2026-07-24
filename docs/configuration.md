@@ -44,7 +44,6 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 | App private key        | `GITHUB_APP_PRIVATE_KEY`               | —                        | required PEM                                                                                                                                |
 | Webhook HMAC secret    | `WEBHOOK_SECRET`                       | —                        | required                                                                                                                                    |
 | Postgres URL           | `DATABASE_URL`                         | —                        | required                                                                                                                                    |
-| Agent provider         | `AGENT_PROVIDER`                       | `pi`                     | Pi-only (`pi`). Other values fail as invalid enum (see ADR 0031)                                                                            |
 | General LLM provider   | `PI_PROVIDER`                          | `openai`                 | Primary model provider for Specialist, Ask, Description, Triage, Verification, and CI-summary sessions (built-in slug or `models.json` key) |
 | General LLM model      | `PI_MODEL`                             | `gpt-4o-mini`            | Primary model id for general sessions                                                                                                       |
 | Orchestrator provider  | `PI_ORCHESTRATOR_PROVIDER`             | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                            |
@@ -96,7 +95,7 @@ caps, CI-summary waits, workspace limits) are now code constants in
 
 ### Project `models.json` (optional Pi catalog)
 
-When `AGENT_PROVIDER=pi`, `loadConfig()` loads an optional Pi `models.json` catalog (same shape as `~/.pi/agent/models.json`) and validates that `PI_PROVIDER` / `PI_MODEL` resolve against built-ins ∪ that file. Selection stays in env; the file is only the catalog.
+`loadConfig()` loads an optional Pi `models.json` catalog (same shape as `~/.pi/agent/models.json`) and validates that `PI_PROVIDER` / `PI_MODEL` resolve against built-ins ∪ that file. Selection stays in env; the file is only the catalog.
 
 **Resolution order**
 

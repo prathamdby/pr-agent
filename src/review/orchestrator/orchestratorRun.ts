@@ -1,12 +1,8 @@
 import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
-import type {
-  AgentRunnerSendOptions,
-  AgentRunnerSession,
-  AgentRunnerToolExecutor,
-} from "../../agent/providers/interface.js";
-import { adaptPiSessionToAgentRunner } from "../../agent/runtime/adaptPiSession.js";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
@@ -167,12 +163,12 @@ function coverage(state: OrchestratedRunState): ReviewCoverage {
 }
 
 function transitionTools(
-  session: AgentRunnerSession,
+  session: PiSession,
   tools: readonly PiTool[],
   executors: Record<string, AgentRunnerToolExecutor>,
 ): void {
   session.restoreTools();
-  session.restrictToTools(tools, executors);
+  session.setActiveTools(tools, executors);
 }
 
 /** Specialist completion ticks occupy revisions 2–5 (revision 1 is recon-done). */
@@ -226,7 +222,7 @@ export async function runOrchestratedPrReview(
 
   const reviewMode = params.mode ?? "review";
   initReviewRunMetrics({
-    provider: params.cfg.agentProvider,
+    provider: params.cfg.piProvider,
     model: params.cfg.piModel,
     mode: reviewMode,
   });
@@ -313,8 +309,8 @@ export async function runOrchestratedPrReview(
     publish_thread: publishThread.executor,
     publish_summary: publishSummary.executor,
   };
-  let session: AgentRunnerSession | null = null;
-  let sessionCreation: Promise<AgentRunnerSession> | null = null;
+  let session: PiSession | null = null;
+  let sessionCreation: Promise<PiSession> | null = null;
   try {
     sessionCreation = createFeaturePiSession({
       role: "orchestrator",
@@ -331,7 +327,7 @@ export async function runOrchestratedPrReview(
         }
         await setup.refreshBeforeTool(toolName);
       },
-    }).then((piSession) => adaptPiSessionToAgentRunner(piSession, "recon"));
+    });
     const creation = await settleBefore(
       sessionCreation,
       Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
@@ -423,7 +419,7 @@ export async function runOrchestratedPrReview(
   const sendWithRetry = async (
     phase: "recon" | "judgment" | "synthesis",
     prompt: string,
-    options?: AgentRunnerSendOptions,
+    options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs">,
   ): Promise<SendResult> => {
     let firstError: AppError | null = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -471,7 +467,11 @@ export async function runOrchestratedPrReview(
         };
       }
       try {
-        const sendPromise = session.send(prompt, { ...options, phase });
+        const sendPromise = session.send(prompt, {
+          ...options,
+          phase,
+          checkpointId: `${session.role}:${phase}`,
+        });
         const send = await settleBefore(
           sendPromise,
           Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
@@ -1007,7 +1007,7 @@ export async function runOrchestratedPrReview(
   const lastAssistant: AssistantMessage = assistantFromText(
     params.cfg,
     lastText,
-    params.cfg.agentProvider,
+    params.cfg.piProvider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
   return {

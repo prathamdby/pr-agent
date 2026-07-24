@@ -5,7 +5,6 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo } from "../../evlog.js";
-import { adaptPiSessionToAgentRunner } from "../runtime/adaptPiSession.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { VerificationRunResult } from "./verificationRun.js";
 import {
@@ -36,9 +35,9 @@ export async function runVerificationHarness(params: {
   readonly durability?: FeatureSessionDurability;
 }): Promise<VerificationRunResult> {
   const { cfg, owner, repo, prNumber } = params;
-  const providerName = cfg.agentProvider;
+  const providerName = cfg.piProvider;
   const setup = buildVerificationRunSetup(params);
-  const piSession = await createFeaturePiSession({
+  const session = await createFeaturePiSession({
     role: "verification",
     cfg,
     cwd: params.rootDir,
@@ -47,8 +46,6 @@ export async function runVerificationHarness(params: {
     executors: setup.executors,
     durability: params.durability,
   });
-  const session = adaptPiSessionToAgentRunner(piSession, "verification");
-
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
     runSubmitOnlyRound(session, buildSubmitOnlyVerificationSessionTools(setup), prompt);
@@ -79,6 +76,8 @@ export async function runVerificationHarness(params: {
             lastText = (
               await session.send(setup.userContent, {
                 maxToolRounds: MAX_TOOL_ROUNDS_VERIFICATION,
+                phase: "verification",
+                checkpointId: "verification:verification",
               })
             ).text;
           },

@@ -6,13 +6,9 @@ import {
   classifyProviderError,
   type ProviderErrorKind,
 } from "../../agent/providers/providerErrors.js";
-import type {
-  AgentRunnerSession,
-  AgentRunnerToolExecutor,
-  AgentRunnerTurn,
-} from "../../agent/providers/interface.js";
-import { adaptPiSessionToAgentRunner } from "../../agent/runtime/adaptPiSession.js";
+import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import type { PiSession } from "../../agent/runtime/types.js";
 import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
@@ -187,7 +183,7 @@ async function createSessionWithinDeadline(
   params: RunSpecialistParams,
   deadlineMs: number,
   submitTool: ReturnType<typeof buildSubmitTool>,
-): Promise<AgentRunnerSession> {
+): Promise<PiSession> {
   const creation = createFeaturePiSession({
     role: "specialist",
     cfg: params.cfg,
@@ -199,7 +195,7 @@ async function createSessionWithinDeadline(
       [SUBMIT_TOOL_NAME]: submitTool.executor,
     },
     durability: params.durability,
-  }).then((session) => adaptPiSessionToAgentRunner(session, "specialist"));
+  });
   return runWithinDeadline({
     run: () => creation,
     signal: params.signal,
@@ -223,12 +219,17 @@ async function runAttempt(
   let cleanupDeferred = false;
 
   const send = (
-    activeSession: AgentRunnerSession,
+    activeSession: PiSession,
     prompt: string,
     opts?: { readonly maxToolRounds?: number },
   ): Promise<AgentRunnerTurn> =>
     runWithinDeadline({
-      run: () => activeSession.send(prompt, opts),
+      run: () =>
+        activeSession.send(prompt, {
+          ...opts,
+          phase: "specialist",
+          checkpointId: `${activeSession.role}:specialist`,
+        }),
       signal: params.signal,
       deadlineMs,
       cancel: () => activeSession.abort(),

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentRunnerSession } from "../src/agent/providers/interface.js";
+import type { PiSession } from "../src/agent/runtime/types.js";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
@@ -221,10 +221,6 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
   createFeaturePiSession: runner.createSession,
 }));
 
-vi.mock("../src/agent/runtime/adaptPiSession.js", () => ({
-  adaptPiSessionToAgentRunner: (session: unknown) => session,
-}));
-
 import {
   runOrchestratedPrReview,
   type OrchestratedReviewRunParams,
@@ -379,7 +375,11 @@ describe("runOrchestratedPrReview", () => {
         await new Promise<void>((resolve) => setTimeout(resolve, testState.createDelayMs));
       }
       const executors = sessionParams.executors;
-      const session: AgentRunnerSession = {
+      const session: Pick<
+        PiSession,
+        "role" | "send" | "abort" | "setActiveTools" | "restoreTools" | "dispose"
+      > = {
+        role: "orchestrator",
         send: vi.fn(async (prompt) => {
           const phase = prompt.includes("Inspect this pull request")
             ? "recon"
@@ -430,7 +430,7 @@ describe("runOrchestratedPrReview", () => {
         abort: vi.fn(async () => {
           testState.sessionAborts += 1;
         }),
-        restrictToTools: vi.fn((tools: readonly PiTool[]) => {
+        setActiveTools: vi.fn((tools: readonly PiTool[]) => {
           if (
             testState.restrictionFailureTool != null &&
             tools.some((tool) => tool.name === testState.restrictionFailureTool)

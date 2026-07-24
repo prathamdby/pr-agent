@@ -262,7 +262,6 @@ describe("loadConfig models.json", () => {
       }),
     );
     const cfg = await loadWithCwd(dir, {
-      AGENT_PROVIDER: "pi",
       PI_PROVIDER: "ollama",
       PI_MODEL: "llama3.1:8b",
     });
@@ -290,7 +289,6 @@ describe("loadConfig models.json", () => {
       }),
     );
     const cfg = await loadWithCwd(cwd, {
-      AGENT_PROVIDER: "pi",
       PI_PROVIDER: "agent-router",
       PI_MODEL: "claude-opus-4-6",
       MODELS_JSON_PATH: catalogPath,
@@ -304,7 +302,6 @@ describe("loadConfig models.json", () => {
     const dir = tempDir();
     await expect(
       loadWithCwd(dir, {
-        AGENT_PROVIDER: "pi",
         PI_PROVIDER: "agent-router",
         PI_MODEL: "claude-opus-4-6",
       }),
@@ -328,34 +325,9 @@ describe("loadConfig models.json", () => {
     );
     await expect(
       loadWithCwd(dir, {
-        AGENT_PROVIDER: "pi",
         PI_PROVIDER: "ollama",
         PI_MODEL: "missing-model",
       }),
     ).rejects.toThrow(/not found/);
-  });
-
-  it("rejects unsupported AGENT_PROVIDER before models.json selection", async () => {
-    const dir = tempDir();
-    writeFileSync(
-      join(dir, "models.json"),
-      JSON.stringify({
-        providers: {
-          ollama: {
-            baseUrl: "http://127.0.0.1:11434/v1",
-            api: "openai-completions",
-            apiKey: "ollama",
-            models: [{ id: "llama3.1:8b" }],
-          },
-        },
-      }),
-    );
-    await expect(
-      loadWithCwd(dir, {
-        AGENT_PROVIDER: "legacy",
-        PI_PROVIDER: "openai",
-        PI_MODEL: "gpt-4o-mini",
-      }),
-    ).rejects.toThrow(/AGENT_PROVIDER must be one of pi/);
   });
 });

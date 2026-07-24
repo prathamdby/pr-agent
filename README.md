@@ -108,7 +108,6 @@ Feature catalog: [docs/features.md](docs/features.md). Operator tunables: [docs/
 Uses [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) through pr-agent's Pi session seam.
 
 ```bash
-AGENT_PROVIDER=pi
 PI_PROVIDER=openai
 PI_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-...

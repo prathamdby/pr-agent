@@ -33,9 +33,7 @@ describe("settings inventory", () => {
     expect(envValues).toContain("PI_THINKING_CEILING");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_KEY");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS");
-    expect(envValues).not.toContain("CURSOR_API_KEY");
-    expect(envValues).not.toContain("CURSOR_RIPGREP_PATH");
-    expect(envValues.length).toBe(54);
+    expect(envValues.length).toBe(53);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

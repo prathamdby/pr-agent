@@ -26,8 +26,8 @@ policy, durable checkpoints, and strict redaction.
 ## Decision
 
 1. Support one agent runtime: Pi coding-agent. Remove the former dual-runtime
-   SDK integration and its exclusive dependencies. `AGENT_PROVIDER` accepts only
-   `pi`; other values fail as invalid enum.
+   SDK integration and its exclusive dependencies. Model selection is via
+   `PI_PROVIDER` / `PI_MODEL` (and optional orchestrator/fallback overrides).
 2. Replace the generic runner abstraction with one Pi-specific session seam owned
    by pr-agent (`src/agent/runtime/`). Feature harnesses must not import or
    construct raw Pi sessions. Raw Pi events stay inside the runtime module.

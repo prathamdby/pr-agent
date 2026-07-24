@@ -21,7 +21,6 @@ const baseTestConfig: Config = {
     commitStatus: false,
     titleRewrite: false,
   },
-  agentProvider: "pi",
   piProvider: "openai",
   piModel: "gpt-4o-mini",
   piOrchestratorProvider: "",
