@@ -420,7 +420,7 @@ async function handleReviewPublishResult(args: {
         review_lens: reviewLens,
         findings_count: snapshot?.findingsCount ?? 0,
         severities: snapshot?.severities ?? [],
-        provider: cfg.agentProvider,
+        provider: cfg.piProvider,
         model: cfg.piModel,
         publish_attempts: result.publishAttempts,
         wall_clock_ms: snapshot?.wallClockMs,
@@ -583,6 +583,11 @@ async function runFullReviewAgainstRepositoryView(args: {
       return false;
     },
     refreshInstallationToken,
+    durability: {
+      pool,
+      workItemId: item.id,
+      installationId: item.installationId,
+    },
   });
 
   if (staleHeadAtPublish.value && payload.source === "slash" && !payload.staleHeadRescheduled) {
@@ -632,7 +637,7 @@ export async function executeReviewJob(
       const payload = item.payload;
       const stubPostedAtMs = await getProgressStubPostedAtMs(pool, item.resourceKey, reviewLens);
       initReviewRunMetrics({
-        provider: cfg.agentProvider,
+        provider: cfg.piProvider,
         model: cfg.piModel,
         mode: reviewLens,
         ...(stubPostedAtMs != null ? { startedAtMs: stubPostedAtMs } : {}),

@@ -5,7 +5,7 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo } from "../../evlog.js";
-import { resolveAgentRunnerProvider } from "../providers/index.js";
+import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { VerificationRunResult } from "./verificationRun.js";
 import {
   buildSubmitOnlyVerificationSessionTools,
@@ -13,6 +13,7 @@ import {
   shouldContinueVerificationRun,
 } from "./verificationRunSetup.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import {
   VERIFICATION_PRE_SUBMIT_NUDGE_ROUNDS,
   VERIFICATION_VALIDATION_REPAIR_ROUNDS,
@@ -31,19 +32,20 @@ export async function runVerificationHarness(params: {
   readonly rootDir: string;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+  readonly durability?: FeatureSessionDurability;
 }): Promise<VerificationRunResult> {
   const { cfg, owner, repo, prNumber } = params;
-  const providerName = cfg.agentProvider;
+  const providerName = cfg.piProvider;
   const setup = buildVerificationRunSetup(params);
-  const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
+  const session = await createFeaturePiSession({
+    role: "verification",
     cfg,
     cwd: params.rootDir,
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,
+    durability: params.durability,
   });
-
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
     runSubmitOnlyRound(session, buildSubmitOnlyVerificationSessionTools(setup), prompt);
@@ -74,6 +76,8 @@ export async function runVerificationHarness(params: {
             lastText = (
               await session.send(setup.userContent, {
                 maxToolRounds: MAX_TOOL_ROUNDS_VERIFICATION,
+                phase: "verification",
+                checkpointId: "verification:verification",
               })
             ).text;
           },

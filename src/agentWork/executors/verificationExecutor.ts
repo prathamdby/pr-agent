@@ -170,6 +170,11 @@ export async function executeVerificationJob(
             rootDir: view.agentCwd,
             inventory: unresolvedThreads,
             pushedCommits,
+            durability: {
+              pool,
+              workItemId: item.id,
+              installationId: item.installationId,
+            },
           });
           if (!runResult.submitted || !runResult.payload) {
             throw new AppError({

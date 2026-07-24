@@ -3,9 +3,18 @@
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_ROLE = "web" as const;
 
-export const DEFAULT_AGENT_PROVIDER = "pi" as const;
 export const DEFAULT_PI_PROVIDER = "openai";
 export const DEFAULT_PI_MODEL = "gpt-4o-mini";
+/** Empty means inherit general primary (`PI_PROVIDER` / `PI_MODEL`). */
+export const DEFAULT_PI_ORCHESTRATOR_PROVIDER = "";
+export const DEFAULT_PI_ORCHESTRATOR_MODEL = "";
+/** Empty means fallback disabled. */
+export const DEFAULT_PI_FALLBACK_PROVIDER = "";
+export const DEFAULT_PI_FALLBACK_MODEL = "";
+export const DEFAULT_PI_THINKING_CEILING = "high" as const;
+/** Empty disables encrypted resume snapshot persistence. */
+export const DEFAULT_AGENT_RESUME_SNAPSHOT_KEY = "";
+export const DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS = 600;
 export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 300_000;
 export const DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS = 900_000;
 
@@ -35,8 +44,6 @@ export const DEFAULT_RETENTION_ENABLED = true;
 export const DEFAULT_INSTALLATION_GROUP_CONCURRENCY = 2;
 
 export const DEFAULT_CONTEXT7_API_KEY = "";
-export const DEFAULT_CURSOR_API_KEY = "";
-export const DEFAULT_CURSOR_RIPGREP_PATH = "";
 export const DEFAULT_POSTHOG_PROJECT_TOKEN = "";
 export const DEFAULT_POSTHOG_HOST = "";
 

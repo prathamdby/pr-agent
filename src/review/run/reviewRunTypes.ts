@@ -6,6 +6,7 @@ import type { WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 import type { RecordPublishStepWithCoordination } from "../publish/publishSummaryOnly.js";
+import type { FeatureSessionDurability } from "../../agent/runtime/sessionDurability.js";
 
 export type ReviewRunParams = {
   readonly cfg: Config;
@@ -38,6 +39,7 @@ export type ReviewRunParams = {
     readonly token: string;
     readonly expiresAtTs: number;
   }>;
+  readonly durability?: FeatureSessionDurability;
   readonly reviewSource?: WorkSource;
   readonly staleHeadRescheduled?: boolean;
   readonly publishAbortState?: { readonly staleHead?: boolean };

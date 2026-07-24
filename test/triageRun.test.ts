@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentRunnerProvider } from "../src/agent/providers/interface.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import { runFullPrTriage } from "../src/agent/triage/triageRun.js";
 import { makeTestConfig } from "./helpers/config.js";
@@ -8,13 +7,8 @@ const providerState = vi.hoisted(() => ({
   createSession: vi.fn(),
 }));
 
-vi.mock("../src/agent/providers/index.js", () => ({
-  resolveAgentRunnerProvider: vi.fn(
-    () =>
-      ({
-        createSession: providerState.createSession,
-      }) satisfies AgentRunnerProvider,
-  ),
+vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+  createFeaturePiSession: providerState.createSession,
 }));
 
 const cfg = makeTestConfig();
@@ -51,6 +45,7 @@ describe("triage run", () => {
 
   it("submits a validated triage payload", async () => {
     providerState.createSession.mockImplementation(async (params) => ({
+      role: "triage",
       send: vi.fn(async () => {
         await params.executors.submitTriage({
           verdicts: [{ verdict: "skipped", threadRootCommentId: 1, reason: "needs product call" }],
@@ -58,7 +53,7 @@ describe("triage run", () => {
         return { text: "done" };
       }),
       abort: vi.fn(async () => undefined),
-      restrictToTools: vi.fn(),
+      setActiveTools: vi.fn(),
       restoreTools: vi.fn(),
       dispose: vi.fn(),
     }));
@@ -79,9 +74,10 @@ describe("triage run", () => {
 
   it("does not publish prose-only endings", async () => {
     providerState.createSession.mockImplementation(async () => ({
+      role: "triage",
       send: vi.fn(async () => ({ text: "I am done" })),
       abort: vi.fn(async () => undefined),
-      restrictToTools: vi.fn(),
+      setActiveTools: vi.fn(),
       restoreTools: vi.fn(),
       dispose: vi.fn(),
     }));

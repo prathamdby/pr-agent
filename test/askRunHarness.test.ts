@@ -8,20 +8,19 @@ vi.mock("../src/agent/tools/context7Tools.js", () => ({
 }));
 
 const sendMock = vi.fn();
-const restrictToToolsMock = vi.fn();
+const setActiveToolsMock = vi.fn();
 const restoreToolsMock = vi.fn();
 const disposeMock = vi.fn(async () => undefined);
 
-vi.mock("../src/agent/providers/index.js", () => ({
-  resolveAgentRunnerProvider: () => ({
-    createSession: vi.fn(async () => ({
-      send: sendMock,
-      abort: vi.fn(async () => undefined),
-      restrictToTools: restrictToToolsMock,
-      restoreTools: restoreToolsMock,
-      dispose: disposeMock,
-    })),
-  }),
+vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+  createFeaturePiSession: vi.fn(async () => ({
+    role: "ask",
+    send: sendMock,
+    abort: vi.fn(async () => undefined),
+    setActiveTools: setActiveToolsMock,
+    restoreTools: restoreToolsMock,
+    dispose: disposeMock,
+  })),
 }));
 
 import { runAskRun } from "../src/agent/ask/askRun.js";
@@ -58,9 +57,16 @@ describe("runAskRun finalize", () => {
     const result = await runAskRun(askParams);
 
     expect(sendMock).toHaveBeenCalledTimes(2);
-    expect(sendMock.mock.calls[0]?.[1]).toEqual({ maxToolRounds: 12 });
-    expect(sendMock.mock.calls[1]?.[1]).toBeUndefined();
-    expect(restrictToToolsMock).toHaveBeenCalledWith([], {});
+    expect(sendMock.mock.calls[0]?.[1]).toEqual({
+      maxToolRounds: 12,
+      phase: "ask",
+      checkpointId: "ask:ask",
+    });
+    expect(sendMock.mock.calls[1]?.[1]).toEqual({
+      phase: "ask",
+      checkpointId: "ask:ask",
+    });
+    expect(setActiveToolsMock).toHaveBeenCalledWith([], {});
     expect(restoreToolsMock).toHaveBeenCalled();
     expect(result.answer).toContain("End-user summary and E2E checklist.");
     expect(result.answer).not.toContain("I'll examine");
@@ -72,7 +78,7 @@ describe("runAskRun finalize", () => {
     const result = await runAskRun(askParams);
 
     expect(sendMock).toHaveBeenCalledTimes(3);
-    expect(restrictToToolsMock).toHaveBeenCalledWith([], {});
+    expect(setActiveToolsMock).toHaveBeenCalledWith([], {});
     expect(restoreToolsMock).toHaveBeenCalled();
     expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
   });

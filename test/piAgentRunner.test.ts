@@ -52,6 +52,7 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
     },
     abort: vi.fn(),
     setActiveToolsByName: vi.fn(),
+    setThinkingLevel: vi.fn(),
     dispose: vi.fn(),
   };
 }
@@ -82,9 +83,18 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   SettingsManager: { inMemory: vi.fn(() => ({})) },
 }));
 
+import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { piAgentRunnerProvider } from "../src/agent/providers/pi/index.js";
+import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
+import {
+  createPiSession,
+  DEFAULT_COMPACTION_POLICY,
+  DEFAULT_THINKING_POLICY,
+  DEFAULT_TOOL_POLICY,
+  EMPTY_STRUCTURED_STATE,
+} from "../src/agent/runtime/piSession.js";
+import type { Config } from "../src/config.js";
 
 const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
@@ -92,7 +102,32 @@ const cfg = makeTestConfig({
   askConcurrency: 3,
 });
 
-describe("piAgentRunnerProvider.createSession models.json", () => {
+const ASK_SEND_OPTS = { phase: "ask" as const, checkpointId: "test" };
+
+async function createPiRunnerSession(params: {
+  cfg: Config;
+  cwd?: string;
+  systemPrompt: string;
+  tools: readonly PiTool[];
+  executors: Record<string, AgentRunnerToolExecutor>;
+}) {
+  return createPiSession({
+    role: "ask",
+    primary: { provider: params.cfg.piProvider, model: params.cfg.piModel },
+    thinkingPolicy: DEFAULT_THINKING_POLICY,
+    compactionPolicy: DEFAULT_COMPACTION_POLICY,
+    toolPolicy: DEFAULT_TOOL_POLICY,
+    structuredState: EMPTY_STRUCTURED_STATE,
+    systemPrompt: params.systemPrompt,
+    cwd: params.cwd,
+    eventSink: () => undefined,
+    cfg: params.cfg,
+    tools: params.tools,
+    executors: params.executors,
+  });
+}
+
+describe("createPiSession models.json", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(ModelRuntime.create).mockImplementation(
@@ -114,7 +149,7 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
       getModel,
     } as never);
 
-    await piAgentRunnerProvider.createSession({
+    await createPiRunnerSession({
       cfg: makeTestConfig({
         modelsJsonPath: "/app/models.json",
         piProvider: "ollama",
@@ -142,7 +177,7 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
     const session = buildMockSession(() => undefined);
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    await piAgentRunnerProvider.createSession({
+    await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
@@ -165,7 +200,7 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
     } as never);
 
     await expect(
-      piAgentRunnerProvider.createSession({
+      createPiRunnerSession({
         cfg: makeTestConfig({
           modelsJsonPath: "/app/models.json",
           piProvider: "ollama",
@@ -180,7 +215,7 @@ describe("piAgentRunnerProvider.createSession models.json", () => {
   });
 });
 
-describe("piAgentRunnerProvider.send", () => {
+describe("createPiSession.send", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(ModelRuntime.create).mockImplementation(
@@ -203,14 +238,14 @@ describe("piAgentRunnerProvider.send", () => {
     });
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
 
-    const result = await runnerSession.send("question");
+    const result = await runnerSession.send("question", ASK_SEND_OPTS);
     expect(result.text).toBe("End-user summary and testing checklist.");
     expect(result.prompt).toEqual({
       inputCharacters: "question".length,
@@ -230,7 +265,7 @@ describe("piAgentRunnerProvider.send", () => {
     );
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
@@ -265,14 +300,14 @@ describe("piAgentRunnerProvider.send", () => {
     });
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
 
-    const result = await runnerSession.send("question");
+    const result = await runnerSession.send("question", ASK_SEND_OPTS);
     expect(result.usage).toEqual({
       estimated: false,
       inputTokens: 20,
@@ -298,14 +333,14 @@ describe("piAgentRunnerProvider.send", () => {
     });
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
 
-    const result = await runnerSession.send("question", { maxToolRounds: 2 });
+    const result = await runnerSession.send("question", { ...ASK_SEND_OPTS, maxToolRounds: 2 });
     expect(result.text).toBe("");
     expect(session.abort).toHaveBeenCalled();
   });
@@ -332,14 +367,14 @@ describe("piAgentRunnerProvider.send", () => {
     });
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
 
-    const result = await runnerSession.send("question");
+    const result = await runnerSession.send("question", ASK_SEND_OPTS);
     expect(result.text).toBe("Visible answer.");
   });
 
@@ -347,7 +382,7 @@ describe("piAgentRunnerProvider.send", () => {
     const session = buildMockSession(() => undefined);
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    await piAgentRunnerProvider.createSession({
+    await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [{ name: "object", description: "object", parameters: { type: "object" } }],
@@ -371,17 +406,18 @@ describe("piAgentRunnerProvider.send", () => {
       prompt: () => new Promise<void>(() => {}),
       abort,
       setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
     };
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg: { ...cfg, providerPromptTimeoutMs: 20 },
       systemPrompt: "test",
       tools: [],
       executors: {},
     });
 
-    await expect(runnerSession.send("question")).rejects.toThrow(/timeout/i);
+    await expect(runnerSession.send("question", ASK_SEND_OPTS)).rejects.toThrow(/timeout/i);
     expect(abort).toHaveBeenCalled();
   });
 
@@ -400,13 +436,14 @@ describe("piAgentRunnerProvider.send", () => {
         }),
       abort,
       setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
     };
     const emit = (event: unknown) => {
       for (const listener of listeners) listener(event);
     };
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg: { ...cfg, providerPromptTimeoutMs: 100 },
       systemPrompt: "test",
       tools: [],
@@ -416,7 +453,7 @@ describe("piAgentRunnerProvider.send", () => {
     vi.useFakeTimers();
     const setIntervalSpy = vi.spyOn(globalThis, "setInterval");
     try {
-      const sendPromise = runnerSession.send("question");
+      const sendPromise = runnerSession.send("question", ASK_SEND_OPTS);
       // Three activity bursts spanning > idle window, each arriving before it elapses.
       for (let i = 0; i < 3; i++) {
         await vi.advanceTimersByTimeAsync(80);
@@ -446,7 +483,7 @@ describe("piAgentRunnerProvider.send", () => {
     session.dispose = dispose;
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
@@ -471,11 +508,12 @@ describe("piAgentRunnerProvider.send", () => {
       prompt: async () => undefined,
       abort: vi.fn(),
       setActiveToolsByName: vi.fn(),
+      setThinkingLevel: vi.fn(),
       dispose,
     };
     vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
 
-    const runnerSession = await piAgentRunnerProvider.createSession({
+    const runnerSession = await createPiRunnerSession({
       cfg,
       systemPrompt: "test",
       tools: [],
@@ -494,7 +532,7 @@ describe("piAgentRunnerProvider.send", () => {
     vi.mocked(createAgentSession).mockRejectedValue(new Error("session setup failed"));
 
     await expect(
-      piAgentRunnerProvider.createSession({
+      createPiRunnerSession({
         cfg,
         systemPrompt: "test",
         tools: [],

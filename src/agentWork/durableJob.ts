@@ -48,6 +48,8 @@ import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewRes
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
 import { isWorkItemType } from "./types.js";
 import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
+import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
+import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
 
 type DurableExecutionContext = {
   installation: InstallationToken;
@@ -182,6 +184,7 @@ async function finishRescheduledParentWorkItem(
   replacementWorkItemId: string | undefined,
 ): Promise<void> {
   if (await markWorkCompleted(pool, itemId)) {
+    await clearResumeSnapshotsBestEffort(pool, itemId);
     logInfo("agent_work_completed", {
       type,
       workItemId: itemId,
@@ -191,6 +194,7 @@ async function finishRescheduledParentWorkItem(
   }
   const refreshed = await getWorkItem(pool, itemId);
   if (refreshed?.status === "completed") {
+    await clearResumeSnapshotsBestEffort(pool, itemId);
     logInfo("agent_work_completed", {
       type,
       workItemId: itemId,
@@ -200,6 +204,7 @@ async function finishRescheduledParentWorkItem(
   }
   if (replacementWorkItemId) {
     if (await forceMarkRescheduledParentCompleted(pool, itemId)) {
+      await clearResumeSnapshotsBestEffort(pool, itemId);
       logInfo("agent_work_completed", {
         type,
         workItemId: itemId,
@@ -215,6 +220,7 @@ async function finishRescheduledParentWorkItem(
   }
   if (await shouldSkipWork(pool, refreshed ?? { id: itemId })) {
     await markWorkCancelled(pool, itemId);
+    await clearResumeSnapshotsBestEffort(pool, itemId);
   }
 }
 
@@ -297,6 +303,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     reason: string,
   ): Promise<void> {
     await markWorkCancelled(spec.pool, item.id);
+    await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     await invokeCancelledHook(item, currentInstallation, reason);
   }
 
@@ -339,6 +346,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       await markCancelledAndInvokeHook(item, installation, reason);
     } else {
       await markWorkCancelled(spec.pool, item.id);
+      await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     }
     return true;
   };
@@ -461,6 +469,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       await recheckSkippableAndCancel("completion_race", false);
       return;
     }
+    await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     logInfo("agent_work_completed", { type: spec.type, workItemId: item.id });
     await publishOutcomeReaction(GITHUB_REACTION_PLUS_ONE);
   }
@@ -508,6 +517,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       await recheckSkippableAndCancel("failure_race");
       return;
     }
+    await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     await invokeRescheduleAbort(error);
     await invokeTerminalFailureHook(error);
     await publishOutcomeReaction(GITHUB_REACTION_MINUS_ONE);
@@ -557,6 +567,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       workItemId: item.id,
       resourceKey: item.resourceKey,
     });
+    await reconcilePendingIntents(spec.pool, item.id);
     const result = await spec.execute(item, execution);
     await completeDurableExecution(result);
   } catch (error) {

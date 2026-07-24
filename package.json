@@ -25,7 +25,6 @@
     "site:generate-og": "nub --node run --filter pr-agent-landing generate:og"
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.23",
     "@earendil-works/pi-ai": "^0.80.10",
     "@earendil-works/pi-coding-agent": "^0.80.10",
     "@effect/cluster": "0.60.0",
@@ -35,7 +34,6 @@
     "@effect/rpc": "0.76.0",
     "@effect/sql": "0.52.0",
     "@effect/workflow": "0.19.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
     "@octokit/auth-app": "^8.2.0",
     "@octokit/core": "^7.0.6",
     "@octokit/plugin-retry": "^8.1.0",
@@ -64,9 +62,6 @@
   },
   "packageManager": "pnpm@10.34.1+sha512.b58fbde6dca66a929538021581f648b4570b6ca19b18e7cbd7f2c07a7b24454155388dacdf08f2af3678e88a6d1fe04f9d609df24bf51735a060ea041b374ab7",
   "pnpm": {
-    "onlyBuiltDependencies": [
-      "sqlite3"
-    ],
     "overrides": {
       "@tootallnate/once@<2.0.1": ">=2.0.1",
       "tar@<7.5.11": ">=7.5.11",

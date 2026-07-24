@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentRunnerProvider, AgentRunnerSession } from "../src/agent/providers/interface.js";
+import type { PiSession } from "../src/agent/runtime/types.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 type AttemptBehavior =
@@ -10,7 +10,10 @@ type AttemptBehavior =
   | { readonly kind: "no_report" }
   | { readonly kind: "pending" };
 
-type TestSession = AgentRunnerSession & {
+type TestSession = Pick<
+  PiSession,
+  "role" | "send" | "abort" | "setActiveTools" | "restoreTools" | "dispose"
+> & {
   readonly send: ReturnType<typeof vi.fn>;
   readonly abort: ReturnType<typeof vi.fn>;
   readonly dispose: ReturnType<typeof vi.fn>;
@@ -22,11 +25,8 @@ const runnerMocks = vi.hoisted(() => ({
   sessions: [] as TestSession[],
 }));
 
-vi.mock("../src/agent/providers/index.js", () => ({
-  resolveAgentRunnerProvider: () =>
-    ({
-      createSession: runnerMocks.createSession,
-    }) satisfies AgentRunnerProvider,
+vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
+  createFeaturePiSession: runnerMocks.createSession,
 }));
 
 import { runSpecialist } from "../src/review/orchestrator/specialistRun.js";
@@ -68,14 +68,15 @@ describe("runSpecialist", () => {
       if (!behavior) throw new Error("missing specialist test behavior");
       if (behavior.kind === "pending_create") {
         const session: TestSession = {
+          role: "specialist",
           send: vi.fn(async () => ({ text: "" })),
           abort: vi.fn(async () => undefined),
-          restrictToTools: vi.fn(),
+          setActiveTools: vi.fn(),
           restoreTools: vi.fn(),
           dispose: vi.fn(async () => undefined),
         };
         runnerMocks.sessions.push(session);
-        return new Promise<AgentRunnerSession>((resolve) => {
+        return new Promise<TestSession>((resolve) => {
           setTimeout(() => resolve(session), behavior.settleAfterMs);
         });
       }
@@ -84,6 +85,7 @@ describe("runSpecialist", () => {
         rejectPending?.(new Error("specialist session aborted"));
       });
       const session: TestSession = {
+        role: "specialist",
         send: vi.fn(async () => {
           if (behavior.kind === "error") throw behavior.error;
           if (behavior.kind === "pending_send") {
@@ -101,7 +103,7 @@ describe("runSpecialist", () => {
           return { text: "" };
         }),
         abort,
-        restrictToTools: vi.fn(),
+        setActiveTools: vi.fn(),
         restoreTools: vi.fn(),
         dispose: vi.fn(async () => undefined),
       };
@@ -128,6 +130,8 @@ describe("runSpecialist", () => {
     });
     expect(runnerMocks.sessions[0]?.send).toHaveBeenCalledWith("Review this pull request.", {
       maxToolRounds: 24,
+      phase: "specialist",
+      checkpointId: "specialist:specialist",
     });
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
   });

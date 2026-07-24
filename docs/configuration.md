@@ -36,23 +36,27 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 ## Infra (required wiring and provider selection)
 
-| Name                | Env var                  | Default                  | Notes                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------- | ------------------------ | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| HTTP port           | `PORT`                   | `3000` (7224 in Compose) |                                                                                                                                                                                                                                                                                                                                                            |
-| Process role        | `ROLE`                   | `web`                    | `web` or `worker`                                                                                                                                                                                                                                                                                                                                          |
-| GitHub App ID       | `GITHUB_APP_ID`          | —                        | required                                                                                                                                                                                                                                                                                                                                                   |
-| App private key     | `GITHUB_APP_PRIVATE_KEY` | —                        | required PEM                                                                                                                                                                                                                                                                                                                                               |
-| Webhook HMAC secret | `WEBHOOK_SECRET`         | —                        | required                                                                                                                                                                                                                                                                                                                                                   |
-| Postgres URL        | `DATABASE_URL`           | —                        | required                                                                                                                                                                                                                                                                                                                                                   |
-| Agent provider      | `AGENT_PROVIDER`         | `pi`                     | `pi` or `cursor` runner                                                                                                                                                                                                                                                                                                                                    |
-| LLM provider        | `PI_PROVIDER`            | `openai`                 | Pi coding-agent model provider (built-in slug, or a provider key from `models.json` when that catalog is loaded)                                                                                                                                                                                                                                           |
-| LLM model           | `PI_MODEL`               | `gpt-4o-mini`            | Cursor runner uses ids from `Cursor.models.list()` (validated at worker boot). Common ids: `composer-2.5`, `composer-2`, `gpt-5.5`, `gpt-5.4-high`, `claude-opus-4-7`, `claude-opus-4-8`, `claude-4.6-sonnet-high-thinking`, `gpt-5.3-codex-high`, `gemini-3.1-pro`, `auto`. Append `-fast` when the SDK exposes a `fast` parameter (e.g. `gpt-5.5-fast`). |
-| Models catalog path | `MODELS_JSON_PATH`       | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)                                                                                                                                                                                                                   |
-| Cursor API key      | `CURSOR_API_KEY`         | empty                    | required when `AGENT_PROVIDER=cursor`                                                                                                                                                                                                                                                                                                                      |
-| Cursor ripgrep path | `CURSOR_RIPGREP_PATH`    | empty                    | optional override for Cursor local-agent ripgrep; empty auto-resolves the SDK platform package binary at worker boot and writes it back for the SDK                                                                                                                                                                                                        |
-| Context7 API key    | `CONTEXT7_API_KEY`       | empty                    | optional                                                                                                                                                                                                                                                                                                                                                   |
-| PostHog token       | `POSTHOG_PROJECT_TOKEN`  | empty                    | optional analytics via `src/analytics` facade; empty token disables init (no SDK load, no capture). OSS installs need no PostHog setup                                                                                                                                                                                                                     |
-| PostHog host        | `POSTHOG_HOST`           | empty                    | optional host override when token is set; empty uses posthog-node default                                                                                                                                                                                                                                                                                  |
+| Name                   | Env var                                | Default                  | Notes                                                                                                                                       |
+| ---------------------- | -------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP port              | `PORT`                                 | `3000` (7224 in Compose) |                                                                                                                                             |
+| Process role           | `ROLE`                                 | `web`                    | `web` or `worker`                                                                                                                           |
+| GitHub App ID          | `GITHUB_APP_ID`                        | —                        | required                                                                                                                                    |
+| App private key        | `GITHUB_APP_PRIVATE_KEY`               | —                        | required PEM                                                                                                                                |
+| Webhook HMAC secret    | `WEBHOOK_SECRET`                       | —                        | required                                                                                                                                    |
+| Postgres URL           | `DATABASE_URL`                         | —                        | required                                                                                                                                    |
+| General LLM provider   | `PI_PROVIDER`                          | `openai`                 | Primary model provider for Specialist, Ask, Description, Triage, Verification, and CI-summary sessions (built-in slug or `models.json` key) |
+| General LLM model      | `PI_MODEL`                             | `gpt-4o-mini`            | Primary model id for general sessions                                                                                                       |
+| Orchestrator provider  | `PI_ORCHESTRATOR_PROVIDER`             | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                            |
+| Orchestrator model     | `PI_ORCHESTRATOR_MODEL`                | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_MODEL`                                                               |
+| Fallback provider      | `PI_FALLBACK_PROVIDER`                 | empty                    | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Used only after availability-class retry exhaustion                |
+| Fallback model         | `PI_FALLBACK_MODEL`                    | empty                    | Optional shared fallback model; empty disables fallback                                                                                     |
+| Thinking ceiling       | `PI_THINKING_CEILING`                  | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`)                                           |
+| Resume snapshot key    | `AGENT_RESUME_SNAPSHOT_KEY`            | empty                    | Base64 32-byte key for encrypted Agent resume snapshots; empty disables snapshot persistence                                                |
+| Resume snapshot margin | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS` | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                   |
+| Models catalog path    | `MODELS_JSON_PATH`                     | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)    |
+| Context7 API key       | `CONTEXT7_API_KEY`                     | empty                    | optional                                                                                                                                    |
+| PostHog token          | `POSTHOG_PROJECT_TOKEN`                | empty                    | optional analytics via `src/analytics` facade; empty token disables init (no SDK load, no capture). OSS installs need no PostHog setup      |
+| PostHog host           | `POSTHOG_HOST`                         | empty                    | optional host override when token is set; empty uses posthog-node default                                                                   |
 
 ## Ops (deployment-varying tuning)
 
@@ -87,12 +91,11 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 Former env tuning knobs (tool-round caps, byte limits, timeouts, anchor-menu
 caps, CI-summary waits, workspace limits) are now code constants in
-`src/settings/*Constants.ts` — see the tables below. Stale env vars for those
-knobs are ignored.
+`src/settings/*Constants.ts` — see the tables below.
 
 ### Project `models.json` (optional Pi catalog)
 
-When `AGENT_PROVIDER=pi`, `loadConfig()` loads an optional Pi `models.json` catalog (same shape as `~/.pi/agent/models.json`) and validates that `PI_PROVIDER` / `PI_MODEL` resolve against built-ins ∪ that file. Selection stays in env; the file is only the catalog.
+`loadConfig()` loads an optional Pi `models.json` catalog (same shape as `~/.pi/agent/models.json`) and validates that `PI_PROVIDER` / `PI_MODEL` resolve against built-ins ∪ that file. Selection stays in env; the file is only the catalog.
 
 **Resolution order**
 
@@ -101,7 +104,6 @@ When `AGENT_PROVIDER=pi`, `loadConfig()` loads an optional Pi `models.json` cata
 
 - Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). A non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
 - Present but invalid, or selection not found → `loadConfig()` throws.
-- `AGENT_PROVIDER=cursor` → file may exist but is ignored for model selection.
 - Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
@@ -221,7 +223,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 
 #### Per-repo policy rules (`.pr-agent/*.mdc`)
 
-Flat directory of Cursor-style `.mdc` rule files, read from the PR head checkout at review preflight. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
+Flat directory of `.mdc` rule files, read from the PR head checkout at review preflight. Missing directory or zero `.mdc` files means no policy. Unreadable directory, or a directory with candidates but no usable rules, is invalid (warn logged); review proceeds without policy. Oversized or malformed individual files are skipped (warn logged).
 
 | Frontmatter / body | Type               | Cap                   | Role                                                                                              |
 | ------------------ | ------------------ | --------------------- | ------------------------------------------------------------------------------------------------- |
@@ -349,18 +351,6 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `LOCAL_WORKSPACE_MAX_FETCH_BYTES`           | 2147483648 |
 | `LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB`    | 1000000    |
 | `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS` | 86400      |
-
-### Cursor SDK bridge
-
-| Symbol                               | Default   |
-| ------------------------------------ | --------- |
-| `CURSOR_DEFAULT_CONTEXT_WINDOW`      | 200000    |
-| `CURSOR_DEFAULT_MAX_TOKENS`          | 16384     |
-| `CURSOR_MCP_BIND_HOST`               | 127.0.0.1 |
-| `CURSOR_MCP_TOKEN_BYTES`             | 32        |
-| `CURSOR_MCP_SERVER_START_TIMEOUT_MS` | 5000      |
-| `CURSOR_MAX_PORT_RETRIES`            | 5         |
-| `CURSOR_MCP_SERVER_NAME`             | pr-agent  |
 
 ### Postgres pool
 

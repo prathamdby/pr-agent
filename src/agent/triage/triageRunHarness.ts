@@ -6,7 +6,7 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo } from "../../evlog.js";
-import { resolveAgentRunnerProvider } from "../providers/index.js";
+import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { TriageRunResult } from "./triageRun.js";
 import {
   buildSubmitOnlyTriageSessionTools,
@@ -15,6 +15,7 @@ import {
 } from "./triageRunSetup.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import {
   TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS,
   TRIAGE_VALIDATION_REPAIR_ROUNDS,
@@ -34,19 +35,20 @@ export async function runTriageHarness(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly cwd?: string;
   readonly scope?: TriageScope;
+  readonly durability?: FeatureSessionDurability;
 }): Promise<TriageRunResult> {
   const { cfg, owner, repo, prNumber } = params;
-  const providerName = cfg.agentProvider;
+  const providerName = cfg.piProvider;
   const setup = buildTriageRunSetup(params);
-  const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
+  const session = await createFeaturePiSession({
+    role: "triage",
     cfg,
     cwd: params.cwd,
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,
+    durability: params.durability,
   });
-
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
     runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt);
@@ -77,6 +79,8 @@ export async function runTriageHarness(params: {
             lastText = (
               await session.send(setup.userContent, {
                 maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
+                phase: "triage",
+                checkpointId: "triage:triage",
               })
             ).text;
           },

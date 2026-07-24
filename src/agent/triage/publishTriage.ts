@@ -21,6 +21,12 @@ import {
 } from "../../settings/index.js";
 import { recordPublishStep } from "../../agentWork/repository.js";
 import {
+  triagePushOperationKey,
+  triageReportOperationKey,
+  triageThreadOperationKey,
+  withOperationIntent,
+} from "../../agentWork/withOperationIntent.js";
+import {
   loadActedThreadIds,
   recordActedThreadIds,
 } from "../../agentWork/threadActionCheckpoint.js";
@@ -154,16 +160,28 @@ async function upsertTriageReport(
     readonly body: string;
   },
 ): Promise<void> {
-  const result = await upsertReviewSummaryComment(
-    params.token,
-    params.owner,
-    params.repo,
-    params.prNumber,
-    redactReviewText(params.body),
-    TRIAGE_SUMMARY_SENTINEL,
-    undefined,
-    params.tokenExpiresAtTs,
-  );
+  const result = await withOperationIntent({
+    client: params.pool,
+    workItemId: params.workItemId,
+    operationKey: triageReportOperationKey(params.resourceKey),
+    mutationKind: "github.triage_report",
+    detail: {
+      step: "triage_report",
+      resourceKey: params.resourceKey,
+      reviewLens: TRIAGE_PUBLISH_LENS,
+    },
+    mutate: () =>
+      upsertReviewSummaryComment(
+        params.token,
+        params.owner,
+        params.repo,
+        params.prNumber,
+        redactReviewText(params.body),
+        TRIAGE_SUMMARY_SENTINEL,
+        undefined,
+        params.tokenExpiresAtTs,
+      ),
+  });
   await recordPublishStep(params.pool, {
     workItemId: params.workItemId,
     resourceKey: params.resourceKey,
@@ -207,7 +225,20 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   const committedShas = params.checkout.listCommittedShas();
   if (!params.priorPush && committedShas.length > 0) {
     try {
-      await params.checkout.push();
+      await withOperationIntent({
+        client: params.pool,
+        workItemId: params.workItemId,
+        operationKey: triagePushOperationKey(params.resourceKey),
+        mutationKind: "github.triage_push",
+        detail: {
+          step: "triage_push",
+          resourceKey: params.resourceKey,
+          reviewLens: TRIAGE_PUBLISH_LENS,
+        },
+        mutate: async () => {
+          await params.checkout.push();
+        },
+      });
       pushed = true;
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
@@ -290,7 +321,19 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     if (resolution.isResolved) continue;
     if (!actedThreadIds.has(verdict.threadRootCommentId) && thread.hasTriageReply !== true) {
       try {
-        await replyToThread({ ...params, thread, verdict });
+        await withOperationIntent({
+          client: params.pool,
+          workItemId: params.workItemId,
+          operationKey: triageThreadOperationKey(verdict.threadRootCommentId),
+          mutationKind: "github.triage_thread_reply",
+          detail: {
+            step: "triage_thread_actions",
+            resourceKey: params.resourceKey,
+            reviewLens: TRIAGE_PUBLISH_LENS,
+            threadRootCommentId: verdict.threadRootCommentId,
+          },
+          mutate: () => replyToThread({ ...params, thread, verdict }),
+        });
       } catch (error) {
         captureTriageFailure(analytics, "thread_reply", error, {
           thread_root_comment_id: verdict.threadRootCommentId,
@@ -307,7 +350,20 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       });
     }
     try {
-      await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
+      await withOperationIntent({
+        client: params.pool,
+        workItemId: params.workItemId,
+        operationKey: `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`,
+        mutationKind: "github.triage_thread_resolve",
+        detail: {
+          step: "triage_thread_actions",
+          resourceKey: params.resourceKey,
+          reviewLens: TRIAGE_PUBLISH_LENS,
+          threadRootCommentId: verdict.threadRootCommentId,
+        },
+        mutate: () =>
+          resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs),
+      });
     } catch (error) {
       captureTriageFailure(analytics, "thread_resolve", error, {
         thread_root_comment_id: verdict.threadRootCommentId,

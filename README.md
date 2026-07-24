@@ -93,21 +93,21 @@ Developer scripts: see [docs/operations.md](docs/operations.md#development).
 
 ## Configure the agent provider
 
-LLM runs happen on **`ROLE=worker`** only. Pick a **runner** with `AGENT_PROVIDER`, then set model and credentials.
+LLM runs happen on **`ROLE=worker`** only through the **Pi-native agent runtime** ([ADR 0031](docs/adr/0031-pi-native-agent-runtime.md)).
 
-| Runner       | `AGENT_PROVIDER` | Model env                    | Credentials                           |
-| ------------ | ---------------- | ---------------------------- | ------------------------------------- |
-| Pi (default) | `pi`             | `PI_PROVIDER`, `PI_MODEL`    | Provider API key env vars (see below) |
-| Cursor SDK   | `cursor`         | `PI_MODEL` (Cursor model id) | `CURSOR_API_KEY` (required)           |
+| Setting              | Env                                                 | Notes                                                          |
+| -------------------- | --------------------------------------------------- | -------------------------------------------------------------- |
+| General primary      | `PI_PROVIDER`, `PI_MODEL`                           | Specialist, Ask, Description, Triage, Verification, CI-summary |
+| Orchestrator primary | `PI_ORCHESTRATOR_PROVIDER`, `PI_ORCHESTRATOR_MODEL` | Optional; empty inherits general primary                       |
+| Shared fallback      | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL`         | Optional; availability failures only                           |
 
-Feature catalog: [docs/features.md](docs/features.md). Operator tunables: [docs/configuration.md](docs/configuration.md). Cursor integration: [ADR 0013](docs/adr/0013-cursor-sdk-provider.md).
+Feature catalog: [docs/features.md](docs/features.md). Operator tunables: [docs/configuration.md](docs/configuration.md).
 
-### Pi runner (default)
+### Pi runtime
 
-Uses [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi/tree/main/packages/ai) and the Pi coding-agent session loop.
+Uses [`@earendil-works/pi-coding-agent`](https://github.com/earendil-works/pi/tree/main/packages/coding-agent) through pr-agent's Pi session seam.
 
 ```bash
-AGENT_PROVIDER=pi
 PI_PROVIDER=openai
 PI_MODEL=gpt-4o-mini
 OPENAI_API_KEY=sk-...
@@ -117,22 +117,6 @@ OPENAI_API_KEY=sk-...
 - **`PI_MODEL`**: model id for that provider (for example `gpt-4o`, `claude-sonnet-4-5`).
 - **API keys**: set the env var for your provider. pr-agent loads **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, and **`GOOGLE_GENERATIVE_AI_API_KEY`** into the worker at startup. Other Pi providers use their standard env vars in the worker process (for example `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`). See the [Pi providers reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/providers.md) for the full key table, cloud setup (Azure, Bedrock, Vertex), and custom endpoints.
 - **Custom providers**: optional [`models.json`](models.json.example) in [Pi’s native format](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md). If the catalog is loaded, the worker uses it and still selects with `PI_PROVIDER` / `PI_MODEL`. If it is absent, behavior falls back to env + built-ins. Delivery options: put `models.json` at the repo root in the Docker build context (copied to `/app/models.json` when present), mount it at runtime, or set **`MODELS_JSON_PATH`**. See [docs/operations.md](docs/operations.md) (Docker) and [docs/configuration.md](docs/configuration.md).
-
-Do **not** set `PI_PROVIDER=cursor`. Use `AGENT_PROVIDER=cursor` for Cursor models instead.
-
-### Cursor runner
-
-Uses the Cursor SDK local agent with an HTTP MCP bridge to pr-agent's workspace, Context7, and orchestrated review tools. Register at worker boot only.
-
-```bash
-AGENT_PROVIDER=cursor
-CURSOR_API_KEY=...
-PI_MODEL=composer-2.5
-```
-
-- **`CURSOR_API_KEY`**: required when `AGENT_PROVIDER=cursor`.
-- **`PI_MODEL`**: Cursor model id from `Cursor.models.list()`. The worker fetches the live catalog at boot and validates your choice. Common ids (first ten from a typical list): `composer-2.5`, `composer-2`, `gpt-5.5`, `gpt-5.4-high`, `claude-opus-4-7`, `claude-opus-4-8`, `claude-4.6-sonnet-high-thinking`, `gpt-5.3-codex-high`, `gemini-3.1-pro`, `auto`. Append `-fast` for the fast tier when the SDK exposes a `fast` parameter (for example `composer-2.5-fast`, `gpt-5.5-fast`). Plain ids use the standard tier.
-- **`PI_PROVIDER`** is ignored for Cursor runs.
 
 Restart **`pr-agent-worker`** (or the `ROLE=worker` process) after changing provider env vars.
 
@@ -152,7 +136,7 @@ User-facing behavior is controlled by the `FEATURE_*` settings ([docs/features.m
 
 ### Self-hosted control
 
-Run on your infrastructure with your GitHub App credentials and chosen LLM provider (Pi/OpenAI, Cursor SDK, and others via `@earendil-works/pi-ai`).
+Run on your infrastructure with your GitHub App credentials and chosen LLM provider (Pi/OpenAI and others via `@earendil-works/pi-ai`).
 
 ## Features
 
@@ -166,11 +150,10 @@ Run on your infrastructure with your GitHub App credentials and chosen LLM provi
 | Help                    | No                    | `/help`           | Worker-published guidance                                                                                                      |
 | Lightweight auto-review | docs-only trivial PRs | No                | Skips full **orchestrated review run**; see [ADR 0014](docs/adr/0014-lightweight-review-completion.md)                         |
 
-| Deployment                                | Supported |
-| ----------------------------------------- | --------- |
-| Docker Compose (web + worker + Postgres)  | Yes       |
-| Bare Node + Postgres                      | Yes       |
-| Cursor provider (`AGENT_PROVIDER=cursor`) | Yes       |
+| Deployment                               | Supported |
+| ---------------------------------------- | --------- |
+| Docker Compose (web + worker + Postgres) | Yes       |
+| Bare Node + Postgres                     | Yes       |
 
 Slash commands are **case-sensitive** and must start the first non-empty line of a new comment. Full behaviour: [docs/operations.md](docs/operations.md).
 
@@ -249,7 +232,7 @@ Postgres, pg-boss, and GitHub App credentials run on your infrastructure. Webhoo
 
 ### LLM providers
 
-Review, description, and ask content is sent to your configured model provider during worker runs only (Pi/OpenAI, Cursor, or others per `PI_PROVIDER` / `AGENT_PROVIDER`). See your provider's data policy (for example [OpenAI](https://openai.com/enterprise-privacy) or Cursor).
+Review, description, and ask content is sent to your configured model provider during worker runs only (per `PI_PROVIDER` / `PI_MODEL`). See your provider's data policy (for example [OpenAI](https://openai.com/enterprise-privacy)).
 
 ### Context7 (optional)
 

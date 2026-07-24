@@ -8,7 +8,7 @@ import {
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { resolveAgentRunnerProvider } from "../providers/index.js";
+import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
 import {
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
@@ -22,6 +22,8 @@ import {
   buildSubmitOnlyDescriptionSessionTools,
   shouldContinueDescriptionRun,
 } from "./descriptionRunSetup.js";
+import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 
 export type DescriptionRunResult = {
   lastAssistant: AssistantMessage;
@@ -49,10 +51,12 @@ export async function runFullPrDescription(params: {
   workspace: LocalPrWorkspace;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
+  operationIntent?: OperationIntentContext;
   refreshInstallationToken?: () => Promise<{
     token: string;
     expiresAtTs: number;
   }>;
+  durability?: FeatureSessionDurability;
 }): Promise<DescriptionRunResult> {
   if (!Number.isFinite(params.tokenExpiresAtTs)) {
     throw new AppError({
@@ -63,18 +67,18 @@ export async function runFullPrDescription(params: {
 
   const { cfg, owner, repo, prNumber } = params;
   const tokenTtlMs = tokenTtlMsOrDefault(params.tokenTtlMs);
-  const providerName = cfg.agentProvider;
+  const providerName = cfg.piProvider;
   const setup = buildDescriptionRunSetup({ ...params, tokenTtlMs });
-  const runner = resolveAgentRunnerProvider(cfg);
-  const session = await runner.createSession({
+  const session = await createFeaturePiSession({
+    role: "description",
     cfg,
     cwd: params.cwd,
     systemPrompt: setup.systemPrompt,
     tools: setup.piTools,
     executors: setup.executors,
     refreshBeforeTool: setup.refreshBeforeTool,
+    durability: params.durability,
   });
-
   let lastText = "";
 
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
@@ -110,6 +114,8 @@ export async function runFullPrDescription(params: {
             lastText = (
               await session.send(setup.userContent, {
                 maxToolRounds: MAX_TOOL_ROUNDS_DESCRIBE,
+                phase: "description",
+                checkpointId: "description:description",
               })
             ).text;
           },

@@ -6,12 +6,9 @@ import {
   classifyProviderError,
   type ProviderErrorKind,
 } from "../../agent/providers/providerErrors.js";
-import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
-import type {
-  AgentRunnerSession,
-  AgentRunnerToolExecutor,
-  AgentRunnerTurn,
-} from "../../agent/providers/interface.js";
+import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../../agent/providers/interface.js";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import type { PiSession } from "../../agent/runtime/types.js";
 import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
@@ -184,8 +181,9 @@ async function createSessionWithinDeadline(
   params: RunSpecialistParams,
   deadlineMs: number,
   submitTool: ReturnType<typeof buildSubmitTool>,
-): Promise<AgentRunnerSession> {
-  const creation = resolveAgentRunnerProvider(params.cfg).createSession({
+): Promise<PiSession> {
+  const creation = createFeaturePiSession({
+    role: "specialist",
     cfg: params.cfg,
     cwd: params.cwd,
     systemPrompt: specialistSystemPrompt(params.specialist),
@@ -194,6 +192,8 @@ async function createSessionWithinDeadline(
       ...params.workspaceTools.executors,
       [SUBMIT_TOOL_NAME]: submitTool.executor,
     },
+    // Parallel specialists share session_role "specialist"; skip durability so
+    // concurrent checkpoint/snapshot writes cannot overwrite each other.
   });
   return runWithinDeadline({
     run: () => creation,
@@ -218,12 +218,17 @@ async function runAttempt(
   let cleanupDeferred = false;
 
   const send = (
-    activeSession: AgentRunnerSession,
+    activeSession: PiSession,
     prompt: string,
     opts?: { readonly maxToolRounds?: number },
   ): Promise<AgentRunnerTurn> =>
     runWithinDeadline({
-      run: () => activeSession.send(prompt, opts),
+      run: () =>
+        activeSession.send(prompt, {
+          ...opts,
+          phase: "specialist",
+          checkpointId: `${activeSession.role}:specialist`,
+        }),
       signal: params.signal,
       deadlineMs,
       cancel: () => activeSession.abort(),

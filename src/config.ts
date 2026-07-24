@@ -16,20 +16,24 @@ import {
   VERIFICATION_FEATURE_MODES,
   type Features,
   DEFAULT_ACK_CONCURRENCY,
-  DEFAULT_AGENT_PROVIDER,
   DEFAULT_ASK_CONCURRENCY,
   DEFAULT_DESCRIPTION_CONCURRENCY,
   DEFAULT_VERIFICATION_CONCURRENCY,
   DEFAULT_CONTEXT7_API_KEY,
-  DEFAULT_CURSOR_API_KEY,
-  DEFAULT_CURSOR_RIPGREP_PATH,
   DEFAULT_POSTHOG_PROJECT_TOKEN,
   DEFAULT_POSTHOG_HOST,
   DEFAULT_INSTALLATION_GROUP_CONCURRENCY,
   DEFAULT_LOG_LEVEL,
   DEFAULT_LOG_REDACT,
+  DEFAULT_PI_FALLBACK_MODEL,
+  DEFAULT_PI_FALLBACK_PROVIDER,
   DEFAULT_PI_MODEL,
+  DEFAULT_PI_ORCHESTRATOR_MODEL,
+  DEFAULT_PI_ORCHESTRATOR_PROVIDER,
   DEFAULT_PI_PROVIDER,
+  DEFAULT_PI_THINKING_CEILING,
+  DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
+  DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
@@ -207,47 +211,73 @@ export async function loadConfig() {
   const databaseUrl = requireEnv(ENV.DATABASE_URL);
 
   const role = readEnum(ENV.ROLE, ["web", "worker"] as const, DEFAULT_ROLE);
-  const agentProvider = readEnum(
-    ENV.AGENT_PROVIDER,
-    ["pi", "cursor"] as const,
-    DEFAULT_AGENT_PROVIDER,
-  );
 
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
+  const piOrchestratorProvider = optionalEnv(
+    ENV.PI_ORCHESTRATOR_PROVIDER,
+    DEFAULT_PI_ORCHESTRATOR_PROVIDER,
+  ).trim();
+  const piOrchestratorModel = optionalEnv(
+    ENV.PI_ORCHESTRATOR_MODEL,
+    DEFAULT_PI_ORCHESTRATOR_MODEL,
+  ).trim();
+  const piFallbackProvider = optionalEnv(
+    ENV.PI_FALLBACK_PROVIDER,
+    DEFAULT_PI_FALLBACK_PROVIDER,
+  ).trim();
+  const piFallbackModel = optionalEnv(ENV.PI_FALLBACK_MODEL, DEFAULT_PI_FALLBACK_MODEL).trim();
+  if ((piFallbackProvider && !piFallbackModel) || (!piFallbackProvider && piFallbackModel)) {
+    throw new AppError({
+      code: "config.fallback_model_incomplete",
+      message:
+        "PI_FALLBACK_PROVIDER and PI_FALLBACK_MODEL must both be set to enable fallback, or both left empty to disable it",
+      context: {
+        piFallbackProvider,
+        piFallbackModel,
+      },
+    });
+  }
+  const piThinkingCeiling = readEnum(
+    ENV.PI_THINKING_CEILING,
+    ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const,
+    DEFAULT_PI_THINKING_CEILING,
+  );
+  const agentResumeSnapshotKey = optionalEnv(
+    ENV.AGENT_RESUME_SNAPSHOT_KEY,
+    DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
+  ).trim();
+  const agentResumeSnapshotMarginSeconds = readNonNegativeNumber(
+    ENV.AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
+    DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
+  );
   const modelsJsonPath = resolveModelsJsonPath({
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
   const catalogCandidatePath = modelsJsonPath ?? defaultModelsJsonCandidatePath();
-  // Cursor ignores models.json for PI_MODEL selection; still require a built-in PI_PROVIDER slug.
-  const piApi =
-    agentProvider === "pi"
-      ? await assertPiModelSelection({
-          modelsJsonPath,
-          piProvider,
-          piModel,
-          catalogCandidatePath,
-        })
-      : await assertPiModelSelection({
-          modelsJsonPath: null,
-          piProvider,
-          piModel,
-          catalogCandidatePath,
-        });
-
-  const cursorApiKeyRaw = optionalEnv(ENV.CURSOR_API_KEY, DEFAULT_CURSOR_API_KEY);
-  if (agentProvider === "cursor" && !cursorApiKeyRaw.trim()) {
-    throw new AppError({
-      code: "config.missing_env",
-      message: `Missing required environment variable: ${ENV.CURSOR_API_KEY}`,
-      context: { name: ENV.CURSOR_API_KEY },
+  const piApi = await assertPiModelSelection({
+    modelsJsonPath,
+    piProvider,
+    piModel,
+    catalogCandidatePath,
+  });
+  if (piOrchestratorProvider || piOrchestratorModel) {
+    await assertPiModelSelection({
+      modelsJsonPath,
+      piProvider: piOrchestratorProvider || piProvider,
+      piModel: piOrchestratorModel || piModel,
+      catalogCandidatePath,
     });
   }
-  const cursorApiKey = agentProvider === "cursor" ? cursorApiKeyRaw.trim() : cursorApiKeyRaw;
-  const cursorRipgrepPath = optionalEnv(
-    ENV.CURSOR_RIPGREP_PATH,
-    DEFAULT_CURSOR_RIPGREP_PATH,
-  ).trim();
+  if (piFallbackProvider && piFallbackModel) {
+    await assertPiModelSelection({
+      modelsJsonPath,
+      piProvider: piFallbackProvider,
+      piModel: piFallbackModel,
+      catalogCandidatePath,
+    });
+  }
+
   const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);
   const posthogHost = optionalEnv(ENV.POSTHOG_HOST, DEFAULT_POSTHOG_HOST).trim();
   const modelProviderKeys = {
@@ -386,9 +416,15 @@ export async function loadConfig() {
     databaseUrl,
     role,
     features,
-    agentProvider,
     piProvider,
     piModel,
+    piOrchestratorProvider,
+    piOrchestratorModel,
+    piFallbackProvider,
+    piFallbackModel,
+    piThinkingCeiling,
+    agentResumeSnapshotKey,
+    agentResumeSnapshotMarginSeconds,
     piApi,
     modelsJsonPath,
     modelProviderKeys,
@@ -416,8 +452,6 @@ export async function loadConfig() {
     retentionEnabled,
     installationGroupConcurrency,
     context7ApiKey,
-    cursorApiKey,
-    cursorRipgrepPath,
     posthogProjectToken,
     posthogHost,
     logLevel,

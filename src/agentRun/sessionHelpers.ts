@@ -1,15 +1,15 @@
 import type { Api, AssistantMessage, ProviderId } from "@earendil-works/pi-ai";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
-import type { AgentRunnerSession, AgentRunnerTurn } from "../agent/providers/interface.js";
-import { CURSOR_API, CURSOR_PROVIDER } from "../agent/providers/cursor/models.js";
+import type { AgentRunnerTurn } from "../agent/providers/interface.js";
+import type { PiSession } from "../agent/runtime/types.js";
 
 export function assistantFromText(cfg: Config, text: string, provider: string): AssistantMessage {
   return {
     role: "assistant",
     content: text ? [{ type: "text", text }] : [],
-    api: provider === CURSOR_PROVIDER ? CURSOR_API : (cfg.piApi as Api),
-    provider: (provider === CURSOR_PROVIDER ? CURSOR_PROVIDER : cfg.piProvider) as ProviderId,
+    api: cfg.piApi as Api,
+    provider: (provider || cfg.piProvider) as ProviderId,
     model: cfg.piModel,
     usage: {
       input: 0,
@@ -25,18 +25,24 @@ export function assistantFromText(cfg: Config, text: string, provider: string): 
 }
 
 export async function runSubmitOnlyRound(
-  session: AgentRunnerSession,
+  session: PiSession,
   submitOnly: {
     readonly piTools: readonly PiTool[];
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   },
   prompt: string,
-  send: (session: AgentRunnerSession, prompt: string) => Promise<AgentRunnerTurn> = (
+  send: (session: PiSession, prompt: string) => Promise<AgentRunnerTurn> = (
     activeSession,
     activePrompt,
-  ) => activeSession.send(activePrompt),
+  ) => {
+    const phase = activeSession.role === "orchestrator" ? "synthesis" : activeSession.role;
+    return activeSession.send(activePrompt, {
+      phase,
+      checkpointId: `${activeSession.role}:${phase}`,
+    });
+  },
 ): Promise<string> {
-  session.restrictToTools(submitOnly.piTools, submitOnly.executors);
+  session.setActiveTools(submitOnly.piTools, submitOnly.executors);
   try {
     return (await send(session, prompt)).text;
   } finally {

@@ -67,10 +67,6 @@ describe("modelsJson helpers", () => {
     expect(() => assertBuiltinPiProvider("not-a-real-provider")).toThrow(/unknown/);
   });
 
-  it("assertBuiltinPiProvider rejects cursor", () => {
-    expect(() => assertBuiltinPiProvider("cursor")).toThrow(/AGENT_PROVIDER=cursor/);
-  });
-
   it("assertPiModelSelection accepts a custom provider from models.json", async () => {
     const dir = tempDir();
     const path = join(dir, "models.json");
@@ -266,7 +262,6 @@ describe("loadConfig models.json", () => {
       }),
     );
     const cfg = await loadWithCwd(dir, {
-      AGENT_PROVIDER: "pi",
       PI_PROVIDER: "ollama",
       PI_MODEL: "llama3.1:8b",
     });
@@ -294,7 +289,6 @@ describe("loadConfig models.json", () => {
       }),
     );
     const cfg = await loadWithCwd(cwd, {
-      AGENT_PROVIDER: "pi",
       PI_PROVIDER: "agent-router",
       PI_MODEL: "claude-opus-4-6",
       MODELS_JSON_PATH: catalogPath,
@@ -308,7 +302,6 @@ describe("loadConfig models.json", () => {
     const dir = tempDir();
     await expect(
       loadWithCwd(dir, {
-        AGENT_PROVIDER: "pi",
         PI_PROVIDER: "agent-router",
         PI_MODEL: "claude-opus-4-6",
       }),
@@ -332,61 +325,9 @@ describe("loadConfig models.json", () => {
     );
     await expect(
       loadWithCwd(dir, {
-        AGENT_PROVIDER: "pi",
         PI_PROVIDER: "ollama",
         PI_MODEL: "missing-model",
       }),
     ).rejects.toThrow(/not found/);
-  });
-
-  it("does not require models.json selection when AGENT_PROVIDER=cursor", async () => {
-    const dir = tempDir();
-    writeFileSync(
-      join(dir, "models.json"),
-      JSON.stringify({
-        providers: {
-          ollama: {
-            baseUrl: "http://127.0.0.1:11434/v1",
-            api: "openai-completions",
-            apiKey: "ollama",
-            models: [{ id: "llama3.1:8b" }],
-          },
-        },
-      }),
-    );
-    const cfg = await loadWithCwd(dir, {
-      AGENT_PROVIDER: "cursor",
-      CURSOR_API_KEY: "cursor_test_key",
-      PI_PROVIDER: "openai",
-      PI_MODEL: "composer-2.5",
-    });
-    expect(cfg.modelsJsonPath).toBe(join(dir, "models.json"));
-    expect(cfg.agentProvider).toBe("cursor");
-    expect(cfg.piModel).toBe("composer-2.5");
-  });
-
-  it("still rejects unknown PI_PROVIDER for cursor when models.json exists", async () => {
-    const dir = tempDir();
-    writeFileSync(
-      join(dir, "models.json"),
-      JSON.stringify({
-        providers: {
-          ollama: {
-            baseUrl: "http://127.0.0.1:11434/v1",
-            api: "openai-completions",
-            apiKey: "ollama",
-            models: [{ id: "llama3.1:8b" }],
-          },
-        },
-      }),
-    );
-    await expect(
-      loadWithCwd(dir, {
-        AGENT_PROVIDER: "cursor",
-        CURSOR_API_KEY: "cursor_test_key",
-        PI_PROVIDER: "ollama",
-        PI_MODEL: "composer-2.5",
-      }),
-    ).rejects.toThrow(/unknown/);
   });
 });

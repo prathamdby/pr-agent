@@ -3,9 +3,7 @@ import { initEvlog, logDebug, logInfo } from "./evlog.js";
 import { startEffectWebhookServer } from "./effect/server.js";
 import { prewarmAppBotIdentity } from "./github/appAuth.js";
 import { startAgentWorker } from "./worker.js";
-import { captureAgentProviderBootFailure } from "./agent/providers/bootAnalytics.js";
-import { resolveAgentRunnerProvider } from "./agent/providers/index.js";
-import { initAnalytics, shutdownAnalytics } from "./analytics/index.js";
+import { initAnalytics } from "./analytics/index.js";
 import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
 async function main() {
@@ -26,30 +24,12 @@ async function main() {
   await initAnalytics({ projectToken: cfg.posthogProjectToken, host: cfg.posthogHost });
   logInfo("boot", {
     role: cfg.role,
-    agentProvider: cfg.agentProvider,
     provider: cfg.piProvider,
     model: cfg.piModel,
     context7_enabled: cfg.context7ApiKey.length > 0,
   });
   logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
-    try {
-      const boot = await resolveAgentRunnerProvider(cfg).boot?.(cfg);
-      if (boot) {
-        logInfo("agent_provider_registered", {
-          provider: cfg.agentProvider,
-          model_count: boot.modelCount,
-          top_models: boot.topModels,
-          fast_models: boot.fastModels,
-          ripgrep_configured: boot.ripgrepPath != null,
-        });
-      }
-    } catch (e) {
-      captureAgentProviderBootFailure(cfg.agentProvider, e);
-      console.error(e instanceof Error ? e.message : e);
-      await shutdownAnalytics();
-      process.exit(1);
-    }
     startAgentWorker(cfg);
     return;
   }

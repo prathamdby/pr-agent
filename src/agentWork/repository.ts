@@ -4,3 +4,6 @@
  */
 export * from "./workItemStateRepository.js";
 export * from "./publishRecordRepository.js";
+export * from "./phaseCheckpointRepository.js";
+export * from "./operationIntentRepository.js";
+export * from "./resumeSnapshotRepository.js";

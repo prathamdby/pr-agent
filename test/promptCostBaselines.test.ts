@@ -1,10 +1,8 @@
-import type { Context } from "@earendil-works/pi-ai";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { buildCursorPrompt } from "../src/agent/providers/cursor/promptBuilder.js";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
 import {
@@ -211,8 +209,6 @@ function promptSurfaces(): PromptSurface[] {
     },
     state: createSubmitReviewState(),
   }).piTool;
-  const cursorPrompt = buildCursorPrompt(representativeCursorContext()).text;
-
   return [
     {
       name: "general review system prompt",
@@ -239,11 +235,6 @@ function promptSurfaces(): PromptSurface[] {
       content: stableJson(submitReviewTool),
       budget: { bytes: 2_050, characters: 2_050, estimatedTokens: 513 },
     },
-    {
-      name: "representative Cursor prompt",
-      content: cursorPrompt,
-      budget: { bytes: 12_000, characters: 12_000, estimatedTokens: 3_000 },
-    },
   ];
 }
 
@@ -256,19 +247,6 @@ function representativeReviewUserContent(): string {
     userSupplement: "Focus on the billing retry path.",
     trustedContext: '<context trusted="server">\nChanged files: src/billing.ts\n</context>',
   });
-}
-
-function representativeCursorContext(): Context {
-  return {
-    systemPrompt: buildAutomatedSystemPrompt(),
-    messages: [
-      {
-        role: "user",
-        content: representativeReviewUserContent(),
-        timestamp: 1,
-      },
-    ],
-  };
 }
 
 function requiredFields(schema: unknown): string[] {

@@ -12,7 +12,7 @@ import {
 } from "../../review/repoPolicy.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { VerificationPayload, VerificationVerdict } from "../../review/triageSchema.js";
-import { VERIFICATION_STUB_MARKER } from "../../settings/index.js";
+import { VERIFICATION_STUB_MARKER, VERIFICATION_PUBLISH_LENS } from "../../settings/index.js";
 import {
   loadVerificationThreadLedger,
   saveVerificationThreadLedger,
@@ -20,6 +20,10 @@ import {
   type VerificationThreadLedger,
   type VerificationThreadState,
 } from "../../agentWork/verificationThreadLedger.js";
+import {
+  verificationThreadOperationKey,
+  withOperationIntent,
+} from "../../agentWork/withOperationIntent.js";
 
 type PublishVerificationParams = {
   readonly pool: Pool;
@@ -170,6 +174,20 @@ function terminalThreadState(
   };
 }
 
+function verificationIntentDetail(
+  params: PublishVerificationParams,
+  threadRootCommentId: number,
+  verdict: string,
+): Record<string, unknown> {
+  return {
+    step: "verification_thread_actions",
+    resourceKey: params.resourceKey,
+    reviewLens: VERIFICATION_PUBLISH_LENS,
+    threadRootCommentId,
+    verdict,
+  };
+}
+
 export async function publishVerification(
   params: PublishVerificationParams,
 ): Promise<{ degraded: boolean }> {
@@ -197,23 +215,36 @@ export async function publishVerification(
           degraded = true;
           break;
         }
-        // Clear a prior still-open stub so resolved threads do not keep a stale signal.
-        const priorStubId = resolveStubCommentId(thread, prior);
-        let stubCommentId = priorStubId;
-        if (priorStubId != null) {
-          const updated = await updateStubReply({
-            token: params.token,
-            tokenExpiresAtTs: params.tokenExpiresAtTs,
-            owner: params.owner,
-            repo: params.repo,
-            stubCommentId: priorStubId,
-            body: terminalSuccessStubBody(verdict),
-          });
-          if (!updated) stubCommentId = undefined;
-        }
-        if (!resolution.isResolved) {
-          await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
-        }
+        const stubCommentId = await withOperationIntent({
+          client: params.pool,
+          workItemId: params.workItemId,
+          operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
+          mutationKind: "github.verification_thread",
+          detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
+          mutate: async () => {
+            const priorStubId = resolveStubCommentId(thread, prior);
+            let nextStubCommentId: number | undefined = priorStubId;
+            if (priorStubId != null) {
+              const updated = await updateStubReply({
+                token: params.token,
+                tokenExpiresAtTs: params.tokenExpiresAtTs,
+                owner: params.owner,
+                repo: params.repo,
+                stubCommentId: priorStubId,
+                body: terminalSuccessStubBody(verdict),
+              });
+              if (!updated) nextStubCommentId = undefined;
+            }
+            if (!resolution.isResolved) {
+              await resolveReviewThread(
+                params.token,
+                resolution.threadNodeId,
+                params.tokenExpiresAtTs,
+              );
+            }
+            return nextStubCommentId;
+          },
+        });
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,
@@ -229,15 +260,23 @@ export async function publishVerification(
         const body = withStubMarker(
           redactReviewText(`**Verification**: Still open - ${verdict.reason}`),
         );
-        const stubCommentId = await upsertStubComment({
-          token: params.token,
-          tokenExpiresAtTs: params.tokenExpiresAtTs,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-          thread,
-          stubCommentId: resolveStubCommentId(thread, prior),
-          body,
+        const stubCommentId = await withOperationIntent({
+          client: params.pool,
+          workItemId: params.workItemId,
+          operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
+          mutationKind: "github.verification_thread",
+          detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
+          mutate: () =>
+            upsertStubComment({
+              token: params.token,
+              tokenExpiresAtTs: params.tokenExpiresAtTs,
+              owner: params.owner,
+              repo: params.repo,
+              prNumber: params.prNumber,
+              thread,
+              stubCommentId: resolveStubCommentId(thread, prior),
+              body,
+            }),
         });
         ledger = await persistThreadState({
           pool: params.pool,
@@ -260,19 +299,33 @@ export async function publishVerification(
           break;
         }
         const body = dismissedReplyBody(verdict, thread, params.policyResult);
-        const stubCommentId = await upsertStubComment({
-          token: params.token,
-          tokenExpiresAtTs: params.tokenExpiresAtTs,
-          owner: params.owner,
-          repo: params.repo,
-          prNumber: params.prNumber,
-          thread,
-          stubCommentId: resolveStubCommentId(thread, prior),
-          body,
+        const stubCommentId = await withOperationIntent({
+          client: params.pool,
+          workItemId: params.workItemId,
+          operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
+          mutationKind: "github.verification_thread",
+          detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
+          mutate: async () => {
+            const createdStubCommentId = await upsertStubComment({
+              token: params.token,
+              tokenExpiresAtTs: params.tokenExpiresAtTs,
+              owner: params.owner,
+              repo: params.repo,
+              prNumber: params.prNumber,
+              thread,
+              stubCommentId: resolveStubCommentId(thread, prior),
+              body,
+            });
+            if (!resolution.isResolved) {
+              await resolveReviewThread(
+                params.token,
+                resolution.threadNodeId,
+                params.tokenExpiresAtTs,
+              );
+            }
+            return createdStubCommentId;
+          },
         });
-        if (!resolution.isResolved) {
-          await resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs);
-        }
         ledger = await persistThreadState({
           pool: params.pool,
           workItemId: params.workItemId,

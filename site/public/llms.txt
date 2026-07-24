@@ -4,7 +4,7 @@
 
 PR Agent accepts signed GitHub webhooks, records them in Postgres, and enqueues durable work with pg-boss. Workers run review, describe, ask, triage, and verification agents, then publish results back on the pull request. Slash commands are /review, /describe, /ask, and /triage. Automated review can also run on pull_request events.
 
-You keep model keys and review traffic in your own environment. Supported backends include OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and the Cursor SDK.
+You keep model keys and review traffic in your own environment. Supported backends include OpenAI, Anthropic, Google, DeepSeek, OpenRouter, Groq, and other Pi catalog providers.
 
 ## Docs
 

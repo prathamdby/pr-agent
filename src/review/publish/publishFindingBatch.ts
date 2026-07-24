@@ -22,6 +22,11 @@ import {
 } from "../findings/findingPipeline.js";
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
+import {
+  reviewInlineBatchOperationKey,
+  withOperationIntent,
+  type OperationIntentContext,
+} from "../../agentWork/withOperationIntent.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
@@ -69,6 +74,7 @@ export type FindingBatchContext = {
   readonly refreshLiveAuth?: () => Promise<void>;
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
+  readonly operationIntent?: OperationIntentContext;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly ledger: FindingLedger;
@@ -255,26 +261,51 @@ export async function publishFindingBatch(
     });
   }
 
-  const inlineResult = await publishInlineReviewComments(
-    context.ctx.owner,
-    context.ctx.repo,
-    context.ctx.prNumber,
-    {
-      getToken: context.getToken,
-      getTokenExpiresAtTs: context.getTokenExpiresAtTs,
-      refreshLiveAuth: context.refreshLiveAuth,
-      renderReviewBody: () =>
-        renderSpecialistReviewBody({
-          specialist: context.source,
-          progressCommentUrl,
-          lensMarker: renderReviewPointerLensMarker("review"),
-        }),
-      event: "COMMENT",
-      commitId: context.ctx.headSha,
-      inlinePlacements: targets.inline,
-      renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
-    },
-  );
+  const batchId = crypto.randomUUID();
+  const inlineResult = await (context.operationIntent == null
+    ? publishInlineReviewComments(context.ctx.owner, context.ctx.repo, context.ctx.prNumber, {
+        getToken: context.getToken,
+        getTokenExpiresAtTs: context.getTokenExpiresAtTs,
+        refreshLiveAuth: context.refreshLiveAuth,
+        renderReviewBody: () =>
+          renderSpecialistReviewBody({
+            specialist: context.source,
+            progressCommentUrl,
+            lensMarker: renderReviewPointerLensMarker("review"),
+          }),
+        event: "COMMENT",
+        commitId: context.ctx.headSha,
+        inlinePlacements: targets.inline,
+        renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
+      })
+    : withOperationIntent({
+        client: context.operationIntent.client,
+        workItemId: context.operationIntent.workItemId,
+        operationKey: reviewInlineBatchOperationKey(batchId),
+        mutationKind: "github.inline_review",
+        detail: {
+          step: "inline_review",
+          resourceKey: context.operationIntent.resourceKey,
+          reviewLens: context.source,
+          batchId,
+        },
+        mutate: () =>
+          publishInlineReviewComments(context.ctx.owner, context.ctx.repo, context.ctx.prNumber, {
+            getToken: context.getToken,
+            getTokenExpiresAtTs: context.getTokenExpiresAtTs,
+            refreshLiveAuth: context.refreshLiveAuth,
+            renderReviewBody: () =>
+              renderSpecialistReviewBody({
+                specialist: context.source,
+                progressCommentUrl,
+                lensMarker: renderReviewPointerLensMarker("review"),
+              }),
+            event: "COMMENT",
+            commitId: context.ctx.headSha,
+            inlinePlacements: targets.inline,
+            renderCommentBody: (finding) => renderInlineThreadBody(finding, context.ctx),
+          }),
+      }));
 
   const posted = inlineResult.postedPlacements;
   const anchorDropped = inlineResult.anchorDroppedPlacements.map((placement) =>
@@ -303,7 +334,7 @@ export async function publishFindingBatch(
   const batchRecord: StoredInlineBatch | undefined = context.workItemId
     ? {
         version: 2,
-        batchId: crypto.randomUUID(),
+        batchId,
         workItemId: context.workItemId,
         specialist: context.source,
         headSha: context.ctx.headSha,

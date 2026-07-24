@@ -1,11 +1,9 @@
 import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
-import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
-import type {
-  AgentRunnerSendOptions,
-  AgentRunnerSession,
-  AgentRunnerToolExecutor,
-} from "../../agent/providers/interface.js";
+import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
+import { classifyFallbackEligibility } from "../../agent/runtime/fallbackClassification.js";
+import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { AppError, errorLogFields, toAppError } from "../../errors/appError.js";
@@ -166,12 +164,12 @@ function coverage(state: OrchestratedRunState): ReviewCoverage {
 }
 
 function transitionTools(
-  session: AgentRunnerSession,
+  session: PiSession,
   tools: readonly PiTool[],
   executors: Record<string, AgentRunnerToolExecutor>,
 ): void {
   session.restoreTools();
-  session.restrictToTools(tools, executors);
+  session.setActiveTools(tools, executors);
 }
 
 /** Specialist completion ticks occupy revisions 2–5 (revision 1 is recon-done). */
@@ -225,7 +223,7 @@ export async function runOrchestratedPrReview(
 
   const reviewMode = params.mode ?? "review";
   initReviewRunMetrics({
-    provider: params.cfg.agentProvider,
+    provider: params.cfg.piProvider,
     model: params.cfg.piModel,
     mode: reviewMode,
   });
@@ -260,6 +258,13 @@ export async function runOrchestratedPrReview(
     refreshLiveAuth: setup.refreshLiveAuth,
     cachedDiffIndex: setup.cachedDiffIndex,
     recordPublishStep: params.recordPublishStep,
+    operationIntent: params.recordPublishStep?.summaryCommentCoordination
+      ? {
+          client: params.recordPublishStep.summaryCommentCoordination.pool,
+          workItemId: params.recordPublishStep.summaryCommentCoordination.workItemId,
+          resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
+        }
+      : undefined,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
     initialLedger: initialLedger(params),
@@ -305,25 +310,25 @@ export async function runOrchestratedPrReview(
     publish_thread: publishThread.executor,
     publish_summary: publishSummary.executor,
   };
-  const provider = resolveAgentRunnerProvider(params.cfg);
-  const sessionParams = {
-    cfg: params.cfg,
-    cwd: params.cwd ?? params.workspace.agentCwd,
-    systemPrompt: orchestratorSystemPrompt,
-    tools: allTools,
-    executors: allExecutors,
-    refreshBeforeTool: async (toolName: string) => {
-      if (toolName === "publish_thread" || toolName === "publish_summary") {
-        await setup.refreshLiveAuth();
-        return;
-      }
-      await setup.refreshBeforeTool(toolName);
-    },
-  };
-  let session: AgentRunnerSession | null = null;
-  let sessionCreation: Promise<AgentRunnerSession> | null = null;
+  let session: PiSession | null = null;
+  let sessionCreation: Promise<PiSession> | null = null;
   try {
-    sessionCreation = provider.createSession(sessionParams);
+    sessionCreation = createFeaturePiSession({
+      role: "orchestrator",
+      cfg: params.cfg,
+      cwd: params.cwd ?? params.workspace.agentCwd,
+      systemPrompt: orchestratorSystemPrompt,
+      tools: allTools,
+      executors: allExecutors,
+      durability: params.durability,
+      refreshBeforeTool: async (toolName: string) => {
+        if (toolName === "publish_thread" || toolName === "publish_summary") {
+          await setup.refreshLiveAuth();
+          return;
+        }
+        await setup.refreshBeforeTool(toolName);
+      },
+    });
     const creation = await settleBefore(
       sessionCreation,
       Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
@@ -415,7 +420,7 @@ export async function runOrchestratedPrReview(
   const sendWithRetry = async (
     phase: "recon" | "judgment" | "synthesis",
     prompt: string,
-    options?: AgentRunnerSendOptions,
+    options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs">,
   ): Promise<SendResult> => {
     let firstError: AppError | null = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -463,7 +468,11 @@ export async function runOrchestratedPrReview(
         };
       }
       try {
-        const sendPromise = session.send(prompt, options);
+        const sendPromise = session.send(prompt, {
+          ...options,
+          phase,
+          checkpointId: `${session.role}:${phase}`,
+        });
         const send = await settleBefore(
           sendPromise,
           Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
@@ -501,7 +510,6 @@ export async function runOrchestratedPrReview(
         });
       }
     }
-    await retireSession();
     const terminalError =
       firstError ??
       new AppError({
@@ -509,6 +517,55 @@ export async function runOrchestratedPrReview(
         message: "Orchestrator send failed twice",
         context: { phase },
       });
+
+    // After primary retry budget, attempt one fallback-model restart when eligible.
+    const primarySession = session;
+    if (primarySession && !sessionRetired) {
+      const fallback = classifyFallbackEligibility(terminalError);
+      if (fallback.eligible) {
+        try {
+          const structuredState = primarySession.getStructuredState();
+          const fallbackSession = await primarySession.restartWithFallback({
+            checkpointId: `${primarySession.role}:${phase}`,
+            structuredState,
+          });
+          session = fallbackSession;
+          const sendPromise = fallbackSession.send(prompt, {
+            ...options,
+            phase,
+            checkpointId: `${fallbackSession.role}:${phase}`,
+          });
+          const send = await settleBefore(
+            sendPromise,
+            Math.min(params.timing.modelStopAtMs, params.timing.returnByMs),
+          );
+          if (send.kind === "settled") {
+            recordAgentTurnMetrics(send.value);
+            logInfo("review_orchestrator_fallback_recovered", {
+              phase,
+              reason: fallback.reason,
+            });
+            return { kind: "sent", text: send.value.text };
+          }
+          void sendPromise.catch((fallbackSendError) => {
+            logWarn("review_orchestrator_fallback_send_abandoned", {
+              phase,
+              reason: fallback.reason,
+              settleKind: send.kind,
+              ...errorLogFields(fallbackSendError),
+            });
+          });
+        } catch (fallbackError) {
+          logWarn("review_orchestrator_fallback_failed", {
+            phase,
+            reason: fallback.reason,
+            ...errorLogFields(fallbackError),
+          });
+        }
+      }
+    }
+
+    await retireSession();
     const failure = classifyFailure(terminalError, { phase });
     recordClassifiedFailure(failure);
     return {
@@ -727,7 +784,8 @@ export async function runOrchestratedPrReview(
       else state.judgment = "degraded";
     }
 
-    if (briefTool.getBrief() == null && !sessionRetired && session) {
+    const reconSession = session;
+    if (briefTool.getBrief() == null && !sessionRetired && reconSession) {
       await runValidationRepairLoop({
         rounds: VALIDATION_REPAIR_ROUNDS,
         shouldContinue: () => briefTool.getBrief() == null && !sessionRetired,
@@ -735,7 +793,7 @@ export async function runOrchestratedPrReview(
           briefTool.getValidationError() ?? "No specialist brief was submitted.",
         clearValidationError: briefTool.clearValidationError,
         repair: async (validationError) => {
-          transitionTools(session, [briefTool.piTool], {
+          transitionTools(reconSession, [briefTool.piTool], {
             submit_specialist_brief: briefTool.executor,
           });
           const repair = await sendWithRetry(
@@ -998,7 +1056,7 @@ export async function runOrchestratedPrReview(
   const lastAssistant: AssistantMessage = assistantFromText(
     params.cfg,
     lastText,
-    params.cfg.agentProvider,
+    params.cfg.piProvider,
   );
   const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
   return {

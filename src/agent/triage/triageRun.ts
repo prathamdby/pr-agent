@@ -4,6 +4,7 @@ import type { Config } from "../../config.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { TriagePayload } from "../../review/triageSchema.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
+import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import { runTriageHarness } from "./triageRunHarness.js";
 
 export type TriageRunResult = {
@@ -23,6 +24,7 @@ export async function runFullPrTriage(params: {
   readonly inventory: readonly BotFindingThread[];
   readonly cwd?: string;
   readonly scope?: TriageScope;
+  readonly durability?: FeatureSessionDurability;
 }): Promise<TriageRunResult> {
   return runTriageHarness(params);
 }

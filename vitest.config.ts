@@ -7,8 +7,8 @@ export default defineConfig({
     exclude: [...configDefaults.exclude, "test/integration/**"],
     setupFiles: [
       "test/setup/evlog.ts",
-      "test/setup/cursor-sdk-mock.ts",
       "test/setup/ciStatus-mock.ts",
+      "test/setup/operationIntent-mock.ts",
     ],
   },
 });

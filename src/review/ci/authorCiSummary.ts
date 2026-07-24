@@ -1,7 +1,7 @@
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logWarn } from "../../evlog.js";
-import { resolveAgentRunnerProvider } from "../../agent/providers/index.js";
+import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
 import { buildCiContextUserMessage, CI_SUMMARY_SYSTEM_PROMPT } from "./ciGatePrompt.js";
 import { ciSummaryLlmSchema, type CiSummaryLlmFields } from "./ciSummarySchema.js";
@@ -94,8 +94,8 @@ export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
       };
     }
 
-    const runner = resolveAgentRunnerProvider(cfg);
-    const session = await runner.createSession({
+    const session = await createFeaturePiSession({
+      role: "ci_summary",
       cfg,
       systemPrompt: CI_SUMMARY_SYSTEM_PROMPT,
       tools: [],
@@ -103,7 +103,11 @@ export function createAgentCiSummaryAuthor(cfg: Config): CiSummaryAuthor {
     });
     try {
       const prompt = buildCiContextUserMessage(input);
-      const turn = await session.send(prompt, { maxToolRounds: 0 });
+      const turn = await session.send(prompt, {
+        maxToolRounds: 0,
+        phase: "ci_summary",
+        checkpointId: "ci_summary:ci_summary",
+      });
       const fields = parseCiSummaryLlmText(turn.text);
       logDebug("review_ci_summary_authored", {
         failureCount: fields.failures.length,

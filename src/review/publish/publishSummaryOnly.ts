@@ -2,6 +2,10 @@ import type { Config } from "../../config.js";
 import type { Pool, PoolClient } from "pg";
 import { AppError } from "../../errors/appError.js";
 import {
+  reviewSummaryOperationKey,
+  withOperationIntent,
+} from "../../agentWork/withOperationIntent.js";
+import {
   claimSummaryCommentCreation,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
@@ -543,31 +547,47 @@ export async function publishReviewSummaryOnly(params: {
     prNumber,
     labelsTokenExpiresAtTs,
   ).catch((error: unknown) => error);
-  const summaryUpsert = summaryCoordination
-    ? upsertSummaryCommentWithCreationClaim({
-        ...summaryCoordination,
-        reviewLens: mode,
-        token: summaryToken,
-        owner,
-        repo,
-        prNumber,
-        body: summaryBody,
-        sentinel: summarySentinel,
-        expiresAtTs: summaryTokenExpiresAtTs,
-        hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
-        progressRevision: 6,
-      })
-    : upsertReviewSummaryComment(
-        summaryToken,
-        owner,
-        repo,
-        prNumber,
-        summaryBody,
-        summarySentinel,
-        knownSummaryCommentRef,
-        summaryTokenExpiresAtTs,
-      );
-  const [summary, currentLabels] = await Promise.all([summaryUpsert, labelsPromise]);
+  const runSummaryUpsert = () =>
+    summaryCoordination
+      ? upsertSummaryCommentWithCreationClaim({
+          ...summaryCoordination,
+          reviewLens: mode,
+          token: summaryToken,
+          owner,
+          repo,
+          prNumber,
+          body: summaryBody,
+          sentinel: summarySentinel,
+          expiresAtTs: summaryTokenExpiresAtTs,
+          hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
+          progressRevision: 6,
+        })
+      : upsertReviewSummaryComment(
+          summaryToken,
+          owner,
+          repo,
+          prNumber,
+          summaryBody,
+          summarySentinel,
+          knownSummaryCommentRef,
+          summaryTokenExpiresAtTs,
+        );
+  const summaryPromise =
+    summaryCoordination == null
+      ? runSummaryUpsert()
+      : withOperationIntent({
+          client: summaryCoordination.pool,
+          workItemId: summaryCoordination.workItemId,
+          operationKey: reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
+          mutationKind: "github.summary_comment",
+          detail: {
+            step: "summary_comment",
+            resourceKey: summaryCoordination.resourceKey,
+            reviewLens: mode,
+          },
+          mutate: runSummaryUpsert,
+        });
+  const [summary, currentLabels] = await Promise.all([summaryPromise, labelsPromise]);
   const summaryOnlyCount = params.ledger.accepted.filter(
     (accepted) => accepted.kind === "summary_only",
   ).length;

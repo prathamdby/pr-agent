@@ -12,6 +12,7 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 | Agent work execution | `src/agentWork/executors/` | `index.ts`                                                                                                                                                      |
 | Web / worker layers  | `src/agentWork/runtime.ts` | `agentWorkWebLive`, `agentWorkWorkerLive`                                                                                                                       |
 | Ask / description    | `src/agent/`               | `ask/askRun.ts`, `description/descriptionRun.ts`                                                                                                                |
+| Pi session seam      | `src/agent/runtime/`       | `piSession.ts` (`createPiSession`, `createFakePiSession`) — feature harnesses must not import raw Pi SDK sessions                                               |
 | Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`                                                                                             |
 | Analytics facade     | `src/analytics/`           | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`)                                                                           |
 
