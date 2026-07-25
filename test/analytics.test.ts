@@ -230,4 +230,36 @@ describe("analytics facade", () => {
     );
     expect(analytics.isAnalyticsEnabled()).toBe(false);
   });
+
+  it("does not register process signal listeners", async () => {
+    const processOn = vi.spyOn(process, "on");
+
+    await import("../src/analytics/index.js");
+
+    expect(processOn).not.toHaveBeenCalledWith("SIGINT", expect.any(Function));
+    expect(processOn).not.toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+  });
+
+  it("initNoOpAnalytics keeps capture paths no-op without constructing PostHog", async () => {
+    const { captureEvent, initNoOpAnalytics, isAnalyticsEnabled } =
+      await import("../src/analytics/index.js");
+    initNoOpAnalytics();
+    captureEvent({ distinctId: "server", event: "webhook received" });
+    expect(isAnalyticsEnabled()).toBe(false);
+    expect(mockPostHog.PostHog).not.toHaveBeenCalled();
+  });
+
+  it("shutdownAnalytics resolves when no client was initialised", async () => {
+    const { shutdownAnalytics } = await import("../src/analytics/index.js");
+    await expect(shutdownAnalytics()).resolves.toBeUndefined();
+  });
+
+  it("before_send leaves events without error fields unchanged", async () => {
+    const { initAnalytics } = await import("../src/analytics/index.js");
+    await initAnalytics({ projectToken: "token", host: "" });
+
+    const beforeSend = mockPostHog.instances[0]?.options.before_send;
+    const event = { distinctId: "x", event: "y" };
+    expect(beforeSend?.(event)).toBe(event);
+  });
 });
