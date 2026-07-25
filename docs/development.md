@@ -1,6 +1,8 @@
 # Development guide
 
-Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index (including Cursor Cloud setup): [AGENTS.md](../AGENTS.md).
+Module layout, import rules, and the runtime topology diagram rubric for **pr-agent**. Agent index: [AGENTS.md](../AGENTS.md). Cursor Cloud VM setup: [cursor-cloud.md](cursor-cloud.md).
+
+Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/) — this guide indexes areas and links those rules; do not restate `.mdc` bodies here.
 
 ## Module layout (production)
 
@@ -16,37 +18,18 @@ Module layout, import rules, and the runtime topology diagram rubric for **pr-ag
 | Agent tool outputs   | `src/agent/tools/`         | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `context7Tools.ts`                                                                                             |
 | Analytics facade     | `src/analytics/`           | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`)                                                                           |
 
-Import concrete modules (e.g. `src/review/reviewSchema.js`), not removed barrel `index.ts` files. GitHub review error helpers (`isLineResolutionPublishError`, etc.) live in `src/github/reviewErrors.js` — import directly, not via `src/review/placement/reviewDiffPlacement.ts`.
+Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.pr-agent/module-layout.mdc). ESM `.js` imports and settings barrel: [`.pr-agent/esm-imports.mdc`](../.pr-agent/esm-imports.mdc).
 
 ## Internal errors (`AppError`)
 
-Production failures use `AppError` from `src/errors/appError.ts`. Do not throw bare
-`Error` from `src/`.
-
-| Field     | Rule                                                                    |
-| --------- | ----------------------------------------------------------------------- |
-| `code`    | Stable `<domain>.<reason_snake>` (e.g. `review.publish_exhausted`)      |
-| `message` | Technical why/what/how for logs. Preserve exact strings when migrating. |
-| `context` | JSON-safe bag of identifying fields (ids, paths, env names)             |
-| `cause`   | Optional underlying error                                               |
-
-Helpers: `isAppError`, `toAppError`, `serializeAppError`, `errorLogFields`.
-
-**PR-facing copy** stays in separate constants / mappers (plain English). Never post
-`AppError.message` on a pull request. Domain subclasses (`WebhookParseError`,
-`StaleHeadPushError`, `WorkItemPayloadValidationError`) extend `AppError` and keep
-their class names for `instanceof` checks.
+Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Field rules, helpers, domain subclasses, and the AppError-never-on-PR rule: [`.pr-agent/structured-errors.mdc`](../.pr-agent/structured-errors.mdc).
 
 Design: [docs/superpowers/specs/2026-07-21-structured-apperror-design.md](superpowers/specs/2026-07-21-structured-apperror-design.md).
 
 ## Prompt prose
 
-Long investigator prompt blocks stay in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`. Only numeric limits and shared user-visible strings belong in `src/settings/constants.ts`.
+Long investigator prompt blocks stay in prompt modules under `src/review/prompts/` and `src/agent/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc).
 
 ## README runtime topology diagram
 
-When a change alters **runtime topology**, update the Mermaid diagram in [README.md](../README.md) **How It Works** in the same PR.
-
-**Counts as topology change:** web vs worker responsibilities, Postgres or pg-boss role, webhook route, pg-boss queue lanes, or which executor owns a work type.
-
-**Does not require diagram updates:** prompt tweaks, tool implementation details, publish formatting, or other changes that do not change the diagram's boxes or arrows.
+When a change alters **runtime topology**, update the Mermaid diagram in [README.md](../README.md) **How It Works** in the same PR. Binding rule: [`.pr-agent/topology-diagram.mdc`](../.pr-agent/topology-diagram.mdc).

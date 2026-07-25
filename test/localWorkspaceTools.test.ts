@@ -72,6 +72,20 @@ async function writeWorkspaceFiles(root: string, files: Readonly<Record<string, 
 }
 
 describe("local workspace tools", () => {
+  it("exposes investigation-protocol guidance on each tool description", () => {
+    const { piTools } = buildLocalWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]), {
+      limits: testLimits(),
+    });
+    const byName = Object.fromEntries(piTools.map((tool) => [tool.name, tool.description]));
+
+    expect(byName.listChangedFiles).toContain("Start here");
+    expect(byName.getWorkspaceDiff).toContain("before opening whole files");
+    expect(byName.searchWorkspace).toContain("literal string");
+    expect(byName.searchWorkspace).toContain("not a regex");
+    expect(byName.readWorkspaceFile).toContain("do not retry the same call unchanged");
+    expect(byName.getWorkspaceBlame).toContain("only when authorship genuinely decides");
+  });
+
   it("readWorkspaceFile returns full content under the response cap", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {
