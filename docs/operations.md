@@ -128,7 +128,7 @@ Canonical quick start steps live in [README.md](../README.md) **Getting Started*
 | `nub run site:build`                   | Landing site production build               |
 | `nub run site:generate-og`             | Generate landing OG assets                  |
 
-Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs, with temporary Oxc `minimumReleaseAgeExclude` entries (`oxlint@1.75.0`, `oxlint-tsgolint@7.0.2001`, `@oxlint/*`, `@oxlint-tsgolint/*`) — remove after 2026-07-29.
+Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs, with temporary `minimumReleaseAgeExclude` entries: Oxc (`oxlint@1.75.0`, `oxlint-tsgolint@7.0.2001`, `@oxlint/*`, `@oxlint-tsgolint/*`) — remove after 2026-07-29; Pi 0.82.1 (`@earendil-works/pi-*@0.82.1`) plus `evlog@2.22.3`, `oxfmt@0.60.0` / `@oxfmt/*`, `pg-boss@12.26.3`, `posthog-node@5.46.1` / `@posthog/*` — remove after 2026-08-01.
 
 ### Effect version gate
 
