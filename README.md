@@ -77,7 +77,7 @@ ROLE=worker DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nu
 
 If you previously installed with pnpm, delete `node_modules` before your first `nub install` to avoid mixed virtual-store layouts (`.pnpm/` vs `.nub/`).
 
-**Vercel** site deploys still use pnpm via [`site/vercel.json`](site/vercel.json) until Vercel has native Nub support.
+**Vercel** site deploys still use the platform installer (pnpm via [`site/vercel.json`](site/vercel.json)). That matches Nub's hosted-builder guidance: keep the builder's install when there is no setup step; add `@nubjs/nub` as a devDependency only if site scripts need the `nub` binary (they currently call Vite/`node` directly).
 
 Minimal env:
 

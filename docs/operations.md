@@ -96,7 +96,8 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key**. For local-only dev: `openssl genrsa 2048 > key.pem` and set the escaped PEM in `.env`.
 - Tunnel webhooks (e.g. [smee.io](https://smee.io)) to local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
 - If switching from pnpm-installed trees, delete `node_modules` before the first `nub install`.
-- **Vercel** site deploys still use pnpm via [`site/vercel.json`](../site/vercel.json).
+- **Vercel** site deploys keep the platform installer (pnpm via [`site/vercel.json`](../site/vercel.json)). Add `@nubjs/nub` as a devDependency only if site scripts need the `nub` binary.
+- **Docker image** installs with Nub only (`nub ci` for build deps; `nub prune --prod` for the runtime tree). No `corepack` / `pnpm deploy` in the Dockerfile. [`.dockerignore`](../.dockerignore) keeps `site/package.json` in the build context so the workspace lockfile stays valid under frozen installs; the rest of `site/` stays excluded.
 
 Canonical quick start steps live in [README.md](../README.md) **Getting Started**.
 

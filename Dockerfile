@@ -7,20 +7,15 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g --ignore-scripts=false @nubjs/nub
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc .node-version ./
+COPY site/package.json ./site/package.json
+# nub ci uses a project-local store so node_modules is COPY-safe across stages.
 RUN --mount=type=cache,id=nub-store,target=/root/.local/share/nub/store \
-  sed -i '/- "site"/d' pnpm-workspace.yaml \
-  && nub install --no-frozen-lockfile
+  nub ci --filter 'pr-agent...'
 
 FROM deps AS prod-deps
-# Nub's virtual store uses absolute symlinks into the PM cache; copying node_modules
-# alone breaks between stages. pnpm deploy materializes a self-contained prod tree.
-RUN corepack enable && corepack prepare pnpm@10.34.1 --activate
-# Deploy re-resolves optional platform bindings (oxfmt/oxlint) from the lockfile.
-# Those packages already passed nub install's age gate; disable the check here so
-# unused host bindings (e.g. darwin) do not fail the linux prod image build.
-RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-  pnpm deploy --filter=pr-agent --prod --legacy /app/prod \
-  --config.minimum-release-age=0
+# Drop devDependencies from the project-local tree. Leftover .store symlinks to
+# pruned packages are unused by production imports.
+RUN nub prune --prod --filter 'pr-agent...'
 
 FROM deps AS build
 COPY tsconfig.base.json tsconfig.build.json ./
@@ -38,8 +33,8 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=prod-deps /app/prod/package.json ./package.json
-COPY --from=prod-deps /app/prod/node_modules ./node_modules
+COPY --from=prod-deps /app/package.json ./package.json
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/migrations ./migrations
 

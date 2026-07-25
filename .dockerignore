@@ -5,7 +5,10 @@
 **/.env.*
 !.env.example
 
-site
+# Backend image needs site/package.json so the workspace lockfile stays valid
+# under frozen Nub installs; exclude the rest of the landing package.
+site/**
+!site/package.json
 docs
 .github
 test

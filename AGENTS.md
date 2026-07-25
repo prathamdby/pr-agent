@@ -62,4 +62,4 @@ Skip doc updates when none of the above apply.
 - **Tests (`nub run test`)** are pure unit/integration tests and do not need Postgres or any running service. Use `nub run --node test` if Vitest shows augmentation-related flakiness.
 - **Lint/fmt commands**: `nub run lint` (oxlint, type-aware), `nub run typecheck` (tsc), `nub run fmt:check` (oxfmt). Combined: `nub run check:code`.
 - **Ignored build scripts warning** from Nub is expected for some transitive deps (`esbuild`, `protobufjs`). The worker image does not need a native `sqlite3` build for the agent runtime (see ADR 0031).
-- **Vercel site deploys** remain on pnpm via [`site/vercel.json`](site/vercel.json); all other surfaces use Nub in pnpm incumbent mode.
+- **Vercel site deploys** keep the platform installer (pnpm via [`site/vercel.json`](site/vercel.json)) per Nub's hosted-builder pattern; add `@nubjs/nub` as a devDependency only if site scripts need `nub`. All other surfaces use Nub in pnpm incumbent mode.
