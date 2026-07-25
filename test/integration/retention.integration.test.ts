@@ -99,4 +99,40 @@ describe.skipIf(!hasDatabase)("retention (integration)", () => {
     expect(ids).not.toContain(agedId);
     expect(ids).toContain(freshId);
   });
+
+  it("deletes expired resume snapshots but keeps unexpired ones", async () => {
+    const workItemId = await insertWorkItem("completed", daysAgo(1));
+    const expiredId = randomUUID();
+    const freshId = randomUUID();
+    const blob = Buffer.from("x");
+
+    await pool.query(
+      `INSERT INTO agent_resume_snapshots (
+         id, work_item_id, session_role, installation_id, envelope_version,
+         model_provider, model_id, sdk_version, prompt_version, tool_policy_version,
+         checkpoint_id, expires_at, nonce, ciphertext, auth_tag
+       ) VALUES
+         ($1, $3, 'ask', 1, 1, 'p', 'm', 's', 'pr', 'tp', 'c1', $4, $5, $5, $5),
+         ($2, $3, 'description', 1, 1, 'p', 'm', 's', 'pr', 'tp', 'c2', $6, $5, $5, $5)`,
+      [
+        expiredId,
+        freshId,
+        workItemId,
+        daysAgo(1),
+        blob,
+        new Date(Date.now() + 86_400_000).toISOString(),
+      ],
+    );
+
+    const result = await runRetention(pool, RETENTION);
+    expect(result.resumeSnapshotsDeleted).toBeGreaterThanOrEqual(1);
+
+    const { rows } = await pool.query<{ id: string }>(
+      "SELECT id FROM agent_resume_snapshots WHERE work_item_id = $1",
+      [workItemId],
+    );
+    const ids = rows.map((r) => r.id);
+    expect(ids).not.toContain(expiredId);
+    expect(ids).toContain(freshId);
+  });
 });

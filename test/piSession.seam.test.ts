@@ -100,7 +100,8 @@ describe("createPiSession seam", () => {
   });
 
   it("does not import createAgentSession from feature harness paths (grep gate)", async () => {
-    // Seam module is the only production entry that constructs Pi sessions.
+    // Only src/agent/runtime may construct Pi sessions (createPiSession seam).
+    // Feature packages and agent/providers must go through that seam.
     const fs = await import("node:fs/promises");
     const path = await import("node:path");
     async function walk(dir: string): Promise<string[]> {
@@ -110,11 +111,6 @@ describe("createPiSession seam", () => {
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
           if (entry.name === "runtime" && dir.endsWith("agent")) continue;
-          if (entry.name === "providers" && dir.endsWith("agent")) {
-            // providers/pi is allowed to re-export the seam adapter only
-            files.push(...(await walk(full)));
-            continue;
-          }
           files.push(...(await walk(full)));
         } else if (entry.name.endsWith(".ts")) {
           files.push(full);
@@ -128,6 +124,7 @@ describe("createPiSession seam", () => {
       ...(await walk("src/agent/description")),
       ...(await walk("src/agent/triage")),
       ...(await walk("src/agent/verification")),
+      ...(await walk("src/agent/providers")),
     ];
     for (const file of featureFiles) {
       const text = await fs.readFile(file, "utf8");

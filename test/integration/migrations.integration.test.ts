@@ -1,7 +1,11 @@
+import { readdirSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 import { runMigrations } from "../../src/db/migrations.js";
 import { hasDatabase, integrationPool } from "./db.js";
+
+const MIGRATIONS_DIR = join(import.meta.dirname, "../../migrations");
 
 const EXPECTED_MIGRATIONS = [
   "001_agent_work.sql",
@@ -19,7 +23,20 @@ const EXPECTED_MIGRATIONS = [
   "013_verification_work.sql",
   "014_slash_active_uniqueness.sql",
   "015_thread_reply_classification.sql",
-];
+  "016_agent_runtime_durability.sql",
+].sort();
+
+function migrationFilesOnDisk(): string[] {
+  return readdirSync(MIGRATIONS_DIR)
+    .filter((name) => name.endsWith(".sql"))
+    .sort();
+}
+
+describe("migrations inventory", () => {
+  it("locks expected inventory to the migrations directory", () => {
+    expect(EXPECTED_MIGRATIONS).toEqual(migrationFilesOnDisk());
+  });
+});
 
 describe.skipIf(!hasDatabase)("migrations (integration)", () => {
   let pool: Pool;
@@ -35,10 +52,9 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
 
   it("records every migration file", async () => {
     const { rows } = await pool.query<{ version: string }>("SELECT version FROM schema_migrations");
-    const versions = rows.map((r) => r.version);
-    for (const file of EXPECTED_MIGRATIONS) {
-      expect(versions).toContain(file);
-    }
+    const versions = rows.map((r) => r.version).sort();
+    expect(versions).toEqual(EXPECTED_MIGRATIONS);
+    expect(versions).toEqual(migrationFilesOnDisk());
   });
 
   it("creates retention-supporting indexes", async () => {
