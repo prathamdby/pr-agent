@@ -26,11 +26,7 @@ import { publishDescriptionToPullRequest } from "../src/agent/description/publis
 
 const pool = {} as Pool;
 
-function buildTool(operationIntent?: {
-  client: Pool;
-  workItemId: string;
-  resourceKey: string;
-}) {
+function buildTool(operationIntent?: { client: Pool; workItemId: string; resourceKey: string }) {
   return buildSubmitDescriptionTool({
     cfg: makeTestConfig(),
     token: "token",
@@ -64,6 +60,7 @@ describe("submitDescription tool", () => {
       detail: {},
     });
     vi.mocked(publishDescriptionToPullRequest).mockResolvedValue({
+      prNumber: 1,
       titleUpdated: true,
       bodyUpdated: true,
     });
@@ -91,7 +88,7 @@ describe("submitDescription tool", () => {
     });
     vi.mocked(publishDescriptionToPullRequest).mockImplementation(async () => {
       calls.push("publish");
-      return { titleUpdated: true, bodyUpdated: true };
+      return { prNumber: 1, titleUpdated: true, bodyUpdated: true };
     });
     vi.mocked(reconcileOperationIntent).mockImplementation(async () => {
       calls.push("reconcile");
@@ -113,7 +110,12 @@ describe("submitDescription tool", () => {
     });
     const result = await executor({ ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE });
 
-    expect(result).toEqual({ ok: true, titleUpdated: true, bodyUpdated: true });
+    expect(result).toEqual({
+      ok: true,
+      prNumber: 1,
+      titleUpdated: true,
+      bodyUpdated: true,
+    });
     expect(calls).toEqual(["persist", "publish", "reconcile"]);
     expect(persistOperationIntent).toHaveBeenCalledWith(
       pool,
