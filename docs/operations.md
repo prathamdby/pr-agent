@@ -46,7 +46,8 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 
 - **Stack:** [docker-compose.yml](../docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
 - **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)).
-- **Health:** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable (orchestrator readiness gating).
+- **Health (web):** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable (orchestrator readiness gating).
+- **Health (worker):** the worker listens on `PORT` for the same paths. `GET /health` is process liveness. `GET /ready` requires registered queue consumers plus Postgres/pg-boss access (idle empty queues still ready). Compose wires the worker healthcheck to `/ready`. Continuous queue/DLQ/blocked-key diagnostics emit every 60s; see [agent-work-ops.md](agent-work-ops.md).
 - **Webhook URL** (default Compose ports): `http://<host>:7224/webhooks`.
 - **`DATABASE_URL`** in Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`.
 - **Provider API keys** (for example **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, **`GOOGLE_GENERATIVE_AI_API_KEY`**) are loaded by [`src/config.ts`](../src/config.ts) into `modelProviderKeys`. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.

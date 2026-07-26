@@ -18,13 +18,16 @@ select * from webhook_events order by received_at desc limit 20;
 select * from publish_records order by updated_at desc limit 20;
 ```
 
-Worker startup logs `agent_queue_stats` for each queue and `agent_review_queue_blocked_keys` if pg-boss reports blocked `key_strict_fifo` keys.
+Worker startup and a 60s periodic timer log `agent_queue_stats` (depth/age counts), `agent_dead_letter_stats`, `agent_work_item_age`, and `agent_review_queue_blocked_keys` (with per-key age when available). Empty queues are not treated as unhealthy.
+
+Worker readiness is distinct from web probes: `GET /ready` on the worker process returns 200 only when consumers are registered and Postgres/pg-boss respond. Compose healthchecks that endpoint. Web `GET /health` / `GET /ready` remain intake-process probes (liveness / Postgres ping).
 
 ## Retry and Recovery
 
 - If webhook intake cannot commit to Postgres, the web process returns `503`; redeliver from GitHub after Postgres is healthy.
 - If a review fails permanently, the worker upserts the review summary comment with a failure notice and records `agent_work_items.status = 'failed'`.
-- If pg-boss reports blocked review keys, inspect failed jobs for `agent-work-review`, then retry or delete the failed pg-boss job after confirming the app-owned `agent_work_items` status is terminal.
+- If pg-boss reports blocked review keys, inspect failed jobs for `agent-work-review`, then retry or delete the failed pg-boss job after confirming the app-owned `agent_work_items` status is terminal. Do not delete active/`running` work-item rows to clear a block.
+- Dead-letter queues (`*-dead`) are archival only (no consumers). Redrive only after the originating `agent_work_items` row is terminal and the failure cause is understood; prefer `pg-boss` redrive/retry APIs over ad-hoc SQL deletes.
 - If a worker crashes mid-job, pg-boss heartbeat/expiration retries the job; publish steps are guarded by `publish_records`.
 - `/triage` uses `agent-work-triage` plus `triage_push`, `triage_thread_actions`, and `triage_report` publish records. A stale push posts the triage report without thread replies; re-run `/triage` after the PR branch settles.
 - Verification uses `agent-work-verification` plus the `verification_thread_actions` publish record. It is read-only with no ack/progress/summary comment; a failed job leaves finding threads untouched and records `agent_work_items.status = 'failed'`.

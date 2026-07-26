@@ -50,8 +50,8 @@ docker compose up
 ```
 
 - Webhook URL (default ports): `http://<host>:7224/webhooks`
-- **`GET /health`**: liveness (`ok`)
-- **`GET /ready`**: readiness (Postgres reachable)
+- **`GET /health`**: liveness (`ok`) on web and worker
+- **`GET /ready`**: web = Postgres reachable; worker = consumers registered + Postgres/pg-boss
 - Both **`pr-agent-web`** (`ROLE=web`) and **`pr-agent-worker`** (`ROLE=worker`) are required for reviews and asks.
 
 More deployment detail: [docs/operations.md](docs/operations.md).
