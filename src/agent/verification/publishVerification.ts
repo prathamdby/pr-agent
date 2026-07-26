@@ -24,11 +24,17 @@ import {
   verificationThreadOperationKey,
   withOperationIntent,
 } from "../../agentWork/withOperationIntent.js";
+import {
+  safeRecordThreadFindingHistoryOutcome,
+  type FindingHistoryOutcome,
+} from "../../agentWork/findingHistoryRepository.js";
+import type { Config } from "../../config.js";
 
 type PublishVerificationParams = {
   readonly pool: Pool;
   readonly workItemId: string;
   readonly resourceKey: string;
+  readonly installationId: number;
   readonly token: string;
   readonly tokenExpiresAtTs?: number;
   readonly owner: string;
@@ -42,6 +48,7 @@ type PublishVerificationParams = {
   /** When true, changedFilePaths is incomplete (GitHub compare 300-file cap). */
   readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
+  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
 };
 
 function withStubMarker(body: string): string {
@@ -190,6 +197,33 @@ function verificationIntentDetail(
   };
 }
 
+function verificationHistoryOutcome(
+  verdict: VerificationVerdict["verdict"],
+): Exclude<FindingHistoryOutcome, "open"> {
+  return verdict;
+}
+
+function recordVerificationHistoryOutcome(
+  params: PublishVerificationParams,
+  thread: BotFindingThread,
+  outcome: Exclude<FindingHistoryOutcome, "open">,
+): void {
+  if (!params.findingHistoryCfg) return;
+  safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
+    scope: {
+      installationId: params.installationId,
+      owner: params.owner,
+      repo: params.repo,
+      prNumber: params.prNumber,
+      workItemId: params.workItemId,
+      headSha: params.headSha,
+    },
+    resourceKey: params.resourceKey,
+    thread,
+    outcome,
+  });
+}
+
 export async function publishVerification(
   params: PublishVerificationParams,
 ): Promise<{ degraded: boolean }> {
@@ -256,6 +290,7 @@ export async function publishVerification(
           rootCommentId: verdict.threadRootCommentId,
           state: terminalThreadState(prior, verdict.verdict, params.headSha, stubCommentId),
         });
+        recordVerificationHistoryOutcome(params, thread, verificationHistoryOutcome(verdict.verdict));
         break;
       }
       case "skipped": {
@@ -294,6 +329,7 @@ export async function publishVerification(
             lastHeadSha: params.headSha,
           },
         });
+        recordVerificationHistoryOutcome(params, thread, "skipped");
         break;
       }
       case "dismissed": {
@@ -338,6 +374,7 @@ export async function publishVerification(
           rootCommentId: verdict.threadRootCommentId,
           state: terminalThreadState(prior, "dismissed", params.headSha, stubCommentId),
         });
+        recordVerificationHistoryOutcome(params, thread, "dismissed");
         break;
       }
       default: {

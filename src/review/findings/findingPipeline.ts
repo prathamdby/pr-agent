@@ -128,6 +128,7 @@ export function prepareFindingsForPublish(params: {
   cachedDiffIndex?: CachedPrDiffIndex;
   inlinePlacements?: readonly InlinePlacement[];
   storedInlineFingerprints?: readonly string[];
+  crossPrSuppressionFingerprints?: readonly string[];
   maxInlineComments?: number;
 }): PreparedFindingTargets {
   const plannedPlacements =
@@ -135,9 +136,13 @@ export function prepareFindingsForPublish(params: {
       ? planInlinePlacements(params.payload.findings, params.cachedDiffIndex)
       : [...params.inlinePlacements];
   const fingerprintedPlacements = fingerprintInlinePlacements(plannedPlacements, "review");
+  const suppressionFingerprints = [
+    ...(params.storedInlineFingerprints ?? []),
+    ...(params.crossPrSuppressionFingerprints ?? []),
+  ];
   const suppression = suppressInlinePlacementsByFingerprint(
     fingerprintedPlacements,
-    params.storedInlineFingerprints ?? [],
+    suppressionFingerprints,
   );
   const inlineCap = applyInlineCommentCap(
     suppression.placements,

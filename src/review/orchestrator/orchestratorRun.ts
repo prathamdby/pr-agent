@@ -138,6 +138,7 @@ function initialLedger(params: OrchestratedReviewRunParams) {
     accepted: resumed,
     suppressionFingerprints: [
       ...(params.storedInlineFingerprints ?? []),
+      ...(params.crossPrSuppressionFingerprints ?? []),
       ...resumed.map((placement) => placement.canonicalFingerprint),
     ],
     inlineReviewIds: [
@@ -274,6 +275,10 @@ export async function runOrchestratedPrReview(
     evidenceLedger: setup.evidenceLedger,
     checkoutCoverage: params.workspace.getCoverage(),
     isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
+    pool: params.durability?.pool,
+    installationId: params.durability?.installationId,
+    findingHistoryCfg: params.cfg,
+    crossPrSuppressionFingerprints: params.crossPrSuppressionFingerprints,
   });
   const summaryState = createPublishSummaryState({
     published: params.initialPublishState?.published,

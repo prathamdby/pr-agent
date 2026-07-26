@@ -14,6 +14,7 @@ function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
   extras?: {
     priorInlineFeedback?: string;
+    findingHistoryTrustedBlock?: string;
     repoPolicyBlock?: string;
     agentInstructionFilesBlock?: string;
     checkoutCoverage?: CheckoutCoverage;
@@ -38,6 +39,9 @@ function buildTrustedReviewContextBlock(
   if (extras?.priorInlineFeedback) {
     blocks.push("", extras.priorInlineFeedback);
   }
+  if (extras?.findingHistoryTrustedBlock) {
+    blocks.push("", extras.findingHistoryTrustedBlock);
+  }
   if (extras?.repoPolicyBlock) {
     blocks.push("", extras.repoPolicyBlock);
   }
@@ -50,12 +54,14 @@ function buildTrustedReviewContextBlock(
 export function buildTrustedReviewContextForReview(params: {
   preflight: ReviewPreflightMetadata;
   priorInlineFeedback?: string;
+  findingHistoryTrustedBlock?: string;
   repoPolicyBlock?: string;
   agentInstructionFilesBlock?: string;
   checkoutCoverage?: CheckoutCoverage;
 }): string {
   return buildTrustedReviewContextBlock(params.preflight, {
     priorInlineFeedback: params.priorInlineFeedback,
+    findingHistoryTrustedBlock: params.findingHistoryTrustedBlock,
     repoPolicyBlock: params.repoPolicyBlock,
     agentInstructionFilesBlock: params.agentInstructionFilesBlock,
     checkoutCoverage: params.checkoutCoverage,

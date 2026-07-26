@@ -25,6 +25,7 @@ const EXPECTED_MIGRATIONS = [
   "015_thread_reply_classification.sql",
   "016_agent_runtime_durability.sql",
   "017_agent_events.sql",
+  "018_finding_history.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {

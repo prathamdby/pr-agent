@@ -110,6 +110,38 @@ describe("findingPipeline", () => {
     });
   });
 
+  it("keeps inline when cross-PR dismiss history is below threshold", () => {
+    const item = finding({ title: "Repeat risk", startLine: 4 });
+    const fp = fingerprintFinding(item, "review");
+
+    const result = prepareFindingsForPublish({
+      payload: payload({ findings: [item] }),
+      inlinePlacements: [placement(item)],
+      crossPrSuppressionFingerprints: [],
+      storedInlineFingerprints: [],
+    });
+
+    expect(result.inline).toHaveLength(1);
+    expect(result.inline[0]?.inlineFingerprint).toBe(fp);
+  });
+
+  it("downgrades to summary-only when cross-PR dismiss threshold is met", () => {
+    const item = finding({ title: "Repeat risk", startLine: 4 });
+    const fp = fingerprintFinding(item, "review");
+
+    const result = prepareFindingsForPublish({
+      payload: payload({ findings: [item] }),
+      inlinePlacements: [placement(item)],
+      crossPrSuppressionFingerprints: [fp],
+      storedInlineFingerprints: [],
+    });
+
+    expect(result.inline).toHaveLength(0);
+    expect(result.summaryOnly).toHaveLength(1);
+    expect(result.summaryOnly[0]?.finding.title).toBe("Repeat risk");
+    expect(result.dropped.suppressedInlineCount).toBe(1);
+  });
+
   it("records new fingerprints under the merged review mode", () => {
     const item = finding();
     const evidenceLedger = createTestEvidenceLedger();

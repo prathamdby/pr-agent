@@ -39,6 +39,8 @@ import type {
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
+import type { Pool } from "pg";
+import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -89,6 +91,10 @@ export type FindingBatchContext = {
   readonly evidenceLedger?: EvidenceLedger;
   readonly checkoutCoverage?: CheckoutCoverage;
   readonly isPathInCheckout?: (path: string) => boolean;
+  readonly pool?: Pool;
+  readonly installationId?: number;
+  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly crossPrSuppressionFingerprints?: readonly string[];
 };
 
 function batchPayload(findings: readonly ReviewFinding[]): ReviewPayload {
@@ -211,6 +217,7 @@ export async function publishFindingBatch(
     cachedDiffIndex: context.cachedDiffIndex,
     inlinePlacements: prepared.prepared.placements,
     storedInlineFingerprints: [...context.ledger.suppressionFingerprints],
+    crossPrSuppressionFingerprints: context.crossPrSuppressionFingerprints,
     maxInlineComments: remainingInline,
   });
   const planned = fingerprintInlinePlacements(prepared.prepared.placements, "review");
@@ -391,6 +398,23 @@ export async function publishFindingBatch(
       capDowngraded: targets.dropped.inlineCommentCapExcluded,
       anchorDropped: inlineResult.anchorDroppedPlacements.length,
     });
+  }
+
+  if (context.pool && context.findingHistoryCfg && context.installationId != null) {
+    const postedFingerprints = posted.map((placement) => placement.inlineFingerprint);
+    safeUpsertFindingHistoryOpen(
+      context.pool,
+      context.findingHistoryCfg,
+      {
+        installationId: context.installationId,
+        owner: context.ctx.owner,
+        repo: context.ctx.repo,
+        prNumber: context.ctx.prNumber,
+        workItemId: context.workItemId ?? null,
+        headSha: context.ctx.headSha,
+      },
+      postedFingerprints,
+    );
   }
 
   return {

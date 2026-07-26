@@ -24,6 +24,7 @@ ADR 0023 grounded verification dismiss suggestions against that YAML file (appen
 - Repos that relied on YAML `severityFloor` lose that mechanical publish gate.
 - ADR 0023’s grounded-suggestion behavior remains, with `.mdc` append/new instead of YAML `pathInstructions`.
 - Caps move to per-file / aggregate / file-count limits for the directory.
+- **Cross-PR finding history** ([ADR 0032](0032-workspace-primary-grounding-and-evidence.md)) stores fingerprint outcomes only; it is threshold suppression memory, not preference memory. Durable maintainer prefs remain committed `.pr-agent/*.mdc` here.
 
 ## Reversal
 

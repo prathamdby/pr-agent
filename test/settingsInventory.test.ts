@@ -35,7 +35,10 @@ describe("settings inventory", () => {
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS");
     expect(envValues).toContain("AGENT_EVENTS_ENABLED");
     expect(envValues).toContain("AGENT_EVENTS_RETENTION_SECONDS");
-    expect(envValues.length).toBe(55);
+    expect(envValues).toContain("FINDING_HISTORY_ENABLED");
+    expect(envValues).toContain("FINDING_HISTORY_DISMISS_SUPPRESS_AFTER");
+    expect(envValues).toContain("FINDING_HISTORY_LOOKBACK_DAYS");
+    expect(envValues.length).toBe(58);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

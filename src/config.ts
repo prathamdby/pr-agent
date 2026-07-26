@@ -36,6 +36,9 @@ import {
   DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
   DEFAULT_AGENT_EVENTS_ENABLED,
   DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+  DEFAULT_FINDING_HISTORY_ENABLED,
+  DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
+  DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
@@ -258,6 +261,18 @@ export async function loadConfig() {
     ENV.AGENT_EVENTS_RETENTION_SECONDS,
     DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   );
+  const findingHistoryEnabled = readBooleanEnv(
+    ENV.FINDING_HISTORY_ENABLED,
+    DEFAULT_FINDING_HISTORY_ENABLED,
+  );
+  const findingHistoryDismissSuppressAfter = readPositiveNumber(
+    ENV.FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
+    DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER,
+  );
+  const findingHistoryLookbackDays = readPositiveNumber(
+    ENV.FINDING_HISTORY_LOOKBACK_DAYS,
+    DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS,
+  );
   const modelsJsonPath = resolveModelsJsonPath({
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
@@ -434,6 +449,9 @@ export async function loadConfig() {
     agentResumeSnapshotMarginSeconds,
     agentEventsEnabled,
     agentEventsRetentionSeconds,
+    findingHistoryEnabled,
+    findingHistoryDismissSuppressAfter,
+    findingHistoryLookbackDays,
     piApi,
     modelsJsonPath,
     modelProviderKeys,
