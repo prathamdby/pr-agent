@@ -19,5 +19,7 @@ export function formatAskReply(params: {
   if (params.replyTarget.kind === "inlineReviewThread") {
     return answer;
   }
-  return [`**Question:** ${params.question.trim()}`, "", "**Answer:**", "", answer].join("\n");
+  // Defense in depth: questions are redacted at intake, and again at the GitHub boundary.
+  const question = redactOutboundSecrets(params.question.trim());
+  return [`**Question:** ${question}`, "", "**Answer:**", "", answer].join("\n");
 }

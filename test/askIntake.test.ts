@@ -173,4 +173,32 @@ describe("promoteAskFromWebhookEvent", () => {
     expect(sent[0]?.options).toEqual(expect.objectContaining({ priority: 100 }));
     expect(sent[1]?.options).toEqual(expect.objectContaining({ id: "ask-new", priority: 50 }));
   });
+
+  it("redacts secret-shaped question text before durable insert", async () => {
+    let payloadJson = "";
+    const boss = {
+      send: vi.fn(async () => "jid"),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string, values?: unknown[]) => {
+        if (sql.includes("INSERT INTO agent_work_items")) {
+          payloadJson = String(values?.[12] ?? "");
+          return { rows: [{ id: "ask-redacted" }] };
+        }
+        throw new Error(`unexpected: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+
+    const token = "ghp_1234567890123456789012345678901234";
+    const outcome = await promoteAskFromWebhookEvent(
+      boss,
+      client,
+      baseInput({ body: `/ask why does ${token} fail?` }),
+      "skip",
+    );
+
+    expect(outcome).toEqual({ kind: "promoted", workItemId: "ask-redacted", created: true });
+    expect(payloadJson).toContain("[redacted]");
+    expect(payloadJson).not.toContain(token);
+  });
 });
