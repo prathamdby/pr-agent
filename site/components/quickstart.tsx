@@ -110,7 +110,7 @@ export function Quickstart() {
                 rel="noopener noreferrer"
                 className="text-ink-soft underline decoration-edge-strong hover:text-ink"
               >
-                README Getting Started
+                README Host with Docker Compose
               </a>
               .
             </p>

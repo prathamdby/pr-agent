@@ -39,7 +39,7 @@ Worker readiness is distinct from web probes: `GET /ready` on the worker process
 
 For end-to-end behavior (reviews, descriptions, asks, triage, and verification), run the full stack: `docker compose up` (postgres + `pr-agent-web` + `pr-agent-worker`). Web-only accepts webhooks but does not execute agent work.
 
-Host processes against Compose Postgres: see [README.md](../README.md#getting-started) and [operations.md](operations.md#local-development-edge-cases).
+Host processes against Compose Postgres: see [README.md](../README.md#host-with-docker-compose) and [operations.md](operations.md#local-development-edge-cases).
 
 ## `/ask` red-team checklist (manual)
 

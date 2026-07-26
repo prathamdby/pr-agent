@@ -102,7 +102,7 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 - **Vercel** site deploys keep the platform installer (pnpm via [`site/vercel.json`](../site/vercel.json)). Add `@nubjs/nub` as a devDependency only if site scripts need the `nub` binary.
 - **Docker image** installs with Nub only (`nub ci` for build deps; `nub prune --prod` for the runtime tree). No `corepack` / `pnpm deploy` in the Dockerfile. [`.dockerignore`](../.dockerignore) keeps `site/package.json` in the build context so the workspace lockfile stays valid under frozen installs; the rest of `site/` stays excluded.
 
-Canonical quick start steps live in [README.md](../README.md) **Getting Started**.
+Canonical quick start steps live in [README.md](../README.md) **Host with Docker Compose**.
 
 ## Development
 
