@@ -8,6 +8,7 @@ import {
   ASK_QUEUE,
   CI_REFRESH_DEAD_LETTER_QUEUE,
   CI_REFRESH_QUEUE,
+  CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
   REVIEW_DEAD_LETTER_QUEUE,
@@ -111,6 +112,12 @@ export async function ensureAgentQueues(boss: PgBoss, cfg: QueueConfig): Promise
       }),
     ),
   );
+
+  // No DLQ; created at boot so work()/diagnostics never hit a missing queue.
+  await boss.createQueue(CODE_INDEX_BUILD_QUEUE, {
+    ...defaults,
+    policy: "standard",
+  });
 }
 
 export async function stopBoss(boss: PgBoss, drainTimeoutMs: number): Promise<void> {
