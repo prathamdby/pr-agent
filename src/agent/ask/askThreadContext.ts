@@ -7,6 +7,7 @@ import {
   MAX_ASK_THREAD_TRANSCRIPT_CHARS,
 } from "../../settings/index.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
+import { redactOutboundSecrets } from "./askSafety.js";
 
 export type ThreadComment = {
   readonly id: number;
@@ -64,7 +65,7 @@ export function formatThreadTranscript(
   if (comments.length === 0) return { text: "", truncated: false };
   const lines = comments.map((c) => {
     const login = c.authorLogin.trim() || "unknown";
-    const body = c.body.trim() || "(empty)";
+    const body = redactOutboundSecrets(c.body.trim()) || "(empty)";
     return `${login}:\n${body}`;
   });
   const full = lines.join("\n\n");

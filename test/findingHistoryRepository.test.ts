@@ -16,7 +16,7 @@ const cfg = {
 };
 
 describe("upsertFindingHistoryOpen", () => {
-  it("upserts open outcomes with increment on conflict", async () => {
+  it("upserts open outcomes with idempotent increment on conflict", async () => {
     const query = vi.fn(async () => ({ rowCount: 1 }));
     const pool = { query } as unknown as Pool;
 
@@ -36,7 +36,8 @@ describe("upsertFindingHistoryOpen", () => {
     expect(query).toHaveBeenCalledTimes(2);
     const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
     expect(sql).toContain("INSERT INTO repo_finding_history");
-    expect(sql).toContain("open_count = repo_finding_history.open_count + 1");
+    expect(sql).toContain("last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id");
+    expect(sql).toContain("repo_finding_history.open_count + 1");
     expect(values).toEqual([9, "acme", "app", "fp-a", 12, "wi-1", "abc123"]);
   });
 });
@@ -61,9 +62,8 @@ describe("recordFindingHistoryOutcome", () => {
     );
 
     const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
-    expect(sql).toContain(
-      "dismiss_count = repo_finding_history.dismiss_count + EXCLUDED.dismiss_count",
-    );
+    expect(sql).toContain("last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id");
+    expect(sql).toContain("repo_finding_history.dismiss_count + EXCLUDED.dismiss_count");
     expect(values[4]).toBe("dismissed");
     expect(values[5]).toBe(1);
     expect(values[6]).toBe(0);
@@ -71,7 +71,7 @@ describe("recordFindingHistoryOutcome", () => {
 });
 
 describe("loadCrossPrSuppressionFingerprints", () => {
-  it("queries rows meeting dismiss threshold within lookback", async () => {
+  it("queries dismissed rows meeting dismiss threshold within lookback", async () => {
     const query = vi.fn(async () => ({
       rows: [{ fingerprint: "fp-hot" }],
     }));
@@ -86,6 +86,7 @@ describe("loadCrossPrSuppressionFingerprints", () => {
     expect(fingerprints).toEqual(["fp-hot"]);
     const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
     expect(sql).toContain("dismiss_count >=");
+    expect(sql).toContain("last_outcome = 'dismissed'");
     expect(values).toEqual([1, "o", "r", 3, "180"]);
   });
 });

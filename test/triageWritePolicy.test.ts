@@ -28,6 +28,15 @@ describe("triageWritePolicy", () => {
     "CODEOWNERS",
     ".npmrc",
     "helm/Chart.yaml",
+    ".buildkite/pipeline.yml",
+    "azure-pipelines.yml",
+    ".travis.yml",
+    "bitbucket-pipelines.yml",
+    "appveyor.yml",
+    ".drone.yml",
+    "Taskfile.yml",
+    "Makefile",
+    "package.json",
   ] as const)("denies control-plane path %s", (path) => {
     expect(isTriageControlPath(path)).toBe(true);
   });

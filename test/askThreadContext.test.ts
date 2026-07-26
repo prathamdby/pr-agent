@@ -51,6 +51,15 @@ describe("formatThreadTranscript", () => {
     expect(text).toBe("alice:\nroot question\n\nbob:\nfollow-up");
   });
 
+  it("redacts secrets in comment bodies before building transcript text", () => {
+    const { text } = formatThreadTranscript(
+      [comment(1, null, "alice", "token ghp_1234567890123456789012345678901234")],
+      10_000,
+    );
+    expect(text).toContain("[redacted]");
+    expect(text).not.toContain("ghp_");
+  });
+
   it("keeps root comment when truncating long threads", () => {
     const comments = [
       comment(1, null, "alice", "ROOT ANCHOR COMMENT"),

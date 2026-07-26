@@ -15,10 +15,14 @@ export async function releaseSingletonSlot(
     readonly skipWorkItemId?: string;
     /** When false, only delete failed jobs. Default true also cancels non-terminal jobs. */
     readonly cancelNonTerminal?: boolean;
+    /** When set, only cancel non-terminal jobs for these work item ids. */
+    readonly cancelWorkItemIds?: readonly string[];
   },
 ): Promise<void> {
   const cancelNonTerminal = params.cancelNonTerminal !== false;
   const connection = params.db ? { db: params.db } : undefined;
+  const cancelWorkItemIds =
+    params.cancelWorkItemIds != null ? new Set(params.cancelWorkItemIds) : null;
   const jobs = await boss.findJobs<{ workItemId?: string }>(params.queue, {
     key: params.singletonKey,
     ...connection,
@@ -34,6 +38,10 @@ export async function releaseSingletonSlot(
       continue;
     }
     if (cancelNonTerminal) {
+      if (cancelWorkItemIds != null) {
+        const workItemId = job.data.workItemId;
+        if (workItemId == null || !cancelWorkItemIds.has(workItemId)) continue;
+      }
       await boss.cancel(params.queue, job.id, connection);
     }
   }
@@ -48,6 +56,7 @@ export async function releaseReviewSingletonSlot(
     readonly skipJobId?: string;
     readonly skipWorkItemId?: string;
     readonly cancelNonTerminal?: boolean;
+    readonly cancelWorkItemIds?: readonly string[];
   },
 ): Promise<void> {
   await releaseSingletonSlot(boss, {
@@ -57,5 +66,6 @@ export async function releaseReviewSingletonSlot(
     skipJobId: opts?.skipJobId,
     skipWorkItemId: opts?.skipWorkItemId,
     cancelNonTerminal: opts?.cancelNonTerminal,
+    cancelWorkItemIds: opts?.cancelWorkItemIds,
   });
 }

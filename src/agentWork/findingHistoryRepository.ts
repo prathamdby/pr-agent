@@ -79,7 +79,12 @@ export async function upsertFindingHistoryOpen(
        ON CONFLICT (installation_id, owner, repo, fingerprint)
        DO UPDATE SET
          last_outcome = 'open',
-         open_count = repo_finding_history.open_count + 1,
+         open_count = CASE
+           WHEN repo_finding_history.last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id
+             AND repo_finding_history.last_outcome = 'open'
+           THEN repo_finding_history.open_count
+           ELSE repo_finding_history.open_count + 1
+         END,
          last_pr_number = EXCLUDED.last_pr_number,
          last_work_item_id = EXCLUDED.last_work_item_id,
          last_head_sha = EXCLUDED.last_head_sha,
@@ -105,6 +110,7 @@ export async function recordFindingHistoryOutcome(
 ): Promise<void> {
   const dismissIncrement = outcome === "dismissed" ? 1 : 0;
   const fixIncrement = outcome === "fixed" || outcome === "already-resolved" ? 1 : 0;
+  // Idempotent for same work item + outcome (retries after durable GitHub ops).
   await client.query(
     `INSERT INTO repo_finding_history (
        installation_id, owner, repo, fingerprint, last_outcome,
@@ -114,8 +120,18 @@ export async function recordFindingHistoryOutcome(
      ON CONFLICT (installation_id, owner, repo, fingerprint)
      DO UPDATE SET
        last_outcome = EXCLUDED.last_outcome,
-       dismiss_count = repo_finding_history.dismiss_count + EXCLUDED.dismiss_count,
-       fix_count = repo_finding_history.fix_count + EXCLUDED.fix_count,
+       dismiss_count = CASE
+         WHEN repo_finding_history.last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id
+           AND repo_finding_history.last_outcome = EXCLUDED.last_outcome
+         THEN repo_finding_history.dismiss_count
+         ELSE repo_finding_history.dismiss_count + EXCLUDED.dismiss_count
+       END,
+       fix_count = CASE
+         WHEN repo_finding_history.last_work_item_id IS NOT DISTINCT FROM EXCLUDED.last_work_item_id
+           AND repo_finding_history.last_outcome = EXCLUDED.last_outcome
+         THEN repo_finding_history.fix_count
+         ELSE repo_finding_history.fix_count + EXCLUDED.fix_count
+       END,
        last_pr_number = EXCLUDED.last_pr_number,
        last_work_item_id = EXCLUDED.last_work_item_id,
        last_head_sha = EXCLUDED.last_head_sha,
@@ -141,6 +157,7 @@ export async function loadCrossPrSuppressionFingerprints(
   scope: FindingHistoryRepoScope,
 ): Promise<readonly string[]> {
   if (!cfg.findingHistoryEnabled) return [];
+  // Lift suppression once last_outcome is no longer dismissed.
   const result = await client.query<{ fingerprint: string }>(
     `SELECT fingerprint
        FROM repo_finding_history
@@ -148,6 +165,7 @@ export async function loadCrossPrSuppressionFingerprints(
         AND owner = $2
         AND repo = $3
         AND dismiss_count >= $4
+        AND last_outcome = 'dismissed'
         AND last_seen_at >= now() - ($5::text || ' days')::interval`,
     [
       scope.installationId,
