@@ -16,6 +16,7 @@ import {
 import { chunkFiles } from "./chunker.js";
 import {
   ensureBuildingSnapshot,
+  getSnapshotById,
   markSnapshotFailed,
   markSnapshotReady,
   replaceSnapshotChunks,
@@ -75,20 +76,36 @@ export async function buildCodeIndexFromWorkspace(
   const snapshot = await ensureBuildingSnapshot(pool, scope);
   if (snapshot.status === "ready") return;
 
+  const client = await pool.connect();
   try {
-    const files: Array<{ path: string; content: string }> = [];
-    for (const path of workspace.sortedCheckoutPaths) {
-      if (!pathAllowedForIndexing(path, workspace, pathGate)) continue;
-      const content = await readIndexableWorkspaceFile(workspace, path);
-      if (content == null) continue;
-      files.push({ path, content });
+    // Serialize inline + worker builders for the same snapshot.
+    await client.query("SELECT pg_advisory_lock(hashtext($1::text))", [snapshot.id]);
+    try {
+      const current = await getSnapshotById(client, snapshot.id);
+      if (!current || current.status === "ready") return;
+
+      try {
+        const files: Array<{ path: string; content: string }> = [];
+        for (const path of workspace.sortedCheckoutPaths) {
+          if (!pathAllowedForIndexing(path, workspace, pathGate)) continue;
+          const content = await readIndexableWorkspaceFile(workspace, path);
+          if (content == null) continue;
+          files.push({ path, content });
+        }
+        const { chunks } = chunkFiles(files, CODE_INDEX_MAX_CHUNKS_PER_REPO);
+        await replaceSnapshotChunks(client, snapshot.id, chunks);
+        await markSnapshotReady(client, snapshot.id);
+      } catch (error) {
+        await markSnapshotFailed(client, snapshot.id).catch(() => undefined);
+        throw error;
+      }
+    } finally {
+      await client
+        .query("SELECT pg_advisory_unlock(hashtext($1::text))", [snapshot.id])
+        .catch(() => undefined);
     }
-    const { chunks } = chunkFiles(files, CODE_INDEX_MAX_CHUNKS_PER_REPO);
-    await replaceSnapshotChunks(pool, snapshot.id, chunks);
-    await markSnapshotReady(pool, snapshot.id);
-  } catch (error) {
-    await markSnapshotFailed(pool, snapshot.id).catch(() => undefined);
-    throw error;
+  } finally {
+    client.release();
   }
 }
 

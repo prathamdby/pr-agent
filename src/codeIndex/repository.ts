@@ -79,7 +79,9 @@ export async function ensureBuildingSnapshot(
      ON CONFLICT (installation_id, owner, repo, head_sha)
      DO UPDATE SET
        status = CASE
-         WHEN code_index_snapshots.status = 'ready' THEN code_index_snapshots.status
+         WHEN code_index_snapshots.status = 'ready'
+          AND code_index_snapshots.chunker_version = EXCLUDED.chunker_version
+         THEN 'ready'
          ELSE 'building'
        END,
        chunker_version = EXCLUDED.chunker_version,
@@ -88,6 +90,25 @@ export async function ensureBuildingSnapshot(
     [scope.installationId, scope.owner, scope.repo, scope.headSha, CODE_INDEX_CHUNKER_VERSION],
   );
   return mapSnapshot(rows[0]!);
+}
+
+export async function getSnapshotById(
+  pool: Pool | PoolClient,
+  snapshotId: string,
+): Promise<CodeIndexSnapshot | null> {
+  const { rows } = await pool.query<{
+    id: string;
+    status: CodeIndexSnapshotStatus;
+    chunker_version: string;
+  }>(
+    `SELECT id, status, chunker_version
+       FROM code_index_snapshots
+      WHERE id = $1
+      LIMIT 1`,
+    [snapshotId],
+  );
+  const row = rows[0];
+  return row ? mapSnapshot(row) : null;
 }
 
 export async function replaceSnapshotChunks(

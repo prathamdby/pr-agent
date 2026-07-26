@@ -3,6 +3,7 @@ import type { Pool } from "pg";
 import {
   formatFindingHistoryTrustedBlock,
   loadCrossPrSuppressionFingerprints,
+  lookupThreadFingerprint,
   recordFindingHistoryOutcome,
   safeLoadCrossPrSuppressionFingerprints,
   upsertFindingHistoryOpen,
@@ -113,6 +114,51 @@ describe("safeLoadCrossPrSuppressionFingerprints", () => {
       repo: "r",
     });
     expect(result).toEqual([]);
+  });
+});
+
+describe("lookupThreadFingerprint", () => {
+  it("matches thread paths after normalizing ./ prefixes", async () => {
+    const query = vi.fn(async () => ({
+      rows: [
+        {
+          detail: {
+            batches: [
+              {
+                workItemId: "wi-1",
+                reviewId: 11,
+                fingerprints: ["fp-norm"],
+                specialist: "correctness",
+                placements: [
+                  {
+                    finding: {
+                      severity: "P2",
+                      confidence: 4,
+                      title: "Bug",
+                      detail: "Details about the bug",
+                      file: "./src/foo.ts",
+                      startLine: 10,
+                      endLine: 12,
+                      fixPrompt: "Fix the bug in foo",
+                    },
+                    resolvedLine: 10,
+                    canonicalFingerprint: "fp-norm",
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    }));
+    const pool = { query } as unknown as Pool;
+
+    const fingerprint = await lookupThreadFingerprint(pool, {
+      resourceKey: "owner/repo#1",
+      thread: { path: "src/foo.ts", line: 10 },
+    });
+
+    expect(fingerprint).toBe("fp-norm");
   });
 });
 

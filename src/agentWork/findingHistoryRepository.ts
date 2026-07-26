@@ -192,6 +192,10 @@ export async function loadFindingHistoryCandidates(
   return result.rows.map(mapFindingHistoryRow);
 }
 
+function normalizeRepoPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
 export async function lookupThreadFingerprint(
   client: Pool | PoolClient,
   params: {
@@ -199,6 +203,7 @@ export async function lookupThreadFingerprint(
     readonly thread: Pick<BotFindingThread, "path" | "line">;
   },
 ): Promise<string | null> {
+  const threadPath = normalizeRepoPath(params.thread.path);
   const result = await client.query<{ detail: Record<string, unknown> | null }>(
     `SELECT detail
        FROM publish_records
@@ -211,7 +216,7 @@ export async function lookupThreadFingerprint(
     for (const batch of parseStoredInlineBatches(row.detail ?? {})) {
       for (const placement of batch.placements) {
         if (
-          placement.finding.file === params.thread.path &&
+          normalizeRepoPath(placement.finding.file) === threadPath &&
           placement.resolvedLine === params.thread.line
         ) {
           return placement.canonicalFingerprint;
