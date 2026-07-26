@@ -27,6 +27,12 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
+  getProgressCommentOwner: vi.fn(async () => null),
+  getWorkItemCore: vi.fn(async () => ({
+    id: "wi-1",
+    status: "running",
+    type: "review",
+  })),
   recordPublishStep: vi.fn(),
   claimSummaryCommentCreation: vi.fn(async () => true),
 }));
@@ -49,7 +55,12 @@ import {
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
-import { getSummaryCommentGithubId, recordPublishStep } from "../src/agentWork/repository.js";
+import {
+  getProgressCommentOwner,
+  getSummaryCommentGithubId,
+  getWorkItemCore,
+  recordPublishStep,
+} from "../src/agentWork/repository.js";
 import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
 
 const cfg = {} as Config;
@@ -171,5 +182,79 @@ describe("executeAckJob", () => {
     expect(getSummaryCommentGithubId).not.toHaveBeenCalled();
     expect(resolveVerifiedSummaryCommentRef).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+  });
+
+  it("no-ops progress when the work item is superseded", async () => {
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+      id: "wi-stale",
+      status: "superseded",
+      type: "review",
+    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-stale",
+      progress: { lens: "review", headSha: "sha-a", source: "auto" },
+    });
+
+    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(ensureReviewCheckRunStarted).not.toHaveBeenCalled();
+  });
+
+  it("executes acknowledgements in reverse order without letting A overwrite B", async () => {
+    // B claims ownership first; delayed A runs second (reverse of intake order).
+    vi.mocked(getWorkItemCore).mockImplementation(async (_pool, id: string) => {
+      if (id === "wi-b") {
+        return { id: "wi-b", status: "running", type: "review" } as Awaited<
+          ReturnType<typeof getWorkItemCore>
+        >;
+      }
+      return { id: "wi-a", status: "superseded", type: "review" } as Awaited<
+        ReturnType<typeof getWorkItemCore>
+      >;
+    });
+    // After B claims the shared progress record, delayed A still sees B as owner.
+    vi.mocked(getProgressCommentOwner)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ workItemId: "wi-b", generation: 1 });
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-b",
+      progress: { lens: "review", headSha: "sha-b", source: "auto" },
+    });
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-a",
+      progress: { lens: "review", headSha: "sha-a", source: "auto" },
+    });
+
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledTimes(1);
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-b",
+        progressRevision: 0,
+      }),
+    );
+  });
+
+  it("skips progress when another work item already owns the comment", async () => {
+    vi.mocked(getWorkItemCore).mockResolvedValueOnce({
+      id: "wi-a",
+      status: "running",
+      type: "review",
+    } as Awaited<ReturnType<typeof getWorkItemCore>>);
+    vi.mocked(getProgressCommentOwner).mockResolvedValueOnce({
+      workItemId: "wi-b",
+      generation: 1,
+    });
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-a",
+      progress: { lens: "review", headSha: "sha-a", source: "auto" },
+    });
+
+    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
   });
 });

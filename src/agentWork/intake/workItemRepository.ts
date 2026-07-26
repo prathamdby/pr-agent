@@ -210,12 +210,21 @@ async function ensureProgressCommentRecord(
   },
 ): Promise<void> {
   await client.query(
-    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status)
-			 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending')
+    `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
+			 VALUES ($1, $2, $3, $4, 'progress_comment', 'pending', '{"progressGeneration":0}'::jsonb)
 				 ON CONFLICT (resource_key, review_lens, step) WHERE review_lens <> 'ask' AND step <> 'check_run'
 			 DO UPDATE SET work_item_id = EXCLUDED.work_item_id,
 			               status = 'pending',
-			               updated_at = now()`,
+			               detail = jsonb_set(
+			                 COALESCE(publish_records.detail, '{}'::jsonb),
+			                 '{progressGeneration}',
+			                 to_jsonb(
+			                   COALESCE((publish_records.detail->>'progressGeneration')::integer, 0) + 1
+			                 ),
+			                 true
+			               ),
+			               updated_at = now()
+			         WHERE publish_records.work_item_id IS DISTINCT FROM EXCLUDED.work_item_id`,
     [crypto.randomUUID(), params.workItemId, params.resourceKey, params.reviewLens],
   );
 }

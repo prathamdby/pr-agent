@@ -7,6 +7,7 @@ import {
 } from "../../agentWork/withOperationIntent.js";
 import {
   claimSummaryCommentCreation,
+  getProgressCommentOwner,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
@@ -267,7 +268,8 @@ async function upsertSummaryCommentAtRevision(
   },
   client: PoolClient,
 ): Promise<SummaryCommentUpsertResult> {
-  const [storedRevision, currentComment] = await Promise.all([
+  const [progressOwner, storedRevision, currentComment] = await Promise.all([
+    getProgressCommentOwner(client, params.resourceKey, params.reviewLens),
     getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
     findIssueCommentBySentinel(
       params.token,
@@ -279,6 +281,29 @@ async function upsertSummaryCommentAtRevision(
     ),
   ]);
   const bodyRevision = currentComment ? parseProgressRevisionState(currentComment.body) : null;
+  // Authoritative ownership lives on the progress publish record (reassigned at intake).
+  // Stale writers whose work item no longer owns the record must not overwrite.
+  if (
+    progressOwner != null &&
+    params.workItemId != null &&
+    progressOwner.workItemId !== params.workItemId
+  ) {
+    if (currentComment) {
+      return { id: currentComment.id, updated: false, skipped: true };
+    }
+    const hintId = params.hintCommentId;
+    if (hintId != null) {
+      return { id: hintId, updated: false, skipped: true };
+    }
+    logWarn("review_progress_skipped_foreign_owner", {
+      resourceKey: params.resourceKey,
+      reviewLens: params.reviewLens,
+      workItemId: params.workItemId,
+      ownerWorkItemId: progressOwner.workItemId,
+      progressGeneration: progressOwner.generation,
+    });
+    return { id: 0, updated: false, skipped: true };
+  }
   const storedRevisionForRun =
     storedRevision != null && storedRevision.workItemId === params.workItemId
       ? storedRevision.revision

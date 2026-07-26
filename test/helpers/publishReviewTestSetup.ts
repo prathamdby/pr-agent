@@ -61,6 +61,7 @@ export function createReviewPublishGithubMock(actual: typeof reviewPublish) {
 export function createAgentWorkRepositoryMock() {
   return {
     claimSummaryCommentCreation: vi.fn(async () => true),
+    getProgressCommentOwner: vi.fn(async () => null),
     getProgressCommentRevision: vi.fn(async () => null),
     getProgressStubPostedAtMs: vi.fn(async () => null),
     getSummaryCommentGithubId: vi.fn(async () => null),
