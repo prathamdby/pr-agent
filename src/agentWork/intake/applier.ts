@@ -63,8 +63,7 @@ async function dispatchAutomatedKind(
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
-  // Always clear failed key_strict_fifo blockers. Cancel live jobs only when
-  // app-owned rows were superseded/cancel-requested (latest-head-wins).
+  // Always clear failed blockers; cancel live jobs only when superseding.
   await releaseSingletonSlot(boss, {
     queue: descriptor.queueName,
     singletonKey: descriptor.singletonKey,

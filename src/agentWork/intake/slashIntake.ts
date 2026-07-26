@@ -307,8 +307,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const workItemId = insert.id;
-  // Clear failed key_strict_fifo blockers so /review can activate. Do not cancel
-  // live jobs — slash uniqueness already rejects when another slash review is active.
+  // Clear failed key_strict_fifo blockers only; leave any live jobs alone.
   await releaseReviewSingletonSlot(ctx.boss, resourceKey, {
     db: pgBossDb(ctx.client),
     cancelNonTerminal: false,

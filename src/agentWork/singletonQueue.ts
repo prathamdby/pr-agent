@@ -13,10 +13,7 @@ export async function releaseSingletonSlot(
     readonly db?: SingletonSlotDb;
     readonly skipJobId?: string;
     readonly skipWorkItemId?: string;
-    /**
-     * When false, only delete `failed` jobs (clear key_strict_fifo blockers).
-     * When true (default), also cancel created/active/retry jobs for the key.
-     */
+    /** When false, only delete failed jobs. Default true also cancels non-terminal jobs. */
     readonly cancelNonTerminal?: boolean;
   },
 ): Promise<void> {
@@ -24,7 +21,7 @@ export async function releaseSingletonSlot(
   const connection = params.db ? { db: params.db } : undefined;
   const jobs = await boss.findJobs<{ workItemId?: string }>(params.queue, {
     key: params.singletonKey,
-    ...(params.db ? { db: params.db } : {}),
+    ...connection,
   });
   for (const job of jobs) {
     if (params.skipJobId && job.id === params.skipJobId) continue;
@@ -32,7 +29,7 @@ export async function releaseSingletonSlot(
     const state = job.state as string;
     if (state === "cancelled" || state === "completed") continue;
     if (state === "failed") {
-      // key_strict_fifo blocks the key while any job is failed; delete clears the slot.
+      // key_strict_fifo blocks while failed; delete clears the slot.
       await boss.deleteJob(params.queue, job.id, connection);
       continue;
     }
@@ -42,7 +39,7 @@ export async function releaseSingletonSlot(
   }
 }
 
-/** Cancel in-flight pg-boss jobs for the review singleton (and clear failed blockers). */
+/** Cancel in-flight review singleton jobs and clear failed blockers. */
 export async function releaseReviewSingletonSlot(
   boss: PgBoss,
   resourceKey: string,
