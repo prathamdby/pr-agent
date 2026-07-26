@@ -3,6 +3,7 @@ import * as evlog from "../src/evlog.js";
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
+  recordAgentTurnMetrics,
   recordReviewMetric,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
@@ -204,6 +205,113 @@ describe("reviewRunMetrics", () => {
       expect(snap?.lastFailure?.toolName).toBe("publish_summary");
       expect(snap?.lastFailure?.errorMessage.toLowerCase()).toContain("credit");
       expect(snap?.recentToolErrors).toHaveLength(1);
+    });
+  });
+
+  it("accumulates toolMs and providerSendMs into formula-B snapshot fields", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "listPullRequestFiles",
+        ok: true,
+        durationMs: 400,
+      });
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "getFile",
+        ok: true,
+        durationMs: 100,
+      });
+      recordReviewMetric({ kind: "session_send_span", sendMs: 2_000 });
+      recordReviewMetric({
+        kind: "model_turn",
+        usage: {
+          estimated: false,
+          inputTokens: 10,
+          outputTokens: 50,
+          totalTokens: 60,
+        },
+      });
+
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot).toMatchObject({
+        toolMs: 500,
+        providerSendMs: 2_000,
+        generationMs: 1_500,
+        providerOutputTokens: 50,
+        providerOutputTps: 50 / 1.5,
+        tokenCoverage: "orchestrator_only",
+      });
+    });
+  });
+
+  it("clamps generationMs to 0 and omits providerOutputTps", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
+      recordReviewMetric({
+        kind: "tool_call",
+        name: "listPullRequestFiles",
+        ok: true,
+        durationMs: 800,
+      });
+      recordReviewMetric({ kind: "session_send_span", sendMs: 500 });
+      recordReviewMetric({
+        kind: "model_turn",
+        usage: {
+          estimated: false,
+          outputTokens: 20,
+          totalTokens: 20,
+        },
+      });
+
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot?.providerSendMs).toBe(500);
+      expect(snapshot?.toolMs).toBe(800);
+      expect(snapshot?.generationMs).toBe(0);
+      expect(snapshot?.providerOutputTokens).toBe(20);
+      expect(snapshot).not.toHaveProperty("providerOutputTps");
+      expect(snapshot?.tokenCoverage).toBe("orchestrator_only");
+    });
+  });
+
+  it("marks tokenCoverage full_run after specialist recordAgentTurnMetrics", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+      });
+      expect(snapshotReviewRunMetrics()?.tokenCoverage).toBe("orchestrator_only");
+
+      recordAgentTurnMetrics(
+        {
+          text: "specialist report",
+          usage: {
+            estimated: false,
+            inputTokens: 8,
+            outputTokens: 12,
+            totalTokens: 20,
+          },
+        },
+        { specialist: true },
+      );
+
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot?.tokenCoverage).toBe("full_run");
+      expect(snapshot?.providerOutputTokens).toBe(12);
+      expect(snapshot?.modelTurnCount).toBe(1);
     });
   });
 });
