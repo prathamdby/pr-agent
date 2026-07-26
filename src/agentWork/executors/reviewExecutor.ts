@@ -190,12 +190,7 @@ async function handleStaleHeadReschedule(args: {
     conclusion: "cancelled",
     summary: "Review was rescheduled for a newer pull request head.",
   });
-  return buildStaleReviewRescheduleResult(
-    pool,
-    item,
-    installation.token,
-    installation.expiresAtTs,
-  );
+  return buildStaleReviewRescheduleResult(pool, item, installation.token, installation.expiresAtTs);
 }
 
 async function completeCheckFromStoredSummary(args: {
