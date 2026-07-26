@@ -7,8 +7,6 @@ import {
 } from "../src/agent/description/submitDescriptionTool.js";
 import { makeTestConfig } from "./helpers/config.js";
 
-vi.unmock("../src/agentWork/withOperationIntent.js");
-
 vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
   persistOperationIntent: vi.fn(),
   reconcileOperationIntent: vi.fn(),

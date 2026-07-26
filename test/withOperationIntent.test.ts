@@ -2,9 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { AppError } from "../src/errors/appError.js";
 
-vi.unmock("../src/agentWork/withOperationIntent.js");
-vi.unmock("../src/agentWork/reconcilePendingIntents.js");
-
+// File-local repository stubs: exercise withOperationIntent control flow without
+// the shared memory store (see memoryOperationIntentStore.test.ts for that path).
 vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
   persistOperationIntent: vi.fn(),
   reconcileOperationIntent: vi.fn(),
