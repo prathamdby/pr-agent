@@ -18,6 +18,12 @@ import {
 } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import {
+  assertTriageStagePaths,
+  assertTriageWritablePath,
+  isTriageControlPath,
+  normalizeRepoRelativePath,
+} from "./triageWritePolicy.js";
 
 const exec = promisify(execFile);
 
@@ -29,9 +35,9 @@ function isSensitivePath(path: string): boolean {
   return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
 }
 
-function safePath(root: string, path: string): string {
-  const normalized = path.replace(/\\/g, "/");
-  if (isSensitivePath(normalized)) {
+function safeReadPath(root: string, path: string): string {
+  const normalized = normalizeRepoRelativePath(path);
+  if (isSensitivePath(normalized) || isTriageControlPath(normalized)) {
     throw new AppError({
       code: "triage.sensitive_path_blocked",
       message: `Blocked sensitive path "${normalized}"`,
@@ -46,7 +52,7 @@ function relativePath(root: string, fullPath: string): string {
 }
 
 async function readTextFile(root: string, path: string, maxBytes: number) {
-  const fullPath = safePath(root, path);
+  const fullPath = safeReadPath(root, path);
   const info = await stat(fullPath).catch(() => null);
   if (!info?.isFile()) return { path, refused: true, reason: "Path is missing from checkout" };
   if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
@@ -95,6 +101,9 @@ export function buildTriageWorkspaceTools(params: {
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
   const inventoryIds = new Set(params.inventory.map((thread) => thread.rootCommentId));
+  const implicatedPaths = new Set(
+    params.inventory.map((thread) => normalizeRepoRelativePath(thread.path)),
+  );
   const root = params.checkout.dir;
 
   const readWorkspaceFile = defineLocalTool({
@@ -142,7 +151,7 @@ export function buildTriageWorkspaceTools(params: {
       "Return the current unified diff for a repo-relative path in the writable checkout.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
-      const fullPath = safePath(root, path);
+      const fullPath = safeReadPath(root, path);
       const rel = relativePath(root, fullPath);
       const diff = await git(root, ["diff", "HEAD", "--", rel], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
       return { path: rel, diff };
@@ -158,25 +167,30 @@ export function buildTriageWorkspaceTools(params: {
       newText: z.string(),
     }),
     run: async ({ path, oldText, newText }) => {
-      const fullPath = safePath(root, path);
+      const { fullPath, relativePath: rel } = await assertTriageWritablePath({
+        root,
+        path,
+        mode: "edit",
+        implicatedPaths,
+      });
       const content = await readFile(fullPath, "utf8");
       const matches = countOccurrences(content, oldText);
       if (matches === 0) {
         throw new AppError({
           code: "triage.old_text_not_found",
           message: "oldText not found; re-read the file",
-          context: { path },
+          context: { path: rel },
         });
       }
       if (matches > 1) {
         throw new AppError({
           code: "triage.old_text_ambiguous",
           message: "oldText is ambiguous; include more surrounding context",
-          context: { path },
+          context: { path: rel },
         });
       }
       await writeFile(fullPath, content.replace(oldText, newText));
-      return { ok: true, path };
+      return { ok: true, path: rel };
     },
   });
 
@@ -187,17 +201,22 @@ export function buildTriageWorkspaceTools(params: {
       content: z.string().max(TRIAGE_NEW_FILE_MAX_BYTES),
     }),
     run: async ({ path, content }) => {
-      const fullPath = safePath(root, path);
+      const { fullPath, relativePath: rel } = await assertTriageWritablePath({
+        root,
+        path,
+        mode: "create",
+        implicatedPaths,
+      });
       if (await stat(fullPath).catch(() => null)) {
         throw new AppError({
           code: "triage.path_exists",
           message: "Path already exists",
-          context: { path },
+          context: { path: rel },
         });
       }
       await mkdir(dirname(fullPath), { recursive: true });
       await writeFile(fullPath, content);
-      return { ok: true, path };
+      return { ok: true, path: rel };
     },
   });
 
@@ -230,7 +249,12 @@ export function buildTriageWorkspaceTools(params: {
           message: "Triage fix budget reached",
         });
       }
-      const result = await params.checkout.commit({ files, subject, body });
+      const staged = await assertTriageStagePaths({
+        root,
+        files,
+        implicatedPaths,
+      });
+      const result = await params.checkout.commit({ files: [...staged], subject, body });
       params.state.commitByThreadRootCommentId.set(threadRootCommentId, result.sha);
       return result;
     },

@@ -17,6 +17,7 @@ import {
   LOCAL_WORKSPACE_MAX_FETCH_BYTES,
   LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
 } from "../settings/index.js";
+import { isTriageControlPath } from "../agent/triage/triageWritePolicy.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 import { assertWorkspacePath } from "./localPrWorkspace.js";
 
@@ -190,7 +191,7 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
         context: { path: file },
       });
     }
-    if (SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(file))) {
+    if (SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(file)) || isTriageControlPath(file)) {
       throw new AppError({
         code: "pr_workspace.sensitive_path",
         message: `commitFix blocked sensitive path "${file}"`,
