@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Orb setup for pr-agent — runs once per fresh orb (and after snapshot restore).
+# Installs the Nub package manager + pinned Node 22 toolchain, installs workspace
+# dependencies from the lockfile, prepares a tuned Postgres database, and copies
+# the env template. Idempotent and non-interactive.
+set -euo pipefail
+
+echo "[setup] pr-agent orb bootstrap"
+
+# --- Toolchain: Nub (provisions the Node 22.22.0 pinned in .node-version) ---
+if ! command -v nub >/dev/null 2>&1; then
+  echo "[setup] installing @nubjs/nub globally"
+  sudo npm install -g --ignore-scripts=false @nubjs/nub
+else
+  echo "[setup] nub already available ($(nub -v))"
+fi
+
+# --- Dependencies (frozen install from pnpm-lock.yaml, both workspaces) ---
+echo "[setup] installing workspace dependencies (nub ci)"
+nub ci --filter pr-agent... --filter pr-agent-landing...
+
+# --- Postgres: ensure server tooling is present ---
+if ! command -v pg_ctlcluster >/dev/null 2>&1; then
+  echo "[setup] installing postgresql via apt-get"
+  sudo apt-get update
+  sudo apt-get install -y --no-install-recommends postgresql
+fi
+
+# Tune the cluster for speed over durability (dev orb; data is ephemeral).
+echo "[setup] tuning postgres (fsync=off, synchronous_commit=off)"
+sudo -u postgres psql -v ON_ERROR_STOP=1 -c "ALTER SYSTEM SET fsync = off;" \
+  -c "ALTER SYSTEM SET synchronous_commit = off;" >/dev/null
+
+# Ensure the cluster is running (systemd-managed on the base orb).
+if ! pg_isready -q -h localhost -p 5432; then
+  echo "[setup] starting postgres cluster"
+  sudo systemctl start postgresql@18-main 2>/dev/null || sudo pg_ctlcluster 18 main start
+fi
+# (Re)start so ALTER SYSTEM fsync change takes effect; no-op-safe on a fresh orb.
+sudo systemctl restart postgresql@18-main 2>/dev/null || sudo pg_ctlcluster 18 main restart || true
+
+# --- Postgres: create pr_agent role + database idempotently ---
+echo "[setup] ensuring pr_agent role + database"
+sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pr_agent') THEN
+    CREATE ROLE pr_agent LOGIN PASSWORD 'pr_agent';
+  END IF;
+END $$;
+SQL
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'pr_agent'" | grep -q 1; then
+  sudo -u postgres createdb -O pr_agent pr_agent
+fi
+
+# --- Env: copy template without clobbering an existing .env ---
+if [ ! -f .env ]; then
+  echo "[setup] copying .env.example -> .env"
+  cp -- .env.example .env
+else
+  echo "[setup] .env already present, leaving as-is"
+fi
+
+# --- Orb agent guidance ---
+mkdir -p "$HOME/.config/amp"
+cat > "$HOME/.config/amp/AGENTS.md" <<'AGENTS'
+# pr-agent orb notes
+
+- **Package manager is Nub**, not pnpm/npm directly. Node 22.22.0 is pinned in `.node-version`; `nub` provisions it. Use `nub run <script>` (see `package.json`), `nub src/index.ts` to run, `nub watch src/index.ts` for auto-restart.
+- **Postgres 18 is preinstalled and running** on `localhost:5432`. The `pr_agent` role + database (password `pr_agent`) are created by `.agents/setup`, tuned `fsync=off` / `synchronous_commit=off` for dev speed. `DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent` (already in `.env`).
+- **Migrations auto-apply** at worker boot (`src/agentWork/runtime.ts`). Integration tests run migrations themselves per-suite, so the DB only needs to exist.
+- **Unit tests** (`nub run test`) need no DB. **Integration tests** require `DATABASE_URL` exported in the env (vitest does not auto-load `.env`): `DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub run test:integration`. Inventory-only: `nub run test:integration:inventory`.
+- **Checks**: `nub run check:code` (typecheck + oxlint + oxfmt), `nub run build`, `nub run check:effect-versions`, `nub run check:prod-deps`.
+- **Run the app**: `ROLE=web nub src/index.ts` and `ROLE=worker nub src/index.ts` (two terminals). `nub src/index.ts` loads `.env` automatically. Set real `GITHUB_APP_*`, `WEBHOOK_SECRET`, and provider keys (e.g. `OPENAI_API_KEY`) in `.env` before running; the template placeholders will fail `loadConfig()` at boot.
+- The landing site is workspace `pr-agent-landing` (`site/`): `nub run site:dev` / `nub run site:build`.
+AGENTS
+
+echo "[setup] done"
