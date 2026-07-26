@@ -19,6 +19,11 @@ import {
 } from "../src/prWorkspace/localPrWorkspace.js";
 import { LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE } from "../src/settings/index.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
+import {
+  buildSymbolIndex,
+  querySymbolIndex,
+  symbolIndexStatus,
+} from "../src/prWorkspace/symbolIndex.js";
 
 const exec = promisify(execFile);
 
@@ -41,6 +46,8 @@ function mockWorkspace(
     stats?: LocalPrWorkspace["stats"];
     getDiffForPath?: (path: string) => Promise<string>;
     getBlameForPath?: (path: string) => Promise<string>;
+    lookupSymbol?: LocalPrWorkspace["lookupSymbol"];
+    getSymbolIndexStatus?: LocalPrWorkspace["getSymbolIndexStatus"];
   },
 ): LocalPrWorkspace {
   const paths = new Set(checkoutPaths);
@@ -76,6 +83,8 @@ function mockWorkspace(
     noteSearchTruncated: () => {
       searchTruncated = true;
     },
+    lookupSymbol: overrides?.lookupSymbol ?? (() => []),
+    getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
     cleanup: async () => {},
   };
 }
@@ -681,5 +690,107 @@ describe("local workspace tools", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("resolveSymbol returns defining file and line for known symbols", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/symbols.ts": "export function foo() {\n  return 1;\n}\n",
+      });
+
+      const index = await buildSymbolIndex(["src/symbols.ts"], async (path) => {
+        if (path === "src/symbols.ts") return "export function foo() {\n  return 1;\n}\n";
+        return null;
+      });
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/symbols.ts"], {
+        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
+        getSymbolIndexStatus: () => symbolIndexStatus(index),
+      });
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.resolveSymbol?.({ name: "foo" })) as {
+        available: boolean;
+        matches: Array<{ path: string; line: number; kind: string }>;
+      };
+
+      expect(out.available).toBe(true);
+      expect(out.matches).toEqual([{ path: "src/symbols.ts", line: 1, kind: "function" }]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveSymbol does not index symbols for sparse paths missing from checkout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-sparse-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/on-disk.ts": "function foo() {}\n",
+        "src/off-disk.ts": "function bar() {}\n",
+      });
+
+      const index = await buildSymbolIndex(["src/on-disk.ts", "src/off-disk.ts"], async (path) => {
+        if (path === "src/on-disk.ts") return "function foo() {}\n";
+        return null;
+      });
+      const workspace = mockWorkspace(root, ["src/on-disk.ts"], {
+        checkoutMode: "sparse",
+        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
+        getSymbolIndexStatus: () => symbolIndexStatus(index),
+      });
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+
+      const foo = (await executors.resolveSymbol?.({ name: "foo" })) as {
+        matches: Array<{ path: string }>;
+      };
+      const bar = (await executors.resolveSymbol?.({ name: "bar" })) as {
+        matches: Array<{ path: string }>;
+      };
+
+      expect(foo.matches).toEqual([{ path: "src/on-disk.ts", line: 1, kind: "function" }]);
+      expect(bar.matches).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveSymbol hits do not satisfy evidence ledger without readWorkspaceFile", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-evidence-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/symbols.ts": "export function foo() {\n  return 1;\n}\n",
+      });
+
+      const index = await buildSymbolIndex(["src/symbols.ts"], async (path) => {
+        if (path === "src/symbols.ts") return "export function foo() {\n  return 1;\n}\n";
+        return null;
+      });
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/symbols.ts"], {
+        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
+        getSymbolIndexStatus: () => symbolIndexStatus(index),
+      });
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+
+      await executors.resolveSymbol?.({ name: "foo" });
+
+      expect(evidenceLedger.covers("src/symbols.ts", 1, 1)).toBe(false);
+      expect(evidenceLedger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveSymbol description requires readWorkspaceFile before citing", () => {
+    const { piTools } = buildLocalWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]), {
+      limits: testLimits(),
+    });
+    const resolveSymbol = piTools.find((tool) => tool.name === "resolveSymbol");
+    expect(resolveSymbol?.description).toContain("readWorkspaceFile");
   });
 });

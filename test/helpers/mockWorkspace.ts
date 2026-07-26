@@ -39,6 +39,8 @@ export function mockLocalPrWorkspace(
     noteSearchTruncated: () => {
       searchTruncated = true;
     },
+    lookupSymbol: () => [],
+    getSymbolIndexStatus: () => ({ available: false }),
     cleanup: async () => {},
   };
 }

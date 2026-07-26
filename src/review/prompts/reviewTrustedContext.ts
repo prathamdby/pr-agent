@@ -5,6 +5,8 @@ import {
 import type { ReviewPreflightMetadata } from "../placement/reviewPreflightFiles.js";
 import { buildReviewSizeBudget, formatCheckoutCoverageBlock, formatReviewSizeBudgetBlock } from "../run/reviewSizeBudget.js";
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
+import { formatSymbolIndexStatusLine } from "../../prWorkspace/symbolIndex.js";
 import {
   fetchPriorInlineReviewFeedback,
   formatPriorInlineFeedbackBlock,
@@ -18,6 +20,7 @@ function buildTrustedReviewContextBlock(
     repoPolicyBlock?: string;
     agentInstructionFilesBlock?: string;
     checkoutCoverage?: CheckoutCoverage;
+    symbolIndexStatus?: SymbolIndexStatus;
   },
 ): string {
   const filenames = metadata.files.map((file) => file.filename);
@@ -35,6 +38,9 @@ function buildTrustedReviewContextBlock(
   ];
   if (extras?.checkoutCoverage) {
     blocks.push("", formatCheckoutCoverageBlock(extras.checkoutCoverage));
+  }
+  if (extras?.symbolIndexStatus) {
+    blocks.push("", formatSymbolIndexStatusLine(extras.symbolIndexStatus));
   }
   if (extras?.priorInlineFeedback) {
     blocks.push("", extras.priorInlineFeedback);
@@ -58,6 +64,7 @@ export function buildTrustedReviewContextForReview(params: {
   repoPolicyBlock?: string;
   agentInstructionFilesBlock?: string;
   checkoutCoverage?: CheckoutCoverage;
+  symbolIndexStatus?: SymbolIndexStatus;
 }): string {
   return buildTrustedReviewContextBlock(params.preflight, {
     priorInlineFeedback: params.priorInlineFeedback,
@@ -65,6 +72,7 @@ export function buildTrustedReviewContextForReview(params: {
     repoPolicyBlock: params.repoPolicyBlock,
     agentInstructionFilesBlock: params.agentInstructionFilesBlock,
     checkoutCoverage: params.checkoutCoverage,
+    symbolIndexStatus: params.symbolIndexStatus,
   });
 }
 

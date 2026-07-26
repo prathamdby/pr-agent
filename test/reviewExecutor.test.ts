@@ -682,6 +682,7 @@ describe("executeReviewJob", () => {
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
+      symbolIndexStatus: { available: false },
     });
   });
 
@@ -724,6 +725,7 @@ describe("executeReviewJob", () => {
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: defaultCheckoutCoverage(),
+      symbolIndexStatus: { available: false },
     });
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
   });
@@ -771,6 +773,7 @@ describe("executeReviewJob", () => {
       repoPolicyBlock: expect.stringContaining("Be terse."),
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      symbolIndexStatus: { available: false },
     });
   });
 
@@ -798,6 +801,7 @@ describe("executeReviewJob", () => {
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
       checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      symbolIndexStatus: { available: false },
     });
   });
 
@@ -826,6 +830,7 @@ describe("executeReviewJob", () => {
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
       checkoutCoverage: mockLocalPrWorkspace(checkout).getCoverage(),
+      symbolIndexStatus: { available: false },
     });
   });
 

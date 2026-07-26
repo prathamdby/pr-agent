@@ -19,6 +19,7 @@ import {
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+  LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
 } from "../../settings/index.js";
 import {
   hashNormalizedLineText,
@@ -332,12 +333,35 @@ export function buildLocalWorkspaceTools(
     },
   };
 
+  const resolveSymbol: LocalTool = {
+    description:
+      "Look up symbol definitions in the ephemeral per-run symbol index (TypeScript/JavaScript/Python heuristics). Navigation hint only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
+    schema: z.object({
+      name: z.string().min(1),
+      maxResults: z.number().int().positive().optional().default(LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS),
+    }),
+    run: async ({ name, maxResults }) => {
+      const status = workspace.getSymbolIndexStatus();
+      const matches = workspace.lookupSymbol(name, maxResults);
+      return {
+        name,
+        available: status.available,
+        matches,
+        ...(status.available
+          ? {}
+          : { reason: "Symbol index unavailable for this workspace." }),
+        reminder: "Call readWorkspaceFile before citing any match.",
+      };
+    },
+  };
+
   const tools: Record<string, LocalTool> = {
     listChangedFiles,
     readWorkspaceFile,
     searchWorkspace,
     getWorkspaceDiff,
     getWorkspaceBlame,
+    resolveSymbol,
   };
   return {
     piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),

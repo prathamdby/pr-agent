@@ -356,6 +356,9 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `LOCAL_WORKSPACE_MAX_FETCH_BYTES`           | 2147483648 |
 | `LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB`    | 1000000    |
 | `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS` | 86400      |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS` | 5000   |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS`  | 50000      |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS`  | 50         |
 
 ### Postgres pool
 

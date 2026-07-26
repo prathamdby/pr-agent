@@ -551,6 +551,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     repoPolicyBlock,
     agentInstructionFilesBlock,
     checkoutCoverage,
+    symbolIndexStatus: repositoryView.workspace.getSymbolIndexStatus(),
   });
 
   const timing = reviewRunTimingFromJob(args.job);

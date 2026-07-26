@@ -27,6 +27,8 @@ const workspace: LocalPrWorkspace = {
       stats: { truncated: false },
     }),
   noteSearchTruncated: () => undefined,
+  lookupSymbol: () => [],
+  getSymbolIndexStatus: () => ({ available: false }),
   cleanup: async () => undefined,
 };
 

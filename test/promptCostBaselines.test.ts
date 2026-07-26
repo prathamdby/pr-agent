@@ -41,6 +41,7 @@ const LOCAL_WORKSPACE_TOOL_NAMES = [
   "getWorkspaceDiff",
   "listChangedFiles",
   "readWorkspaceFile",
+  "resolveSymbol",
   "searchWorkspace",
 ] as const;
 const CONTEXT7_TOOL_NAMES = ["getLibraryDocs", "resolveLibraryId"] as const;
@@ -225,8 +226,8 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "local workspace tool definitions",
       content: stableJson(localWorkspaceTools),
-      // Enriched investigation-protocol descriptions (issue #363); was 2_200.
-      budget: { bytes: 2_550, characters: 2_550, estimatedTokens: 638 },
+      // Enriched investigation-protocol descriptions (issue #363); resolveSymbol added for symbol index.
+      budget: { bytes: 3_100, characters: 3_100, estimatedTokens: 775 },
     },
     {
       name: "Context7 tool definitions",
