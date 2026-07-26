@@ -8,7 +8,7 @@ You keep model keys and review traffic in your own environment. Supported backen
 
 ## Docs
 
-- [Getting started](https://github.com/prathamdby/pr-agent#getting-started): GitHub App setup and Docker Compose deploy
+- [Host with Docker Compose](https://github.com/prathamdby/pr-agent#host-with-docker-compose): GitHub App setup and Docker Compose deploy
 - [Features](https://github.com/prathamdby/pr-agent/blob/main/docs/features.md): FEATURE_* catalog and capability modes (off, manual, auto)
 - [Configuration](https://github.com/prathamdby/pr-agent/blob/main/docs/configuration.md): Environment variables and knobs
 - [Operations](https://github.com/prathamdby/pr-agent/blob/main/docs/operations.md): Deploy steps, runtime behaviour, and scripts

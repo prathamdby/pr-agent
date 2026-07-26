@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Operator-facing summary: [README.md](../../README.md) (How It Works, Getting Started). Runbooks: [docs/agent-work-ops.md](../agent-work-ops.md).
+Accepted. Operator-facing summary: [README.md](../../README.md) (How it works, Host with Docker Compose). Runbooks: [docs/agent-work-ops.md](../agent-work-ops.md).
 
 ## Context
 
