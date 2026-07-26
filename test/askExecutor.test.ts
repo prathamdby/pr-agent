@@ -329,7 +329,9 @@ describe("executeAskJob", () => {
   it("does not remutate or rerun the model after post-mutate / pre-reconcile crash", async () => {
     memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 2);
 
-    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toThrow("crash before reconcile");
+    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toThrow(
+      "crash before reconcile",
+    );
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
     expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);

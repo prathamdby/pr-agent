@@ -183,12 +183,10 @@ describe("executeVerificationJob", () => {
 
   it("short-circuits when all findings are already resolved", async () => {
     mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: true }]]),
       status: "ok",
-    },
-    );
+    });
 
     await executeVerificationJob(cfg, pool, boss, job());
 
@@ -199,12 +197,10 @@ describe("executeVerificationJob", () => {
 
   it("runs the verification agent and publishes when there are open findings", async () => {
     mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
       status: "ok",
-    },
-    );
+    });
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -252,15 +248,13 @@ describe("executeVerificationJob", () => {
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([
         [1, { threadNodeId: "node-1", isResolved: false }],
         [2, { threadNodeId: "node-2", isResolved: false }],
       ]),
       status: "ok",
-    },
-    );
+    });
     mocks.fetchPullRequestFiles.mockResolvedValue({
       files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
       truncated: false,
@@ -310,15 +304,13 @@ describe("executeVerificationJob", () => {
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([
         [1, { threadNodeId: "node-1", isResolved: false }],
         [2, { threadNodeId: "node-2", isResolved: false }],
       ]),
       status: "ok",
-    },
-    );
+    });
     mocks.fetchPullRequestFiles.mockResolvedValue({
       files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
       truncated: false,
@@ -356,12 +348,10 @@ describe("executeVerificationJob", () => {
 
   it("throws when the agent does not submit a payload", async () => {
     mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
       status: "ok",
-    },
-    );
+    });
     mocks.runVerification.mockResolvedValue({
       submitted: false,
       payload: null,
@@ -375,12 +365,10 @@ describe("executeVerificationJob", () => {
 
   it("propagates degraded when publishVerification reports degraded", async () => {
     mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
       status: "ok",
-    },
-    );
+    });
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -460,72 +448,69 @@ describe("executeVerificationJob", () => {
       files: Array.from({ length: 300 }, (_, i) => `src/f${i}.ts`),
       truncated: true,
     },
-  ] as const)(
-    "propagates compare truncation for $label pushes",
-    async ({ files, truncated }) => {
-      const beforeSha = "c".repeat(40);
-      mockDurableExecution(
+  ] as const)("propagates compare truncation for $label pushes", async ({ files, truncated }) => {
+    const beforeSha = "c".repeat(40);
+    mockDurableExecution(
+      item({
+        payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
+      }),
+    );
+    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    mocks.listReviewThreadResolution.mockResolvedValue({
+      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      status: "ok",
+    });
+    mocks.fetchPullRequestFiles.mockResolvedValue({
+      files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
+      truncated: false,
+      omittedCountLowerBound: 0,
+      totalChanges: 20,
+      headSha: "a".repeat(40),
+    });
+    mocks.listCommitCompareFiles.mockResolvedValue({ files: [...files], truncated });
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: {
+        verdicts: [
+          {
+            verdict: "skipped",
+            threadRootCommentId: 1,
+            reason: "still open",
+          },
+        ],
+      },
+    });
+
+    let executeResult: unknown;
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+      executeResult = await spec.execute(
         item({
           payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
         }),
-      );
-      mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-      mocks.listReviewThreadResolution.mockResolvedValue({
-        byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-        status: "ok",
-      });
-      mocks.fetchPullRequestFiles.mockResolvedValue({
-        files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
-        truncated: false,
-        omittedCountLowerBound: 0,
-        totalChanges: 20,
-        headSha: "a".repeat(40),
-      });
-      mocks.listCommitCompareFiles.mockResolvedValue({ files: [...files], truncated });
-      mocks.runVerification.mockResolvedValue({
-        submitted: true,
-        payload: {
-          verdicts: [
-            {
-              verdict: "skipped",
-              threadRootCommentId: 1,
-              reason: "still open",
-            },
-          ],
+        {
+          installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+          headSha: "a".repeat(40),
         },
-      });
-
-      let executeResult: unknown;
-      mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
-        executeResult = await spec.execute(
-          item({
-            payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
-          }),
-          {
-            installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
-            headSha: "a".repeat(40),
-          },
-        );
-      });
-
-      await executeVerificationJob(cfg, pool, boss, job());
-
-      expect(mocks.runVerification).toHaveBeenCalledWith(
-        expect.objectContaining({ compareFilesTruncated: truncated }),
       );
-      expect(mocks.publishVerification).toHaveBeenCalledWith(
-        expect.objectContaining({
-          changedFilePathsTruncated: truncated,
-          ...(truncated
-            ? {
-                changedFilePaths: expect.arrayContaining(["src/app.ts", "README.md"]),
-              }
-            : { changedFilePaths: files }),
-        }),
-      );
-      if (truncated) {
-        expect(executeResult).toEqual({ degraded: true });
-      }
-    },
-  );
+    });
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    expect(mocks.runVerification).toHaveBeenCalledWith(
+      expect.objectContaining({ compareFilesTruncated: truncated }),
+    );
+    expect(mocks.publishVerification).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changedFilePathsTruncated: truncated,
+        ...(truncated
+          ? {
+              changedFilePaths: expect.arrayContaining(["src/app.ts", "README.md"]),
+            }
+          : { changedFilePaths: files }),
+      }),
+    );
+    if (truncated) {
+      expect(executeResult).toEqual({ degraded: true });
+    }
+  });
 });

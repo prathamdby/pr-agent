@@ -9,10 +9,7 @@ import {
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
 import type { InstallationToken } from "../../github/appAuth.js";
-import {
-  createRateLimitCircuit,
-  runWithRateLimitCircuit,
-} from "../../github/rateLimitCircuit.js";
+import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
   assertPullRequestFilesHeadSha,
   fetchPullRequestFiles,

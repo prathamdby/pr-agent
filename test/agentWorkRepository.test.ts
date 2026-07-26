@@ -175,11 +175,10 @@ describe("publish records", () => {
       generation: 3,
     });
 
-    expect(queryOne).toHaveBeenLastCalledWith(
-      pool,
-      expect.stringContaining("progressGeneration"),
-      ["o/r#1", "review"],
-    );
+    expect(queryOne).toHaveBeenLastCalledWith(pool, expect.stringContaining("progressGeneration"), [
+      "o/r#1",
+      "review",
+    ]);
   });
 
   it("returns null when no progress revision has been recorded", async () => {

@@ -19,9 +19,7 @@ export const INTEGRATION_DATABASE_HINT = [
   "  nub run test:integration:inventory",
 ].join("\n");
 
-export function allowIntegrationSkipWithoutDatabase(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function allowIntegrationSkipWithoutDatabase(env: NodeJS.ProcessEnv = process.env): boolean {
   return env[INTEGRATION_ALLOW_SKIP_ENV] === "1";
 }
 

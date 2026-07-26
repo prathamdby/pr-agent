@@ -59,7 +59,7 @@ describe("probeWorkerDependencies", () => {
     const clearTimeoutFn = vi.fn() as unknown as typeof clearTimeout;
 
     const pending = probeWorkerDependencies(
-      { query: () => new Promise(() => undefined) },
+      { query: () => new Promise(() => undefined) } as unknown as Pick<import("pg").Pool, "query">,
       { isInstalled: async () => true },
       { pingTimeoutMs: 25, setTimeoutFn, clearTimeoutFn },
     );
@@ -97,7 +97,7 @@ describe("collectQueueDiagnostics", () => {
     ]);
     const pool = {
       query: vi.fn(async () => ({ rows: [{ age_ms: "45000" }] })),
-    };
+    } as unknown as Pick<import("pg").Pool, "query">;
 
     const report = await collectQueueDiagnostics({
       boss: { getQueueStats, getBlockedKeys, findJobs } as unknown as PgBoss,
@@ -117,9 +117,7 @@ describe("collectQueueDiagnostics", () => {
         failed: 0,
       },
     ]);
-    expect(report.deadLetters).toEqual([
-      { queue: "agent-work-review-dead", queued: 2, total: 5 },
-    ]);
+    expect(report.deadLetters).toEqual([{ queue: "agent-work-review-dead", queued: 2, total: 5 }]);
     expect(report.blockedReviewKeys).toEqual([{ key: "owner/repo#1", ageMs: 60_000 }]);
     expect(report.oldestRunningWorkItemAgeMs).toBe(45_000);
     expect(report.at).toBe(now.toISOString());

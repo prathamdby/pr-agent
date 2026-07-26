@@ -198,8 +198,7 @@ describe("review thread resolution", () => {
 
   it("caps reviewThreads pagination and reports truncated partial coverage", async () => {
     mocks.graphql.mockImplementation(async (_query: string, vars: { cursor?: string | null }) => {
-      const pageIndex =
-        vars.cursor == null ? 0 : Number(String(vars.cursor).replace("c", "")) + 1;
+      const pageIndex = vars.cursor == null ? 0 : Number(String(vars.cursor).replace("c", "")) + 1;
       return page({
         hasNextPage: true,
         endCursor: `c${pageIndex}`,

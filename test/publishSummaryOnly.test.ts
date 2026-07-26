@@ -8,19 +8,23 @@ vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
   return {
     ...actual,
-    listPullRequestReviewCommentsForReview: vi.fn(
-      async (_token, _owner, _repo, _pullNumber, reviewId: number) => {
-        const line = reviewId === 41 ? 10 : 20;
-        return [
-          {
-            path: "src/a.ts",
-            line,
-            id: reviewId,
-            url: `https://github.com/o/r/pull/1#discussion_r${reviewId}`,
-          },
-        ];
-      },
-    ),
+    listPullRequestReviewComments: vi.fn(async () => ({
+      comments: [
+        {
+          path: "src/a.ts",
+          line: 10,
+          id: 41,
+          url: "https://github.com/o/r/pull/1#discussion_r41",
+        },
+        {
+          path: "src/a.ts",
+          line: 20,
+          id: 42,
+          url: "https://github.com/o/r/pull/1#discussion_r42",
+        },
+      ],
+      truncated: false,
+    })),
     findIssueCommentBySentinel: vi.fn(async () => null),
     resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
     upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
@@ -41,7 +45,7 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 });
 
 import {
-  listPullRequestReviewCommentsForReview,
+  listPullRequestReviewComments,
   setReviewCommitStatus,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
@@ -118,7 +122,7 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledTimes(2);
+    expect(listPullRequestReviewComments).toHaveBeenCalledTimes(1);
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("#discussion_r41");
     expect(summaryBody).toContain("#discussion_r42");

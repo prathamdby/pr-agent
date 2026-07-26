@@ -280,7 +280,10 @@ describe("createFeaturePiSession durability", () => {
         },
       });
       expect(loadResumeSnapshot).not.toHaveBeenCalled();
-      return fakeSession({ role: "orchestrator", getStructuredState: () => params.structuredState });
+      return fakeSession({
+        role: "orchestrator",
+        getStructuredState: () => params.structuredState,
+      });
     });
 
     await createFeaturePiSession({
@@ -323,7 +326,10 @@ describe("createFeaturePiSession durability", () => {
         lastPhase: "recon",
         lastCheckpointId: "orchestrator:recon",
       });
-      return fakeSession({ role: "orchestrator", getStructuredState: () => params.structuredState });
+      return fakeSession({
+        role: "orchestrator",
+        getStructuredState: () => params.structuredState,
+      });
     });
 
     await createFeaturePiSession({
@@ -361,7 +367,10 @@ describe("createFeaturePiSession durability", () => {
       expect(params.structuredState.payload.fromCheckpoint).toBe(true);
       expect(params.structuredState.payload.__resumeConversation).toBeUndefined();
       expect(params.structuredState.payload.__lastCompletedPhase).toBe("recon");
-      return fakeSession({ role: "orchestrator", getStructuredState: () => params.structuredState });
+      return fakeSession({
+        role: "orchestrator",
+        getStructuredState: () => params.structuredState,
+      });
     });
 
     await createFeaturePiSession({

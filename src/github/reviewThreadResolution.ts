@@ -8,11 +8,7 @@ export type ReviewThreadResolution = {
   readonly isResolved: boolean;
 };
 
-export type ReviewThreadResolutionStatus =
-  | "ok"
-  | "permission_denied"
-  | "partial"
-  | "unavailable";
+export type ReviewThreadResolutionStatus = "ok" | "permission_denied" | "partial" | "unavailable";
 
 export type ListReviewThreadResolutionResult = {
   readonly byRootCommentId: Map<number, ReviewThreadResolution>;
@@ -89,10 +85,18 @@ function isReviewThreadsPage(value: unknown): value is ReviewThreadsPage {
 function ingestThreadsPage(
   page: ReviewThreadsPage,
   byRootCommentId: Map<number, ReviewThreadResolution>,
-): { readonly hasNextPage: boolean; readonly endCursor: string | null; readonly sawMalformed: boolean } {
+): {
+  readonly hasNextPage: boolean;
+  readonly endCursor: string | null;
+  readonly sawMalformed: boolean;
+} {
   const connection = page.repository?.pullRequest?.reviewThreads;
   if (connection == null) {
-    return { hasNextPage: false, endCursor: null, sawMalformed: page.repository?.pullRequest == null };
+    return {
+      hasNextPage: false,
+      endCursor: null,
+      sawMalformed: page.repository?.pullRequest == null,
+    };
   }
 
   let sawMalformed = false;
@@ -181,7 +185,8 @@ export async function listReviewThreadResolution(
       return {
         byRootCommentId,
         status: "unavailable",
-        warning: "reviewThreads GraphQL returned a malformed response; continuing without resolution.",
+        warning:
+          "reviewThreads GraphQL returned a malformed response; continuing without resolution.",
       };
     }
 
@@ -218,7 +223,8 @@ export async function listReviewThreadResolution(
     return {
       byRootCommentId,
       status: "unavailable",
-      warning: "reviewThreads GraphQL returned malformed thread nodes; continuing without resolution.",
+      warning:
+        "reviewThreads GraphQL returned malformed thread nodes; continuing without resolution.",
     };
   }
 
@@ -226,7 +232,8 @@ export async function listReviewThreadResolution(
     return {
       byRootCommentId,
       status: "partial",
-      warning: "reviewThreads GraphQL included malformed thread nodes; using partial resolution data.",
+      warning:
+        "reviewThreads GraphQL included malformed thread nodes; using partial resolution data.",
     };
   }
 

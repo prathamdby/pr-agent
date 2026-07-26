@@ -137,24 +137,25 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   );
 
   if (data.progress) {
+    const progressData = { ...data, progress: data.progress };
     const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
     if (data.workItemId != null) {
       const mayPublish = await canAckPublishProgress(pool, {
         workItemId: data.workItemId,
         resourceKey,
-        reviewLens: data.progress.lens,
+        reviewLens: progressData.progress.lens,
       });
       if (!mayPublish) {
         logWarn("ack_progress_skipped_stale_owner", {
           workItemId: data.workItemId,
           resourceKey,
-          reviewLens: data.progress.lens,
+          reviewLens: progressData.progress.lens,
         });
       } else {
-        await publishAckProgress(pool, data, installation, resourceKey);
+        await publishAckProgress(pool, progressData, installation, resourceKey);
       }
     } else {
-      await publishAckProgress(pool, data, installation, resourceKey);
+      await publishAckProgress(pool, progressData, installation, resourceKey);
     }
   }
 

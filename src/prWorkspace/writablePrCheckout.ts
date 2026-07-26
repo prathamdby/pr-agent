@@ -191,7 +191,10 @@ function validateFiles(root: string, files: readonly string[]): readonly string[
         context: { path: file },
       });
     }
-    if (SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(file)) || isTriageControlPath(file)) {
+    if (
+      SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(file)) ||
+      isTriageControlPath(file)
+    ) {
       throw new AppError({
         code: "pr_workspace.sensitive_path",
         message: `commitFix blocked sensitive path "${file}"`,

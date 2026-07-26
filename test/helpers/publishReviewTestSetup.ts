@@ -49,6 +49,17 @@ export function createReviewPublishGithubMock(actual: typeof reviewPublish) {
         url: "https://github.com/o/r/pull/1#discussion_r99",
       },
     ]),
+    listPullRequestReviewComments: vi.fn(async () => ({
+      comments: [
+        {
+          path: "src/x.ts",
+          line: 4,
+          id: 99,
+          url: "https://github.com/o/r/pull/1#discussion_r99",
+        },
+      ],
+      truncated: false,
+    })),
     resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
     findIssueCommentBySentinel: vi.fn(async () => null),
     upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),

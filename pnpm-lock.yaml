@@ -64,7 +64,7 @@ importers:
         version: 3.22.0
       evlog:
         specifier: 2.22.3
-        version: 2.22.3(@tanstack/start-client-core@1.170.14)(react@19.2.7)(vite@8.1.5(@types/node@26.1.1)(jiti@2.7.0)(yaml@2.9.0))
+        version: 2.22.3
       pg:
         specifier: ^8.22.0
         version: 8.22.0
@@ -4911,11 +4911,7 @@ snapshots:
     dependencies:
       '@types/estree': 1.0.9
 
-  evlog@2.22.3(@tanstack/start-client-core@1.170.14)(react@19.2.7)(vite@8.1.5(@types/node@26.1.1)(jiti@2.7.0)(yaml@2.9.0)):
-    optionalDependencies:
-      '@tanstack/start-client-core': 1.170.14
-      react: 19.2.7
-      vite: 8.1.5(@types/node@26.1.1)(jiti@2.7.0)(yaml@2.9.0)
+  evlog@2.22.3: {}
 
   expect-type@1.4.0: {}
 

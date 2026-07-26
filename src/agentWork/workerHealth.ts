@@ -160,10 +160,7 @@ export type QueueDiagnosticsReport = {
 
 type DiagnosticsBoss = Pick<PgBoss, "getQueueStats" | "getBlockedKeys" | "findJobs">;
 
-async function laneStats(
-  boss: DiagnosticsBoss,
-  queue: string,
-): Promise<QueueLaneDiagnostic> {
+async function laneStats(boss: DiagnosticsBoss, queue: string): Promise<QueueLaneDiagnostic> {
   const [stats] = await boss.getQueueStats(queue);
   return {
     queue,

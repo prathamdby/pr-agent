@@ -274,9 +274,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           try: async () => {
             handles.diagnostics.stop();
             await handles.health.close().catch(() => undefined);
-            await Promise.all(
-              [...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q)),
-            );
+            await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q)));
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),

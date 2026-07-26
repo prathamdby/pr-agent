@@ -103,10 +103,7 @@ export function createMemoryOperationIntentStore() {
       return stored ? toRow(stored) : null;
     },
 
-    async persist(
-      _client: Pool | PoolClient,
-      params: PersistParams,
-    ): Promise<OperationIntentRow> {
+    async persist(_client: Pool | PoolClient, params: PersistParams): Promise<OperationIntentRow> {
       const key = rowKey(params.workItemId, params.operationKey);
       const existing = rows.get(key);
       if (existing) {
@@ -121,7 +118,7 @@ export function createMemoryOperationIntentStore() {
         mutationKind: params.mutationKind,
         status: "pending",
         publishRecordId: null,
-        detail: { ...(params.detail ?? {}) },
+        detail: { ...params.detail },
         createdAtMs: now,
         updatedAtMs: now,
       };

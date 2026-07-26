@@ -108,29 +108,29 @@ Canonical quick start steps live in [README.md](../README.md) **Getting Started*
 
 ### Scripts
 
-| Script                                 | Purpose                                     |
-| -------------------------------------- | ------------------------------------------- |
-| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)             |
-| `nub watch src/index.ts`               | Auto-restart dev entry                      |
-| `nub run build`                        | Compile to `dist/`                          |
-| `nub run start` / `node dist/index.js` | Run compiled `dist/`                        |
-| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                |
-| `nub run lint`                         | Type-aware Oxlint (includes `site/`)        |
-| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`         |
-| `nub run lint:fix`                     | Oxlint with safe fixes                      |
-| `nub run fmt`                          | Format with Oxfmt                           |
-| `nub run fmt:check`                    | Check formatting                            |
-| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`          |
-| `nub run check:effect-versions`        | Verify pinned Effect deps                   |
-| `nub run check:prod-deps`              | Production dependency graph guard           |
-| `nub run test`                         | Vitest (`test/**/*.test.ts`)                |
-| `nub run test:watch`                   | Vitest watch mode                           |
+| Script                                 | Purpose                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------- |
+| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)                                         |
+| `nub watch src/index.ts`               | Auto-restart dev entry                                                  |
+| `nub run build`                        | Compile to `dist/`                                                      |
+| `nub run start` / `node dist/index.js` | Run compiled `dist/`                                                    |
+| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                                            |
+| `nub run lint`                         | Type-aware Oxlint (includes `site/`)                                    |
+| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`                                     |
+| `nub run lint:fix`                     | Oxlint with safe fixes                                                  |
+| `nub run fmt`                          | Format with Oxfmt                                                       |
+| `nub run fmt:check`                    | Check formatting                                                        |
+| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`                                      |
+| `nub run check:effect-versions`        | Verify pinned Effect deps                                               |
+| `nub run check:prod-deps`              | Production dependency graph guard                                       |
+| `nub run test`                         | Vitest (`test/**/*.test.ts`)                                            |
+| `nub run test:watch`                   | Vitest watch mode                                                       |
 | `nub run test:integration`             | Vitest integration suite (requires Postgres; fails fast if unreachable) |
-| `nub run test:integration:inventory`   | Same suite, but may skip DB cases when `DATABASE_URL` is unset |
-| `nub run --node test`                  | Vitest via plain Node (escape hatch)        |
-| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`) |
-| `nub run site:build`                   | Landing site production build               |
-| `nub run site:generate-og`             | Generate landing OG assets                  |
+| `nub run test:integration:inventory`   | Same suite, but may skip DB cases when `DATABASE_URL` is unset          |
+| `nub run --node test`                  | Vitest via plain Node (escape hatch)                                    |
+| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)                             |
+| `nub run site:build`                   | Landing site production build                                           |
+| `nub run site:generate-og`             | Generate landing OG assets                                              |
 
 Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs, with temporary `minimumReleaseAgeExclude` entries: Oxc (`oxlint@1.75.0`, `oxlint-tsgolint@7.0.2001`, `@oxlint/*`, `@oxlint-tsgolint/*`) — remove after 2026-07-29; Pi 0.82.1 (`@earendil-works/pi-*@0.82.1`) plus `evlog@2.22.3`, `oxfmt@0.60.0` / `@oxfmt/*`, `pg-boss@12.26.3`, `posthog-node@5.46.1` / `@posthog/*` — remove after 2026-08-01; `brace-expansion@5.0.8` (GHSA-mh99-v99m-4gvg override in `package.json`) — remove override + exclude after 2026-07-30 once upstream ages past the gate.
 

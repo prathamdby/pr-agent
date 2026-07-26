@@ -129,12 +129,10 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/thread",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
       status: "ok",
-    },
-    );
+    });
     mocks.withWritablePrCheckout.mockImplementation(async (_params, run) =>
       run({
         dir: "/tmp/checkout",
@@ -189,12 +187,10 @@ describe("executeTriageJob", () => {
   });
 
   it("reports already-resolved threads without implying no review ran", async () => {
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: true }]]),
       status: "ok",
-    },
-    );
+    });
 
     await executeTriageJob(cfg, pool, boss, job());
 
@@ -313,15 +309,13 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/thread-2",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([
         [1, { threadNodeId: "node-1", isResolved: false }],
         [2, { threadNodeId: "node-2", isResolved: false }],
       ]),
       status: "ok",
-    },
-    );
+    });
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
@@ -379,15 +373,13 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/2",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([
         [1, { threadNodeId: "node-1", isResolved: false }],
         [2, { threadNodeId: "node-2", isResolved: false }],
       ]),
       status: "ok",
-    },
-    );
+    });
     mocks.fetchReviewCommentParentGraph.mockResolvedValue([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
@@ -433,12 +425,10 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/9",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[9, { threadNodeId: "node-9", isResolved: false }]]),
       status: "ok",
-    },
-    );
+    });
     mocks.fetchReviewCommentParentGraph.mockRejectedValue(new Error("graphql unavailable"));
     mockDurableExecution(
       item({
@@ -520,12 +510,10 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/1",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue(
-      {
+    mocks.listReviewThreadResolution.mockResolvedValue({
       byRootCommentId: new Map([[1, { threadNodeId: "node-1", isResolved: true }]]),
       status: "ok",
-    },
-    );
+    });
     mocks.fetchReviewCommentParentGraph.mockResolvedValue([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },

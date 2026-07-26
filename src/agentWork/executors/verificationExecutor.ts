@@ -166,12 +166,7 @@ export async function executeVerificationJob(
       const changedFilePaths =
         pushDeltaFiles != null
           ? compareFilesTruncated
-            ? [
-                ...new Set([
-                  ...pushDeltaFiles.files,
-                  ...prFiles.files.map((file) => file.filename),
-                ]),
-              ]
+            ? [...new Set([...pushDeltaFiles.files, ...prFiles.files.map((file) => file.filename)])]
             : pushDeltaFiles.files
           : ([] as readonly string[]);
 

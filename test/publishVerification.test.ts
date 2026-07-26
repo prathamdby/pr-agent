@@ -303,12 +303,8 @@ describe("publishVerification", () => {
 
     expect(result).toEqual({ degraded: true });
     expect(mocks.createReply).toHaveBeenCalledTimes(2);
-    expect(mocks.createReply).toHaveBeenCalledWith(
-      expect.objectContaining({ comment_id: 1 }),
-    );
-    expect(mocks.createReply).toHaveBeenCalledWith(
-      expect.objectContaining({ comment_id: 3 }),
-    );
+    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 1 }));
+    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 3 }));
   });
 
   it("edits an existing stub in place on later still-open publishes", async () => {

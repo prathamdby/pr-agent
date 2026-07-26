@@ -14,11 +14,7 @@ import {
   computeResumeSnapshotTtlSeconds,
   type ResumeSnapshotPlaintext,
 } from "./resumeSnapshots.js";
-import type {
-  AgentSessionPhase,
-  AgentSessionRole,
-  AuthoritativeStructuredState,
-} from "./types.js";
+import type { AgentSessionPhase, AgentSessionRole, AuthoritativeStructuredState } from "./types.js";
 import { EMPTY_STRUCTURED_STATE } from "./types.js";
 
 export const RESUME_SNAPSHOT_SDK_VERSION = "pi-session-1";
@@ -240,9 +236,7 @@ export async function resolveDurableStructuredState(params: {
       ...chosen.payload,
       ...(resumeCheckpointId ? { __resumeCheckpointId: resumeCheckpointId } : {}),
       ...(lastCompletedPhase ? { __lastCompletedPhase: lastCompletedPhase } : {}),
-      ...(resumeConversation !== undefined
-        ? { __resumeConversation: resumeConversation }
-        : {}),
+      ...(resumeConversation !== undefined ? { __resumeConversation: resumeConversation } : {}),
     },
   };
 }

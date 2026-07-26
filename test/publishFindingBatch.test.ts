@@ -377,10 +377,14 @@ describe("publishFindingBatch", () => {
     await expect(
       publishFindingBatch(
         [finding],
-        batchContext(createFindingLedger(), vi.fn(async () => undefined), {
-          workItemId: "wi-crash",
-          operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
-        }),
+        batchContext(
+          createFindingLedger(),
+          vi.fn(async () => undefined),
+          {
+            workItemId: "wi-crash",
+            operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
+          },
+        ),
       ),
     ).rejects.toThrow("crash before reconcile");
 
@@ -396,10 +400,14 @@ describe("publishFindingBatch", () => {
     vi.mocked(createPullRequestReviewWithComments).mockClear();
     const recovered = await publishFindingBatch(
       [finding],
-      batchContext(createFindingLedger(), vi.fn(async () => undefined), {
-        workItemId: "wi-crash",
-        operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
-      }),
+      batchContext(
+        createFindingLedger(),
+        vi.fn(async () => undefined),
+        {
+          workItemId: "wi-crash",
+          operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
+        },
+      ),
     );
 
     expect(recovered.kind).toBe("published");

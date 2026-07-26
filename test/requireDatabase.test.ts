@@ -23,9 +23,7 @@ describe("assertIntegrationDatabaseReady", () => {
   });
 
   it("fails fast with start instructions when DATABASE_URL is missing", async () => {
-    await expect(assertIntegrationDatabaseReady({})).rejects.toThrow(
-      /DATABASE_URL is unset/,
-    );
+    await expect(assertIntegrationDatabaseReady({})).rejects.toThrow(/DATABASE_URL is unset/);
     await expect(assertIntegrationDatabaseReady({})).rejects.toThrow(
       /docker compose up -d postgres/,
     );
@@ -35,9 +33,7 @@ describe("assertIntegrationDatabaseReady", () => {
   });
 
   it("exposes helper predicates and error formatters", () => {
-    expect(allowIntegrationSkipWithoutDatabase({ [INTEGRATION_ALLOW_SKIP_ENV]: "1" })).toBe(
-      true,
-    );
+    expect(allowIntegrationSkipWithoutDatabase({ [INTEGRATION_ALLOW_SKIP_ENV]: "1" })).toBe(true);
     expect(allowIntegrationSkipWithoutDatabase({})).toBe(false);
     expect(formatMissingDatabaseUrlError().message).toContain(INTEGRATION_DATABASE_HINT);
     expect(formatUnreachableDatabaseError(new Error("ECONNREFUSED")).message).toMatch(

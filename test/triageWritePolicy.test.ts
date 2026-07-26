@@ -32,13 +32,12 @@ describe("triageWritePolicy", () => {
     expect(isTriageControlPath(path)).toBe(true);
   });
 
-  it.each([
-    "src/app.ts",
-    "docs/guide.md",
-    "test/foo.test.ts",
-  ] as const)("allows non-control path %s", (path) => {
-    expect(isTriageControlPath(path)).toBe(false);
-  });
+  it.each(["src/app.ts", "docs/guide.md", "test/foo.test.ts"] as const)(
+    "allows non-control path %s",
+    (path) => {
+      expect(isTriageControlPath(path)).toBe(false);
+    },
+  );
 
   it("requires safe path classes for new files", () => {
     expect(isTriageSafeNewFilePath("docs/note.md")).toBe(true);
