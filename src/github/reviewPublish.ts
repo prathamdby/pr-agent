@@ -130,6 +130,23 @@ export type PublishedReviewComment = {
   url: string;
 };
 
+function parsePublishedReviewComments(
+  comments: readonly { path?: string | null; line?: number | null; id: number; html_url: string }[],
+): PublishedReviewComment[] {
+  const parsed = comments.flatMap((comment) => {
+    if (comment.path == null || comment.line == null) return [];
+    return [
+      {
+        path: comment.path,
+        line: comment.line,
+        id: comment.id,
+        url: comment.html_url,
+      },
+    ];
+  });
+  return parsed.toSorted((a, b) => a.id - b.id);
+}
+
 export async function listPullRequestReviewCommentsForReview(
   token: string,
   owner: string,
@@ -154,18 +171,43 @@ export async function listPullRequestReviewCommentsForReview(
       return data;
     },
   });
-  const parsed = comments.flatMap((comment) => {
-    if (comment.path == null || comment.line == null) return [];
-    return [
-      {
-        path: comment.path,
-        line: comment.line,
-        id: comment.id,
-        url: comment.html_url,
-      },
-    ];
+  return parsePublishedReviewComments(comments);
+}
+
+/**
+ * Single PR-wide review-comment listing (bounded pages). Prefer this over
+ * per-inline-review pagination when enriching summary placements.
+ */
+export async function listPullRequestReviewComments(
+  token: string,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  expiresAtTs?: number,
+): Promise<{ readonly comments: PublishedReviewComment[]; readonly truncated: boolean }> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  let stoppedAtCap = false;
+  const comments = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviewComments({
+        owner,
+        repo,
+        pull_number: pullNumber,
+        per_page: perPage,
+        page,
+      });
+      if (page >= COMMENT_PAGINATION_MAX_PAGES && data.length >= perPage) {
+        stoppedAtCap = true;
+      }
+      return data;
+    },
   });
-  return parsed.toSorted((a, b) => a.id - b.id);
+  return {
+    comments: parsePublishedReviewComments(comments),
+    truncated: stoppedAtCap,
+  };
 }
 
 export type IssueCommentRef = { id: number; url: string };

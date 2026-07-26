@@ -22,7 +22,7 @@ import { logDebug, logWarn } from "../../evlog.js";
 import {
   findIssueCommentBySentinel,
   listPullRequestLabels,
-  listPullRequestReviewCommentsForReview,
+  listPullRequestReviewComments,
   resolveVerifiedSummaryCommentRef,
   setPullRequestLabels,
   setReviewCommitStatus,
@@ -447,28 +447,38 @@ export async function publishReviewSummaryOnly(params: {
   const mode = params.mode ?? "review";
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
   const summaryPlacements = params.ledger.accepted.map((accepted) => accepted.placement);
-  const reviewComments: Awaited<ReturnType<typeof listPullRequestReviewCommentsForReview>> = [];
-  for (const inlineReviewId of params.ledger.inlineReviewIds) {
+  // Prefer URLs already attached during inline publish; fetch the PR once for the rest.
+  const placementsNeedingUrls = summaryPlacements.some(
+    (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
+  );
+  let reviewComments: Awaited<ReturnType<typeof listPullRequestReviewComments>>["comments"] = [];
+  if (placementsNeedingUrls) {
     try {
       const token = params.getToken();
       const tokenExpiresAtTs = params.getTokenExpiresAtTs?.();
-      reviewComments.push(
-        ...(await listPullRequestReviewCommentsForReview(
-          token,
+      const listed = await listPullRequestReviewComments(
+        token,
+        owner,
+        repo,
+        prNumber,
+        tokenExpiresAtTs,
+      );
+      reviewComments = listed.comments;
+      if (listed.truncated) {
+        logWarn("review_inline_comment_urls_truncated", {
+          mode,
           owner,
           repo,
-          prNumber,
-          inlineReviewId,
-          tokenExpiresAtTs,
-        )),
-      );
+          pr: prNumber,
+          commentCount: listed.comments.length,
+        });
+      }
     } catch (error) {
       logWarn("review_inline_comment_urls_failed", {
         mode,
         owner,
         repo,
         pr: prNumber,
-        reviewId: inlineReviewId,
         message: error instanceof Error ? error.message : String(error),
       });
     }

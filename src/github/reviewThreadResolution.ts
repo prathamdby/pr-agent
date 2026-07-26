@@ -1,4 +1,5 @@
 import { logWarn } from "../evlog.js";
+import { MAX_REVIEW_THREAD_PAGES } from "../settings/index.js";
 import { installationOctokit } from "./appAuth.js";
 import { classifyGithubError } from "./githubErrors.js";
 
@@ -16,6 +17,8 @@ export type ReviewThreadResolutionStatus =
 export type ListReviewThreadResolutionResult = {
   readonly byRootCommentId: Map<number, ReviewThreadResolution>;
   readonly status: ReviewThreadResolutionStatus;
+  /** True when pagination stopped at MAX_REVIEW_THREAD_PAGES with more pages remaining. */
+  readonly truncated?: boolean;
   /** One actionable warning when resolution is incomplete or unavailable. */
   readonly warning?: string;
 };
@@ -141,6 +144,8 @@ export async function listReviewThreadResolution(
   const byRootCommentId = new Map<number, ReviewThreadResolution>();
   let cursor: string | null = null;
   let sawMalformed = false;
+  let pageCount = 0;
+  let truncated = false;
 
   for (;;) {
     let page: unknown;
@@ -160,6 +165,7 @@ export async function listReviewThreadResolution(
         return {
           byRootCommentId,
           status: "partial",
+          truncated,
           warning:
             "reviewThreads GraphQL pagination failed mid-fetch; continuing with partial resolution data.",
         };
@@ -179,6 +185,7 @@ export async function listReviewThreadResolution(
       };
     }
 
+    pageCount += 1;
     const ingested = ingestThreadsPage(page, byRootCommentId);
     sawMalformed = sawMalformed || ingested.sawMalformed;
     if (!ingested.hasNextPage) break;
@@ -186,11 +193,25 @@ export async function listReviewThreadResolution(
       return {
         byRootCommentId,
         status: "partial",
+        truncated,
         warning:
           "reviewThreads GraphQL reported another page without an endCursor; stopping pagination.",
       };
     }
+    if (pageCount >= MAX_REVIEW_THREAD_PAGES) {
+      truncated = true;
+      break;
+    }
     cursor = ingested.endCursor;
+  }
+
+  if (truncated) {
+    return {
+      byRootCommentId,
+      status: "partial",
+      truncated: true,
+      warning: `reviewThreads GraphQL pagination capped at ${MAX_REVIEW_THREAD_PAGES} pages; resolution coverage is partial.`,
+    };
   }
 
   if (sawMalformed && byRootCommentId.size === 0) {

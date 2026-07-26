@@ -23,6 +23,7 @@ import {
   resolveReviewThread,
   warnReviewThreadResolutionDegraded,
 } from "../src/github/reviewThreadResolution.js";
+import { MAX_REVIEW_THREAD_PAGES } from "../src/settings/index.js";
 
 function page(params: {
   readonly hasNextPage?: boolean;
@@ -193,5 +194,31 @@ describe("review thread resolution", () => {
         warning: "grant permission",
       }),
     );
+  });
+
+  it("caps reviewThreads pagination and reports truncated partial coverage", async () => {
+    mocks.graphql.mockImplementation(async (_query: string, vars: { cursor?: string | null }) => {
+      const pageIndex =
+        vars.cursor == null ? 0 : Number(String(vars.cursor).replace("c", "")) + 1;
+      return page({
+        hasNextPage: true,
+        endCursor: `c${pageIndex}`,
+        nodes: [
+          {
+            id: `node-${pageIndex}`,
+            isResolved: false,
+            comments: { nodes: [{ fullDatabaseId: pageIndex + 1 }] },
+          },
+        ],
+      });
+    });
+
+    const result = await listReviewThreadResolution("tok", "o", "r", 1);
+
+    expect(result.status).toBe("partial");
+    expect(result.truncated).toBe(true);
+    expect(result.warning).toMatch(/capped/i);
+    expect(mocks.graphql).toHaveBeenCalledTimes(MAX_REVIEW_THREAD_PAGES);
+    expect(result.byRootCommentId.size).toBe(MAX_REVIEW_THREAD_PAGES);
   });
 });
