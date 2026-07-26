@@ -32,6 +32,7 @@ export async function runVerificationHarness(params: {
   readonly rootDir: string;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+  readonly compareFilesTruncated?: boolean;
   readonly durability?: FeatureSessionDurability;
 }): Promise<VerificationRunResult> {
   const { cfg, owner, repo, prNumber } = params;

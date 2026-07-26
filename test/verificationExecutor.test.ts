@@ -443,4 +443,89 @@ describe("executeVerificationJob", () => {
     expect(mocks.publishVerification).toHaveBeenCalled();
     expect(executeResult).toEqual({ degraded: true });
   });
+
+  it.each([
+    {
+      label: "299 files",
+      files: Array.from({ length: 299 }, (_, i) => `src/f${i}.ts`),
+      truncated: false,
+    },
+    {
+      label: "300 files",
+      files: Array.from({ length: 300 }, (_, i) => `src/f${i}.ts`),
+      truncated: true,
+    },
+    {
+      label: "more than 300 files signaled",
+      files: Array.from({ length: 300 }, (_, i) => `src/f${i}.ts`),
+      truncated: true,
+    },
+  ] as const)(
+    "propagates compare truncation for $label pushes",
+    async ({ files, truncated }) => {
+      const beforeSha = "c".repeat(40);
+      mockDurableExecution(
+        item({
+          payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
+        }),
+      );
+      mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+      mocks.listReviewThreadResolution.mockResolvedValue({
+        byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+        status: "ok",
+      });
+      mocks.fetchPullRequestFiles.mockResolvedValue({
+        files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
+        truncated: false,
+        omittedCountLowerBound: 0,
+        totalChanges: 20,
+        headSha: "a".repeat(40),
+      });
+      mocks.listCommitCompareFiles.mockResolvedValue({ files: [...files], truncated });
+      mocks.runVerification.mockResolvedValue({
+        submitted: true,
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "still open",
+            },
+          ],
+        },
+      });
+
+      let executeResult: unknown;
+      mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
+        executeResult = await spec.execute(
+          item({
+            payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
+          }),
+          {
+            installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+            headSha: "a".repeat(40),
+          },
+        );
+      });
+
+      await executeVerificationJob(cfg, pool, boss, job());
+
+      expect(mocks.runVerification).toHaveBeenCalledWith(
+        expect.objectContaining({ compareFilesTruncated: truncated }),
+      );
+      expect(mocks.publishVerification).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changedFilePathsTruncated: truncated,
+          ...(truncated
+            ? {
+                changedFilePaths: expect.arrayContaining(["src/app.ts", "README.md"]),
+              }
+            : { changedFilePaths: files }),
+        }),
+      );
+      if (truncated) {
+        expect(executeResult).toEqual({ degraded: true });
+      }
+    },
+  );
 });

@@ -162,8 +162,30 @@ export async function executeVerificationJob(
           : Promise.resolve(null),
       ]);
 
+      const compareFilesTruncated = pushDeltaFiles?.truncated === true;
       const changedFilePaths =
-        pushDeltaFiles != null ? pushDeltaFiles.files : ([] as readonly string[]);
+        pushDeltaFiles != null
+          ? compareFilesTruncated
+            ? [
+                ...new Set([
+                  ...pushDeltaFiles.files,
+                  ...prFiles.files
+                    .map((file) => file.filename)
+                    .filter((filename): filename is string => typeof filename === "string"),
+                ]),
+              ]
+            : pushDeltaFiles.files
+          : ([] as readonly string[]);
+
+      if (compareFilesTruncated) {
+        logWarn("verification_compare_files_truncated", {
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+          compareFileCount: pushDeltaFiles?.files.length ?? 0,
+          effectiveChangedFileCount: changedFilePaths.length,
+        });
+      }
 
       const result = await withPrRepositoryView(
         buildRepositoryViewParams(
@@ -184,6 +206,7 @@ export async function executeVerificationJob(
             rootDir: view.agentCwd,
             inventory: unresolvedThreads,
             pushedCommits,
+            compareFilesTruncated,
             durability: {
               pool,
               workItemId: item.id,
@@ -221,10 +244,11 @@ export async function executeVerificationJob(
         resolutionByRootCommentId,
         payload: result.runResult.payload,
         changedFilePaths,
+        changedFilePathsTruncated: compareFilesTruncated,
         policyResult: result.policyResult,
       });
 
-      const degraded = publish.degraded || resolutionDegraded;
+      const degraded = publish.degraded || resolutionDegraded || compareFilesTruncated;
       if (degraded) {
         const failure = classifyFailure(new Error("Verification publish degraded"), {
           phase: "publish",
