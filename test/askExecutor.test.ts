@@ -3,9 +3,11 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AskJobData } from "../src/agentWork/types.js";
+import { askReplyOperationKey } from "../src/agentWork/withOperationIntent.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 
 const mocks = vi.hoisted(() => ({
   hasCompletedPublishStep: vi.fn(),
@@ -15,6 +17,9 @@ const mocks = vi.hoisted(() => ({
   withPrRepositoryView: vi.fn(),
   postSlashReply: vi.fn(),
   createComment: vi.fn(),
+  getAppBotIdentity: vi.fn(),
+  findExistingAskReplyComment: vi.fn(),
+  paginate: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -45,12 +50,22 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({
+  getAppBotIdentity: mocks.getAppBotIdentity,
   installationOctokit: vi.fn(() => ({
+    paginate: mocks.paginate,
     rest: {
-      issues: { createComment: mocks.createComment },
+      issues: { createComment: mocks.createComment, listComments: vi.fn() },
     },
   })),
 }));
+
+vi.mock("../src/agent/ask/recoverAskReply.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agent/ask/recoverAskReply.js")>();
+  return {
+    ...actual,
+    findExistingAskReplyComment: mocks.findExistingAskReplyComment,
+  };
+});
 
 vi.mock("../src/evlog.js", () => ({
   logWarn: vi.fn(),
@@ -128,10 +143,14 @@ function mockRepositoryView(): void {
 describe("executeAskJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    memoryOperationIntentStore.reset();
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.recordAskPublishStep.mockResolvedValue(undefined);
     mocks.runAskRun.mockResolvedValue({ answer: "answer" });
-    mocks.postSlashReply.mockResolvedValue(undefined);
+    mocks.postSlashReply.mockResolvedValue({ commentId: 9001 });
+    mocks.createComment.mockResolvedValue({ data: { id: 9002 } });
+    mocks.getAppBotIdentity.mockResolvedValue({ userId: 1, login: "pr-agent[bot]" });
+    mocks.findExistingAskReplyComment.mockResolvedValue(null);
     mockDurableExecution();
     mockRepositoryView();
   });
@@ -154,8 +173,11 @@ describe("executeAskJob", () => {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
-      detail: { replyTargetKind: "prConversation" },
+      detail: { replyTargetKind: "prConversation", commentId: 9001 },
     });
+    const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"));
+    expect(intent?.status).toBe("reconciled");
+    expect(intent?.detail.__result).toEqual({ commentId: 9001 });
   });
 
   it("skips agent and answer publish when the ask reply was already recorded", async () => {
@@ -227,7 +249,6 @@ describe("executeAskJob", () => {
       },
     });
     mocks.postSlashReply.mockRejectedValueOnce(new Error("thread unavailable"));
-    mocks.createComment.mockResolvedValue(undefined);
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       await spec.execute(item, {
         installation: {
@@ -249,6 +270,12 @@ describe("executeAskJob", () => {
       body: expect.stringContaining("Could not reply in the review thread"),
     });
     expect(mocks.createComment.mock.calls[0]?.[0].body).toContain("answer");
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        detail: expect.objectContaining({ commentId: 9002 }),
+      }),
+    );
   });
 
   it("posts terminal failure reply when the ask never delivered an answer", async () => {
@@ -298,5 +325,56 @@ describe("executeAskJob", () => {
     await executeAskJob(cfg, pool, boss, askJob());
 
     expect(mocks.postSlashReply).not.toHaveBeenCalled();
+  });
+
+  it("does not remutate or rerun the model after post-mutate / pre-reconcile crash", async () => {
+    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 2);
+
+    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toThrow("crash before reconcile");
+
+    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
+    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    const operationKey = askReplyOperationKey("o/r#1");
+    const pending = memoryOperationIntentStore.get("wi-1", operationKey);
+    expect(pending?.status).toBe("pending");
+    expect(pending?.detail.__result).toEqual({ commentId: 9001 });
+    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
+
+    mocks.runAskRun.mockClear();
+    mocks.postSlashReply.mockClear();
+    mocks.findExistingAskReplyComment.mockClear();
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.runAskRun).not.toHaveBeenCalled();
+    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
+    expect(memoryOperationIntentStore.get("wi-1", operationKey)?.status).toBe("reconciled");
+  });
+
+  it("recovers from a remote ask reply when intent is pending without __result", async () => {
+    await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-1",
+      operationKey: askReplyOperationKey("o/r#1"),
+      mutationKind: "github.ask_reply",
+      detail: { step: "ask_reply" },
+    });
+    mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 4242 });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.runAskRun).not.toHaveBeenCalled();
+    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(mocks.findExistingAskReplyComment).toHaveBeenCalledTimes(1);
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      resourceKey: "o/r#1",
+      step: "ask_reply",
+      detail: { replyTargetKind: "prConversation", commentId: 4242 },
+    });
+    expect(memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"))?.status).toBe(
+      "reconciled",
+    );
   });
 });

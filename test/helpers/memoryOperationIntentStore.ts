@@ -94,6 +94,15 @@ export function createMemoryOperationIntentStore() {
       return stored ? toRow(stored) : undefined;
     },
 
+    async getOperationIntent(
+      _client: Pool | PoolClient,
+      workItemId: string,
+      operationKey: string,
+    ): Promise<OperationIntentRow | null> {
+      const stored = rows.get(rowKey(workItemId, operationKey));
+      return stored ? toRow(stored) : null;
+    },
+
     async persist(
       _client: Pool | PoolClient,
       params: PersistParams,

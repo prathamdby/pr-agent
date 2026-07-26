@@ -140,6 +140,31 @@ export async function reconcileOperationIntent(
   return row ? mapRow(row) : null;
 }
 
+export async function getOperationIntent(
+  client: Pool | PoolClient,
+  workItemId: string,
+  operationKey: string,
+): Promise<OperationIntentRow | null> {
+  const row = await queryOne<{
+    id: string;
+    work_item_id: string;
+    operation_key: string;
+    mutation_kind: string;
+    status: OperationIntentStatus;
+    publish_record_id: string | null;
+    detail: Record<string, unknown>;
+  }>(
+    client,
+    `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail
+       FROM operation_intents
+      WHERE work_item_id = $1
+        AND operation_key = $2
+      LIMIT 1`,
+    [workItemId, operationKey],
+  );
+  return row ? mapRow(row) : null;
+}
+
 export async function listPendingOperationIntents(
   client: Pool | PoolClient,
   workItemId: string,

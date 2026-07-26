@@ -23,6 +23,11 @@ vi.mock("../../src/agentWork/operationIntentRepository.js", () => ({
     client: Parameters<typeof memoryOperationIntentStore.reconcile>[0],
     params: Parameters<typeof memoryOperationIntentStore.reconcile>[1],
   ) => memoryOperationIntentStore.reconcile(client, params),
+  getOperationIntent: (
+    client: Parameters<typeof memoryOperationIntentStore.getOperationIntent>[0],
+    workItemId: string,
+    operationKey: string,
+  ) => memoryOperationIntentStore.getOperationIntent(client, workItemId, operationKey),
   listPendingOperationIntents: (
     client: Parameters<typeof memoryOperationIntentStore.listPending>[0],
     workItemId: string,
