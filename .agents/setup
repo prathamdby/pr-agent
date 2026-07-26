@@ -52,6 +52,10 @@ if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = 'pr_a
   sudo -u postgres createdb -O pr_agent pr_agent
 fi
 
+# --- Git: set identity in the repo-local config (persisted across orbs via setup) ---
+git config --local user.name "Pratham Dubey"
+git config --local user.email "134331217+prathamdby@users.noreply.github.com"
+
 # --- Env: copy template without clobbering an existing .env ---
 if [ ! -f .env ]; then
   echo "[setup] copying .env.example -> .env"
