@@ -33,6 +33,8 @@ import {
   jobCorrelation,
 } from "./queueing.js";
 import { promoteAskFromWebhookEvent } from "./askIntake.js";
+import { releaseReviewSingletonSlot } from "../singletonQueue.js";
+import { pgBossDb } from "../../db/postgres.js";
 import {
   createDescriptionWorkItem,
   createReviewWorkItem,
@@ -305,6 +307,12 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const workItemId = insert.id;
+  // Clear failed key_strict_fifo blockers so /review can activate. Do not cancel
+  // live jobs — slash uniqueness already rejects when another slash review is active.
+  await releaseReviewSingletonSlot(ctx.boss, resourceKey, {
+    db: pgBossDb(ctx.client),
+    cancelNonTerminal: false,
+  });
   await enqueueSlashAck(ctx, {
     workItemId,
     progress: { lens: "review", headSha: ctx.ref.headSha, source: "slash" },

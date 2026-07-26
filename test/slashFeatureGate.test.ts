@@ -50,6 +50,9 @@ function makeBoss(sent: { queue: string; data: unknown }[]): PgBoss {
       sent.push({ queue, data });
       return "job-1";
     }),
+    findJobs: vi.fn(async () => []),
+    deleteJob: vi.fn(async () => ({ rows: [] })),
+    cancel: vi.fn(async () => ({ rows: [] })),
   } as unknown as PgBoss;
 }
 

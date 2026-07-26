@@ -53,15 +53,22 @@ function mockAutomatedClient() {
   } as unknown as PoolClient;
 }
 
+function makeBoss(sentQueues: string[]): PgBoss {
+  return {
+    send: vi.fn(async (queue: string) => {
+      sentQueues.push(queue);
+      return "job-1";
+    }),
+    findJobs: vi.fn(async () => []),
+    deleteJob: vi.fn(async () => ({ rows: [] })),
+    cancel: vi.fn(async () => ({ rows: [] })),
+  } as unknown as PgBoss;
+}
+
 describe("makeAgentWorkScheduler automated describe", () => {
   it("enqueues description only on pull_request opened", async () => {
     const sentQueues: string[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string) => {
-        sentQueues.push(queue);
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
+    const boss = makeBoss(sentQueues);
 
     const client = mockAutomatedClient();
     const pool = {} as Pool;
@@ -84,12 +91,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
 
   it("does not enqueue review or description on synchronize with default actions", async () => {
     const sentQueues: string[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string) => {
-        sentQueues.push(queue);
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
+    const boss = makeBoss(sentQueues);
 
     // synchronize is no longer a review/description action by default, so intake records
     // an ignored webhook via a direct pool insert (no transaction) instead of enqueuing work.
@@ -136,12 +138,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
 
   it("enqueues verification on synchronize with default verification actions", async () => {
     const sentQueues: string[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string) => {
-        sentQueues.push(queue);
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
+    const boss = makeBoss(sentQueues);
 
     const client = mockAutomatedClient();
     const pool = {} as Pool;
@@ -169,12 +166,7 @@ describe("makeAgentWorkScheduler automated describe", () => {
 
   it("skips description on opened when FEATURE_DESCRIBE is manual", async () => {
     const sentQueues: string[] = [];
-    const boss = {
-      send: vi.fn(async (queue: string) => {
-        sentQueues.push(queue);
-        return "job-1";
-      }),
-    } as unknown as PgBoss;
+    const boss = makeBoss(sentQueues);
 
     const client = mockAutomatedClient();
     const pool = {} as Pool;

@@ -26,7 +26,7 @@ Worker readiness is distinct from web probes: `GET /ready` on the worker process
 
 - If webhook intake cannot commit to Postgres, the web process returns `503`; redeliver from GitHub after Postgres is healthy.
 - If a review fails permanently, the worker upserts the review summary comment with a failure notice and records `agent_work_items.status = 'failed'`.
-- If pg-boss reports blocked review keys, inspect failed jobs for `agent-work-review`, then retry or delete the failed pg-boss job after confirming the app-owned `agent_work_items` status is terminal. Do not delete active/`running` work-item rows to clear a block.
+- If pg-boss reports blocked review keys, inspect failed jobs for `agent-work-review`. Intake clears failed blockers automatically on the next auto supersede or slash `/review` (deletes the failed pg-boss row for that singleton). Manual recovery: retry or delete the failed pg-boss job after confirming the app-owned `agent_work_items` status is terminal. Do not delete active/`running` work-item rows to clear a block.
 - Dead-letter queues (`*-dead`) are archival only (no consumers). Redrive only after the originating `agent_work_items` row is terminal and the failure cause is understood; prefer `pg-boss` redrive/retry APIs over ad-hoc SQL deletes.
 - If a worker crashes mid-job, pg-boss heartbeat/expiration retries the job; publish steps are guarded by `publish_records`.
 - `/triage` uses `agent-work-triage` plus `triage_push`, `triage_thread_actions`, and `triage_report` publish records. A stale push posts the triage report without thread replies; re-run `/triage` after the PR branch settles.

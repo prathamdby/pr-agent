@@ -165,6 +165,72 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
     expect(loserAcks.length).toBe(ackForResource.length - 1);
   });
 
+  it("slash /review deletes a failed review singleton blocker and enqueues a live job", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 55);
+    const singletonKey = `${resourceKey}:review`;
+    const webhookEventId = randomUUID();
+    const failedWorkItemId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, 'sha', 'accepted')`,
+      [webhookEventId, `failed-${webhookEventId}`, EVENT],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload, completed_at
+       ) VALUES (
+         $1, $2, 'review', 'auto', 'failed', $3, $4, 55, 4242, 'sha-old', 'review', $5, 0,
+         '{}'::jsonb, now()
+       )`,
+      [failedWorkItemId, webhookEventId, OWNER, repo, resourceKey],
+    );
+
+    const failedJobId = await boss.send(
+      REVIEW_QUEUE,
+      { kind: "review", workItemId: failedWorkItemId },
+      { singletonKey },
+    );
+    expect(failedJobId).toBeTruthy();
+    await pool.query(`UPDATE pgboss.job SET state = 'failed', completed_on = now() WHERE id = $1`, [
+      failedJobId,
+    ]);
+    await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.toContain(singletonKey);
+
+    await inTransaction(pool, (client) =>
+      applySlashCommandIntake(
+        boss,
+        client,
+        {
+          headers: {
+            event: EVENT,
+            delivery: `slash-clear-${randomUUID().slice(0, 8)}`,
+            rawBody: Buffer.from("{}"),
+          },
+          installationId: 4242,
+          owner: OWNER,
+          repo,
+          prNumber: 55,
+          commentId: 5500,
+          commenterId: 11,
+          body: "/review",
+          command: "review",
+          replyTarget: { kind: "prConversation" as const, prNumber: 55 },
+        },
+        testFeatures,
+      ),
+    );
+
+    expect(await boss.getJobById(REVIEW_QUEUE, failedJobId!)).toBeNull();
+    const reviewJobs = await boss.findJobs(REVIEW_QUEUE, { key: singletonKey });
+    const live = reviewJobs.filter((job) => job.state === "created");
+    expect(live).toHaveLength(1);
+    expect((live[0]?.data as { workItemId?: string }).workItemId).not.toBe(failedWorkItemId);
+    await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.not.toContain(singletonKey);
+  });
+
   it("keeps one review when a removed lens command arrives concurrently", async () => {
     const repo = `repo-${randomUUID().slice(0, 8)}`;
     const lenses = ["review", "review-security"] as const;

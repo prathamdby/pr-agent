@@ -353,6 +353,58 @@ describe.skipIf(!hasDatabase)("intake transaction and singleton visibility (inte
     }
   });
 
+  it("failed singleton: next auto delivery deletes failed blocker and enqueues runnable job", async () => {
+    const ref = makePrRef("failed-block");
+    const singletonKey = reviewSingletonKey(prResourceKey(ref.owner, ref.repo, ref.prNumber));
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-failed-a"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      intakeCfg,
+    );
+    const firstJobs = await reviewJobsFor(ref);
+    const firstJobId = firstJobs[0]?.id;
+    expect(firstJobId).toBeDefined();
+
+    // Simulate crash/expire terminal failure left on the key (blocks key_strict_fifo).
+    await pool.query(`UPDATE pgboss.job SET state = 'failed', completed_on = now() WHERE id = $1`, [
+      firstJobId,
+    ]);
+    await expect(boss.getBlockedKeys(REVIEW_QUEUE)).resolves.toContain(singletonKey);
+
+    // Mark work item terminal so supersede has nothing live to cancel — mirrors
+    // the issue where app state never started but pg-boss left failed.
+    await pool.query(
+      `UPDATE agent_work_items SET status = 'failed', completed_at = now(), updated_at = now()
+        WHERE owner = $1 AND status = 'queued'`,
+      [OWNER],
+    );
+
+    await applyAutomatedPullRequestIntake(
+      boss,
+      pool,
+      headers("synchronize", "delivery-failed-b"),
+      ref,
+      "synchronize",
+      intakeLog(),
+      intakeCfg,
+    );
+
+    const failedJob = await boss.getJobById(REVIEW_QUEUE, firstJobId);
+    expect(failedJob).toBeNull();
+
+    const liveReviewJobs = (await reviewJobsFor(ref)).filter((job) => job.state === "created");
+    expect(liveReviewJobs).toHaveLength(1);
+    expect(liveReviewJobs[0]?.id).not.toBe(firstJobId);
+
+    const blocked = await boss.getBlockedKeys(REVIEW_QUEUE);
+    expect(blocked).not.toContain(singletonKey);
+  });
+
   it("ignored-action flip: enqueue-first then ignored dedupes without extra work", async () => {
     const ref = makePrRef("flip-enq-first");
     const delivery = "delivery-flip-enq-first";

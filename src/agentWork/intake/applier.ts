@@ -63,13 +63,14 @@ async function dispatchAutomatedKind(
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
-  if (supersededIds.length > 0) {
-    await releaseSingletonSlot(boss, {
-      queue: descriptor.queueName,
-      singletonKey: descriptor.singletonKey,
-      db: slotDb,
-    });
-  }
+  // Always clear failed key_strict_fifo blockers. Cancel live jobs only when
+  // app-owned rows were superseded/cancel-requested (latest-head-wins).
+  await releaseSingletonSlot(boss, {
+    queue: descriptor.queueName,
+    singletonKey: descriptor.singletonKey,
+    db: slotDb,
+    cancelNonTerminal: supersededIds.length > 0,
+  });
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);
   }
