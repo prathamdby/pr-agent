@@ -29,3 +29,6 @@ minimumReleaseAgeExclude:
   - pg-boss@12.26.3
   - posthog-node@5.46.1
   - "@posthog/*"
+  # GHSA-mh99-v99m-4gvg — remove brace-expansion override + exclude after 2026-07-30
+  # once upstream minimatch pins >=5.0.8 and the release ages past the gate.
+  - brace-expansion@5.0.8
