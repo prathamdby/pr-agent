@@ -359,8 +359,7 @@ function reviewTimingPostHogProperties(
   if (snapshot.generationMs > 0) {
     properties.generation_ms = snapshot.generationMs;
     const tps =
-      snapshot.providerOutputTps ??
-      snapshot.providerOutputTokens / (snapshot.generationMs / 1000);
+      snapshot.providerOutputTps ?? snapshot.providerOutputTokens / (snapshot.generationMs / 1000);
     properties.provider_output_tps = Math.round(tps * 100) / 100;
   }
   return properties;
