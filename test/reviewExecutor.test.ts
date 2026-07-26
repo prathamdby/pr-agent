@@ -171,7 +171,7 @@ describe("executeReviewJob", () => {
       mocks.lightweight,
     );
     vi.spyOn(prWorkspace, "withPrRepositoryView").mockImplementation(mocks.withPrRepositoryView);
-    vi.spyOn(reviewReschedule, "buildStaleSlashReviewRescheduleResult").mockImplementation(
+    vi.spyOn(reviewReschedule, "buildStaleReviewRescheduleResult").mockImplementation(
       mocks.buildStaleReschedule,
     );
     vi.spyOn(reviewTrustedContext, "buildTrustedReviewContextForReview").mockImplementation(
