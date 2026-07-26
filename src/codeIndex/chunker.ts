@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { isIndexableSourcePath } from "../prWorkspace/symbolIndex.js";
-import { CODE_INDEX_CHUNKER_VERSION } from "../settings/index.js";
 
 export type CodeIndexChunk = {
   readonly path: string;
@@ -102,8 +101,4 @@ export function chunkFiles(
     }
   }
   return { chunks, truncated: false };
-}
-
-export function codeIndexChunkerVersion(): string {
-  return CODE_INDEX_CHUNKER_VERSION;
 }

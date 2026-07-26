@@ -17,8 +17,6 @@ export type AgentEventsContext = {
   readonly prNumber: number;
 };
 
-export type AgentExplicitEventKind = "decision" | "publish" | "coverage" | "evidence_reject";
-
 function baseInsertRow(context: AgentEventsContext): Omit<AgentEventInsertRow, "eventKind"> {
   return {
     workItemId: context.workItemId,
@@ -29,13 +27,6 @@ function baseInsertRow(context: AgentEventsContext): Omit<AgentEventInsertRow, "
   };
 }
 
-function metadataDetail(
-  detail: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  return detail;
-}
-
-/** Map a sanitized lifecycle audit record to a durable insert row. */
 export function lifecycleAuditToInsertRow(
   context: AgentEventsContext,
   record: AgentAuditRecord,
@@ -58,7 +49,7 @@ export function lifecycleAuditToInsertRow(
     model: record.model,
     ok: record.ok ?? null,
     failureCode: record.failureCode ?? null,
-    detail: metadataDetail(detail),
+    detail,
   };
 }
 
@@ -87,7 +78,7 @@ export function decisionEventRow(
     sessionRole: params.sessionRole ?? "orchestrator",
     eventKind: "decision",
     phase: params.phase ?? "judgment",
-    detail: metadataDetail(detail),
+    detail,
   };
 }
 
@@ -118,32 +109,7 @@ export function publishEventRow(
     sessionRole: params.sessionRole ?? "orchestrator",
     eventKind: "publish",
     phase: params.phase ?? "judgment",
-    detail: metadataDetail(detail),
-  };
-}
-
-export function coverageEventRow(
-  context: AgentEventsContext,
-  params: {
-    readonly sessionRole?: AgentSessionRole;
-    readonly phase?: string;
-    readonly coverageKind: "full" | "partial" | "none";
-    readonly failedSpecialists?: readonly string[];
-  },
-): AgentEventInsertRow {
-  const detail: Record<string, unknown> = {
-    coverageKind: params.coverageKind,
-  };
-  if (params.failedSpecialists != null && params.failedSpecialists.length > 0) {
-    detail.failedSpecialists = params.failedSpecialists;
-  }
-
-  return {
-    ...baseInsertRow(context),
-    sessionRole: params.sessionRole ?? "orchestrator",
-    eventKind: "coverage",
-    phase: params.phase ?? "synthesis",
-    detail: metadataDetail(detail),
+    detail,
   };
 }
 
@@ -168,7 +134,7 @@ export function checkoutCoverageEventRow(
     sessionRole: params.sessionRole ?? "review",
     eventKind: "coverage",
     phase: params.phase ?? "prepare",
-    detail: metadataDetail(detail),
+    detail,
   };
 }
 
@@ -193,7 +159,7 @@ export function evidenceRejectEventRow(
     sessionRole: params.sessionRole ?? "orchestrator",
     eventKind: "evidence_reject",
     phase: params.phase ?? null,
-    detail: metadataDetail(detail),
+    detail,
   };
 }
 
