@@ -98,7 +98,8 @@ export function buildLocalWorkspaceTools(
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 
   const listChangedFiles: LocalTool = {
-    description: "List files changed in this pull request from the local PR workspace.",
+    description:
+      "Start here: list files changed in this pull request (path, status, presence in the PR head checkout).",
     schema: z.object({}),
     run: async () => ({
       files: workspace.changedFiles.map((file) => ({
@@ -114,7 +115,7 @@ export function buildLocalWorkspaceTools(
 
   const readWorkspaceFile: LocalTool = {
     description:
-      "Read a text file from the local PR workspace checkout. Paths are relative to the repository root. Responses are capped; use startLine and maxLines for focused follow-up reads.",
+      "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; on truncated, narrow the range — do not retry the same call unchanged.",
     schema: z.object({
       path: z.string().min(1),
       startLine: z.number().int().positive().optional(),
@@ -150,7 +151,7 @@ export function buildLocalWorkspaceTools(
 
   const searchWorkspace: LocalTool = {
     description:
-      "Search the full local PR workspace checkout with git grep for a literal string. Skips binary files. filesScanned is the matched file count after path filtering.",
+      "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. filesScanned is the matched file count after path filtering.",
     schema: z.object({
       query: z.string().min(1),
       maxResults: z.number().int().positive().optional().default(20),
@@ -179,7 +180,7 @@ export function buildLocalWorkspaceTools(
 
   const getWorkspaceDiff: LocalTool = {
     description:
-      "Return the PR unified diff for a changed path (from GitHub PR file metadata). Responses are capped; narrow the path or follow up with a focused file read when truncated.",
+      "After listChangedFiles, read each change's PR unified diff before opening whole files. Path from the changed-file list. Responses are byte-capped; on truncated, narrow the path or follow up with a focused file read.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
@@ -198,7 +199,7 @@ export function buildLocalWorkspaceTools(
 
   const getWorkspaceBlame: LocalTool = {
     description:
-      "Return best-effort local git blame for a workspace path at PR head. Responses are capped; use startLine and maxLines on readWorkspaceFile for focused follow-up context.",
+      "Best-effort local git blame at PR head. Use only when authorship genuinely decides a finding. Responses are byte-capped; prefer startLine/maxLines on readWorkspaceFile for focused follow-up context.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");

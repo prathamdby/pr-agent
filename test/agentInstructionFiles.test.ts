@@ -1,12 +1,15 @@
-import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   loadAgentInstructionFiles,
   renderAgentInstructionFilesBlock,
 } from "../src/review/agentInstructionFiles.js";
 import { MAX_AGENT_INSTRUCTION_FILE_BYTES } from "../src/settings/reviewConstants.js";
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function checkoutWith(files: Record<string, string>): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "agent-instruction-"));
@@ -130,6 +133,24 @@ describe("loadAgentInstructionFiles", () => {
     await mkdir(join(root, "docs"));
     await writeFile(join(root, "docs", "AGENTS.md"), "nested", "utf8");
     await expect(loadAgentInstructionFiles(root)).resolves.toEqual({ kind: "absent" });
+  });
+});
+
+describe("pr-agent AGENTS.md trusted-context load", () => {
+  it("points at Cursor Cloud docs and omits VM ops prose from AGENTS.md", async () => {
+    const agents = await readFile(join(REPO_ROOT, "AGENTS.md"), "utf8");
+    expect(agents).toContain("docs/cursor-cloud.md");
+    expect(agents).not.toContain("## Cursor Cloud specific instructions");
+    expect(agents).not.toContain("fuse-overlayfs");
+    expect(agents).not.toContain("sudo dockerd");
+
+    const loaded = await loadAgentInstructionFiles(REPO_ROOT);
+    expect(loaded.kind).toBe("ok");
+    if (loaded.kind !== "ok") return;
+    const agentsBody = loaded.files.find((file) => file.filename === "AGENTS.md")?.body ?? "";
+    expect(agentsBody).toContain("docs/cursor-cloud.md");
+    expect(agentsBody).not.toContain("fuse-overlayfs");
+    expect(agentsBody).not.toContain("sudo dockerd");
   });
 });
 

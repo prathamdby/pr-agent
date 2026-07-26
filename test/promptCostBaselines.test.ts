@@ -58,6 +58,8 @@ describe("prompt cost baselines", () => {
     const prompt = buildAutomatedSystemPrompt();
     expect(prompt).toContain("submit_findings_report");
     expect(prompt).toContain("no_findings");
+    expect(prompt).toContain("Report only issues introduced or exposed by this PR");
+    expect(prompt).toContain("Follow each local workspace tool's description");
     for (const severity of SEVERITIES) {
       expect(prompt).toContain(severity);
     }
@@ -223,7 +225,8 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "local workspace tool definitions",
       content: stableJson(localWorkspaceTools),
-      budget: { bytes: 2_200, characters: 2_200, estimatedTokens: 550 },
+      // Enriched investigation-protocol descriptions (issue #363); was 2_200.
+      budget: { bytes: 2_550, characters: 2_550, estimatedTokens: 638 },
     },
     {
       name: "Context7 tool definitions",
