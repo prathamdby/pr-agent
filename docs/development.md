@@ -25,8 +25,6 @@ Public entries and placement-import rules: [`.pr-agent/module-layout.mdc`](../.p
 
 Production failures in `src/` use `AppError` from `src/errors/appError.ts`. Field rules, helpers, domain subclasses, and the AppError-never-on-PR rule: [`.pr-agent/structured-errors.mdc`](../.pr-agent/structured-errors.mdc).
 
-Design: [docs/superpowers/specs/2026-07-21-structured-apperror-design.md](superpowers/specs/2026-07-21-structured-apperror-design.md).
-
 ## Prompt prose
 
 Long investigator prompt blocks stay in prompt modules under `src/review/prompts/` and `src/agent/`. Only numeric limits and shared user-visible strings belong in `src/settings/*Constants.ts`. Binding rule: [`.pr-agent/prompt-vs-constants.mdc`](../.pr-agent/prompt-vs-constants.mdc).
