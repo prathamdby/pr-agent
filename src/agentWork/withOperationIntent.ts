@@ -103,8 +103,6 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
       ...params.reconcileDetail,
       ...(result === undefined ? {} : { __result: result as unknown }),
     };
-    // Stash the remote result while still pending so a crash before status
-    // reconciliation does not lose the mutation outcome.
     await mergeOperationIntentDetail(params.client, {
       workItemId: params.workItemId,
       operationKey: params.operationKey,

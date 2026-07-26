@@ -325,7 +325,6 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
 
   it("allows a new work item to restart progress at revision zero", async () => {
     const { pool: lockedPool } = createLockedPool();
-    // Intake already reassigned the shared progress record to wi-1.
     vi.mocked(getProgressCommentOwner).mockResolvedValue({
       workItemId: "wi-1",
       generation: 1,

@@ -207,9 +207,6 @@ export async function resolveDurableStructuredState(params: {
   let resumeConversation: unknown;
 
   if (checkpointState && checkpoint) {
-    // Checkpoints are authoritative over resume snapshots for structured state.
-    // When a snapshot also exists, only attach conversation bytes from it — and only
-    // when the checkpoint outranks that snapshot (phase / version / updated_at).
     chosen = checkpointState;
     resumeCheckpointId = checkpoint.checkpointId;
     lastCompletedPhase = checkpoint.phase;

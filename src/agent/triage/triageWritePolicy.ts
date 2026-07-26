@@ -104,6 +104,9 @@ export async function assertTriageWritablePath(params: {
   readonly implicatedPaths: ReadonlySet<string>;
 }): Promise<{ readonly fullPath: string; readonly relativePath: string }> {
   const normalized = normalizeRepoRelativePath(params.path);
+  const implicated = new Set(
+    [...params.implicatedPaths].map((entry) => normalizeRepoRelativePath(entry)),
+  );
   if (isTriageControlPath(normalized)) {
     throwBlocked(
       "triage.control_path_blocked",
@@ -113,9 +116,6 @@ export async function assertTriageWritablePath(params: {
   }
 
   if (params.mode === "edit") {
-    const implicated = new Set(
-      [...params.implicatedPaths].map((entry) => normalizeRepoRelativePath(entry)),
-    );
     if (!implicated.has(normalized)) {
       throwBlocked(
         "triage.path_not_implicated",
@@ -134,9 +134,6 @@ export async function assertTriageWritablePath(params: {
   }
 
   if (params.mode === "stage") {
-    const implicated = new Set(
-      [...params.implicatedPaths].map((entry) => normalizeRepoRelativePath(entry)),
-    );
     if (!implicated.has(normalized) && !isTriageSafeNewFilePath(normalized)) {
       throwBlocked(
         "triage.path_not_implicated",

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 import { withOperationIntent } from "../src/agentWork/withOperationIntent.js";
@@ -6,10 +6,6 @@ import { withOperationIntent } from "../src/agentWork/withOperationIntent.js";
 const pool = {} as Pool;
 
 describe("memoryOperationIntentStore + real withOperationIntent", () => {
-  beforeEach(() => {
-    memoryOperationIntentStore.reset();
-  });
-
   it("returns the existing row on conflict without resetting status or detail", async () => {
     await memoryOperationIntentStore.persist(pool, {
       workItemId: "wi-1",
@@ -42,7 +38,6 @@ describe("memoryOperationIntentStore + real withOperationIntent", () => {
   it("skips mutate when a prior attempt already reconciled with __result", async () => {
     const mutate = vi.fn(async () => ({ commentId: 999 }));
 
-    // Simulate: GitHub accepted, process died before reconcile, recovery wrote __result.
     await memoryOperationIntentStore.persist(pool, {
       workItemId: "wi-1",
       operationKey: "ask:reply:o/r#1",

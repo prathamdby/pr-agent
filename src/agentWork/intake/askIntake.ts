@@ -115,7 +115,6 @@ export async function promoteAskFromWebhookEvent(
   const askInsert = await createAskWorkItem(client, {
     webhookEventId: input.webhookEventId,
     ref,
-    // Redact before durable persistence so secrets never land in Postgres payloads.
     question: redactOutboundSecrets(askParse.question),
     replyTarget: input.replyTarget,
     commentId: input.commentId,

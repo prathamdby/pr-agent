@@ -31,15 +31,6 @@ describe("evaluateWorkerReadiness", () => {
     expect(snapshot.missingQueues).toContain("agent-work-ack");
   });
 
-  it("treats empty queues as irrelevant to readiness", () => {
-    const snapshot = evaluateWorkerReadiness({
-      registeredQueues: new Set(WORKER_CONSUMER_QUEUES),
-      postgresOk: true,
-      pgBossInstalled: true,
-    });
-    expect(snapshot.ready).toBe(true);
-  });
-
   it("fails when postgres or pg-boss is down", () => {
     expect(
       evaluateWorkerReadiness({

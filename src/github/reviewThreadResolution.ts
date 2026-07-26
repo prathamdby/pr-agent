@@ -242,7 +242,7 @@ export async function resolveReviewThread(
   await octokit.graphql(RESOLVE_REVIEW_THREAD_MUTATION, { threadId: threadNodeId });
 }
 
-/** Log at most one resolution-permission warning for a verification/triage run. */
+/** Log when resolution fetch is degraded. */
 export function warnReviewThreadResolutionDegraded(
   result: ListReviewThreadResolutionResult,
   context: Record<string, unknown>,

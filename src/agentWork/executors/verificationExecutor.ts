@@ -169,9 +169,7 @@ export async function executeVerificationJob(
             ? [
                 ...new Set([
                   ...pushDeltaFiles.files,
-                  ...prFiles.files
-                    .map((file) => file.filename)
-                    .filter((filename): filename is string => typeof filename === "string"),
+                  ...prFiles.files.map((file) => file.filename),
                 ]),
               ]
             : pushDeltaFiles.files

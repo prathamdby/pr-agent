@@ -1,8 +1,7 @@
 import { mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { AppError } from "../src/errors/appError.js";
+import { describe, expect, it } from "vitest";
 import {
   assertTriageStagePaths,
   assertTriageWritablePath,
@@ -12,17 +11,8 @@ import {
 } from "../src/agent/triage/triageWritePolicy.js";
 
 describe("triageWritePolicy", () => {
-  const roots: string[] = [];
-
-  afterEach(async () => {
-    // Best-effort cleanup; tmp dirs are disposable.
-    roots.length = 0;
-  });
-
   async function tempRoot(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "triage-write-policy-"));
-    roots.push(root);
-    return root;
+    return mkdtemp(join(tmpdir(), "triage-write-policy-"));
   }
 
   it("normalizes repo-relative paths", () => {
@@ -72,7 +62,7 @@ describe("triageWritePolicy", () => {
       }),
     ).rejects.toMatchObject({
       code: "triage.path_not_implicated",
-    } satisfies Partial<AppError>);
+    });
   });
 
   it("allows edits to implicated finding files", async () => {

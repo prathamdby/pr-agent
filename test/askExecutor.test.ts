@@ -143,7 +143,6 @@ function mockRepositoryView(): void {
 describe("executeAskJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    memoryOperationIntentStore.reset();
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.recordAskPublishStep.mockResolvedValue(undefined);
     mocks.runAskRun.mockResolvedValue({ answer: "answer" });

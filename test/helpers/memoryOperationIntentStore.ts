@@ -178,5 +178,3 @@ export function createMemoryOperationIntentStore() {
     },
   };
 }
-
-export type MemoryOperationIntentStore = ReturnType<typeof createMemoryOperationIntentStore>;

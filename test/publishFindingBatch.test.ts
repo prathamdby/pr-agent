@@ -351,7 +351,6 @@ describe("publishFindingBatch", () => {
     );
     expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
 
-    // Replay the same work item/batch: same key, no second GitHub create.
     vi.mocked(createPullRequestReviewWithComments).mockClear();
     const second = await publishFindingBatch(
       [finding],

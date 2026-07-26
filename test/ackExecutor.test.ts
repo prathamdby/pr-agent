@@ -202,7 +202,6 @@ describe("executeAckJob", () => {
   });
 
   it("executes acknowledgements in reverse order without letting A overwrite B", async () => {
-    // B claims ownership first; delayed A runs second (reverse of intake order).
     vi.mocked(getWorkItemCore).mockImplementation(async (_pool, id: string) => {
       if (id === "wi-b") {
         return { id: "wi-b", status: "running", type: "review" } as Awaited<
@@ -213,7 +212,6 @@ describe("executeAckJob", () => {
         ReturnType<typeof getWorkItemCore>
       >;
     });
-    // After B claims the shared progress record, delayed A still sees B as owner.
     vi.mocked(getProgressCommentOwner)
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ workItemId: "wi-b", generation: 1 });
