@@ -3,6 +3,7 @@ import {
   REVIEW_SIZE_TIER_MEDIUM_MAX_FILES,
   REVIEW_SIZE_TIER_SMALL_MAX_FILES,
 } from "../../settings/index.js";
+import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 
 export type ReviewBudgetTier = "small" | "medium" | "large";
 
@@ -55,6 +56,30 @@ export function formatReviewSizeBudgetBlock(budget: ReviewSizeBudget): string {
     lines.push(
       "- Large PR: prioritize investigation order (auth, migrations, security first), but report every evidenced P0–P2 found across the full diff.",
     );
+  }
+  return lines.join("\n");
+}
+
+export function formatCheckoutCoverageBlock(coverage: CheckoutCoverage): string {
+  const modeLabel =
+    coverage.mode === "sparse"
+      ? `sparse (${coverage.pathsInCheckout} paths on disk)`
+      : `full (${coverage.pathsInCheckout} paths on disk)`;
+  const lines = [
+    "Checkout coverage:",
+    `- Mode: ${modeLabel}`,
+    "- Search and reads only see these paths.",
+    `- Changed files in PR: ${coverage.changedFileCount}`,
+    `- Change set truncated: ${coverage.changeSetTruncated ? "yes" : "no"}`,
+  ];
+  if (coverage.mode === "sparse") {
+    lines.push("- Sparse checkout: only changed paths are on disk, not the full repo.");
+  }
+  if (coverage.searchTruncated) {
+    lines.push("- Last search truncated: yes");
+  }
+  if (coverage.warning) {
+    lines.push(`- Warning: ${coverage.warning}`);
   }
   return lines.join("\n");
 }

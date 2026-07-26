@@ -26,6 +26,12 @@ That layout made it easy to miss surrounding callers, shared types, and config w
 - `LOCAL_WORKSPACE_MAX_MATERIALIZED_FILES` and `LOCAL_WORKSPACE_MAX_TOTAL_BYTES` are removed; deployments must adopt the new search env names.
 - Tests must assert full-tree presence and PR-metadata-driven diff index separately from git checkout.
 
+## Amendment (2026-07-26): checkout coverage honesty
+
+Sparse checkout and truncated change sets or searches must be advertised in trusted
+context, tool refusals, and metadata-only `coverage` agent events so agents and
+operators cannot mistake partial disk coverage for full-repo certainty.
+
 ## Alternatives considered
 
 - **Keep changed-file-only materialization** — Rejected; does not meet the full-context goal.

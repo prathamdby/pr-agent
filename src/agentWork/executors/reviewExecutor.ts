@@ -31,6 +31,10 @@ import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/prompts/reviewTrustedContext.js";
+import {
+  resolveAgentEventsContext,
+  safeEmitCoverageEvent,
+} from "../../agent/runtime/agentEventSink.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../../review/reviewSchema.js";
 import {
@@ -490,6 +494,23 @@ async function runFullReviewAgainstRepositoryView(args: {
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
 
+  const checkoutCoverage = repositoryView.workspace.getCoverage();
+  const agentEventsContext = resolveAgentEventsContext(cfg, {
+    pool,
+    workItemId: item.id,
+    installationId: item.installationId,
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+  });
+  if (agentEventsContext) {
+    safeEmitCoverageEvent(agentEventsContext, cfg, {
+      coverageMode: checkoutCoverage.mode,
+      pathsInCheckout: checkoutCoverage.pathsInCheckout,
+      truncated: checkoutCoverage.changeSetTruncated,
+    });
+  }
+
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
   const [repoPolicyBlock, agentInstructionFilesBlock] = await Promise.all([
     loadAndRenderTrustedBlock({
@@ -519,6 +540,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     priorInlineFeedback: priorInlineFeedbackResult.value,
     repoPolicyBlock,
     agentInstructionFilesBlock,
+    checkoutCoverage,
   });
 
   const timing = reviewRunTimingFromJob(args.job);

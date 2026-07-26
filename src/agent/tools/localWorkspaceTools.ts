@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage, LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   assertPathAllowedForAsk,
@@ -50,6 +50,23 @@ function primePathGate(
   }
 }
 
+function coverageWarning(coverage: CheckoutCoverage): string | undefined {
+  const parts: string[] = [];
+  if (coverage.mode === "sparse") {
+    parts.push("sparse checkout — search and reads only see paths on disk");
+  }
+  if (coverage.changeSetTruncated) {
+    parts.push("change set truncated");
+  }
+  if (coverage.searchTruncated) {
+    parts.push("search truncated");
+  }
+  if (coverage.warning) {
+    parts.push(coverage.warning);
+  }
+  return parts.length > 0 ? parts.join("; ") : undefined;
+}
+
 function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
   return workspace.changedFileByPath.get(path.replace(/\\/g, "/"));
 }
@@ -58,11 +75,12 @@ async function refuseUnlessReadableFile(
   workspace: LocalPrWorkspace,
   normalized: string,
   limits: LocalWorkspaceToolLimits,
-): Promise<{ refused: true; reason: string } | null> {
+): Promise<{ refused: true; reason: string; coverage: CheckoutCoverage } | null> {
   if (!workspace.isPathInCheckout(normalized)) {
     return {
       refused: true,
       reason: "Path is missing from the checkout.",
+      coverage: workspace.getCoverage(),
     };
   }
   const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
@@ -71,12 +89,14 @@ async function refuseUnlessReadableFile(
     return {
       refused: true,
       reason: "Path is missing from the checkout.",
+      coverage: workspace.getCoverage(),
     };
   }
   if (info.size > limits.maxFileBytes) {
     return {
       refused: true,
       reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
+      coverage: workspace.getCoverage(),
     };
   }
   return null;
@@ -151,7 +171,7 @@ export function buildLocalWorkspaceTools(
 
   const searchWorkspace: LocalTool = {
     description:
-      "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. filesScanned is the matched file count after path filtering.",
+      "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. pathsSearched is how many checkout paths were scanned; filesScanned is the distinct matched file count.",
     schema: z.object({
       query: z.string().min(1),
       maxResults: z.number().int().positive().optional().default(20),
@@ -160,8 +180,9 @@ export function buildLocalWorkspaceTools(
       const allowedPaths = workspace.sortedCheckoutPaths.filter((path) =>
         pathAllowedForAsk(path, pathGate),
       );
+      const pathsSearched = allowedPaths.length;
       if (allowedPaths.length === 0) {
-        return { matches: [], truncated: false, filesScanned: 0 };
+        return { matches: [], truncated: false, pathsSearched: 0, filesScanned: 0 };
       }
       const result = await workspace.grepLiteral({
         query,
@@ -169,11 +190,19 @@ export function buildLocalWorkspaceTools(
         maxOutputBytes: limits.searchMaxTotalBytes,
         paths: allowedPaths,
       });
+      const truncated = result.truncated || result.matches.length > maxResults;
+      if (truncated) {
+        workspace.noteSearchTruncated();
+      }
       const matchedFiles = new Set(result.matches.map((match) => match.path));
+      const coverage = workspace.getCoverage();
+      const warning = truncated ? coverageWarning(coverage) : undefined;
       return {
         matches: result.matches.slice(0, maxResults),
-        truncated: result.truncated || result.matches.length > maxResults,
+        truncated,
+        pathsSearched,
         filesScanned: matchedFiles.size,
+        ...(truncated ? { coverage, ...(warning ? { warning } : {}) } : {}),
       };
     },
   };

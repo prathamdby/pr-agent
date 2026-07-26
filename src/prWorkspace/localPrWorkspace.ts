@@ -36,6 +36,35 @@ const PR_HEAD_REF = "pr-head";
 type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
 export type LocalPrWorkspaceCheckoutMode = "full" | "sparse";
 
+export type CheckoutCoverage = {
+  readonly mode: "full" | "sparse";
+  readonly pathsInCheckout: number;
+  readonly changedFileCount: number;
+  readonly changeSetTruncated: boolean;
+  readonly searchTruncated?: boolean;
+  readonly warning?: string;
+};
+
+export function buildCheckoutCoverage(workspace: {
+  readonly checkoutMode: LocalPrWorkspaceCheckoutMode;
+  readonly checkoutPaths: ReadonlySet<string>;
+  readonly changedFiles: readonly { readonly path: string }[];
+  readonly stats: {
+    readonly truncated: boolean;
+    readonly warning?: string;
+  };
+  readonly searchTruncated?: boolean;
+}): CheckoutCoverage {
+  return {
+    mode: workspace.checkoutMode,
+    pathsInCheckout: workspace.checkoutPaths.size,
+    changedFileCount: workspace.changedFiles.length,
+    changeSetTruncated: workspace.stats.truncated,
+    ...(workspace.searchTruncated ? { searchTruncated: true } : {}),
+    ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
+  };
+}
+
 type LocalPrChangedFile = {
   readonly path: string;
   readonly status: ChangedFileStatus;
@@ -62,6 +91,8 @@ export type LocalPrWorkspace = {
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
   readonly isPathInCheckout: (path: string) => boolean;
+  readonly getCoverage: () => CheckoutCoverage;
+  readonly noteSearchTruncated: () => void;
   readonly cleanup: () => Promise<void>;
 };
 
@@ -507,9 +538,27 @@ export async function prepareLocalPrWorkspace(
 
   let checkoutPaths = new Set<string>();
   let sortedCheckoutPaths: string[] = [];
+  let searchTruncated = false;
 
   function isPathInCheckout(path: string): boolean {
     return checkoutPaths.has(path.replace(/\\/g, "/"));
+  }
+
+  function getCoverage(): CheckoutCoverage {
+    return buildCheckoutCoverage({
+      checkoutMode,
+      checkoutPaths,
+      changedFiles,
+      stats: {
+        truncated: prFiles.truncated,
+        warning: prFiles.warning,
+      },
+      searchTruncated,
+    });
+  }
+
+  function noteSearchTruncated(): void {
+    searchTruncated = true;
   }
 
   async function getDiffForPath(path: string): Promise<string> {
@@ -541,11 +590,16 @@ export async function prepareLocalPrWorkspace(
       : stdout;
   }
 
-  const grepLiteral = (grepParams: GitGrepWorkspaceParams) =>
-    gitGrepWorkspace(
+  const grepLiteral = async (grepParams: GitGrepWorkspaceParams) => {
+    const result = await gitGrepWorkspace(
       { privateGitDir, agentCwd },
       { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
     );
+    if (result.truncated) {
+      noteSearchTruncated();
+    }
+    return result;
+  };
 
   try {
     await mkdir(privateGitDir, { recursive: true });
@@ -610,6 +664,8 @@ export async function prepareLocalPrWorkspace(
       getDiffForPath,
       getBlameForPath,
       isPathInCheckout,
+      getCoverage,
+      noteSearchTruncated,
       cleanup: () => removeWorkspace(rootDir),
     };
   } catch (e) {

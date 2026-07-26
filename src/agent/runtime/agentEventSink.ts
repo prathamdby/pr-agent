@@ -145,6 +145,31 @@ export function coverageEventRow(
   };
 }
 
+export function checkoutCoverageEventRow(
+  context: AgentEventsContext,
+  params: {
+    readonly sessionRole?: AgentSessionRole;
+    readonly phase?: string;
+    readonly coverageMode: "full" | "sparse";
+    readonly pathsInCheckout: number;
+    readonly truncated: boolean;
+  },
+): AgentEventInsertRow {
+  const detail: Record<string, unknown> = {
+    coverageMode: params.coverageMode,
+    pathsInCheckout: params.pathsInCheckout,
+    truncated: params.truncated,
+  };
+
+  return {
+    ...baseInsertRow(context),
+    sessionRole: params.sessionRole ?? "review",
+    eventKind: "coverage",
+    phase: params.phase ?? "prepare",
+    detail: metadataDetail(detail),
+  };
+}
+
 export function evidenceRejectEventRow(
   context: AgentEventsContext,
   params: {
@@ -203,6 +228,14 @@ export function safeEmitPublishEvent(
   params: Parameters<typeof publishEventRow>[1],
 ): void {
   safeEmitAgentEvent(context, cfg, publishEventRow(context, params));
+}
+
+export function safeEmitCoverageEvent(
+  context: AgentEventsContext,
+  cfg: Pick<Config, "agentEventsEnabled">,
+  params: Parameters<typeof checkoutCoverageEventRow>[1],
+): void {
+  safeEmitAgentEvent(context, cfg, checkoutCoverageEventRow(context, params));
 }
 
 export function resolveAgentEventsContext(

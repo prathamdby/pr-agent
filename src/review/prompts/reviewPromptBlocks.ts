@@ -25,6 +25,7 @@ export const antiSlopGuidance = [
   "Cite evidence you actually read — a diff hunk, a file you opened, or verified library docs. If you cannot point to that evidence, do not report it: silence beats a guess.",
   "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, repo policy rules under `.pr-agent/`, or root agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) present in trusted context. Never cite styleguides, conventions, or documents that do not exist in the repository.",
   "Never invent APIs, behaviour, call sites, or line numbers. If a claim depends on code you have not opened, open it or drop the claim.",
+  "When checkout coverage is sparse or a search result is truncated, do not claim absence of callers, usages, or references — you only searched a subset of the repo.",
   'Give one precise mechanism, not a list of generic risks. Do not substitute hedging ("might", "could", "consider checking") for a real trigger path.',
   "Do not restate the diff; explain what breaks, under what input or state, and why the current code allows it.",
 ].join("\n");
