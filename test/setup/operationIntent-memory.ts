@@ -15,6 +15,10 @@ vi.mock("../../src/agentWork/operationIntentRepository.js", () => ({
     client: Parameters<typeof memoryOperationIntentStore.persist>[0],
     params: Parameters<typeof memoryOperationIntentStore.persist>[1],
   ) => memoryOperationIntentStore.persist(client, params),
+  mergeOperationIntentDetail: (
+    client: Parameters<typeof memoryOperationIntentStore.mergeDetail>[0],
+    params: Parameters<typeof memoryOperationIntentStore.mergeDetail>[1],
+  ) => memoryOperationIntentStore.mergeDetail(client, params),
   reconcileOperationIntent: (
     client: Parameters<typeof memoryOperationIntentStore.reconcile>[0],
     params: Parameters<typeof memoryOperationIntentStore.reconcile>[1],

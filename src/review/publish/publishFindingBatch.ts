@@ -23,6 +23,7 @@ import {
 import type { ReviewFinding, ReviewPayload, ReviewPublishContext } from "../reviewSchema.js";
 import type { RecordPublishStepWithCoordination } from "./publishSummaryOnly.js";
 import {
+  deterministicInlineBatchId,
   reviewInlineBatchOperationKey,
   withOperationIntent,
   type OperationIntentContext,
@@ -261,7 +262,16 @@ export async function publishFindingBatch(
     });
   }
 
-  const batchId = crypto.randomUUID();
+  const findingFingerprints = targets.inline.map((placement) => placement.inlineFingerprint);
+  const intentWorkItemId = context.operationIntent?.workItemId ?? context.workItemId;
+  const batchId =
+    intentWorkItemId != null
+      ? deterministicInlineBatchId({
+          workItemId: intentWorkItemId,
+          specialist: context.source,
+          findingFingerprints,
+        })
+      : crypto.randomUUID();
   const inlineResult = await (context.operationIntent == null
     ? publishInlineReviewComments(context.ctx.owner, context.ctx.repo, context.ctx.prNumber, {
         getToken: context.getToken,

@@ -6,10 +6,12 @@ import { AppError } from "../src/errors/appError.js";
 // the shared memory store (see memoryOperationIntentStore.test.ts for that path).
 vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
   persistOperationIntent: vi.fn(),
+  mergeOperationIntentDetail: vi.fn(),
   reconcileOperationIntent: vi.fn(),
 }));
 
 import {
+  mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
 } from "../src/agentWork/operationIntentRepository.js";
@@ -28,6 +30,15 @@ describe("withOperationIntent", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: {},
+    });
+    vi.mocked(mergeOperationIntentDetail).mockResolvedValue({
       id: "intent-1",
       workItemId: "wi-1",
       operationKey: "ask:reply:o/r#1",
@@ -82,12 +93,46 @@ describe("withOperationIntent", () => {
       mutate: async () => "done",
     });
 
+    expect(mergeOperationIntentDetail).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      detail: { __result: "done" },
+    });
     expect(reconcileOperationIntent).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       operationKey: "ask:reply:o/r#1",
       status: "reconciled",
       publishRecordId: "pub-1",
       detail: { __result: "done" },
+    });
+  });
+
+  it("finishes reconcile without remutating when pending intent already has __result", async () => {
+    const mutate = vi.fn(async () => "fresh");
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __result: { commentId: 55 } },
+    });
+
+    const result = await withOperationIntent({
+      ...baseParams,
+      mutate,
+    });
+
+    expect(result).toEqual({ commentId: 55 });
+    expect(mutate).not.toHaveBeenCalled();
+    expect(mergeOperationIntentDetail).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(pool, {
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      status: "reconciled",
+      publishRecordId: undefined,
+      detail: { __result: { commentId: 55 } },
     });
   });
 

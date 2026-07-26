@@ -1,4 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Pool } from "pg";
+import {
+  deterministicInlineBatchId,
+  reviewInlineBatchOperationKey,
+} from "../src/agentWork/withOperationIntent.js";
 import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
   applyFindingLedgerDelta,
@@ -9,6 +14,7 @@ import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.j
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 
 const settingsOverrides = vi.hoisted(
   (): {
@@ -317,5 +323,88 @@ describe("publishFindingBatch", () => {
         placement: expect.objectContaining({ finding: ninthFinding }),
       }),
     ]);
+  });
+
+  it("uses a stable batch id and operation key across retries", async () => {
+    const pool = {} as Pool;
+    const fingerprint = fingerprintFinding(finding, "review");
+    const expectedBatchId = deterministicInlineBatchId({
+      workItemId: "wi-1",
+      specialist: "correctness",
+      findingFingerprints: [fingerprint],
+    });
+    const expectedKey = reviewInlineBatchOperationKey(expectedBatchId);
+    const recordPublishStep = vi.fn(async () => undefined);
+
+    const first = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), recordPublishStep, {
+        operationIntent: { client: pool, workItemId: "wi-1", resourceKey: "o/r#1" },
+      }),
+    );
+    expect(first.kind).toBe("published");
+    expect(recordPublishStep).toHaveBeenCalledWith(
+      "inline_review",
+      expect.objectContaining({
+        meta: expect.objectContaining({ batchId: expectedBatchId }),
+      }),
+    );
+    expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
+
+    // Replay the same work item/batch: same key, no second GitHub create.
+    vi.mocked(createPullRequestReviewWithComments).mockClear();
+    const second = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), recordPublishStep, {
+        operationIntent: { client: pool, workItemId: "wi-1", resourceKey: "o/r#1" },
+      }),
+    );
+    expect(second.kind).toBe("published");
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
+  });
+
+  it("does not remutate after crash between GitHub accept and reconcile", async () => {
+    const pool = {} as Pool;
+    const fingerprint = fingerprintFinding(finding, "review");
+    const batchId = deterministicInlineBatchId({
+      workItemId: "wi-crash",
+      specialist: "correctness",
+      findingFingerprints: [fingerprint],
+    });
+    const operationKey = reviewInlineBatchOperationKey(batchId);
+    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 2);
+
+    await expect(
+      publishFindingBatch(
+        [finding],
+        batchContext(createFindingLedger(), vi.fn(async () => undefined), {
+          workItemId: "wi-crash",
+          operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
+        }),
+      ),
+    ).rejects.toThrow("crash before reconcile");
+
+    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
+    const pending = memoryOperationIntentStore.get("wi-crash", operationKey);
+    expect(pending?.status).toBe("pending");
+    expect(pending?.detail.__result).toEqual(
+      expect.objectContaining({
+        review: expect.objectContaining({ id: 101 }),
+      }),
+    );
+
+    vi.mocked(createPullRequestReviewWithComments).mockClear();
+    const recovered = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), vi.fn(async () => undefined), {
+        workItemId: "wi-crash",
+        operationIntent: { client: pool, workItemId: "wi-crash", resourceKey: "o/r#1" },
+      }),
+    );
+
+    expect(recovered.kind).toBe("published");
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(memoryOperationIntentStore.get("wi-crash", operationKey)?.status).toBe("reconciled");
   });
 });

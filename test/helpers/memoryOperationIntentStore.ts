@@ -20,6 +20,12 @@ type ReconcileParams = {
   readonly detail?: Record<string, unknown>;
 };
 
+type MergeDetailParams = {
+  readonly workItemId: string;
+  readonly operationKey: string;
+  readonly detail: Record<string, unknown>;
+};
+
 type StoredIntent = {
   id: string;
   workItemId: string;
@@ -112,6 +118,18 @@ export function createMemoryOperationIntentStore() {
       };
       rows.set(key, stored);
       return toRow(stored);
+    },
+
+    async mergeDetail(
+      _client: Pool | PoolClient,
+      params: MergeDetailParams,
+    ): Promise<OperationIntentRow | null> {
+      const key = rowKey(params.workItemId, params.operationKey);
+      const existing = rows.get(key);
+      if (!existing || existing.status !== "pending") return null;
+      existing.detail = { ...existing.detail, ...params.detail };
+      existing.updatedAtMs = nextClock();
+      return toRow(existing);
     },
 
     async reconcile(

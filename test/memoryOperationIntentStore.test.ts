@@ -69,33 +69,40 @@ describe("memoryOperationIntentStore + real withOperationIntent", () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
-  it("keeps a pending intent after post-mutate / pre-reconcile process death", async () => {
-    const mutate = vi.fn(async () => "remote-ok");
+  it("retries after post-mutate / pre-reconcile crash without remutating", async () => {
+    const mutate = vi.fn(async () => ({ reviewId: 101 }));
+    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 2);
 
-    // Process-death model: persist + mutate succeed; reconcile never runs (no catch).
-    await memoryOperationIntentStore.persist(pool, {
+    await expect(
+      withOperationIntent({
+        client: pool,
+        workItemId: "wi-9",
+        operationKey: "review:inline:batch-stable",
+        mutationKind: "github.inline_review",
+        detail: { batchId: "batch-stable" },
+        mutate,
+      }),
+    ).rejects.toThrow();
+
+    const pending = memoryOperationIntentStore.get("wi-9", "review:inline:batch-stable");
+    expect(pending?.status).toBe("pending");
+    expect(pending?.detail.__result).toEqual({ reviewId: 101 });
+    expect(mutate).toHaveBeenCalledTimes(1);
+
+    const result = await withOperationIntent({
+      client: pool,
       workItemId: "wi-9",
       operationKey: "review:inline:batch-stable",
-      mutationKind: "github.review_inline",
+      mutationKind: "github.inline_review",
       detail: { batchId: "batch-stable" },
+      mutate,
     });
-    await mutate();
 
-    const pending = await memoryOperationIntentStore.listPending(pool, "wi-9");
-    expect(pending).toHaveLength(1);
-    expect(pending[0]?.operationKey).toBe("review:inline:batch-stable");
-    expect(pending[0]?.status).toBe("pending");
-
-    // Retry without recovery still remutates — that is the #1/#2 production bug surface.
-    // With the same operation key, persist returns the pending row (conflict no-op).
-    const persisted = await memoryOperationIntentStore.persist(pool, {
-      workItemId: "wi-9",
-      operationKey: "review:inline:batch-stable",
-      mutationKind: "github.review_inline",
-      detail: { batchId: "batch-stable" },
-    });
-    expect(persisted.status).toBe("pending");
-    expect(persisted.operationKey).toBe("review:inline:batch-stable");
+    expect(result).toEqual({ reviewId: 101 });
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(memoryOperationIntentStore.get("wi-9", "review:inline:batch-stable")?.status).toBe(
+      "reconciled",
+    );
   });
 
   it("failNextReconcile throws once then allows a later reconcile", async () => {

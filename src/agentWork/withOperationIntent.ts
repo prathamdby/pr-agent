@@ -1,7 +1,12 @@
+import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { AppError, isAppError, toAppError } from "../errors/appError.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
-import { persistOperationIntent, reconcileOperationIntent } from "./operationIntentRepository.js";
+import {
+  mergeOperationIntentDetail,
+  persistOperationIntent,
+  reconcileOperationIntent,
+} from "./operationIntentRepository.js";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
@@ -32,6 +37,20 @@ export function reviewInlineBatchOperationKey(batchId: string): string {
   return `review:inline:${batchId}`;
 }
 
+/** Stable inline-batch identity for operation-intent keys across retries. */
+export function deterministicInlineBatchId(params: {
+  readonly workItemId: string;
+  readonly specialist: string;
+  readonly findingFingerprints: readonly string[];
+}): string {
+  const material = [
+    params.workItemId,
+    params.specialist,
+    ...[...params.findingFingerprints].sort(),
+  ].join("\0");
+  return crypto.createHash("sha256").update(material).digest("hex").slice(0, 32);
+}
+
 export function reviewSummaryOperationKey(resourceKey: string, reviewLens: string): string {
   return `review:summary:${reviewLens}:${resourceKey}`;
 }
@@ -60,22 +79,43 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
     detail: params.detail,
   });
 
-  // A prior attempt already completed this mutation. Do not remutate.
-  if (intent.status === "reconciled") {
-    return ("__result" in intent.detail ? intent.detail.__result : undefined) as T;
+  // Mutation outcome already stashed (reconciled, or crash/DB blip after mutate).
+  // Never remutate when __result is present — finish status reconciliation only.
+  if ("__result" in intent.detail) {
+    if (intent.status !== "reconciled") {
+      await reconcileOperationIntent(params.client, {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+        status: "reconciled",
+        publishRecordId: params.publishRecordId,
+        detail: {
+          ...params.reconcileDetail,
+          __result: intent.detail.__result,
+        },
+      });
+    }
+    return intent.detail.__result as T;
   }
 
   try {
     const result = await params.mutate();
+    const resultDetail = {
+      ...params.reconcileDetail,
+      ...(result === undefined ? {} : { __result: result as unknown }),
+    };
+    // Stash the remote result while still pending so a crash before status
+    // reconciliation does not lose the mutation outcome.
+    await mergeOperationIntentDetail(params.client, {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      detail: resultDetail,
+    });
     await reconcileOperationIntent(params.client, {
       workItemId: params.workItemId,
       operationKey: params.operationKey,
       status: "reconciled",
       publishRecordId: params.publishRecordId,
-      detail: {
-        ...params.reconcileDetail,
-        ...(result === undefined ? {} : { __result: result as unknown }),
-      },
+      detail: resultDetail,
     });
     return result;
   } catch (error) {
