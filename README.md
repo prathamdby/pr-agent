@@ -89,6 +89,16 @@ WEBHOOK_SECRET=...
 # Agent provider: see Configure the agent provider
 ```
 
+Integration tests need the same Postgres URL and fail fast without it:
+
+```bash
+docker compose up -d postgres
+# If the compose service has no host port, use the docker run from docs/cursor-cloud.md instead.
+DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub run test:integration
+```
+
+Inventory-only (may skip DB suites): `nub run test:integration:inventory`.
+
 Developer scripts: see [docs/operations.md](docs/operations.md#development).
 
 ## Configure the agent provider

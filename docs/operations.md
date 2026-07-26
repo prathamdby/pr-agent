@@ -125,7 +125,8 @@ Canonical quick start steps live in [README.md](../README.md) **Getting Started*
 | `nub run check:prod-deps`              | Production dependency graph guard           |
 | `nub run test`                         | Vitest (`test/**/*.test.ts`)                |
 | `nub run test:watch`                   | Vitest watch mode                           |
-| `nub run test:integration`             | Vitest integration suite                    |
+| `nub run test:integration`             | Vitest integration suite (requires Postgres; fails fast if unreachable) |
+| `nub run test:integration:inventory`   | Same suite, but may skip DB cases when `DATABASE_URL` is unset |
 | `nub run --node test`                  | Vitest via plain Node (escape hatch)        |
 | `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`) |
 | `nub run site:build`                   | Landing site production build               |

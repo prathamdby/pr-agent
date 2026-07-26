@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run -c vitest.integration.config.ts",
+    "test:integration:inventory": "INTEGRATION_ALLOW_SKIP_WITHOUT_DB=1 vitest run -c vitest.integration.config.ts",
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
     "site:dev": "nub --node run --filter pr-agent-landing dev",
     "site:build": "nub --node run --filter pr-agent-landing build",
