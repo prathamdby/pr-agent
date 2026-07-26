@@ -8,6 +8,7 @@ import { hasDatabase, integrationPool } from "./db.js";
 const RETENTION = {
   agentWorkRetentionSeconds: 30 * 86_400,
   webhookEventsRetentionSeconds: 30 * 86_400,
+  agentEventsRetentionSeconds: 0,
 };
 const OWNER = "retention-it";
 const EVENT = "retention-it";

@@ -2,7 +2,7 @@ import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { classifyFallbackEligibility } from "../../agent/runtime/fallbackClassification.js";
+import { resolveAgentEventsContext, safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
@@ -238,6 +238,7 @@ export async function runOrchestratedPrReview(
   });
   const briefTool = buildSpecialistBriefTool();
   const state = initialState();
+  const agentEvents = resolveAgentEventsContext(params.cfg, params.durability);
   const publishThread = buildPublishThreadTool({
     ctx: {
       owner: params.owner,
@@ -268,6 +269,8 @@ export async function runOrchestratedPrReview(
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
     initialLedger: initialLedger(params),
+    agentEvents: agentEvents ?? undefined,
+    cfg: params.cfg,
   });
   const summaryState = createPublishSummaryState({
     published: params.initialPublishState?.published,
@@ -690,6 +693,17 @@ export async function runOrchestratedPrReview(
     error?: unknown,
   ): Promise<void> => {
     state.judgment = "degraded";
+    if (agentEvents) {
+      const submittedCount = outcome.report.findings.length;
+      safeEmitDecisionEvent(agentEvents, params.cfg, {
+        specialist: outcome.specialist,
+        phase: "judgment",
+        submittedCount,
+        acceptedCount: 0,
+        rejectedCount: submittedCount,
+        degraded: true,
+      });
+    }
     if (error !== undefined) {
       const appError = toAppError(error, {
         code: "review.orchestrator_report_handler_failed",

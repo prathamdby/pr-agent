@@ -28,12 +28,15 @@ import {
   withOperationIntent,
   type OperationIntentContext,
 } from "../../agentWork/withOperationIntent.js";
+import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.js";
+import type { Config } from "../../config.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
   FindingLedgerDelta,
   FindingSource,
 } from "../orchestrator/orchestratorTypes.js";
+import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -78,6 +81,8 @@ export type FindingBatchContext = {
   readonly operationIntent?: OperationIntentContext;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
+  readonly agentEvents?: AgentEventsContext;
+  readonly cfg?: Pick<Config, "agentEventsEnabled">;
   readonly ledger: FindingLedger;
 };
 
@@ -365,6 +370,17 @@ export async function publishFindingBatch(
     await context.recordPublishStep("inline_review", {
       githubId: review.id,
       meta: batchRecord,
+    });
+  }
+
+  if (context.agentEvents && context.cfg) {
+    safeEmitPublishEvent(context.agentEvents, context.cfg, {
+      specialist: context.source,
+      batchId,
+      postedCount: posted.length,
+      suppressedCount: targets.dropped.suppressedInlineCount,
+      capDowngraded: targets.dropped.inlineCommentCapExcluded,
+      anchorDropped: inlineResult.anchorDroppedPlacements.length,
     });
   }
 

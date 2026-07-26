@@ -33,7 +33,9 @@ describe("settings inventory", () => {
     expect(envValues).toContain("PI_THINKING_CEILING");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_KEY");
     expect(envValues).toContain("AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS");
-    expect(envValues.length).toBe(53);
+    expect(envValues).toContain("AGENT_EVENTS_ENABLED");
+    expect(envValues).toContain("AGENT_EVENTS_RETENTION_SECONDS");
+    expect(envValues.length).toBe(55);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

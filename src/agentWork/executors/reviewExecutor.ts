@@ -604,6 +604,9 @@ async function runFullReviewAgainstRepositoryView(args: {
       pool,
       workItemId: item.id,
       installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
     },
   });
 

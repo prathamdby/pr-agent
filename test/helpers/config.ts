@@ -30,6 +30,8 @@ const baseTestConfig: Config = {
   piThinkingCeiling: "high",
   agentResumeSnapshotKey: "",
   agentResumeSnapshotMarginSeconds: 600,
+  agentEventsEnabled: true,
+  agentEventsRetentionSeconds: 0,
   piApi: "openai-responses",
   modelsJsonPath: null,
   modelProviderKeys: {

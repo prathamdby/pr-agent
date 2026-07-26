@@ -34,6 +34,8 @@ import {
   DEFAULT_PI_THINKING_CEILING,
   DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
   DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
+  DEFAULT_AGENT_EVENTS_ENABLED,
+  DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   DEFAULT_PORT,
   DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS,
   DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS,
@@ -251,6 +253,11 @@ export async function loadConfig() {
     ENV.AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
     DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
   );
+  const agentEventsEnabled = readBooleanEnv(ENV.AGENT_EVENTS_ENABLED, DEFAULT_AGENT_EVENTS_ENABLED);
+  const agentEventsRetentionSeconds = readNonNegativeNumber(
+    ENV.AGENT_EVENTS_RETENTION_SECONDS,
+    DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
+  );
   const modelsJsonPath = resolveModelsJsonPath({
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
@@ -425,6 +432,8 @@ export async function loadConfig() {
     piThinkingCeiling,
     agentResumeSnapshotKey,
     agentResumeSnapshotMarginSeconds,
+    agentEventsEnabled,
+    agentEventsRetentionSeconds,
     piApi,
     modelsJsonPath,
     modelProviderKeys,

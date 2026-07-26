@@ -10,6 +10,7 @@ export type RetentionResult = {
   readonly workItemsDeleted: number;
   readonly webhookEventsDeleted: number;
   readonly resumeSnapshotsDeleted: number;
+  readonly agentEventsDeleted: number;
 };
 
 /**
@@ -18,9 +19,13 @@ export type RetentionResult = {
  */
 export async function runRetention(
   pool: Pool,
-  cfg: Pick<Config, "agentWorkRetentionSeconds" | "webhookEventsRetentionSeconds">,
+  cfg: Pick<
+    Config,
+    "agentWorkRetentionSeconds" | "webhookEventsRetentionSeconds" | "agentEventsRetentionSeconds"
+  >,
 ): Promise<RetentionResult> {
-  const [workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted] = await Promise.all([
+  const [workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted, agentEventsDeleted] =
+    await Promise.all([
     (async () => {
       let deleted = 0;
       for (;;) {
@@ -59,8 +64,27 @@ export async function runRetention(
       return deleted;
     })(),
     deleteExpiredResumeSnapshots(pool),
+    (async () => {
+      if (cfg.agentEventsRetentionSeconds <= 0) return 0;
+      let deleted = 0;
+      for (;;) {
+        const result = await pool.query(
+          `DELETE FROM agent_events
+            WHERE id IN (
+              SELECT id FROM agent_events
+               WHERE recorded_at < now() - ($1::bigint * interval '1 second')
+               LIMIT $2::int
+            )`,
+          [cfg.agentEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+        );
+        const batch = result.rowCount ?? 0;
+        deleted += batch;
+        if (batch < RETENTION_DELETE_BATCH_SIZE) break;
+      }
+      return deleted;
+    })(),
   ]);
-  return { workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted };
+  return { workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted, agentEventsDeleted };
 }
 
 export async function ensureRetentionSchedule(

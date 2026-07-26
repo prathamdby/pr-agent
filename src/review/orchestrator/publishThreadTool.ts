@@ -1,6 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import { AppError, toAppError } from "../../errors/appError.js";
+import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
+import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
+import type { Config } from "../../config.js";
 import {
   type FindingBatchContext,
   type FindingBatchResult,
@@ -34,6 +37,8 @@ export type PublishThreadToolResult = FindingBatchResult & {
 
 type PublishThreadToolParams = Omit<FindingBatchContext, "source" | "ledger"> & {
   readonly initialLedger?: FindingLedger;
+  readonly agentEvents?: AgentEventsContext;
+  readonly cfg?: Pick<Config, "agentEventsEnabled">;
 };
 
 function formatValidationError(error: z.ZodError): string {
@@ -123,6 +128,17 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     if (result.kind !== "stopped") {
       ledger = applyFindingLedgerDelta(ledger, result.delta);
       if (result.kind === "published") publishedBatchCount += 1;
+      if (params.agentEvents && params.cfg) {
+        const submittedCount = parsed.data.findings.length;
+        const acceptedCount = result.delta.accepted.length;
+        safeEmitDecisionEvent(params.agentEvents, params.cfg, {
+          specialist: source,
+          phase: "judgment",
+          submittedCount,
+          acceptedCount,
+          rejectedCount: Math.max(0, submittedCount - acceptedCount),
+        });
+      }
     } else {
       stopReason = result.reason;
     }
