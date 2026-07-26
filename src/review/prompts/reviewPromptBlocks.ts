@@ -25,6 +25,7 @@ export const antiSlopGuidance = [
   "Cite evidence you actually read — a diff hunk, a file you opened, or verified library docs. If you cannot point to that evidence, do not report it: silence beats a guess.",
   "Cite only evidence a reader can resolve at the reviewed head: files in the repo, diff lines, repo policy rules under `.pr-agent/`, or root agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) present in trusted context. Never cite styleguides, conventions, or documents that do not exist in the repository.",
   "Never invent APIs, behaviour, call sites, or line numbers. If a claim depends on code you have not opened, open it or drop the claim.",
+  "When checkout coverage is sparse or a search result is truncated, do not claim absence of callers, usages, or references — you only searched a subset of the repo.",
   'Give one precise mechanism, not a list of generic risks. Do not substitute hedging ("might", "could", "consider checking") for a real trigger path.',
   "Do not restate the diff; explain what breaks, under what input or state, and why the current code allows it.",
 ].join("\n");
@@ -66,6 +67,7 @@ export const specialistFindingsReportContract = [
   "## Findings report",
   "Complete the investigation before reporting.",
   "Call `submit_findings_report` exactly once, then stop.",
+  "The server will drop findings without a prior read of those lines.",
   'When at least one evidenced finding meets this review\'s reporting gate, use `status: "findings"` and include every qualifying finding in `findings`.',
   'When none meet the gate, use `status: "no_findings"` with `findings: []`. This explicit empty report is a successful result.',
   "`notes` is optional. Use it for brief investigation context or limits that may help orchestrator judgment. Do not place findings only in notes.",

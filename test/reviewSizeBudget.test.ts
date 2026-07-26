@@ -7,6 +7,7 @@ import {
 import {
   buildReviewSizeBudget,
   classifyReviewBudgetTier,
+  formatCheckoutCoverageBlock,
   formatReviewSizeBudgetBlock,
 } from "../src/review/run/reviewSizeBudget.js";
 
@@ -95,5 +96,22 @@ describe("formatReviewSizeBudgetBlock", () => {
       "- Change set truncated: treat coverage as partial and note limits in prCharacter.",
     );
     expect(block).toContain("- Large PR:");
+  });
+});
+
+describe("formatCheckoutCoverageBlock", () => {
+  it("includes sparse mode and truncation flags", () => {
+    const block = formatCheckoutCoverageBlock({
+      mode: "sparse",
+      pathsInCheckout: 12,
+      changedFileCount: 20,
+      changeSetTruncated: true,
+      searchTruncated: true,
+      warning: "file list capped",
+    });
+    expect(block).toContain("sparse (12 paths on disk)");
+    expect(block).toContain("Change set truncated: yes");
+    expect(block).toContain("Last search truncated: yes");
+    expect(block).toContain("file list capped");
   });
 });

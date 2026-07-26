@@ -13,6 +13,12 @@ import {
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
+import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
+import type { Pool } from "pg";
+import {
+  buildCodeIndexTools,
+  buildUnavailableCodeIndexTools,
+} from "../../agent/tools/codeIndexTools.js";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
@@ -21,6 +27,7 @@ export type ReviewRunSetup = {
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   };
   readonly cachedDiffIndex: CachedPrDiffIndex;
+  readonly evidenceLedger: EvidenceLedger;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
@@ -64,6 +71,8 @@ export function buildReviewRunSetup(params: {
     token: string;
     expiresAtTs: number;
   }>;
+  pool?: Pool;
+  codeIndexSnapshotId?: string;
 }): ReviewRunSetup {
   const {
     cfg,
@@ -79,6 +88,7 @@ export function buildReviewRunSetup(params: {
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
+  const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
   const refreshableGh = createRefreshableToolExecutors({
     initialToken: token,
@@ -89,6 +99,8 @@ export function buildReviewRunSetup(params: {
     build: (_activeToken, _activeExpiresAtTs) => {
       const bundle = buildLocalWorkspaceTools(params.workspace, {
         pathGate,
+        evidenceLedger,
+        headSha,
       });
       const executors = { ...bundle.executors };
       wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
@@ -100,12 +112,22 @@ export function buildReviewRunSetup(params: {
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
+  const codeIndex =
+    params.pool && params.codeIndexSnapshotId
+      ? buildCodeIndexTools({
+          pool: params.pool,
+          snapshotId: params.codeIndexSnapshotId,
+          workspace: params.workspace,
+          pathGate,
+        })
+      : buildUnavailableCodeIndexTools();
   const executors = wrapExecutorsWithRateLimitCircuit({
     ...refreshableGh.bundle.executors,
     ...ctx7.executors,
+    ...codeIndex.executors,
   });
   const workspaceTools = {
-    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools],
+    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
     executors,
   };
   const refreshBeforeTool = async (toolName: string) => {
@@ -125,6 +147,7 @@ export function buildReviewRunSetup(params: {
     }),
     workspaceTools,
     cachedDiffIndex,
+    evidenceLedger,
     getToken: refreshableGh.getToken,
     getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
     refreshBeforeTool,

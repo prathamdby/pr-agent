@@ -111,6 +111,10 @@ function mockRepositoryView() {
   );
 }
 
+function defaultCheckoutCoverage() {
+  return mockLocalPrWorkspace().getCoverage();
+}
+
 function reviewJob(): JobWithMetadata<ReviewJobData> {
   const now = new Date();
   return {
@@ -677,6 +681,10 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: "prior block",
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
+      checkoutCoverage: defaultCheckoutCoverage(),
+      symbolIndexStatus: { available: false },
+      codeIndexStatus: { available: false },
+      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -718,6 +726,10 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
+      checkoutCoverage: defaultCheckoutCoverage(),
+      symbolIndexStatus: { available: false },
+      codeIndexStatus: { available: false },
+      findingHistoryTrustedBlock: undefined,
     });
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledTimes(1);
   });
@@ -753,7 +765,7 @@ describe("executeReviewJob", () => {
       run({
         preflight,
         agentCwd: policyDir,
-        workspace: undefined,
+        workspace: mockLocalPrWorkspace(policyDir),
       }),
     );
 
@@ -764,6 +776,10 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: expect.stringContaining("Be terse."),
       agentInstructionFilesBlock: undefined,
+      checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      symbolIndexStatus: { available: false },
+      codeIndexStatus: { available: false },
+      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -779,7 +795,7 @@ describe("executeReviewJob", () => {
       run({
         preflight,
         agentCwd: policyDir,
-        workspace: undefined,
+        workspace: mockLocalPrWorkspace(policyDir),
       }),
     );
 
@@ -790,6 +806,10 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: undefined,
+      checkoutCoverage: mockLocalPrWorkspace(policyDir).getCoverage(),
+      symbolIndexStatus: { available: false },
+      codeIndexStatus: { available: false },
+      findingHistoryTrustedBlock: undefined,
     });
   });
 
@@ -806,7 +826,7 @@ describe("executeReviewJob", () => {
       run({
         preflight,
         agentCwd: checkout,
-        workspace: undefined,
+        workspace: mockLocalPrWorkspace(checkout),
       }),
     );
 
@@ -817,6 +837,10 @@ describe("executeReviewJob", () => {
       priorInlineFeedback: undefined,
       repoPolicyBlock: undefined,
       agentInstructionFilesBlock: expect.stringContaining("Prefer nub install."),
+      checkoutCoverage: mockLocalPrWorkspace(checkout).getCoverage(),
+      symbolIndexStatus: { available: false },
+      codeIndexStatus: { available: false },
+      findingHistoryTrustedBlock: undefined,
     });
   });
 

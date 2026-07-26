@@ -2,6 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
 import type { AgentRunnerToolExecutor } from "../providers/interface.js";
+import { createDurableLifecycleEventSink, resolveAgentEventsContext } from "./agentEventSink.js";
 import { thinkingPolicyFromCeiling } from "./thinkingPolicy.js";
 import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.js";
 import { createPiSession } from "./piSession.js";
@@ -101,6 +102,17 @@ export async function createFeaturePiSession(params: {
   const policy = resolveModelPolicy(params.cfg);
   const primary = modelAssignmentForRole(policy, params.role);
   const structuredState = await resolveInitialStructuredState(params);
+  const agentEventsContext = resolveAgentEventsContext(params.cfg, params.durability);
+  const durableEventSink = agentEventsContext
+    ? createDurableLifecycleEventSink(agentEventsContext, params.cfg)
+    : null;
+  const eventSink =
+    durableEventSink && params.eventSink
+      ? (event: AgentLifecycleEvent) => {
+          params.eventSink?.(event);
+          durableEventSink(event);
+        }
+      : (durableEventSink ?? params.eventSink ?? (() => undefined));
   const session = await createPiSession({
     role: params.role,
     primary,
@@ -111,7 +123,7 @@ export async function createFeaturePiSession(params: {
     structuredState,
     systemPrompt: params.systemPrompt,
     cwd: params.cwd,
-    eventSink: params.eventSink ?? (() => undefined),
+    eventSink,
     cfg: params.cfg,
     tools: params.tools,
     executors: params.executors,

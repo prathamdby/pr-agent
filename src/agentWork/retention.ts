@@ -3,6 +3,7 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
+import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -10,6 +11,8 @@ export type RetentionResult = {
   readonly workItemsDeleted: number;
   readonly webhookEventsDeleted: number;
   readonly resumeSnapshotsDeleted: number;
+  readonly agentEventsDeleted: number;
+  readonly codeIndexSnapshotsDeleted: number;
 };
 
 /**
@@ -18,9 +21,21 @@ export type RetentionResult = {
  */
 export async function runRetention(
   pool: Pool,
-  cfg: Pick<Config, "agentWorkRetentionSeconds" | "webhookEventsRetentionSeconds">,
+  cfg: Pick<
+    Config,
+    | "agentWorkRetentionSeconds"
+    | "webhookEventsRetentionSeconds"
+    | "agentEventsRetentionSeconds"
+    | "codeIndexRetentionSeconds"
+  >,
 ): Promise<RetentionResult> {
-  const [workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted] = await Promise.all([
+  const [
+    workItemsDeleted,
+    webhookEventsDeleted,
+    resumeSnapshotsDeleted,
+    agentEventsDeleted,
+    codeIndexSnapshotsDeleted,
+  ] = await Promise.all([
     (async () => {
       let deleted = 0;
       for (;;) {
@@ -59,8 +74,38 @@ export async function runRetention(
       return deleted;
     })(),
     deleteExpiredResumeSnapshots(pool),
+    (async () => {
+      if (cfg.agentEventsRetentionSeconds <= 0) return 0;
+      let deleted = 0;
+      for (;;) {
+        const result = await pool.query(
+          `DELETE FROM agent_events
+            WHERE id IN (
+              SELECT id FROM agent_events
+               WHERE recorded_at < now() - ($1::bigint * interval '1 second')
+               LIMIT $2::int
+            )`,
+          [cfg.agentEventsRetentionSeconds, RETENTION_DELETE_BATCH_SIZE],
+        );
+        const batch = result.rowCount ?? 0;
+        deleted += batch;
+        if (batch < RETENTION_DELETE_BATCH_SIZE) break;
+      }
+      return deleted;
+    })(),
+    safeDeleteExpiredCodeIndexSnapshots(
+      pool,
+      cfg.codeIndexRetentionSeconds,
+      RETENTION_DELETE_BATCH_SIZE,
+    ),
   ]);
-  return { workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted };
+  return {
+    workItemsDeleted,
+    webhookEventsDeleted,
+    resumeSnapshotsDeleted,
+    agentEventsDeleted,
+    codeIndexSnapshotsDeleted,
+  };
 }
 
 export async function ensureRetentionSchedule(

@@ -24,6 +24,9 @@ const EXPECTED_MIGRATIONS = [
   "014_slash_active_uniqueness.sql",
   "015_thread_reply_classification.sql",
   "016_agent_runtime_durability.sql",
+  "017_agent_events.sql",
+  "018_finding_history.sql",
+  "019_code_index.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {

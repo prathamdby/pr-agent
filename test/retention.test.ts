@@ -6,6 +6,8 @@ import { RETENTION_DELETE_BATCH_SIZE } from "../src/settings/index.js";
 const RETENTION = {
   agentWorkRetentionSeconds: 30 * 86_400,
   webhookEventsRetentionSeconds: 30 * 86_400,
+  agentEventsRetentionSeconds: 0,
+  codeIndexRetentionSeconds: 30 * 86_400,
 };
 
 describe("runRetention batched delete loop", () => {
@@ -36,6 +38,12 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("agent_resume_snapshots")) {
           return { rowCount: 4 };
         }
+        if (text.includes("agent_events")) {
+          return { rowCount: 0 };
+        }
+        if (text.includes("code_index_snapshots")) {
+          return { rowCount: 0 };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -45,6 +53,8 @@ describe("runRetention batched delete loop", () => {
     expect(result.workItemsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 2);
     expect(result.webhookEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE);
     expect(result.resumeSnapshotsDeleted).toBe(4);
+    expect(result.agentEventsDeleted).toBe(0);
+    expect(result.codeIndexSnapshotsDeleted).toBe(0);
     expect(workCalls).toBe(2);
     expect(webhookCalls).toBe(2);
   });
@@ -66,6 +76,9 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("agent_resume_snapshots")) {
           return { rowCount: 0 };
         }
+        if (text.includes("code_index_snapshots")) {
+          return { rowCount: 0 };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -75,7 +88,36 @@ describe("runRetention batched delete loop", () => {
     expect(result.workItemsDeleted).toBe(3);
     expect(result.webhookEventsDeleted).toBe(0);
     expect(result.resumeSnapshotsDeleted).toBe(0);
+    expect(result.agentEventsDeleted).toBe(0);
     expect(workCalls).toBe(1);
     expect(webhookCalls).toBe(1);
+  });
+
+  it("batches agent_events deletes when retention seconds are positive", async () => {
+    const eventBatches = [RETENTION_DELETE_BATCH_SIZE, 7];
+    let eventCalls = 0;
+    const query = vi.fn(async (text: string) => {
+      if (text.includes("agent_work_items")) return { rowCount: 0 };
+      if (text.includes("webhook_events")) return { rowCount: 0 };
+      if (text.includes("agent_resume_snapshots")) return { rowCount: 0 };
+      if (text.includes("code_index_snapshots")) return { rowCount: 0 };
+      if (text.includes("agent_events")) {
+        expect(text).toContain("recorded_at");
+        expect(text).toContain("DELETE FROM agent_events");
+        const batch = eventBatches[eventCalls++];
+        if (batch === undefined) throw new Error("unexpected extra agent_events query");
+        return { rowCount: batch };
+      }
+      throw new Error(`unexpected query: ${text}`);
+    });
+    const pool = { query } as unknown as Pool;
+
+    const result = await runRetention(pool, {
+      ...RETENTION,
+      agentEventsRetentionSeconds: 86_400,
+    });
+
+    expect(result.agentEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE + 7);
+    expect(eventCalls).toBe(2);
   });
 });

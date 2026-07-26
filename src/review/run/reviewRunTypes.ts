@@ -33,6 +33,7 @@ export type ReviewRunParams = {
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly storedInlineFingerprints?: readonly string[];
+  readonly crossPrSuppressionFingerprints?: readonly string[];
   readonly workItemId?: string;
   readonly resumedPlacements?: readonly AcceptedPlacement[];
   readonly refreshInstallationToken?: () => Promise<{
@@ -44,6 +45,7 @@ export type ReviewRunParams = {
   readonly staleHeadRescheduled?: boolean;
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly severityFloor?: number;
+  readonly codeIndexSnapshotId?: string;
 };
 
 export type ReviewRunResult = {

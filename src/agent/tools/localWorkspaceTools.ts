@@ -1,7 +1,7 @@
 import { readFile, stat } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
-import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
+import type { CheckoutCoverage, LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   assertPathAllowedForAsk,
@@ -19,7 +19,14 @@ import {
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
+  LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
 } from "../../settings/index.js";
+import {
+  hashNormalizedLineText,
+  normalizeEvidencePath,
+  type EvidenceLedger,
+} from "../../review/findings/evidenceLedger.js";
+import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.js";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
@@ -50,19 +57,80 @@ function primePathGate(
   }
 }
 
+function coverageWarning(coverage: CheckoutCoverage): string | undefined {
+  const parts: string[] = [];
+  if (coverage.mode === "sparse") {
+    parts.push("sparse checkout — search and reads only see paths on disk");
+  }
+  if (coverage.changeSetTruncated) {
+    parts.push("change set truncated");
+  }
+  if (coverage.searchTruncated) {
+    parts.push("search truncated");
+  }
+  if (coverage.warning) {
+    parts.push(coverage.warning);
+  }
+  return parts.length > 0 ? parts.join("; ") : undefined;
+}
+
 function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
-  return workspace.changedFileByPath.get(path.replace(/\\/g, "/"));
+  return workspace.changedFileByPath.get(normalizeEvidencePath(path));
+}
+
+function recordFileReadEvidence(
+  ledger: EvidenceLedger,
+  params: {
+    readonly path: string;
+    readonly headSha: string;
+    readonly tool: string;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly content: string;
+  },
+): void {
+  ledger.record({
+    path: params.path,
+    startLine: params.startLine,
+    endLine: params.endLine,
+    contentHash: hashNormalizedLineText(params.content),
+    headSha: params.headSha,
+    tool: params.tool,
+  });
+}
+
+function recordDiffEvidence(
+  ledger: EvidenceLedger,
+  params: {
+    readonly path: string;
+    readonly headSha: string;
+    readonly tool: string;
+    readonly diff: string;
+  },
+): void {
+  const contentHash = hashNormalizedLineText(params.diff);
+  for (const [startLine, endLine] of parseCommentableRightLineRanges(params.diff)) {
+    ledger.record({
+      path: params.path,
+      startLine,
+      endLine,
+      contentHash,
+      headSha: params.headSha,
+      tool: params.tool,
+    });
+  }
 }
 
 async function refuseUnlessReadableFile(
   workspace: LocalPrWorkspace,
   normalized: string,
   limits: LocalWorkspaceToolLimits,
-): Promise<{ refused: true; reason: string } | null> {
+): Promise<{ refused: true; reason: string; coverage: CheckoutCoverage } | null> {
   if (!workspace.isPathInCheckout(normalized)) {
     return {
       refused: true,
       reason: "Path is missing from the checkout.",
+      coverage: workspace.getCoverage(),
     };
   }
   const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
@@ -71,12 +139,14 @@ async function refuseUnlessReadableFile(
     return {
       refused: true,
       reason: "Path is missing from the checkout.",
+      coverage: workspace.getCoverage(),
     };
   }
   if (info.size > limits.maxFileBytes) {
     return {
       refused: true,
       reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
+      coverage: workspace.getCoverage(),
     };
   }
   return null;
@@ -88,6 +158,8 @@ export function buildLocalWorkspaceTools(
     readonly limits?: LocalWorkspaceToolLimits;
     readonly pathGate?: AskPathGate;
     readonly extraAllowedPaths?: readonly string[];
+    readonly evidenceLedger?: EvidenceLedger;
+    readonly headSha?: string;
   },
 ): {
   piTools: PiTool[];
@@ -95,6 +167,8 @@ export function buildLocalWorkspaceTools(
 } {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
+  const evidenceLedger = opts?.evidenceLedger;
+  const headSha = opts?.headSha ?? evidenceLedger?.headSha;
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 
   const listChangedFiles: LocalTool = {
@@ -122,7 +196,7 @@ export function buildLocalWorkspaceTools(
       maxLines: z.number().int().positive().optional(),
     }),
     run: async ({ path, startLine, maxLines }) => {
-      const normalized = path.replace(/\\/g, "/");
+      const normalized = normalizeEvidencePath(path);
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
@@ -142,16 +216,30 @@ export function buildLocalWorkspaceTools(
         };
       }
       const text = buf.toString("utf8");
+      const readOutput = readTextWithOutputBudget(text, limits.readResponseBytes, {
+        startLine,
+        maxLines,
+      });
+      if (evidenceLedger && headSha && readOutput.startLine > 0 && readOutput.endLine > 0) {
+        recordFileReadEvidence(evidenceLedger, {
+          path: normalized,
+          headSha,
+          tool: "readWorkspaceFile",
+          startLine: readOutput.startLine,
+          endLine: readOutput.endLine,
+          content: readOutput.content,
+        });
+      }
       return {
         path: normalized,
-        ...readTextWithOutputBudget(text, limits.readResponseBytes, { startLine, maxLines }),
+        ...readOutput,
       };
     },
   };
 
   const searchWorkspace: LocalTool = {
     description:
-      "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. filesScanned is the matched file count after path filtering.",
+      "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. pathsSearched is how many checkout paths were scanned; filesScanned is the distinct matched file count.",
     schema: z.object({
       query: z.string().min(1),
       maxResults: z.number().int().positive().optional().default(20),
@@ -160,8 +248,9 @@ export function buildLocalWorkspaceTools(
       const allowedPaths = workspace.sortedCheckoutPaths.filter((path) =>
         pathAllowedForAsk(path, pathGate),
       );
+      const pathsSearched = allowedPaths.length;
       if (allowedPaths.length === 0) {
-        return { matches: [], truncated: false, filesScanned: 0 };
+        return { matches: [], truncated: false, pathsSearched: 0, filesScanned: 0 };
       }
       const result = await workspace.grepLiteral({
         query,
@@ -169,11 +258,19 @@ export function buildLocalWorkspaceTools(
         maxOutputBytes: limits.searchMaxTotalBytes,
         paths: allowedPaths,
       });
+      const truncated = result.truncated || result.matches.length > maxResults;
+      if (truncated) {
+        workspace.noteSearchTruncated();
+      }
       const matchedFiles = new Set(result.matches.map((match) => match.path));
+      const coverage = workspace.getCoverage();
+      const warning = truncated ? coverageWarning(coverage) : undefined;
       return {
         matches: result.matches.slice(0, maxResults),
-        truncated: result.truncated || result.matches.length > maxResults,
+        truncated,
+        pathsSearched,
         filesScanned: matchedFiles.size,
+        ...(truncated ? { coverage, ...(warning ? { warning } : {}) } : {}),
       };
     },
   };
@@ -183,10 +280,18 @@ export function buildLocalWorkspaceTools(
       "After listChangedFiles, read each change's PR unified diff before opening whole files. Path from the changed-file list. Responses are byte-capped; on truncated, narrow the path or follow up with a focused file read.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
-      const normalized = path.replace(/\\/g, "/");
+      const normalized = normalizeEvidencePath(path);
       assertPathAllowedForAsk(normalized, pathGate);
       const diff = await workspace.getDiffForPath(normalized);
       const capped = capTextOutput(diff, limits.diffResponseBytes, "response byte budget exceeded");
+      if (evidenceLedger && headSha && capped.content.length > 0) {
+        recordDiffEvidence(evidenceLedger, {
+          path: normalized,
+          headSha,
+          tool: "getWorkspaceDiff",
+          diff: capped.content,
+        });
+      }
       return {
         path: normalized,
         diff: capped.content,
@@ -228,12 +333,38 @@ export function buildLocalWorkspaceTools(
     },
   };
 
+  const resolveSymbol: LocalTool = {
+    description:
+      "Look up symbol definitions in the ephemeral per-run symbol index (TypeScript/JavaScript/Python heuristics). Navigation hint only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
+    schema: z.object({
+      name: z.string().min(1),
+      maxResults: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .default(LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS),
+    }),
+    run: async ({ name, maxResults }) => {
+      const status = workspace.getSymbolIndexStatus();
+      const matches = workspace.lookupSymbol(name, maxResults);
+      return {
+        name,
+        available: status.available,
+        matches,
+        ...(status.available ? {} : { reason: "Symbol index unavailable for this workspace." }),
+        reminder: "Call readWorkspaceFile before citing any match.",
+      };
+    },
+  };
+
   const tools: Record<string, LocalTool> = {
     listChangedFiles,
     readWorkspaceFile,
     searchWorkspace,
     getWorkspaceDiff,
     getWorkspaceBlame,
+    resolveSymbol,
   };
   return {
     piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),

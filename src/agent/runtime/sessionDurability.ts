@@ -25,6 +25,9 @@ export type FeatureSessionDurability = {
   readonly pool: Pool;
   readonly workItemId: string;
   readonly installationId: number;
+  readonly owner?: string;
+  readonly repo?: string;
+  readonly prNumber?: number;
 };
 
 const PHASE_ORDINAL: Readonly<Record<AgentSessionPhase, number>> = {

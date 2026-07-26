@@ -3,6 +3,7 @@ import type { PiSession } from "../src/agent/runtime/types.js";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
+import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import type {
   FindingLedger,
   ReviewCoverage,
@@ -74,6 +75,12 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
       files: new Map(),
       truncated: false,
       listPullRequestFilesIngested: false,
+    },
+    evidenceLedger: {
+      headSha: "a".repeat(40),
+      record: () => undefined,
+      covers: () => true,
+      snapshot: () => [],
     },
     getToken: () => "token",
     getTokenExpiresAtTs: () => Date.now() + 60_000,
@@ -241,6 +248,16 @@ const workspace: LocalPrWorkspace = {
   getDiffForPath: async () => "",
   getBlameForPath: async () => "",
   isPathInCheckout: () => false,
+  getCoverage: () =>
+    buildCheckoutCoverage({
+      checkoutMode: "full",
+      checkoutPaths: new Set(),
+      changedFiles: [],
+      stats: { truncated: false },
+    }),
+  noteSearchTruncated: () => undefined,
+  lookupSymbol: () => [],
+  getSymbolIndexStatus: () => ({ available: false }),
   cleanup: async () => undefined,
 };
 

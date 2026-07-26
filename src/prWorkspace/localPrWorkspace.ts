@@ -1,5 +1,15 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readdir, rm, stat, statfs, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  statfs,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -20,13 +30,32 @@ import {
   LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB,
   LOCAL_WORKSPACE_MAX_DIFF_BYTES,
   LOCAL_WORKSPACE_MAX_FETCH_BYTES,
+  LOCAL_WORKSPACE_MAX_FILE_BYTES,
   LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES,
   LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS,
+  LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS,
+  LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
+  LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
 } from "../settings/index.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
 import { AppError } from "../errors/appError.js";
+import {
+  buildSymbolIndex,
+  formatSymbolIndexStatusLine,
+  isIndexableSourcePath,
+  querySymbolIndex,
+  symbolIndexStatus,
+  type SymbolIndex,
+  type SymbolIndexEntry,
+  type SymbolIndexStatus,
+} from "./symbolIndex.js";
 
 const exec = promisify(execFile);
+const BINARY_SAMPLE_BYTES = 8192;
+
+export type { SymbolIndexEntry, SymbolIndexStatus };
+export { formatSymbolIndexStatusLine };
+
 const WORKSPACE_ROOT_PREFIX = "pr-agent-workspace-";
 const TRIAGE_WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 const PRIVATE_CHECKOUT_DIR = "private";
@@ -35,6 +64,35 @@ const PR_HEAD_REF = "pr-head";
 
 type ChangedFileStatus = "added" | "modified" | "deleted" | "renamed" | "copied" | "other";
 export type LocalPrWorkspaceCheckoutMode = "full" | "sparse";
+
+export type CheckoutCoverage = {
+  readonly mode: "full" | "sparse";
+  readonly pathsInCheckout: number;
+  readonly changedFileCount: number;
+  readonly changeSetTruncated: boolean;
+  readonly searchTruncated?: boolean;
+  readonly warning?: string;
+};
+
+export function buildCheckoutCoverage(workspace: {
+  readonly checkoutMode: LocalPrWorkspaceCheckoutMode;
+  readonly checkoutPaths: ReadonlySet<string>;
+  readonly changedFiles: readonly { readonly path: string }[];
+  readonly stats: {
+    readonly truncated: boolean;
+    readonly warning?: string;
+  };
+  readonly searchTruncated?: boolean;
+}): CheckoutCoverage {
+  return {
+    mode: workspace.checkoutMode,
+    pathsInCheckout: workspace.checkoutPaths.size,
+    changedFileCount: workspace.changedFiles.length,
+    changeSetTruncated: workspace.stats.truncated,
+    ...(workspace.searchTruncated ? { searchTruncated: true } : {}),
+    ...(workspace.stats.warning ? { warning: workspace.stats.warning } : {}),
+  };
+}
 
 type LocalPrChangedFile = {
   readonly path: string;
@@ -62,6 +120,10 @@ export type LocalPrWorkspace = {
   readonly getDiffForPath: (path: string) => Promise<string>;
   readonly getBlameForPath: (path: string) => Promise<string>;
   readonly isPathInCheckout: (path: string) => boolean;
+  readonly getCoverage: () => CheckoutCoverage;
+  readonly noteSearchTruncated: () => void;
+  readonly lookupSymbol: (name: string, maxResults?: number) => readonly SymbolIndexEntry[];
+  readonly getSymbolIndexStatus: () => SymbolIndexStatus;
   readonly cleanup: () => Promise<void>;
 };
 
@@ -507,9 +569,27 @@ export async function prepareLocalPrWorkspace(
 
   let checkoutPaths = new Set<string>();
   let sortedCheckoutPaths: string[] = [];
+  let searchTruncated = false;
 
   function isPathInCheckout(path: string): boolean {
     return checkoutPaths.has(path.replace(/\\/g, "/"));
+  }
+
+  function getCoverage(): CheckoutCoverage {
+    return buildCheckoutCoverage({
+      checkoutMode,
+      checkoutPaths,
+      changedFiles,
+      stats: {
+        truncated: prFiles.truncated,
+        warning: prFiles.warning,
+      },
+      searchTruncated,
+    });
+  }
+
+  function noteSearchTruncated(): void {
+    searchTruncated = true;
   }
 
   async function getDiffForPath(path: string): Promise<string> {
@@ -541,11 +621,16 @@ export async function prepareLocalPrWorkspace(
       : stdout;
   }
 
-  const grepLiteral = (grepParams: GitGrepWorkspaceParams) =>
-    gitGrepWorkspace(
+  const grepLiteral = async (grepParams: GitGrepWorkspaceParams) => {
+    const result = await gitGrepWorkspace(
       { privateGitDir, agentCwd },
       { ...grepParams, timeoutMs: LOCAL_WORKSPACE_FETCH_TIMEOUT_MS },
     );
+    if (result.truncated) {
+      noteSearchTruncated();
+    }
+    return result;
+  };
 
   try {
     await mkdir(privateGitDir, { recursive: true });
@@ -590,6 +675,50 @@ export async function prepareLocalPrWorkspace(
     checkoutPaths = await prepareCheckedOutTree(agentCwd);
     sortedCheckoutPaths = [...checkoutPaths].toSorted();
 
+    let symbolIndex: SymbolIndex | null = null;
+
+    async function readIndexableFile(path: string): Promise<string | null> {
+      const normalized = path.replace(/\\/g, "/");
+      if (!isPathInCheckout(normalized) || !isIndexableSourcePath(normalized)) return null;
+      const safePath = assertWorkspacePath(agentCwd, normalized);
+      const info = await stat(safePath).catch(() => null);
+      if (!info?.isFile() || info.size > LOCAL_WORKSPACE_MAX_FILE_BYTES) return null;
+      const buf = await readFile(safePath).catch(() => null);
+      if (!buf) return null;
+      if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) return null;
+      return buf.toString("utf8");
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(
+        () => controller.abort(),
+        LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS,
+      );
+      try {
+        symbolIndex = await buildSymbolIndex(
+          sortedCheckoutPaths.filter(isIndexableSourcePath),
+          readIndexableFile,
+          {
+            maxSymbols: LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
+            maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+            signal: controller.signal,
+          },
+        );
+      } catch {
+        symbolIndex = null;
+      } finally {
+        clearTimeout(timeout);
+      }
+    } catch {
+      symbolIndex = null;
+    }
+
+    const lookupSymbol = (name: string, maxResults = LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS) =>
+      querySymbolIndex(symbolIndex, name, maxResults);
+
+    const getSymbolIndexStatus = () => symbolIndexStatus(symbolIndex);
+
     return {
       rootDir,
       privateGitDir,
@@ -610,7 +739,14 @@ export async function prepareLocalPrWorkspace(
       getDiffForPath,
       getBlameForPath,
       isPathInCheckout,
-      cleanup: () => removeWorkspace(rootDir),
+      getCoverage,
+      noteSearchTruncated,
+      lookupSymbol,
+      getSymbolIndexStatus,
+      cleanup: async () => {
+        symbolIndex = null;
+        await removeWorkspace(rootDir);
+      },
     };
   } catch (e) {
     await removeWorkspace(rootDir).catch(() => undefined);

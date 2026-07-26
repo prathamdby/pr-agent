@@ -401,6 +401,7 @@ async function publishEmptyInventoryReport(params: {
 }
 
 async function tryResumeStoredPush(params: {
+  readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
   readonly token: string;
@@ -465,6 +466,7 @@ async function tryResumeStoredPush(params: {
     payload: parsed.payload,
     previouslyResolvedCount: params.previouslyResolvedCount,
     priorPush: parsed,
+    findingHistoryCfg: params.cfg,
     ...params.reportContext,
   });
   if (publish.degraded) {
@@ -549,6 +551,7 @@ async function runFreshTriageAgent(params: {
         resolutionByRootCommentId: params.resolutionByRootCommentId,
         payload: result.payload,
         previouslyResolvedCount: params.previouslyResolvedCount,
+        findingHistoryCfg: params.cfg,
         ...params.reportContext,
       });
       if (publish.degraded) {
@@ -638,6 +641,7 @@ export async function executeTriageJob(
       }
 
       const resumeParams = {
+        cfg,
         pool,
         item,
         token,

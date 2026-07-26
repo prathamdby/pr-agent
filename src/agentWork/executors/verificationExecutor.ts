@@ -227,6 +227,7 @@ export async function executeVerificationJob(
         pool,
         workItemId: item.id,
         resourceKey: item.resourceKey,
+        installationId: item.installationId,
         token: tokenState.installation.token,
         tokenExpiresAtTs: tokenState.installation.expiresAtTs,
         owner: item.owner,
@@ -239,6 +240,7 @@ export async function executeVerificationJob(
         changedFilePaths,
         changedFilePathsTruncated: compareFilesTruncated,
         policyResult: result.policyResult,
+        findingHistoryCfg: cfg,
       });
 
       const degraded = publish.degraded || resolutionDegraded || compareFilesTruncated;

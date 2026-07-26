@@ -403,7 +403,7 @@ function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"
   };
 }
 
-function parseStoredInlineBatches(detail: Record<string, unknown>): StoredInlineBatchRef[] {
+export function parseStoredInlineBatches(detail: Record<string, unknown>): StoredInlineBatchRef[] {
   if (!Array.isArray(detail.batches)) return [];
   const batches: StoredInlineBatchRef[] = [];
   for (const value of detail.batches) {

@@ -23,8 +23,10 @@ afterEach(() => {
 });
 import {
   assertWorkspacePath,
+  buildCheckoutCoverage,
   prepareLocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
+import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.js";
 
 const GIT_WORKSPACE_TEST_TIMEOUT_MS = 15_000;
 
@@ -100,6 +102,37 @@ async function buildPrFilesFromRepo(
 }
 
 describe("local PR workspace", () => {
+  it("buildCheckoutCoverage reflects sparse mode and truncation stats", () => {
+    const sparseCoverage = buildCheckoutCoverage({
+      checkoutMode: "sparse",
+      checkoutPaths: new Set(["src/a.ts", "src/b.ts"]),
+      changedFiles: [{ path: "src/a.ts" }, { path: "src/b.ts" }, { path: "src/c.ts" }],
+      stats: { truncated: true, warning: "file list capped" },
+      searchTruncated: true,
+    });
+    expect(sparseCoverage).toEqual({
+      mode: "sparse",
+      pathsInCheckout: 2,
+      changedFileCount: 3,
+      changeSetTruncated: true,
+      searchTruncated: true,
+      warning: "file list capped",
+    });
+
+    const fullCoverage = buildCheckoutCoverage({
+      checkoutMode: "full",
+      checkoutPaths: new Set(["src/a.ts", "lib/b.ts", "README.md"]),
+      changedFiles: [{ path: "src/a.ts" }],
+      stats: { truncated: false },
+    });
+    expect(fullCoverage).toEqual({
+      mode: "full",
+      pathsInCheckout: 3,
+      changedFileCount: 1,
+      changeSetTruncated: false,
+    });
+  });
+
   it(
     "uses full checkout below the repo size cap and sparse checkout above it",
     async () => {
@@ -185,6 +218,10 @@ describe("local PR workspace", () => {
           expect(() => assertWorkspacePath(fullWorkspace.agentCwd, "../escape")).toThrow(
             /traversal/,
           );
+          expect(fullWorkspace.getCoverage()).toMatchObject({
+            mode: "full",
+            changeSetTruncated: false,
+          });
         } finally {
           await fullWorkspace.cleanup();
         }
@@ -236,6 +273,13 @@ describe("local PR workspace", () => {
             readFile(join(sparseWorkspace.agentCwd, "support.txt"), "utf8"),
           ).rejects.toThrow();
           expect(await sparseWorkspace.getBlameForPath("support.txt")).toBe("");
+          expect(sparseWorkspace.getCoverage()).toMatchObject({
+            mode: "sparse",
+            changeSetTruncated: false,
+          });
+          expect(sparseWorkspace.getCoverage().pathsInCheckout).toBe(
+            sparseWorkspace.checkoutPaths.size,
+          );
         } finally {
           await sparseWorkspace.cleanup();
         }
@@ -347,6 +391,75 @@ describe("local PR workspace", () => {
           name.startsWith("pr-agent-workspace-"),
         );
         expect(workspaceDirsAfter.length).toBe(workspaceDirsBefore.size);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    GIT_WORKSPACE_TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "builds a symbol index for checkout paths and tolerates index build failure",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "workspace-symbol-index-"));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await writeFile(join(repo, "src.ts"), "export function foo() { return 1; }\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "base"]);
+        const baseSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await writeFile(join(repo, "src.ts"), "export function foo() { return 2; }\n");
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "head"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await git(root, ["init", "--bare", remote]);
+        await git(repo, ["remote", "add", "origin", remote]);
+        await git(repo, ["push", "origin", "HEAD:refs/pull/1/head"]);
+
+        const prFiles = await buildPrFilesFromRepo(repo, baseSha, headSha);
+        const workspace = await prepareLocalPrWorkspace({
+          owner: "owner",
+          repo: "repo",
+          prNumber: 1,
+          headSha,
+          installationToken: "unused",
+          prFiles,
+          remoteUrlOverride: remote,
+        });
+        try {
+          expect(workspace.getSymbolIndexStatus().available).toBe(true);
+          expect(workspace.lookupSymbol("foo")).toEqual([
+            { path: "src.ts", line: 1, kind: "function" },
+          ]);
+        } finally {
+          await workspace.cleanup();
+        }
+
+        const buildSpy = vi
+          .spyOn(symbolIndexModule, "buildSymbolIndex")
+          .mockRejectedValueOnce(new Error("simulated index failure"));
+        const failedWorkspace = await prepareLocalPrWorkspace({
+          owner: "owner",
+          repo: "repo",
+          prNumber: 1,
+          headSha,
+          installationToken: "unused",
+          prFiles,
+          remoteUrlOverride: remote,
+        });
+        try {
+          expect(failedWorkspace.getSymbolIndexStatus()).toEqual({ available: false });
+          expect(failedWorkspace.lookupSymbol("foo")).toEqual([]);
+        } finally {
+          buildSpy.mockRestore();
+          await failedWorkspace.cleanup();
+        }
       } finally {
         await rm(root, { recursive: true, force: true });
       }

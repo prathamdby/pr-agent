@@ -15,6 +15,17 @@ export const DEFAULT_PI_THINKING_CEILING = "high" as const;
 /** Empty disables encrypted resume snapshot persistence. */
 export const DEFAULT_AGENT_RESUME_SNAPSHOT_KEY = "";
 export const DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS = 600;
+export const DEFAULT_AGENT_EVENTS_ENABLED = true;
+/** Zero disables agent_events TTL delete; work-item retention + ON DELETE SET NULL still apply. */
+export const DEFAULT_AGENT_EVENTS_RETENTION_SECONDS = 0;
+export const DEFAULT_FINDING_HISTORY_ENABLED = true;
+export const DEFAULT_FINDING_HISTORY_DISMISS_SUPPRESS_AFTER = 3;
+export const DEFAULT_FINDING_HISTORY_LOOKBACK_DAYS = 180;
+export {
+  DEFAULT_CODE_INDEX_MODE,
+  DEFAULT_CODE_INDEX_WAIT_MS,
+  DEFAULT_CODE_INDEX_RETENTION_SECONDS,
+} from "./codeIndexConstants.js";
 export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 300_000;
 export const DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS = 900_000;
 

@@ -28,12 +28,19 @@ import {
   withOperationIntent,
   type OperationIntentContext,
 } from "../../agentWork/withOperationIntent.js";
+import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.js";
+import type { Config } from "../../config.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
   FindingLedgerDelta,
   FindingSource,
 } from "../orchestrator/orchestratorTypes.js";
+import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
+import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { EvidenceLedger } from "../findings/evidenceLedger.js";
+import type { Pool } from "pg";
+import { safeUpsertFindingHistoryOpen } from "../../agentWork/findingHistoryRepository.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -78,7 +85,16 @@ export type FindingBatchContext = {
   readonly operationIntent?: OperationIntentContext;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
+  readonly agentEvents?: AgentEventsContext;
+  readonly cfg?: Pick<Config, "agentEventsEnabled">;
   readonly ledger: FindingLedger;
+  readonly evidenceLedger?: EvidenceLedger;
+  readonly checkoutCoverage?: CheckoutCoverage;
+  readonly isPathInCheckout?: (path: string) => boolean;
+  readonly pool?: Pool;
+  readonly installationId?: number;
+  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly crossPrSuppressionFingerprints?: readonly string[];
 };
 
 function batchPayload(findings: readonly ReviewFinding[]): ReviewPayload {
@@ -180,6 +196,10 @@ export async function publishFindingBatch(
     payload: batchPayload(batch),
     cachedDiffIndex: context.cachedDiffIndex,
     enforceInlineAnchorValidation: false,
+    evidenceLedger: context.evidenceLedger,
+    headSha: context.ctx.headSha,
+    checkoutCoverage: context.checkoutCoverage,
+    isPathInCheckout: context.isPathInCheckout,
   });
   if (!prepared.ok) {
     throw new AppError({
@@ -197,6 +217,7 @@ export async function publishFindingBatch(
     cachedDiffIndex: context.cachedDiffIndex,
     inlinePlacements: prepared.prepared.placements,
     storedInlineFingerprints: [...context.ledger.suppressionFingerprints],
+    crossPrSuppressionFingerprints: context.crossPrSuppressionFingerprints,
     maxInlineComments: remainingInline,
   });
   const planned = fingerprintInlinePlacements(prepared.prepared.placements, "review");
@@ -366,6 +387,34 @@ export async function publishFindingBatch(
       githubId: review.id,
       meta: batchRecord,
     });
+  }
+
+  if (context.agentEvents && context.cfg) {
+    safeEmitPublishEvent(context.agentEvents, context.cfg, {
+      specialist: context.source,
+      batchId,
+      postedCount: posted.length,
+      suppressedCount: targets.dropped.suppressedInlineCount,
+      capDowngraded: targets.dropped.inlineCommentCapExcluded,
+      anchorDropped: inlineResult.anchorDroppedPlacements.length,
+    });
+  }
+
+  if (context.pool && context.findingHistoryCfg && context.installationId != null) {
+    const postedFingerprints = posted.map((placement) => placement.inlineFingerprint);
+    safeUpsertFindingHistoryOpen(
+      context.pool,
+      context.findingHistoryCfg,
+      {
+        installationId: context.installationId,
+        owner: context.ctx.owner,
+        repo: context.ctx.repo,
+        prNumber: context.ctx.prNumber,
+        workItemId: context.workItemId ?? null,
+        headSha: context.ctx.headSha,
+      },
+      postedFingerprints,
+    );
   }
 
   return {

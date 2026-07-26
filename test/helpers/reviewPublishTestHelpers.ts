@@ -1,5 +1,6 @@
 import { publishReview } from "../../src/review/publish/publishReview.js";
 import { prepareReviewPayloadForPublish } from "../../src/review/findings/findingPipeline.js";
+import type { EvidenceLedger } from "../../src/review/findings/evidenceLedger.js";
 import type { InlinePlacement } from "../../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewFinding } from "../../src/review/reviewSchema.js";
 import type { AnyReviewLens } from "../../src/settings/legacyReviewLenses.js";
@@ -9,14 +10,24 @@ import {
   type CachedPrDiffIndex,
 } from "../../src/review/placement/reviewDiffIndex.js";
 import { createSubmitReviewState } from "../../src/review/publish/submitReviewTool.js";
+import { createTestEvidenceLedger, seedEvidenceForFindings } from "./evidenceTestHelpers.js";
 
 /** Runs pre-publish pipeline then publishReview (matches submitReview path). */
 export async function publishReviewForTest(
-  params: Parameters<typeof publishReview>[0] & { mode?: AnyReviewLens },
+  params: Parameters<typeof publishReview>[0] & {
+    mode?: AnyReviewLens;
+    evidenceLedger?: EvidenceLedger;
+    headSha?: string;
+  },
 ): Promise<void> {
+  const headSha = params.headSha ?? "sha";
+  const evidenceLedger = params.evidenceLedger ?? createTestEvidenceLedger(headSha);
+  seedEvidenceForFindings(evidenceLedger, params.payload.findings);
   const prepared = prepareReviewPayloadForPublish({
     payload: params.payload,
     cachedDiffIndex: params.cachedDiffIndex,
+    evidenceLedger,
+    headSha,
   });
   if (!prepared.ok) {
     throw new Error(prepared.error);

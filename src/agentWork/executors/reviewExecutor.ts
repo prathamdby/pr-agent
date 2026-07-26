@@ -31,6 +31,10 @@ import {
   buildTrustedReviewContextForReview,
   fetchPriorInlineFeedbackBlockForReview,
 } from "../../review/prompts/reviewTrustedContext.js";
+import {
+  resolveAgentEventsContext,
+  safeEmitCoverageEvent,
+} from "../../agent/runtime/agentEventSink.js";
 import { buildReviewPreflightMetadataFromPullRequestFiles } from "../../review/placement/reviewPreflightFiles.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../../review/reviewSchema.js";
 import {
@@ -62,6 +66,11 @@ import {
   reviewCheckDetailsUrl,
 } from "../reviewCheckRun.js";
 import {
+  formatFindingHistoryTrustedBlock,
+  safeLoadCrossPrSuppressionFingerprints,
+  safeLoadFindingHistoryCandidates,
+} from "../findingHistoryRepository.js";
+import {
   loadReviewExecutorPublishContext,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
@@ -83,6 +92,8 @@ import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js"
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 import { isInstallationTokenNearExpiry } from "../../github/installationTokenExpiry.js";
+import { createAskPathGate } from "../../agent/ask/askSafety.js";
+import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
 
 type Result<T> =
   | { readonly ok: true; readonly value: T }
@@ -452,6 +463,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly job: JobWithMetadata<ReviewJobData>;
   readonly cfg: Config;
   readonly pool: Pool;
+  readonly boss: PgBoss;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
@@ -459,6 +471,8 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly headSha: string;
   readonly pullRequest: PullRequestForFileList | undefined;
   readonly publishContext: ReviewExecutorPublishContext;
+  readonly crossPrSuppressionFingerprints: readonly string[];
+  readonly findingHistoryTrustedBlock?: string;
   readonly publishAbortState: { staleHead?: boolean };
   readonly staleHeadAtPublish: { value: boolean };
   readonly priorInlineFeedback: Promise<SettledPriorInlineFeedback>;
@@ -467,6 +481,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   const {
     cfg,
     pool,
+    boss,
     item,
     reviewLens,
     payload,
@@ -474,6 +489,8 @@ async function runFullReviewAgainstRepositoryView(args: {
     headSha,
     pullRequest,
     publishContext,
+    crossPrSuppressionFingerprints,
+    findingHistoryTrustedBlock,
     publishAbortState,
     staleHeadAtPublish,
     priorInlineFeedback,
@@ -489,6 +506,40 @@ async function runFullReviewAgainstRepositoryView(args: {
 
   const priorInlineFeedbackResult = await priorInlineFeedback;
   if (!priorInlineFeedbackResult.ok) throw priorInlineFeedbackResult.error;
+
+  const checkoutCoverage = repositoryView.workspace.getCoverage();
+  const agentEventsContext = resolveAgentEventsContext(cfg, {
+    pool,
+    workItemId: item.id,
+    installationId: item.installationId,
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+  });
+  if (agentEventsContext) {
+    safeEmitCoverageEvent(agentEventsContext, cfg, {
+      coverageMode: checkoutCoverage.mode,
+      pathsInCheckout: checkoutCoverage.pathsInCheckout,
+      truncated: checkoutCoverage.changeSetTruncated,
+    });
+  }
+
+  const pathGate = createAskPathGate();
+  pathGate.addPaths(repositoryView.workspace.changedFiles.map((file) => file.path));
+  const codeIndexStatus = await prepareCodeIndexForReview({
+    cfg,
+    pool,
+    boss,
+    scope: {
+      installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      headSha,
+      prNumber: item.prNumber,
+    },
+    workspace: repositoryView.workspace,
+    pathGate,
+  });
 
   const changedFiles = (repositoryView.preflight.files ?? []).map((file) => file.filename);
   const [repoPolicyBlock, agentInstructionFilesBlock] = await Promise.all([
@@ -517,8 +568,12 @@ async function runFullReviewAgainstRepositoryView(args: {
   const trustedContext = buildTrustedReviewContextForReview({
     preflight: repositoryView.preflight,
     priorInlineFeedback: priorInlineFeedbackResult.value,
+    findingHistoryTrustedBlock,
     repoPolicyBlock,
     agentInstructionFilesBlock,
+    checkoutCoverage,
+    symbolIndexStatus: repositoryView.workspace.getSymbolIndexStatus(),
+    codeIndexStatus,
   });
 
   const timing = reviewRunTimingFromJob(args.job);
@@ -550,10 +605,12 @@ async function runFullReviewAgainstRepositoryView(args: {
     userSupplement: payload.userSupplement,
     trustedContext,
     storedInlineFingerprints,
+    crossPrSuppressionFingerprints,
     workItemId: item.id,
     resumedPlacements,
     cwd: repositoryView.agentCwd,
     workspace: repositoryView.workspace,
+    codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
     shouldLinkToSummary,
     summaryCommentIdHint,
     hasDescriptionAgentBlock: (
@@ -604,6 +661,9 @@ async function runFullReviewAgainstRepositoryView(args: {
       pool,
       workItemId: item.id,
       installationId: item.installationId,
+      owner: item.owner,
+      repo: item.repo,
+      prNumber: item.prNumber,
     },
   });
 
@@ -673,8 +733,25 @@ export async function executeReviewJob(
       });
       if (staleHeadResult) return staleHeadResult;
 
-      const publishContext = await recordReviewPhaseSpan("db-read", () =>
-        loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
+      const [publishContext, crossPrSuppressionFingerprints, findingHistoryCandidates] =
+        await recordReviewPhaseSpan("db-read", () =>
+          Promise.all([
+            loadReviewExecutorPublishContext(pool, item.id, item.resourceKey, reviewLens),
+            safeLoadCrossPrSuppressionFingerprints(pool, cfg, {
+              installationId: item.installationId,
+              owner: item.owner,
+              repo: item.repo,
+            }),
+            safeLoadFindingHistoryCandidates(pool, cfg, {
+              installationId: item.installationId,
+              owner: item.owner,
+              repo: item.repo,
+            }),
+          ]),
+        );
+      const findingHistoryTrustedBlock = formatFindingHistoryTrustedBlock(
+        findingHistoryCandidates,
+        cfg.findingHistoryDismissSuppressAfter,
       );
       const tokenState: TokenState = { installation: env.installation };
       const headSha = env.headSha;
@@ -727,6 +804,7 @@ export async function executeReviewJob(
               job,
               cfg,
               pool,
+              boss,
               item,
               reviewLens,
               payload,
@@ -734,6 +812,8 @@ export async function executeReviewJob(
               headSha,
               pullRequest: env.pullRequest,
               publishContext,
+              crossPrSuppressionFingerprints,
+              findingHistoryTrustedBlock,
               publishAbortState,
               staleHeadAtPublish,
               priorInlineFeedback,

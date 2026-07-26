@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
+import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
 import { makeTestConfig } from "./helpers/config.js";
 
@@ -18,6 +19,16 @@ const workspace: LocalPrWorkspace = {
   getDiffForPath: async () => "",
   getBlameForPath: async () => "",
   isPathInCheckout: () => false,
+  getCoverage: () =>
+    buildCheckoutCoverage({
+      checkoutMode: "full",
+      checkoutPaths: new Set(),
+      changedFiles: [],
+      stats: { truncated: false },
+    }),
+  noteSearchTruncated: () => undefined,
+  lookupSymbol: () => [],
+  getSymbolIndexStatus: () => ({ available: false }),
   cleanup: async () => undefined,
 };
 

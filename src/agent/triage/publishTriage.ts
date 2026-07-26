@@ -35,6 +35,8 @@ import {
   captureTriageFailure,
   type TriageAnalyticsRef,
 } from "../../agentWork/triageAnalytics.js";
+import { safeRecordThreadFindingHistoryOutcome } from "../../agentWork/findingHistoryRepository.js";
+import type { Config } from "../../config.js";
 import {
   StaleHeadPushError,
   type WritablePrCheckout,
@@ -60,6 +62,7 @@ type PublishTriageParams = {
   readonly priorPush?: TriagePriorPush;
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
+  readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
 };
 
 type ReportOnlyParams = Omit<
@@ -395,5 +398,27 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
     captureTriageFailure(analytics, "publish_report", error);
     throw error;
   }
+
+  if (params.findingHistoryCfg) {
+    const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
+    for (const verdict of params.payload.verdicts) {
+      const thread = threadById.get(verdict.threadRootCommentId);
+      if (!thread) continue;
+      safeRecordThreadFindingHistoryOutcome(params.pool, params.findingHistoryCfg, {
+        scope: {
+          installationId: params.installationId,
+          owner: params.owner,
+          repo: params.repo,
+          prNumber: params.prNumber,
+          workItemId: params.workItemId,
+          headSha: params.headSha,
+        },
+        resourceKey: params.resourceKey,
+        thread,
+        outcome: verdict.verdict,
+      });
+    }
+  }
+
   return { degraded };
 }

@@ -23,6 +23,8 @@ import {
 } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
+import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 
 export type SubmitReviewState = {
   published: boolean;
@@ -79,6 +81,9 @@ export function buildSubmitReviewTool(params: {
   resumedPlacements?: readonly AcceptedPlacement[];
   publishAbortState?: { staleHead?: boolean };
   severityFloor?: number;
+  evidenceLedger?: EvidenceLedger;
+  checkoutCoverage?: CheckoutCoverage;
+  isPathInCheckout?: (path: string) => boolean;
 }): {
   piTool: PiTool;
   executor: (args: Record<string, unknown>) => Promise<unknown>;
@@ -174,6 +179,10 @@ export function buildSubmitReviewTool(params: {
       severityFloor: params.severityFloor,
       cachedDiffIndex: params.cachedDiffIndex,
       enforceInlineAnchorValidation: enforceDiffAndAnchors,
+      evidenceLedger: params.evidenceLedger,
+      headSha: params.ctx.headSha,
+      checkoutCoverage: params.checkoutCoverage,
+      isPathInCheckout: params.isPathInCheckout,
     });
     if (!prepared.ok) {
       params.state.lastValidationError = prepared.error;

@@ -82,6 +82,7 @@ function baseParams(overrides: {
   return {
     pool: overrides.pool ?? pool(),
     workItemId: overrides.workItemId ?? "wi",
+    installationId: 1,
     resourceKey: "o/r#1",
     token: "tok",
     owner: "o",

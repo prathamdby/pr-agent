@@ -12,11 +12,18 @@ import {
 import { createAskPathGate } from "../src/agent/ask/askSafety.js";
 import { createCachedPrDiffIndex } from "../src/review/placement/reviewDiffIndex.js";
 import {
+  buildCheckoutCoverage,
   gitGrepWorkspace,
   type GitGrepWorkspaceParams,
   type LocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
 import { LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE } from "../src/settings/index.js";
+import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
+import {
+  buildSymbolIndex,
+  querySymbolIndex,
+  symbolIndexStatus,
+} from "../src/prWorkspace/symbolIndex.js";
 
 const exec = promisify(execFile);
 
@@ -35,29 +42,49 @@ function mockWorkspace(
   agentCwd: string,
   checkoutPaths: Iterable<string>,
   overrides?: {
+    checkoutMode?: LocalPrWorkspace["checkoutMode"];
+    stats?: LocalPrWorkspace["stats"];
     getDiffForPath?: (path: string) => Promise<string>;
     getBlameForPath?: (path: string) => Promise<string>;
+    lookupSymbol?: LocalPrWorkspace["lookupSymbol"];
+    getSymbolIndexStatus?: LocalPrWorkspace["getSymbolIndexStatus"];
   },
 ): LocalPrWorkspace {
   const paths = new Set(checkoutPaths);
   const privateGitDir = join(agentCwd, ".git");
-  const changedFiles = [{ path: "src/changed.ts", status: "modified" }] as const;
+  const changedFiles = [{ path: "src/changed.ts", status: "modified" as const }];
+  const checkoutMode = overrides?.checkoutMode ?? "full";
+  const stats = overrides?.stats ?? { truncated: false, totalChanges: 1, fileCount: 1 };
+  let searchTruncated = false;
   return {
     rootDir: agentCwd,
     privateGitDir,
     agentCwd,
-    checkoutMode: "full",
+    checkoutMode,
     changedFiles,
     changedFileByPath: new Map(changedFiles.map((file) => [file.path, file])),
     checkoutPaths: paths,
     sortedCheckoutPaths: [...paths].toSorted(),
     diffIndex: createCachedPrDiffIndex(),
-    stats: { truncated: false, totalChanges: 1, fileCount: 1 },
+    stats,
     grepLiteral: (params: GitGrepWorkspaceParams) =>
       gitGrepWorkspace({ privateGitDir, agentCwd }, { ...params, timeoutMs: 5_000 }),
     getDiffForPath: overrides?.getDiffForPath ?? (async () => ""),
     getBlameForPath: overrides?.getBlameForPath ?? (async () => ""),
     isPathInCheckout: (path) => paths.has(path),
+    getCoverage: () =>
+      buildCheckoutCoverage({
+        checkoutMode,
+        checkoutPaths: paths,
+        changedFiles,
+        stats,
+        searchTruncated,
+      }),
+    noteSearchTruncated: () => {
+      searchTruncated = true;
+    },
+    lookupSymbol: overrides?.lookupSymbol ?? (() => []),
+    getSymbolIndexStatus: overrides?.getSymbolIndexStatus ?? (() => ({ available: false })),
     cleanup: async () => {},
   };
 }
@@ -312,6 +339,7 @@ describe("local workspace tools", () => {
           { path: "src/unchanged.ts", line: 1, text: "export const needle = 1;" },
         ],
         truncated: false,
+        pathsSearched: 3,
         filesScanned: 2,
       });
     } finally {
@@ -436,6 +464,7 @@ describe("local workspace tools", () => {
       await expect(executors.searchWorkspace?.({ query: "needle" })).resolves.toEqual({
         matches: [],
         truncated: false,
+        pathsSearched: 2,
         filesScanned: 0,
       });
     } finally {
@@ -548,5 +577,220 @@ describe("local workspace tools", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("readWorkspaceFile records evidence in the ledger on success", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/small.ts": "line one\nline two\nline three\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      await executors.readWorkspaceFile?.({
+        path: "src/small.ts",
+        startLine: 2,
+        maxLines: 2,
+      });
+
+      expect(evidenceLedger.covers("src/small.ts", 2, 3)).toBe(true);
+      expect(evidenceLedger.covers("src/small.ts", 1, 1)).toBe(false);
+      expect(evidenceLedger.snapshot()).toHaveLength(1);
+      expect(evidenceLedger.snapshot()[0]?.tool).toBe("readWorkspaceFile");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("getWorkspaceDiff records evidence for commentable diff lines", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
+      const patch = ["@@ -1,1 +1,3 @@", " x", "+added", "+more"].join("\n");
+      const workspace = mockWorkspace(root, ["src/changed.ts"], {
+        getDiffForPath: async () => patch,
+      });
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+
+      await executors.getWorkspaceDiff?.({ path: "src/changed.ts" });
+
+      expect(evidenceLedger.covers("src/changed.ts", 2, 3)).toBe(true);
+      expect(evidenceLedger.snapshot()[0]?.tool).toBe("getWorkspaceDiff");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile includes coverage when path is missing from checkout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts"], { checkoutMode: "sparse" });
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "src/missing.ts" })) as {
+        refused?: boolean;
+        coverage?: { mode: string };
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.coverage).toMatchObject({ mode: "sparse" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("searchWorkspace reports pathsSearched separately from filesScanned and sets truncated on caps", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const files: Record<string, string> = {
+        "src/changed.ts": "export const changed = true;\n",
+      };
+      for (let i = 0; i < 30; i++) {
+        files[`src/file-${i}.ts`] = `const value = "needle ${"x".repeat(80)}";\n`;
+      }
+      await writeWorkspaceFiles(root, files);
+
+      const workspace = mockWorkspace(root, Object.keys(files));
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ searchMaxTotalBytes: 200 }),
+      });
+      const out = (await executors.searchWorkspace?.({
+        query: "needle",
+        maxResults: 20,
+      })) as {
+        matches: Array<{ path: string }>;
+        truncated: boolean;
+        pathsSearched: number;
+        filesScanned: number;
+        coverage?: { searchTruncated?: boolean };
+        warning?: string;
+      };
+
+      expect(out.truncated).toBe(true);
+      expect(out.pathsSearched).toBe(Object.keys(files).length);
+      expect(out.filesScanned).toBeGreaterThan(0);
+      expect(out.filesScanned).toBeLessThanOrEqual(out.pathsSearched);
+      expect(out.coverage).toBeDefined();
+      expect(out.warning).toBeDefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveSymbol returns defining file and line for known symbols", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/symbols.ts": "export function foo() {\n  return 1;\n}\n",
+      });
+
+      const index = await buildSymbolIndex(["src/symbols.ts"], async (path) => {
+        if (path === "src/symbols.ts") return "export function foo() {\n  return 1;\n}\n";
+        return null;
+      });
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/symbols.ts"], {
+        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
+        getSymbolIndexStatus: () => symbolIndexStatus(index),
+      });
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.resolveSymbol?.({ name: "foo" })) as {
+        available: boolean;
+        matches: Array<{ path: string; line: number; kind: string }>;
+      };
+
+      expect(out.available).toBe(true);
+      expect(out.matches).toEqual([{ path: "src/symbols.ts", line: 1, kind: "function" }]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveSymbol does not index symbols for sparse paths missing from checkout", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-sparse-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/on-disk.ts": "function foo() {}\n",
+        "src/off-disk.ts": "function bar() {}\n",
+      });
+
+      const index = await buildSymbolIndex(["src/on-disk.ts", "src/off-disk.ts"], async (path) => {
+        if (path === "src/on-disk.ts") return "function foo() {}\n";
+        return null;
+      });
+      const workspace = mockWorkspace(root, ["src/on-disk.ts"], {
+        checkoutMode: "sparse",
+        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
+        getSymbolIndexStatus: () => symbolIndexStatus(index),
+      });
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+
+      const foo = (await executors.resolveSymbol?.({ name: "foo" })) as {
+        matches: Array<{ path: string }>;
+      };
+      const bar = (await executors.resolveSymbol?.({ name: "bar" })) as {
+        matches: Array<{ path: string }>;
+      };
+
+      expect(foo.matches).toEqual([{ path: "src/on-disk.ts", line: 1, kind: "function" }]);
+      expect(bar.matches).toEqual([]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveSymbol hits do not satisfy evidence ledger without readWorkspaceFile", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-symbol-evidence-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/symbols.ts": "export function foo() {\n  return 1;\n}\n",
+      });
+
+      const index = await buildSymbolIndex(["src/symbols.ts"], async (path) => {
+        if (path === "src/symbols.ts") return "export function foo() {\n  return 1;\n}\n";
+        return null;
+      });
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/symbols.ts"], {
+        lookupSymbol: (name, maxResults) => querySymbolIndex(index, name, maxResults),
+        getSymbolIndexStatus: () => symbolIndexStatus(index),
+      });
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+
+      await executors.resolveSymbol?.({ name: "foo" });
+
+      expect(evidenceLedger.covers("src/symbols.ts", 1, 1)).toBe(false);
+      expect(evidenceLedger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("resolveSymbol description requires readWorkspaceFile before citing", () => {
+    const { piTools } = buildLocalWorkspaceTools(mockWorkspace("/tmp", ["src/changed.ts"]), {
+      limits: testLimits(),
+    });
+    const resolveSymbol = piTools.find((tool) => tool.name === "resolveSymbol");
+    expect(resolveSymbol?.description).toContain("readWorkspaceFile");
   });
 });

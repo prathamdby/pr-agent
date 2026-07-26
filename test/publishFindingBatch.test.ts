@@ -14,6 +14,10 @@ import { publishFindingBatch } from "../src/review/publish/publishFindingBatch.j
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import {
+  createTestEvidenceLedger,
+  seedEvidenceForFindings,
+} from "./helpers/evidenceTestHelpers.js";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
 
 const settingsOverrides = vi.hoisted(
@@ -77,8 +81,15 @@ const PROGRESS_COMMENT_URL = "https://github.com/o/r/pull/1#issuecomment-99";
 function batchContext(
   ledger: FindingLedger,
   recordPublishStep = vi.fn(async () => undefined),
-  overrides: Partial<Parameters<typeof publishFindingBatch>[1]> = {},
+  overrides: Partial<Parameters<typeof publishFindingBatch>[1]> & {
+    readonly seedFindings?: readonly ReviewFinding[];
+  } = {},
 ): Parameters<typeof publishFindingBatch>[1] {
+  const { seedFindings, ...restOverrides } = overrides;
+  const evidenceLedger = restOverrides.evidenceLedger ?? createTestEvidenceLedger("abc1234");
+  if (restOverrides.evidenceLedger == null) {
+    seedEvidenceForFindings(evidenceLedger, seedFindings ?? [finding]);
+  }
   return {
     ctx: {
       owner: "o",
@@ -94,7 +105,8 @@ function batchContext(
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
     recordPublishStep,
     ledger,
-    ...overrides,
+    evidenceLedger,
+    ...restOverrides,
   };
 }
 
@@ -175,6 +187,7 @@ describe("publishFindingBatch", () => {
       findings,
       batchContext(createFindingLedger({ postedInlineCount: 2 }), undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20, 30, 40]),
+        seedFindings: findings,
       }),
     );
 
@@ -297,6 +310,7 @@ describe("publishFindingBatch", () => {
       [findingAt(10)],
       batchContext(ledgerBeforeEighth, undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
+        seedFindings: [findingAt(10)],
       }),
     );
 
@@ -309,6 +323,7 @@ describe("publishFindingBatch", () => {
       [ninthFinding],
       batchContext(ledgerAfterEighth, undefined, {
         cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
+        seedFindings: [ninthFinding],
       }),
     );
 
