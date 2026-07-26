@@ -22,7 +22,8 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 - **Review pointer link:** on the second and later orchestrated runs for a PR, the Files-tab pointer links to the existing **review summary comment** when it can be verified. The first completed summary uses plain text only.
 - **CI summary:** the progress stub and completed summary include a **CI** gate row for external checks on the PR head (excluding PR Agent’s own check). Ack uses a lightweight non-LLM snapshot. At publish, the worker waits/polls (`REVIEW_CI_SUMMARY_WAIT_*`), downloads condensed Actions job logs when CI is red, and runs a small LLM turn to author `headline` / failure `reason`+`fixHint` (server still owns status facts and HTML rendering). If CI is still pending at publish, the row stays pending; a later `workflow_run` **completed** webhook enqueues a CI-refresh job that edits only the CI cell on the matching **review summary comment** for that head SHA (no full re-review). Missing **Checks: Read** shows a grant-Checks row; missing **Actions: Read** on a failing head keeps the failure row and adds a grant-Actions note. The review still publishes either way. Caps: `REVIEW_CI_SUMMARY_*` in `reviewConstants.ts`. See [ADR 0026](adr/0026-llm-authored-ci-summary.md).
 - **File walkthrough link:** the summary's per-file +/- walkthrough table is replaced by a link to the PR description's File Walkthrough when a Description agent block exists.
-- **Worker concurrency:** review, ask, acknowledgement, CI-refresh, description, triage, and verification jobs are capped per process by **`REVIEW_CONCURRENCY`** (default `2`), **`ASK_CONCURRENCY`** (default `1`), **`ACK_CONCURRENCY`** (default `2`, also used for `agent-work-ci-refresh`), **`DESCRIPTION_CONCURRENCY`** (default `1`), **`TRIAGE_CONCURRENCY`** (default `1`), and **`VERIFICATION_CONCURRENCY`** (default `1`) via pg-boss worker `localConcurrency` ([`src/agentWork/worker.ts`](../src/agentWork/worker.ts)). Multi-replica deployments remain at-least-once at the worker layer.
+- **Worker concurrency:** review, ask, acknowledgement, CI-refresh, description, triage, and verification jobs are capped per process by **`REVIEW_CONCURRENCY`** (default `2`), **`ASK_CONCURRENCY`** (default `1`), **`ACK_CONCURRENCY`** (default `2`, also used for `agent-work-ci-refresh`), **`DESCRIPTION_CONCURRENCY`** (default `1`), **`TRIAGE_CONCURRENCY`** (default `1`), and **`VERIFICATION_CONCURRENCY`** (default `1`) via pg-boss worker `localConcurrency` ([`src/agentWork/worker.ts`](../src/agentWork/worker.ts)). Multi-replica deployments remain at-least-once at the worker layer. **Effective cluster admission** for a queue is approximately `replicas × localConcurrency` (plus `INSTALLATION_GROUP_CONCURRENCY` for group-scoped lanes). There is no cross-process GitHub rate-limit coordinator yet ([ADR 0007](adr/0007-github-api-rate-limits.md)); each run still opens its own rate-limit circuit after three consecutive classified failures.
+- **GitHub rate-limit circuit (per run):** after three consecutive primary/secondary rate-limit retries are exhausted inside a review/ask run, nonessential GitHub tools short-circuit for the rest of that run; a successful GitHub request resets the consecutive-failure counter. Emits `github_rate_limit_circuit_opened` logs and `rate_limit_circuit_opened` review metrics.
 - **Tool surface:** production review and ask agents use the local workspace tools `listChangedFiles`, `readWorkspaceFile`, `searchWorkspace`, `getWorkspaceDiff`, and `getWorkspaceBlame`, plus two Context7 tools. The review orchestrator hands off through `submit_specialist_brief`, judges reports with `publish_thread`, and finishes through `publish_summary`. Specialists submit one `submit_findings_report`. GitHub reads and writes remain server-owned. See [ADR 0004](adr/0004-native-pi-ai-toolset.md).
 - **Library docs lookup:** review and ask agents get Context7 tools (`resolveLibraryId`, `getLibraryDocs`) that hit `https://context7.com/api`. Set **`CONTEXT7_API_KEY`** for higher limits and private repos. See [ADR 0003](adr/0003-context7-docs-tool.md).
 - **Pi-native agent runtime:** Set **`PI_PROVIDER`/`PI_MODEL`** for general sessions, optional **`PI_ORCHESTRATOR_*`** and **`PI_FALLBACK_*`**, and an optional **`models.json`** catalog. See [ADR 0031](adr/0031-pi-native-agent-runtime.md).
@@ -46,7 +47,8 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 
 - **Stack:** [docker-compose.yml](../docker-compose.yml) runs **`postgres`**, **`pr-agent-web`** (`ROLE=web`), and **`pr-agent-worker`** (`ROLE=worker`). `docker compose up` is required for end-to-end reviews and asks; web-only is not sufficient.
 - **Image:** multi-stage `Dockerfile` (Node 22); runtime listens on **`PORT`** (pinned to **7224** in Compose and [`.env.example`](../.env.example)).
-- **Health:** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable (orchestrator readiness gating).
+- **Health (web):** `GET /health` returns `200` and plain `ok`. `GET /ready` runs a Postgres `SELECT 1` and returns `503` when the database is unreachable (orchestrator readiness gating).
+- **Health (worker):** the worker listens on `PORT` for the same paths. `GET /health` is process liveness. `GET /ready` requires registered queue consumers plus Postgres/pg-boss access (idle empty queues still ready). Compose wires the worker healthcheck to `/ready`. Continuous queue/DLQ/blocked-key diagnostics emit every 60s; see [agent-work-ops.md](agent-work-ops.md).
 - **Webhook URL** (default Compose ports): `http://<host>:7224/webhooks`.
 - **`DATABASE_URL`** in Compose: `postgres://pr_agent:pr_agent@postgres:5432/pr_agent`.
 - **Provider API keys** (for example **`OPENAI_API_KEY`**, **`ANTHROPIC_API_KEY`**, **`GOOGLE_GENERATIVE_AI_API_KEY`**) are loaded by [`src/config.ts`](../src/config.ts) into `modelProviderKeys`. Set them in `.env` beside the GitHub fields or reviews fail at runtime in the worker.
@@ -106,30 +108,31 @@ Canonical quick start steps live in [README.md](../README.md) **Getting Started*
 
 ### Scripts
 
-| Script                                 | Purpose                                     |
-| -------------------------------------- | ------------------------------------------- |
-| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)             |
-| `nub watch src/index.ts`               | Auto-restart dev entry                      |
-| `nub run build`                        | Compile to `dist/`                          |
-| `nub run start` / `node dist/index.js` | Run compiled `dist/`                        |
-| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                |
-| `nub run lint`                         | Type-aware Oxlint (includes `site/`)        |
-| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`         |
-| `nub run lint:fix`                     | Oxlint with safe fixes                      |
-| `nub run fmt`                          | Format with Oxfmt                           |
-| `nub run fmt:check`                    | Check formatting                            |
-| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`          |
-| `nub run check:effect-versions`        | Verify pinned Effect deps                   |
-| `nub run check:prod-deps`              | Production dependency graph guard           |
-| `nub run test`                         | Vitest (`test/**/*.test.ts`)                |
-| `nub run test:watch`                   | Vitest watch mode                           |
-| `nub run test:integration`             | Vitest integration suite                    |
-| `nub run --node test`                  | Vitest via plain Node (escape hatch)        |
-| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`) |
-| `nub run site:build`                   | Landing site production build               |
-| `nub run site:generate-og`             | Generate landing OG assets                  |
+| Script                                 | Purpose                                                                 |
+| -------------------------------------- | ----------------------------------------------------------------------- |
+| `nub src/index.ts` / `nub run dev`     | Run `src/index.ts` (`ROLE` env)                                         |
+| `nub watch src/index.ts`               | Auto-restart dev entry                                                  |
+| `nub run build`                        | Compile to `dist/`                                                      |
+| `nub run start` / `node dist/index.js` | Run compiled `dist/`                                                    |
+| `nub run typecheck`                    | `tsc --noEmit` (`src/` only)                                            |
+| `nub run lint`                         | Type-aware Oxlint (includes `site/`)                                    |
+| `nub run lint:backend`                 | Type-aware Oxlint excluding `site/`                                     |
+| `nub run lint:fix`                     | Oxlint with safe fixes                                                  |
+| `nub run fmt`                          | Format with Oxfmt                                                       |
+| `nub run fmt:check`                    | Check formatting                                                        |
+| `nub run check:code`                   | `typecheck` + `lint` + `fmt:check`                                      |
+| `nub run check:effect-versions`        | Verify pinned Effect deps                                               |
+| `nub run check:prod-deps`              | Production dependency graph guard                                       |
+| `nub run test`                         | Vitest (`test/**/*.test.ts`)                                            |
+| `nub run test:watch`                   | Vitest watch mode                                                       |
+| `nub run test:integration`             | Vitest integration suite (requires Postgres; fails fast if unreachable) |
+| `nub run test:integration:inventory`   | Same suite, but may skip DB cases when `DATABASE_URL` is unset          |
+| `nub run --node test`                  | Vitest via plain Node (escape hatch)                                    |
+| `nub run site:dev`                     | Landing site local dev (`pr-agent-landing`)                             |
+| `nub run site:build`                   | Landing site production build                                           |
+| `nub run site:generate-og`             | Generate landing OG assets                                              |
 
-Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs, with temporary `minimumReleaseAgeExclude` entries: Oxc (`oxlint@1.75.0`, `oxlint-tsgolint@7.0.2001`, `@oxlint/*`, `@oxlint-tsgolint/*`) — remove after 2026-07-29; Pi 0.82.1 (`@earendil-works/pi-*@0.82.1`) plus `evlog@2.22.3`, `oxfmt@0.60.0` / `@oxfmt/*`, `pg-boss@12.26.3`, `posthog-node@5.46.1` / `@posthog/*` — remove after 2026-08-01.
+Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs, with temporary `minimumReleaseAgeExclude` entries: Oxc (`oxlint@1.75.0`, `oxlint-tsgolint@7.0.2001`, `@oxlint/*`, `@oxlint-tsgolint/*`) — remove after 2026-07-29; Pi 0.82.1 (`@earendil-works/pi-*@0.82.1`) plus `evlog@2.22.3`, `oxfmt@0.60.0` / `@oxfmt/*`, `pg-boss@12.26.3`, `posthog-node@5.46.1` / `@posthog/*` — remove after 2026-08-01; `brace-expansion@5.0.8` (GHSA-mh99-v99m-4gvg override in `package.json`) — remove override + exclude after 2026-07-30 once upstream ages past the gate.
 
 ### Effect version gate
 

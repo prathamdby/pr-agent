@@ -6,16 +6,25 @@ import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
 import { formatAskReply, sanitizeAskAnswerText } from "../../agent/ask/formatAskReply.js";
 import {
+  askReplyCommentIdFromIntentDetail,
+  findExistingAskReplyComment,
+} from "../../agent/ask/recoverAskReply.js";
+import {
   classifyFailure,
   classifiedFailureLogFields,
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
-import { installationOctokit } from "../../github/appAuth.js";
+import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
 import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
+import {
+  getOperationIntent,
+  mergeOperationIntentDetail,
+  persistOperationIntent,
+} from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
 import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
 import type { AskJobData, AskWorkItem } from "../types.js";
@@ -27,13 +36,19 @@ async function publishAskAnswer(
   item: AskWorkItem,
   answer: string,
   alreadySanitized = false,
-): Promise<void> {
+): Promise<{ commentId: number }> {
   const body = alreadySanitized ? answer : sanitizeAskAnswerText(answer);
   const replyTarget = item.payload.replyTarget;
   if (replyTarget.kind === "inlineReviewThread") {
     try {
-      await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
-      return;
+      return await postSlashReply(
+        token,
+        item.owner,
+        item.repo,
+        replyTarget,
+        body,
+        tokenExpiresAtTs,
+      );
     } catch (e) {
       const failure = classifyFailure(e, { phase: "publish", toolName: "ask_inline_reply" });
       logWarn("ask_inline_reply_failed", {
@@ -45,7 +60,7 @@ async function publishAskAnswer(
         ...classifiedFailureLogFields(failure),
       });
       const octokit = installationOctokit(token, tokenExpiresAtTs);
-      await octokit.rest.issues.createComment({
+      const { data } = await octokit.rest.issues.createComment({
         owner: item.owner,
         repo: item.repo,
         issue_number: replyTarget.prNumber,
@@ -53,11 +68,143 @@ async function publishAskAnswer(
           "\n",
         ),
       });
-      return;
+      return { commentId: data.id };
     }
   }
-  await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
+  return await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
 }
+
+async function stashRecoveredAskReply(params: {
+  readonly pool: Pool;
+  readonly item: AskWorkItem;
+  readonly operationKey: string;
+  readonly commentId: number;
+}): Promise<void> {
+  const { pool, item, operationKey, commentId } = params;
+  const intent = await getOperationIntent(pool, item.id, operationKey);
+  const result = { commentId };
+  if (intent == null) {
+    await persistOperationIntent(pool, {
+      workItemId: item.id,
+      operationKey,
+      mutationKind: "github.ask_reply",
+      detail: {
+        step: "ask_reply",
+        resourceKey: item.resourceKey,
+        reviewLens: ASK_PUBLISH_LENS,
+        replyTargetKind: item.payload.replyTarget.kind,
+        __result: result,
+      },
+    });
+    return;
+  }
+  if (intent.status === "pending" && askReplyCommentIdFromIntentDetail(intent.detail) == null) {
+    await mergeOperationIntentDetail(pool, {
+      workItemId: item.id,
+      operationKey,
+      detail: { __result: result },
+    });
+  }
+}
+
+/**
+ * Recover a GitHub ask reply that was accepted but not yet recorded locally.
+ * Returns the comment id when delivery can complete without remutation/model rerun.
+ */
+async function recoverDeliveredAskReplyCommentId(params: {
+  readonly cfg: Config;
+  readonly pool: Pool;
+  readonly token: string;
+  readonly tokenExpiresAtTs: number;
+  readonly item: AskWorkItem;
+}): Promise<number | null> {
+  const { cfg, pool, token, tokenExpiresAtTs, item } = params;
+  const operationKey = askReplyOperationKey(item.resourceKey);
+  const intent = await getOperationIntent(pool, item.id, operationKey);
+  const stashed = askReplyCommentIdFromIntentDetail(intent?.detail);
+  if (stashed != null) return stashed;
+
+  const replyTarget = item.payload.replyTarget;
+  if (replyTarget.kind === "inlineReviewThread") {
+    return null;
+  }
+
+  const bot = await getAppBotIdentity(cfg);
+  const recovered = await findExistingAskReplyComment({
+    token,
+    tokenExpiresAtTs,
+    owner: item.owner,
+    repo: item.repo,
+    replyTarget,
+    question: item.payload.question,
+    botLogin: bot.login,
+  });
+  if (recovered == null) return null;
+
+  await stashRecoveredAskReply({
+    pool,
+    item,
+    operationKey,
+    commentId: recovered.commentId,
+  });
+  return recovered.commentId;
+}
+
+async function finalizeAskReplyPublish(params: {
+  readonly pool: Pool;
+  readonly item: AskWorkItem;
+  readonly commentId: number;
+}): Promise<"ok" | "degraded"> {
+  const { pool, item, commentId } = params;
+  await withOperationIntent({
+    client: pool,
+    workItemId: item.id,
+    operationKey: askReplyOperationKey(item.resourceKey),
+    mutationKind: "github.ask_reply",
+    detail: {
+      step: "ask_reply",
+      resourceKey: item.resourceKey,
+      reviewLens: ASK_PUBLISH_LENS,
+      replyTargetKind: item.payload.replyTarget.kind,
+    },
+    mutate: async () => ({ commentId }),
+  });
+  try {
+    await recordAskPublishStep(pool, {
+      workItemId: item.id,
+      resourceKey: item.resourceKey,
+      step: "ask_reply",
+      detail: {
+        replyTargetKind: item.payload.replyTarget.kind,
+        commentId,
+      },
+    });
+    return "ok";
+  } catch (e) {
+    const failure = classifyFailure(e, { phase: "publish" });
+    logWarn("ask_publish_record_failed", {
+      owner: item.owner,
+      repo: item.repo,
+      pr: item.prNumber,
+      workItemId: item.id,
+      message: e instanceof Error ? e.message : String(e),
+      ...classifiedFailureLogFields(failure),
+    });
+    captureEvent({
+      distinctId: `installation:${item.installationId}`,
+      event: "ask failed",
+      properties: {
+        owner: item.owner,
+        repo: item.repo,
+        pr_number: item.prNumber,
+        reply_target_kind: item.payload.replyTarget.kind,
+        ...classifiedFailurePostHogProperties(failure),
+      },
+    });
+    return "degraded";
+  }
+}
+
 export async function executeAskJob(
   cfg: Config,
   pool: Pool,
@@ -82,6 +229,23 @@ export async function executeAskJob(
       if (await askReplyPublished()) {
         answerDelivered = true;
         return {};
+      }
+
+      const recoveredCommentId = await recoverDeliveredAskReplyCommentId({
+        cfg,
+        pool,
+        token: tokenState.installation.token,
+        tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+        item,
+      });
+      if (recoveredCommentId != null) {
+        answerDelivered = true;
+        const status = await finalizeAskReplyPublish({
+          pool,
+          item,
+          commentId: recoveredCommentId,
+        });
+        return status === "degraded" ? { degraded: true } : {};
       }
 
       return withPrRepositoryView(
@@ -127,7 +291,7 @@ export async function executeAskJob(
             },
           });
           if (!(await askReplyPublished())) {
-            await withOperationIntent({
+            const posted = await withOperationIntent({
               client: pool,
               workItemId: item.id,
               operationKey: askReplyOperationKey(item.resourceKey),
@@ -163,7 +327,10 @@ export async function executeAskJob(
                 workItemId: item.id,
                 resourceKey: item.resourceKey,
                 step: "ask_reply",
-                detail: { replyTargetKind: payload.replyTarget.kind },
+                detail: {
+                  replyTargetKind: payload.replyTarget.kind,
+                  commentId: posted.commentId,
+                },
               });
             } catch (e) {
               const failure = classifyFailure(e, { phase: "publish" });

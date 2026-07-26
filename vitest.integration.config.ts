@@ -5,6 +5,7 @@ export default defineConfig({
     pool: "forks",
     fileParallelism: false,
     include: ["test/integration/**/*.test.ts"],
+    globalSetup: ["test/integration/globalSetup.ts"],
     setupFiles: ["test/setup/evlog.ts"],
     hookTimeout: 60_000,
     testTimeout: 60_000,

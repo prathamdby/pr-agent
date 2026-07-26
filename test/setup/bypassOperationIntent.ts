@@ -1,5 +1,9 @@
 import { vi } from "vitest";
 
+/**
+ * Opt-in only for suites that never exercise publish durability.
+ * Prefer the default memory intent store (`operationIntent-memory.ts`).
+ */
 vi.mock("../../src/agentWork/reconcilePendingIntents.js", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   intentDetailMatchesPublishRecord: vi.fn(() => true),

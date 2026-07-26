@@ -154,6 +154,29 @@ export async function getSummaryCommentGithubId(
   return Number.isFinite(id) ? id : null;
 }
 
+/** Current progress-comment owner for a PR resource (any status). */
+export async function getProgressCommentOwner(
+  pool: Pool | PoolClient,
+  resourceKey: string,
+  reviewLens: AnyReviewLens,
+): Promise<{ readonly workItemId: string; readonly generation: number } | null> {
+  const row = await queryOne<{ work_item_id: string; generation: number | null }>(
+    pool,
+    `SELECT work_item_id, (detail->>'progressGeneration')::integer AS generation
+       FROM publish_records
+      WHERE resource_key = $1
+        AND review_lens = $2
+        AND step = 'progress_comment'
+      LIMIT 1`,
+    [resourceKey, reviewLens],
+  );
+  if (row == null) return null;
+  return {
+    workItemId: row.work_item_id,
+    generation: row.generation == null || !Number.isFinite(row.generation) ? 0 : row.generation,
+  };
+}
+
 export async function getProgressCommentRevision(
   pool: Pool | PoolClient,
   resourceKey: string,
@@ -598,9 +621,13 @@ export async function recordPublishStep(
 			                   END,
 			                   true
 			                 )
+			                 WHEN EXCLUDED.step = 'progress_comment'
+			                 THEN COALESCE(publish_records.detail, '{}'::jsonb) || EXCLUDED.detail
 			                 ELSE EXCLUDED.detail
 			               END,
-			               updated_at = now()`,
+			               updated_at = now()
+			         WHERE publish_records.step <> 'progress_comment'
+			            OR publish_records.work_item_id = EXCLUDED.work_item_id`,
     [
       crypto.randomUUID(),
       params.workItemId,

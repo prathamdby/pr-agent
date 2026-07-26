@@ -13,6 +13,8 @@ export function buildVerificationUserContent(params: {
   readonly headSha: string;
   readonly pushedCommits: readonly PushedCommit[];
   readonly threads: readonly BotFindingThread[];
+  /** When true, GitHub compare file membership is incomplete (300-file cap). */
+  readonly compareFilesTruncated?: boolean;
 }): string {
   const lines = [
     `Target repository: ${params.owner}/${params.repo}`,
@@ -25,6 +27,14 @@ export function buildVerificationUserContent(params: {
     for (const commit of params.pushedCommits) {
       lines.push(`- ${commit.sha} ${commit.subject}`);
     }
+  }
+
+  if (params.compareFilesTruncated) {
+    lines.push(
+      "",
+      "Note: the push compare file list is truncated (GitHub returns at most 300 files).",
+      "Treat changed-file membership as incomplete; do not assume omitted paths were untouched.",
+    );
   }
 
   lines.push("", "Prior PR Agent findings to verify:");

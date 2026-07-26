@@ -33,6 +33,7 @@ export function buildVerificationRunSetup(params: {
   readonly rootDir: string;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+  readonly compareFilesTruncated?: boolean;
 }): VerificationRunSetup {
   const submitState = createSubmitVerificationState();
   const workspaceTools = buildVerificationWorkspaceTools({
@@ -57,6 +58,7 @@ export function buildVerificationRunSetup(params: {
       headSha: params.headSha,
       pushedCommits: params.pushedCommits,
       threads: params.inventory,
+      compareFilesTruncated: params.compareFilesTruncated,
     }),
     piTools: [...workspaceTools.piTools, submitTool.piTool],
     executors: { ...workspaceTools.executors, submitVerification: submitTool.executor },

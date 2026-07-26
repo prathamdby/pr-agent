@@ -20,6 +20,7 @@ export async function runVerification(params: {
   readonly rootDir: string;
   readonly inventory: readonly BotFindingThread[];
   readonly pushedCommits: readonly { readonly sha: string; readonly subject: string }[];
+  readonly compareFilesTruncated?: boolean;
   readonly durability?: FeatureSessionDurability;
 }): Promise<VerificationRunResult> {
   return runVerificationHarness(params);

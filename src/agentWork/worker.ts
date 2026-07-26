@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
 import type { Config } from "../config.js";
 import { errorLogFields } from "../errors/appError.js";
-import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
+import { logDebug, logError, logInfo, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
   ACK_QUEUE,
@@ -35,6 +35,16 @@ import {
   type VerificationJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
+import {
+  collectQueueDiagnostics,
+  evaluateWorkerReadiness,
+  logQueueDiagnosticsReport,
+  probeWorkerDependencies,
+  QUEUE_DIAGNOSTICS_INTERVAL_MS,
+  startPeriodicQueueDiagnostics,
+  startWorkerHealthServer,
+  WORKER_CONSUMER_QUEUES,
+} from "./workerHealth.js";
 
 const AGENT_QUEUE_STATS_QUEUES = [
   ACK_QUEUE,
@@ -133,6 +143,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           const fastQueueOptions = {
             pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
           };
+          const registeredQueues = new Set<string>();
           await cleanupStaleLocalPrWorkspaces();
           await ensureRetentionSchedule(boss, cfg);
           await Promise.all([
@@ -141,13 +152,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               ACK_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeAckJob(cfg, pool, job.data),
-            ),
+            ).then(() => {
+              registeredQueues.add(ACK_QUEUE);
+            }),
             registerPlainQueue<CiRefreshJobData>(
               boss,
               CI_REFRESH_QUEUE,
               { localConcurrency: cfg.ackConcurrency, ...fastQueueOptions },
               (job) => executeCiRefreshJob(cfg, pool, job.data),
-            ),
+            ).then(() => {
+              registeredQueues.add(CI_REFRESH_QUEUE);
+            }),
             registerMetadataQueue<ReviewJobData>(
               boss,
               REVIEW_QUEUE,
@@ -156,13 +171,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 ...durableQueueOptions,
               },
               (job) => executeReviewJob(cfg, pool, boss, job),
-            ),
+            ).then(() => {
+              registeredQueues.add(REVIEW_QUEUE);
+            }),
             registerMetadataQueue<AskJobData>(
               boss,
               ASK_QUEUE,
               { localConcurrency: cfg.askConcurrency, ...durableQueueOptions },
               (job) => executeAskJob(cfg, pool, boss, job),
-            ),
+            ).then(() => {
+              registeredQueues.add(ASK_QUEUE);
+            }),
             registerMetadataQueue<DescriptionJobData>(
               boss,
               DESCRIPTION_QUEUE,
@@ -171,7 +190,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 ...durableQueueOptions,
               },
               (job) => executeDescriptionJob(cfg, pool, boss, job),
-            ),
+            ).then(() => {
+              registeredQueues.add(DESCRIPTION_QUEUE);
+            }),
             registerMetadataQueue<TriageJobData>(
               boss,
               TRIAGE_QUEUE,
@@ -180,7 +201,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 ...durableQueueOptions,
               },
               (job) => executeTriageJob(cfg, pool, boss, job),
-            ),
+            ).then(() => {
+              registeredQueues.add(TRIAGE_QUEUE);
+            }),
             registerMetadataQueue<VerificationJobData>(
               boss,
               VERIFICATION_QUEUE,
@@ -189,7 +212,9 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 ...durableQueueOptions,
               },
               (job) => executeVerificationJob(cfg, pool, boss, job),
-            ),
+            ).then(() => {
+              registeredQueues.add(VERIFICATION_QUEUE);
+            }),
             registerPlainQueue(boss, RETENTION_QUEUE, retentionQueueWorkOptions(), async () => {
               try {
                 const result = await runRetention(pool, cfg);
@@ -201,19 +226,12 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
                 });
                 throw e;
               }
+            }).then(() => {
+              registeredQueues.add(RETENTION_QUEUE);
             }),
           ]);
           logInfo("agent_worker_started", {
-            queues: [
-              ACK_QUEUE,
-              CI_REFRESH_QUEUE,
-              REVIEW_QUEUE,
-              ASK_QUEUE,
-              DESCRIPTION_QUEUE,
-              TRIAGE_QUEUE,
-              VERIFICATION_QUEUE,
-              RETENTION_QUEUE,
-            ],
+            queues: [...WORKER_CONSUMER_QUEUES],
             reviewConcurrency: cfg.reviewConcurrency,
             askConcurrency: cfg.askConcurrency,
             ackConcurrency: cfg.ackConcurrency,
@@ -221,31 +239,42 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             triageConcurrency: cfg.triageConcurrency,
             verificationConcurrency: cfg.verificationConcurrency,
           });
-          await logAgentQueueStats(boss);
-          const blockedReviewKeys = await boss.getBlockedKeys(REVIEW_QUEUE);
-          if (blockedReviewKeys.length > 0) {
-            logWarn("agent_review_queue_blocked_keys", {
-              keys: blockedReviewKeys,
-            });
-          }
+
+          const runDiagnostics = async (now: Date): Promise<void> => {
+            const report = await collectQueueDiagnostics({ boss, pool, now });
+            logQueueDiagnosticsReport(report);
+          };
+          await runDiagnostics(new Date());
+
+          const diagnostics = startPeriodicQueueDiagnostics({
+            intervalMs: QUEUE_DIAGNOSTICS_INTERVAL_MS,
+            now: () => new Date(),
+            tick: runDiagnostics,
+          });
+
+          const health = startWorkerHealthServer({
+            port: cfg.port,
+            getReadiness: async () => {
+              const deps = await probeWorkerDependencies(pool, boss);
+              return evaluateWorkerReadiness({
+                registeredQueues,
+                requiredQueues: WORKER_CONSUMER_QUEUES,
+                postgresOk: deps.postgresOk,
+                pgBossInstalled: deps.pgBossInstalled,
+              });
+            },
+          });
+
+          return { diagnostics, health };
         },
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
-      () =>
+      (handles) =>
         Effect.tryPromise({
           try: async () => {
-            await Promise.all(
-              [
-                ACK_QUEUE,
-                CI_REFRESH_QUEUE,
-                REVIEW_QUEUE,
-                ASK_QUEUE,
-                DESCRIPTION_QUEUE,
-                TRIAGE_QUEUE,
-                VERIFICATION_QUEUE,
-                RETENTION_QUEUE,
-              ].map((q) => boss.offWork(q)),
-            );
+            handles.diagnostics.stop();
+            await handles.health.close().catch(() => undefined);
+            await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q)));
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),

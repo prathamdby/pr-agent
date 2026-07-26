@@ -11,6 +11,7 @@ import {
   loadReviewExecutorPublishContext,
   claimQueuedWorkItem,
   claimSummaryCommentCreation,
+  getProgressCommentOwner,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getWorkItem,
@@ -164,6 +165,20 @@ describe("publish records", () => {
       ["o/r#1", "review"],
     );
     expect(vi.mocked(queryOne).mock.calls.at(-1)?.[1]).toContain("progressRevision");
+  });
+
+  it("loads the current progress comment owner and generation", async () => {
+    vi.mocked(queryOne).mockResolvedValue({ work_item_id: "wi-2", generation: 3 });
+
+    await expect(getProgressCommentOwner(pool, "o/r#1", "review")).resolves.toEqual({
+      workItemId: "wi-2",
+      generation: 3,
+    });
+
+    expect(queryOne).toHaveBeenLastCalledWith(pool, expect.stringContaining("progressGeneration"), [
+      "o/r#1",
+      "review",
+    ]);
   });
 
   it("returns null when no progress revision has been recorded", async () => {

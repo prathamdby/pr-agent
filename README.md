@@ -50,8 +50,8 @@ docker compose up
 ```
 
 - Webhook URL (default ports): `http://<host>:7224/webhooks`
-- **`GET /health`**: liveness (`ok`)
-- **`GET /ready`**: readiness (Postgres reachable)
+- **`GET /health`**: liveness (`ok`) on web and worker
+- **`GET /ready`**: web = Postgres reachable; worker = consumers registered + Postgres/pg-boss
 - Both **`pr-agent-web`** (`ROLE=web`) and **`pr-agent-worker`** (`ROLE=worker`) are required for reviews and asks.
 
 More deployment detail: [docs/operations.md](docs/operations.md).
@@ -88,6 +88,16 @@ GITHUB_APP_PRIVATE_KEY=...
 WEBHOOK_SECRET=...
 # Agent provider: see Configure the agent provider
 ```
+
+Integration tests need the same Postgres URL and fail fast without it:
+
+```bash
+docker compose up -d postgres
+# If the compose service has no host port, use the docker run from docs/cursor-cloud.md instead.
+DATABASE_URL=postgres://pr_agent:pr_agent@localhost:5432/pr_agent nub run test:integration
+```
+
+Inventory-only (may skip DB suites): `nub run test:integration:inventory`.
 
 Developer scripts: see [docs/operations.md](docs/operations.md#development).
 

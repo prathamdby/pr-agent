@@ -7,10 +7,9 @@ import {
 } from "../src/agent/description/submitDescriptionTool.js";
 import { makeTestConfig } from "./helpers/config.js";
 
-vi.unmock("../src/agentWork/withOperationIntent.js");
-
 vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
   persistOperationIntent: vi.fn(),
+  mergeOperationIntentDetail: vi.fn(),
   reconcileOperationIntent: vi.fn(),
 }));
 
@@ -19,6 +18,7 @@ vi.mock("../src/agent/description/publishDescription.js", () => ({
 }));
 
 import {
+  mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
 } from "../src/agentWork/operationIntentRepository.js";
@@ -42,6 +42,15 @@ describe("submitDescription tool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "description:pr_body:o/r#1",
+      mutationKind: "github.pr_body",
+      status: "pending",
+      publishRecordId: null,
+      detail: {},
+    });
+    vi.mocked(mergeOperationIntentDetail).mockResolvedValue({
       id: "intent-1",
       workItemId: "wi-1",
       operationKey: "description:pr_body:o/r#1",

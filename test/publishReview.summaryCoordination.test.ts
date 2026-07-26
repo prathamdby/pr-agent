@@ -37,6 +37,7 @@ import {
 } from "../src/review/publish/publishReview.js";
 import {
   claimSummaryCommentCreation,
+  getProgressCommentOwner,
   getProgressCommentRevision,
   getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
@@ -71,6 +72,7 @@ const claimBase = {
 describe("upsertSummaryCommentWithCreationClaim", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getProgressCommentOwner).mockResolvedValue(null);
     vi.mocked(getProgressCommentRevision).mockResolvedValue(null);
     vi.mocked(getProgressStubPostedAtMs).mockResolvedValue(null);
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(null);
@@ -323,6 +325,10 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
 
   it("allows a new work item to restart progress at revision zero", async () => {
     const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentOwner).mockResolvedValue({
+      workItemId: "wi-1",
+      generation: 1,
+    });
     vi.mocked(getProgressCommentRevision).mockResolvedValue({
       workItemId: "wi-old",
       revision: 5,
@@ -356,6 +362,30 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       { id: 88, url: "https://example.com/88" },
       undefined,
     );
+  });
+
+  it("skips summary upsert when another work item owns the progress record", async () => {
+    const { pool: lockedPool } = createLockedPool();
+    vi.mocked(getProgressCommentOwner).mockResolvedValue({
+      workItemId: "wi-b",
+      generation: 2,
+    });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValue({
+      id: 88,
+      url: "https://example.com/88",
+      body: `${REVIEW_SUMMARY_SENTINEL}\n<!-- pr-agent:progress-revision workItemId=wi-b value=1 -->`,
+    });
+
+    await expect(
+      upsertSummaryCommentWithCreationClaim({
+        ...claimBase,
+        pool: lockedPool,
+        workItemId: "wi-a",
+        progressRevision: 0,
+      }),
+    ).resolves.toMatchObject({ id: 88, updated: false, skipped: true });
+
+    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 
   it("recovers from a crash after the GitHub write using the body revision marker", async () => {

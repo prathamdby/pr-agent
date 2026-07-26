@@ -36,7 +36,7 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
 
 import {
   createPullRequestReviewWithComments,
-  listPullRequestReviewCommentsForReview,
+  listPullRequestReviewComments,
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
@@ -82,14 +82,7 @@ describe("publishReview core", () => {
     const reviewBody = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4]?.body;
     expect(reviewBody).toContain("Here's what the review found.");
     expect(reviewBody).not.toContain(REVIEW_POINTER_BODY);
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      1,
-      undefined,
-    );
+    expect(listPullRequestReviewComments).toHaveBeenCalledWith("t", "o", "r", 1, undefined);
     expect(upsertReviewSummaryComment).toHaveBeenCalled();
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
     expect(summaryBody).toContain("#discussion_r99");
@@ -329,25 +322,8 @@ describe("publishReview core", () => {
     });
 
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenCalledTimes(2);
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenNthCalledWith(
-      1,
-      "t",
-      "o",
-      "r",
-      1,
-      41,
-      undefined,
-    );
-    expect(listPullRequestReviewCommentsForReview).toHaveBeenNthCalledWith(
-      2,
-      "t",
-      "o",
-      "r",
-      1,
-      42,
-      undefined,
-    );
+    expect(listPullRequestReviewComments).toHaveBeenCalledTimes(1);
+    expect(listPullRequestReviewComments).toHaveBeenCalledWith("t", "o", "r", 1, undefined);
     expect(publishState.inlineReviewIds).toEqual([41, 42]);
     const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4] ?? "";
     expect(summaryBody.match(/Bug/g)).toHaveLength(1);

@@ -6,12 +6,14 @@ const {
   loadResumeSnapshot,
   deleteResumeSnapshotsForWorkItem,
   upsertAgentPhaseCheckpoint,
+  getAgentPhaseCheckpoint,
   createPiSession,
 } = vi.hoisted(() => ({
   upsertResumeSnapshot: vi.fn(),
   loadResumeSnapshot: vi.fn(),
   deleteResumeSnapshotsForWorkItem: vi.fn(),
   upsertAgentPhaseCheckpoint: vi.fn(),
+  getAgentPhaseCheckpoint: vi.fn(),
   createPiSession: vi.fn(),
 }));
 
@@ -24,7 +26,7 @@ vi.mock("../src/agentWork/resumeSnapshotRepository.js", () => ({
 
 vi.mock("../src/agentWork/phaseCheckpointRepository.js", () => ({
   upsertAgentPhaseCheckpoint,
-  getAgentPhaseCheckpoint: vi.fn(),
+  getAgentPhaseCheckpoint,
 }));
 
 vi.mock("../src/agent/runtime/piSession.js", () => ({
@@ -32,6 +34,7 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
 }));
 
 import {
+  checkpointOutranksSnapshot,
   clearResumeSnapshots,
   loadResumeSnapshotIfConfigured,
   RESUME_SNAPSHOT_PROMPT_VERSION,
@@ -69,6 +72,7 @@ describe("sessionDurability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     createPiSession.mockResolvedValue(fakeSession());
+    getAgentPhaseCheckpoint.mockResolvedValue(null);
   });
 
   it("saveResumeSnapshotIfConfigured no-ops without key", async () => {
@@ -102,10 +106,12 @@ describe("sessionDurability", () => {
       conversation: { lastPhase: "ask", lastCheckpointId: "ask:ask" },
       structuredState: { version: 1, payload: { answer: "cached" } },
     };
+    const updatedAt = new Date("2026-07-01T00:00:00.000Z");
     loadResumeSnapshot.mockResolvedValue({
       ok: true,
       plaintext,
       checkpointId: "ask:ask",
+      updatedAt,
     });
 
     const loaded = await loadResumeSnapshotIfConfigured({} as never, cfg, {
@@ -123,7 +129,7 @@ describe("sessionDurability", () => {
         expectedInstallationId: 42,
       }),
     );
-    expect(loaded).toEqual({ ok: true, plaintext, checkpointId: "ask:ask" });
+    expect(loaded).toEqual({ ok: true, plaintext, checkpointId: "ask:ask", updatedAt });
   });
 
   it("saveResumeSnapshotIfConfigured persists encrypted snapshot with stable versions", async () => {
@@ -170,33 +176,205 @@ describe("sessionDurability", () => {
     await clearResumeSnapshots({} as never, "wi-9");
     expect(deleteResumeSnapshotsForWorkItem).toHaveBeenCalledWith({}, "wi-9");
   });
+
+  it("checkpointOutranksSnapshot prefers later phase, then version, then updated_at", () => {
+    const base = {
+      checkpointPhase: "judgment",
+      checkpointVersion: 2,
+      checkpointUpdatedAt: new Date("2026-07-02T00:00:00.000Z"),
+      snapshotPhase: "recon",
+      snapshotVersion: 9,
+      snapshotUpdatedAt: new Date("2026-07-03T00:00:00.000Z"),
+    };
+    expect(checkpointOutranksSnapshot(base)).toBe(true);
+    expect(
+      checkpointOutranksSnapshot({
+        ...base,
+        checkpointPhase: "recon",
+        snapshotPhase: "judgment",
+      }),
+    ).toBe(false);
+    expect(
+      checkpointOutranksSnapshot({
+        ...base,
+        checkpointPhase: "recon",
+        snapshotPhase: "recon",
+        checkpointVersion: 3,
+        snapshotVersion: 2,
+      }),
+    ).toBe(true);
+    expect(
+      checkpointOutranksSnapshot({
+        ...base,
+        checkpointPhase: "recon",
+        snapshotPhase: "recon",
+        checkpointVersion: 2,
+        snapshotVersion: 2,
+        checkpointUpdatedAt: new Date("2026-07-04T00:00:00.000Z"),
+        snapshotUpdatedAt: new Date("2026-07-03T00:00:00.000Z"),
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("createFeaturePiSession durability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getAgentPhaseCheckpoint.mockResolvedValue(null);
   });
 
-  it("restores structured state from resume snapshot on create", async () => {
+  it("restores structured state from resume snapshot when no checkpoint exists", async () => {
     const cfg = makeTestConfig({ agentResumeSnapshotKey: SNAPSHOT_KEY });
     loadResumeSnapshot.mockResolvedValue({
       ok: true,
       checkpointId: "ask:ask",
+      updatedAt: new Date("2026-07-01T00:00:00.000Z"),
       plaintext: {
-        conversation: {},
+        conversation: { lastPhase: "ask" },
         structuredState: { version: 2, payload: { cached: true } },
       },
     });
     createPiSession.mockImplementation(async (params) => {
       expect(params.structuredState).toEqual({
         version: 2,
-        payload: { cached: true, __resumeCheckpointId: "ask:ask" },
+        payload: {
+          cached: true,
+          __resumeCheckpointId: "ask:ask",
+          __lastCompletedPhase: "ask",
+          __resumeConversation: { lastPhase: "ask" },
+        },
       });
       return fakeSession({ getStructuredState: () => params.structuredState });
     });
 
     await createFeaturePiSession({
       role: "ask",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      durability: { pool: {} as never, workItemId: "wi-1", installationId: 1 },
+    });
+  });
+
+  it("restores authoritative checkpoint when snapshot encryption is disabled", async () => {
+    const cfg = makeTestConfig({ agentResumeSnapshotKey: "" });
+    getAgentPhaseCheckpoint.mockResolvedValue({
+      id: "cp-1",
+      workItemId: "wi-1",
+      sessionRole: "orchestrator",
+      checkpointId: "orchestrator:judgment",
+      phase: "judgment",
+      structuredState: { version: 4, payload: { briefAccepted: true, publishedBatches: ["b1"] } },
+      version: 4,
+      updatedAt: new Date("2026-07-02T00:00:00.000Z"),
+    });
+    createPiSession.mockImplementation(async (params) => {
+      expect(params.structuredState).toEqual({
+        version: 4,
+        payload: {
+          briefAccepted: true,
+          publishedBatches: ["b1"],
+          __resumeCheckpointId: "orchestrator:judgment",
+          __lastCompletedPhase: "judgment",
+        },
+      });
+      expect(loadResumeSnapshot).not.toHaveBeenCalled();
+      return fakeSession({
+        role: "orchestrator",
+        getStructuredState: () => params.structuredState,
+      });
+    });
+
+    await createFeaturePiSession({
+      role: "orchestrator",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      durability: { pool: {} as never, workItemId: "wi-1", installationId: 1 },
+    });
+  });
+
+  it("prefers newer checkpoint structured state over older snapshot state", async () => {
+    const cfg = makeTestConfig({ agentResumeSnapshotKey: SNAPSHOT_KEY });
+    getAgentPhaseCheckpoint.mockResolvedValue({
+      id: "cp-1",
+      workItemId: "wi-1",
+      sessionRole: "orchestrator",
+      checkpointId: "orchestrator:judgment",
+      phase: "judgment",
+      structuredState: { version: 5, payload: { fromCheckpoint: true, phaseDone: "judgment" } },
+      version: 5,
+      updatedAt: new Date("2026-07-03T00:00:00.000Z"),
+    });
+    loadResumeSnapshot.mockResolvedValue({
+      ok: true,
+      checkpointId: "orchestrator:recon",
+      updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+      plaintext: {
+        conversation: { lastPhase: "recon", lastCheckpointId: "orchestrator:recon" },
+        structuredState: { version: 1, payload: { fromSnapshot: true, shouldNotWin: true } },
+      },
+    });
+    createPiSession.mockImplementation(async (params) => {
+      expect(params.structuredState.payload.fromCheckpoint).toBe(true);
+      expect(params.structuredState.payload.fromSnapshot).toBeUndefined();
+      expect(params.structuredState.payload.shouldNotWin).toBeUndefined();
+      expect(params.structuredState.payload.__lastCompletedPhase).toBe("judgment");
+      expect(params.structuredState.payload.__resumeConversation).toEqual({
+        lastPhase: "recon",
+        lastCheckpointId: "orchestrator:recon",
+      });
+      return fakeSession({
+        role: "orchestrator",
+        getStructuredState: () => params.structuredState,
+      });
+    });
+
+    await createFeaturePiSession({
+      role: "orchestrator",
+      cfg,
+      systemPrompt: "system",
+      tools: [],
+      executors: {},
+      durability: { pool: {} as never, workItemId: "wi-1", installationId: 1 },
+    });
+  });
+
+  it("does not attach older snapshot conversation when checkpoint phase is behind", async () => {
+    const cfg = makeTestConfig({ agentResumeSnapshotKey: SNAPSHOT_KEY });
+    getAgentPhaseCheckpoint.mockResolvedValue({
+      id: "cp-1",
+      workItemId: "wi-1",
+      sessionRole: "orchestrator",
+      checkpointId: "orchestrator:recon",
+      phase: "recon",
+      structuredState: { version: 1, payload: { fromCheckpoint: true } },
+      version: 1,
+      updatedAt: new Date("2026-07-01T00:00:00.000Z"),
+    });
+    loadResumeSnapshot.mockResolvedValue({
+      ok: true,
+      checkpointId: "orchestrator:synthesis",
+      updatedAt: new Date("2026-07-04T00:00:00.000Z"),
+      plaintext: {
+        conversation: { lastPhase: "synthesis" },
+        structuredState: { version: 9, payload: { fromSnapshot: true } },
+      },
+    });
+    createPiSession.mockImplementation(async (params) => {
+      expect(params.structuredState.payload.fromCheckpoint).toBe(true);
+      expect(params.structuredState.payload.__resumeConversation).toBeUndefined();
+      expect(params.structuredState.payload.__lastCompletedPhase).toBe("recon");
+      return fakeSession({
+        role: "orchestrator",
+        getStructuredState: () => params.structuredState,
+      });
+    });
+
+    await createFeaturePiSession({
+      role: "orchestrator",
       cfg,
       systemPrompt: "system",
       tools: [],

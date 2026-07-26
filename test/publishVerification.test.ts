@@ -74,6 +74,7 @@ function baseParams(overrides: {
   readonly inventory?: readonly BotFindingThread[];
   readonly resolutionByRootCommentId?: ReadonlyMap<number, ReviewThreadResolution>;
   readonly changedFilePaths?: readonly string[];
+  readonly changedFilePathsTruncated?: boolean;
   readonly pool?: Pool;
   readonly workItemId?: string;
   readonly policyResult?: Parameters<typeof publishVerification>[0]["policyResult"];
@@ -97,6 +98,7 @@ function baseParams(overrides: {
       ]),
     payload: overrides.payload,
     changedFilePaths: overrides.changedFilePaths ?? ["src/app.ts"],
+    changedFilePathsTruncated: overrides.changedFilePathsTruncated,
     policyResult: overrides.policyResult ?? ({ kind: "absent" } as const),
   };
 }
@@ -275,6 +277,34 @@ describe("publishVerification", () => {
       }),
     );
     expect(mocks.createReply.mock.calls[0]?.[0]?.body).toContain("Still open");
+  });
+
+  it("does not suppress still-open stubs for omitted paths when compare is truncated", async () => {
+    const result = await publishVerification(
+      baseParams({
+        changedFilePaths: ["src/app.ts"],
+        changedFilePathsTruncated: true,
+        payload: {
+          verdicts: [
+            {
+              verdict: "skipped",
+              threadRootCommentId: 1,
+              reason: "still open on listed path",
+            },
+            {
+              verdict: "skipped",
+              threadRootCommentId: 3,
+              reason: "still open on omitted path",
+            },
+          ],
+        },
+      }),
+    );
+
+    expect(result).toEqual({ degraded: true });
+    expect(mocks.createReply).toHaveBeenCalledTimes(2);
+    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 1 }));
+    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 3 }));
   });
 
   it("edits an existing stub in place on later still-open publishes", async () => {

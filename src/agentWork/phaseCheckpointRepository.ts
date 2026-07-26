@@ -12,6 +12,7 @@ export type AgentPhaseCheckpointRow = {
   readonly phase: string;
   readonly structuredState: AuthoritativeStructuredState;
   readonly version: number;
+  readonly updatedAt: Date;
 };
 
 export async function upsertAgentPhaseCheckpoint(
@@ -33,6 +34,7 @@ export async function upsertAgentPhaseCheckpoint(
     phase: string;
     structured_state: AuthoritativeStructuredState;
     version: number;
+    updated_at: Date;
   }>(
     client,
     `INSERT INTO agent_phase_checkpoints (
@@ -44,7 +46,7 @@ export async function upsertAgentPhaseCheckpoint(
        structured_state = EXCLUDED.structured_state,
        version = EXCLUDED.version,
        updated_at = now()
-     RETURNING id, work_item_id, session_role, checkpoint_id, phase, structured_state, version`,
+     RETURNING id, work_item_id, session_role, checkpoint_id, phase, structured_state, version, updated_at`,
     [
       id,
       params.workItemId,
@@ -73,6 +75,7 @@ export async function upsertAgentPhaseCheckpoint(
     phase: row.phase,
     structuredState: row.structured_state,
     version: row.version,
+    updatedAt: new Date(row.updated_at),
   };
 }
 
@@ -89,9 +92,10 @@ export async function getAgentPhaseCheckpoint(
     phase: string;
     structured_state: AuthoritativeStructuredState;
     version: number;
+    updated_at: Date;
   }>(
     client,
-    `SELECT id, work_item_id, session_role, checkpoint_id, phase, structured_state, version
+    `SELECT id, work_item_id, session_role, checkpoint_id, phase, structured_state, version, updated_at
        FROM agent_phase_checkpoints
       WHERE work_item_id = $1 AND session_role = $2
       LIMIT 1`,
@@ -106,5 +110,6 @@ export async function getAgentPhaseCheckpoint(
     phase: row.phase,
     structuredState: row.structured_state,
     version: row.version,
+    updatedAt: new Date(row.updated_at),
   };
 }

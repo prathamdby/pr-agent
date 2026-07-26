@@ -7,7 +7,7 @@ import { modelAssignmentForRole, resolveModelPolicy } from "./modelPolicy.js";
 import { createPiSession } from "./piSession.js";
 import {
   commitPhaseCheckpoint,
-  loadResumeSnapshotIfConfigured,
+  resolveDurableStructuredState,
   saveResumeSnapshotIfConfigured,
   type FeatureSessionDurability,
 } from "./sessionDurability.js";
@@ -24,17 +24,6 @@ import {
 
 export type { FeatureSessionDurability } from "./sessionDurability.js";
 
-function isAuthoritativeStructuredState(value: unknown): value is AuthoritativeStructuredState {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.version === "number" &&
-    typeof candidate.payload === "object" &&
-    candidate.payload !== null &&
-    !Array.isArray(candidate.payload)
-  );
-}
-
 async function resolveInitialStructuredState(params: {
   readonly role: AgentSessionRole;
   readonly cfg: Config;
@@ -44,26 +33,12 @@ async function resolveInitialStructuredState(params: {
   if (!params.durability) {
     return params.structuredState ?? EMPTY_STRUCTURED_STATE;
   }
-
-  const loaded = await loadResumeSnapshotIfConfigured(params.durability.pool, params.cfg, {
-    workItemId: params.durability.workItemId,
-    sessionRole: params.role,
-    expectedInstallationId: params.durability.installationId,
+  return resolveDurableStructuredState({
+    role: params.role,
+    cfg: params.cfg,
+    structuredState: params.structuredState,
+    durability: params.durability,
   });
-  if (!loaded.ok) {
-    return params.structuredState ?? EMPTY_STRUCTURED_STATE;
-  }
-  if (!isAuthoritativeStructuredState(loaded.plaintext.structuredState)) {
-    return params.structuredState ?? EMPTY_STRUCTURED_STATE;
-  }
-
-  return {
-    version: loaded.plaintext.structuredState.version,
-    payload: {
-      ...loaded.plaintext.structuredState.payload,
-      __resumeCheckpointId: loaded.checkpointId,
-    },
-  };
 }
 
 function wrapSessionWithDurability(

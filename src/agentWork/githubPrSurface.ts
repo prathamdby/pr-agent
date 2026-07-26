@@ -227,6 +227,10 @@ export async function reactOnAckTargets(
   );
 }
 
+export type PostedSlashReply = {
+  readonly commentId: number;
+};
+
 export async function postSlashReply(
   token: string,
   owner: string,
@@ -234,24 +238,25 @@ export async function postSlashReply(
   target: ReplyTarget,
   body: string,
   expiresAtTs?: number,
-): Promise<void> {
+): Promise<PostedSlashReply> {
   const octokit = installationOctokit(token, expiresAtTs);
   if (target.kind === "inlineReviewThread") {
-    await octokit.rest.pulls.createReplyForReviewComment({
+    const { data } = await octokit.rest.pulls.createReplyForReviewComment({
       owner,
       repo,
       pull_number: target.prNumber,
       comment_id: target.inReplyToCommentId,
       body,
     });
-    return;
+    return { commentId: data.id };
   }
-  await octokit.rest.issues.createComment({
+  const { data } = await octokit.rest.issues.createComment({
     owner,
     repo,
     issue_number: target.prNumber,
     body,
   });
+  return { commentId: data.id };
 }
 
 export async function postAckReply(

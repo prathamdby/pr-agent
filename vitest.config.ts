@@ -8,7 +8,7 @@ export default defineConfig({
     setupFiles: [
       "test/setup/evlog.ts",
       "test/setup/ciStatus-mock.ts",
-      "test/setup/operationIntent-mock.ts",
+      "test/setup/operationIntent-memory.ts",
     ],
   },
 });

@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
+import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { ASK_QUESTION_TOO_LONG_HINT, parseAskQuestion } from "../../commands/parseAskQuestion.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { ASK_USAGE_HINT, DEFERRED_HEAD_SHA } from "../../settings/index.js";
@@ -114,7 +115,7 @@ export async function promoteAskFromWebhookEvent(
   const askInsert = await createAskWorkItem(client, {
     webhookEventId: input.webhookEventId,
     ref,
-    question: askParse.question,
+    question: redactOutboundSecrets(askParse.question),
     replyTarget: input.replyTarget,
     commentId: input.commentId,
     commenterId: input.commenterId,

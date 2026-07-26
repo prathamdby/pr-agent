@@ -62,6 +62,41 @@ export async function persistOperationIntent(
   return mapRow(row);
 }
 
+/**
+ * Merge detail into a still-pending intent without changing status.
+ * Used to stash a successful mutation result before status reconciliation so a
+ * crash in that window can resume without remutating.
+ */
+export async function mergeOperationIntentDetail(
+  client: Pool | PoolClient,
+  params: {
+    readonly workItemId: string;
+    readonly operationKey: string;
+    readonly detail: Record<string, unknown>;
+  },
+): Promise<OperationIntentRow | null> {
+  const row = await queryOne<{
+    id: string;
+    work_item_id: string;
+    operation_key: string;
+    mutation_kind: string;
+    status: OperationIntentStatus;
+    publish_record_id: string | null;
+    detail: Record<string, unknown>;
+  }>(
+    client,
+    `UPDATE operation_intents
+        SET detail = detail || $3::jsonb,
+            updated_at = now()
+      WHERE work_item_id = $1
+        AND operation_key = $2
+        AND status = 'pending'
+      RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail`,
+    [params.workItemId, params.operationKey, JSON.stringify(params.detail)],
+  );
+  return row ? mapRow(row) : null;
+}
+
 export async function reconcileOperationIntent(
   client: Pool | PoolClient,
   params: {
@@ -101,6 +136,31 @@ export async function reconcileOperationIntent(
       params.publishRecordId ?? null,
       params.detail ? JSON.stringify(params.detail) : null,
     ],
+  );
+  return row ? mapRow(row) : null;
+}
+
+export async function getOperationIntent(
+  client: Pool | PoolClient,
+  workItemId: string,
+  operationKey: string,
+): Promise<OperationIntentRow | null> {
+  const row = await queryOne<{
+    id: string;
+    work_item_id: string;
+    operation_key: string;
+    mutation_kind: string;
+    status: OperationIntentStatus;
+    publish_record_id: string | null;
+    detail: Record<string, unknown>;
+  }>(
+    client,
+    `SELECT id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail
+       FROM operation_intents
+      WHERE work_item_id = $1
+        AND operation_key = $2
+      LIMIT 1`,
+    [workItemId, operationKey],
   );
   return row ? mapRow(row) : null;
 }

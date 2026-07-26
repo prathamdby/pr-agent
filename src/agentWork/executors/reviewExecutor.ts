@@ -9,6 +9,7 @@ import {
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
 import type { InstallationToken } from "../../github/appAuth.js";
+import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
   assertPullRequestFilesHeadSha,
   fetchPullRequestFiles,
@@ -710,30 +711,35 @@ export async function executeReviewJob(
         tokenState,
       });
 
-      return withPrRepositoryView(
-        buildRepositoryViewParams(
-          item,
-          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
-          payload,
-          { prFiles: lightweight.prefetchedPrFiles },
-        ),
-        async (repositoryView) =>
-          runFullReviewAgainstRepositoryView({
-            job,
-            cfg,
-            pool,
+      const rateLimitCircuit = createRateLimitCircuit({
+        installationId: item.installationId,
+      });
+      return runWithRateLimitCircuit(rateLimitCircuit, () =>
+        withPrRepositoryView(
+          buildRepositoryViewParams(
             item,
-            reviewLens,
+            { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
             payload,
-            tokenState,
-            headSha,
-            pullRequest: env.pullRequest,
-            publishContext,
-            publishAbortState,
-            staleHeadAtPublish,
-            priorInlineFeedback,
-            repositoryView,
-          }),
+            { prFiles: lightweight.prefetchedPrFiles },
+          ),
+          async (repositoryView) =>
+            runFullReviewAgainstRepositoryView({
+              job,
+              cfg,
+              pool,
+              item,
+              reviewLens,
+              payload,
+              tokenState,
+              headSha,
+              pullRequest: env.pullRequest,
+              publishContext,
+              publishAbortState,
+              staleHeadAtPublish,
+              priorInlineFeedback,
+              repositoryView,
+            }),
+        ),
       );
     },
     onCancelled: async (item, installation) => {

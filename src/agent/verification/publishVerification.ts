@@ -39,6 +39,8 @@ type PublishVerificationParams = {
   readonly resolutionByRootCommentId: ReadonlyMap<number, ReviewThreadResolution>;
   readonly payload: VerificationPayload;
   readonly changedFilePaths: readonly string[];
+  /** When true, changedFilePaths is incomplete (GitHub compare 300-file cap). */
+  readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
 };
 
@@ -191,12 +193,13 @@ function verificationIntentDetail(
 export async function publishVerification(
   params: PublishVerificationParams,
 ): Promise<{ degraded: boolean }> {
-  let degraded = false;
+  let degraded = params.changedFilePathsTruncated === true;
   let ledger = await loadVerificationThreadLedger(params.pool, {
     resourceKey: params.resourceKey,
   });
   const threadById = new Map(params.inventory.map((thread) => [thread.rootCommentId, thread]));
   const changedFiles = new Set(params.changedFilePaths);
+  const changedMembershipComplete = params.changedFilePathsTruncated !== true;
 
   for (const verdict of params.payload.verdicts) {
     const thread = threadById.get(verdict.threadRootCommentId);
@@ -256,7 +259,8 @@ export async function publishVerification(
         break;
       }
       case "skipped": {
-        if (!changedFiles.has(thread.path)) break;
+        // When compare is truncated, omitted paths must not suppress still-open stubs.
+        if (changedMembershipComplete && !changedFiles.has(thread.path)) break;
         const body = withStubMarker(
           redactReviewText(`**Verification**: Still open - ${verdict.reason}`),
         );
