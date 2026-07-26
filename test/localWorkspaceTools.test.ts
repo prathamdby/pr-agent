@@ -18,6 +18,7 @@ import {
   type LocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
 import { LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE } from "../src/settings/index.js";
+import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
 
 const exec = promisify(execFile);
 
@@ -564,6 +565,60 @@ describe("local workspace tools", () => {
       expect(out.matches.map((match) => match.path)).toEqual([
         `src/chunk-${(fileCount - 1).toString().padStart(4, "0")}.ts`,
       ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile records evidence in the ledger on success", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/small.ts": "line one\nline two\nline three\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/small.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      await executors.readWorkspaceFile?.({
+        path: "src/small.ts",
+        startLine: 2,
+        maxLines: 2,
+      });
+
+      expect(evidenceLedger.covers("src/small.ts", 2, 3)).toBe(true);
+      expect(evidenceLedger.covers("src/small.ts", 1, 1)).toBe(false);
+      expect(evidenceLedger.snapshot()).toHaveLength(1);
+      expect(evidenceLedger.snapshot()[0]?.tool).toBe("readWorkspaceFile");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("getWorkspaceDiff records evidence for commentable diff lines", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export const changed = true;\n" });
+      const patch = ["@@ -1,1 +1,3 @@", " x", "+added", "+more"].join("\n");
+      const workspace = mockWorkspace(root, ["src/changed.ts"], {
+        getDiffForPath: async () => patch,
+      });
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+
+      await executors.getWorkspaceDiff?.({ path: "src/changed.ts" });
+
+      expect(evidenceLedger.covers("src/changed.ts", 2, 3)).toBe(true);
+      expect(evidenceLedger.snapshot()[0]?.tool).toBe("getWorkspaceDiff");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

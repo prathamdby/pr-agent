@@ -20,6 +20,12 @@ import {
   LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 } from "../../settings/index.js";
+import {
+  hashNormalizedLineText,
+  normalizeEvidencePath,
+  type EvidenceLedger,
+} from "../../review/findings/evidenceLedger.js";
+import { parseCommentableRightLineRanges } from "../../review/placement/reviewDiffIndex.js";
 
 export type LocalWorkspaceToolLimits = {
   readonly maxFileBytes: number;
@@ -68,7 +74,50 @@ function coverageWarning(coverage: CheckoutCoverage): string | undefined {
 }
 
 function changedFileForPath(workspace: LocalPrWorkspace, path: string) {
-  return workspace.changedFileByPath.get(path.replace(/\\/g, "/"));
+  return workspace.changedFileByPath.get(normalizeEvidencePath(path));
+}
+
+function recordFileReadEvidence(
+  ledger: EvidenceLedger,
+  params: {
+    readonly path: string;
+    readonly headSha: string;
+    readonly tool: string;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly content: string;
+  },
+): void {
+  ledger.record({
+    path: params.path,
+    startLine: params.startLine,
+    endLine: params.endLine,
+    contentHash: hashNormalizedLineText(params.content),
+    headSha: params.headSha,
+    tool: params.tool,
+  });
+}
+
+function recordDiffEvidence(
+  ledger: EvidenceLedger,
+  params: {
+    readonly path: string;
+    readonly headSha: string;
+    readonly tool: string;
+    readonly diff: string;
+  },
+): void {
+  const contentHash = hashNormalizedLineText(params.diff);
+  for (const [startLine, endLine] of parseCommentableRightLineRanges(params.diff)) {
+    ledger.record({
+      path: params.path,
+      startLine,
+      endLine,
+      contentHash,
+      headSha: params.headSha,
+      tool: params.tool,
+    });
+  }
 }
 
 async function refuseUnlessReadableFile(
@@ -108,6 +157,8 @@ export function buildLocalWorkspaceTools(
     readonly limits?: LocalWorkspaceToolLimits;
     readonly pathGate?: AskPathGate;
     readonly extraAllowedPaths?: readonly string[];
+    readonly evidenceLedger?: EvidenceLedger;
+    readonly headSha?: string;
   },
 ): {
   piTools: PiTool[];
@@ -115,6 +166,8 @@ export function buildLocalWorkspaceTools(
 } {
   const limits = opts?.limits ?? DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS;
   const pathGate = opts?.pathGate ?? createAskPathGate();
+  const evidenceLedger = opts?.evidenceLedger;
+  const headSha = opts?.headSha ?? evidenceLedger?.headSha;
   primePathGate(workspace, pathGate, opts?.extraAllowedPaths);
 
   const listChangedFiles: LocalTool = {
@@ -142,7 +195,7 @@ export function buildLocalWorkspaceTools(
       maxLines: z.number().int().positive().optional(),
     }),
     run: async ({ path, startLine, maxLines }) => {
-      const normalized = path.replace(/\\/g, "/");
+      const normalized = normalizeEvidencePath(path);
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
@@ -162,9 +215,23 @@ export function buildLocalWorkspaceTools(
         };
       }
       const text = buf.toString("utf8");
+      const readOutput = readTextWithOutputBudget(text, limits.readResponseBytes, {
+        startLine,
+        maxLines,
+      });
+      if (evidenceLedger && headSha && readOutput.startLine > 0 && readOutput.endLine > 0) {
+        recordFileReadEvidence(evidenceLedger, {
+          path: normalized,
+          headSha,
+          tool: "readWorkspaceFile",
+          startLine: readOutput.startLine,
+          endLine: readOutput.endLine,
+          content: readOutput.content,
+        });
+      }
       return {
         path: normalized,
-        ...readTextWithOutputBudget(text, limits.readResponseBytes, { startLine, maxLines }),
+        ...readOutput,
       };
     },
   };
@@ -212,10 +279,18 @@ export function buildLocalWorkspaceTools(
       "After listChangedFiles, read each change's PR unified diff before opening whole files. Path from the changed-file list. Responses are byte-capped; on truncated, narrow the path or follow up with a focused file read.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
-      const normalized = path.replace(/\\/g, "/");
+      const normalized = normalizeEvidencePath(path);
       assertPathAllowedForAsk(normalized, pathGate);
       const diff = await workspace.getDiffForPath(normalized);
       const capped = capTextOutput(diff, limits.diffResponseBytes, "response byte budget exceeded");
+      if (evidenceLedger && headSha && capped.content.length > 0) {
+        recordDiffEvidence(evidenceLedger, {
+          path: normalized,
+          headSha,
+          tool: "getWorkspaceDiff",
+          diff: capped.content,
+        });
+      }
       return {
         path: normalized,
         diff: capped.content,

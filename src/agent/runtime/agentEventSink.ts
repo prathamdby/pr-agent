@@ -238,6 +238,14 @@ export function safeEmitCoverageEvent(
   safeEmitAgentEvent(context, cfg, checkoutCoverageEventRow(context, params));
 }
 
+export function safeEmitEvidenceRejectEvent(
+  context: AgentEventsContext,
+  cfg: Pick<Config, "agentEventsEnabled">,
+  params: Parameters<typeof evidenceRejectEventRow>[1],
+): void {
+  safeEmitAgentEvent(context, cfg, evidenceRejectEventRow(context, params));
+}
+
 export function resolveAgentEventsContext(
   cfg: Pick<Config, "agentEventsEnabled">,
   durability?: {

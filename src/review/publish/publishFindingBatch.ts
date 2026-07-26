@@ -37,6 +37,8 @@ import type {
   FindingSource,
 } from "../orchestrator/orchestratorTypes.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
+import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 
 type StoredInlineBatch = {
   readonly version: 2;
@@ -84,6 +86,9 @@ export type FindingBatchContext = {
   readonly agentEvents?: AgentEventsContext;
   readonly cfg?: Pick<Config, "agentEventsEnabled">;
   readonly ledger: FindingLedger;
+  readonly evidenceLedger?: EvidenceLedger;
+  readonly checkoutCoverage?: CheckoutCoverage;
+  readonly isPathInCheckout?: (path: string) => boolean;
 };
 
 function batchPayload(findings: readonly ReviewFinding[]): ReviewPayload {
@@ -185,6 +190,10 @@ export async function publishFindingBatch(
     payload: batchPayload(batch),
     cachedDiffIndex: context.cachedDiffIndex,
     enforceInlineAnchorValidation: false,
+    evidenceLedger: context.evidenceLedger,
+    headSha: context.ctx.headSha,
+    checkoutCoverage: context.checkoutCoverage,
+    isPathInCheckout: context.isPathInCheckout,
   });
   if (!prepared.ok) {
     throw new AppError({

@@ -76,6 +76,12 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
       truncated: false,
       listPullRequestFilesIngested: false,
     },
+    evidenceLedger: {
+      headSha: "a".repeat(40),
+      record: () => undefined,
+      covers: () => true,
+      snapshot: () => [],
+    },
     getToken: () => "token",
     getTokenExpiresAtTs: () => Date.now() + 60_000,
     refreshBeforeTool: vi.fn(async () => undefined),

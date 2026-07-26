@@ -2,6 +2,9 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
+import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
+import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
+import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
 import {
   classifyProviderError,
   type ProviderErrorKind,
@@ -16,6 +19,8 @@ import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
 import { specialistSystemPrompt } from "./prompts/specialistPersonas.js";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.js";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
+import type { EvidenceLedger } from "../findings/evidenceLedger.js";
+import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
@@ -38,6 +43,11 @@ export type RunSpecialistParams = {
   readonly timeoutMs: number;
   readonly shouldContinue: () => boolean;
   readonly signal?: AbortSignal;
+  readonly evidenceLedger?: EvidenceLedger;
+  readonly headSha?: string;
+  readonly checkoutCoverage?: CheckoutCoverage;
+  readonly isPathInCheckout?: (path: string) => boolean;
+  readonly agentEvents?: AgentEventsContext;
 };
 
 type SubmissionState = {
@@ -110,7 +120,18 @@ function formatValidationError(error: z.ZodError): string {
   ].join("\n");
 }
 
-function buildSubmitTool(state: SubmissionState): {
+function buildSubmitTool(
+  state: SubmissionState,
+  evidence?: {
+    readonly ledger: EvidenceLedger;
+    readonly headSha: string;
+    readonly checkoutCoverage?: CheckoutCoverage;
+    readonly isPathInCheckout?: (path: string) => boolean;
+    readonly specialist: SpecialistId;
+    readonly agentEvents?: AgentEventsContext;
+    readonly cfg: Config;
+  },
+): {
   readonly piTool: PiTool;
   readonly executor: AgentRunnerToolExecutor;
 } {
@@ -125,7 +146,33 @@ function buildSubmitTool(state: SubmissionState): {
       state.validationError = formatValidationError(parsed.error);
       return { accepted: false, error: state.validationError };
     }
-    state.report = parsed.data;
+
+    let report = parsed.data;
+    if (evidence != null && report.findings.length > 0) {
+      const filtered = assertFindingsHaveEvidence(
+        report.findings,
+        evidence.ledger,
+        evidence.headSha,
+        {
+          checkoutCoverage: evidence.checkoutCoverage,
+          isPathInCheckout: evidence.isPathInCheckout,
+        },
+      );
+      if (filtered.rejected.length > 0 && evidence.agentEvents) {
+        safeEmitEvidenceRejectEvent(evidence.agentEvents, evidence.cfg, {
+          specialist: evidence.specialist,
+          phase: "specialist",
+          rejectedCount: filtered.rejected.length,
+          reasonCode: filtered.rejected[0]?.reasonCode ?? "no_evidence",
+        });
+      }
+      const findings = filtered.accepted;
+      const status =
+        report.status === "findings" && findings.length === 0 ? "no_findings" : report.status;
+      report = { ...report, status, findings };
+    }
+
+    state.report = report;
     state.validationError = null;
     return { accepted: true };
   };
@@ -214,7 +261,20 @@ async function runAttempt(
 ): Promise<SpecialistReport> {
   assertCanContinue(params, deadlineMs);
   const state: SubmissionState = { report: null, validationError: null };
-  const submitTool = buildSubmitTool(state);
+  const submitTool = buildSubmitTool(
+    state,
+    params.evidenceLedger && params.headSha
+      ? {
+          ledger: params.evidenceLedger,
+          headSha: params.headSha,
+          checkoutCoverage: params.checkoutCoverage,
+          isPathInCheckout: params.isPathInCheckout,
+          specialist: params.specialist,
+          agentEvents: params.agentEvents,
+          cfg: params.cfg,
+        }
+      : undefined,
+  );
   const session = await createSessionWithinDeadline(params, deadlineMs, submitTool);
   let cleanupDeferred = false;
 

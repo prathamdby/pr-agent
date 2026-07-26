@@ -10,6 +10,11 @@ import {
 } from "../src/review/placement/reviewDiffIndex.js";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
+import {
+  createTestEvidenceLedger,
+  seedEvidenceForFinding,
+  seedEvidenceForFindings,
+} from "./helpers/evidenceTestHelpers.js";
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -107,6 +112,8 @@ describe("findingPipeline", () => {
 
   it("records new fingerprints under the merged review mode", () => {
     const item = finding();
+    const evidenceLedger = createTestEvidenceLedger();
+    seedEvidenceForFinding(evidenceLedger, item);
     const result = prepareFindingsForPublish({
       payload: payload({ findings: [item] }),
       inlinePlacements: [placement(item)],
@@ -116,5 +123,38 @@ describe("findingPipeline", () => {
     expect(result.inline[0]?.inlineFingerprint).not.toBe(
       fingerprintFinding(item, "review-security"),
     );
+  });
+
+  it("strips findings without evidence before publish preparation", () => {
+    const evidenced = finding({ title: "Evidenced", startLine: 1 });
+    const unevidenced = finding({ title: "Unevidenced", startLine: 2, file: "src/b.ts" });
+    const evidenceLedger = createTestEvidenceLedger();
+    seedEvidenceForFinding(evidenceLedger, evidenced);
+
+    const result = prepareReviewPayloadForPublish({
+      payload: payload({ findings: [evidenced, unevidenced] }),
+      evidenceLedger,
+      headSha: evidenceLedger.headSha,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.prepared.payload.findings.map((item) => item.title)).toEqual(["Evidenced"]);
+  });
+
+  it("keeps publishable findings when evidence covers cited lines", () => {
+    const items = [finding({ startLine: 1 }), finding({ startLine: 2, title: "Second" })];
+    const evidenceLedger = createTestEvidenceLedger();
+    seedEvidenceForFindings(evidenceLedger, items);
+
+    const result = prepareReviewPayloadForPublish({
+      payload: payload({ findings: items }),
+      evidenceLedger,
+      headSha: evidenceLedger.headSha,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.prepared.payload.findings).toHaveLength(2);
   });
 });

@@ -67,6 +67,7 @@ export const specialistFindingsReportContract = [
   "## Findings report",
   "Complete the investigation before reporting.",
   "Call `submit_findings_report` exactly once, then stop.",
+  "The server will drop findings without a prior read of those lines.",
   'When at least one evidenced finding meets this review\'s reporting gate, use `status: "findings"` and include every qualifying finding in `findings`.',
   'When none meet the gate, use `status: "no_findings"` with `findings: []`. This explicit empty report is a successful result.',
   "`notes` is optional. Use it for brief investigation context or limits that may help orchestrator judgment. Do not place findings only in notes.",

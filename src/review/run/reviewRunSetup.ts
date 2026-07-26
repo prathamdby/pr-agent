@@ -13,6 +13,7 @@ import {
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
+import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
@@ -21,6 +22,7 @@ export type ReviewRunSetup = {
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   };
   readonly cachedDiffIndex: CachedPrDiffIndex;
+  readonly evidenceLedger: EvidenceLedger;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
@@ -79,6 +81,7 @@ export function buildReviewRunSetup(params: {
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
+  const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
   const refreshableGh = createRefreshableToolExecutors({
     initialToken: token,
@@ -89,6 +92,8 @@ export function buildReviewRunSetup(params: {
     build: (_activeToken, _activeExpiresAtTs) => {
       const bundle = buildLocalWorkspaceTools(params.workspace, {
         pathGate,
+        evidenceLedger,
+        headSha,
       });
       const executors = { ...bundle.executors };
       wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
@@ -125,6 +130,7 @@ export function buildReviewRunSetup(params: {
     }),
     workspaceTools,
     cachedDiffIndex,
+    evidenceLedger,
     getToken: refreshableGh.getToken,
     getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
     refreshBeforeTool,

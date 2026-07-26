@@ -21,6 +21,9 @@ import {
   type ReviewFinding,
   type ReviewPayload,
 } from "../reviewSchema.js";
+import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
+import type { EvidenceLedger } from "./evidenceLedger.js";
+import { assertFindingsHaveEvidence } from "./evidenceValidator.js";
 
 export type PreparedReviewPayload = {
   readonly payload: ReviewPayload;
@@ -45,6 +48,10 @@ export function prepareReviewPayloadForPublish(params: {
   severityFloor?: number;
   cachedDiffIndex?: CachedPrDiffIndex;
   enforceInlineAnchorValidation?: boolean;
+  evidenceLedger?: EvidenceLedger;
+  headSha?: string;
+  checkoutCoverage?: CheckoutCoverage;
+  isPathInCheckout?: (path: string) => boolean;
 }):
   | { ok: true; prepared: PreparedReviewPayload }
   | { ok: false; error: string; anchorFailures: readonly AnchorFailure[] } {
@@ -58,7 +65,14 @@ export function prepareReviewPayloadForPublish(params: {
     if (params.severityFloor == null) return true;
     return REVIEW_SEVERITY_RANK[finding.severity] <= params.severityFloor;
   });
-  const candidate = { ...normalized, findings: severityFiltered };
+  const evidenceFiltered =
+    params.evidenceLedger != null && params.headSha != null
+      ? assertFindingsHaveEvidence(severityFiltered, params.evidenceLedger, params.headSha, {
+          checkoutCoverage: params.checkoutCoverage,
+          isPathInCheckout: params.isPathInCheckout,
+        }).accepted
+      : severityFiltered;
+  const candidate = { ...normalized, findings: evidenceFiltered };
   const dedupedCount = normalized.findings.length - deduped.length;
 
   const validation = validateReviewPayload({

@@ -271,6 +271,9 @@ export async function runOrchestratedPrReview(
     initialLedger: initialLedger(params),
     agentEvents: agentEvents ?? undefined,
     cfg: params.cfg,
+    evidenceLedger: setup.evidenceLedger,
+    checkoutCoverage: params.workspace.getCoverage(),
+    isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
   });
   const summaryState = createPublishSummaryState({
     published: params.initialPublishState?.published,
@@ -853,6 +856,11 @@ export async function runOrchestratedPrReview(
           ),
           shouldContinue: () => state.lifecycle.kind === "running",
           signal: controller.signal,
+          evidenceLedger: setup.evidenceLedger,
+          headSha: params.headSha,
+          checkoutCoverage: params.workspace.getCoverage(),
+          isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
+          agentEvents: agentEvents ?? undefined,
         }),
       );
     }
