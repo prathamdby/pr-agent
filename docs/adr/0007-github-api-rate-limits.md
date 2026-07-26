@@ -33,6 +33,7 @@ Large PR reviews drive many GitHub REST/GraphQL tool calls in a single **review 
 - Reviews on large PRs may run longer (throttle waits); ADR 0009 moves review execution out of the webhook request fiber.
 - Truncated PRs (>300 files) degrade review coverage by design.
 - Throttle state is per-process; `REVIEW_CONCURRENCY > 1` or multi-replica deploys can still burst the same installation.
+- Effective GitHub load scales roughly as `replicas × localConcurrency` per queue (see [operations.md](../operations.md)); cross-process coordination remains deferred.
 - `probable_secondary` is a heuristic; use structured logs to disprove in production.
 
 ## Superseded by ADR 0009

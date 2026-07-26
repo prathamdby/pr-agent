@@ -6,6 +6,7 @@ import type { Config } from "../config.js";
 import { AppError } from "../errors/appError.js";
 import { logDebug } from "../evlog.js";
 import { onRateLimit, onSecondaryRateLimit } from "./octokitThrottle.js";
+import { noteGithubRequestSuccess } from "./rateLimitCircuit.js";
 import { INSTALLATION_TOKEN_FALLBACK_TTL_MS } from "../settings/index.js";
 
 const ThrottledOctokit = Octokit.plugin(retry, throttling);
@@ -88,6 +89,9 @@ export function installationOctokit(token: string, expiresAtTs?: number): Instal
   const octokit = new ThrottledOctokit({
     auth: token,
     throttle: { onRateLimit, onSecondaryRateLimit },
+  });
+  octokit.hook.after("request", () => {
+    noteGithubRequestSuccess();
   });
   const entry = {
     octokit,

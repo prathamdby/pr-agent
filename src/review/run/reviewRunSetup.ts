@@ -12,6 +12,7 @@ import {
 } from "../placement/reviewDiffIndex.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
+import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
@@ -99,10 +100,13 @@ export function buildReviewRunSetup(params: {
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
-  const executors = { ...refreshableGh.bundle.executors, ...ctx7.executors };
+  const executors = wrapExecutorsWithRateLimitCircuit({
+    ...refreshableGh.bundle.executors,
+    ...ctx7.executors,
+  });
   const workspaceTools = {
     piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools],
-    executors: { ...executors },
+    executors,
   };
   const refreshBeforeTool = async (toolName: string) => {
     if (refreshableGh.githubExecutorNames.has(toolName)) {

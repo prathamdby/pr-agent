@@ -6,6 +6,7 @@ import {
   PRIMARY_RATE_LIMIT_MAX_RETRIES,
   SECONDARY_RATE_LIMIT_MAX_RETRIES,
 } from "../settings/index.js";
+import { noteRateLimitRetryExhausted } from "./rateLimitCircuit.js";
 
 export function onRateLimit(
   retryAfter: number,
@@ -21,6 +22,9 @@ export function onRateLimit(
     retryCount,
     willRetry,
   });
+  if (!willRetry) {
+    noteRateLimitRetryExhausted("primary");
+  }
   return willRetry;
 }
 
@@ -38,5 +42,8 @@ export function onSecondaryRateLimit(
     retryCount,
     willRetry,
   });
+  if (!willRetry) {
+    noteRateLimitRetryExhausted("secondary");
+  }
   return willRetry;
 }
