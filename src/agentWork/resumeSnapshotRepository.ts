@@ -100,6 +100,7 @@ export async function loadResumeSnapshot(
       readonly ok: true;
       readonly plaintext: ResumeSnapshotPlaintext;
       readonly checkpointId: string;
+      readonly updatedAt: Date;
     }
   | { readonly ok: false; readonly reason: string }
 > {
@@ -113,13 +114,15 @@ export async function loadResumeSnapshot(
     tool_policy_version: string;
     checkpoint_id: string;
     expires_at: Date;
+    updated_at: Date;
     nonce: Buffer;
     ciphertext: Buffer;
     auth_tag: Buffer;
   }>(
     client,
     `SELECT installation_id, envelope_version, model_provider, model_id, sdk_version,
-            prompt_version, tool_policy_version, checkpoint_id, expires_at, nonce, ciphertext, auth_tag
+            prompt_version, tool_policy_version, checkpoint_id, expires_at, updated_at,
+            nonce, ciphertext, auth_tag
        FROM agent_resume_snapshots
       WHERE work_item_id = $1 AND session_role = $2
       LIMIT 1`,
@@ -152,7 +155,12 @@ export async function loadResumeSnapshot(
       envelope,
       now: params.now,
     });
-    return { ok: true, plaintext, checkpointId: envelope.checkpointId };
+    return {
+      ok: true,
+      plaintext,
+      checkpointId: envelope.checkpointId,
+      updatedAt: new Date(row.updated_at),
+    };
   } catch {
     await deleteResumeSnapshot(client, params.workItemId, params.sessionRole);
     return { ok: false, reason: "invalid" };
