@@ -18,3 +18,14 @@ minimumReleaseAgeExclude:
   - "@tanstack/start-plugin-core@1.171.23"
   - "@tanstack/router-generator@1.167.21"
   - "@tanstack/router-plugin@1.168.22"
+  # Temporary for Pi 0.82.1 + companion deps bump — remove after 2026-08-01
+  - "@earendil-works/pi-ai@0.82.1"
+  - "@earendil-works/pi-coding-agent@0.82.1"
+  - "@earendil-works/pi-agent-core@0.82.1"
+  - "@earendil-works/pi-tui@0.82.1"
+  - evlog@2.22.3
+  - oxfmt@0.60.0
+  - "@oxfmt/*"
+  - pg-boss@12.26.3
+  - posthog-node@5.46.1
+  - "@posthog/*"

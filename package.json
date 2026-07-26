@@ -25,8 +25,8 @@
     "site:generate-og": "nub --node run --filter pr-agent-landing generate:og"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.80.10",
-    "@earendil-works/pi-coding-agent": "^0.80.10",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
     "@effect/cluster": "0.60.0",
     "@effect/experimental": "0.61.0",
     "@effect/platform": "0.97.0",
@@ -41,17 +41,17 @@
     "@octokit/rest": "^22.0.1",
     "@octokit/types": "^16.0.0",
     "effect": "3.22.0",
-    "evlog": "2.22.0",
+    "evlog": "2.22.3",
     "pg": "^8.22.0",
-    "pg-boss": "^12.26.1",
-    "posthog-node": "^5.45.2",
+    "pg-boss": "^12.26.3",
+    "posthog-node": "^5.46.1",
     "yaml": "^2.9.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
-    "oxfmt": "^0.59.0",
+    "oxfmt": "^0.60.0",
     "oxlint": "1.75.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "^7.0.2",

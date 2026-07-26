@@ -17,7 +17,7 @@ function meta(overrides: Record<string, unknown> = {}) {
     workItemId: "11111111-1111-1111-1111-111111111111",
     sessionRole: "orchestrator" as const,
     model: { provider: "openai", model: "gpt-4o-mini" },
-    sdkVersion: "pi-0.80.10",
+    sdkVersion: "pi-0.82.1",
     promptVersion: "p1",
     toolPolicyVersion: "t1",
     checkpointId: "cp-1",
