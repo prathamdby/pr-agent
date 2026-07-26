@@ -56,6 +56,11 @@ fi
 git config --local user.name "Pratham Dubey"
 git config --local user.email "134331217+prathamdby@users.noreply.github.com"
 
+# --- Agent skills: install and update global skills from prathamdby/skills ---
+echo "[setup] installing global agent skills"
+nubx -y skills@latest add prathamdby/skills -g -y --skill '*'
+nubx -y skills@latest update -g -y
+
 # --- Env: copy template without clobbering an existing .env ---
 if [ ! -f .env ]; then
   echo "[setup] copying .env.example -> .env"
