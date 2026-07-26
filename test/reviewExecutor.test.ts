@@ -330,6 +330,26 @@ describe("executeReviewJob", () => {
     );
   });
 
+  it("routes a stale-head gate stop through reschedule for auto reviews", async () => {
+    mockDurableExecution("auto");
+    mocks.getPullRequestHeadSha.mockResolvedValueOnce("new-head");
+    mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
+      const gate = await params.gate.check();
+      expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
+      return { published: false, publishAttempts: 0, publishSuperseded: true };
+    });
+    mocks.buildStaleReschedule.mockReturnValue({ rescheduled: true });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({ id: "wi-1", source: "auto" }),
+      "tok",
+      expect.any(Number),
+    );
+  });
+
   it("preserves superseded gate stops without checking the pull request head", async () => {
     mocks.shouldSkipWork.mockResolvedValueOnce(true);
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {

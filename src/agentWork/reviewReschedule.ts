@@ -174,6 +174,7 @@ export async function createSlashReviewRescheduleWorkItem(
 
   const nextPayload: ReviewWorkPayload = {
     ...payload,
+    source: item.source,
     staleHeadRescheduled: true,
     staleHeadReplacementWorkItemId: replacementWorkItemId,
   };
@@ -183,7 +184,7 @@ export async function createSlashReviewRescheduleWorkItem(
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
        head_sha, review_lens, resource_key, priority, payload
      )
-     VALUES ($1, $2, 'review', 'slash', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
+     VALUES ($1, $2, 'review', $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 0, $11::jsonb)
      ON CONFLICT (id) DO UPDATE SET
        payload = EXCLUDED.payload,
        updated_at = now()
@@ -191,6 +192,7 @@ export async function createSlashReviewRescheduleWorkItem(
     [
       replacementWorkItemId,
       item.webhookEventId,
+      item.source,
       item.owner,
       item.repo,
       item.prNumber,
@@ -278,7 +280,7 @@ export async function enqueueSlashReviewReschedule(
       repo: item.repo,
       prNumber: item.prNumber,
       targets: [],
-      progress: { lens: reviewLens, headSha: replacementHeadSha, source: "slash" },
+      progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
       ...correlation,
     };
     await boss.send(ACK_QUEUE, ackData, {

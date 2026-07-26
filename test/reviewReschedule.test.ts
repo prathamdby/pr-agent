@@ -129,6 +129,36 @@ describe("createSlashReviewRescheduleWorkItem", () => {
     );
   });
 
+  it("preserves auto source on the replacement work item and ack", async () => {
+    vi.mocked(getPullRequestHeadSha).mockResolvedValue("newhead");
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValue("job-id");
+    const findJobs = vi.fn().mockResolvedValue([]);
+    const cancel = vi.fn();
+    const boss = { send, findJobs, cancel } as unknown as PgBoss;
+    const parent = makeItem({
+      source: "auto",
+      payload: {
+        mode: "review",
+        source: "auto",
+        staleHeadReplacementWorkItemId: "auto-replacement",
+      },
+    });
+
+    const result = await buildStaleSlashReviewRescheduleResult(pool, parent, "token");
+    expect(query.mock.calls[0]?.[1]?.[2]).toBe("auto");
+    await result.afterComplete(boss, "active-job");
+
+    const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
+    expect(ackCall?.[1]).toMatchObject({
+      progress: { source: "auto", headSha: "newhead" },
+    });
+  });
+
   it("reuses marker from refreshed parent when concurrent update wins", async () => {
     vi.mocked(getWorkItem).mockResolvedValue(
       makeItem({

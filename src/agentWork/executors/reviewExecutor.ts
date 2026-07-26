@@ -172,7 +172,7 @@ async function handleStaleHeadReschedule(args: {
 }): Promise<StaleSlashReviewRescheduleResult | undefined> {
   const { pool, item, reviewLens, payload, installation } = args;
   if (
-    payload.source !== "slash" ||
+    (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
     !payload.staleHeadReplacementWorkItemId
   ) {
@@ -590,7 +590,11 @@ async function runFullReviewAgainstRepositoryView(args: {
     },
   });
 
-  if (staleHeadAtPublish.value && payload.source === "slash" && !payload.staleHeadRescheduled) {
+  if (
+    staleHeadAtPublish.value &&
+    (payload.source === "slash" || payload.source === "auto") &&
+    !payload.staleHeadRescheduled
+  ) {
     await completeCheckFromStoredSummary({
       pool,
       item,
