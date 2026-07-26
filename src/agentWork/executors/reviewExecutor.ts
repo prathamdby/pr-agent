@@ -69,8 +69,8 @@ import {
   type ReviewExecutorPublishContext,
 } from "../repository.js";
 import {
-  buildStaleSlashReviewRescheduleResult,
-  type StaleSlashReviewRescheduleResult,
+  buildStaleReviewRescheduleResult,
+  type StaleReviewRescheduleResult,
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
 import {
@@ -105,7 +105,7 @@ async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string
 
 type TokenState = { installation: InstallationToken };
 
-type ReviewExecutionResult = StaleSlashReviewRescheduleResult | { readonly degraded: boolean };
+type ReviewExecutionResult = StaleReviewRescheduleResult | { readonly degraded: boolean };
 
 type LightweightPhaseResult =
   | { readonly done: true; readonly result: ReviewExecutionResult }
@@ -170,10 +170,10 @@ async function handleStaleHeadReschedule(args: {
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
   readonly installation: InstallationToken;
-}): Promise<StaleSlashReviewRescheduleResult | undefined> {
+}): Promise<StaleReviewRescheduleResult | undefined> {
   const { pool, item, reviewLens, payload, installation } = args;
   if (
-    payload.source !== "slash" ||
+    (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
     !payload.staleHeadReplacementWorkItemId
   ) {
@@ -191,12 +191,7 @@ async function handleStaleHeadReschedule(args: {
     conclusion: "cancelled",
     summary: "Review was rescheduled for a newer pull request head.",
   });
-  return buildStaleSlashReviewRescheduleResult(
-    pool,
-    item,
-    installation.token,
-    installation.expiresAtTs,
-  );
+  return buildStaleReviewRescheduleResult(pool, item, installation.token, installation.expiresAtTs);
 }
 
 async function completeCheckFromStoredSummary(args: {
@@ -611,7 +606,11 @@ async function runFullReviewAgainstRepositoryView(args: {
     },
   });
 
-  if (staleHeadAtPublish.value && payload.source === "slash" && !payload.staleHeadRescheduled) {
+  if (
+    staleHeadAtPublish.value &&
+    (payload.source === "slash" || payload.source === "auto") &&
+    !payload.staleHeadRescheduled
+  ) {
     await completeCheckFromStoredSummary({
       pool,
       item,
@@ -620,7 +619,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       conclusion: "cancelled",
       summary: "Review was rescheduled for a newer pull request head.",
     });
-    return buildStaleSlashReviewRescheduleResult(
+    return buildStaleReviewRescheduleResult(
       pool,
       item,
       tokenState.installation.token,

@@ -44,10 +44,10 @@ structured publish path.
    and commentable RIGHT-side ranges. GitHub remains final authority at publish time; if
    an inline anchor is rejected, the server downgrades to summary-only and records
    telemetry instead of asking the agent to guess another line.
-7. Slash-command reviews get one stale-head reschedule. If a slash review reaches publish
-   after the PR head has changed, the worker may schedule one replacement run preserving
-   the original command context. If the replacement also goes stale, it fails with retry
-   guidance instead of rescheduling indefinitely.
+7. Auto and slash-command reviews get one stale-head reschedule. If a review reaches publish
+   after the PR head has changed, the worker may schedule one replacement run for the latest
+   head (preserving slash command context when present). If the replacement also goes stale,
+   it fails with retry guidance instead of rescheduling indefinitely.
 
 ## Consequences
 

@@ -160,6 +160,7 @@ describe("progressComment fallback wording", () => {
     ["slash", "superseded", "Superseded. Rescheduled for new head.", false],
     ["auto", "superseded", "Superseded by a newer pull request update.", false],
     ["slash", "stale_head", "Superseded. Rescheduled for new head.", true],
+    ["auto", "stale_head", "Superseded. Rescheduled for new head.", true],
   ] as const)(
     "renders source-aware %s terminal copy with exact stale metadata",
     (source, reason, expected, stale) => {

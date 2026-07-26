@@ -6,7 +6,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import { applySlashCommandIntake } from "../../src/agentWork/intake/slashIntake.js";
 import { createStartedBoss, ensureAgentQueues, stopBoss } from "../../src/agentWork/boss.js";
-import { enqueueSlashReviewReschedule } from "../../src/agentWork/reviewReschedule.js";
+import { enqueueReviewReschedule } from "../../src/agentWork/reviewReschedule.js";
 import { inTransaction } from "../../src/db/postgres.js";
 import { makeTestConfig } from "../helpers/config.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -381,9 +381,9 @@ describe.skipIf(!hasDatabase)("slash active uniqueness (integration)", () => {
       payload: { staleHeadReplacementWorkItemId: replacementId },
     });
 
-    await enqueueSlashReviewReschedule(pool, boss, parent, replacementId, "sha-new");
+    await enqueueReviewReschedule(pool, boss, parent, replacementId, "sha-new");
     await boss.complete(REVIEW_QUEUE, replacementId, null, { includeQueued: true });
-    await enqueueSlashReviewReschedule(pool, boss, parent, replacementId, "sha-new");
+    await enqueueReviewReschedule(pool, boss, parent, replacementId, "sha-new");
 
     const reviewJobs = await boss.findJobs(REVIEW_QUEUE, { id: replacementId });
     expect(reviewJobs).toHaveLength(1);

@@ -18,7 +18,7 @@ import {
   type ReviewWorkPayload,
 } from "./types.js";
 
-export type StaleSlashReviewRescheduleResult = {
+export type StaleReviewRescheduleResult = {
   readonly rescheduled: true;
   readonly replacementWorkItemId: string;
   readonly afterComplete: (boss: PgBoss, activePgBossJobId: string) => Promise<void>;
@@ -26,7 +26,7 @@ export type StaleSlashReviewRescheduleResult = {
   readonly onRescheduleAbort: (boss: PgBoss, error: unknown) => Promise<void>;
 };
 
-type SlashReviewRescheduleWorkItem = {
+type ReviewRescheduleWorkItem = {
   readonly replacementWorkItemId: string;
   readonly headSha: string;
 };
@@ -91,12 +91,12 @@ export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
   );
 }
 
-export async function buildStaleSlashReviewRescheduleResult(
+export async function buildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,
   token: string,
   expiresAtTs?: number,
-): Promise<StaleSlashReviewRescheduleResult> {
+): Promise<StaleReviewRescheduleResult> {
   const latestHeadSha = await getPullRequestHeadSha(
     token,
     item.owner,
@@ -104,14 +104,14 @@ export async function buildStaleSlashReviewRescheduleResult(
     item.prNumber,
     expiresAtTs,
   );
-  const replacement = await createSlashReviewRescheduleWorkItem(pool, item, latestHeadSha);
+  const replacement = await createReviewRescheduleWorkItem(pool, item, latestHeadSha);
   // Closed over by afterComplete / onRescheduleAbort so terminal abort does not re-read payload.
   let replacementEnqueued = false;
   return {
     rescheduled: true,
     replacementWorkItemId: replacement.replacementWorkItemId,
     afterComplete: async (boss, activePgBossJobId) => {
-      await enqueueSlashReviewReschedule(
+      await enqueueReviewReschedule(
         pool,
         boss,
         item,
@@ -134,11 +134,11 @@ export async function buildStaleSlashReviewRescheduleResult(
   };
 }
 
-export async function createSlashReviewRescheduleWorkItem(
+export async function createReviewRescheduleWorkItem(
   pool: Pool,
   item: ReviewWorkItem,
   latestHeadSha: string,
-): Promise<SlashReviewRescheduleWorkItem> {
+): Promise<ReviewRescheduleWorkItem> {
   const payload = item.payload;
   const reviewLens = item.reviewLens;
   let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
@@ -174,6 +174,7 @@ export async function createSlashReviewRescheduleWorkItem(
 
   const nextPayload: ReviewWorkPayload = {
     ...payload,
+    source: item.source,
     staleHeadRescheduled: true,
     staleHeadReplacementWorkItemId: replacementWorkItemId,
   };
@@ -183,7 +184,7 @@ export async function createSlashReviewRescheduleWorkItem(
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
        head_sha, review_lens, resource_key, priority, payload
      )
-     VALUES ($1, $2, 'review', 'slash', 'queued', $3, $4, $5, $6, $7, $8, $9, 0, $10::jsonb)
+     VALUES ($1, $2, 'review', $3, 'queued', $4, $5, $6, $7, $8, $9, $10, 0, $11::jsonb)
      ON CONFLICT (id) DO UPDATE SET
        payload = EXCLUDED.payload,
        updated_at = now()
@@ -191,6 +192,7 @@ export async function createSlashReviewRescheduleWorkItem(
     [
       replacementWorkItemId,
       item.webhookEventId,
+      item.source,
       item.owner,
       item.repo,
       item.prNumber,
@@ -238,7 +240,7 @@ async function replacementReviewJobExists(
   });
 }
 
-export async function enqueueSlashReviewReschedule(
+export async function enqueueReviewReschedule(
   pool: Pool,
   boss: PgBoss,
   item: ReviewWorkItem,
@@ -278,7 +280,7 @@ export async function enqueueSlashReviewReschedule(
       repo: item.repo,
       prNumber: item.prNumber,
       targets: [],
-      progress: { lens: reviewLens, headSha: replacementHeadSha, source: "slash" },
+      progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
       ...correlation,
     };
     await boss.send(ACK_QUEUE, ackData, {

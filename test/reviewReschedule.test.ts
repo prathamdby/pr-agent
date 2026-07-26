@@ -3,11 +3,11 @@ import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
 import {
-  buildStaleSlashReviewRescheduleResult,
+  buildStaleReviewRescheduleResult,
   cancelOrphanedStaleHeadReplacementOnTerminalFailure,
   cancelUnenqueuedStaleHeadReplacement,
-  createSlashReviewRescheduleWorkItem,
-  enqueueSlashReviewReschedule,
+  createReviewRescheduleWorkItem,
+  enqueueReviewReschedule,
 } from "../src/agentWork/reviewReschedule.js";
 import type { ReviewWorkItem } from "../src/agentWork/types.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
@@ -58,7 +58,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
-describe("createSlashReviewRescheduleWorkItem", () => {
+describe("createReviewRescheduleWorkItem", () => {
   it("keeps the first persisted head_sha when replacement row already exists", async () => {
     const query = vi.fn().mockResolvedValue({
       rowCount: 1,
@@ -66,7 +66,7 @@ describe("createSlashReviewRescheduleWorkItem", () => {
     });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createSlashReviewRescheduleWorkItem(
+    const replacement = await createReviewRescheduleWorkItem(
       pool,
       makeItem({
         payload: {
@@ -94,7 +94,7 @@ describe("createSlashReviewRescheduleWorkItem", () => {
     });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createSlashReviewRescheduleWorkItem(
+    const replacement = await createReviewRescheduleWorkItem(
       pool,
       makeItem({
         payload: {
@@ -120,13 +120,43 @@ describe("createSlashReviewRescheduleWorkItem", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createSlashReviewRescheduleWorkItem(pool, makeItem(), "newhead");
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), "newhead");
 
     expect(replacement.replacementWorkItemId).toBe("generated-replacement");
     expect(query).toHaveBeenCalledTimes(2);
     expect(String(query.mock.calls[0]?.[0])).toContain(
       "payload->>'staleHeadReplacementWorkItemId') IS NULL",
     );
+  });
+
+  it("preserves auto source on the replacement work item and ack", async () => {
+    vi.mocked(getPullRequestHeadSha).mockResolvedValue("newhead");
+    const query = vi
+      .fn()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] })
+      .mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValue("job-id");
+    const findJobs = vi.fn().mockResolvedValue([]);
+    const cancel = vi.fn();
+    const boss = { send, findJobs, cancel } as unknown as PgBoss;
+    const parent = makeItem({
+      source: "auto",
+      payload: {
+        mode: "review",
+        source: "auto",
+        staleHeadReplacementWorkItemId: "auto-replacement",
+      },
+    });
+
+    const result = await buildStaleReviewRescheduleResult(pool, parent, "token");
+    expect(query.mock.calls[0]?.[1]?.[2]).toBe("auto");
+    await result.afterComplete(boss, "active-job");
+
+    const ackCall = send.mock.calls.find(([queue]) => queue === ACK_QUEUE);
+    expect(ackCall?.[1]).toMatchObject({
+      progress: { source: "auto", headSha: "newhead" },
+    });
   });
 
   it("reuses marker from refreshed parent when concurrent update wins", async () => {
@@ -145,7 +175,7 @@ describe("createSlashReviewRescheduleWorkItem", () => {
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] });
     const pool = { query } as unknown as Pool;
 
-    const replacement = await createSlashReviewRescheduleWorkItem(pool, makeItem(), "newhead");
+    const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), "newhead");
 
     expect(replacement.replacementWorkItemId).toBe("winner-replacement");
     expect(getWorkItem).toHaveBeenCalledWith(pool, "parent-wi");
@@ -163,7 +193,7 @@ describe("createSlashReviewRescheduleWorkItem", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    const result = await buildStaleSlashReviewRescheduleResult(
+    const result = await buildStaleReviewRescheduleResult(
       pool,
       makeItem({
         payload: {
@@ -183,7 +213,7 @@ describe("createSlashReviewRescheduleWorkItem", () => {
   });
 });
 
-describe("enqueueSlashReviewReschedule", () => {
+describe("enqueueReviewReschedule", () => {
   it("repairs a stale enqueue marker when replacement jobs are absent", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
@@ -192,7 +222,7 @@ describe("enqueueSlashReviewReschedule", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    await enqueueSlashReviewReschedule(
+    await enqueueReviewReschedule(
       pool,
       boss,
       makeItem({
@@ -221,7 +251,7 @@ describe("enqueueSlashReviewReschedule", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    await enqueueSlashReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
 
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
@@ -250,7 +280,7 @@ describe("enqueueSlashReviewReschedule", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    await enqueueSlashReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
 
     expect(send).toHaveBeenCalledTimes(2);
     expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
@@ -273,7 +303,7 @@ describe("enqueueSlashReviewReschedule", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    await enqueueSlashReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
+    await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
 
     expect(send).toHaveBeenCalledTimes(2);
     expect(cancel).not.toHaveBeenCalled();
@@ -289,7 +319,7 @@ describe("enqueueSlashReviewReschedule", () => {
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
     await expect(
-      enqueueSlashReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
+      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
     ).rejects.toThrow(/review queue unavailable/);
 
     expect(send).toHaveBeenCalledTimes(1);
@@ -406,7 +436,7 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
   });
 });
 
-describe("buildStaleSlashReviewRescheduleResult onRescheduleAbort", () => {
+describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
   it("cancels un-enqueued replacement when afterComplete never ran", async () => {
     vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
     vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
@@ -418,7 +448,7 @@ describe("buildStaleSlashReviewRescheduleResult onRescheduleAbort", () => {
     const boom = new Error("parent failed");
     const boss = bossWithReviewJobs();
 
-    const result = await buildStaleSlashReviewRescheduleResult(
+    const result = await buildStaleReviewRescheduleResult(
       pool,
       makeItem({
         payload: {
@@ -446,7 +476,7 @@ describe("buildStaleSlashReviewRescheduleResult onRescheduleAbort", () => {
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
-    const result = await buildStaleSlashReviewRescheduleResult(
+    const result = await buildStaleReviewRescheduleResult(
       pool,
       makeItem({
         payload: {
@@ -472,7 +502,7 @@ describe("buildStaleSlashReviewRescheduleResult onRescheduleAbort", () => {
     const pool = { query } as unknown as Pool;
     const boss = bossWithReviewJobs();
 
-    const result = await buildStaleSlashReviewRescheduleResult(
+    const result = await buildStaleReviewRescheduleResult(
       pool,
       makeItem({
         payload: {

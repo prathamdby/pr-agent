@@ -173,7 +173,7 @@ export function renderReviewProgressComment(params: {
   }
   const progressNote =
     params.tickState?.kind === "terminal"
-      ? params.source === "slash"
+      ? params.tickState.reason === "stale_head" || params.source === "slash"
         ? "Superseded. Rescheduled for new head."
         : "Superseded by a newer pull request update."
       : REVIEW_PROGRESS_NOTE;
