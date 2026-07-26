@@ -95,6 +95,26 @@ describe("releaseSingletonSlot", () => {
     expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "failed-keep", undefined);
   });
 
+  it("with cancelWorkItemIds only cancels listed non-terminal jobs", async () => {
+    const { boss, cancel, deleteJob } = makeBoss([
+      { id: "auto-old", state: "created", data: { workItemId: "wi-auto" } },
+      { id: "slash-live", state: "active", data: { workItemId: "wi-slash" } },
+      { id: "failed-1", state: "failed", data: { workItemId: "wi-fail" } },
+      { id: "orphan", state: "created", data: {} },
+    ]);
+
+    await releaseSingletonSlot(boss, {
+      queue: REVIEW_QUEUE,
+      singletonKey: "owner/repo#1:review",
+      cancelNonTerminal: true,
+      cancelWorkItemIds: ["wi-auto"],
+    });
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "auto-old", undefined);
+    expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "failed-1", undefined);
+  });
+
   it("releaseReviewSingletonSlot targets the review queue key", async () => {
     const { boss, findJobs, deleteJob } = makeBoss([
       { id: "failed-1", state: "failed", data: { workItemId: "wi-old" } },

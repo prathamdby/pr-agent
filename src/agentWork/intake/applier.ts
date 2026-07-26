@@ -63,12 +63,13 @@ async function dispatchAutomatedKind(
     target: descriptor.target,
     createWorkItem: descriptor.createWorkItem,
   });
-  // Always clear failed blockers; cancel live jobs only when superseding.
+  // Clear failed blockers; cancel only superseded auto work items on this key.
   await releaseSingletonSlot(boss, {
     queue: descriptor.queueName,
     singletonKey: descriptor.singletonKey,
     db: slotDb,
     cancelNonTerminal: supersededIds.length > 0,
+    cancelWorkItemIds: supersededIds,
   });
   if (descriptor.enqueueAck) {
     await descriptor.enqueueAck(workItemId);

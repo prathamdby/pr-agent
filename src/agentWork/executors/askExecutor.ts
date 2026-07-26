@@ -129,6 +129,11 @@ async function recoverDeliveredAskReplyCommentId(params: {
     return null;
   }
 
+  // Require a pending intent so an older identical-question reply is not reused.
+  if (intent == null || intent.status !== "pending") {
+    return null;
+  }
+
   const bot = await getAppBotIdentity(cfg);
   const recovered = await findExistingAskReplyComment({
     token,

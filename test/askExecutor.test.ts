@@ -378,4 +378,14 @@ describe("executeAskJob", () => {
       "reconciled",
     );
   });
+
+  it("does not scan remote comments when no pending intent exists for this ask", async () => {
+    mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 9999 });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
+    expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
+    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+  });
 });
