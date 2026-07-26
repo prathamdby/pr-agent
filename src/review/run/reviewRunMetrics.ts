@@ -22,6 +22,10 @@ export type ReviewMetricEvent =
       readonly errorMessage?: string;
     }
   | {
+      readonly kind: "session_send_span";
+      readonly sendMs: number;
+    }
+  | {
       readonly kind: "external_failure";
       readonly failure: ClassifiedFailure;
     }
@@ -104,6 +108,11 @@ export type ReviewRunMetricsSnapshot = {
   readonly specialistOutcomes: Record<string, number>;
   readonly threadBatches: number;
   readonly briefFallback: boolean;
+  readonly providerSendMs: number;
+  readonly toolMs: number;
+  readonly generationMs: number;
+  readonly providerOutputTps?: number;
+  readonly tokenCoverage: "full_run" | "orchestrator_only";
 };
 
 type MutableReviewRunMetrics = {
@@ -147,6 +156,9 @@ type MutableReviewRunMetrics = {
   specialistOutcomes: Record<string, number>;
   threadBatches: number;
   briefFallback: boolean;
+  toolMs: number;
+  providerSendMs: number;
+  specialistTokensRecorded: boolean;
 };
 
 function createEmptyMetrics(meta: {
@@ -198,6 +210,9 @@ function createEmptyMetrics(meta: {
     specialistOutcomes: {},
     threadBatches: 0,
     briefFallback: false,
+    toolMs: 0,
+    providerSendMs: 0,
+    specialistTokensRecorded: false,
   };
 }
 
@@ -275,10 +290,14 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
           }
         }
       }
+      if (event.durationMs != null) metrics.toolMs += event.durationMs;
       if (event.resultBytes != null) metrics.toolResultBytes += event.resultBytes;
       if (event.resultCharacters != null) {
         metrics.toolResultCharacters += event.resultCharacters;
       }
+      break;
+    case "session_send_span":
+      metrics.providerSendMs += event.sendMs;
       break;
     case "external_failure":
       metrics.lastFailure = {
@@ -340,12 +359,19 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
   }
 }
 
-export function recordAgentTurnMetrics(turn: AgentRunnerTurn): void {
+export function recordAgentTurnMetrics(
+  turn: AgentRunnerTurn,
+  opts?: { readonly specialist?: boolean },
+): void {
   recordReviewMetric({
     kind: "model_turn",
     ...(turn.usage ? { usage: turn.usage } : {}),
     ...(turn.prompt ? { prompt: turn.prompt } : {}),
   });
+  if (opts?.specialist) {
+    const metrics = getOrInitMetrics();
+    if (metrics) metrics.specialistTokensRecorded = true;
+  }
 }
 
 export async function recordReviewPhaseSpan<T>(phase: string, run: () => Promise<T>): Promise<T> {
@@ -403,6 +429,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
   const metrics = getOrInitMetrics();
   if (!metrics) return null;
   const wallClockMs = Date.now() - metrics.startedAtMs;
+  const generationMs = Math.max(0, metrics.providerSendMs - metrics.toolMs);
   return {
     provider: metrics.provider,
     model: metrics.model,
@@ -444,6 +471,13 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     specialistOutcomes: { ...metrics.specialistOutcomes },
     threadBatches: metrics.threadBatches,
     briefFallback: metrics.briefFallback,
+    providerSendMs: metrics.providerSendMs,
+    toolMs: metrics.toolMs,
+    generationMs,
+    tokenCoverage: metrics.specialistTokensRecorded ? "full_run" : "orchestrator_only",
+    ...(generationMs > 0
+      ? { providerOutputTps: metrics.providerOutputTokens / (generationMs / 1000) }
+      : {}),
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
   };
 }

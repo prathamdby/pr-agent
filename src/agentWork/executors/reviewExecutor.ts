@@ -38,6 +38,7 @@ import {
   recordReviewPhaseSpan,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
+  type ReviewRunMetricsSnapshot,
 } from "../../review/run/reviewRunMetrics.js";
 import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
@@ -343,6 +344,27 @@ async function buildPriorInlineFeedbackPromise(args: {
   }
 }
 
+function reviewTimingPostHogProperties(
+  snapshot: ReviewRunMetricsSnapshot | null,
+  cfg: Pick<Config, "piProvider" | "piModel">,
+): Record<string, string | number> {
+  const properties: Record<string, string | number> = {
+    provider: cfg.piProvider,
+    model: cfg.piModel,
+  };
+  if (!snapshot) return properties;
+  properties.wall_clock_ms = snapshot.wallClockMs;
+  properties.provider_output_tokens = snapshot.providerOutputTokens;
+  properties.token_coverage = snapshot.tokenCoverage;
+  if (snapshot.generationMs > 0) {
+    properties.generation_ms = snapshot.generationMs;
+    const tps =
+      snapshot.providerOutputTps ?? snapshot.providerOutputTokens / (snapshot.generationMs / 1000);
+    properties.provider_output_tps = Math.round(tps * 100) / 100;
+  }
+  return properties;
+}
+
 async function handleReviewPublishResult(args: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -392,6 +414,7 @@ async function handleReviewPublishResult(args: {
           pr_number: item.prNumber,
           review_lens: reviewLens,
           publish_attempts: result.publishAttempts,
+          ...reviewTimingPostHogProperties(snapshot, cfg),
           ...classifiedFailurePostHogProperties(lastFailure),
           ...(snapshot?.toolCallErrors != null
             ? { tool_call_errors: snapshot.toolCallErrors }
@@ -420,11 +443,9 @@ async function handleReviewPublishResult(args: {
         review_lens: reviewLens,
         findings_count: snapshot?.findingsCount ?? 0,
         severities: snapshot?.severities ?? [],
-        provider: cfg.piProvider,
-        model: cfg.piModel,
         publish_attempts: result.publishAttempts,
-        wall_clock_ms: snapshot?.wallClockMs,
         source: payload.source,
+        ...reviewTimingPostHogProperties(snapshot, cfg),
       },
     });
   }

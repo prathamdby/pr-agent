@@ -12,6 +12,7 @@ import type { PiSession } from "../../agent/runtime/types.js";
 import { runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
 import { MAX_TOOL_ROUNDS, VALIDATION_REPAIR_ROUNDS } from "../../settings/index.js";
+import { recordAgentTurnMetrics } from "../run/reviewRunMetrics.js";
 import { specialistSystemPrompt } from "./prompts/specialistPersonas.js";
 import { specialistReportSchema, type SpecialistReport } from "./specialistReport.js";
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
@@ -217,12 +218,12 @@ async function runAttempt(
   const session = await createSessionWithinDeadline(params, deadlineMs, submitTool);
   let cleanupDeferred = false;
 
-  const send = (
+  const send = async (
     activeSession: PiSession,
     prompt: string,
     opts?: { readonly maxToolRounds?: number },
-  ): Promise<AgentRunnerTurn> =>
-    runWithinDeadline({
+  ): Promise<AgentRunnerTurn> => {
+    const turn = await runWithinDeadline({
       run: () =>
         activeSession.send(prompt, {
           ...opts,
@@ -237,6 +238,9 @@ async function runAttempt(
         cleanupDeferred = true;
       },
     });
+    recordAgentTurnMetrics(turn, { specialist: true });
+    return turn;
+  };
 
   try {
     assertCanContinue(params, deadlineMs);

@@ -425,6 +425,8 @@ describe("executeReviewJob", () => {
           error_kind: "quota",
           error_message: expect.stringMatching(/credit/i),
           publish_attempts: 2,
+          provider: "openai",
+          model: "test",
         }),
       }),
     );
@@ -433,6 +435,106 @@ describe("executeReviewJob", () => {
       expect.objectContaining({
         failureDomain: "provider",
         errorKind: "quota",
+      }),
+    );
+  });
+
+  it("emits review published with formula-B timing props when generationMs > 0", async () => {
+    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
+      wallClockMs: 200_000,
+      providerOutputTokens: 1500,
+      generationMs: 50_000,
+      providerOutputTps: 30,
+      tokenCoverage: "full_run",
+      findingsCount: 2,
+      severities: ["high"],
+    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review published",
+        properties: expect.objectContaining({
+          wall_clock_ms: 200_000,
+          provider_output_tokens: 1500,
+          generation_ms: 50_000,
+          provider_output_tps: 30,
+          token_coverage: "full_run",
+          provider: "openai",
+          model: "test",
+          publish_attempts: 1,
+        }),
+      }),
+    );
+  });
+
+  it("omits provider_output_tps on review published when generationMs is 0", async () => {
+    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
+      wallClockMs: 12_000,
+      providerOutputTokens: 100,
+      generationMs: 0,
+      tokenCoverage: "orchestrator_only",
+      findingsCount: 0,
+      severities: [],
+    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    const call = mocks.captureEvent.mock.calls.find(
+      (args) => (args[0] as { event?: string }).event === "review published",
+    );
+    expect(call).toBeDefined();
+    const properties = (call?.[0] as { properties: Record<string, unknown> }).properties;
+    expect(properties).toMatchObject({
+      wall_clock_ms: 12_000,
+      provider_output_tokens: 100,
+      token_coverage: "orchestrator_only",
+    });
+    expect(properties).not.toHaveProperty("generation_ms");
+    expect(properties).not.toHaveProperty("provider_output_tps");
+  });
+
+  it("emits review failed with timing parity props from snapshot", async () => {
+    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
+      wallClockMs: 190_000,
+      providerOutputTokens: 800,
+      generationMs: 40_000,
+      providerOutputTps: 20,
+      tokenCoverage: "full_run",
+      toolCallErrors: 1,
+      lastFailure: null,
+    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
+    mocks.runOrchestratedPrReview.mockResolvedValue({
+      published: false,
+      publishAttempts: 2,
+      publishSuperseded: false,
+      lastFailure: {
+        failureDomain: "github",
+        errorKind: "rate_limit",
+        errorMessage: "API rate limit exceeded",
+        phase: "publish",
+      },
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review failed",
+        properties: expect.objectContaining({
+          wall_clock_ms: 190_000,
+          provider_output_tokens: 800,
+          generation_ms: 40_000,
+          provider_output_tps: 20,
+          token_coverage: "full_run",
+          provider: "openai",
+          model: "test",
+          publish_attempts: 2,
+          failure_domain: "github",
+          error_kind: "rate_limit",
+          tool_call_errors: 1,
+        }),
       }),
     );
   });

@@ -42,9 +42,7 @@ function toolResultSize(result: unknown): { resultBytes: number; resultCharacter
   };
 }
 
-function safeRecordToolCallMetric(
-  event: Extract<Parameters<typeof recordReviewMetric>[0], { kind: "tool_call" }>,
-): void {
+function safeRecordReviewMetric(event: Parameters<typeof recordReviewMetric>[0]): void {
   try {
     recordReviewMetric(event);
   } catch {
@@ -73,11 +71,13 @@ function toCodingAgentTool(
     description: tool.description,
     parameters: tool.parameters as never,
     execute: async (_toolCallId: string, params: Record<string, unknown>) => {
+      const startedAt = Date.now();
       if (!executor) {
-        safeRecordToolCallMetric({
+        safeRecordReviewMetric({
           kind: "tool_call",
           name: tool.name,
           ok: false,
+          durationMs: Date.now() - startedAt,
           errorMessage: `No executor registered for tool ${tool.name}`,
         });
         throw new AppError({
@@ -93,10 +93,11 @@ function toCodingAgentTool(
         }
         const result = await executor(params);
         const size = toolResultSize(result);
-        safeRecordToolCallMetric({
+        safeRecordReviewMetric({
           kind: "tool_call",
           name: tool.name,
           ok: true,
+          durationMs: Date.now() - startedAt,
           resultBytes: size.resultBytes,
           resultCharacters: size.resultCharacters,
         });
@@ -105,10 +106,11 @@ function toCodingAgentTool(
           details: result && typeof result === "object" ? (result as Record<string, unknown>) : {},
         };
       } catch (error) {
-        safeRecordToolCallMetric({
+        safeRecordReviewMetric({
           kind: "tool_call",
           name: tool.name,
           ok: false,
+          durationMs: Date.now() - startedAt,
           errorMessage: error instanceof Error ? error.message : String(error),
         });
         throw error;
@@ -315,7 +317,9 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           }
         });
 
+        let sendStartedAt: number | undefined;
         try {
+          sendStartedAt = Date.now();
           const run = session.prompt(prompt);
           if (idleTimeoutEnabled) {
             const idle = new Promise<never>((_, reject) => {
@@ -353,6 +357,12 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           });
           throw error;
         } finally {
+          if (sendStartedAt !== undefined) {
+            safeRecordReviewMetric({
+              kind: "session_send_span",
+              sendMs: Date.now() - sendStartedAt,
+            });
+          }
           if (idleCheckHandle) clearInterval(idleCheckHandle);
           unsubscribe();
         }
