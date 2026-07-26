@@ -14,6 +14,11 @@ import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
 import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
+import type { Pool } from "pg";
+import {
+  buildCodeIndexTools,
+  buildUnavailableCodeIndexTools,
+} from "../../agent/tools/codeIndexTools.js";
 
 export type ReviewRunSetup = {
   readonly orchestratorUserContent: string;
@@ -66,6 +71,8 @@ export function buildReviewRunSetup(params: {
     token: string;
     expiresAtTs: number;
   }>;
+  pool?: Pool;
+  codeIndexSnapshotId?: string;
 }): ReviewRunSetup {
   const {
     cfg,
@@ -105,12 +112,22 @@ export function buildReviewRunSetup(params: {
     apiKey: cfg.context7ApiKey,
     maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
   });
+  const codeIndex =
+    params.pool && params.codeIndexSnapshotId
+      ? buildCodeIndexTools({
+          pool: params.pool,
+          snapshotId: params.codeIndexSnapshotId,
+          workspace: params.workspace,
+          pathGate,
+        })
+      : buildUnavailableCodeIndexTools();
   const executors = wrapExecutorsWithRateLimitCircuit({
     ...refreshableGh.bundle.executors,
     ...ctx7.executors,
+    ...codeIndex.executors,
   });
   const workspaceTools = {
-    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools],
+    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
     executors,
   };
   const refreshBeforeTool = async (toolName: string) => {

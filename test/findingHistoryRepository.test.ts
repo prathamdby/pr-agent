@@ -33,7 +33,7 @@ describe("upsertFindingHistoryOpen", () => {
     );
 
     expect(query).toHaveBeenCalledTimes(2);
-    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
     expect(sql).toContain("INSERT INTO repo_finding_history");
     expect(sql).toContain("open_count = repo_finding_history.open_count + 1");
     expect(values).toEqual([9, "acme", "app", "fp-a", 12, "wi-1", "abc123"]);
@@ -59,7 +59,7 @@ describe("recordFindingHistoryOutcome", () => {
       "dismissed",
     );
 
-    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
     expect(sql).toContain(
       "dismiss_count = repo_finding_history.dismiss_count + EXCLUDED.dismiss_count",
     );
@@ -83,7 +83,7 @@ describe("loadCrossPrSuppressionFingerprints", () => {
     });
 
     expect(fingerprints).toEqual(["fp-hot"]);
-    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    const [sql, values] = query.mock.calls[0]! as unknown as [string, unknown[]];
     expect(sql).toContain("dismiss_count >=");
     expect(values).toEqual([1, "o", "r", 3, "180"]);
   });

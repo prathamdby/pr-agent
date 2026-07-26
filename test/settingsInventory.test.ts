@@ -38,7 +38,10 @@ describe("settings inventory", () => {
     expect(envValues).toContain("FINDING_HISTORY_ENABLED");
     expect(envValues).toContain("FINDING_HISTORY_DISMISS_SUPPRESS_AFTER");
     expect(envValues).toContain("FINDING_HISTORY_LOOKBACK_DAYS");
-    expect(envValues.length).toBe(58);
+    expect(envValues).toContain("CODE_INDEX_MODE");
+    expect(envValues).toContain("CODE_INDEX_WAIT_MS");
+    expect(envValues).toContain("CODE_INDEX_RETENTION_SECONDS");
+    expect(envValues.length).toBe(61);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

@@ -36,32 +36,35 @@ CI enforces env alignment via `test/settingsInventory.test.ts` (including that e
 
 ## Infra (required wiring and provider selection)
 
-| Name                   | Env var                                | Default                  | Notes                                                                                                                                       |
-| ---------------------- | -------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| HTTP port              | `PORT`                                 | `3000` (7224 in Compose) |                                                                                                                                             |
-| Process role           | `ROLE`                                 | `web`                    | `web` or `worker`                                                                                                                           |
-| GitHub App ID          | `GITHUB_APP_ID`                        | —                        | required                                                                                                                                    |
-| App private key        | `GITHUB_APP_PRIVATE_KEY`               | —                        | required PEM                                                                                                                                |
-| Webhook HMAC secret    | `WEBHOOK_SECRET`                       | —                        | required                                                                                                                                    |
-| Postgres URL           | `DATABASE_URL`                         | —                        | required                                                                                                                                    |
-| General LLM provider   | `PI_PROVIDER`                          | `openai`                 | Primary model provider for Specialist, Ask, Description, Triage, Verification, and CI-summary sessions (built-in slug or `models.json` key) |
-| General LLM model      | `PI_MODEL`                             | `gpt-4o-mini`            | Primary model id for general sessions                                                                                                       |
-| Orchestrator provider  | `PI_ORCHESTRATOR_PROVIDER`             | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                            |
-| Orchestrator model     | `PI_ORCHESTRATOR_MODEL`                | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_MODEL`                                                               |
-| Fallback provider      | `PI_FALLBACK_PROVIDER`                 | empty                    | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Used only after availability-class retry exhaustion                |
-| Fallback model         | `PI_FALLBACK_MODEL`                    | empty                    | Optional shared fallback model; empty disables fallback                                                                                     |
-| Thinking ceiling       | `PI_THINKING_CEILING`                  | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`)                                           |
-| Resume snapshot key    | `AGENT_RESUME_SNAPSHOT_KEY`            | empty                    | Base64 32-byte key for encrypted Agent resume snapshots; empty disables snapshot persistence                                                |
-| Resume snapshot margin | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS` | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                   |
-| Agent events enabled   | `AGENT_EVENTS_ENABLED`                 | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors              |
-| Agent events retention | `AGENT_EVENTS_RETENTION_SECONDS`       | `0`                      | Optional TTL delete for `agent_events` by `recorded_at`; `0` relies on `AGENT_WORK_RETENTION_SECONDS` + `ON DELETE SET NULL` on `work_item_id` |
-| Finding history enabled | `FINDING_HISTORY_ENABLED`             | `true`                   | Persist cross-PR fingerprint outcomes to `repo_finding_history`; fail-soft when disabled or on writer errors                                   |
-| Finding history dismiss threshold | `FINDING_HISTORY_DISMISS_SUPPRESS_AFTER` | `3`                 | After this many dismissals for a fingerprint, suppress new inline threads (summary-only with note still allowed)                             |
-| Finding history lookback | `FINDING_HISTORY_LOOKBACK_DAYS`      | `180`                    | Ignore `repo_finding_history` rows older than this when loading suppression candidates                                                         |
-| Models catalog path    | `MODELS_JSON_PATH`                     | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)    |
-| Context7 API key       | `CONTEXT7_API_KEY`                     | empty                    | optional                                                                                                                                    |
-| PostHog token          | `POSTHOG_PROJECT_TOKEN`                | empty                    | optional analytics via `src/analytics` facade; empty token disables init (no SDK load, no capture). OSS installs need no PostHog setup      |
-| PostHog host           | `POSTHOG_HOST`                         | empty                    | optional host override when token is set; empty uses posthog-node default                                                                   |
+| Name                              | Env var                                  | Default                  | Notes                                                                                                                                          |
+| --------------------------------- | ---------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| HTTP port                         | `PORT`                                   | `3000` (7224 in Compose) |                                                                                                                                                |
+| Process role                      | `ROLE`                                   | `web`                    | `web` or `worker`                                                                                                                              |
+| GitHub App ID                     | `GITHUB_APP_ID`                          | —                        | required                                                                                                                                       |
+| App private key                   | `GITHUB_APP_PRIVATE_KEY`                 | —                        | required PEM                                                                                                                                   |
+| Webhook HMAC secret               | `WEBHOOK_SECRET`                         | —                        | required                                                                                                                                       |
+| Postgres URL                      | `DATABASE_URL`                           | —                        | required                                                                                                                                       |
+| General LLM provider              | `PI_PROVIDER`                            | `openai`                 | Primary model provider for Specialist, Ask, Description, Triage, Verification, and CI-summary sessions (built-in slug or `models.json` key)    |
+| General LLM model                 | `PI_MODEL`                               | `gpt-4o-mini`            | Primary model id for general sessions                                                                                                          |
+| Orchestrator provider             | `PI_ORCHESTRATOR_PROVIDER`               | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_PROVIDER`                                                               |
+| Orchestrator model                | `PI_ORCHESTRATOR_MODEL`                  | empty                    | Optional override for Review orchestrator sessions; empty inherits `PI_MODEL`                                                                  |
+| Fallback provider                 | `PI_FALLBACK_PROVIDER`                   | empty                    | Optional shared fallback provider; must be set with `PI_FALLBACK_MODEL`. Used only after availability-class retry exhaustion                   |
+| Fallback model                    | `PI_FALLBACK_MODEL`                      | empty                    | Optional shared fallback model; empty disables fallback                                                                                        |
+| Thinking ceiling                  | `PI_THINKING_CEILING`                    | `high`                   | Max thinking level for phase-aware thinking (`off`/`minimal`/`low`/`medium`/`high`/`xhigh`/`max`)                                              |
+| Resume snapshot key               | `AGENT_RESUME_SNAPSHOT_KEY`              | empty                    | Base64 32-byte key for encrypted Agent resume snapshots; empty disables snapshot persistence                                                   |
+| Resume snapshot margin            | `AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS`   | `600`                    | Extra TTL seconds beyond queue retry window for resume snapshot retention                                                                      |
+| Agent events enabled              | `AGENT_EVENTS_ENABLED`                   | `true`                   | Persist metadata-only agent lifecycle and decision/publish events to `agent_events`; fail-soft when disabled or on writer errors               |
+| Agent events retention            | `AGENT_EVENTS_RETENTION_SECONDS`         | `0`                      | Optional TTL delete for `agent_events` by `recorded_at`; `0` relies on `AGENT_WORK_RETENTION_SECONDS` + `ON DELETE SET NULL` on `work_item_id` |
+| Finding history enabled           | `FINDING_HISTORY_ENABLED`                | `true`                   | Persist cross-PR fingerprint outcomes to `repo_finding_history`; fail-soft when disabled or on writer errors                                   |
+| Finding history dismiss threshold | `FINDING_HISTORY_DISMISS_SUPPRESS_AFTER` | `3`                      | After this many dismissals for a fingerprint, suppress new inline threads (summary-only with note still allowed)                               |
+| Finding history lookback          | `FINDING_HISTORY_LOOKBACK_DAYS`          | `180`                    | Ignore `repo_finding_history` rows older than this when loading suppression candidates                                                         |
+| Code index mode                   | `CODE_INDEX_MODE`                        | `off`                    | `off` disables Postgres FTS hints; `fts` enables optional navigation index (hints only — `readWorkspaceFile` still required for publish)       |
+| Code index wait                   | `CODE_INDEX_WAIT_MS`                     | `3000`                   | Max wait during review setup for a ready `code_index_snapshots` row at the PR head SHA                                                         |
+| Code index retention              | `CODE_INDEX_RETENTION_SECONDS`           | `2592000`                | Delete superseded/failed/ready `code_index_snapshots` older than this (cascades `code_index_chunks`)                                           |
+| Models catalog path               | `MODELS_JSON_PATH`                       | empty                    | optional absolute/relative path to Pi `models.json`; when empty, looks for `models.json` at `process.cwd()` (Docker: `/app/models.json`)       |
+| Context7 API key                  | `CONTEXT7_API_KEY`                       | empty                    | optional                                                                                                                                       |
+| PostHog token                     | `POSTHOG_PROJECT_TOKEN`                  | empty                    | optional analytics via `src/analytics` facade; empty token disables init (no SDK load, no capture). OSS installs need no PostHog setup         |
+| PostHog host                      | `POSTHOG_HOST`                           | empty                    | optional host override when token is set; empty uses posthog-node default                                                                      |
 
 ## Ops (deployment-varying tuning)
 
@@ -152,6 +155,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `VERIFICATION_DEAD_LETTER_QUEUE`           | `agent-work-verification-dead`                                                                                                                     |
 | `CI_REFRESH_DEAD_LETTER_QUEUE`             | `agent-work-ci-refresh-dead`                                                                                                                       |
 | `RETENTION_QUEUE`                          | `agent-work-retention` — scheduled cleanup sweep                                                                                                   |
+| `CODE_INDEX_BUILD_QUEUE`                   | `code-index-build` — optional Postgres FTS index build (when `CODE_INDEX_MODE=fts`)                                                                |
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                                 |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                           |
 | `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened — `pull_request` actions accepted at webhook intake (not the auto-enqueue map)                                       |
@@ -339,26 +343,37 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 
 ### Local PR workspace
 
-| Symbol                                      | Default    |
-| ------------------------------------------- | ---------- |
-| `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE`  | 256        |
-| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`     | 32         |
-| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`       | 60000      |
-| `LOCAL_WORKSPACE_CLONE_TIMEOUT_MS`          | 60000      |
-| `LOCAL_WORKSPACE_FETCH_TIMEOUT_MS`          | 60000      |
-| `LOCAL_WORKSPACE_SEARCH_MAX_FILES`          | 500        |
-| `LOCAL_WORKSPACE_MAX_FILE_BYTES`            | 1000000    |
-| `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`    | 50000000   |
-| `LOCAL_WORKSPACE_MAX_DIFF_BYTES`            | 5000000    |
-| `LOCAL_WORKSPACE_READ_RESPONSE_BYTES`       | 128000     |
-| `LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES`       | 256000     |
-| `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`      | 500000000  |
-| `LOCAL_WORKSPACE_MAX_FETCH_BYTES`           | 2147483648 |
-| `LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB`    | 1000000    |
-| `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS` | 86400      |
-| `LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS` | 5000   |
-| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS`  | 50000      |
-| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS`  | 50         |
+| Symbol                                          | Default    |
+| ----------------------------------------------- | ---------- |
+| `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE`      | 256        |
+| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`         | 32         |
+| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`           | 60000      |
+| `LOCAL_WORKSPACE_CLONE_TIMEOUT_MS`              | 60000      |
+| `LOCAL_WORKSPACE_FETCH_TIMEOUT_MS`              | 60000      |
+| `LOCAL_WORKSPACE_SEARCH_MAX_FILES`              | 500        |
+| `LOCAL_WORKSPACE_MAX_FILE_BYTES`                | 1000000    |
+| `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`        | 50000000   |
+| `LOCAL_WORKSPACE_MAX_DIFF_BYTES`                | 5000000    |
+| `LOCAL_WORKSPACE_READ_RESPONSE_BYTES`           | 128000     |
+| `LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES`           | 256000     |
+| `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`          | 500000000  |
+| `LOCAL_WORKSPACE_MAX_FETCH_BYTES`               | 2147483648 |
+| `LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB`        | 1000000    |
+| `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS`     | 86400      |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS` | 5000       |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS`      | 50000      |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS`      | 50         |
+
+### Code index (optional FTS hints)
+
+| Symbol                           | Value / role |
+| -------------------------------- | ------------ |
+| `CODE_INDEX_MODES`               | `off`, `fts` |
+| `CODE_INDEX_CHUNKER_VERSION`     | `1`          |
+| `CODE_INDEX_MAX_CHUNKS_PER_REPO` | 100000       |
+| `CODE_INDEX_MAX_RESULTS`         | 20           |
+| `CODE_INDEX_PREVIEW_MAX_CHARS`   | 500          |
+| `CODE_INDEX_BUILD_CONCURRENCY`   | 1            |
 
 ### Postgres pool
 

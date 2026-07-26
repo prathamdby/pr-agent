@@ -35,9 +35,7 @@ import {
   captureTriageFailure,
   type TriageAnalyticsRef,
 } from "../../agentWork/triageAnalytics.js";
-import {
-  safeRecordThreadFindingHistoryOutcome,
-} from "../../agentWork/findingHistoryRepository.js";
+import { safeRecordThreadFindingHistoryOutcome } from "../../agentWork/findingHistoryRepository.js";
 import type { Config } from "../../config.js";
 import {
   StaleHeadPushError,

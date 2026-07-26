@@ -6,7 +6,9 @@ import {
 
 export function mockLocalPrWorkspace(
   agentCwd = "/tmp/pr-agent",
-  overrides?: Partial<Pick<LocalPrWorkspace, "checkoutMode" | "checkoutPaths" | "changedFiles" | "stats">>,
+  overrides?: Partial<
+    Pick<LocalPrWorkspace, "checkoutMode" | "checkoutPaths" | "changedFiles" | "stats">
+  >,
 ): LocalPrWorkspace {
   const checkoutMode = overrides?.checkoutMode ?? "full";
   const changedFiles = overrides?.changedFiles ?? [];

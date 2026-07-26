@@ -7,6 +7,7 @@ const RETENTION = {
   agentWorkRetentionSeconds: 30 * 86_400,
   webhookEventsRetentionSeconds: 30 * 86_400,
   agentEventsRetentionSeconds: 0,
+  codeIndexRetentionSeconds: 30 * 86_400,
 };
 
 describe("runRetention batched delete loop", () => {
@@ -40,6 +41,9 @@ describe("runRetention batched delete loop", () => {
         if (text.includes("agent_events")) {
           return { rowCount: 0 };
         }
+        if (text.includes("code_index_snapshots")) {
+          return { rowCount: 0 };
+        }
         throw new Error(`unexpected query: ${text}`);
       }),
     } as unknown as Pool;
@@ -50,6 +54,7 @@ describe("runRetention batched delete loop", () => {
     expect(result.webhookEventsDeleted).toBe(RETENTION_DELETE_BATCH_SIZE);
     expect(result.resumeSnapshotsDeleted).toBe(4);
     expect(result.agentEventsDeleted).toBe(0);
+    expect(result.codeIndexSnapshotsDeleted).toBe(0);
     expect(workCalls).toBe(2);
     expect(webhookCalls).toBe(2);
   });
@@ -69,6 +74,9 @@ describe("runRetention batched delete loop", () => {
           return { rowCount: 0 };
         }
         if (text.includes("agent_resume_snapshots")) {
+          return { rowCount: 0 };
+        }
+        if (text.includes("code_index_snapshots")) {
           return { rowCount: 0 };
         }
         throw new Error(`unexpected query: ${text}`);

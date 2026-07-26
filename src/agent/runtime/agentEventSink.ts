@@ -29,7 +29,9 @@ function baseInsertRow(context: AgentEventsContext): Omit<AgentEventInsertRow, "
   };
 }
 
-function metadataDetail(detail: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+function metadataDetail(
+  detail: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
   return detail;
 }
 

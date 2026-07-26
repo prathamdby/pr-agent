@@ -2,7 +2,11 @@ import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
-import { resolveAgentEventsContext, safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
+import { classifyFallbackEligibility } from "../../agent/runtime/fallbackClassification.js";
+import {
+  resolveAgentEventsContext,
+  safeEmitDecisionEvent,
+} from "../../agent/runtime/agentEventSink.js";
 import type { PiSession, PiSessionSendOptions } from "../../agent/runtime/types.js";
 import { assistantFromText } from "../../agentRun/sessionHelpers.js";
 import { runValidationRepairLoop } from "../../agentRun/structuredAgentLoop.js";
@@ -230,6 +234,8 @@ export async function runOrchestratedPrReview(
   });
   const setup = buildReviewRunSetup({
     ...params,
+    pool: params.durability?.pool,
+    codeIndexSnapshotId: params.codeIndexSnapshotId,
     tokenTtlMs:
       typeof params.tokenTtlMs === "number" &&
       Number.isFinite(params.tokenTtlMs) &&

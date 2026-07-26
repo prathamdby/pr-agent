@@ -3,6 +3,7 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { RETENTION_DELETE_BATCH_SIZE, RETENTION_QUEUE } from "../settings/index.js";
 import { deleteExpiredResumeSnapshots } from "./resumeSnapshotRepository.js";
+import { safeDeleteExpiredCodeIndexSnapshots } from "../codeIndex/repository.js";
 
 const TERMINAL_STATUSES = ["completed", "failed", "cancelled", "superseded"];
 
@@ -11,6 +12,7 @@ export type RetentionResult = {
   readonly webhookEventsDeleted: number;
   readonly resumeSnapshotsDeleted: number;
   readonly agentEventsDeleted: number;
+  readonly codeIndexSnapshotsDeleted: number;
 };
 
 /**
@@ -21,11 +23,19 @@ export async function runRetention(
   pool: Pool,
   cfg: Pick<
     Config,
-    "agentWorkRetentionSeconds" | "webhookEventsRetentionSeconds" | "agentEventsRetentionSeconds"
+    | "agentWorkRetentionSeconds"
+    | "webhookEventsRetentionSeconds"
+    | "agentEventsRetentionSeconds"
+    | "codeIndexRetentionSeconds"
   >,
 ): Promise<RetentionResult> {
-  const [workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted, agentEventsDeleted] =
-    await Promise.all([
+  const [
+    workItemsDeleted,
+    webhookEventsDeleted,
+    resumeSnapshotsDeleted,
+    agentEventsDeleted,
+    codeIndexSnapshotsDeleted,
+  ] = await Promise.all([
     (async () => {
       let deleted = 0;
       for (;;) {
@@ -83,8 +93,19 @@ export async function runRetention(
       }
       return deleted;
     })(),
+    safeDeleteExpiredCodeIndexSnapshots(
+      pool,
+      cfg.codeIndexRetentionSeconds,
+      RETENTION_DELETE_BATCH_SIZE,
+    ),
   ]);
-  return { workItemsDeleted, webhookEventsDeleted, resumeSnapshotsDeleted, agentEventsDeleted };
+  return {
+    workItemsDeleted,
+    webhookEventsDeleted,
+    resumeSnapshotsDeleted,
+    agentEventsDeleted,
+    codeIndexSnapshotsDeleted,
+  };
 }
 
 export async function ensureRetentionSchedule(

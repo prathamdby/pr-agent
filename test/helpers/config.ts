@@ -32,6 +32,12 @@ const baseTestConfig: Config = {
   agentResumeSnapshotMarginSeconds: 600,
   agentEventsEnabled: true,
   agentEventsRetentionSeconds: 0,
+  findingHistoryEnabled: true,
+  findingHistoryDismissSuppressAfter: 3,
+  findingHistoryLookbackDays: 180,
+  codeIndexMode: "off",
+  codeIndexWaitMs: 3_000,
+  codeIndexRetentionSeconds: 2_592_000,
   piApi: "openai-responses",
   modelsJsonPath: null,
   modelProviderKeys: {

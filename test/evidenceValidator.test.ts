@@ -56,4 +56,16 @@ describe("assertFindingsHaveEvidence", () => {
     expect(result.accepted).toEqual([]);
     expect(result.rejected[0]?.reasonCode).toBe("sparse_path_no_evidence");
   });
+
+  it("rejects findings when only code index hints were used (no readWorkspaceFile)", () => {
+    const ledger = createTestEvidenceLedger();
+    const item = finding();
+
+    const result = assertFindingsHaveEvidence([item], ledger, ledger.headSha);
+
+    expect(result.accepted).toEqual([]);
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0]?.reasonCode).toBe("no_evidence");
+    expect(ledger.snapshot()).toEqual([]);
+  });
 });

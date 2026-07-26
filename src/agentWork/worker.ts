@@ -9,6 +9,8 @@ import {
   ACK_QUEUE,
   ASK_QUEUE,
   CI_REFRESH_QUEUE,
+  CODE_INDEX_BUILD_CONCURRENCY,
+  CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_QUEUE,
   RETENTION_QUEUE,
   RETENTION_QUEUE_POLLING_INTERVAL_SECONDS,
@@ -25,6 +27,7 @@ import {
   executeTriageJob,
   executeVerificationJob,
 } from "./executors/index.js";
+import { executeCodeIndexBuildJob, type CodeIndexBuildJobData } from "../codeIndex/buildJob.js";
 import {
   type AckJobData,
   type AskJobData,
@@ -228,6 +231,14 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
               }
             }).then(() => {
               registeredQueues.add(RETENTION_QUEUE);
+            }),
+            registerPlainQueue<CodeIndexBuildJobData>(
+              boss,
+              CODE_INDEX_BUILD_QUEUE,
+              { localConcurrency: CODE_INDEX_BUILD_CONCURRENCY, ...fastQueueOptions },
+              (job) => executeCodeIndexBuildJob(cfg, pool, job.data),
+            ).then(() => {
+              registeredQueues.add(CODE_INDEX_BUILD_QUEUE);
             }),
           ]);
           logInfo("agent_worker_started", {

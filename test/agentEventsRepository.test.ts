@@ -30,10 +30,15 @@ describe("appendAgentEvents", () => {
     const query = vi.fn(async () => ({ rowCount: 2 }));
     const pool = { query } as unknown as Pool;
 
-    await appendAgentEvents(pool, [sampleRow(), sampleRow({ eventKind: "tool", toolName: "readFile" })]);
+    await appendAgentEvents(pool, [
+      sampleRow(),
+      sampleRow({ eventKind: "tool", toolName: "readFile" }),
+    ]);
 
     expect(query).toHaveBeenCalledTimes(1);
-    const [sql, values] = query.mock.calls[0] as [string, unknown[]];
+    const call = query.mock.calls[0];
+    expect(call).toBeDefined();
+    const [sql, values] = call as unknown as [string, unknown[]];
     expect(sql).toContain("INSERT INTO agent_events");
     expect(values).toHaveLength(30);
     expect(values[6]).toBe("turn");

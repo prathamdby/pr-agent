@@ -23,18 +23,9 @@ export type SymbolIndexStatus =
 
 export type SymbolIndexReadFile = (path: string) => Promise<string | null>;
 
-const INDEXABLE_EXTENSIONS = new Set([
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".py",
-]);
+const INDEXABLE_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py"]);
 
-const TS_FUNCTION =
-  /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b/;
+const TS_FUNCTION = /^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\b/;
 const TS_CLASS = /^\s*(?:export\s+)?class\s+([A-Za-z_$][\w$]*)\b/;
 const TS_TYPE = /^\s*(?:export\s+)?(?:interface|type)\s+([A-Za-z_$][\w$]*)\b/;
 const TS_VARIABLE = /^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/;

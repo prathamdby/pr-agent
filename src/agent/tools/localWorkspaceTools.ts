@@ -338,7 +338,12 @@ export function buildLocalWorkspaceTools(
       "Look up symbol definitions in the ephemeral per-run symbol index (TypeScript/JavaScript/Python heuristics). Navigation hint only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
     schema: z.object({
       name: z.string().min(1),
-      maxResults: z.number().int().positive().optional().default(LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS),
+      maxResults: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .default(LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS),
     }),
     run: async ({ name, maxResults }) => {
       const status = workspace.getSymbolIndexStatus();
@@ -347,9 +352,7 @@ export function buildLocalWorkspaceTools(
         name,
         available: status.available,
         matches,
-        ...(status.available
-          ? {}
-          : { reason: "Symbol index unavailable for this workspace." }),
+        ...(status.available ? {} : { reason: "Symbol index unavailable for this workspace." }),
         reminder: "Call readWorkspaceFile before citing any match.",
       };
     },

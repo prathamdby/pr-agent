@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
 const { appendAgentEvents, getAgentPhaseCheckpoint } = vi.hoisted(() => ({
-  appendAgentEvents: vi.fn(async () => undefined),
+  appendAgentEvents: vi.fn(async (..._args: unknown[]) => undefined),
   getAgentPhaseCheckpoint: vi.fn(async () => null),
 }));
 
@@ -90,8 +90,8 @@ describe("createFeaturePiSession agent events", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(appendAgentEvents).toHaveBeenCalledTimes(1);
-    const rows = appendAgentEvents.mock.calls[0]?.[1] as Array<{ eventKind: string }>;
-    expect(rows[0]?.eventKind).toBe("turn");
+    const rows = appendAgentEvents.mock.calls[0]?.[1] as Array<{ eventKind: string }> | undefined;
+    expect(rows?.[0]?.eventKind).toBe("turn");
   });
 
   it("skips durable sink when agent events are disabled", async () => {
@@ -136,17 +136,13 @@ describe("safeAppendAgentEvents isolation", () => {
       }),
     };
     expect(() =>
-      safeAppendAgentEvents(
-        pool as never,
-        { agentEventsEnabled: true },
-        [
-          {
-            eventKind: "failure",
-            provider: "openai",
-            model: "gpt-4o-mini",
-          },
-        ],
-      ),
+      safeAppendAgentEvents(pool as never, { agentEventsEnabled: true }, [
+        {
+          eventKind: "failure",
+          provider: "openai",
+          model: "gpt-4o-mini",
+        },
+      ]),
     ).not.toThrow();
     await new Promise((resolve) => setTimeout(resolve, 0));
   });

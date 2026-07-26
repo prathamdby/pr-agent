@@ -17,3 +17,4 @@ export * from "./slashConstants.js";
 export * from "./migrationConstants.js";
 export * from "./verificationConstants.js";
 export * from "./webhookConstants.js";
+export * from "./codeIndexConstants.js";

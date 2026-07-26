@@ -4,12 +4,7 @@ import { logWarn } from "../evlog.js";
 import { parseStoredInlineBatches } from "./publishRecordRepository.js";
 import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
 
-export type FindingHistoryOutcome =
-  | "open"
-  | "fixed"
-  | "already-resolved"
-  | "dismissed"
-  | "skipped";
+export type FindingHistoryOutcome = "open" | "fixed" | "already-resolved" | "dismissed" | "skipped";
 
 export type FindingHistoryRow = {
   readonly fingerprint: string;
@@ -38,9 +33,7 @@ export type FindingHistoryWriteScope = FindingHistoryRepoScope & {
 
 type FindingHistoryConfig = Pick<
   Config,
-  | "findingHistoryEnabled"
-  | "findingHistoryDismissSuppressAfter"
-  | "findingHistoryLookbackDays"
+  "findingHistoryEnabled" | "findingHistoryDismissSuppressAfter" | "findingHistoryLookbackDays"
 >;
 
 function mapFindingHistoryRow(row: {

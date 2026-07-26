@@ -290,7 +290,11 @@ export async function publishVerification(
           rootCommentId: verdict.threadRootCommentId,
           state: terminalThreadState(prior, verdict.verdict, params.headSha, stubCommentId),
         });
-        recordVerificationHistoryOutcome(params, thread, verificationHistoryOutcome(verdict.verdict));
+        recordVerificationHistoryOutcome(
+          params,
+          thread,
+          verificationHistoryOutcome(verdict.verdict),
+        );
         break;
       }
       case "skipped": {
