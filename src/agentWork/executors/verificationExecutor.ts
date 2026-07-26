@@ -10,7 +10,10 @@ import {
 } from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
-import { listReviewThreadResolution } from "../../github/reviewThreadResolution.js";
+import {
+  listReviewThreadResolution,
+  warnReviewThreadResolutionDegraded,
+} from "../../github/reviewThreadResolution.js";
 import { listCommitCompareFiles } from "../../github/compareCommitFiles.js";
 import { fetchPullRequestFiles } from "../../github/listPullRequestFiles.js";
 import { paginateOctokitPages } from "../../github/paginateOctokit.js";
@@ -84,7 +87,7 @@ export async function executeVerificationJob(
       const botIdentity = await getAppBotIdentity(cfg);
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
-      const [threads, resolutionByRootCommentId] = await Promise.all([
+      const [threads, resolutionResult] = await Promise.all([
         fetchBotFindingThreads(
           tokenState.installation.token,
           item.owner,
@@ -101,6 +104,17 @@ export async function executeVerificationJob(
           tokenState.installation.expiresAtTs,
         ),
       ]);
+
+      warnReviewThreadResolutionDegraded(resolutionResult, {
+        type: "verification",
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        owner: item.owner,
+        repo: item.repo,
+        pr: item.prNumber,
+      });
+      const resolutionByRootCommentId = resolutionResult.byRootCommentId;
+      const resolutionDegraded = resolutionResult.status !== "ok";
 
       const unresolvedThreads = threads.filter(
         (thread) => resolutionByRootCommentId.get(thread.rootCommentId)?.isResolved !== true,
@@ -210,7 +224,8 @@ export async function executeVerificationJob(
         policyResult: result.policyResult,
       });
 
-      if (publish.degraded) {
+      const degraded = publish.degraded || resolutionDegraded;
+      if (degraded) {
         const failure = classifyFailure(new Error("Verification publish degraded"), {
           phase: "publish",
         });
@@ -218,6 +233,7 @@ export async function executeVerificationJob(
           owner: item.owner,
           repo: item.repo,
           pr: item.prNumber,
+          resolutionStatus: resolutionResult.status,
           ...classifiedFailureLogFields(failure),
         });
         captureEvent({
@@ -227,6 +243,7 @@ export async function executeVerificationJob(
             owner: item.owner,
             repo: item.repo,
             pr_number: item.prNumber,
+            resolution_status: resolutionResult.status,
             ...classifiedFailurePostHogProperties(failure),
           },
         });

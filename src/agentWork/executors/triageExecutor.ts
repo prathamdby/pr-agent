@@ -6,6 +6,7 @@ import { logWarn } from "../../evlog.js";
 import { getAppBotIdentity, installationOctokit, type BotIdentity } from "../../github/appAuth.js";
 import {
   listReviewThreadResolution,
+  warnReviewThreadResolutionDegraded,
   type ReviewThreadResolution,
 } from "../../github/reviewThreadResolution.js";
 import {
@@ -279,7 +280,7 @@ async function resolveInventoryAndScope(params: {
     params.pool,
     params.item.resourceKey,
   );
-  const [threads, resolutionByRootCommentId] = await Promise.all([
+  const [threads, resolutionResult] = await Promise.all([
     fetchBotFindingThreads(
       params.token,
       params.item.owner,
@@ -296,6 +297,15 @@ async function resolveInventoryAndScope(params: {
       params.tokenExpiresAtTs,
     ),
   ]);
+  warnReviewThreadResolutionDegraded(resolutionResult, {
+    type: "triage",
+    workItemId: params.item.id,
+    resourceKey: params.item.resourceKey,
+    owner: params.item.owner,
+    repo: params.item.repo,
+    pr: params.item.prNumber,
+  });
+  const resolutionByRootCommentId = resolutionResult.byRootCommentId;
   captureTriageEvent(params.analytics, "triage inventory discovered", {
     thread_count: threads.length,
     eligible_review_count: eligibleReviews.size,
