@@ -75,10 +75,10 @@ docker compose up -d
 
 That starts three services from [docker-compose.yml](docker-compose.yml):
 
-| Service | Role | What it does |
-| ------- | ---- | ------------ |
-| `postgres` | database | Durable webhook dedupe, work items, pg-boss jobs |
-| `pr-agent-web` | `ROLE=web` | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224` |
+| Service           | Role          | What it does                                                                                   |
+| ----------------- | ------------- | ---------------------------------------------------------------------------------------------- |
+| `postgres`        | database      | Durable webhook dedupe, work items, pg-boss jobs                                               |
+| `pr-agent-web`    | `ROLE=web`    | `POST /webhooks`, `GET /health`, `GET /ready` on port `7224`                                   |
 | `pr-agent-worker` | `ROLE=worker` | Consumes ack, review, ask, description, triage, verification, CI-refresh, and retention queues |
 
 Migrations run automatically when each process opens its Postgres pool. You do not run them by hand.
@@ -111,15 +111,15 @@ Production credential hardening and extra deploy notes: [docs/operations.md](doc
 5. Do **not** require `pull_request_review` unless you have a reason. The bot does not need it for normal intake.
 6. Repository permissions:
 
-   | Permission | Access | Why |
-   | ---------- | ------ | --- |
-   | Issues | Read & write | PR conversation comments and reactions |
-   | Pull requests | Read & write | Reviews, inline threads, PR body for `/describe` |
-   | Contents | Read & write | Read code; write only needed for `/triage` pushes |
-   | Metadata | Read | Required by GitHub for apps |
-   | Checks | Read & write | Review check run + CI summary inputs |
-   | Actions | Read | Condensed job logs when CI fails |
-   | Commit statuses | Read & write | Only if you set `FEATURE_COMMIT_STATUS=true` |
+   | Permission      | Access       | Why                                               |
+   | --------------- | ------------ | ------------------------------------------------- |
+   | Issues          | Read & write | PR conversation comments and reactions            |
+   | Pull requests   | Read & write | Reviews, inline threads, PR body for `/describe`  |
+   | Contents        | Read & write | Read code; write only needed for `/triage` pushes |
+   | Metadata        | Read         | Required by GitHub for apps                       |
+   | Checks          | Read & write | Review check run + CI summary inputs              |
+   | Actions         | Read         | Condensed job logs when CI fails                  |
+   | Commit statuses | Read & write | Only if you set `FEATURE_COMMIT_STATUS=true`      |
 
 7. Create the app, generate a **private key**, and copy the **App ID**.
 8. Install the app on the orgs or repos you want reviewed.
@@ -142,11 +142,11 @@ Webhook handler path is always `/webhooks` (see [`src/effect/server.ts`](src/eff
 
 LLM calls run on the **worker** only, through the Pi coding-agent runtime ([ADR 0031](docs/adr/0031-pi-native-agent-runtime.md)).
 
-| What | Env vars | Used for |
-| ---- | -------- | -------- |
-| General primary | `PI_PROVIDER`, `PI_MODEL` | Specialists, ask, describe, triage, verification, CI-summary authoring |
-| Orchestrator (optional) | `PI_ORCHESTRATOR_PROVIDER`, `PI_ORCHESTRATOR_MODEL` | Review orchestrator session; empty means inherit general primary |
-| Fallback (optional) | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL` | Availability failures only; both must be set to enable |
+| What                    | Env vars                                            | Used for                                                               |
+| ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
+| General primary         | `PI_PROVIDER`, `PI_MODEL`                           | Specialists, ask, describe, triage, verification, CI-summary authoring |
+| Orchestrator (optional) | `PI_ORCHESTRATOR_PROVIDER`, `PI_ORCHESTRATOR_MODEL` | Review orchestrator session; empty means inherit general primary       |
+| Fallback (optional)     | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL`         | Availability failures only; both must be set to enable                 |
 
 Minimal OpenAI example:
 
@@ -177,12 +177,12 @@ Worker readiness (consumers registered + Postgres/pg-boss) is checked inside the
 
 Then open a small PR on an installed repo, or comment `/help` on an existing PR.
 
-| Expect | Where |
-| ------ | ----- |
-| Eyes reaction soon after intake | PR or triggering comment |
-| `## PR Agent Review` progress comment | PR conversation (auto review or `/review`) |
-| Inline findings on the Files tab | When the bot can anchor them |
-| Final summary replaces the progress comment | Same conversation comment |
+| Expect                                      | Where                                      |
+| ------------------------------------------- | ------------------------------------------ |
+| Eyes reaction soon after intake             | PR or triggering comment                   |
+| `## PR Agent Review` progress comment       | PR conversation (auto review or `/review`) |
+| Inline findings on the Files tab            | When the bot can anchor them               |
+| Final summary replaces the progress comment | Same conversation comment                  |
 
 If webhooks return 200 but the PR stays quiet, the worker is down, misconfigured, or failing on the provider key. Check `docker compose logs -f pr-agent-worker` and the queue runbook: [docs/agent-work-ops.md](docs/agent-work-ops.md).
 
@@ -190,14 +190,14 @@ If webhooks return 200 but the PR stays quiet, the worker is down, misconfigured
 
 Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/features.md).
 
-| Capability | When it runs | Command |
-| ---------- | ------------ | ------- |
-| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto` | `/review` always |
-| PR description | PR `opened` when `FEATURE_DESCRIBE=auto` | `/describe` |
-| Verification | PR `synchronize` when `FEATURE_VERIFICATION=auto` | (no slash) |
-| Ask | On demand when `FEATURE_ASK=manual` | `/ask …` or `@bot …` |
-| Triage autofix | On demand when `FEATURE_TRIAGE=manual` | `/triage` |
-| Help | On demand | `/help` |
+| Capability          | When it runs                                      | Command              |
+| ------------------- | ------------------------------------------------- | -------------------- |
+| Orchestrated review | PR `opened` when `FEATURE_REVIEW=auto`            | `/review` always     |
+| PR description      | PR `opened` when `FEATURE_DESCRIBE=auto`          | `/describe`          |
+| Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto` | (no slash)           |
+| Ask                 | On demand when `FEATURE_ASK=manual`               | `/ask …` or `@bot …` |
+| Triage autofix      | On demand when `FEATURE_TRIAGE=manual`            | `/triage`            |
+| Help                | On demand                                         | `/help`              |
 
 Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0014](docs/adr/0014-lightweight-review-completion.md)).
 
