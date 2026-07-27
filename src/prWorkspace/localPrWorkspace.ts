@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
 import {
   chmod,
+  lstat,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
+  realpath,
   rm,
   stat,
   statfs,
@@ -198,6 +200,59 @@ export function assertWorkspacePath(root: string, requestedPath: string): string
     });
   }
   return resolved;
+}
+
+/**
+ * Ensure a repo-relative path stays inside root after symlink resolution.
+ * Missing paths are allowed (caller decides); existing symlinks and escapes are denied.
+ */
+export async function assertContainedWorkspacePath(
+  root: string,
+  requestedPath: string,
+): Promise<string> {
+  const fullPath = assertWorkspacePath(root, requestedPath);
+  const entry = await lstat(fullPath).catch((error: unknown) => {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+    throw error;
+  });
+  if (entry == null) return fullPath;
+  if (entry.isSymbolicLink()) {
+    throw new AppError({
+      code: "pr_workspace.symlink_escape",
+      message: `Symlink escape blocked: ${requestedPath}`,
+      context: { path: requestedPath },
+    });
+  }
+  const realRoot = await realpath(root);
+  const realCandidate = await realpath(fullPath);
+  if (realCandidate !== realRoot && !realCandidate.startsWith(realRoot + sep)) {
+    throw new AppError({
+      code: "pr_workspace.symlink_escape",
+      message: `Symlink escape blocked: ${requestedPath}`,
+      context: { path: requestedPath },
+    });
+  }
+  return fullPath;
+}
+
+/** Remove symbolic links under a checkout tree. Skips `.git` so object stores stay intact. */
+export async function stripWorkspaceSymlinks(dir: string): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (let i = 0; i < entries.length; i += LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY) {
+    await Promise.all(
+      entries.slice(i, i + LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY).map(async (entry) => {
+        if (entry.name === ".git") return;
+        const full = join(dir, entry.name);
+        if (entry.isSymbolicLink()) {
+          await rm(full, { force: true });
+          return;
+        }
+        if (entry.isDirectory()) {
+          await stripWorkspaceSymlinks(full);
+        }
+      }),
+    );
+  }
 }
 
 function mapGithubStatus(file: PullRequestFileEntry): LocalPrChangedFile {
