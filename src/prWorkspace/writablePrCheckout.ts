@@ -19,7 +19,7 @@ import {
 } from "../settings/index.js";
 import { isTriageControlPath } from "../agent/triage/triageWritePolicy.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
-import { assertWorkspacePath } from "./localPrWorkspace.js";
+import { assertWorkspacePath, stripWorkspaceSymlinks } from "./localPrWorkspace.js";
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
@@ -322,6 +322,7 @@ export async function withWritablePrCheckout<T>(
         context: { fetchedHead: fetchedHead.trim(), headSha },
       });
     }
+    await stripWorkspaceSymlinks(dir);
     await git(["config", "user.name", botIdentity.login], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     await git(
       [

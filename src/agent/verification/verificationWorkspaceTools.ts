@@ -6,7 +6,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
-import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
+import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
   SENSITIVE_PATH_PATTERNS,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
@@ -20,7 +20,7 @@ function isSensitivePath(path: string): boolean {
   return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
 }
 
-function safePath(root: string, path: string): string {
+async function safePath(root: string, path: string): Promise<string> {
   const normalized = path.replace(/\\/g, "/");
   if (isSensitivePath(normalized)) {
     throw new AppError({
@@ -29,7 +29,7 @@ function safePath(root: string, path: string): string {
       context: { path: normalized },
     });
   }
-  return assertWorkspacePath(root, normalized);
+  return assertContainedWorkspacePath(root, normalized);
 }
 
 function relativePath(root: string, fullPath: string): string {
@@ -37,7 +37,7 @@ function relativePath(root: string, fullPath: string): string {
 }
 
 async function readTextFile(root: string, path: string, maxBytes: number) {
-  const fullPath = safePath(root, path);
+  const fullPath = await safePath(root, path);
   const info = await stat(fullPath).catch(() => null);
   if (!info?.isFile()) return { path, refused: true, reason: "Path is missing from checkout" };
   if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
@@ -114,7 +114,7 @@ export function buildVerificationWorkspaceTools(params: {
       "Return the current unified diff for a repo-relative path in the PR repository view.",
     schema: z.object({ path: z.string().min(1) }),
     run: async ({ path }) => {
-      const fullPath = safePath(root, path);
+      const fullPath = await safePath(root, path);
       const rel = relativePath(root, fullPath);
       const diff = await git(root, ["diff", "HEAD", "--", rel], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
       return { path: rel, diff };

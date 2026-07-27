@@ -1,5 +1,15 @@
 import { execFile as execFileCb } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -224,4 +234,47 @@ describe("writable PR checkout", () => {
       await rm(staleDir, { recursive: true, force: true });
     }
   });
+
+  it(
+    "strips attacker-controlled symlinks before exposing the checkout",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "writable-checkout-symlink-"));
+      const repo = join(root, "repo");
+      const remote = join(root, "remote.git");
+      try {
+        await git(root, ["init", repo]);
+        await git(repo, ["config", "user.email", "test@example.com"]);
+        await git(repo, ["config", "user.name", "Test"]);
+        await writeFile(join(repo, "src.txt"), "one\n");
+        await symlink("/etc/passwd", join(repo, "leak.md"));
+        await git(repo, ["add", "."]);
+        await git(repo, ["commit", "-m", "base with symlink"]);
+        await git(root, ["init", "--bare", remote]);
+        await git(repo, ["remote", "add", "origin", remote]);
+        await git(repo, ["push", "origin", "HEAD:refs/heads/main"]);
+        const headSha = await git(repo, ["rev-parse", "HEAD"]);
+
+        await withWritablePrCheckout(
+          {
+            owner: "owner",
+            repo: "repo",
+            headRef: "main",
+            headSha,
+            installationToken: "unused",
+            botIdentity: { userId: 123, login: "pr-agent[bot]" },
+            remoteUrlOverride: remote,
+          },
+          async (checkout) => {
+            await expect(lstat(join(checkout.dir, "leak.md"))).rejects.toMatchObject({
+              code: "ENOENT",
+            });
+            expect(await readFile(join(checkout.dir, "src.txt"), "utf8")).toContain("one");
+          },
+        );
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
