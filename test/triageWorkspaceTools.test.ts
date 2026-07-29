@@ -29,10 +29,7 @@ function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThr
   };
 }
 
-function mockCheckout(
-  dir: string,
-  commitImpl?: WritablePrCheckout["commit"],
-): WritablePrCheckout {
+function mockCheckout(dir: string, commitImpl?: WritablePrCheckout["commit"]): WritablePrCheckout {
   return {
     dir,
     headRef: "feature",

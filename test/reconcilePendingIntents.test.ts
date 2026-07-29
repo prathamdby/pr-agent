@@ -9,9 +9,8 @@ vi.mock("../src/db/postgres.js", () => ({
 vi.unmock("../src/agentWork/reconcilePendingIntents.js");
 
 const { queryOne } = await import("../src/db/postgres.js");
-const { reconcilePendingIntents, intentDetailMatchesPublishRecord } = await import(
-  "../src/agentWork/reconcilePendingIntents.js"
-);
+const { reconcilePendingIntents, intentDetailMatchesPublishRecord } =
+  await import("../src/agentWork/reconcilePendingIntents.js");
 
 const pool = {} as Pool;
 
@@ -41,11 +40,11 @@ describe("reconcilePendingIntents", () => {
         reconciledFromPublishRecord: true,
       }),
     });
-    expect(queryOne).toHaveBeenCalledWith(
-      pool,
-      expect.stringContaining("FROM publish_records"),
-      ["wi-1", "review_summary", "o/r#1"],
-    );
+    expect(queryOne).toHaveBeenCalledWith(pool, expect.stringContaining("FROM publish_records"), [
+      "wi-1",
+      "review_summary",
+      "o/r#1",
+    ]);
   });
 
   it("leaves intents pending when no completed publish_record matches", async () => {
