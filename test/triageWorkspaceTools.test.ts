@@ -18,7 +18,7 @@ const exec = promisify(execFile);
 function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThread {
   return {
     rootCommentId: 101,
-    lens: "correctness",
+    lens: "review",
     path: "src/app.ts",
     line: 1,
     severity: "P1",
@@ -121,6 +121,68 @@ describe("buildTriageWorkspaceTools", () => {
     });
   });
 
+  it("returns empty matches when searchWorkspace finds nothing", async () => {
+    const { executors } = await setup();
+    const out = await executors.searchWorkspace({ query: "no-such-token-xyz" });
+    expect(out).toEqual({ matches: [], truncated: false });
+  });
+
+  it("returns a unified diff for an edited workspace path", async () => {
+    const { executors } = await setup();
+    await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "const value = 1;",
+      newText: "const value = 2;",
+    });
+    const out = await executors.getWorkspaceDiff({ path: "src/app.ts" });
+    expect(out).toMatchObject({
+      path: "src/app.ts",
+      diff: expect.stringContaining("const value = 2;"),
+    });
+  });
+
+  it("blocks edit through a symlink escaping the checkout", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "triage-ws-outside-edit-"));
+    roots.push(outside);
+    await writeFile(join(outside, "secret.env"), "TOKEN=leak\n");
+    const root = await initCheckout({ "src/app.ts": "export {};\n" });
+    roots.push(root);
+    await mkdir(join(root, "docs"), { recursive: true });
+    await symlink(join(outside, "secret.env"), join(root, "docs/notes.md"));
+
+    const { executors } = buildTriageWorkspaceTools({
+      cfg: makeTestConfig(),
+      checkout: mockCheckout(root),
+      inventory: [findingThread({ path: "docs/notes.md" })],
+      state: createTriageWorkspaceToolState(),
+    });
+
+    await expect(
+      executors.editWorkspaceFile({
+        path: "docs/notes.md",
+        oldText: "TOKEN=leak",
+        newText: "x",
+      }),
+    ).rejects.toMatchObject({ code: "triage.symlink_escape_blocked" });
+  });
+
+  it("rejects edit of files not in the finding inventory", async () => {
+    const { executors } = await setup({
+      files: {
+        "src/app.ts": "const value = 1;\n",
+        "src/util.ts": "export const util = 1;\n",
+        "package.json": '{"name":"app"}\n',
+      },
+    });
+    await expect(
+      executors.editWorkspaceFile({
+        path: "src/util.ts",
+        oldText: "1",
+        newText: "2",
+      }),
+    ).rejects.toMatchObject({ code: "triage.path_not_implicated" });
+  });
+
   it("blocks edit of control-plane paths even when implicated", async () => {
     const { executors } = await setup({
       inventory: [findingThread({ path: "package.json" })],
@@ -182,6 +244,33 @@ describe("buildTriageWorkspaceTools", () => {
     ).rejects.toMatchObject({ code: "triage.control_path_blocked" });
   });
 
+  it("rejects create of non-safe, non-control new files", async () => {
+    const { executors } = await setup();
+    await expect(
+      executors.createWorkspaceFile({
+        path: "src/helper.ts",
+        content: "export {};\n",
+      }),
+    ).rejects.toMatchObject({ code: "triage.unsafe_new_file_blocked" });
+  });
+
+  it("creates a safe new file and rejects a duplicate create", async () => {
+    const { root, executors } = await setup();
+    const out = await executors.createWorkspaceFile({
+      path: "docs/notes.md",
+      content: "# n\n",
+    });
+    expect(out).toEqual({ ok: true, path: "docs/notes.md" });
+    expect(await readFile(join(root, "docs/notes.md"), "utf8")).toBe("# n\n");
+
+    await expect(
+      executors.createWorkspaceFile({
+        path: "docs/notes.md",
+        content: "x",
+      }),
+    ).rejects.toMatchObject({ code: "triage.path_exists" });
+  });
+
   it("rejects commitFix for an unknown inventory thread", async () => {
     const { executors } = await setup();
     await expect(
@@ -191,6 +280,26 @@ describe("buildTriageWorkspaceTools", () => {
         subject: "fix: unknown thread",
       }),
     ).rejects.toMatchObject({ code: "triage.unknown_thread" });
+  });
+
+  it("rejects commitFix staging files not in the finding inventory", async () => {
+    const commit = vi.fn(async () => ({ sha: "c".repeat(40), diff: "d" }));
+    const { executors } = await setup({
+      files: {
+        "src/app.ts": "const value = 1;\n",
+        "src/util.ts": "export const util = 1;\n",
+        "package.json": '{"name":"app"}\n',
+      },
+      commit,
+    });
+    await expect(
+      executors.commitFix({
+        threadRootCommentId: 101,
+        files: ["src/util.ts"],
+        subject: "fix: un-implicated",
+      }),
+    ).rejects.toMatchObject({ code: "triage.path_not_implicated" });
+    expect(commit).not.toHaveBeenCalled();
   });
 
   it("rejects duplicate commitFix for the same thread", async () => {
