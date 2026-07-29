@@ -119,9 +119,10 @@ export function buildTriageWorkspaceTools(params: {
       maxResults: z.number().int().positive().optional().default(20),
     }),
     run: async ({ query, maxResults }) => {
+      // Avoid `git grep --max-count` (requires git ≥2.40); cap results after the fact.
       const stdout = await git(
         root,
-        ["grep", "-nF", "-I", `--max-count=${maxResults + 1}`, "-e", query, "--", "."],
+        ["grep", "-nF", "-I", "-e", query, "--", "."],
         LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
       ).catch((error: unknown) => {
         if (typeof error === "object" && error !== null && "code" in error && error.code === 1) {
@@ -129,20 +130,17 @@ export function buildTriageWorkspaceTools(params: {
         }
         throw error;
       });
-      const matches = stdout
-        .split("\n")
-        .filter(Boolean)
-        .slice(0, maxResults)
-        .map((line) => {
-          const first = line.indexOf(":");
-          const second = line.indexOf(":", first + 1);
-          return {
-            path: line.slice(0, first),
-            line: Number(line.slice(first + 1, second)),
-            text: line.slice(second + 1),
-          };
-        });
-      return { matches, truncated: stdout.split("\n").filter(Boolean).length > maxResults };
+      const lines = stdout.split("\n").filter(Boolean);
+      const matches = lines.slice(0, maxResults).map((line) => {
+        const first = line.indexOf(":");
+        const second = line.indexOf(":", first + 1);
+        return {
+          path: line.slice(0, first),
+          line: Number(line.slice(first + 1, second)),
+          text: line.slice(second + 1),
+        };
+      });
+      return { matches, truncated: lines.length > maxResults };
     },
   });
 
