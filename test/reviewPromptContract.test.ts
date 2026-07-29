@@ -9,6 +9,8 @@ import {
   proseContractGuidance,
   agentInstructionFilesGuidance,
   specialistFindingsReportContract,
+  adversarialMindsetGuidance,
+  exhaustiveInvestigationGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 
@@ -32,6 +34,22 @@ describe("review prompt shared contract blocks", () => {
     for (const [name, prompt] of SPECIALIST_PROMPTS) {
       expect(prompt, `${name} should require one findings report`).toContain(
         "submit_findings_report` exactly once",
+      );
+    }
+  });
+
+  it("includes adversarial mindset guidance in every specialist", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
+      expect(prompt, `${name} should include adversarial mindset guidance`).toContain(
+        adversarialMindsetGuidance,
+      );
+    }
+  });
+
+  it("includes exhaustive investigation guidance in every specialist", () => {
+    for (const [name, prompt] of SPECIALIST_PROMPTS) {
+      expect(prompt, `${name} should include exhaustive investigation guidance`).toContain(
+        exhaustiveInvestigationGuidance,
       );
     }
   });
