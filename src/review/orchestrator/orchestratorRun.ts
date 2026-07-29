@@ -45,6 +45,7 @@ import {
 import {
   createFindingLedger,
   SPECIALIST_IDS,
+  specialistDonePhase,
   type OrchestratedRunState,
   type ReviewCoverage,
   type ReviewRunGate,
@@ -687,7 +688,7 @@ export async function runOrchestratedPrReview(
     outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
   ): Promise<void> => {
     publishThread.setSource(outcome.specialist);
-    const before = publishThread.getLedger().postedInlineCount;
+    const ledgerBefore = publishThread.getLedger();
     await setup.refreshLiveAuth();
     publishAttempts += 1;
     const result = await publishThread.executor({ findings: outcome.report.findings });
@@ -695,10 +696,11 @@ export async function runOrchestratedPrReview(
       await applyPublishStop();
       return;
     }
-    state.specialists[outcome.specialist] = {
-      phase: "done",
-      threadsPublished: publishThread.getLedger().postedInlineCount - before,
-    };
+    state.specialists[outcome.specialist] = specialistDonePhase(
+      ledgerBefore,
+      publishThread.getLedger(),
+      outcome.specialist,
+    );
     await writeTick();
   };
 
@@ -901,7 +903,7 @@ export async function runOrchestratedPrReview(
           }
 
           publishThread.setSource(outcome.specialist);
-          const before = publishThread.getLedger().postedInlineCount;
+          const ledgerBefore = publishThread.getLedger();
           transitionTools(judgmentSession, [publishThread.piTool], {
             publish_thread: publishThread.executor,
           });
@@ -915,10 +917,11 @@ export async function runOrchestratedPrReview(
           }
           lastText = judgment.text;
           if (await applyPublishStop()) return;
-          state.specialists[outcome.specialist] = {
-            phase: "done",
-            threadsPublished: publishThread.getLedger().postedInlineCount - before,
-          };
+          state.specialists[outcome.specialist] = specialistDonePhase(
+            ledgerBefore,
+            publishThread.getLedger(),
+            outcome.specialist,
+          );
           await writeTick();
         } catch (error) {
           await recordOutcome(outcome);

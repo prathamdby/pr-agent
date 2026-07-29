@@ -34,7 +34,7 @@ function specialistTickArgs() {
       kind: "specialists" as const,
       recon: "done" as const,
       specialists: {
-        correctness: { phase: "done" as const, threadsPublished: 0 },
+        correctness: { phase: "done" as const, findingsAccepted: 0 },
         security: { phase: "running" as const },
         quality: { phase: "running" as const },
         tests: { phase: "running" as const },

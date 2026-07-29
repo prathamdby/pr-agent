@@ -81,7 +81,7 @@ function renderSpecialistPhase(state: SpecialistPhase): string {
     case "running":
       return STATUS_RUNNING;
     case "done":
-      return statusFindings(state.threadsPublished);
+      return statusFindings(state.findingsAccepted);
     case "no_findings":
       return STATUS_NO_FINDINGS;
     case "failed":

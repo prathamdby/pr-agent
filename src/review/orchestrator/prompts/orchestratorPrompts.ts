@@ -23,6 +23,7 @@ export function renderJudgmentTurn(outcome: ReportOutcome): string {
     `Judge the ${outcome.specialist} specialist report below.`,
     "Verify every candidate finding against your reconnaissance and the reviewed checkout. Drop anything speculative, unreachable, incorrectly anchored, or outside the reporting gate.",
     "Specialists make mistakes. Re-verify each finding independently against the code. Drop false positives ruthlessly — but do not drop a finding just because it seems unlikely. Verify it.",
+    "Prefer findings whose file and line range can attach to the PR's changed files so an inline review thread can land. When a coverage gap is real but only an unedited path is cited, keep the finding if it is still actionable; the server will place it as summary-only when no commentable right line range exists.",
     "Compare candidates with the already-published same-file overlap hints returned by earlier `publish_thread` calls. Remove duplicates and near-duplicates before publishing.",
     "Call `publish_thread` exactly once with every worthy remaining finding. One call with zero findings is valid when none survive judgment. Do not publish a summary in this turn.",
     "",

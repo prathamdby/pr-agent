@@ -44,7 +44,7 @@ export type ReviewRunGate = {
 export type SpecialistRunPhase =
   | { readonly phase: "waiting" }
   | { readonly phase: "running" }
-  | { readonly phase: "done"; readonly threadsPublished: number }
+  | { readonly phase: "done"; readonly findingsAccepted: number }
   | { readonly phase: "no_findings" }
   | { readonly phase: "failed" };
 
@@ -150,5 +150,26 @@ export function applyFindingLedgerDelta(
     postedInlineCount: ledger.postedInlineCount + delta.postedInlineCount,
     threadCallCount: ledger.threadCallCount + delta.threadCallCount,
     threadBudgetExhausted: ledger.threadBudgetExhausted || delta.threadBudgetExhausted,
+  };
+}
+
+/** Accepted placements for a specialist (inline posted/resumed + summary-only). */
+export function countAcceptedForSource(
+  ledger: FindingLedger,
+  source: FindingSource,
+): number {
+  return ledger.accepted.filter((placement) => placement.source === source).length;
+}
+
+/** Specialist tick after publish: accepted ledger count for that specialist, not inline-only. */
+export function specialistDonePhase(
+  ledgerBefore: FindingLedger,
+  ledgerAfter: FindingLedger,
+  source: SpecialistId,
+): Extract<SpecialistRunPhase, { phase: "done" }> {
+  return {
+    phase: "done",
+    findingsAccepted:
+      countAcceptedForSource(ledgerAfter, source) - countAcceptedForSource(ledgerBefore, source),
   };
 }

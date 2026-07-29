@@ -44,7 +44,13 @@ The final summary is published only after all specialists resolve or the run
 enters its deterministic degradation path.
 
 The single review progress comment is edited with a specialist tick after each
-specialist resolves. The final summary replaces the last tick in place.
+specialist resolves. After publish (model judgment or deterministic degrade),
+the specialist row count is the number of **accepted placements** in the
+finding ledger for that specialist (posted or resumed **inline review threads**
+plus **summary-only findings**). "No findings" means zero acceptances or an
+explicit empty / `no_findings` report — never "zero inline threads" alone when
+summary-only acceptances exist. The final summary replaces the last tick in
+place and must not contradict that ledger truth.
 
 ### Retry and degradation
 

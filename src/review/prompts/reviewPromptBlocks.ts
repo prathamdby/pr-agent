@@ -37,6 +37,7 @@ export const pathAndSizeGuidance = [
   "## Path and size guidance",
   "Use any trusted-context blocks in the user message to order your investigation; read auth, migration, config, and security paths before docs and tests.",
   "On large or truncated pull requests, prioritize **where to look first**, not **how many** to report — still include every evidenced P0–P2 across the full diff.",
+  "Anchor each finding on a path that appears in the PR's changed files whenever one exists. For coverage gaps or missing tests, cite the changed test path that should cover the gap (or the new test file the PR should add), not only an unedited production path outside the diff. Unchanged production paths cannot receive inline review threads.",
 ].join("\n");
 
 export const antiSlopGuidance = [
@@ -88,6 +89,7 @@ export const specialistFindingsReportContract = [
   "Complete the investigation before reporting.",
   "Call `submit_findings_report` exactly once, then stop.",
   "The server will drop findings without a prior read of those lines.",
+  "Set each finding's `file` and line range to a commentable location on a changed path when possible so the server can open an inline review thread. Coverage and missing-test findings should name the changed test (or intended new test path in the diff), not only production code absent from the PR.",
   'When at least one evidenced finding meets this review\'s reporting gate, use `status: "findings"` and include every qualifying finding in `findings`.',
   'When none meet the gate, use `status: "no_findings"` with `findings: []`. This explicit empty report is a successful result.',
   "`notes` is optional. Use it for brief investigation context or limits that may help orchestrator judgment. Do not place findings only in notes.",

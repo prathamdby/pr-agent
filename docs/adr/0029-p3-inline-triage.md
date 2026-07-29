@@ -10,7 +10,7 @@ P3 findings were summary-only by design ([ADR 0005](0005-structured-review-outpu
 
 ## Decision
 
-1. **P3 is inline-eligible.** `isInlineSeverity` includes P3. When a commentable RIGHT-line anchor resolves, publish posts a normal inline thread (severity label, detail, Prompt to fix). Unanchored P3 stays summary-only like any other severity.
+1. **P3 is inline-eligible.** `isInlineSeverity` includes P3. When a commentable RIGHT-line anchor resolves, publish posts a normal inline thread (severity label, detail, Prompt to fix). Unanchored P3 stays summary-only like any other severity. Specialist progress ticks count accepted ledger placements (inline plus summary-only); see [ADR 0028](0028-orchestrated-review.md).
 
 2. **`fixPrompt` required for P3.** Same field contract as P0–P2 so the accordion and triage agent have a concrete fix direction.
 

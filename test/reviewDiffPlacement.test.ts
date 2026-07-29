@@ -42,6 +42,36 @@ describe("reviewDiffPlacement", () => {
     expect(placements[0]?.inlineLine).toBe(4);
   });
 
+  it("keeps unanchored P3 summary-only without inventing a soft line", () => {
+    const index = createCachedPrDiffIndex();
+    ingestListPullRequestFilesResult(index, {
+      files: [
+        {
+          filename: "test/new.test.ts",
+          patch: ["@@ -0,0 +1,2 @@", "+it('x', () => {});"].join("\n"),
+        },
+      ],
+    });
+
+    const placements = planInlinePlacements(
+      [
+        {
+          severity: "P3",
+          file: "src/production.ts",
+          startLine: 10,
+          endLine: 12,
+          title: "Coverage gap on production path",
+          detail: "No test covers the branch.",
+          fixPrompt: "Add coverage for the branch.",
+        },
+      ],
+      index,
+    );
+
+    expect(placements[0]?.inlinePosted).toBe(false);
+    expect(placements[0]?.inlineLine).toBeNull();
+  });
+
   it("marks invalid anchors as summary-only", () => {
     const index = createCachedPrDiffIndex();
     ingestListPullRequestFilesResult(index, {

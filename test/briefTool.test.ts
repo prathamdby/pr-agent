@@ -212,6 +212,7 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain("publish_thread` exactly once");
     expect(prompt).toContain("same-file overlap hints");
     expect(prompt).toContain("zero findings is valid");
+    expect(prompt).toContain("commentable right line range");
   });
 
   it("binds synthesis to accepted placements and partial coverage", () => {

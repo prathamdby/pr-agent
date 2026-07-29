@@ -92,8 +92,8 @@ describe("progressComment fallback wording", () => {
         kind: "specialists",
         recon: "done",
         specialists: {
-          correctness: { phase: "done", threadsPublished: 0 },
-          security: { phase: "done", threadsPublished: 2 },
+          correctness: { phase: "done", findingsAccepted: 0 },
+          security: { phase: "done", findingsAccepted: 2 },
           quality: { phase: "running" },
           tests: { phase: "no_findings" },
         },
@@ -144,7 +144,7 @@ describe("progressComment fallback wording", () => {
         kind: "specialists",
         recon: "done",
         specialists: {
-          correctness: { phase: "done", threadsPublished: 1 },
+          correctness: { phase: "done", findingsAccepted: 1 },
           security: { phase: "running" },
           quality: { phase: "running" },
           tests: { phase: "running" },
@@ -154,6 +154,29 @@ describe("progressComment fallback wording", () => {
 
     expect(body).toContain("✅ 1 finding");
     expect(body).not.toContain("✅ 1 findings");
+  });
+
+  it("counts accepted findings including summary-only on the specialist row", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+      tickState: {
+        kind: "specialists",
+        recon: "done",
+        specialists: {
+          correctness: { phase: "done", findingsAccepted: 3 },
+          security: { phase: "no_findings" },
+          quality: { phase: "failed" },
+          tests: { phase: "done", findingsAccepted: 0 },
+        },
+      },
+    });
+
+    expect(body).toContain("✅ 3 findings");
+    expect(body).toContain(STATUS_NO_FINDINGS);
+    expect(body).toContain(STATUS_FAILED);
+    expect(body).not.toContain("0 threads");
   });
 
   it.each([
@@ -179,7 +202,7 @@ describe("progressComment fallback wording", () => {
           reason,
           recon: "done",
           specialists: {
-            correctness: { phase: "done", threadsPublished: 1 },
+            correctness: { phase: "done", findingsAccepted: 1 },
             security: { phase: "running" },
             quality: { phase: "waiting" },
             tests: { phase: "waiting" },
