@@ -33,7 +33,7 @@ const ctx = {
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
-  hasDescriptionAgentBlock: false,
+  hasDescriptionReviewMap: false,
   summarySentinel: REVIEW_SUMMARY_SENTINEL,
   mode: "review" as const,
   runFooter: { durationMs: 680_000, model: "grok-4.5" },
@@ -572,24 +572,25 @@ describe("renderReviewSummaryComment", () => {
     expect(body).not.toContain("Blocking finding");
   });
 
-  it("appends description link when hasDescriptionAgentBlock is true", () => {
+  it("appends review map link when hasDescriptionReviewMap is true", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      hasDescriptionAgentBlock: true,
+      hasDescriptionReviewMap: true,
       placements: testPlacements(payload.findings),
     });
     expect(body).toContain(
-      "See the [file walkthrough](https://github.com/acme/widgets/pull/42) in the PR description.",
+      "See the [review map](https://github.com/acme/widgets/pull/42) in the PR description.",
     );
   });
 
-  it("omits description link when hasDescriptionAgentBlock is false", () => {
+  it("omits review map link when hasDescriptionReviewMap is false", () => {
     const payload = basePayload();
     const body = renderReviewSummaryComment(payload, {
       ...ctx,
       placements: testPlacements(payload.findings),
     });
+    expect(body).not.toContain("review map");
     expect(body).not.toContain("file walkthrough");
   });
 });
@@ -599,7 +600,7 @@ const inlineCtx = {
   repo: "widgets",
   prNumber: 42,
   headSha: "abc123def456",
-  hasDescriptionAgentBlock: false,
+  hasDescriptionReviewMap: false,
 };
 
 describe("renderInlineThreadBody", () => {
@@ -735,7 +736,7 @@ describe("renderAgentFixPrompt", () => {
     repo: "widgets",
     prNumber: 42,
     headSha: "abc123def456",
-    hasDescriptionAgentBlock: false,
+    hasDescriptionReviewMap: false,
   };
 
   it("includes PR metadata, fixPrompt verbatim, P3 tagging, and severity-first order", () => {

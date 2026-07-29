@@ -26,7 +26,10 @@ import { publishDescriptionToPullRequest } from "../src/agent/description/publis
 
 const pool = {} as Pool;
 
-function buildTool(operationIntent?: { client: Pool; workItemId: string; resourceKey: string }) {
+function buildTool(
+  operationIntent?: { client: Pool; workItemId: string; resourceKey: string },
+  extras?: { mapMode?: "omit" | "read_first"; knownPaths?: ReadonlySet<string> },
+) {
   return buildSubmitDescriptionTool({
     cfg: makeTestConfig(),
     token: "token",
@@ -34,6 +37,8 @@ function buildTool(operationIntent?: { client: Pool; workItemId: string; resourc
     repo: "r",
     prNumber: 1,
     state: createSubmitDescriptionState(),
+    mapMode: extras?.mapMode ?? "read_first",
+    knownPaths: extras?.knownPaths,
     operationIntent,
   });
 }
@@ -143,5 +148,37 @@ describe("submitDescription tool", () => {
     expect(publishDescriptionToPullRequest).toHaveBeenCalledTimes(1);
     expect(persistOperationIntent).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
+  it("strips prFiles on omit mode before publish", async () => {
+    const { executor } = buildTool(undefined, { mapMode: "omit" });
+    await executor({ ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE });
+
+    expect(publishDescriptionToPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.not.objectContaining({
+          prFiles: expect.anything(),
+        }),
+      }),
+    );
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    expect(published.payload.prFiles).toBeUndefined();
+  });
+
+  it("caps read_first prFiles at five before publish", async () => {
+    const prFiles = Array.from({ length: 8 }, (_, i) => ({
+      filename: `src/f${i}.ts`,
+      changesTitle: `Reason ${i}`,
+    }));
+    const { executor } = buildTool(undefined, { mapMode: "read_first" });
+    await executor({
+      title: "Large map",
+      type: ["Enhancement"],
+      description: "- Main",
+      prFiles,
+    });
+
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    expect(published.payload.prFiles).toHaveLength(5);
   });
 });

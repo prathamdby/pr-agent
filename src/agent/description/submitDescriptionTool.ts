@@ -11,6 +11,10 @@ import {
   formatDescriptionValidationError,
 } from "./descriptionSchema.js";
 import {
+  enforceDescriptionMapPayload,
+  type DescriptionMapMode,
+} from "./descriptionMapMode.js";
+import {
   formatMermaidValidationError,
   sanitizeMermaidDiagram,
   validateSanitizedMermaidFence,
@@ -56,6 +60,8 @@ export function buildSubmitDescriptionTool(params: {
   repo: string;
   prNumber: number;
   state: SubmitDescriptionState;
+  mapMode: DescriptionMapMode;
+  knownPaths?: ReadonlySet<string>;
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   operationIntent?: OperationIntentContext;
@@ -111,6 +117,29 @@ export function buildSubmitDescriptionTool(params: {
       payload = { ...payload, changesDiagram: sanitizedDiagram };
     }
 
+    const enforced = enforceDescriptionMapPayload(payload, params.mapMode, {
+      knownPaths: params.knownPaths,
+    });
+    payload = enforced.payload;
+    if (enforced.strippedCount > 0) {
+      logInfo("description_map_omit_stripped", {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        strippedCount: enforced.strippedCount,
+        mapMode: params.mapMode,
+      });
+    }
+    if (enforced.cappedFrom != null) {
+      logInfo("description_map_capped", {
+        owner: params.owner,
+        repo: params.repo,
+        pr: params.prNumber,
+        from: enforced.cappedFrom,
+        mapMode: params.mapMode,
+      });
+    }
+
     params.state.lastValidationError = null;
 
     const publish = () =>
@@ -147,6 +176,8 @@ export function buildSubmitDescriptionTool(params: {
       pr: params.prNumber,
       titleUpdated: result.titleUpdated,
       bodyUpdated: result.bodyUpdated,
+      mapMode: params.mapMode,
+      mapEntries: payload.prFiles?.length ?? 0,
     });
 
     if (params.recordPublishStep) {

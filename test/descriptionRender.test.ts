@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
+  prBodyHasDescriptionReviewMap,
   renderDescriptionAgentBlock,
   sanitizeMermaidDiagram,
 } from "../src/agent/description/descriptionRender.js";
-import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
+import {
+  DESCRIPTION_AGENT_HEADER,
+  DESCRIPTION_REVIEW_MAP_HEADING,
+} from "../src/settings/index.js";
 
 const RENDER_CTX = { owner: "acme", repo: "widgets", prNumber: 42 };
 
@@ -27,9 +31,24 @@ describe("descriptionRender", () => {
     expect(body.startsWith(DESCRIPTION_AGENT_HEADER)).toBe(true);
     expect(body).toContain("### PR Type");
     expect(body).toContain("Enhancement");
+    expect(body).not.toContain(DESCRIPTION_REVIEW_MAP_HEADING);
   });
 
-  it("renders file walkthrough as nested accordions", () => {
+  it("omits review map section when prFiles is empty or absent", () => {
+    const body = renderDescriptionAgentBlock(
+      {
+        title: "t",
+        type: ["Enhancement"],
+        description: "- Main",
+        prFiles: [],
+      },
+      RENDER_CTX,
+    );
+    expect(body).not.toContain(DESCRIPTION_REVIEW_MAP_HEADING);
+    expect(body).not.toContain("<details>");
+  });
+
+  it("renders read-first map as a flat ordered list with diff links", () => {
     const body = renderDescriptionAgentBlock(
       {
         title: "t",
@@ -38,31 +57,26 @@ describe("descriptionRender", () => {
         prFiles: [
           {
             filename: "src/a.ts",
-            changesTitle: "New render-safe redirect hook",
-            changesSummary: "- Uses state redirect",
-            label: "enhancement",
+            changesTitle: "Auth boundary risk",
           },
           {
             filename: "src/b.ts",
-            changesTitle: "Admin users list API proxy",
-            changesSummary: "- Proxies auth backend",
-            label: "enhancement",
+            changesTitle: "Data path for the new flow",
           },
         ],
       },
       RENDER_CTX,
     );
-    expect(body).toContain("### File Walkthrough");
-    expect(body).toContain("<details>");
-    expect(body).toContain("<summary>Enhancement (2 files)</summary>");
-    expect(body).toContain("<summary>New render-safe redirect hook</summary>");
-    expect(body).toContain('<a href="https://github.com/acme/widgets/pull/42/files#diff-');
-    expect(body).toContain("<code>src/a.ts</code></a>");
-    expect(body).not.toContain("`src/a.ts`");
-    expect(body).not.toMatch(/^- `src\/a\.ts`/m);
+    expect(body).toContain(DESCRIPTION_REVIEW_MAP_HEADING);
+    expect(body).toContain("1. [`src/a.ts`](https://github.com/acme/widgets/pull/42/files#diff-");
+    expect(body).toContain("): Auth boundary risk");
+    expect(body).toContain("2. [`src/b.ts`](https://github.com/acme/widgets/pull/42/files#diff-");
+    expect(body).not.toContain("<details>");
+    expect(body).not.toContain("<summary>");
+    expect(body).not.toContain("File Walkthrough");
   });
 
-  it("linkifies unique basenames in walkthrough bullets", () => {
+  it("ignores legacy label and changesSummary in map render", () => {
     const body = renderDescriptionAgentBlock(
       {
         title: "t",
@@ -71,48 +85,31 @@ describe("descriptionRender", () => {
         prFiles: [
           {
             filename: "src/agentWork/intake/planner.ts",
-            changesTitle: "Intake sub-system decomposed",
-            changesSummary: "- `planner.ts`: pure function mapping action to work kinds",
+            changesTitle: "Intake mapping is the core change",
+            changesSummary: "- `planner.ts`: pure function",
             label: "enhancement",
           },
         ],
       },
       RENDER_CTX,
     );
-    expect(body).toContain("[planner.ts](https://github.com/acme/widgets/pull/42/files#diff-");
-    expect(body).not.toContain("`- planner.ts`");
+    expect(body).toContain(DESCRIPTION_REVIEW_MAP_HEADING);
+    expect(body).toContain("Intake mapping is the core change");
+    expect(body).not.toContain("pure function");
+    expect(body).not.toContain("Enhancement (1 file");
   });
+});
 
-  it("does not linkify ambiguous basenames shared by three files", () => {
-    const body = renderDescriptionAgentBlock(
-      {
-        title: "t",
-        type: ["Enhancement"],
-        description: "- Main",
-        prFiles: [
-          {
-            filename: "src/a/index.ts",
-            changesTitle: "A",
-            changesSummary: "- `index.ts`: a",
-            label: "enhancement",
-          },
-          {
-            filename: "src/b/index.ts",
-            changesTitle: "B",
-            changesSummary: "- `index.ts`: b",
-            label: "enhancement",
-          },
-          {
-            filename: "src/c/index.ts",
-            changesTitle: "C",
-            changesSummary: "- `index.ts`: c",
-            label: "enhancement",
-          },
-        ],
-      },
-      RENDER_CTX,
+describe("prBodyHasDescriptionReviewMap", () => {
+  it("is true only when both description header and review map heading exist", () => {
+    expect(prBodyHasDescriptionReviewMap(null)).toBe(false);
+    expect(prBodyHasDescriptionReviewMap(`${DESCRIPTION_AGENT_HEADER}\n\n### PR Type`)).toBe(
+      false,
     );
-    expect(body).toContain("- `index.ts`:");
-    expect(body).not.toMatch(/\[index\.ts\]\(https:\/\/github\.com/);
+    expect(
+      prBodyHasDescriptionReviewMap(
+        `${DESCRIPTION_AGENT_HEADER}\n\n${DESCRIPTION_REVIEW_MAP_HEADING}\n\n1. path`,
+      ),
+    ).toBe(true);
   });
 });

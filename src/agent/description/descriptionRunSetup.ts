@@ -6,6 +6,7 @@ import { buildLocalWorkspaceTools } from "../tools/localWorkspaceTools.js";
 import { createRefreshableToolExecutors } from "../tools/refreshableGithubTools.js";
 import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
 import { buildDescriptionUserContent } from "./descriptionUserMessage.js";
+import { resolveDescriptionMapMode } from "./descriptionMapMode.js";
 import {
   buildSubmitDescriptionTool,
   createSubmitDescriptionState,
@@ -64,6 +65,8 @@ export function buildDescriptionRunSetup(params: {
 
   const pathGate = createAskPathGate();
   const submitState = createSubmitDescriptionState();
+  const mapMode = resolveDescriptionMapMode(workspace.stats);
+  const knownPaths = new Set(workspace.changedFiles.map((file) => file.path));
 
   const refreshableGh = createRefreshableToolExecutors({
     initialToken: token,
@@ -87,6 +90,8 @@ export function buildDescriptionRunSetup(params: {
       repo,
       prNumber,
       state: submitState,
+      mapMode,
+      knownPaths,
       shouldAbortPublish: params.shouldAbortPublish,
       recordPublishStep: params.recordPublishStep,
       operationIntent: params.operationIntent,
@@ -117,6 +122,10 @@ export function buildDescriptionRunSetup(params: {
       repo,
       prNumber,
       headSha,
+      mapMode,
+      fileCount: workspace.stats.fileCount,
+      totalChanges: workspace.stats.totalChanges,
+      truncated: workspace.stats.truncated,
       userSupplement,
     }),
     piTools: [...refreshableGh.bundle.piTools, submitBundle.piTool],

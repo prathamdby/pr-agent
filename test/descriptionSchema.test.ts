@@ -36,4 +36,33 @@ describe("descriptionSchema", () => {
       expect(parsed.data.type).toContain("Enhancement");
     }
   });
+
+  it("accepts read-first entries with only filename and changesTitle", () => {
+    const parsed = descriptionPayloadSchema.safeParse({
+      title: "Auth hardening",
+      type: ["Enhancement"],
+      description: "- Tighten session checks",
+      prFiles: [
+        {
+          filename: "src/auth/session.ts",
+          changesTitle: "Auth boundary is the risk surface",
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("coerces reason alias into changesTitle", () => {
+    const coerced = coerceDescriptionPayloadInput({
+      title: "t",
+      type: ["Enhancement"],
+      description: "- d",
+      prFiles: [{ filename: "src/a.ts", reason: "Open this first for the data path" }],
+    });
+    const parsed = descriptionPayloadSchema.safeParse(coerced);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.prFiles?.[0]?.changesTitle).toBe("Open this first for the data path");
+    }
+  });
 });

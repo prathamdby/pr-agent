@@ -50,8 +50,8 @@ import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import type { PrRepositoryView } from "../../prWorkspace/prRepositoryView.js";
+import { prBodyHasDescriptionReviewMap } from "../../agent/description/descriptionRender.js";
 import {
-  DESCRIPTION_AGENT_HEADER,
   MAX_REPO_POLICY_BYTES,
   MAX_AGENT_INSTRUCTION_BYTES,
   REPO_POLICY_DIRNAME,
@@ -613,9 +613,9 @@ async function runFullReviewAgainstRepositoryView(args: {
     codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
     shouldLinkToSummary,
     summaryCommentIdHint,
-    hasDescriptionAgentBlock: (
-      (pullRequest as { body?: string | null } | undefined)?.body ?? ""
-    ).includes(DESCRIPTION_AGENT_HEADER),
+    hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(
+      (pullRequest as { body?: string | null } | undefined)?.body,
+    ),
     initialPublishState: {
       published: publishState.summaryPublished,
       inlineReviewIds: publishState.inlineReviewIds,

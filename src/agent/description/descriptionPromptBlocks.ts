@@ -1,4 +1,4 @@
-/** Prompt blocks for PR description generation (Mermaid + file walkthrough). */
+/** Prompt blocks for PR description generation (Mermaid + review map). */
 
 export const descriptionMermaidGuidance = [
   "## Changes diagram (changesDiagram)",
@@ -33,12 +33,24 @@ export const descriptionMermaidGuidance = [
   "- Labels with backticks or nested quotes.",
 ].join("\n");
 
-export const descriptionFileWalkthroughGuidance = [
-  "## File walkthrough (prFiles)",
+export const descriptionReviewMapGuidance = [
+  "## Review map (prFiles)",
   "",
-  "Optional up to 20 entries. Each entry becomes a **collapsed** accordion in the PR body:",
-  "- `changesTitle` (5–10 words) is the visible summary line.",
-  "- `filename` and `changesSummary` bullets appear only when the reader expands that entry.",
-  "- Use `label` to group entries (e.g. enhancement, bug fix, tests).",
-  "- Group related files under clear titles; do not repeat the PR bullet list verbatim.",
+  "Server chooses map mode from workspace size stats and injects a hard rule in the user message.",
+  "Follow that rule exactly.",
+  "",
+  "### When mode is omit",
+  "- Do **not** emit `prFiles`.",
+  "- Publish type, description bullets, and optional Mermaid only.",
+  "",
+  "### When mode is read_first",
+  "- Emit `prFiles` with **1–5** entries only (never more).",
+  "- Order by review risk: auth, data, migrations, core API before tests, docs, or chore.",
+  "- Each entry needs only:",
+  "  - `filename` (a changed path from the PR)",
+  "  - `changesTitle` (one short clause: why open this file first)",
+  "- Do **not** restate the top description bullets.",
+  "- Do **not** list every changed file.",
+  "- Do **not** group by PR-type labels (enhancement, bug fix, …).",
+  "- Do **not** emit multi-bullet per-file summaries (`changesSummary`) or grouping `label`.",
 ].join("\n");

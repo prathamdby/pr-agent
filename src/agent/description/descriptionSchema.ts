@@ -14,7 +14,7 @@ const descriptionFileSchema = z.object({
   filename: z.string().min(1),
   changesTitle: z.string().min(1),
   changesSummary: z.string().optional(),
-  label: z.string().min(1),
+  label: z.string().min(1).optional(),
 });
 
 export const descriptionPayloadSchema = z.object({
@@ -35,9 +35,7 @@ export const DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE: DescriptionPayload = {
   prFiles: [
     {
       filename: "src/auth/session.ts",
-      changesTitle: "Session validation middleware",
-      changesSummary: "- Parse cookie\n- Reject expired tokens",
-      label: "enhancement",
+      changesTitle: "Auth boundary is the highest-risk surface in this PR",
     },
   ],
 };
@@ -95,16 +93,16 @@ function coercePrFiles(value: unknown): DescriptionPrFile[] | undefined {
     if (!item || typeof item !== "object") return [];
     const row = item as Record<string, unknown>;
     const filename = trimString(row.filename ?? row.file);
-    const changesTitle = trimString(row.changesTitle ?? row.changes_title);
-    const label = trimString(row.label);
-    if (!filename || !changesTitle || !label) return [];
+    const changesTitle = trimString(row.changesTitle ?? row.changes_title ?? row.reason);
+    if (!filename || !changesTitle) return [];
     const changesSummary = trimString(row.changesSummary ?? row.changes_summary);
+    const label = trimString(row.label);
     return [
       {
         filename,
         changesTitle,
-        label,
         ...(changesSummary ? { changesSummary } : {}),
+        ...(label ? { label } : {}),
       },
     ];
   });
