@@ -1,0 +1,259 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  buildTriageWorkspaceTools,
+  createTriageWorkspaceToolState,
+} from "../src/agent/triage/triageWorkspaceTools.js";
+import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
+import { MAX_TRIAGE_FIXES_PER_RUN } from "../src/settings/index.js";
+import { makeTestConfig } from "./helpers/config.js";
+
+const exec = promisify(execFile);
+
+function findingThread(overrides: Partial<BotFindingThread> = {}): BotFindingThread {
+  return {
+    rootCommentId: 101,
+    lens: "correctness",
+    path: "src/app.ts",
+    line: 1,
+    severity: "P1",
+    titleSnippet: "P1 · bug",
+    humanReplies: [],
+    threadUrl: "https://example.test/thread/101",
+    ...overrides,
+  };
+}
+
+function mockCheckout(
+  dir: string,
+  commitImpl?: WritablePrCheckout["commit"],
+): WritablePrCheckout {
+  return {
+    dir,
+    headRef: "feature",
+    baseSha: "a".repeat(40),
+    commit:
+      commitImpl ??
+      (async ({ files, subject }) => ({
+        sha: "b".repeat(40),
+        diff: `diff for ${files.join(",")} (${subject})`,
+      })),
+    push: async () => {},
+    listCommittedShas: () => [],
+    listCommittedDetails: () => [],
+  };
+}
+
+async function initCheckout(files: Readonly<Record<string, string>>): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "triage-ws-tools-"));
+  for (const [path, content] of Object.entries(files)) {
+    await mkdir(dirname(join(root, path)), { recursive: true });
+    await writeFile(join(root, path), content);
+  }
+  await exec("git", ["init"], { cwd: root });
+  await exec("git", ["config", "user.email", "test@example.com"], { cwd: root });
+  await exec("git", ["config", "user.name", "Test"], { cwd: root });
+  await exec("git", ["add", "."], { cwd: root });
+  await exec("git", ["commit", "-m", "seed"], { cwd: root });
+  return root;
+}
+
+describe("buildTriageWorkspaceTools", () => {
+  const roots: string[] = [];
+
+  afterEach(async () => {
+    await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  });
+
+  async function setup(params?: {
+    files?: Readonly<Record<string, string>>;
+    inventory?: readonly BotFindingThread[];
+    commit?: WritablePrCheckout["commit"];
+  }) {
+    const root = await initCheckout(
+      params?.files ?? {
+        "src/app.ts": "const value = 1;\n",
+        "package.json": '{"name":"app"}\n',
+      },
+    );
+    roots.push(root);
+    const inventory = params?.inventory ?? [findingThread()];
+    const state = createTriageWorkspaceToolState();
+    const { executors } = buildTriageWorkspaceTools({
+      cfg: makeTestConfig(),
+      checkout: mockCheckout(root, params?.commit),
+      inventory,
+      state,
+    });
+    return { root, executors, state, inventory };
+  }
+
+  it("blocks read of control-plane paths", async () => {
+    const { executors } = await setup();
+    await expect(executors.readWorkspaceFile({ path: "package.json" })).rejects.toMatchObject({
+      code: "triage.sensitive_path_blocked",
+    });
+  });
+
+  it("blocks read through absolute symlink escapes", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "triage-ws-outside-"));
+    roots.push(outside);
+    await writeFile(join(outside, "secret.env"), "TOKEN=leak\n");
+    const root = await initCheckout({ "src/app.ts": "export {};\n" });
+    roots.push(root);
+    await mkdir(join(root, "docs"), { recursive: true });
+    await symlink(join(outside, "secret.env"), join(root, "docs/notes.md"));
+
+    const { executors } = buildTriageWorkspaceTools({
+      cfg: makeTestConfig(),
+      checkout: mockCheckout(root),
+      inventory: [findingThread()],
+      state: createTriageWorkspaceToolState(),
+    });
+
+    await expect(executors.readWorkspaceFile({ path: "docs/notes.md" })).rejects.toMatchObject({
+      code: "pr_workspace.symlink_escape",
+    });
+  });
+
+  it("blocks edit of control-plane paths even when implicated", async () => {
+    const { executors } = await setup({
+      inventory: [findingThread({ path: "package.json" })],
+    });
+    await expect(
+      executors.editWorkspaceFile({
+        path: "package.json",
+        oldText: '{"name":"app"}',
+        newText: '{"name":"evil"}',
+      }),
+    ).rejects.toMatchObject({ code: "triage.control_path_blocked" });
+  });
+
+  it("rejects edit when oldText is missing", async () => {
+    const { executors } = await setup();
+    await expect(
+      executors.editWorkspaceFile({
+        path: "src/app.ts",
+        oldText: "does-not-exist",
+        newText: "x",
+      }),
+    ).rejects.toMatchObject({ code: "triage.old_text_not_found" });
+  });
+
+  it("rejects edit when oldText matches more than once", async () => {
+    const { executors } = await setup({
+      files: {
+        "src/app.ts": "const x = 1;\nconst y = 1;\n",
+        "package.json": "{}\n",
+      },
+    });
+    await expect(
+      executors.editWorkspaceFile({
+        path: "src/app.ts",
+        oldText: "1",
+        newText: "2",
+      }),
+    ).rejects.toMatchObject({ code: "triage.old_text_ambiguous" });
+  });
+
+  it("edits an implicated file when oldText is unique", async () => {
+    const { root, executors } = await setup();
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "const value = 1;",
+      newText: "const value = 2;",
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe("const value = 2;\n");
+  });
+
+  it("blocks create of control-plane workflow files", async () => {
+    const { executors } = await setup();
+    await expect(
+      executors.createWorkspaceFile({
+        path: ".github/workflows/evil.yml",
+        content: "name: evil\n",
+      }),
+    ).rejects.toMatchObject({ code: "triage.control_path_blocked" });
+  });
+
+  it("rejects commitFix for an unknown inventory thread", async () => {
+    const { executors } = await setup();
+    await expect(
+      executors.commitFix({
+        threadRootCommentId: 999,
+        files: ["src/app.ts"],
+        subject: "fix: unknown thread",
+      }),
+    ).rejects.toMatchObject({ code: "triage.unknown_thread" });
+  });
+
+  it("rejects duplicate commitFix for the same thread", async () => {
+    const commit = vi.fn(async () => ({ sha: "c".repeat(40), diff: "d" }));
+    const { executors, state } = await setup({ commit });
+    await executors.commitFix({
+      threadRootCommentId: 101,
+      files: ["src/app.ts"],
+      subject: "fix: once",
+    });
+    expect(state.commitByThreadRootCommentId.get(101)).toBe("c".repeat(40));
+
+    await expect(
+      executors.commitFix({
+        threadRootCommentId: 101,
+        files: ["src/app.ts"],
+        subject: "fix: twice",
+      }),
+    ).rejects.toMatchObject({ code: "triage.commit_fix_duplicate" });
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects commitFix after the per-run fix budget is exhausted", async () => {
+    const commit = vi.fn(async () => ({ sha: "d".repeat(40), diff: "d" }));
+    const inventory = Array.from({ length: MAX_TRIAGE_FIXES_PER_RUN + 1 }, (_, i) =>
+      findingThread({ rootCommentId: i + 1, path: "src/app.ts" }),
+    );
+    const { executors, state } = await setup({ inventory, commit });
+    for (let i = 1; i <= MAX_TRIAGE_FIXES_PER_RUN; i++) {
+      state.commitByThreadRootCommentId.set(i, "e".repeat(40));
+    }
+
+    await expect(
+      executors.commitFix({
+        threadRootCommentId: MAX_TRIAGE_FIXES_PER_RUN + 1,
+        files: ["src/app.ts"],
+        subject: "fix: over budget",
+      }),
+    ).rejects.toMatchObject({ code: "triage.fix_budget_reached" });
+    expect(commit).not.toHaveBeenCalled();
+  });
+
+  it("commitFix returns checkout sha and records the thread mapping", async () => {
+    const commit = vi.fn(async ({ files, subject }) => ({
+      sha: "f".repeat(40),
+      diff: `files=${files.join("|")} subject=${subject}`,
+    }));
+    const { executors, state } = await setup({ commit });
+    const out = await executors.commitFix({
+      threadRootCommentId: 101,
+      files: ["src/app.ts"],
+      subject: "fix: app value",
+      body: ["unique oldText match"],
+    });
+    expect(out).toEqual({
+      sha: "f".repeat(40),
+      diff: "files=src/app.ts subject=fix: app value",
+    });
+    expect(state.commitByThreadRootCommentId.get(101)).toBe("f".repeat(40));
+    expect(commit).toHaveBeenCalledWith({
+      files: ["src/app.ts"],
+      subject: "fix: app value",
+      body: ["unique oldText match"],
+    });
+  });
+});
