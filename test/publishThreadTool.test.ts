@@ -51,7 +51,7 @@ function buildTool(getToken: () => string, shouldAbortPublish?: () => Promise<bo
       repo: "r",
       prNumber: 1,
       headSha: "abc1234",
-      hasDescriptionAgentBlock: false,
+      hasDescriptionReviewMap: false,
     },
     workItemId: "wi-1",
     progressCommentUrl: "https://github.com/o/r/pull/1#issuecomment-99",

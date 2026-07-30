@@ -440,10 +440,10 @@ function buildReviewSummaryBody(
     }),
   );
 
-  if (ctx.hasDescriptionAgentBlock) {
+  if (ctx.hasDescriptionReviewMap) {
     rows.push("");
     rows.push(
-      `See the [file walkthrough](https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}) in the PR description.`,
+      `See the [review map](https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}) in the PR description.`,
     );
   }
 

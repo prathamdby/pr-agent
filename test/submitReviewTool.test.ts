@@ -104,7 +104,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state: createSubmitReviewState({ inlineReviewIds: [41] }),
       workItemId: "wi-1",
       resumedPlacements: [resumedPlacement],
@@ -125,7 +125,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
 
@@ -143,7 +143,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
 
@@ -163,7 +163,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
     const valid = validPayload();
@@ -185,7 +185,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
     const valid = validPayload();
@@ -204,7 +204,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       shouldAbortPublish: async () => {
         throw new Error("db unavailable");
@@ -223,7 +223,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       canEnforceDiffCacheBeforeSubmit: () => false,
       shouldAbortPublish: async () => true,
@@ -243,7 +243,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
 
@@ -266,7 +266,7 @@ describe("submitReview tool", () => {
           repo: "r",
           prNumber: 1,
           headSha: "sha",
-          hasDescriptionAgentBlock: false,
+          hasDescriptionReviewMap: false,
         },
         mode,
         state: createSubmitReviewState(),
@@ -293,7 +293,7 @@ describe("submitReview tool", () => {
           repo: "r",
           prNumber: 1,
           headSha: "sha",
-          hasDescriptionAgentBlock: false,
+          hasDescriptionReviewMap: false,
         },
         state,
         cachedDiffIndex: createCachedPrDiffIndex(),
@@ -310,7 +310,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       cachedDiffIndex: index,
       canEnforceDiffCacheBeforeSubmit: () => false,
@@ -329,7 +329,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       cachedDiffIndex: index,
       canEnforceDiffCacheBeforeSubmit: () => false,
@@ -348,7 +348,7 @@ describe("submitReview tool", () => {
     const { executor } = buildSubmitReviewTool({
       cfg,
       token: "tok",
-      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionAgentBlock: false },
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       cachedDiffIndex: index,
     });
@@ -396,7 +396,7 @@ describe("submitReview tool", () => {
           repo: "r",
           prNumber: 1,
           headSha: "sha",
-          hasDescriptionAgentBlock: false,
+          hasDescriptionReviewMap: false,
         },
         state,
         cachedDiffIndex: index,

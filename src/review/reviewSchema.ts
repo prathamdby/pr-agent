@@ -79,7 +79,7 @@ export type ReviewPublishContext = {
   repo: string;
   prNumber: number;
   headSha: string;
-  hasDescriptionAgentBlock: boolean;
+  hasDescriptionReviewMap: boolean;
 };
 
 const SEVERITY_ALIAS: Record<string, ReviewFinding["severity"]> = {

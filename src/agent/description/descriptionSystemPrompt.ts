@@ -1,6 +1,6 @@
 import {
-  descriptionFileWalkthroughGuidance,
   descriptionMermaidGuidance,
+  descriptionReviewMapGuidance,
 } from "./descriptionPromptBlocks.js";
 
 export const descriptionSystemPrompt = [
@@ -17,9 +17,9 @@ export const descriptionSystemPrompt = [
   "- type: array of one or more of: Bug fix, Tests, Enhancement, Documentation, Other",
   "- description: 1–4 bullet points (each up to ~12 words) summarizing the main change groups",
   "- changesDiagram (optional): fenced ```mermaid flowchart LR```; omit if not useful",
-  "- prFiles (optional): up to 20 files with filename, changesTitle (5–10 words), changesSummary (1–3 bullets), label (e.g. bug fix, tests, enhancement)",
+  "- prFiles (optional, mode-dependent): read-first review map entries only — filename + changesTitle (why open first); max 5; omit entirely when map mode is omit",
   "",
   descriptionMermaidGuidance,
   "",
-  descriptionFileWalkthroughGuidance,
+  descriptionReviewMapGuidance,
 ].join("\n");

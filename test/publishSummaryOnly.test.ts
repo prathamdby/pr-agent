@@ -109,7 +109,7 @@ describe("publishReviewSummaryOnly", () => {
         repo: "r",
         prNumber: 1,
         headSha: "sha",
-        hasDescriptionAgentBlock: false,
+        hasDescriptionReviewMap: false,
       },
       getToken: () => "t",
       payload,
@@ -140,7 +140,7 @@ describe("publishReviewSummaryOnly", () => {
         repo: "r",
         prNumber: 1,
         headSha: "sha",
-        hasDescriptionAgentBlock: false,
+        hasDescriptionReviewMap: false,
       },
       getToken: () => "t",
       payload: {
@@ -180,7 +180,7 @@ describe("publishReviewSummaryOnly", () => {
         repo: "r",
         prNumber: 1,
         headSha: "sha",
-        hasDescriptionAgentBlock: false,
+        hasDescriptionReviewMap: false,
       },
       getToken: () => "t",
       payload: {
@@ -227,7 +227,7 @@ describe("publishReviewSummaryOnly", () => {
           repo: "r",
           prNumber: 1,
           headSha: "sha",
-          hasDescriptionAgentBlock: false,
+          hasDescriptionReviewMap: false,
         },
         getToken: () => "t",
         payload: {

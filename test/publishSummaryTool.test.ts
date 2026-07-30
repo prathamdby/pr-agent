@@ -96,7 +96,7 @@ function buildTool(params: {
       repo: "r",
       prNumber: 1,
       headSha: "abc1234",
-      hasDescriptionAgentBlock: false,
+      hasDescriptionReviewMap: false,
     },
     getToken: params.getToken ?? (() => "token"),
     getLedger: params.getLedger,

@@ -3,12 +3,17 @@ import { buildDescriptionUserContent } from "../src/agent/description/descriptio
 
 function baseDescriptionParams(
   userSupplement?: string,
+  mapMode: "omit" | "read_first" = "omit",
 ): Parameters<typeof buildDescriptionUserContent>[0] {
   return {
     owner: "octo",
     repo: "hello-world",
     prNumber: 42,
     headSha: "abc123",
+    mapMode,
+    fileCount: 2,
+    totalChanges: 40,
+    truncated: false,
     userSupplement,
   };
 }
@@ -30,5 +35,22 @@ describe("buildDescriptionUserContent", () => {
 
     expect(content).not.toContain("user_supplement");
     expect(content).not.toContain("Additional instruction");
+  });
+
+  it("injects omit hard rule and size facts", () => {
+    const content = buildDescriptionUserContent(baseDescriptionParams(undefined, "omit"));
+    expect(content).toContain("Map mode: omit");
+    expect(content).toContain("Changed files: 2");
+    expect(content).toContain("do not emit prFiles");
+  });
+
+  it("injects read_first hard rule", () => {
+    const content = buildDescriptionUserContent({
+      ...baseDescriptionParams(undefined, "read_first"),
+      fileCount: 12,
+      totalChanges: 500,
+    });
+    expect(content).toContain("Map mode: read_first");
+    expect(content).toContain("emit prFiles with 1–5 entries only");
   });
 });

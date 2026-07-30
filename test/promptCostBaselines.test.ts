@@ -91,7 +91,7 @@ describe("prompt cost baselines", () => {
         repo: "hello",
         prNumber: 42,
         headSha: "abc123",
-        hasDescriptionAgentBlock: false,
+        hasDescriptionReviewMap: false,
       },
       state: createSubmitReviewState(),
     });
@@ -113,7 +113,7 @@ describe("prompt cost baselines", () => {
         repo: "hello",
         prNumber: 42,
         headSha: "abc123",
-        hasDescriptionAgentBlock: false,
+        hasDescriptionReviewMap: false,
       },
       state: createSubmitReviewState(),
     });
@@ -211,7 +211,7 @@ function promptSurfaces(): PromptSurface[] {
       repo: "hello",
       prNumber: 42,
       headSha: "abc123",
-      hasDescriptionAgentBlock: false,
+      hasDescriptionReviewMap: false,
     },
     state: createSubmitReviewState(),
   }).piTool;

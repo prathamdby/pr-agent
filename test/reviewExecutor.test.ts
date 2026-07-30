@@ -844,18 +844,42 @@ describe("executeReviewJob", () => {
     });
   });
 
-  it("threads hasDescriptionAgentBlock false when PR body lacks the description header", async () => {
+  it("threads hasDescriptionReviewMap false when PR body lacks a review map section", async () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
-      expect.objectContaining({ hasDescriptionAgentBlock: false }),
+      expect.objectContaining({ hasDescriptionReviewMap: false }),
     );
   });
 
-  it("threads hasDescriptionAgentBlock true when PR body contains the description header", async () => {
-    const prWithDescription = {
+  it("threads hasDescriptionReviewMap false when description block has no review map", async () => {
+    const prWithDescriptionOnly = {
       ...pullRequest,
       body: `Intro\n\n${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement`,
+    };
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.execute(makeItem("slash"), {
+        installation: {
+          token: "tok",
+          expiresAtTs: Date.now() + 60_000,
+          ttlMs: 60_000,
+        },
+        headSha: "head",
+        pullRequest: prWithDescriptionOnly,
+      });
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ hasDescriptionReviewMap: false }),
+    );
+  });
+
+  it("threads hasDescriptionReviewMap true when PR body contains a review map section", async () => {
+    const prWithDescription = {
+      ...pullRequest,
+      body: `Intro\n\n${DESCRIPTION_AGENT_HEADER}\n\n### PR Type\n\nEnhancement\n\n### Review map\n\n1. \`src/a.ts\`: risk surface`,
     };
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.execute(makeItem("slash"), {
@@ -872,7 +896,7 @@ describe("executeReviewJob", () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
     expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
-      expect.objectContaining({ hasDescriptionAgentBlock: true }),
+      expect.objectContaining({ hasDescriptionReviewMap: true }),
     );
   });
 });

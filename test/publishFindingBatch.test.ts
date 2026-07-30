@@ -96,7 +96,7 @@ function batchContext(
       repo: "r",
       prNumber: 1,
       headSha: "abc1234",
-      hasDescriptionAgentBlock: false,
+      hasDescriptionReviewMap: false,
     },
     source: "correctness",
     workItemId: "wi-1",
