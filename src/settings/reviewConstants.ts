@@ -137,6 +137,10 @@ export const MAX_SPECIALIST_FINDINGS = 20;
 export const MAX_INLINE_REVIEW_COMMENTS = 50;
 /** Max incremental COMMENT review calls accepted during one orchestrated review run. */
 export const MAX_THREAD_PUBLISH_CALLS = 8;
+/** Hard active-compute SLA from orchestrator entry through terminal publication. */
+export const REVIEW_ACTIVE_BUDGET_MS = 15 * 60 * 1000;
+/** Maximum wall-clock budget for one specialist in a normal review. */
+export const REVIEW_SPECIALIST_BUDGET_MS = 8 * 60 * 1000;
 
 export const REVIEW_SEVERITY_RANK = {
   P0: 0,
@@ -146,7 +150,6 @@ export const REVIEW_SEVERITY_RANK = {
 } as const;
 
 export const VALIDATION_REPAIR_ROUNDS = 3;
-export const PUBLISH_RECOVERY_ROUNDS = 4;
 
 export const PUBLISH_BUDGET_EXHAUSTED_MESSAGE =
   "Review publish budget exhausted for this run. Do not call submitReview again.";
@@ -179,7 +182,6 @@ export type ReviewPhase =
 
 /** Review agent caps. */
 export const MAX_TOOL_ROUNDS = 24;
-export const ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS = 4;
 export const MAX_REVIEW_PUBLISH_CALLS = 2;
 export const REVIEW_MIN_CONFIDENCE = 1;
 /** Must not exceed GITHUB_PULL_REQUEST_FILES_API_MAX_FILES (GitHub pull request files API cap). */

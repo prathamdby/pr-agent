@@ -28,6 +28,7 @@ import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSum
 import {
   SPECIALIST_IDS,
   type ReconRunPhase,
+  type ReviewBudgetReceipt,
   type SpecialistId,
   type SpecialistRunPhase,
 } from "../orchestrator/orchestratorTypes.js";
@@ -43,6 +44,7 @@ type ReconPhase = ReconRunPhase;
 type ProgressRoster = {
   readonly recon: ReconPhase;
   readonly specialists: Readonly<Record<SpecialistId, SpecialistPhase>>;
+  readonly budget?: ReviewBudgetReceipt;
 };
 
 export type SpecialistTickState =
@@ -85,7 +87,9 @@ function renderSpecialistPhase(state: SpecialistPhase): string {
     case "no_findings":
       return STATUS_NO_FINDINGS;
     case "failed":
-      return STATUS_FAILED;
+      return state.budget == null
+        ? STATUS_FAILED
+        : `${STATUS_FAILED} — ${state.budget.budgetKey} enforced (limit ${state.budget.limitMs} ms, used ${state.budget.usedMs} ms)`;
     default: {
       const exhaustive: never = state;
       return exhaustive;
@@ -168,6 +172,15 @@ export function renderReviewProgressComment(params: {
       tableRows.push([
         renderTableStrong(SPECIALIST_LABELS[specialist]),
         escapeTableHtml(renderSpecialistPhase(params.tickState.specialists[specialist])),
+      ]);
+    }
+    if (params.tickState.budget != null) {
+      const budget = params.tickState.budget;
+      tableRows.push([
+        renderTableStrong("Budget"),
+        escapeTableHtml(
+          `${STATUS_FAILED} — ${budget.budgetKey} enforced (limit ${budget.limitMs} ms, used ${budget.usedMs} ms)`,
+        ),
       ]);
     }
   }

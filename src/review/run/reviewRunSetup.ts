@@ -11,7 +11,6 @@ import {
   wrapListPullRequestFilesDiffIngestion,
 } from "../placement/reviewDiffIndex.js";
 import { CONTEXT7_RESPONSE_BYTES } from "../../settings/index.js";
-import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import { wrapExecutorsWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import { createEvidenceLedger, type EvidenceLedger } from "../findings/evidenceLedger.js";
 import type { Pool } from "pg";
@@ -21,7 +20,6 @@ import {
 } from "../../agent/tools/codeIndexTools.js";
 
 export type ReviewRunSetup = {
-  readonly orchestratorUserContent: string;
   readonly workspaceTools: {
     readonly piTools: PiTool[];
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
@@ -30,30 +28,10 @@ export type ReviewRunSetup = {
   readonly evidenceLedger: EvidenceLedger;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs: () => number;
-  readonly refreshBeforeTool: (toolName: string) => Promise<void>;
   readonly refreshLiveAuth: () => Promise<void>;
 };
 
 const TOKEN_REFRESH_TOOL = "getPullRequest";
-
-function buildOrchestratorUserContent(params: {
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
-  readonly headSha: string;
-  readonly userSupplement?: string;
-  readonly trustedContext?: string;
-}): string {
-  return [
-    `Target repository: ${params.owner}/${params.repo}`,
-    `Pull request #: ${params.prNumber}`,
-    `Head commit SHA: ${params.headSha}`,
-    params.userSupplement
-      ? `\n${wrapUntrustedBlock("user_supplement", params.userSupplement)}\n`
-      : "",
-    params.trustedContext ? `\n${params.trustedContext}\n` : "",
-  ].join("\n");
-}
 
 export function buildReviewRunSetup(params: {
   cfg: Config;
@@ -74,17 +52,7 @@ export function buildReviewRunSetup(params: {
   pool?: Pool;
   codeIndexSnapshotId?: string;
 }): ReviewRunSetup {
-  const {
-    cfg,
-    token,
-    tokenExpiresAtTs,
-    owner,
-    repo,
-    prNumber,
-    headSha,
-    userSupplement,
-    trustedContext,
-  } = params;
+  const { cfg, token, tokenExpiresAtTs, headSha } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
@@ -130,27 +98,12 @@ export function buildReviewRunSetup(params: {
     piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
     executors,
   };
-  const refreshBeforeTool = async (toolName: string) => {
-    if (refreshableGh.githubExecutorNames.has(toolName)) {
-      await refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL);
-    }
-  };
-
   return {
-    orchestratorUserContent: buildOrchestratorUserContent({
-      owner,
-      repo,
-      prNumber,
-      headSha,
-      userSupplement,
-      trustedContext,
-    }),
     workspaceTools,
     cachedDiffIndex,
     evidenceLedger,
     getToken: refreshableGh.getToken,
     getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
-    refreshBeforeTool,
     refreshLiveAuth: () => refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL),
   };
 }

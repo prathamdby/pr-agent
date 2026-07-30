@@ -26,8 +26,6 @@ describe("settings inventory", () => {
     expect(envValues).toContain("POSTHOG_HOST");
     expect(envValues).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
     expect(new Set(envValues).size).toBe(envValues.length);
-    expect(envValues).toContain("PI_ORCHESTRATOR_PROVIDER");
-    expect(envValues).toContain("PI_ORCHESTRATOR_MODEL");
     expect(envValues).toContain("PI_FALLBACK_PROVIDER");
     expect(envValues).toContain("PI_FALLBACK_MODEL");
     expect(envValues).toContain("PI_THINKING_CEILING");
@@ -41,7 +39,7 @@ describe("settings inventory", () => {
     expect(envValues).toContain("CODE_INDEX_MODE");
     expect(envValues).toContain("CODE_INDEX_WAIT_MS");
     expect(envValues).toContain("CODE_INDEX_RETENTION_SECONDS");
-    expect(envValues.length).toBe(61);
+    expect(envValues.length).toBe(59);
   });
 
   it("docs/features.md documents every FEATURE_* key", () => {

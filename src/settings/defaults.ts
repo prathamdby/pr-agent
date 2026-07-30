@@ -1,13 +1,11 @@
 /** Default values for env-backed settings (see `docs/configuration.md`). */
+import { REVIEW_SPECIALIST_BUDGET_MS } from "./reviewConstants.js";
 
 export const DEFAULT_PORT = 3000;
 export const DEFAULT_ROLE = "web" as const;
 
 export const DEFAULT_PI_PROVIDER = "openai";
 export const DEFAULT_PI_MODEL = "gpt-4o-mini";
-/** Empty means inherit general primary (`PI_PROVIDER` / `PI_MODEL`). */
-export const DEFAULT_PI_ORCHESTRATOR_PROVIDER = "";
-export const DEFAULT_PI_ORCHESTRATOR_MODEL = "";
 /** Empty means fallback disabled. */
 export const DEFAULT_PI_FALLBACK_PROVIDER = "";
 export const DEFAULT_PI_FALLBACK_MODEL = "";
@@ -27,7 +25,7 @@ export {
   DEFAULT_CODE_INDEX_RETENTION_SECONDS,
 } from "./codeIndexConstants.js";
 export const DEFAULT_PROVIDER_PROMPT_TIMEOUT_MS = 300_000;
-export const DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS = 900_000;
+export const DEFAULT_REVIEW_SPECIALIST_TIMEOUT_MS = REVIEW_SPECIALIST_BUDGET_MS;
 
 export const DEFAULT_REVIEW_CONCURRENCY = 2;
 export const DEFAULT_ASK_CONCURRENCY = 1;

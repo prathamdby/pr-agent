@@ -52,7 +52,6 @@ describe("buildReviewRunSetup", () => {
     });
 
     expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain("submitReview");
-    expect(setup.orchestratorUserContent).not.toContain("submitReview");
 
     await setup.refreshLiveAuth();
 

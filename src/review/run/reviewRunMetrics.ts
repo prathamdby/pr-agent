@@ -104,10 +104,18 @@ export type ReviewRunMetricsSnapshot = {
   readonly findingsCount: number;
   readonly severities: readonly string[];
   readonly wallClockMs: number;
+  readonly activeBudgetMs?: number;
+  readonly activeMs?: number;
+  readonly activeOverrunMs?: number;
+  readonly finalizationMs?: number;
+  readonly timedOut: boolean;
+  readonly partialCoverage: boolean;
+  readonly promptProfile: "normal";
+  readonly inspectedPathCount?: number;
+  readonly changedPathCount?: number;
   readonly lightweight?: boolean;
   readonly specialistOutcomes: Record<string, number>;
   readonly threadBatches: number;
-  readonly briefFallback: boolean;
   readonly providerSendMs: number;
   readonly toolMs: number;
   readonly generationMs: number;
@@ -165,10 +173,17 @@ type MutableReviewRunMetrics = {
   lightweight?: boolean;
   specialistOutcomes: Record<string, number>;
   threadBatches: number;
-  briefFallback: boolean;
   toolMs: number;
   providerSendMs: number;
   specialistTokensRecorded: boolean;
+  activeStartedAtMs?: number;
+  activeBudgetMs?: number;
+  finalizationMs?: number;
+  timedOut: boolean;
+  partialCoverage: boolean;
+  promptProfile: "normal";
+  inspectedPathCount?: number;
+  changedPathCount?: number;
   reconMs?: number;
   specialistCorrectnessMs?: number;
   specialistSecurityMs?: number;
@@ -197,6 +212,8 @@ function createEmptyMetrics(meta: {
   model: string;
   mode: string;
   startedAtMs?: number;
+  activeStartedAtMs?: number;
+  activeBudgetMs?: number;
 }): MutableReviewRunMetrics {
   return {
     provider: meta.provider,
@@ -240,10 +257,14 @@ function createEmptyMetrics(meta: {
     severities: [],
     specialistOutcomes: {},
     threadBatches: 0,
-    briefFallback: false,
     toolMs: 0,
     providerSendMs: 0,
     specialistTokensRecorded: false,
+    activeStartedAtMs: meta.activeStartedAtMs,
+    activeBudgetMs: meta.activeBudgetMs,
+    timedOut: false,
+    partialCoverage: false,
+    promptProfile: "normal",
   };
 }
 
@@ -423,11 +444,17 @@ export function initReviewRunMetrics(meta: {
   model: string;
   mode: string;
   startedAtMs?: number;
+  activeStartedAtMs?: number;
+  activeBudgetMs?: number;
 }): void {
   const logger = tryUseLogger();
   if (!logger) return;
   const existing = logger.getContext().reviewRunMetrics as MutableReviewRunMetrics | undefined;
-  if (existing) return;
+  if (existing) {
+    if (meta.activeStartedAtMs !== undefined) existing.activeStartedAtMs = meta.activeStartedAtMs;
+    if (meta.activeBudgetMs !== undefined) existing.activeBudgetMs = meta.activeBudgetMs;
+    return;
+  }
   logger.set({ reviewRunMetrics: createEmptyMetrics(meta) });
 }
 
@@ -440,7 +467,12 @@ export function setReviewRunMetricFields(
       | "lightweight"
       | "specialistOutcomes"
       | "threadBatches"
-      | "briefFallback"
+      | "finalizationMs"
+      | "timedOut"
+      | "partialCoverage"
+      | "promptProfile"
+      | "inspectedPathCount"
+      | "changedPathCount"
     >
   > &
     ReviewPhaseReceiptFields,
@@ -454,7 +486,14 @@ export function setReviewRunMetricFields(
     metrics.specialistOutcomes = { ...fields.specialistOutcomes };
   }
   if (fields.threadBatches !== undefined) metrics.threadBatches = fields.threadBatches;
-  if (fields.briefFallback !== undefined) metrics.briefFallback = fields.briefFallback;
+  if (fields.finalizationMs !== undefined) metrics.finalizationMs = fields.finalizationMs;
+  if (fields.timedOut !== undefined) metrics.timedOut = fields.timedOut;
+  if (fields.partialCoverage !== undefined) metrics.partialCoverage = fields.partialCoverage;
+  if (fields.promptProfile !== undefined) metrics.promptProfile = fields.promptProfile;
+  if (fields.inspectedPathCount !== undefined) {
+    metrics.inspectedPathCount = fields.inspectedPathCount;
+  }
+  if (fields.changedPathCount !== undefined) metrics.changedPathCount = fields.changedPathCount;
   if (fields.reconMs !== undefined) metrics.reconMs = fields.reconMs;
   if (fields.specialistCorrectnessMs !== undefined) {
     metrics.specialistCorrectnessMs = fields.specialistCorrectnessMs;
@@ -478,6 +517,8 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
   const metrics = getOrInitMetrics();
   if (!metrics) return null;
   const wallClockMs = Date.now() - metrics.startedAtMs;
+  const activeMs =
+    metrics.activeStartedAtMs === undefined ? undefined : Date.now() - metrics.activeStartedAtMs;
   const generationMs = Math.max(0, metrics.providerSendMs - metrics.toolMs);
   return {
     provider: metrics.provider,
@@ -517,9 +558,23 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     findingsCount: metrics.findingsCount,
     severities: [...metrics.severities],
     wallClockMs,
+    ...(metrics.activeBudgetMs !== undefined ? { activeBudgetMs: metrics.activeBudgetMs } : {}),
+    ...(activeMs !== undefined ? { activeMs } : {}),
+    ...(activeMs !== undefined && metrics.activeBudgetMs !== undefined
+      ? { activeOverrunMs: Math.max(0, activeMs - metrics.activeBudgetMs) }
+      : {}),
+    ...(metrics.finalizationMs !== undefined ? { finalizationMs: metrics.finalizationMs } : {}),
+    timedOut: metrics.timedOut,
+    partialCoverage: metrics.partialCoverage,
+    promptProfile: metrics.promptProfile,
+    ...(metrics.inspectedPathCount !== undefined
+      ? { inspectedPathCount: metrics.inspectedPathCount }
+      : {}),
+    ...(metrics.changedPathCount !== undefined
+      ? { changedPathCount: metrics.changedPathCount }
+      : {}),
     specialistOutcomes: { ...metrics.specialistOutcomes },
     threadBatches: metrics.threadBatches,
-    briefFallback: metrics.briefFallback,
     providerSendMs: metrics.providerSendMs,
     toolMs: metrics.toolMs,
     generationMs,

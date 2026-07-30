@@ -142,11 +142,10 @@ Webhook handler path is always `/webhooks` (see [`src/effect/server.ts`](src/eff
 
 LLM calls run on the **worker** only, through the Pi coding-agent runtime ([ADR 0031](docs/adr/0031-pi-native-agent-runtime.md)).
 
-| What                    | Env vars                                            | Used for                                                               |
-| ----------------------- | --------------------------------------------------- | ---------------------------------------------------------------------- |
-| General primary         | `PI_PROVIDER`, `PI_MODEL`                           | Specialists, ask, describe, triage, verification, CI-summary authoring |
-| Orchestrator (optional) | `PI_ORCHESTRATOR_PROVIDER`, `PI_ORCHESTRATOR_MODEL` | Review orchestrator session; empty means inherit general primary       |
-| Fallback (optional)     | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL`         | Availability failures only; both must be set to enable                 |
+| What                | Env vars                                    | Used for                                                               |
+| ------------------- | ------------------------------------------- | ---------------------------------------------------------------------- |
+| General primary     | `PI_PROVIDER`, `PI_MODEL`                   | Specialists, ask, describe, triage, verification, CI-summary authoring |
+| Fallback (optional) | `PI_FALLBACK_PROVIDER`, `PI_FALLBACK_MODEL` | Availability failures only; both must be set to enable                 |
 
 Minimal OpenAI example:
 
@@ -268,7 +267,7 @@ flowchart LR
 3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` completes later.
 4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep.
 5. **Feature executors** ([`src/agentWork/executors/`](src/agentWork/executors/)) create a GitHub installation token, open a local PR workspace (or a writable checkout for triage), run the agent, and publish.
-6. **Reviews** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)) inspect the PR, write a specialist brief, run four specialists in parallel, publish inline thread batches, then write the final summary.
+6. **Reviews** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)) build a specialist brief from server-owned PR facts, run four specialists in parallel under the active budget, publish evidence-valid inline thread batches, then render the final summary from the finding ledger.
 
 Queue inspection and recovery: [docs/agent-work-ops.md](docs/agent-work-ops.md). Design background: [ADR 0009](docs/adr/0009-durable-agent-work.md), [ADR 0008](docs/adr/0008-ask-command.md).
 

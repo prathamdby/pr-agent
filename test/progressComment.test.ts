@@ -135,6 +135,62 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toContain("coverage partial");
   });
 
+  it("names a specialist budget failure in progress", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+      tickState: {
+        kind: "specialists",
+        recon: "done",
+        specialists: {
+          correctness: { phase: "running" },
+          security: {
+            phase: "failed",
+            budget: {
+              budgetKey: "REVIEW_SPECIALIST_TIMEOUT_MS",
+              limitMs: 480_000,
+              usedMs: 480_010,
+            },
+          },
+          quality: { phase: "running" },
+          tests: { phase: "running" },
+        },
+      },
+    });
+
+    expect(body).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
+    expect(body).toContain("limit 480000 ms");
+    expect(body).toContain("used 480010 ms");
+  });
+
+  it("names the run budget in progress after specialists finish", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+      tickState: {
+        kind: "specialists",
+        recon: "done",
+        specialists: {
+          correctness: { phase: "no_findings" },
+          security: { phase: "no_findings" },
+          quality: { phase: "no_findings" },
+          tests: { phase: "no_findings" },
+        },
+        budget: {
+          budgetKey: "REVIEW_ACTIVE_BUDGET_MS",
+          limitMs: 900_000,
+          usedMs: 900_000,
+        },
+      },
+    });
+
+    expect(body).toContain("REVIEW_ACTIVE_BUDGET_MS");
+    expect(body).toContain("limit 900000 ms");
+    expect(body).toContain("used 900000 ms");
+  });
+
   it("renders one published finding with singular copy", () => {
     const body = renderReviewProgressComment({
       mode: "review",

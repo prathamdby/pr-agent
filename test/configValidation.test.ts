@@ -31,7 +31,7 @@ describe("loadConfig validation", () => {
     const cfg = await load({});
     expect(cfg.port).toBe(3000);
     expect(cfg.providerPromptTimeoutMs).toBe(300_000);
-    expect(cfg.reviewSpecialistTimeoutMs).toBe(900_000);
+    expect(cfg.reviewSpecialistTimeoutMs).toBe(480_000);
     expect(cfg.queueRetryLimit).toBe(3);
     expect(cfg.queueHeartbeatSeconds).toBe(60);
     expect(cfg.shutdownDrainTimeoutSeconds).toBe(25);

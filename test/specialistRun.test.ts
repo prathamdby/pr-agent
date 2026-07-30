@@ -4,6 +4,11 @@ import { makeTestConfig } from "./helpers/config.js";
 
 type AttemptBehavior =
   | { readonly kind: "report"; readonly report: Record<string, unknown> }
+  | {
+      readonly kind: "report_pending_dispose";
+      readonly report: Record<string, unknown>;
+      readonly settleAfterMs: number;
+    }
   | { readonly kind: "error"; readonly error: Error }
   | { readonly kind: "pending_create"; readonly settleAfterMs: number }
   | { readonly kind: "pending_send"; readonly settleAfterMs: number }
@@ -105,7 +110,11 @@ describe("runSpecialist", () => {
         abort,
         setActiveTools: vi.fn(),
         restoreTools: vi.fn(),
-        dispose: vi.fn(async () => undefined),
+        dispose: vi.fn(async () => {
+          if (behavior.kind === "report_pending_dispose") {
+            await new Promise<void>((resolve) => setTimeout(resolve, behavior.settleAfterMs));
+          }
+        }),
       };
       runnerMocks.sessions.push(session);
       return session;
@@ -134,6 +143,35 @@ describe("runSpecialist", () => {
       checkpointId: "specialist:specialist",
     });
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts stalled session disposal against the specialist budget", async () => {
+    vi.useFakeTimers();
+    runnerMocks.behaviors.push({
+      kind: "report_pending_dispose",
+      report: findingsReport,
+      settleAfterMs: 200,
+    });
+    const run = runSpecialist(
+      specialistArgs({
+        timeoutMs: 100,
+        timeoutBudget: { key: "REVIEW_SPECIALIST_TIMEOUT_MS", limitMs: 100 },
+      }),
+    );
+
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(run).resolves.toMatchObject({
+      kind: "error",
+      error: {
+        context: {
+          classification: "timeout",
+          budgetKey: "REVIEW_SPECIALIST_TIMEOUT_MS",
+          limitMs: 100,
+        },
+      },
+    });
+    expect(runnerMocks.sessions[0]?.abort).toHaveBeenCalled();
   });
 
   it("returns empty for a valid no_findings report", async () => {

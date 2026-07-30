@@ -36,8 +36,9 @@ type WorkspaceTools = {
 
 /** Which wall budget bound this specialist (min of configured timeout and model window). */
 export type SpecialistTimeoutBudget = {
-  readonly key: "REVIEW_SPECIALIST_TIMEOUT_MS" | "model_window";
+  readonly key: "REVIEW_ACTIVE_BUDGET_MS" | "REVIEW_SPECIALIST_TIMEOUT_MS" | "model_window";
   readonly limitMs: number;
+  readonly startedAtMs?: number;
 };
 
 export type RunSpecialistParams = {
@@ -73,7 +74,10 @@ function timeoutError(params: {
   readonly startedAtMs: number;
   readonly nowMs?: number;
 }): AppError {
-  const usedMs = Math.max(0, (params.nowMs ?? Date.now()) - params.startedAtMs);
+  const usedMs = Math.max(
+    0,
+    (params.nowMs ?? Date.now()) - (params.budget.startedAtMs ?? params.startedAtMs),
+  );
   return new AppError({
     code: "review.specialist_timeout",
     message: `Specialist timeout deadline exceeded (budget=${params.budget.key} limitMs=${params.budget.limitMs} usedMs=${usedMs})`,
@@ -409,7 +413,16 @@ async function runAttempt(
     }
     return state.report;
   } finally {
-    if (!cleanupDeferred) await session.dispose();
+    if (!cleanupDeferred) {
+      await runWithinDeadline({
+        run: () => session.dispose(),
+        signal: params.signal,
+        deadlineMs,
+        budget,
+        startedAtMs,
+        cancel: () => session.abort(),
+      });
+    }
   }
 }
 
@@ -422,17 +435,21 @@ function failureOutcome(params: {
   readonly budget?: SpecialistTimeoutBudget;
 }): SpecialistOutcome {
   const usedMs = Date.now() - params.startedAtMs;
+  const budgetUsedMs =
+    params.budget == null
+      ? usedMs
+      : Math.max(0, Date.now() - (params.budget.startedAtMs ?? params.startedAtMs));
   const budgetContext =
     params.classification === "timeout" && params.budget != null
       ? {
           budgetKey: params.budget.key,
           limitMs: params.budget.limitMs,
-          usedMs,
+          usedMs: budgetUsedMs,
         }
       : {};
   const budgetSuffix =
     params.classification === "timeout" && params.budget != null
-      ? ` (budget=${params.budget.key} limitMs=${params.budget.limitMs} usedMs=${usedMs})`
+      ? ` (budget=${params.budget.key} limitMs=${params.budget.limitMs} usedMs=${budgetUsedMs})`
       : "";
   return {
     kind: "error",
