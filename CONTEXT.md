@@ -29,7 +29,7 @@ This file is **domain language only** — not a specification of how the system 
 - **Specialist brief**. The structured handoff containing pull request intent, architecture notes, risk areas, a file map, and focus for each specialist.
 - **Specialist report**. One specialist's structured submission. `no_findings` is an explicit successful empty report, not an error.
 - **Thread batch**. One incremental inline publish from a judgment turn. Each batch is one GitHub review with an event of `COMMENT`.
-- **Specialist tick**. A deterministic progress-comment edit after each specialist resolves.
+- **Specialist tick**. A deterministic progress-comment edit after each specialist resolves. After publish, the specialist row shows accepted finding count for that specialist from the finding ledger (posted or resumed **inline review threads** plus **summary-only findings**). "No findings" means zero acceptances or an explicit empty / `no_findings` report.
 - **Legacy review lens**. Historical `review-security`, `review-quality`, and `review-tests` values that remain readable in old comments, database rows, and fingerprints. New intake writes only `review`.
 - **Agent session**. The provider-side conversation spanning multiple sends within one work item. Specialist sessions run in parallel; the review orchestrator owns the judging and summary session.
 - **Pi session seam**. The pr-agent-owned interface (`createPiSession` / `PiSession`) that wraps the Pi coding-agent SDK. Feature harnesses create sessions only through this seam; raw Pi SDK construction and events stay inside `src/agent/runtime/`.

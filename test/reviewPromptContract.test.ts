@@ -8,6 +8,7 @@ import {
   securityTripwiresGuidance,
   proseContractGuidance,
   agentInstructionFilesGuidance,
+  pathAndSizeGuidance,
   specialistFindingsReportContract,
   adversarialMindsetGuidance,
   exhaustiveInvestigationGuidance,
@@ -52,6 +53,13 @@ describe("review prompt shared contract blocks", () => {
         exhaustiveInvestigationGuidance,
       );
     }
+  });
+
+  it("steers findings toward changed-path anchors for coverage gaps", () => {
+    expect(pathAndSizeGuidance).toContain("changed files");
+    expect(pathAndSizeGuidance).toContain("coverage gaps");
+    expect(specialistFindingsReportContract).toContain("commentable location on a changed path");
+    expect(specialistFindingsReportContract).toContain("Coverage and missing-test findings");
   });
 });
 
