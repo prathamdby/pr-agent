@@ -369,6 +369,27 @@ function reviewTimingPostHogProperties(
       snapshot.providerOutputTps ?? snapshot.providerOutputTokens / (snapshot.generationMs / 1000);
     properties.provider_output_tps = Math.round(tps * 100) / 100;
   }
+  if (snapshot.reconMs != null && snapshot.reconMs >= 0) {
+    properties.recon_ms = snapshot.reconMs;
+  }
+  if (snapshot.specialistCorrectnessMs != null && snapshot.specialistCorrectnessMs >= 0) {
+    properties.specialist_correctness_ms = snapshot.specialistCorrectnessMs;
+  }
+  if (snapshot.specialistSecurityMs != null && snapshot.specialistSecurityMs >= 0) {
+    properties.specialist_security_ms = snapshot.specialistSecurityMs;
+  }
+  if (snapshot.specialistQualityMs != null && snapshot.specialistQualityMs >= 0) {
+    properties.specialist_quality_ms = snapshot.specialistQualityMs;
+  }
+  if (snapshot.specialistTestsMs != null && snapshot.specialistTestsMs >= 0) {
+    properties.specialist_tests_ms = snapshot.specialistTestsMs;
+  }
+  if (snapshot.specialistsParallelMs != null && snapshot.specialistsParallelMs >= 0) {
+    properties.specialists_parallel_ms = snapshot.specialistsParallelMs;
+  }
+  if (snapshot.synthesisMs != null && snapshot.synthesisMs >= 0) {
+    properties.synthesis_ms = snapshot.synthesisMs;
+  }
   return properties;
 }
 

@@ -113,6 +113,16 @@ export type ReviewRunMetricsSnapshot = {
   readonly generationMs: number;
   readonly providerOutputTps?: number;
   readonly tokenCoverage: "full_run" | "orchestrator_only";
+  /** Wall clock: orchestrated start through recon done / specialist spawn. */
+  readonly reconMs?: number;
+  readonly specialistCorrectnessMs?: number;
+  readonly specialistSecurityMs?: number;
+  readonly specialistQualityMs?: number;
+  readonly specialistTestsMs?: number;
+  /** Wall clock of the parallel specialist window (spawn to last outcome). */
+  readonly specialistsParallelMs?: number;
+  /** Wall clock from all specialists resolved through final summary publish prep. */
+  readonly synthesisMs?: number;
 };
 
 type MutableReviewRunMetrics = {
@@ -159,7 +169,28 @@ type MutableReviewRunMetrics = {
   toolMs: number;
   providerSendMs: number;
   specialistTokensRecorded: boolean;
+  reconMs?: number;
+  specialistCorrectnessMs?: number;
+  specialistSecurityMs?: number;
+  specialistQualityMs?: number;
+  specialistTestsMs?: number;
+  specialistsParallelMs?: number;
+  synthesisMs?: number;
 };
+
+/** First-class phase receipt fields written by the orchestrated review path. */
+export type ReviewPhaseReceiptFields = Partial<
+  Pick<
+    MutableReviewRunMetrics,
+    | "reconMs"
+    | "specialistCorrectnessMs"
+    | "specialistSecurityMs"
+    | "specialistQualityMs"
+    | "specialistTestsMs"
+    | "specialistsParallelMs"
+    | "synthesisMs"
+  >
+>;
 
 function createEmptyMetrics(meta: {
   provider: string;
@@ -411,7 +442,8 @@ export function setReviewRunMetricFields(
       | "threadBatches"
       | "briefFallback"
     >
-  >,
+  > &
+    ReviewPhaseReceiptFields,
 ): void {
   const metrics = getOrInitMetrics();
   if (!metrics) return;
@@ -423,6 +455,23 @@ export function setReviewRunMetricFields(
   }
   if (fields.threadBatches !== undefined) metrics.threadBatches = fields.threadBatches;
   if (fields.briefFallback !== undefined) metrics.briefFallback = fields.briefFallback;
+  if (fields.reconMs !== undefined) metrics.reconMs = fields.reconMs;
+  if (fields.specialistCorrectnessMs !== undefined) {
+    metrics.specialistCorrectnessMs = fields.specialistCorrectnessMs;
+  }
+  if (fields.specialistSecurityMs !== undefined) {
+    metrics.specialistSecurityMs = fields.specialistSecurityMs;
+  }
+  if (fields.specialistQualityMs !== undefined) {
+    metrics.specialistQualityMs = fields.specialistQualityMs;
+  }
+  if (fields.specialistTestsMs !== undefined) {
+    metrics.specialistTestsMs = fields.specialistTestsMs;
+  }
+  if (fields.specialistsParallelMs !== undefined) {
+    metrics.specialistsParallelMs = fields.specialistsParallelMs;
+  }
+  if (fields.synthesisMs !== undefined) metrics.synthesisMs = fields.synthesisMs;
 }
 
 export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
@@ -479,6 +528,23 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
       ? { providerOutputTps: metrics.providerOutputTokens / (generationMs / 1000) }
       : {}),
     ...(metrics.lightweight !== undefined ? { lightweight: metrics.lightweight } : {}),
+    ...(metrics.reconMs !== undefined ? { reconMs: metrics.reconMs } : {}),
+    ...(metrics.specialistCorrectnessMs !== undefined
+      ? { specialistCorrectnessMs: metrics.specialistCorrectnessMs }
+      : {}),
+    ...(metrics.specialistSecurityMs !== undefined
+      ? { specialistSecurityMs: metrics.specialistSecurityMs }
+      : {}),
+    ...(metrics.specialistQualityMs !== undefined
+      ? { specialistQualityMs: metrics.specialistQualityMs }
+      : {}),
+    ...(metrics.specialistTestsMs !== undefined
+      ? { specialistTestsMs: metrics.specialistTestsMs }
+      : {}),
+    ...(metrics.specialistsParallelMs !== undefined
+      ? { specialistsParallelMs: metrics.specialistsParallelMs }
+      : {}),
+    ...(metrics.synthesisMs !== undefined ? { synthesisMs: metrics.synthesisMs } : {}),
   };
 }
 

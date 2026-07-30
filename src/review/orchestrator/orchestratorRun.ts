@@ -31,6 +31,7 @@ import {
   recordClassifiedFailure,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
+  type ReviewPhaseReceiptFields,
 } from "../run/reviewRunMetrics.js";
 import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
@@ -55,8 +56,29 @@ import {
 } from "./orchestratorTypes.js";
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
-import { runSpecialist } from "./specialistRun.js";
+import { runSpecialist, type SpecialistTimeoutBudget } from "./specialistRun.js";
 import { tickProgressComment } from "./stubTick.js";
+
+const SPECIALIST_DURATION_FIELD = {
+  correctness: "specialistCorrectnessMs",
+  security: "specialistSecurityMs",
+  quality: "specialistQualityMs",
+  tests: "specialistTestsMs",
+} as const satisfies Record<SpecialistId, keyof ReviewPhaseReceiptFields>;
+
+function specialistTimeoutBudget(
+  specialistTimeoutMs: number,
+  remainingModelMs: number,
+): SpecialistTimeoutBudget {
+  if (remainingModelMs < specialistTimeoutMs) {
+    return { key: "model_window", limitMs: Math.max(0, remainingModelMs) };
+  }
+  return { key: "REVIEW_SPECIALIST_TIMEOUT_MS", limitMs: specialistTimeoutMs };
+}
+
+function phaseReceiptFromOutcome(outcome: SpecialistOutcome): ReviewPhaseReceiptFields {
+  return { [SPECIALIST_DURATION_FIELD[outcome.specialist]]: outcome.durationMs };
+}
 
 export type OrchestratedReviewRunParams = ReviewRunParams & {
   readonly timing: ReviewRunTiming;
@@ -233,6 +255,7 @@ export async function runOrchestratedPrReview(
     model: params.cfg.piModel,
     mode: reviewMode,
   });
+  const orchestratedStartedAtMs = Date.now();
   const setup = buildReviewRunSetup({
     ...params,
     pool: params.durability?.pool,
@@ -621,6 +644,9 @@ export async function runOrchestratedPrReview(
 
   const markReconDoneAndTick = async (): Promise<void> => {
     state.recon = "done";
+    setReviewRunMetricFields({
+      reconMs: Math.max(0, Date.now() - orchestratedStartedAtMs),
+    });
     for (const specialist of SPECIALIST_IDS) {
       state.specialists[specialist] = { phase: "running" };
     }
@@ -663,6 +689,7 @@ export async function runOrchestratedPrReview(
     state.outcomes[outcome.specialist] = outcome;
     state.completionOrder.push(outcome.specialist);
     state.progressRevision = nextProgressRevision(state.progressRevision);
+    setReviewRunMetricFields(phaseReceiptFromOutcome(outcome));
     if (outcome.kind === "empty") {
       state.specialists[outcome.specialist] = { phase: "no_findings" };
       await writeTick();
@@ -852,9 +879,15 @@ export async function runOrchestratedPrReview(
     await markReconDoneAndTick();
 
     const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
+    const specialistsSpawnedAtMs = Date.now();
     for (const specialist of SPECIALIST_IDS) {
       const controller = new AbortController();
       specialistControllers.set(specialist, controller);
+      const remainingModelMs = params.timing.remainingModelMs();
+      const timeoutMs = Math.max(
+        0,
+        Math.min(params.cfg.reviewSpecialistTimeoutMs, remainingModelMs),
+      );
       pending.set(
         specialist,
         runSpecialist({
@@ -863,9 +896,10 @@ export async function runOrchestratedPrReview(
           specialist,
           briefMessage: renderBriefMessage(brief, specialist),
           workspaceTools: setup.workspaceTools,
-          timeoutMs: Math.max(
-            0,
-            Math.min(params.cfg.reviewSpecialistTimeoutMs, params.timing.remainingModelMs()),
+          timeoutMs,
+          timeoutBudget: specialistTimeoutBudget(
+            params.cfg.reviewSpecialistTimeoutMs,
+            remainingModelMs,
           ),
           shouldContinue: () => state.lifecycle.kind === "running",
           signal: controller.signal,
@@ -941,6 +975,11 @@ export async function runOrchestratedPrReview(
         if (outcome.kind === "report") await degradeReport(outcome);
       }
     }
+
+    setReviewRunMetricFields({
+      specialistsParallelMs: Math.max(0, Date.now() - specialistsSpawnedAtMs),
+    });
+    const synthesisStartedAtMs = Date.now();
 
     if (fatalError != null) throw fatalError;
 
@@ -1050,6 +1089,10 @@ export async function runOrchestratedPrReview(
       }
       markCompleteUnlessStopped();
     }
+
+    setReviewRunMetricFields({
+      synthesisMs: Math.max(0, Date.now() - synthesisStartedAtMs),
+    });
   } catch (error) {
     abortSpecialists();
     await retireSession();
