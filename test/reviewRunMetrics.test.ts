@@ -185,6 +185,57 @@ describe("reviewRunMetrics", () => {
     });
   });
 
+  it("snapshots orchestrated phase receipt fields including all-empty runs", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "opencode-go",
+        model: "hy3",
+        mode: "review",
+        startedAtMs: Date.now() - 60_000,
+      });
+      setReviewRunMetricFields({
+        reconMs: 13_000,
+        specialistCorrectnessMs: 8_000,
+        specialistSecurityMs: 7_000,
+        specialistQualityMs: 18_000,
+        specialistTestsMs: 29_000,
+        specialistsParallelMs: 29_000,
+        synthesisMs: 6_000,
+        published: true,
+      });
+      recordReviewMetric({
+        kind: "published",
+        findingsCount: 0,
+        severities: [],
+      });
+      const snapshot = snapshotReviewRunMetrics();
+      expect(snapshot).toMatchObject({
+        reconMs: 13_000,
+        specialistCorrectnessMs: 8_000,
+        specialistSecurityMs: 7_000,
+        specialistQualityMs: 18_000,
+        specialistTestsMs: 29_000,
+        specialistsParallelMs: 29_000,
+        synthesisMs: 6_000,
+        findingsCount: 0,
+        wallClockMs: expect.any(Number),
+      });
+      expect(snapshot!.wallClockMs).toBeGreaterThanOrEqual(0);
+      const sequential =
+        (snapshot!.reconMs ?? 0) +
+        (snapshot!.specialistsParallelMs ?? 0) +
+        (snapshot!.synthesisMs ?? 0);
+      expect(sequential).toBeLessThanOrEqual(snapshot!.wallClockMs + 1_000);
+      const specialistSum =
+        (snapshot!.specialistCorrectnessMs ?? 0) +
+        (snapshot!.specialistSecurityMs ?? 0) +
+        (snapshot!.specialistQualityMs ?? 0) +
+        (snapshot!.specialistTestsMs ?? 0);
+      expect(specialistSum).toBeGreaterThan(snapshot!.specialistsParallelMs ?? 0);
+    });
+  });
+
   it("retains lastFailure and recent tool errors when tool_call fails with error text", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {

@@ -493,6 +493,46 @@ describe("executeReviewJob", () => {
     );
   });
 
+  it("emits review published phase receipt props from snapshot", async () => {
+    vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
+      wallClockMs: 2_849_601,
+      providerOutputTokens: 12_000,
+      generationMs: 50_000,
+      providerOutputTps: 44.64,
+      tokenCoverage: "full_run",
+      findingsCount: 0,
+      severities: [],
+      reconMs: 780_000,
+      specialistCorrectnessMs: 900_000,
+      specialistSecurityMs: 800_000,
+      specialistQualityMs: 1_080_000,
+      specialistTestsMs: 1_740_000,
+      specialistsParallelMs: 1_740_000,
+      synthesisMs: 360_000,
+    } as unknown as reviewRunMetrics.ReviewRunMetricsSnapshot);
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.captureEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "review published",
+        properties: expect.objectContaining({
+          wall_clock_ms: 2_849_601,
+          findings_count: 0,
+          recon_ms: 780_000,
+          specialist_correctness_ms: 900_000,
+          specialist_security_ms: 800_000,
+          specialist_quality_ms: 1_080_000,
+          specialist_tests_ms: 1_740_000,
+          specialists_parallel_ms: 1_740_000,
+          synthesis_ms: 360_000,
+          model: "test",
+          provider: "openai",
+        }),
+      }),
+    );
+  });
+
   it("omits provider_output_tps on review published when generationMs is 0", async () => {
     vi.spyOn(reviewRunMetrics, "snapshotReviewRunMetrics").mockReturnValue({
       wallClockMs: 12_000,

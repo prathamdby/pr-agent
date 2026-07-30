@@ -202,7 +202,12 @@ describe("runSpecialist", () => {
     vi.useFakeTimers();
     runnerMocks.behaviors.push({ kind: "pending" });
 
-    const outcomePromise = runSpecialist(specialistArgs({ timeoutMs: 100 }));
+    const outcomePromise = runSpecialist(
+      specialistArgs({
+        timeoutMs: 100,
+        timeoutBudget: { key: "REVIEW_SPECIALIST_TIMEOUT_MS", limitMs: 100 },
+      }),
+    );
     await vi.runAllTimersAsync();
     const outcome = await outcomePromise;
 
@@ -211,14 +216,81 @@ describe("runSpecialist", () => {
       kind: "error",
       error: {
         code: "review.specialist_failed",
-        context: { classification: "timeout", attempts: 1 },
+        context: {
+          classification: "timeout",
+          attempts: 1,
+          budgetKey: "REVIEW_SPECIALIST_TIMEOUT_MS",
+          limitMs: 100,
+        },
       },
     });
+    expect(outcome.kind).toBe("error");
+    expect(outcome.kind).not.toBe("empty");
+    if (outcome.kind === "error") {
+      expect(outcome.error.message).toContain("budget=REVIEW_SPECIALIST_TIMEOUT_MS");
+      expect(outcome.error.message).toContain("limitMs=100");
+      expect(typeof outcome.error.context.usedMs).toBe("number");
+      expect(outcome.error.context.usedMs).toBeGreaterThanOrEqual(100);
+    }
     expect(session?.abort).toHaveBeenCalledTimes(1);
     expect(session?.dispose).toHaveBeenCalledTimes(1);
     expect(session?.abort.mock.invocationCallOrder[0]).toBeLessThan(
       session?.dispose.mock.invocationCallOrder[0] ?? Infinity,
     );
+  });
+
+  it("never reports no_findings after the wall budget elapses", async () => {
+    vi.useFakeTimers();
+    // Late send that would have submitted empty findings after the deadline.
+    runnerMocks.behaviors.push({ kind: "pending_send", settleAfterMs: 200 });
+    runnerMocks.createSession.mockImplementation(async (params) => {
+      const behavior = runnerMocks.behaviors.shift();
+      if (!behavior || behavior.kind !== "pending_send") {
+        throw new Error("expected pending_send behavior");
+      }
+      const session: TestSession = {
+        role: "specialist",
+        send: vi.fn(async () => {
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, behavior.settleAfterMs);
+          });
+          await params.executors.submit_findings_report(emptyReport);
+          return { text: "" };
+        }),
+        abort: vi.fn(async () => undefined),
+        setActiveTools: vi.fn(),
+        restoreTools: vi.fn(),
+        dispose: vi.fn(async () => undefined),
+      };
+      runnerMocks.sessions.push(session);
+      return session;
+    });
+
+    let outcome: Awaited<ReturnType<typeof runSpecialist>> | undefined;
+    void runSpecialist(
+      specialistArgs({
+        timeoutMs: 100,
+        timeoutBudget: { key: "REVIEW_SPECIALIST_TIMEOUT_MS", limitMs: 100 },
+      }),
+    ).then((result) => {
+      outcome = result;
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(outcome).toMatchObject({
+      kind: "error",
+      error: {
+        code: "review.specialist_failed",
+        context: {
+          classification: "timeout",
+          budgetKey: "REVIEW_SPECIALIST_TIMEOUT_MS",
+          limitMs: 100,
+        },
+      },
+    });
+    expect(outcome?.kind).not.toBe("empty");
+
+    await vi.advanceTimersByTimeAsync(100);
   });
 
   it("returns at the hard deadline and disposes after a late send settles", async () => {
@@ -244,6 +316,34 @@ describe("runSpecialist", () => {
     await vi.advanceTimersByTimeAsync(100);
 
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it("names model_window budget when that bound is configured", async () => {
+    vi.useFakeTimers();
+    runnerMocks.behaviors.push({ kind: "pending" });
+
+    const outcomePromise = runSpecialist(
+      specialistArgs({
+        timeoutMs: 50,
+        timeoutBudget: { key: "model_window", limitMs: 50 },
+      }),
+    );
+    await vi.runAllTimersAsync();
+    const outcome = await outcomePromise;
+
+    expect(outcome).toMatchObject({
+      kind: "error",
+      error: {
+        context: {
+          classification: "timeout",
+          budgetKey: "model_window",
+          limitMs: 50,
+        },
+      },
+    });
+    if (outcome.kind === "error") {
+      expect(outcome.error.message).toContain("budget=model_window");
+    }
   });
 
   it("returns at the hard deadline and cleans up a late session creation afterward", async () => {
