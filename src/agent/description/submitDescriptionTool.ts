@@ -10,10 +10,7 @@ import {
   DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
   formatDescriptionValidationError,
 } from "./descriptionSchema.js";
-import {
-  enforceDescriptionMapPayload,
-  type DescriptionMapMode,
-} from "./descriptionMapMode.js";
+import { enforceDescriptionMapPayload, type DescriptionMapMode } from "./descriptionMapMode.js";
 import {
   formatMermaidValidationError,
   sanitizeMermaidDiagram,

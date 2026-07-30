@@ -34,9 +34,9 @@ describe("resolveDescriptionMapMode", () => {
   });
 
   it("omits for zero files", () => {
-    expect(
-      resolveDescriptionMapMode({ fileCount: 0, totalChanges: 0, truncated: false }),
-    ).toBe("omit");
+    expect(resolveDescriptionMapMode({ fileCount: 0, totalChanges: 0, truncated: false })).toBe(
+      "omit",
+    );
   });
 
   it("uses read_first when file count exceeds omit max", () => {

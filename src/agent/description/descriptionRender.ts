@@ -1,12 +1,10 @@
+import { escapeTableHtml, renderInlineCodeLink } from "../../github/markdownFormat.js";
 import {
   githubPullRequestFileDiffUrl,
   type GitHubPullRequestFileContext,
 } from "../../github/prFileUrls.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
-import {
-  DESCRIPTION_AGENT_HEADER,
-  DESCRIPTION_REVIEW_MAP_HEADING,
-} from "../../settings/index.js";
+import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../settings/index.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
 
 export { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
@@ -21,8 +19,8 @@ function renderReviewMap(
   const lines: string[] = [DESCRIPTION_REVIEW_MAP_HEADING, ""];
   files.forEach((file, index) => {
     const href = githubPullRequestFileDiffUrl(ctx, file.filename);
-    const reason = file.changesTitle.trim();
-    lines.push(`${index + 1}. [\`${file.filename}\`](${href}): ${reason}`);
+    const reason = escapeTableHtml(file.changesTitle.trim());
+    lines.push(`${index + 1}. ${renderInlineCodeLink(file.filename, href)}: ${reason}`);
   });
   return lines.join("\n").trimEnd();
 }

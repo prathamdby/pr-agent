@@ -4,10 +4,7 @@ import {
   renderDescriptionAgentBlock,
   sanitizeMermaidDiagram,
 } from "../src/agent/description/descriptionRender.js";
-import {
-  DESCRIPTION_AGENT_HEADER,
-  DESCRIPTION_REVIEW_MAP_HEADING,
-} from "../src/settings/index.js";
+import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../src/settings/index.js";
 
 const RENDER_CTX = { owner: "acme", repo: "widgets", prNumber: 42 };
 
@@ -48,7 +45,7 @@ describe("descriptionRender", () => {
     expect(body).not.toContain("<details>");
   });
 
-  it("renders read-first map as a flat ordered list with diff links", () => {
+  it("renders read-first map as a flat ordered list with escaped path links", () => {
     const body = renderDescriptionAgentBlock(
       {
         title: "t",
@@ -68,12 +65,33 @@ describe("descriptionRender", () => {
       RENDER_CTX,
     );
     expect(body).toContain(DESCRIPTION_REVIEW_MAP_HEADING);
-    expect(body).toContain("1. [`src/a.ts`](https://github.com/acme/widgets/pull/42/files#diff-");
-    expect(body).toContain("): Auth boundary risk");
-    expect(body).toContain("2. [`src/b.ts`](https://github.com/acme/widgets/pull/42/files#diff-");
+    expect(body).toContain('1. <a href="https://github.com/acme/widgets/pull/42/files#diff-');
+    expect(body).toContain("<code>src/a.ts</code></a>: Auth boundary risk");
+    expect(body).toContain("<code>src/b.ts</code></a>: Data path for the new flow");
     expect(body).not.toContain("<details>");
     expect(body).not.toContain("<summary>");
     expect(body).not.toContain("File Walkthrough");
+  });
+
+  it("escapes HTML-sensitive characters in map path and reason", () => {
+    const body = renderDescriptionAgentBlock(
+      {
+        title: "t",
+        type: ["Enhancement"],
+        description: "- Main",
+        prFiles: [
+          {
+            filename: "src/<script>.ts",
+            changesTitle: 'Break <b>html</b> & "quotes"',
+          },
+        ],
+      },
+      RENDER_CTX,
+    );
+    expect(body).toContain("<code>src/&lt;script&gt;.ts</code>");
+    expect(body).toContain('Break &lt;b&gt;html&lt;/b&gt; &amp; "quotes"');
+    expect(body).not.toContain("<script>");
+    expect(body).not.toContain("<b>html</b>");
   });
 
   it("ignores legacy label and changesSummary in map render", () => {
@@ -103,9 +121,7 @@ describe("descriptionRender", () => {
 describe("prBodyHasDescriptionReviewMap", () => {
   it("is true only when both description header and review map heading exist", () => {
     expect(prBodyHasDescriptionReviewMap(null)).toBe(false);
-    expect(prBodyHasDescriptionReviewMap(`${DESCRIPTION_AGENT_HEADER}\n\n### PR Type`)).toBe(
-      false,
-    );
+    expect(prBodyHasDescriptionReviewMap(`${DESCRIPTION_AGENT_HEADER}\n\n### PR Type`)).toBe(false);
     expect(
       prBodyHasDescriptionReviewMap(
         `${DESCRIPTION_AGENT_HEADER}\n\n${DESCRIPTION_REVIEW_MAP_HEADING}\n\n1. path`,
