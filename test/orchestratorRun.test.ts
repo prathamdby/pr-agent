@@ -508,6 +508,35 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.deterministicSummaries[0]?.securityConcerns).toContain("security finding");
   });
 
+  it("derives security concerns from a non-security specialist security category finding", async () => {
+    const correctnessReport = report("correctness");
+    const securityFinding = correctnessReport.report.findings[0];
+    if (securityFinding == null) throw new Error("missing correctness finding fixture");
+    securityFinding.category = "security";
+    securityFinding.title = "Auth bypass via missing claim check";
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve(correctnessReport);
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await run;
+    expect(testState.deterministicSummaries[0]?.securityConcerns).toContain(
+      "Auth bypass via missing claim check",
+    );
+  });
+
+  it("publishes a deterministic partial summary when every specialist times out", async () => {
+    const run = runOrchestratedPrReview(params());
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(timedOut(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.summaryNotes[0]).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
+  });
+
   it("marks uninspected changed paths as explicit partial coverage", async () => {
     const base = params();
     const run = runOrchestratedPrReview({
@@ -692,6 +721,22 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.briefMessages.every((message) => message.includes(bindingRule))).toBe(true);
   });
 
+  it("preserves middle trusted instructions when a user supplement is present", async () => {
+    const middleRule = "MIDDLE_BINDING_RULE: always verify installation scopes.";
+    const trustedContext = `${"prefix note\n".repeat(80)}${middleRule}\n${"suffix note\n".repeat(80)}`;
+    const run = runOrchestratedPrReview({
+      ...params(),
+      trustedContext,
+      userSupplement: "x".repeat(4500),
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await run;
+    expect(testState.briefMessages.every((message) => message.includes(middleRule))).toBe(true);
+  });
+
   it("does not invoke judgment while publishing specialist reports", async () => {
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
@@ -777,6 +822,10 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.publishOrder).toEqual(["tests", "summary"]);
     expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
     expect(testState.summaryNotes[0]).toContain("model_window");
+    expect(testState.summaryNotes[0]).toMatch(/model_window enforced \(limit [1-9]\d{0,4} ms/);
+    expect(testState.summaryNotes[0]).not.toContain(
+      `limit ${REVIEW_ACTIVE_BUDGET_MS - REVIEW_FINALIZATION_WINDOW_MS} ms`,
+    );
   });
 
   it("refreshes live authentication before every deterministic publish and tick", async () => {

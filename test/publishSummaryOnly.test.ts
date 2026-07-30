@@ -247,4 +247,45 @@ describe("publishReviewSummaryOnly", () => {
     ).rejects.toMatchObject({ code: "review.summary_coverage_none" });
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
+
+  it("re-renders the summary body when getCoverage flips to partial", async () => {
+    let coverageCalls = 0;
+    const getCoverage = () => {
+      coverageCalls += 1;
+      return coverageCalls < 3
+        ? ({ kind: "full" } as const)
+        : {
+            kind: "partial" as const,
+            failed: ["security" as const],
+            note: "Coverage partial: REVIEW_ACTIVE_BUDGET_MS enforced (limit 900000 ms, used 900001 ms).",
+          };
+    };
+
+    const result = await publishReviewSummaryOnly({
+      cfg: makeTestConfig(),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "sha",
+        hasDescriptionReviewMap: false,
+      },
+      getToken: () => "t",
+      payload: {
+        prCharacter: "Late budget overrun.",
+        findings: [],
+        estimatedEffort: 1,
+        relevantTests: "no",
+        securityConcerns: null,
+        followUps: [],
+      },
+      ledger: createFindingLedger(),
+      getCoverage,
+    });
+
+    expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
+    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls.at(-1)?.[4];
+    expect(summaryBody).toContain("REVIEW_ACTIVE_BUDGET_MS enforced");
+    expect(coverageCalls).toBeGreaterThanOrEqual(3);
+  });
 });

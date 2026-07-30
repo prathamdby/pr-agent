@@ -113,16 +113,32 @@ function deterministicBrief(params: OrchestratedReviewRunParams): SpecialistBrie
   const prIntent = wrapUntrustedBlock("pr_intent", prIntentText);
   const trustedContext = params.trustedContext?.trim() ?? "";
   const userSupplement = params.userSupplement?.trim();
-  const sharedContext = [
-    trustedContext,
-    userSupplement ? wrapUntrustedBlock("user_supplement", userSupplement) : "",
-  ]
-    .filter((part) => part.length > 0)
-    .join("\n\n");
-  const architectureNotes =
-    sharedContext.length <= 6000
-      ? sharedContext
-      : `${sharedContext.slice(0, 2000)}\n\n[earlier context shortened]\n\n${sharedContext.slice(-3959)}`;
+  const untrustedSupplement = userSupplement
+    ? wrapUntrustedBlock("user_supplement", userSupplement)
+    : "";
+  const architectureNotes = (() => {
+    const ARCHITECTURE_NOTES_CAP = 6000;
+    if (trustedContext.length === 0) {
+      return untrustedSupplement.slice(0, ARCHITECTURE_NOTES_CAP);
+    }
+    if (untrustedSupplement.length === 0) {
+      return trustedContext.length <= ARCHITECTURE_NOTES_CAP
+        ? trustedContext
+        : `${trustedContext.slice(0, 2000)}\n\n[earlier context shortened]\n\n${trustedContext.slice(-3959)}`;
+    }
+    const separator = "\n\n";
+    const remainingForSupplement =
+      ARCHITECTURE_NOTES_CAP - trustedContext.length - separator.length;
+    if (remainingForSupplement >= untrustedSupplement.length) {
+      return `${trustedContext}${separator}${untrustedSupplement}`;
+    }
+    if (remainingForSupplement > 0) {
+      return `${trustedContext}${separator}${untrustedSupplement.slice(0, remainingForSupplement)}`;
+    }
+    return trustedContext.length <= ARCHITECTURE_NOTES_CAP
+      ? trustedContext
+      : `${trustedContext.slice(0, 2000)}\n\n[earlier context shortened]\n\n${trustedContext.slice(-3959)}`;
+  })();
   const riskAreas = Object.entries(REVIEW_RISK_PATH_PATTERNS)
     .flatMap(([area, patterns]) => {
       const matches = files.filter((file) => patterns.some((pattern) => pattern.test(file)));
@@ -704,9 +720,33 @@ export async function runOrchestratedPrReview(
         let gate: Awaited<ReturnType<typeof params.gate.check>>;
         try {
           gate = await params.gate.check();
-        } catch {
+        } catch (error) {
+          const gateError = toAppError(error, {
+            code: "review.gate_check_failed",
+            context: { specialist: outcome.specialist },
+          });
+          const failure = classifyFailure(gateError, {
+            phase: "specialist",
+            toolName: outcome.specialist,
+          });
+          recordClassifiedFailure(failure);
+          logWarn("review_gate_check_failed", {
+            specialist: outcome.specialist,
+            ...errorLogFields(gateError),
+            ...classifiedFailureLogFields(failure),
+          });
           await recordOutcome(outcome);
-          if (outcome.kind === "report") await publishReportDeterministically(outcome);
+          if (outcome.kind === "report") {
+            try {
+              await publishReportDeterministically(outcome);
+            } catch (publishError) {
+              fatalError = toAppError(publishError, {
+                code: "review.deterministic_finding_publish_failed",
+                context: { specialist: outcome.specialist },
+              });
+              abortSpecialists();
+            }
+          }
           return;
         }
         if (gate.kind !== "continue") {

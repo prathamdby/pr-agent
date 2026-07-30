@@ -36,9 +36,8 @@ type WorkspaceTools = {
 
 /** Which wall budget bound this specialist (min of configured timeout and model window). */
 export type SpecialistTimeoutBudget = {
-  readonly key: "REVIEW_ACTIVE_BUDGET_MS" | "REVIEW_SPECIALIST_TIMEOUT_MS" | "model_window";
+  readonly key: "REVIEW_SPECIALIST_TIMEOUT_MS" | "model_window";
   readonly limitMs: number;
-  readonly startedAtMs?: number;
 };
 
 export type RunSpecialistParams = {
@@ -74,10 +73,7 @@ function timeoutError(params: {
   readonly startedAtMs: number;
   readonly nowMs?: number;
 }): AppError {
-  const usedMs = Math.max(
-    0,
-    (params.nowMs ?? Date.now()) - (params.budget.startedAtMs ?? params.startedAtMs),
-  );
+  const usedMs = Math.max(0, (params.nowMs ?? Date.now()) - params.startedAtMs);
   return new AppError({
     code: "review.specialist_timeout",
     message: `Specialist timeout deadline exceeded (budget=${params.budget.key} limitMs=${params.budget.limitMs} usedMs=${usedMs})`,
@@ -435,10 +431,7 @@ function failureOutcome(params: {
   readonly budget?: SpecialistTimeoutBudget;
 }): SpecialistOutcome {
   const usedMs = Date.now() - params.startedAtMs;
-  const budgetUsedMs =
-    params.budget == null
-      ? usedMs
-      : Math.max(0, Date.now() - (params.budget.startedAtMs ?? params.startedAtMs));
+  const budgetUsedMs = usedMs;
   const budgetContext =
     params.classification === "timeout" && params.budget != null
       ? {
