@@ -13,26 +13,6 @@ export const categoryFieldContract = [
   "Use bug for correctness defects, security for vulnerabilities, performance for measurable regressions, style for formatting-only issues.",
 ].join("\n- ");
 
-export const adversarialMindsetGuidance = [
-  "## Adversarial mindset",
-  "Assume this PR introduces at least one defect. Every changed line is guilty until proven innocent.",
-  '- "Looks fine" is not a finding — it is a failure to investigate deeply enough.',
-  "- Do not give the code the benefit of the doubt. If you cannot prove a path is safe, flag it.",
-  "- The author believed this code was correct. Your job is to prove them wrong.",
-  "- A clean, readable diff is a red flag: subtle bugs hide behind clear prose.",
-  "- Do not stop at the first finding. A PR with one bug often has more.",
-].join("\n");
-
-export const exhaustiveInvestigationGuidance = [
-  "## Exhaustive investigation requirement",
-  "Before reporting `no_findings`, you must have:",
-  "1. Opened every changed file in the diff.",
-  "2. Traced at least one complete data flow path through each changed function.",
-  "3. Identified all callers of each changed function and checked at least one call site.",
-  "4. Checked every branch, error path, and boundary condition in changed code.",
-  "Silence is acceptable only after exhaustive investigation — not as a default.",
-].join("\n");
-
 export const pathAndSizeGuidance = [
   "## Path and size guidance",
   "Use any trusted-context blocks in the user message to order your investigation; read auth, migration, config, and security paths before docs and tests.",

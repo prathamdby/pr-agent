@@ -10,8 +10,6 @@ import {
   agentInstructionFilesGuidance,
   pathAndSizeGuidance,
   specialistFindingsReportContract,
-  adversarialMindsetGuidance,
-  exhaustiveInvestigationGuidance,
 } from "../src/review/prompts/reviewPromptBlocks.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
 
@@ -38,23 +36,6 @@ describe("review prompt shared contract blocks", () => {
       );
     }
   });
-
-  it("includes adversarial mindset guidance in every specialist", () => {
-    for (const [name, prompt] of SPECIALIST_PROMPTS) {
-      expect(prompt, `${name} should include adversarial mindset guidance`).toContain(
-        adversarialMindsetGuidance,
-      );
-    }
-  });
-
-  it("includes exhaustive investigation guidance in every specialist", () => {
-    for (const [name, prompt] of SPECIALIST_PROMPTS) {
-      expect(prompt, `${name} should include exhaustive investigation guidance`).toContain(
-        exhaustiveInvestigationGuidance,
-      );
-    }
-  });
-
   it("steers findings toward changed-path anchors for coverage gaps", () => {
     expect(pathAndSizeGuidance).toContain("changed files");
     expect(pathAndSizeGuidance).toContain("coverage gaps");
