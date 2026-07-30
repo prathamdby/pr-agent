@@ -16,7 +16,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value != null;
 }
 
-async function findCompletedPublishRecordId(
+export async function findCompletedPublishRecordId(
   client: Pool | PoolClient,
   workItemId: string,
   intent: OperationIntentRow,

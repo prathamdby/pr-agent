@@ -12,6 +12,8 @@ export type RateLimitCircuit = {
   readonly recordFailure: (kind: RateLimitFailureClass) => boolean;
   readonly isOpen: () => boolean;
   readonly consecutiveFailures: () => number;
+  /** Open from shared DB state without firing onOpened. */
+  readonly hydrateOpenFromShared: (kind?: RateLimitFailureClass) => void;
 };
 
 const circuitStore = new AsyncLocalStorage<RateLimitCircuit>();
@@ -74,6 +76,11 @@ export function createRateLimitCircuit(params: {
       open = true;
       params.onOpened?.(kind);
       return true;
+    },
+    hydrateOpenFromShared: (_kind) => {
+      if (open) return;
+      open = true;
+      consecutive = threshold;
     },
   };
 }

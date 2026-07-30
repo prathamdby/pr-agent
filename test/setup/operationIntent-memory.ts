@@ -39,6 +39,7 @@ vi.mock("../../src/agentWork/operationIntentRepository.js", () => ({
 vi.mock("../../src/agentWork/reconcilePendingIntents.js", () => ({
   reconcilePendingIntents: vi.fn(async () => ({ reconciled: 0, stillPending: 0 })),
   intentDetailMatchesPublishRecord: vi.fn(() => true),
+  findCompletedPublishRecordId: vi.fn(async () => null),
 }));
 
 beforeEach(() => {

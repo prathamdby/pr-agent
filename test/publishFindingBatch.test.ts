@@ -387,7 +387,7 @@ describe("publishFindingBatch", () => {
       findingFingerprints: [fingerprint],
     });
     const operationKey = reviewInlineBatchOperationKey(batchId);
-    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 2);
+    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 1);
 
     await expect(
       publishFindingBatch(

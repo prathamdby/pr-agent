@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   fetchPullRequestFiles: vi.fn(),
   listCommitCompareFiles: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
+  shouldSkipWork: vi.fn(),
+  getPullRequestHeadSha: vi.fn(),
   listCommits: vi.fn(),
   createReplyForReviewComment: vi.fn(),
   resolveReviewThread: vi.fn(),
@@ -77,7 +79,16 @@ vi.mock("../src/github/compareCommitFiles.js", () => ({
 
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/repository.js")>();
-  return { ...actual, listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews };
+  return {
+    ...actual,
+    listTriageEligibleInlineReviews: mocks.listTriageEligibleInlineReviews,
+    shouldSkipWork: mocks.shouldSkipWork,
+  };
+});
+
+vi.mock("../src/agentWork/githubPrSurface.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/githubPrSurface.js")>();
+  return { ...actual, getPullRequestHeadSha: mocks.getPullRequestHeadSha };
 });
 
 import { executeVerificationJob } from "../src/agentWork/executors/verificationExecutor.js";
@@ -166,6 +177,8 @@ describe("executeVerificationJob", () => {
       truncated: false,
     });
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
+    mocks.shouldSkipWork.mockResolvedValue(false);
+    mocks.getPullRequestHeadSha.mockResolvedValue("a".repeat(40));
     mocks.listCommits.mockResolvedValue({
       data: [{ sha: "b".repeat(40), commit: { message: "fix: guard user" } }],
     });
@@ -360,6 +373,62 @@ describe("executeVerificationJob", () => {
     await expect(executeVerificationJob(cfg, pool, boss, job())).rejects.toThrow(
       "Verification run ended without submitVerification",
     );
+    expect(mocks.publishVerification).not.toHaveBeenCalled();
+  });
+
+  it("does not publish when head SHA is stale at publish time", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    mocks.listReviewThreadResolution.mockResolvedValue({
+      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      status: "ok",
+    });
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "b".repeat(40),
+            evidence: "fixed",
+          },
+        ],
+      },
+    });
+    mocks.getPullRequestHeadSha.mockResolvedValue("f".repeat(40));
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    expect(mocks.runVerification).toHaveBeenCalled();
+    expect(mocks.getPullRequestHeadSha).toHaveBeenCalled();
+    expect(mocks.publishVerification).not.toHaveBeenCalled();
+  });
+
+  it("does not publish when cancel was requested before publish", async () => {
+    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    mocks.listReviewThreadResolution.mockResolvedValue({
+      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
+      status: "ok",
+    });
+    mocks.runVerification.mockResolvedValue({
+      submitted: true,
+      payload: {
+        verdicts: [
+          {
+            verdict: "fixed",
+            threadRootCommentId: 1,
+            commitSha: "b".repeat(40),
+            evidence: "fixed",
+          },
+        ],
+      },
+    });
+    mocks.shouldSkipWork.mockResolvedValue(true);
+
+    await executeVerificationJob(cfg, pool, boss, job());
+
+    expect(mocks.runVerification).toHaveBeenCalled();
+    expect(mocks.getPullRequestHeadSha).not.toHaveBeenCalled();
     expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
 

@@ -1,4 +1,4 @@
-import { logInfo } from "../../evlog.js";
+import { logInfo, logWarn } from "../../evlog.js";
 import { AppError } from "../../errors/appError.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
@@ -21,6 +21,10 @@ import {
   runWithRateLimitCircuit,
   wrapExecutorsWithRateLimitCircuit,
 } from "../../github/rateLimitCircuit.js";
+import {
+  isSharedRateLimitCircuitOpen,
+  openSharedRateLimitCircuitBestEffort,
+} from "../../github/sharedRateLimitCircuit.js";
 
 export type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 
@@ -58,9 +62,35 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     });
   }
 
+  const installationId = params.durability?.installationId ?? 0;
+  const durabilityPool = params.durability?.pool;
   const circuit = createRateLimitCircuit({
-    installationId: params.durability?.installationId ?? 0,
+    installationId,
+    onOpened: (kind) => {
+      openSharedRateLimitCircuitBestEffort(durabilityPool, {
+        installationId,
+        lastErrorKind: kind,
+      });
+    },
   });
+  if (durabilityPool != null && installationId > 0) {
+    try {
+      if (await isSharedRateLimitCircuitOpen(durabilityPool, installationId)) {
+        circuit.hydrateOpenFromShared("primary");
+        logInfo("github_shared_rate_limit_circuit_honored", {
+          installationId,
+          type: "ask",
+        });
+      }
+    } catch (error) {
+      // Best-effort shared read: DB blips must not abort the ask run.
+      logWarn("github_shared_rate_limit_circuit_read_failed", {
+        installationId,
+        type: "ask",
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   return runWithRateLimitCircuit(circuit, async () => {
     const { refreshableGh, primePathGate } = buildAskRunSetup(params);

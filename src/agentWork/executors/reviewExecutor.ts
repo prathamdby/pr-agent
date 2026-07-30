@@ -11,6 +11,10 @@ import {
 import type { InstallationToken } from "../../github/appAuth.js";
 import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
+  isSharedRateLimitCircuitOpen,
+  openSharedRateLimitCircuitBestEffort,
+} from "../../github/sharedRateLimitCircuit.js";
+import {
   assertPullRequestFilesHeadSha,
   fetchPullRequestFiles,
   type ListPullRequestFilesResult,
@@ -24,6 +28,7 @@ import type {
 } from "../../review/orchestrator/orchestratorTypes.js";
 import { loadRepoPolicy, renderRepoPolicyBlock } from "../../review/repoPolicy.js";
 import {
+  isSameRepoPullRequest,
   loadAgentInstructionFiles,
   renderAgentInstructionFilesBlock,
 } from "../../review/agentInstructionFiles.js";
@@ -561,7 +566,11 @@ async function runFullReviewAgainstRepositoryView(args: {
     }),
     loadAndRenderTrustedBlock({
       load: () => loadAgentInstructionFiles(repositoryView.agentCwd, MAX_AGENT_INSTRUCTION_BYTES),
-      renderOk: (result) => renderAgentInstructionFilesBlock({ files: result.files }),
+      renderOk: (result) =>
+        renderAgentInstructionFilesBlock({
+          files: result.files,
+          sameRepo: isSameRepoPullRequest(pullRequest),
+        }),
     }),
   ]);
 
@@ -790,7 +799,31 @@ export async function executeReviewJob(
 
       const rateLimitCircuit = createRateLimitCircuit({
         installationId: item.installationId,
+        onOpened: (kind) => {
+          openSharedRateLimitCircuitBestEffort(pool, {
+            installationId: item.installationId,
+            lastErrorKind: kind,
+          });
+        },
       });
+      try {
+        if (await isSharedRateLimitCircuitOpen(pool, item.installationId)) {
+          rateLimitCircuit.hydrateOpenFromShared("primary");
+          logInfo("github_shared_rate_limit_circuit_honored", {
+            installationId: item.installationId,
+            type: "review",
+            workItemId: item.id,
+          });
+        }
+      } catch (error) {
+        // Best-effort shared read: DB blips must not abort the review run.
+        logWarn("github_shared_rate_limit_circuit_read_failed", {
+          installationId: item.installationId,
+          type: "review",
+          workItemId: item.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       return runWithRateLimitCircuit(rateLimitCircuit, () =>
         withPrRepositoryView(
           buildRepositoryViewParams(

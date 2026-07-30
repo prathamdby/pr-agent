@@ -33,7 +33,8 @@ Large PR reviews drive many GitHub REST/GraphQL tool calls in a single **review 
 - Reviews on large PRs may run longer (throttle waits); ADR 0009 moves review execution out of the webhook request fiber.
 - Truncated PRs (>300 files) degrade review coverage by design.
 - Throttle state is per-process; `REVIEW_CONCURRENCY > 1` or multi-replica deploys can still burst the same installation.
-- Effective GitHub load scales roughly as `replicas × localConcurrency` per queue (see [operations.md](../operations.md)); cross-process coordination remains deferred.
+- Effective GitHub load scales roughly as `replicas × localConcurrency` per queue (see [operations.md](../operations.md)).
+- **MVP shared circuit:** opening a local rate-limit circuit also upserts Postgres `github_installation_rate_limit_circuits` (`installation_id`, `open_until`, `last_error_kind`). Other workers check that row before starting review/ask runs and hydrate their local circuit open so they do not immediately re-amplify 403/429 on the same installation.
 - `probable_secondary` is a heuristic; use structured logs to disprove in production.
 
 ## Superseded by ADR 0009
@@ -43,4 +44,4 @@ Large PR reviews drive many GitHub REST/GraphQL tool calls in a single **review 
 
 ## Deferred
 
-- Cross-process rate-limit coordination (Redis Bottleneck clustering).
+- Full Redis Bottleneck clustering (still optional). MVP: Postgres shared circuit above.
