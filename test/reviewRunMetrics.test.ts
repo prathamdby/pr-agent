@@ -223,7 +223,9 @@ describe("reviewRunMetrics", () => {
       });
       expect(snapshot!.wallClockMs).toBeGreaterThanOrEqual(0);
       const sequential =
-        (snapshot!.reconMs ?? 0) + (snapshot!.specialistsParallelMs ?? 0) + (snapshot!.synthesisMs ?? 0);
+        (snapshot!.reconMs ?? 0) +
+        (snapshot!.specialistsParallelMs ?? 0) +
+        (snapshot!.synthesisMs ?? 0);
       expect(sequential).toBeLessThanOrEqual(snapshot!.wallClockMs + 1_000);
       const specialistSum =
         (snapshot!.specialistCorrectnessMs ?? 0) +
