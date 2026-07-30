@@ -21,6 +21,10 @@ import {
   runWithRateLimitCircuit,
   wrapExecutorsWithRateLimitCircuit,
 } from "../../github/rateLimitCircuit.js";
+import {
+  isSharedRateLimitCircuitOpen,
+  openSharedRateLimitCircuitBestEffort,
+} from "../../github/sharedRateLimitCircuit.js";
 
 export type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 
@@ -58,9 +62,26 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     });
   }
 
+  const installationId = params.durability?.installationId ?? 0;
+  const durabilityPool = params.durability?.pool;
   const circuit = createRateLimitCircuit({
-    installationId: params.durability?.installationId ?? 0,
+    installationId,
+    onOpened: (kind) => {
+      openSharedRateLimitCircuitBestEffort(durabilityPool, {
+        installationId,
+        lastErrorKind: kind,
+      });
+    },
   });
+  if (durabilityPool != null && installationId > 0) {
+    if (await isSharedRateLimitCircuitOpen(durabilityPool, installationId)) {
+      circuit.hydrateOpenFromShared("primary");
+      logInfo("github_shared_rate_limit_circuit_honored", {
+        installationId,
+        type: "ask",
+      });
+    }
+  }
 
   return runWithRateLimitCircuit(circuit, async () => {
     const { refreshableGh, primePathGate } = buildAskRunSetup(params);

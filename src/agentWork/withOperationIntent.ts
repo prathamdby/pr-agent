@@ -6,7 +6,9 @@ import {
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
+  type OperationIntentRow,
 } from "./operationIntentRepository.js";
+import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
@@ -24,6 +26,11 @@ export type WithOperationIntentParams<T> = {
   readonly publishRecordId?: string | null;
   readonly reconcileDetail?: Record<string, unknown>;
 };
+
+/** Durable marker: mutate() was entered; crash before __result must not remutate. */
+export const OPERATION_INTENT_MUTATING_KEY = "__mutating";
+export const OPERATION_INTENT_RESULT_KEY = "__result";
+export const OPERATION_INTENT_MUTATE_ATTEMPT_KEY = "__mutateAttempt";
 
 export function askReplyOperationKey(resourceKey: string): string {
   return `ask:reply:${resourceKey}`;
@@ -71,6 +78,86 @@ export function verificationThreadOperationKey(rootCommentId: number): string {
   return `verification:thread:${rootCommentId}`;
 }
 
+function hasStashedResult(detail: Record<string, unknown>): boolean {
+  return Object.prototype.hasOwnProperty.call(detail, OPERATION_INTENT_RESULT_KEY);
+}
+
+async function finishWithStashedResult<T>(
+  params: WithOperationIntentParams<T>,
+  intent: OperationIntentRow,
+): Promise<T> {
+  if (intent.status !== "reconciled") {
+    await reconcileOperationIntent(params.client, {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      status: "reconciled",
+      publishRecordId: params.publishRecordId,
+      detail: {
+        ...params.reconcileDetail,
+        [OPERATION_INTENT_RESULT_KEY]: intent.detail[OPERATION_INTENT_RESULT_KEY],
+      },
+    });
+  }
+  return intent.detail[OPERATION_INTENT_RESULT_KEY] as T;
+}
+
+async function recoverAfterMutatingWithoutResult<T>(
+  params: WithOperationIntentParams<T>,
+  intent: OperationIntentRow,
+): Promise<T> {
+  const publishRecordId = await findCompletedPublishRecordId(
+    params.client,
+    params.workItemId,
+    intent,
+  );
+  if (publishRecordId != null) {
+    await reconcileOperationIntent(params.client, {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      status: "reconciled",
+      publishRecordId,
+      detail: {
+        ...params.reconcileDetail,
+        reconciledFromPublishRecord: true,
+        recoveredAfterMutating: true,
+      },
+    });
+    throw new AppError({
+      code: "operation_intent.mutation_outcome_unknown",
+      message:
+        "Mutation side effect already present in publish_records; refusing remutate after __mutating without stashed __result",
+      context: {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+        mutationKind: params.mutationKind,
+        publishRecordId,
+      },
+    });
+  }
+
+  await reconcileOperationIntent(params.client, {
+    workItemId: params.workItemId,
+    operationKey: params.operationKey,
+    status: "failed",
+    detail: {
+      ...params.reconcileDetail,
+      errorCode: "operation_intent.mutation_outcome_unknown",
+      errorMessage:
+        "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden",
+    },
+  });
+  throw new AppError({
+    code: "operation_intent.mutation_outcome_unknown",
+    message:
+      "Mutation outcome unknown after crash between mutate() and __result; remutate forbidden",
+    context: {
+      workItemId: params.workItemId,
+      operationKey: params.operationKey,
+      mutationKind: params.mutationKind,
+    },
+  });
+}
+
 export async function withOperationIntent<T>(params: WithOperationIntentParams<T>): Promise<T> {
   const intent = await persistOperationIntent(params.client, {
     workItemId: params.workItemId,
@@ -81,27 +168,44 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
 
   // Mutation outcome already stashed (reconciled, or crash/DB blip after mutate).
   // Never remutate when __result is present — finish status reconciliation only.
-  if ("__result" in intent.detail) {
-    if (intent.status !== "reconciled") {
-      await reconcileOperationIntent(params.client, {
-        workItemId: params.workItemId,
-        operationKey: params.operationKey,
-        status: "reconciled",
-        publishRecordId: params.publishRecordId,
-        detail: {
-          ...params.reconcileDetail,
-          __result: intent.detail.__result,
-        },
-      });
-    }
-    return intent.detail.__result as T;
+  if (hasStashedResult(intent.detail)) {
+    return finishWithStashedResult(params, intent);
   }
 
+  // Reconciled without a return value (e.g. recovered from publish_records): never remutate.
+  if (intent.status === "reconciled") {
+    throw new AppError({
+      code: "operation_intent.mutation_outcome_unknown",
+      message: "Operation intent already reconciled without stashed __result; remutate forbidden",
+      context: {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+        mutationKind: params.mutationKind,
+      },
+    });
+  }
+
+  if (intent.detail[OPERATION_INTENT_MUTATING_KEY] === true) {
+    return recoverAfterMutatingWithoutResult(params, intent);
+  }
+
+  const mutateAttempt = crypto.randomUUID();
+  await mergeOperationIntentDetail(params.client, {
+    workItemId: params.workItemId,
+    operationKey: params.operationKey,
+    detail: {
+      [OPERATION_INTENT_MUTATING_KEY]: true,
+      [OPERATION_INTENT_MUTATE_ATTEMPT_KEY]: mutateAttempt,
+    },
+  });
+
+  let mutateSucceeded = false;
   try {
     const result = await params.mutate();
+    mutateSucceeded = true;
     const resultDetail = {
       ...params.reconcileDetail,
-      ...(result === undefined ? {} : { __result: result as unknown }),
+      ...(result === undefined ? {} : { [OPERATION_INTENT_RESULT_KEY]: result as unknown }),
     };
     await mergeOperationIntentDetail(params.client, {
       workItemId: params.workItemId,
@@ -117,18 +221,24 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
     });
     return result;
   } catch (error) {
-    await reconcileOperationIntent(params.client, {
-      workItemId: params.workItemId,
-      operationKey: params.operationKey,
-      status: "failed",
-      detail: {
-        ...params.reconcileDetail,
-        errorMessage: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
-      },
-    });
+    // After mutate() returns, never mark failed — leave __mutating so redelivery
+    // takes the no-remutate recovery path instead of calling mutate() again.
+    if (!mutateSucceeded) {
+      await reconcileOperationIntent(params.client, {
+        workItemId: params.workItemId,
+        operationKey: params.operationKey,
+        status: "failed",
+        detail: {
+          ...params.reconcileDetail,
+          errorMessage: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+        },
+      });
+    }
     if (isAppError(error)) throw error;
     throw toAppError(error, {
-      code: "operation_intent.mutation_failed",
+      code: mutateSucceeded
+        ? "operation_intent.mutation_outcome_unknown"
+        : "operation_intent.mutation_failed",
       context: {
         workItemId: params.workItemId,
         operationKey: params.operationKey,

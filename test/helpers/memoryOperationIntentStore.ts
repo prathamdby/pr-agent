@@ -80,11 +80,12 @@ export function createMemoryOperationIntentStore() {
 
     /**
      * Crash hook for post-mutate / pre-reconcile restart tests.
-     * Defaults to failing twice so `withOperationIntent`'s catch-path
-     * `reconcile(... failed)` also aborts, leaving the row `pending` —
-     * matching a process death where neither reconcile runs.
+     * Defaults to failing once: after mutate() succeeds, withOperationIntent
+     * does not mark failed on persist/reconcile errors (leaves __mutating /
+     * __result pending). One failed success-path reconcile matches process death
+     * before status flip; redelivery finishes reconcile without remutating.
      */
-    failNextReconcile(error?: Error, times = 2): void {
+    failNextReconcile(error?: Error, times = 1): void {
       failNextReconcileError = error ?? new Error("simulated crash before reconcile");
       failNextReconcileRemaining = times;
     },

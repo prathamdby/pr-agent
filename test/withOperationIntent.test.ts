@@ -10,11 +10,18 @@ vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
   reconcileOperationIntent: vi.fn(),
 }));
 
+vi.mock("../src/agentWork/reconcilePendingIntents.js", () => ({
+  findCompletedPublishRecordId: vi.fn(),
+  reconcilePendingIntents: vi.fn(),
+  intentDetailMatchesPublishRecord: vi.fn(),
+}));
+
 import {
   mergeOperationIntentDetail,
   persistOperationIntent,
   reconcileOperationIntent,
 } from "../src/agentWork/operationIntentRepository.js";
+import { findCompletedPublishRecordId } from "../src/agentWork/reconcilePendingIntents.js";
 import { withOperationIntent } from "../src/agentWork/withOperationIntent.js";
 
 const pool = {} as Pool;
@@ -56,9 +63,10 @@ describe("withOperationIntent", () => {
       publishRecordId: null,
       detail: {},
     });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue(null);
   });
 
-  it("persists intent before running the mutation", async () => {
+  it("persists intent and marks __mutating before running the mutation", async () => {
     const calls: string[] = [];
     vi.mocked(persistOperationIntent).mockImplementation(async () => {
       calls.push("persist");
@@ -72,6 +80,19 @@ describe("withOperationIntent", () => {
         detail: {},
       };
     });
+    vi.mocked(mergeOperationIntentDetail).mockImplementation(async (_client, params) => {
+      if (params.detail.__mutating === true) calls.push("mark_mutating");
+      else if ("__result" in params.detail) calls.push("stash_result");
+      return {
+        id: "intent-1",
+        workItemId: "wi-1",
+        operationKey: "ask:reply:o/r#1",
+        mutationKind: "github.ask_reply",
+        status: "pending",
+        publishRecordId: null,
+        detail: params.detail,
+      };
+    });
 
     const result = await withOperationIntent({
       ...baseParams,
@@ -82,7 +103,13 @@ describe("withOperationIntent", () => {
     });
 
     expect(result).toBe("ok");
-    expect(calls).toEqual(["persist", "mutate"]);
+    expect(calls).toEqual(["persist", "mark_mutating", "mutate", "stash_result"]);
+    expect(mergeOperationIntentDetail).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        detail: expect.objectContaining({ __mutating: true, __mutateAttempt: expect.any(String) }),
+      }),
+    );
     expect(persistOperationIntent).toHaveBeenCalledBefore(vi.mocked(reconcileOperationIntent));
   });
 
@@ -194,5 +221,114 @@ describe("withOperationIntent", () => {
     expect(result).toBe("prior");
     expect(mutate).not.toHaveBeenCalled();
     expect(reconcileOperationIntent).not.toHaveBeenCalled();
+  });
+
+  it("does not remutate on redelivery after post-mutate crash before __result", async () => {
+    const mutate = vi.fn(async () => "second");
+
+    let firstMutateCalls = 0;
+    vi.mocked(persistOperationIntent).mockResolvedValueOnce({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: {},
+    });
+    vi.mocked(mergeOperationIntentDetail).mockImplementation(async (_client, params) => {
+      if (params.detail.__mutating === true) {
+        return {
+          id: "intent-1",
+          workItemId: "wi-1",
+          operationKey: "ask:reply:o/r#1",
+          mutationKind: "github.ask_reply",
+          status: "pending",
+          publishRecordId: null,
+          detail: params.detail,
+        };
+      }
+      throw new Error("crash after mutate before persist __result");
+    });
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        mutate: async () => {
+          firstMutateCalls += 1;
+          return "first";
+        },
+      }),
+    ).rejects.toThrow("crash after mutate before persist __result");
+    expect(firstMutateCalls).toBe(1);
+
+    vi.mocked(persistOperationIntent).mockResolvedValueOnce({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true, __mutateAttempt: "attempt-1", step: "ask_reply" },
+    });
+    vi.mocked(mergeOperationIntentDetail).mockClear();
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue(null);
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        mutate,
+      }),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(firstMutateCalls + mutate.mock.calls.length).toBe(1);
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        status: "failed",
+        detail: expect.objectContaining({
+          errorCode: "operation_intent.mutation_outcome_unknown",
+        }),
+      }),
+    );
+  });
+
+  it("recovers from publish_records without remutating when __mutating and no __result", async () => {
+    const mutate = vi.fn(async () => "fresh");
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: {
+        __mutating: true,
+        step: "ask_reply",
+        resourceKey: "o/r#1",
+      },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue("pub-recovered");
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        mutate,
+      }),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(reconcileOperationIntent).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        status: "reconciled",
+        publishRecordId: "pub-recovered",
+        detail: expect.objectContaining({
+          recoveredAfterMutating: true,
+          reconciledFromPublishRecord: true,
+        }),
+      }),
+    );
   });
 });

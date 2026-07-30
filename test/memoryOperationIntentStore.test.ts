@@ -66,7 +66,7 @@ describe("memoryOperationIntentStore + real withOperationIntent", () => {
 
   it("retries after post-mutate / pre-reconcile crash without remutating", async () => {
     const mutate = vi.fn(async () => ({ reviewId: 101 }));
-    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 2);
+    memoryOperationIntentStore.failNextReconcile(new Error("crash before reconcile"), 1);
 
     await expect(
       withOperationIntent({

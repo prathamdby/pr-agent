@@ -29,7 +29,8 @@ import {
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
 } from "../../settings/index.js";
-import { listTriageEligibleInlineReviews } from "../repository.js";
+import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
+import { getPullRequestHeadSha } from "../githubPrSurface.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type VerificationJobData } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
@@ -221,6 +222,41 @@ export async function executeVerificationJob(
           code: "verification.missing_submit",
           message: "Verification run ended without submitVerification",
         });
+      }
+
+      if (await shouldSkipWork(pool, item)) {
+        logInfo("verification_publish_skipped", {
+          type: "verification",
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reason: "cancel_or_superseded",
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+        });
+        return {};
+      }
+
+      const latestHeadSha = await getPullRequestHeadSha(
+        tokenState.installation.token,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        tokenState.installation.expiresAtTs,
+      );
+      if (latestHeadSha !== headSha) {
+        logInfo("verification_publish_skipped", {
+          type: "verification",
+          workItemId: item.id,
+          resourceKey: item.resourceKey,
+          reason: "stale_head",
+          boundHeadSha: headSha,
+          latestHeadSha,
+          owner: item.owner,
+          repo: item.repo,
+          pr: item.prNumber,
+        });
+        return {};
       }
 
       const publish = await publishVerification({

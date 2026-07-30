@@ -69,6 +69,11 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getPullRequestHeadSha: mocks.getPullRequestHeadSha,
 }));
 
+vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
+  isSharedRateLimitCircuitOpen: vi.fn(async () => false),
+  openSharedRateLimitCircuitBestEffort: vi.fn(),
+}));
+
 import * as durableJob from "../src/agentWork/durableJob.js";
 import * as listPullRequestFiles from "../src/github/listPullRequestFiles.js";
 import * as reviewLightweightCompletion from "../src/agentWork/reviewLightweightCompletion.js";
