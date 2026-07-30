@@ -154,10 +154,7 @@ export function applyFindingLedgerDelta(
 }
 
 /** Accepted placements for a specialist (inline posted/resumed + summary-only). */
-export function countAcceptedForSource(
-  ledger: FindingLedger,
-  source: FindingSource,
-): number {
+export function countAcceptedForSource(ledger: FindingLedger, source: FindingSource): number {
   return ledger.accepted.filter((placement) => placement.source === source).length;
 }
 
