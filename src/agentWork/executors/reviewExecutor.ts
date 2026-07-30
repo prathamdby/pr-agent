@@ -361,6 +361,19 @@ function reviewTimingPostHogProperties(
   };
   if (!snapshot) return properties;
   properties.wall_clock_ms = snapshot.wallClockMs;
+  if (snapshot.activeBudgetMs != null) properties.active_budget_ms = snapshot.activeBudgetMs;
+  if (snapshot.activeMs != null) properties.active_ms = snapshot.activeMs;
+  if (snapshot.activeOverrunMs != null) properties.active_overrun_ms = snapshot.activeOverrunMs;
+  if (snapshot.finalizationMs != null) properties.finalization_ms = snapshot.finalizationMs;
+  properties.timeout = snapshot.timedOut ? 1 : 0;
+  properties.partial_coverage = snapshot.partialCoverage ? 1 : 0;
+  properties.prompt_profile = snapshot.promptProfile;
+  if (snapshot.inspectedPathCount != null) {
+    properties.inspected_path_count = snapshot.inspectedPathCount;
+  }
+  if (snapshot.changedPathCount != null) {
+    properties.changed_path_count = snapshot.changedPathCount;
+  }
   properties.provider_output_tokens = snapshot.providerOutputTokens;
   properties.token_coverage = snapshot.tokenCoverage;
   if (snapshot.generationMs > 0) {

@@ -1,6 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PiSession } from "../src/agent/runtime/types.js";
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
@@ -14,7 +12,7 @@ import { createFindingLedger } from "../src/review/orchestrator/orchestratorType
 import type { Pool } from "pg";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
+import { REVIEW_ACTIVE_BUDGET_MS, REVIEW_FINALIZATION_WINDOW_MS } from "../src/settings/index.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
 
@@ -40,30 +38,22 @@ const testState = vi.hoisted(() => ({
   failureNotices: 0,
   refreshes: 0,
   briefMessages: [] as string[],
+  specialistTimeouts: [] as number[],
   signals: new Map<string, AbortSignal>(),
-  transitions: [] as string[][],
-  sessionAborts: 0,
-  sessionDisposals: 0,
-  judgmentFailuresRemaining: 0,
-  reconSubmitsBrief: true,
   deterministicSummaries: [] as Array<Record<string, unknown>>,
+  deterministicSummaryDelayMs: 0,
   deterministicCiAuthors: [] as Array<unknown>,
-  summaryToolCiAuthors: [] as Array<unknown>,
   ticks: [] as Array<{
     readonly progressRevision: number;
     readonly kind: string;
     readonly recon?: string;
-    readonly specialists?: Record<string, { phase: string }>;
+    readonly budget?: { budgetKey: string; limitMs: number; usedMs: number };
+    readonly specialists?: Record<
+      string,
+      { phase: string; budget?: { budgetKey: string; limitMs: number; usedMs: number } }
+    >;
   }>,
-  createError: null as Error | null,
-  createDelayMs: 0,
-  sendDelay: null as {
-    readonly phase: "recon" | "judgment" | "synthesis";
-    readonly ms: number;
-  } | null,
-  restrictionFailureTool: null as string | null,
   publishedBatchCount: 0,
-  synthesisPublishesSummary: true,
 }));
 
 vi.mock("../src/review/run/reviewRunSetup.js", () => ({
@@ -97,10 +87,12 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
       readonly specialist: SpecialistId;
       readonly briefMessage: string;
       readonly signal?: AbortSignal;
+      readonly timeoutMs: number;
     }) => {
       const outcome = testState.outcomes.get(params.specialist);
       if (!outcome) throw new Error(`Missing ${params.specialist} outcome`);
       testState.briefMessages.push(params.briefMessage);
+      testState.specialistTimeouts.push(params.timeoutMs);
       if (params.signal) testState.signals.set(params.specialist, params.signal);
       return new Promise<SpecialistOutcome>((resolve) => {
         outcome.promise.then(resolve);
@@ -158,29 +150,6 @@ vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
   }),
 }));
 
-vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
-  createPublishSummaryState: vi.fn(() => ({ published: false, lastValidationError: null })),
-  buildPublishSummaryTool: vi.fn(
-    (params: {
-      state: { published: boolean };
-      getCoverage: () => ReviewCoverage;
-      ciAuthor?: unknown;
-    }) => {
-      testState.summaryToolCiAuthors.push(params.ciAuthor);
-      return {
-        piTool: { name: "publish_summary", description: "summary", parameters: {} },
-        executor: vi.fn(async () => {
-          testState.publishOrder.push("summary");
-          const coverage = params.getCoverage();
-          testState.summaryNotes.push(coverage.kind === "partial" ? coverage.note : undefined);
-          params.state.published = true;
-          return { ok: true, summaryCommentId: 9 };
-        }),
-      };
-    },
-  ),
-}));
-
 vi.mock("../src/review/orchestrator/stubTick.js", () => ({
   tickProgressComment: vi.fn(
     async (params: {
@@ -188,7 +157,11 @@ vi.mock("../src/review/orchestrator/stubTick.js", () => ({
       tickState: {
         kind: string;
         recon?: string;
-        specialists?: Record<string, { phase: string }>;
+        specialists?: Record<
+          string,
+          { phase: string; budget?: { budgetKey: string; limitMs: number; usedMs: number } }
+        >;
+        budget?: { budgetKey: string; limitMs: number; usedMs: number };
       };
       refreshLiveAuth?: () => Promise<void>;
     }) => {
@@ -198,6 +171,7 @@ vi.mock("../src/review/orchestrator/stubTick.js", () => ({
         kind: params.tickState.kind,
         recon: params.tickState.recon,
         specialists: params.tickState.specialists,
+        ...(params.tickState.budget == null ? {} : { budget: params.tickState.budget }),
       });
     },
   ),
@@ -211,10 +185,22 @@ vi.mock("../src/review/run/reviewRunFallback.js", () => ({
 
 vi.mock("../src/review/publish/publishSummaryOnly.js", () => ({
   publishReviewSummaryOnly: vi.fn(
-    async (params: { readonly payload: Record<string, unknown>; readonly ciAuthor?: unknown }) => {
+    async (params: {
+      readonly payload: Record<string, unknown>;
+      readonly ciAuthor?: unknown;
+      readonly coverage?: ReviewCoverage;
+      readonly getCoverage?: () => ReviewCoverage;
+    }) => {
+      if (testState.deterministicSummaryDelayMs > 0) {
+        await new Promise<void>((resolve) =>
+          setTimeout(resolve, testState.deterministicSummaryDelayMs),
+        );
+      }
       testState.publishOrder.push("summary");
       testState.deterministicSummaries.push(params.payload);
       testState.deterministicCiAuthors.push(params.ciAuthor);
+      const coverage = params.getCoverage?.() ?? params.coverage;
+      testState.summaryNotes.push(coverage?.kind === "partial" ? coverage.note : undefined);
       return { kind: "published", summaryCommentId: 10 };
     },
   ),
@@ -272,7 +258,7 @@ function finding(specialist: SpecialistId): ReviewFinding {
   };
 }
 
-function report(specialist: SpecialistId): SpecialistOutcome {
+function report(specialist: SpecialistId): Extract<SpecialistOutcome, { readonly kind: "report" }> {
   return {
     kind: "report",
     specialist,
@@ -294,6 +280,23 @@ function failed(specialist: SpecialistId, message = `${specialist} failed`): Spe
       code: "review.specialist_failed",
       message,
       cause: new Error(message),
+    }),
+  };
+}
+
+function timedOut(specialist: SpecialistId): SpecialistOutcome {
+  return {
+    kind: "error",
+    specialist,
+    durationMs: 480_010,
+    error: new AppError({
+      code: "review.specialist_failed",
+      message: `${specialist} timed out`,
+      context: {
+        budgetKey: "REVIEW_SPECIALIST_TIMEOUT_MS",
+        limitMs: 480_000,
+        usedMs: 480_010,
+      },
     }),
   };
 }
@@ -342,23 +345,9 @@ function coordinatedRecordPublishStep() {
   );
 }
 
-function hardDeadlineParams(): OrchestratedReviewRunParams {
-  const startedAt = Date.now();
-  const modelStopAtMs = startedAt + 50;
-  const returnByMs = startedAt + 100;
-  return {
-    ...params(),
-    timing: {
-      modelStopAtMs,
-      returnByMs,
-      remainingModelMs: () => Math.max(0, modelStopAtMs - Date.now()),
-      remainingTotalMs: () => Math.max(0, returnByMs - Date.now()),
-    },
-  };
-}
-
 describe("runOrchestratedPrReview", () => {
   beforeEach(() => {
+    runner.createSession.mockClear();
     testState.outcomes.clear();
     testState.publishOrder.length = 0;
     testState.activeSource = null;
@@ -366,104 +355,16 @@ describe("runOrchestratedPrReview", () => {
     testState.failureNotices = 0;
     testState.refreshes = 0;
     testState.briefMessages.length = 0;
+    testState.specialistTimeouts.length = 0;
     testState.signals.clear();
-    testState.transitions.length = 0;
-    testState.sessionAborts = 0;
-    testState.sessionDisposals = 0;
-    testState.judgmentFailuresRemaining = 0;
-    testState.reconSubmitsBrief = true;
     testState.deterministicSummaries.length = 0;
+    testState.deterministicSummaryDelayMs = 0;
     testState.deterministicCiAuthors.length = 0;
-    testState.summaryToolCiAuthors.length = 0;
     testState.ticks.length = 0;
-    testState.createError = null;
-    testState.createDelayMs = 0;
-    testState.sendDelay = null;
-    testState.restrictionFailureTool = null;
     testState.publishedBatchCount = 0;
-    testState.synthesisPublishesSummary = true;
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.set(specialist, deferred());
     }
-
-    runner.createSession.mockImplementation(async (sessionParams) => {
-      if (testState.createError) throw testState.createError;
-      if (testState.createDelayMs > 0) {
-        await new Promise<void>((resolve) => setTimeout(resolve, testState.createDelayMs));
-      }
-      const executors = sessionParams.executors;
-      const session: Pick<
-        PiSession,
-        "role" | "send" | "abort" | "setActiveTools" | "restoreTools" | "dispose"
-      > = {
-        role: "orchestrator",
-        send: vi.fn(async (prompt) => {
-          const phase = prompt.includes("Inspect this pull request")
-            ? "recon"
-            : prompt.startsWith("Judge the ")
-              ? "judgment"
-              : prompt.includes("Synthesize the final")
-                ? "synthesis"
-                : null;
-          if (testState.sendDelay?.phase === phase) {
-            const delay = testState.sendDelay;
-            testState.sendDelay = null;
-            await new Promise<void>((resolve) => setTimeout(resolve, delay.ms));
-            return { text: "late" };
-          }
-          if (prompt.includes("Inspect this pull request")) {
-            if (testState.reconSubmitsBrief)
-              await executors.submit_specialist_brief?.({
-                prIntent: "Add orchestrated reviews.",
-                architectureNotes: "One orchestrator owns publication.",
-                riskAreas: [],
-                fileMap: "Four specialist files.",
-                specialistFocus: {
-                  correctness: "Trace behavior.",
-                  security: "Trace trust boundaries.",
-                  quality: "Trace maintainability.",
-                  tests: "Trace coverage.",
-                },
-              });
-          } else if (prompt.startsWith("Judge the ")) {
-            if (testState.judgmentFailuresRemaining > 0) {
-              testState.judgmentFailuresRemaining -= 1;
-              throw new Error("judgment provider failure");
-            }
-            await sessionParams.refreshBeforeTool?.("publish_thread");
-            await executors.publish_thread?.({ findings: [] });
-          } else if (
-            prompt.includes("Synthesize the final") ||
-            prompt.includes("Call publish_summary now") ||
-            prompt.includes("Fix the summary and call publish_summary")
-          ) {
-            if (testState.synthesisPublishesSummary) {
-              await sessionParams.refreshBeforeTool?.("publish_summary");
-              await executors.publish_summary?.({});
-            }
-          }
-          return { text: "ok" };
-        }),
-        abort: vi.fn(async () => {
-          testState.sessionAborts += 1;
-        }),
-        setActiveTools: vi.fn((tools: readonly PiTool[]) => {
-          if (
-            testState.restrictionFailureTool != null &&
-            tools.some((tool) => tool.name === testState.restrictionFailureTool)
-          ) {
-            testState.restrictionFailureTool = null;
-            throw new Error("restriction failed");
-          }
-          testState.transitions.push(tools.map((tool) => tool.name));
-        }),
-        restoreTools: vi.fn(),
-        dispose: vi.fn(async () => {
-          testState.sessionDisposals += 1;
-        }),
-      };
-      return session;
-    });
   });
 
   afterEach(() => {
@@ -471,12 +372,29 @@ describe("runOrchestratedPrReview", () => {
     evlog.initEvlog("error", { silent: true, suppressDrainWarning: true });
   });
 
-  it("caps orchestrator judgment turns at four tool rounds", () => {
-    expect(ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS).toBe(4);
+  it("caps every normal specialist at eight minutes", async () => {
+    const base = params();
+    const deadline = Date.now() + 20 * 60_000;
+    const run = runOrchestratedPrReview({
+      ...base,
+      cfg: { ...base.cfg, reviewSpecialistTimeoutMs: 900_000 },
+      tokenExpiresAtTs: deadline,
+      timing: {
+        returnByMs: deadline,
+        modelStopAtMs: deadline,
+        remainingModelMs: () => 20 * 60_000,
+        remainingTotalMs: () => 20 * 60_000,
+      },
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await run;
+    expect(testState.specialistTimeouts).toEqual([480_000, 480_000, 480_000, 480_000]);
   });
 
-  it("uses fallback recon and deterministic publication when session creation fails", async () => {
-    testState.createError = new Error("provider unavailable");
+  it("uses deterministic bookends without creating an orchestrator session", async () => {
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     testState.outcomes.get("security")?.resolve(empty("security"));
@@ -485,94 +403,74 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
-    expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
-    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
+    expect(testState.deterministicSummaries[0]?.prCharacter).toContain(
+      "orchestrated review completed",
+    );
+    expect(runner.createSession).not.toHaveBeenCalled();
     expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
-  it("returns before returnByMs when session creation crosses modelStopAtMs", async () => {
-    vi.useFakeTimers();
-    testState.createDelayMs = 200;
+  it("publishes an all-empty run without model-authored bookends", async () => {
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
     }
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
-    const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
-      result = value;
-      return value;
-    });
-
-    await vi.advanceTimersByTimeAsync(100);
-
-    expect(result).toMatchObject({ published: true });
+    await expect(runOrchestratedPrReview(params())).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["summary"]);
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-    expect(testState.sessionDisposals).toBe(1);
+    expect(runner.createSession).not.toHaveBeenCalled();
   });
 
-  it("abandons a recon send that ignores abort and finalizes before returnByMs", async () => {
+  it("reserves finalization time and publishes named partial coverage", async () => {
     vi.useFakeTimers();
-    testState.sendDelay = { phase: "recon", ms: 200 };
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
+    await vi.advanceTimersByTimeAsync(REVIEW_ACTIVE_BUDGET_MS);
+    const result = await run;
+
+    expect(result).toMatchObject({ published: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.summaryNotes[0]).toContain("model_window");
+    expect(testState.summaryNotes[0]).toContain(
+      `limit ${REVIEW_ACTIVE_BUDGET_MS - REVIEW_FINALIZATION_WINDOW_MS} ms`,
+    );
+    expect(testState.ticks.some((tick) => tick.budget?.budgetKey === "model_window")).toBe(true);
+  });
+
+  it("does not report full coverage when finalization reaches the active deadline", async () => {
+    vi.useFakeTimers();
+    testState.deterministicSummaryDelayMs = REVIEW_ACTIVE_BUDGET_MS;
+    const run = runOrchestratedPrReview({
+      ...params(),
+      recordPublishStep: coordinatedRecordPublishStep(),
+    });
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
     }
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
-    const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
-      result = value;
-      return value;
-    });
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(REVIEW_ACTIVE_BUDGET_MS);
 
-    await vi.advanceTimersByTimeAsync(100);
-
-    expect(result).toMatchObject({ published: true });
-    expect(testState.sessionAborts).toBe(1);
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.summaryNotes[0]).toContain("Coverage partial");
+    expect(testState.summaryNotes[0]).toContain("REVIEW_ACTIVE_BUDGET_MS");
+    expect(
+      testState.ticks.some((tick) => tick.budget?.budgetKey === "REVIEW_ACTIVE_BUDGET_MS"),
+    ).toBe(true);
   });
 
-  it("abandons a judgment send at modelStopAtMs and preserves the report", async () => {
+  it("uses the reserved finalization window without marking completed coverage partial", async () => {
     vi.useFakeTimers();
-    testState.sendDelay = { phase: "judgment", ms: 200 };
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
-    const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
-      result = value;
-      return value;
-    });
-    await vi.advanceTimersByTimeAsync(0);
-    testState.outcomes.get("correctness")?.resolve(report("correctness"));
-    await vi.advanceTimersByTimeAsync(0);
-    testState.outcomes.get("security")?.resolve(empty("security"));
-    testState.outcomes.get("quality")?.resolve(empty("quality"));
-    testState.outcomes.get("tests")?.resolve(empty("tests"));
-
-    await vi.advanceTimersByTimeAsync(100);
-
-    expect(result).toMatchObject({ published: true });
-    expect(testState.publishOrder).toEqual(["correctness", "summary"]);
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
-  });
-
-  it("abandons synthesis at modelStopAtMs and publishes a deterministic summary", async () => {
-    vi.useFakeTimers();
-    testState.sendDelay = { phase: "synthesis", ms: 200 };
-    let result: Awaited<ReturnType<typeof runOrchestratedPrReview>> | undefined;
-    const run = runOrchestratedPrReview(hardDeadlineParams()).then((value) => {
-      result = value;
-      return value;
-    });
-    await vi.advanceTimersByTimeAsync(0);
+    testState.deterministicSummaryDelayMs =
+      REVIEW_ACTIVE_BUDGET_MS - REVIEW_FINALIZATION_WINDOW_MS / 2;
+    const run = runOrchestratedPrReview(params());
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
     }
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(testState.deterministicSummaryDelayMs);
 
-    await vi.advanceTimersByTimeAsync(100);
-
-    expect(result).toMatchObject({ published: true });
-    expect(testState.publishOrder).toEqual(["summary"]);
-    await vi.advanceTimersByTimeAsync(100);
-    await run;
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.summaryNotes).toEqual([undefined]);
   });
 
   it("publishes specialist reports in completion order and the summary last", async () => {
@@ -596,10 +494,69 @@ describe("runOrchestratedPrReview", () => {
       "security",
       "summary",
     ]);
-    expect(typeof testState.summaryToolCiAuthors[0]).toBe("function");
   });
 
-  it("records every successful orchestrator turn and only new thread batches", async () => {
+  it("derives deterministic security concerns from accepted security findings", async () => {
+    const securityReport = report("security");
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("security")?.resolve(securityReport);
+    testState.outcomes.get("correctness")?.resolve(empty("correctness"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await run;
+    expect(testState.deterministicSummaries[0]?.securityConcerns).toContain("security finding");
+  });
+
+  it("derives security concerns from a non-security specialist security category finding", async () => {
+    const correctnessReport = report("correctness");
+    const securityFinding = correctnessReport.report.findings[0];
+    if (securityFinding == null) throw new Error("missing correctness finding fixture");
+    securityFinding.category = "security";
+    securityFinding.title = "Auth bypass via missing claim check";
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("correctness")?.resolve(correctnessReport);
+    testState.outcomes.get("security")?.resolve(empty("security"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await run;
+    expect(testState.deterministicSummaries[0]?.securityConcerns).toContain(
+      "Auth bypass via missing claim check",
+    );
+  });
+
+  it("publishes a deterministic partial summary when every specialist times out", async () => {
+    const run = runOrchestratedPrReview(params());
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(timedOut(specialist));
+    }
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.failureNotices).toBe(0);
+    expect(testState.summaryNotes[0]).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
+  });
+
+  it("marks uninspected changed paths as explicit partial coverage", async () => {
+    const base = params();
+    const run = runOrchestratedPrReview({
+      ...base,
+      workspace: {
+        ...workspace,
+        changedFiles: [{ path: "src/uninspected.ts", status: "modified" }],
+      },
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await run;
+
+    expect(testState.summaryNotes[0]).toContain("not every changed path was inspected");
+    expect(testState.summaryNotes[0]).toContain("Skipped paths: src/uninspected.ts");
+  });
+
+  it("publishes thread batches without orchestrator model turns", async () => {
     evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
 
     await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
@@ -615,8 +572,9 @@ describe("runOrchestratedPrReview", () => {
       await run;
 
       expect(snapshotReviewRunMetrics()).toMatchObject({
-        modelTurnCount: 6,
+        modelTurnCount: 0,
         threadBatches: 4,
+        promptProfile: "normal",
       });
     });
   });
@@ -644,7 +602,22 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
-    expect(testState.summaryNotes).toEqual(["Coverage partial: security specialist failed."]);
+    expect(testState.summaryNotes).toEqual([
+      "Coverage partial: security specialist failed; per-specialist read scope is unavailable. Aggregate inspected coverage: 0 of 0 changed paths; 0 skipped. Inspected paths: (none). Skipped paths: (none).",
+    ]);
+  });
+
+  it("carries specialist timeout receipts into final partial coverage", async () => {
+    const run = runOrchestratedPrReview(params());
+    testState.outcomes.get("security")?.resolve(timedOut("security"));
+    testState.outcomes.get("correctness")?.resolve(empty("correctness"));
+    testState.outcomes.get("quality")?.resolve(empty("quality"));
+    testState.outcomes.get("tests")?.resolve(empty("tests"));
+
+    await expect(run).resolves.toMatchObject({ published: true });
+    expect(testState.summaryNotes[0]).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
+    expect(testState.summaryNotes[0]).toContain("limit 480000 ms");
+    expect(testState.summaryNotes[0]).toContain("used 480010 ms");
   });
 
   it("publishes the failure notice and no summary when every specialist fails", async () => {
@@ -682,8 +655,7 @@ describe("runOrchestratedPrReview", () => {
     });
   });
 
-  it("publishes a deterministic summary when synthesis never calls publish_summary", async () => {
-    testState.synthesisPublishesSummary = false;
+  it("publishes a deterministic summary from the accepted ledger", async () => {
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
@@ -698,8 +670,7 @@ describe("runOrchestratedPrReview", () => {
     expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
-  it("falls back to a deterministic brief when recon never submits one", async () => {
-    testState.reconSubmitsBrief = false;
+  it("builds the specialist brief deterministically", async () => {
     const run = runOrchestratedPrReview(params());
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(empty(specialist));
@@ -710,10 +681,63 @@ describe("runOrchestratedPrReview", () => {
     expect(
       testState.briefMessages.every((message) => message.includes("Add orchestrated reviews")),
     ).toBe(true);
+    expect(
+      testState.briefMessages.every((message) => message.includes('<pr_intent untrusted="true">')),
+    ).toBe(true);
   });
 
-  it("degrades current and later reports after two judgment send failures", async () => {
-    testState.judgmentFailuresRemaining = 2;
+  it("includes slash review instructions as untrusted specialist context", async () => {
+    const run = runOrchestratedPrReview({
+      ...params(),
+      userSupplement: "Focus on the cache invalidation path.",
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await run;
+
+    expect(
+      testState.briefMessages.every(
+        (message) =>
+          message.includes('<user_supplement untrusted="true">') &&
+          message.includes("Focus on the cache invalidation path."),
+      ),
+    ).toBe(true);
+  });
+
+  it("preserves binding context at the end of a long deterministic brief", async () => {
+    const bindingRule = "Trusted context (agent instruction files): never skip auth checks.";
+    const run = runOrchestratedPrReview({
+      ...params(),
+      trustedContext: `${"path profile\n".repeat(700)}${bindingRule}`,
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await run;
+    expect(testState.briefMessages).toHaveLength(4);
+    expect(testState.briefMessages.every((message) => message.includes(bindingRule))).toBe(true);
+  });
+
+  it("preserves middle trusted instructions when a user supplement is present", async () => {
+    const middleRule = "MIDDLE_BINDING_RULE: always verify installation scopes.";
+    const trustedContext = `${"prefix note\n".repeat(80)}${middleRule}\n${"suffix note\n".repeat(80)}`;
+    const run = runOrchestratedPrReview({
+      ...params(),
+      trustedContext,
+      userSupplement: "x".repeat(4500),
+    });
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+
+    await run;
+    expect(testState.briefMessages.every((message) => message.includes(middleRule))).toBe(true);
+  });
+
+  it("does not invoke judgment while publishing specialist reports", async () => {
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     await vi.waitFor(() => expect(testState.publishOrder).toEqual(["correctness"]));
@@ -724,24 +748,11 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    expect(testState.sessionAborts).toBe(1);
-    expect(testState.deterministicSummaries[0]?.prCharacter).toContain("Judgment degraded");
+    expect(testState.deterministicSummaries[0]?.prCharacter).toContain(
+      "orchestrated review completed",
+    );
+    expect(runner.createSession).not.toHaveBeenCalled();
     expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
-  });
-
-  it("preserves a report when judgment tool restriction throws", async () => {
-    testState.restrictionFailureTool = "publish_thread";
-    const run = runOrchestratedPrReview(params());
-    testState.outcomes.get("correctness")?.resolve(report("correctness"));
-    await vi.waitFor(() => expect(testState.publishOrder).toContain("correctness"));
-    testState.outcomes.get("security")?.resolve(report("security"));
-    await vi.waitFor(() => expect(testState.publishOrder).toContain("security"));
-    testState.outcomes.get("quality")?.resolve(empty("quality"));
-    testState.outcomes.get("tests")?.resolve(empty("tests"));
-
-    await expect(run).resolves.toMatchObject({ published: true });
-    expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    expect(testState.deterministicSummaries[0]?.findings).toHaveLength(2);
   });
 
   it("preserves a report when the run gate throws during outcome handling", async () => {
@@ -766,12 +777,8 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("aborts and joins every provider promise when superseded during the pump", async () => {
-    let gateChecks = 0;
     const run = runOrchestratedPrReview({
-      ...paramsWithGate(async () => {
-        gateChecks += 1;
-        return gateChecks === 1 ? { kind: "continue" } : { kind: "stop", reason: "superseded" };
-      }),
+      ...paramsWithGate(async () => ({ kind: "stop", reason: "superseded" })),
       recordPublishStep: coordinatedRecordPublishStep(),
     });
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
@@ -779,7 +786,6 @@ describe("runOrchestratedPrReview", () => {
     await expect(run).resolves.toMatchObject({ published: false, publishSuperseded: true });
     expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
     expect(testState.publishOrder).toEqual([]);
-    expect(testState.sessionDisposals).toBe(1);
     expect(testState.ticks).toEqual([
       {
         progressRevision: 1,
@@ -807,39 +813,22 @@ describe("runOrchestratedPrReview", () => {
   });
 
   it("finalizes returned reports deterministically at the model deadline", async () => {
-    let gateChecks = 0;
     const run = runOrchestratedPrReview(
-      paramsWithGate(async () => {
-        gateChecks += 1;
-        return gateChecks === 1 ? { kind: "continue" } : { kind: "finalize", reason: "deadline" };
-      }),
+      paramsWithGate(async () => ({ kind: "finalize", reason: "deadline" })),
     );
     testState.outcomes.get("tests")?.resolve(report("tests"));
 
     await expect(run).resolves.toMatchObject({ published: true, publishSuperseded: false });
     expect(testState.publishOrder).toEqual(["tests", "summary"]);
     expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
+    expect(testState.summaryNotes[0]).toContain("model_window");
+    expect(testState.summaryNotes[0]).toMatch(/model_window enforced \(limit [1-9]\d{0,4} ms/);
+    expect(testState.summaryNotes[0]).not.toContain(
+      `limit ${REVIEW_ACTIVE_BUDGET_MS - REVIEW_FINALIZATION_WINDOW_MS} ms`,
+    );
   });
 
-  it("restores before every exact tool restriction", async () => {
-    const run = runOrchestratedPrReview(params());
-    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
-      testState.outcomes.get(specialist)?.resolve(report(specialist));
-      await vi.waitFor(() => expect(testState.publishOrder).toContain(specialist));
-    }
-    await run;
-
-    expect(testState.transitions).toEqual([
-      ["submit_specialist_brief"],
-      ["publish_thread"],
-      ["publish_thread"],
-      ["publish_thread"],
-      ["publish_thread"],
-      ["publish_summary"],
-    ]);
-  });
-
-  it("refreshes live authentication before every model-driven publish and tick", async () => {
+  it("refreshes live authentication before every deterministic publish and tick", async () => {
     const recordPublishStep = coordinatedRecordPublishStep();
     const run = runOrchestratedPrReview({ ...params(), recordPublishStep });
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {

@@ -409,7 +409,16 @@ async function runAttempt(
     }
     return state.report;
   } finally {
-    if (!cleanupDeferred) await session.dispose();
+    if (!cleanupDeferred) {
+      await runWithinDeadline({
+        run: () => session.dispose(),
+        signal: params.signal,
+        deadlineMs,
+        budget,
+        startedAtMs,
+        cancel: () => session.abort(),
+      });
+    }
   }
 }
 
@@ -422,17 +431,18 @@ function failureOutcome(params: {
   readonly budget?: SpecialistTimeoutBudget;
 }): SpecialistOutcome {
   const usedMs = Date.now() - params.startedAtMs;
+  const budgetUsedMs = usedMs;
   const budgetContext =
     params.classification === "timeout" && params.budget != null
       ? {
           budgetKey: params.budget.key,
           limitMs: params.budget.limitMs,
-          usedMs,
+          usedMs: budgetUsedMs,
         }
       : {};
   const budgetSuffix =
     params.classification === "timeout" && params.budget != null
-      ? ` (budget=${params.budget.key} limitMs=${params.budget.limitMs} usedMs=${usedMs})`
+      ? ` (budget=${params.budget.key} limitMs=${params.budget.limitMs} usedMs=${budgetUsedMs})`
       : "";
   return {
     kind: "error",

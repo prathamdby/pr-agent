@@ -61,20 +61,20 @@ describe("rateLimitCircuit", () => {
     const publish = vi.fn(async () => ({ published: true }));
     const executors = wrapExecutorsWithRateLimitCircuit({
       searchCode: search,
-      publish_summary: publish,
+      submitReview: publish,
     });
 
     await runWithRateLimitCircuit(circuit, async () => {
       expect(shouldShortCircuitGithubTool("searchCode")).toBe(false);
       circuit.recordFailure("primary");
       expect(shouldShortCircuitGithubTool("searchCode")).toBe(true);
-      expect(shouldShortCircuitGithubTool("publish_summary")).toBe(false);
+      expect(shouldShortCircuitGithubTool("submitReview")).toBe(false);
       expect(shouldShortCircuitGithubTool("readFile")).toBe(false);
       await expect(executors.searchCode!({})).resolves.toEqual({
         error: true,
         message: CIRCUIT_OPEN_TOOL_RESULT,
       });
-      await expect(executors.publish_summary!({})).resolves.toEqual({ published: true });
+      await expect(executors.submitReview!({})).resolves.toEqual({ published: true });
       expect(search).not.toHaveBeenCalled();
       expect(publish).toHaveBeenCalledTimes(1);
     });

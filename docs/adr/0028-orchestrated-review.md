@@ -35,17 +35,34 @@ The specialist brief carries pull request intent, architecture notes, risk
 areas, the file map, and focus for each specialist. A specialist returns one
 specialist report. `no_findings` is a successful empty report, not a failure.
 
+### Normal-review latency amendment
+
+Normal orchestrated reviews use deterministic bookends. The server builds the
+specialist brief from PR intent, changed paths, risk-path flags, and loaded
+repository context. Evidence-valid specialist reports publish without one
+serial judgment model turn per report. The server renders the final summary
+from the accepted finding ledger and run state.
+
+The active-compute budget is 900000 ms from orchestrator entry through terminal
+publication. Each of the four specialists has a 480000 ms cap. A budget hit
+names the budget key, limit, used time, and partial inspected scope. It can
+never become clean `no_findings`. `no_findings` means no qualifying finding
+within inspected coverage.
+
+Exhaustive review is outside the normal contract. A future deep mode must be
+labeled separately and must not promise the 15-minute SLA.
+
 ### Incremental publishing
 
-The orchestrator judges reports as they resolve. A judgment turn may publish a
-thread batch through one GitHub `COMMENT` review. A run can publish multiple
+The server validates reports as they resolve and may publish a thread batch
+through one GitHub `COMMENT` review. A run can publish multiple
 GitHub reviews, one per accepted batch, up to `MAX_THREAD_PUBLISH_CALLS`.
 The final summary is published only after all specialists resolve or the run
-enters its deterministic degradation path.
+enters budget-driven deterministic finalization.
 
 The single review progress comment is edited with a specialist tick after each
-specialist resolves. After publish (model judgment or deterministic degrade),
-the specialist row count is the number of **accepted placements** in the
+specialist resolves. After deterministic publication, the specialist row count
+is the number of **accepted placements** in the
 finding ledger for that specialist (posted or resumed **inline review threads**
 plus **summary-only findings**). "No findings" means zero acceptances or an
 explicit empty / `no_findings` report — never "zero inline threads" alone when
@@ -60,10 +77,9 @@ recorded as failed while the other reports continue. Partial coverage produces
 a neutral Checks conclusion, an error commit status when enabled, and an
 explicit partial-coverage note.
 
-If all four specialists fail, the worker publishes a failure notice and no
-summary table. If the orchestrator judgment session fails twice, accepted
-reports flow through deterministic finding publication and the summary is
-rendered from the server-owned run state with a judgment-degraded note. A
+If all four specialists fail for non-budget reasons, the worker publishes a
+failure notice and no summary table. Budget failures publish an explicit
+partial-coverage summary, even when all four specialists hit a limit. A
 thread-publish budget exhaustion downgrades later findings to summary-only rows;
 they are never silently dropped.
 
@@ -103,9 +119,9 @@ run uses the general mode.
   accepts that cost for incremental feedback.
 - The Checks name is `PR Agent Review`. Branch protection rules must remove the
   three old per-lens check names.
-- `ReviewPayload` and its validation survive as the summary tool contract,
-  while the orchestrator owns specialist coordination and incremental batch
-  state.
+- `ReviewPayload` and its validation survive as the deterministic summary
+  publisher input contract, while the orchestrator owns specialist coordination
+  and incremental batch state.
 
 ## Impact on earlier ADRs
 

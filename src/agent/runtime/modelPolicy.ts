@@ -3,7 +3,6 @@ import { AppError } from "../../errors/appError.js";
 import type { AgentSessionRole, ModelAssignment } from "./types.js";
 
 export type ResolvedModelPolicy = {
-  readonly orchestratorPrimary: ModelAssignment;
   readonly generalPrimary: ModelAssignment;
   readonly fallback: ModelAssignment | undefined;
 };
@@ -13,10 +12,6 @@ export function resolveModelPolicy(cfg: Config): ResolvedModelPolicy {
     provider: cfg.piProvider,
     model: cfg.piModel,
   };
-  const orchestratorPrimary: ModelAssignment = {
-    provider: cfg.piOrchestratorProvider || cfg.piProvider,
-    model: cfg.piOrchestratorModel || cfg.piModel,
-  };
   const fallbackProvider = cfg.piFallbackProvider.trim();
   const fallbackModel = cfg.piFallbackModel.trim();
   const fallback =
@@ -24,7 +19,7 @@ export function resolveModelPolicy(cfg: Config): ResolvedModelPolicy {
       ? { provider: fallbackProvider, model: fallbackModel }
       : undefined;
 
-  return { orchestratorPrimary, generalPrimary, fallback };
+  return { generalPrimary, fallback };
 }
 
 export function modelAssignmentForRole(
@@ -33,7 +28,6 @@ export function modelAssignmentForRole(
 ): ModelAssignment {
   switch (role) {
     case "orchestrator":
-      return policy.orchestratorPrimary;
     case "specialist":
     case "ask":
     case "description":

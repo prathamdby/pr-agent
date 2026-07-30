@@ -6,6 +6,12 @@ export const SPECIALIST_IDS = ["correctness", "security", "quality", "tests"] as
 export type SpecialistId = (typeof SPECIALIST_IDS)[number];
 export type FindingSource = SpecialistId | "review";
 
+export type ReviewBudgetReceipt = {
+  readonly budgetKey: "REVIEW_ACTIVE_BUDGET_MS" | "REVIEW_SPECIALIST_TIMEOUT_MS" | "model_window";
+  readonly limitMs: number;
+  readonly usedMs: number;
+};
+
 export type SpecialistOutcome =
   | {
       readonly kind: "report";
@@ -46,14 +52,18 @@ export type SpecialistRunPhase =
   | { readonly phase: "running" }
   | { readonly phase: "done"; readonly findingsAccepted: number }
   | { readonly phase: "no_findings" }
-  | { readonly phase: "failed" };
+  | { readonly phase: "failed"; readonly budget?: ReviewBudgetReceipt };
 
 export type ReconRunPhase = "running" | "done";
 
 type OrchestratedRunLifecycle =
   | { readonly kind: "running" }
   | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" }
-  | { readonly kind: "finalizing"; readonly reason: "deadline" }
+  | {
+      readonly kind: "finalizing";
+      readonly reason: "deadline" | "active_budget";
+      readonly budget?: ReviewBudgetReceipt;
+    }
   | { readonly kind: "complete" };
 
 type OrchestratedSummaryState =
@@ -67,8 +77,7 @@ export type OrchestratedRunState = {
   readonly outcomes: Partial<Record<SpecialistId, SpecialistOutcome>>;
   readonly completionOrder: SpecialistId[];
   readonly failedSpecialists: SpecialistId[];
-  briefFallback: boolean;
-  judgment: "model" | "degraded";
+  readonly budgetFailures: ReviewBudgetReceipt[];
   lifecycle: OrchestratedRunLifecycle;
   /** 0 ack · 1 recon done · 2–5 specialist ticks · 6 terminal/summary */
   progressRevision: 0 | 1 | 2 | 3 | 4 | 5 | 6;

@@ -22,9 +22,6 @@ export const CIRCUIT_OPEN_TOOL_RESULT =
 /** Tools that must keep working after the circuit opens (publish / submit paths). */
 export const ESSENTIAL_GITHUB_TOOL_NAMES: ReadonlySet<string> = new Set([
   "submitReview",
-  "publish_thread",
-  "publish_summary",
-  "submit_specialist_brief",
   "submitSpecialistReport",
   "submit_specialist_report",
   "submitVerification",

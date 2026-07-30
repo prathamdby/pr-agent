@@ -32,6 +32,7 @@ import {
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_WAIT_MS,
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
+  REVIEW_FINALIZATION_WINDOW_MS,
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
 } from "../../settings/index.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
@@ -429,12 +430,13 @@ export async function publishReviewSummaryOnly(params: {
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly ciAuthor?: CiSummaryAuthor;
   readonly coverage?: ReviewCoverage;
+  readonly getCoverage?: () => ReviewCoverage;
   readonly remainingFinalizationMs?: () => number;
   readonly shouldAbortPublish?: () => Promise<boolean>;
   readonly publishAbortState?: { readonly staleHead?: boolean };
   readonly dedupedFindingCount?: number;
 }): Promise<PublishSummaryOnlyResult> {
-  const coverage = params.coverage ?? { kind: "full" };
+  let coverage = params.getCoverage?.() ?? params.coverage ?? { kind: "full" };
   if (coverage.kind === "none") {
     throw new AppError({
       code: "review.summary_coverage_none",
@@ -442,7 +444,6 @@ export async function publishReviewSummaryOnly(params: {
       context: { failedSpecialists: coverage.failed },
     });
   }
-  const partialCoverageNote = coverage.kind === "partial" ? coverage.note : undefined;
   const { owner, repo, prNumber, headSha } = params.ctx;
   const mode = params.mode ?? "review";
   const summarySentinel = REVIEW_SUMMARY_SENTINEL;
@@ -488,10 +489,10 @@ export async function publishReviewSummaryOnly(params: {
     reviewComments,
   );
 
-  const metricsSnapshot = snapshotReviewRunMetrics();
   const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
   const ciToken = params.getToken();
   const ciTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
+  const remainingFinalizationMs = params.remainingFinalizationMs?.() ?? Infinity;
   const ciSummary = await buildCiSummary({
     token: ciToken,
     owner,
@@ -500,12 +501,25 @@ export async function publishReviewSummaryOnly(params: {
     expiresAtTs: ciTokenExpiresAtTs,
     waitMs: Math.max(
       0,
-      Math.min(REVIEW_CI_SUMMARY_WAIT_MS, params.remainingFinalizationMs?.() ?? Infinity),
+      Math.min(
+        REVIEW_CI_SUMMARY_WAIT_MS,
+        Math.max(0, remainingFinalizationMs - REVIEW_FINALIZATION_WINDOW_MS),
+      ),
     ),
     waitPollMs: REVIEW_CI_SUMMARY_WAIT_POLL_MS,
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
     author: params.ciAuthor,
   });
+  coverage = params.getCoverage?.() ?? coverage;
+  if (coverage.kind === "none") {
+    throw new AppError({
+      code: "review.summary_coverage_none",
+      message: "Cannot publish a review summary when every specialist failed",
+      context: { failedSpecialists: coverage.failed },
+    });
+  }
+  let partialCoverageNote = coverage.kind === "partial" ? coverage.note : undefined;
+  const metricsSnapshot = snapshotReviewRunMetrics();
   const stubPostedAtMs = summaryCoordination
     ? await getProgressStubPostedAtMs(
         summaryCoordination.pool,
@@ -513,12 +527,14 @@ export async function publishReviewSummaryOnly(params: {
         mode,
       )
     : null;
-  const durationMs = resolveReviewWallClockMs({
-    stubPostedAtMs,
-    metricsStartedAtMs: metricsSnapshot?.startedAtMs,
-    endedAtMs: Date.now(),
-  });
-  const summaryBody = renderReviewSummaryComment(params.payload, {
+  const durationMs =
+    metricsSnapshot?.activeMs ??
+    resolveReviewWallClockMs({
+      stubPostedAtMs,
+      metricsStartedAtMs: metricsSnapshot?.startedAtMs,
+      endedAtMs: Date.now(),
+    });
+  let summaryBody = renderReviewSummaryComment(params.payload, {
     ...params.ctx,
     summarySentinel,
     placements: enrichedPlacements,
@@ -582,6 +598,25 @@ export async function publishReviewSummaryOnly(params: {
     prNumber,
     labelsTokenExpiresAtTs,
   ).catch((error: unknown) => error);
+  const latestCoverage = params.getCoverage?.();
+  if (latestCoverage?.kind === "partial" && latestCoverage.note !== partialCoverageNote) {
+    coverage = latestCoverage;
+    partialCoverageNote = latestCoverage.note;
+    summaryBody = renderReviewSummaryComment(params.payload, {
+      ...params.ctx,
+      summarySentinel,
+      placements: enrichedPlacements,
+      mode,
+      staleReview: params.staleReview ?? false,
+      cachedDiffIndex: params.cachedDiffIndex,
+      ciSummary,
+      partialCoverageNote,
+      runFooter: {
+        durationMs: snapshotReviewRunMetrics()?.activeMs ?? durationMs,
+        model: params.cfg.piModel,
+      },
+    });
+  }
   const runSummaryUpsert = () =>
     summaryCoordination
       ? upsertSummaryCommentWithCreationClaim({

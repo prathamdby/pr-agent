@@ -97,7 +97,6 @@ describe("reviewRunMetrics", () => {
         publishAttempts: 1,
         specialistOutcomes: { report: 2, empty: 1, error: 1 },
         threadBatches: 2,
-        briefFallback: true,
       });
 
       const snapshot = snapshotReviewRunMetrics();
@@ -136,7 +135,6 @@ describe("reviewRunMetrics", () => {
         severities: ["P1"],
         specialistOutcomes: { report: 2, empty: 1, error: 1 },
         threadBatches: 2,
-        briefFallback: true,
       });
       expect(snapshot?.wallClockMs).toBeGreaterThanOrEqual(0);
     });
@@ -183,6 +181,49 @@ describe("reviewRunMetrics", () => {
       expect(snapshot?.startedAtMs).toBe(1_000);
       expect(snapshot?.wallClockMs).toBeGreaterThanOrEqual(0);
     });
+  });
+
+  it("records active-budget receipts from orchestrator entry", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+        startedAtMs: 1_000,
+      });
+      initReviewRunMetrics({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        mode: "review",
+        activeStartedAtMs: 8_000,
+        activeBudgetMs: 900_000,
+      });
+      setReviewRunMetricFields({
+        finalizationMs: 120,
+        timedOut: false,
+        partialCoverage: false,
+        promptProfile: "normal",
+        inspectedPathCount: 3,
+        changedPathCount: 4,
+      });
+
+      expect(snapshotReviewRunMetrics()).toMatchObject({
+        wallClockMs: 9_000,
+        activeBudgetMs: 900_000,
+        activeMs: 2_000,
+        activeOverrunMs: 0,
+        finalizationMs: 120,
+        timedOut: false,
+        partialCoverage: false,
+        promptProfile: "normal",
+        inspectedPathCount: 3,
+        changedPathCount: 4,
+      });
+    });
+    vi.useRealTimers();
   });
 
   it("snapshots orchestrated phase receipt fields including all-empty runs", async () => {

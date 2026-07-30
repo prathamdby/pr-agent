@@ -28,8 +28,6 @@ import {
   DEFAULT_PI_FALLBACK_MODEL,
   DEFAULT_PI_FALLBACK_PROVIDER,
   DEFAULT_PI_MODEL,
-  DEFAULT_PI_ORCHESTRATOR_MODEL,
-  DEFAULT_PI_ORCHESTRATOR_PROVIDER,
   DEFAULT_PI_PROVIDER,
   DEFAULT_PI_THINKING_CEILING,
   DEFAULT_AGENT_RESUME_SNAPSHOT_KEY,
@@ -223,14 +221,6 @@ export async function loadConfig() {
 
   const piProvider = optionalEnv(ENV.PI_PROVIDER, DEFAULT_PI_PROVIDER);
   const piModel = optionalEnv(ENV.PI_MODEL, DEFAULT_PI_MODEL);
-  const piOrchestratorProvider = optionalEnv(
-    ENV.PI_ORCHESTRATOR_PROVIDER,
-    DEFAULT_PI_ORCHESTRATOR_PROVIDER,
-  ).trim();
-  const piOrchestratorModel = optionalEnv(
-    ENV.PI_ORCHESTRATOR_MODEL,
-    DEFAULT_PI_ORCHESTRATOR_MODEL,
-  ).trim();
   const piFallbackProvider = optionalEnv(
     ENV.PI_FALLBACK_PROVIDER,
     DEFAULT_PI_FALLBACK_PROVIDER,
@@ -293,14 +283,6 @@ export async function loadConfig() {
     piModel,
     catalogCandidatePath,
   });
-  if (piOrchestratorProvider || piOrchestratorModel) {
-    await assertPiModelSelection({
-      modelsJsonPath,
-      piProvider: piOrchestratorProvider || piProvider,
-      piModel: piOrchestratorModel || piModel,
-      catalogCandidatePath,
-    });
-  }
   if (piFallbackProvider && piFallbackModel) {
     await assertPiModelSelection({
       modelsJsonPath,
@@ -450,8 +432,6 @@ export async function loadConfig() {
     features,
     piProvider,
     piModel,
-    piOrchestratorProvider,
-    piOrchestratorModel,
     piFallbackProvider,
     piFallbackModel,
     piThinkingCeiling,

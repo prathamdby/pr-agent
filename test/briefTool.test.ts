@@ -1,19 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildSpecialistBriefTool,
-  renderBriefMessage,
-  specialistBriefSchema,
-} from "../src/review/orchestrator/briefTool.js";
-import {
-  ORCHESTRATOR_RECON_INSTRUCTION,
-  orchestratorSystemPrompt,
-  renderJudgmentTurn,
-  renderSynthesisTurn,
-} from "../src/review/orchestrator/prompts/orchestratorPrompts.js";
-import {
-  SPECIALIST_IDS,
-  type SpecialistOutcome,
-} from "../src/review/orchestrator/orchestratorTypes.js";
+import { renderBriefMessage } from "../src/review/orchestrator/briefTool.js";
+import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.js";
 
 function validRiskArea() {
   return {
@@ -38,123 +25,6 @@ function validBrief() {
   };
 }
 
-describe("buildSpecialistBriefTool", () => {
-  it("stores a valid parsed specialist brief", async () => {
-    const tool = buildSpecialistBriefTool();
-    const brief = validBrief();
-
-    const result = await tool.executor({ ...brief, ignored: "strip me" });
-
-    expect(tool.piTool.name).toBe("submit_specialist_brief");
-    expect(result).toEqual({ accepted: true });
-    expect(tool.getBrief()).toEqual(brief);
-  });
-
-  it("returns formatted errors and stores nothing for malformed or oversized input", async () => {
-    const tool = buildSpecialistBriefTool();
-    const malformedResult = await tool.executor({ architectureNotes: "missing fields" });
-
-    expect(malformedResult).toEqual({
-      accepted: false,
-      error: expect.stringContaining("SpecialistBrief validation failed:"),
-    });
-    expect(tool.getBrief()).toBeNull();
-
-    const acceptedResult = await tool.executor(validBrief());
-
-    expect(acceptedResult).toEqual({ accepted: true });
-    expect(tool.getBrief()).toEqual(validBrief());
-  });
-});
-
-const invalidBriefs = [
-  ["empty prIntent", { ...validBrief(), prIntent: "" }],
-  ["oversized prIntent", { ...validBrief(), prIntent: "x".repeat(2001) }],
-  ["oversized architectureNotes", { ...validBrief(), architectureNotes: "x".repeat(6001) }],
-  [
-    "too many risk areas",
-    { ...validBrief(), riskAreas: Array.from({ length: 13 }, validRiskArea) },
-  ],
-  [
-    "oversized risk area name",
-    { ...validBrief(), riskAreas: [{ ...validRiskArea(), area: "x".repeat(201) }] },
-  ],
-  [
-    "too many risk files",
-    {
-      ...validBrief(),
-      riskAreas: [
-        {
-          ...validRiskArea(),
-          files: Array.from({ length: 21 }, (_, index) => `src/file-${index}.ts`),
-        },
-      ],
-    },
-  ],
-  [
-    "oversized risk reason",
-    { ...validBrief(), riskAreas: [{ ...validRiskArea(), reason: "x".repeat(501) }] },
-  ],
-  ["oversized fileMap", { ...validBrief(), fileMap: "x".repeat(6001) }],
-  [
-    "oversized correctness focus",
-    {
-      ...validBrief(),
-      specialistFocus: { ...validBrief().specialistFocus, correctness: "x".repeat(1501) },
-    },
-  ],
-  [
-    "oversized security focus",
-    {
-      ...validBrief(),
-      specialistFocus: { ...validBrief().specialistFocus, security: "x".repeat(1501) },
-    },
-  ],
-  [
-    "oversized quality focus",
-    {
-      ...validBrief(),
-      specialistFocus: { ...validBrief().specialistFocus, quality: "x".repeat(1501) },
-    },
-  ],
-  [
-    "oversized tests focus",
-    {
-      ...validBrief(),
-      specialistFocus: { ...validBrief().specialistFocus, tests: "x".repeat(1501) },
-    },
-  ],
-] satisfies readonly (readonly [string, ReturnType<typeof validBrief>])[];
-
-describe("specialistBriefSchema", () => {
-  it.each(invalidBriefs)("rejects %s", (_name, input) => {
-    expect(specialistBriefSchema.safeParse(input).success).toBe(false);
-  });
-
-  it("accepts every field at its cap", () => {
-    const cappedRisk = {
-      area: "x".repeat(200),
-      files: Array.from({ length: 20 }, (_, index) => `src/file-${index}.ts`),
-      reason: "x".repeat(500),
-    };
-
-    expect(
-      specialistBriefSchema.safeParse({
-        prIntent: "x".repeat(2000),
-        architectureNotes: "x".repeat(6000),
-        riskAreas: Array.from({ length: 12 }, () => cappedRisk),
-        fileMap: "x".repeat(6000),
-        specialistFocus: {
-          correctness: "x".repeat(1500),
-          security: "x".repeat(1500),
-          quality: "x".repeat(1500),
-          tests: "x".repeat(1500),
-        },
-      }).success,
-    ).toBe(true);
-  });
-});
-
 describe("renderBriefMessage", () => {
   it.each(SPECIALIST_IDS)("renders shared context and only the %s focus", (specialist) => {
     const brief = validBrief();
@@ -178,53 +48,5 @@ describe("renderBriefMessage", () => {
         expect(message).not.toContain(brief.specialistFocus[focus]);
       }
     }
-  });
-});
-
-describe("orchestrator prompts", () => {
-  it("requires the structured brief during reconnaissance", () => {
-    expect(orchestratorSystemPrompt).toContain("submit_specialist_brief");
-    expect(ORCHESTRATOR_RECON_INSTRUCTION).toContain("submit_specialist_brief` exactly once");
-  });
-
-  it("requires one duplicate-aware publish_thread judgment call and permits zero findings", () => {
-    const outcome = {
-      kind: "report",
-      specialist: "correctness",
-      durationMs: 1,
-      report: {
-        status: "findings",
-        findings: [
-          {
-            severity: "P2",
-            file: "src/example.ts",
-            startLine: 4,
-            endLine: 4,
-            title: "Handle the missing value",
-            detail: "The changed path dereferences an absent value.",
-          },
-        ],
-      },
-    } satisfies Extract<SpecialistOutcome, { readonly kind: "report" }>;
-
-    const prompt = renderJudgmentTurn(outcome);
-
-    expect(prompt).toContain("publish_thread` exactly once");
-    expect(prompt).toContain("same-file overlap hints");
-    expect(prompt).toContain("zero findings is valid");
-    expect(prompt).toContain("commentable right line range");
-  });
-
-  it("binds synthesis to accepted placements and partial coverage", () => {
-    const prompt = renderSynthesisTurn({
-      acceptedFindings: [],
-      partialSpecialists: ["security"],
-      outcomes: [],
-    });
-
-    expect(prompt).toContain("sole source of review findings");
-    expect(prompt).toContain("partial coverage");
-    expect(prompt).toContain("publish_summary` exactly once");
-    expect(prompt).toContain('"security"');
   });
 });

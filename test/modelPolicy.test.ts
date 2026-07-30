@@ -19,20 +19,18 @@ describe("resolveModelPolicy", () => {
     expect(modelAssignmentForRole(policy, "ci_summary")).toEqual(policy.generalPrimary);
   });
 
-  it("uses orchestrator overrides when set", () => {
+  it("uses the general primary for the legacy orchestrator role", () => {
     const policy = resolveModelPolicy(
       makeTestConfig({
         piProvider: "openai",
         piModel: "gpt-4o-mini",
-        piOrchestratorProvider: "anthropic",
-        piOrchestratorModel: "claude-sonnet-4",
         piFallbackProvider: "openai",
         piFallbackModel: "gpt-4o",
       }),
     );
     expect(modelAssignmentForRole(policy, "orchestrator")).toEqual({
-      provider: "anthropic",
-      model: "claude-sonnet-4",
+      provider: "openai",
+      model: "gpt-4o-mini",
     });
     expect(policy.fallback).toEqual({ provider: "openai", model: "gpt-4o" });
   });
