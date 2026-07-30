@@ -10,9 +10,6 @@ import {
   createSubmitReviewState,
 } from "../src/review/publish/submitReviewTool.js";
 import { buildAutomatedSystemPrompt } from "../src/review/prompts/reviewSystemPrompt.js";
-import { automatedSecuritySystemPrompt } from "../src/agent/prompts/securityPrompt.js";
-import { automatedQualitySystemPrompt } from "../src/agent/prompts/qualityPrompt.js";
-import { automatedReviewTestsSystemPrompt } from "../src/agent/prompts/reviewTestsPrompt.js";
 import { buildReviewRunUserContent } from "../src/review/prompts/reviewUserMessage.js";
 import { createReviewPayloadSchema } from "../src/review/reviewSchema.js";
 import {
@@ -219,22 +216,7 @@ function promptSurfaces(): PromptSurface[] {
     {
       name: "general review system prompt",
       content: buildAutomatedSystemPrompt(),
-      budget: { bytes: 16_000, characters: 16_000, estimatedTokens: 4_000 },
-    },
-    {
-      name: "security specialist system prompt",
-      content: automatedSecuritySystemPrompt,
-      budget: { bytes: 16_000, characters: 16_000, estimatedTokens: 4_000 },
-    },
-    {
-      name: "quality specialist system prompt",
-      content: automatedQualitySystemPrompt,
-      budget: { bytes: 16_000, characters: 16_000, estimatedTokens: 4_000 },
-    },
-    {
-      name: "tests specialist system prompt",
-      content: automatedReviewTestsSystemPrompt,
-      budget: { bytes: 16_000, characters: 16_000, estimatedTokens: 4_000 },
+      budget: { bytes: 11_500, characters: 11_500, estimatedTokens: 2_875 },
     },
     {
       name: "representative review user content",
