@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { queryOne } from "../db/postgres.js";
 import { logWarn } from "../evlog.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.js";
 export type SharedRateLimitCircuitRow = {
   readonly installationId: number;
@@ -103,7 +104,7 @@ export function openSharedRateLimitCircuitBestEffort(
     logWarn("github_shared_rate_limit_circuit_upsert_failed", {
       installationId: params.installationId,
       kind: params.lastErrorKind,
-      message: error instanceof Error ? error.message : String(error),
+      message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
     });
   });
 }

@@ -332,6 +332,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `INSTALLATION_TOKEN_FALLBACK_TTL_MS`      | 1h      |
 | `PRIMARY_RATE_LIMIT_MAX_RETRIES`          | 2       |
 | `SECONDARY_RATE_LIMIT_MAX_RETRIES`        | 3       |
+| `SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS`   | 60000   |
 | `GITHUB_PULL_REQUEST_FILES_API_MAX_FILES` | 3000    |
 | `COMMENTS_PAGE_SIZE`                      | 100     |
 | `COMMENT_PAGINATION_MAX_PAGES`            | 20      |

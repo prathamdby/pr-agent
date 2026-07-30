@@ -806,12 +806,22 @@ export async function executeReviewJob(
           });
         },
       });
-      if (await isSharedRateLimitCircuitOpen(pool, item.installationId)) {
-        rateLimitCircuit.hydrateOpenFromShared("primary");
-        logInfo("github_shared_rate_limit_circuit_honored", {
+      try {
+        if (await isSharedRateLimitCircuitOpen(pool, item.installationId)) {
+          rateLimitCircuit.hydrateOpenFromShared("primary");
+          logInfo("github_shared_rate_limit_circuit_honored", {
+            installationId: item.installationId,
+            type: "review",
+            workItemId: item.id,
+          });
+        }
+      } catch (error) {
+        // Best-effort shared read: DB blips must not abort the review run.
+        logWarn("github_shared_rate_limit_circuit_read_failed", {
           installationId: item.installationId,
           type: "review",
           workItemId: item.id,
+          message: error instanceof Error ? error.message : String(error),
         });
       }
       return runWithRateLimitCircuit(rateLimitCircuit, () =>

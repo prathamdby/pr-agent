@@ -1,4 +1,4 @@
-import { logInfo } from "../../evlog.js";
+import { logInfo, logWarn } from "../../evlog.js";
 import { AppError } from "../../errors/appError.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
@@ -74,11 +74,20 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
     },
   });
   if (durabilityPool != null && installationId > 0) {
-    if (await isSharedRateLimitCircuitOpen(durabilityPool, installationId)) {
-      circuit.hydrateOpenFromShared("primary");
-      logInfo("github_shared_rate_limit_circuit_honored", {
+    try {
+      if (await isSharedRateLimitCircuitOpen(durabilityPool, installationId)) {
+        circuit.hydrateOpenFromShared("primary");
+        logInfo("github_shared_rate_limit_circuit_honored", {
+          installationId,
+          type: "ask",
+        });
+      }
+    } catch (error) {
+      // Best-effort shared read: DB blips must not abort the ask run.
+      logWarn("github_shared_rate_limit_circuit_read_failed", {
         installationId,
         type: "ask",
+        message: error instanceof Error ? error.message : String(error),
       });
     }
   }

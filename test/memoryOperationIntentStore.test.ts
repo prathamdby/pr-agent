@@ -124,4 +124,90 @@ describe("memoryOperationIntentStore + real withOperationIntent", () => {
     expect(row?.status).toBe("reconciled");
     expect(row?.detail.__result).toBe(true);
   });
+
+  it("retries mutate after a known throw (clears __mutating on failed)", async () => {
+    const mutate = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("502"))
+      .mockResolvedValue({ commentId: 7 });
+
+    await expect(
+      withOperationIntent({
+        client: pool,
+        workItemId: "wi-r",
+        operationKey: "k",
+        mutationKind: "m",
+        mutate,
+      }),
+    ).rejects.toThrow("502");
+
+    const failed = memoryOperationIntentStore.get("wi-r", "k");
+    expect(failed?.status).toBe("failed");
+    expect(failed?.detail.__mutating).toBe(false);
+
+    const retried = await withOperationIntent({
+      client: pool,
+      workItemId: "wi-r",
+      operationKey: "k",
+      mutationKind: "m",
+      mutate,
+    });
+    expect(retried).toEqual({ commentId: 7 });
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(memoryOperationIntentStore.get("wi-r", "k")?.status).toBe("reconciled");
+  });
+
+  it("void mutate redelivery completes without remutating", async () => {
+    const mutate = vi.fn(async () => undefined);
+    await withOperationIntent({
+      client: pool,
+      workItemId: "wi-v",
+      operationKey: "op:void:1",
+      mutationKind: "github.push",
+      mutate,
+    });
+    await expect(
+      withOperationIntent({
+        client: pool,
+        workItemId: "wi-v",
+        operationKey: "op:void:1",
+        mutationKind: "github.push",
+        mutate,
+      }),
+    ).resolves.toBeUndefined();
+    expect(mutate).toHaveBeenCalledTimes(1);
+  });
+
+  it("redelivery finishes reconcile when __result is stashed but status still pending", async () => {
+    const mutate = vi.fn(async () => ({ reviewId: 55 }));
+    memoryOperationIntentStore.failNextReconcile(new Error("reconcile blip"), 1);
+
+    await expect(
+      withOperationIntent({
+        client: pool,
+        workItemId: "wi-reconcile-blip",
+        operationKey: "review:inline:blip",
+        mutationKind: "github.inline_review",
+        mutate,
+      }),
+    ).rejects.toThrow("reconcile blip");
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    const pending = memoryOperationIntentStore.get("wi-reconcile-blip", "review:inline:blip");
+    expect(pending?.status).toBe("pending");
+    expect(pending?.detail.__result).toEqual({ reviewId: 55 });
+
+    const result = await withOperationIntent({
+      client: pool,
+      workItemId: "wi-reconcile-blip",
+      operationKey: "review:inline:blip",
+      mutationKind: "github.inline_review",
+      mutate,
+    });
+    expect(result).toEqual({ reviewId: 55 });
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(memoryOperationIntentStore.get("wi-reconcile-blip", "review:inline:blip")?.status).toBe(
+      "reconciled",
+    );
+  });
 });

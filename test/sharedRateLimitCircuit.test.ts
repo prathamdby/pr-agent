@@ -9,8 +9,11 @@ import {
   getSharedRateLimitCircuit,
   isSharedRateLimitCircuitOpen,
   openSharedRateLimitCircuit,
+  openSharedRateLimitCircuitBestEffort,
   upsertSharedRateLimitCircuit,
 } from "../src/github/sharedRateLimitCircuit.js";
+import * as evlog from "../src/evlog.js";
+import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../src/settings/index.js";
 
 type CircuitRow = {
   installation_id: number;
@@ -129,5 +132,48 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
     });
     row = await getSharedRateLimitCircuit(poolA, installationId);
     expect(row!.openUntil.getTime()).toBe(t1.getTime() + 60_000);
+  });
+
+  it("openSharedRateLimitCircuit uses default SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS", async () => {
+    const { poolA } = createMemorySharedCircuitStore();
+    const now = new Date("2026-07-30T12:00:00.000Z");
+    await openSharedRateLimitCircuit(poolA, {
+      installationId: 9,
+      lastErrorKind: "primary",
+      now,
+    });
+    const row = await getSharedRateLimitCircuit(poolA, 9);
+    expect(row!.openUntil.getTime()).toBe(now.getTime() + SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS);
+  });
+
+  it("best-effort open guards invalid input and swallows write failure", async () => {
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
+    const query = vi.fn().mockRejectedValue(new Error("db down"));
+    const pool = { query } as unknown as Pool;
+
+    openSharedRateLimitCircuitBestEffort(undefined, {
+      installationId: 42,
+      lastErrorKind: "primary",
+    });
+    openSharedRateLimitCircuitBestEffort(pool, {
+      installationId: 0,
+      lastErrorKind: "primary",
+    });
+    expect(query).not.toHaveBeenCalled();
+
+    openSharedRateLimitCircuitBestEffort(pool, {
+      installationId: 42,
+      lastErrorKind: "primary",
+    });
+    await vi.waitFor(() => {
+      expect(logWarn).toHaveBeenCalledWith(
+        "github_shared_rate_limit_circuit_upsert_failed",
+        expect.objectContaining({
+          installationId: 42,
+          kind: "primary",
+          message: "db down",
+        }),
+      );
+    });
   });
 });

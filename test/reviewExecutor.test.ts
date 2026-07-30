@@ -38,6 +38,8 @@ const mocks = vi.hoisted(() => ({
       _summaryCommentId?: string | number | null,
     ): string | undefined => undefined,
   ),
+  isSharedRateLimitCircuitOpen: vi.fn(async () => false),
+  openSharedRateLimitCircuitBestEffort: vi.fn(),
 }));
 
 vi.mock("../src/analytics/index.js", () => ({
@@ -70,8 +72,8 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 }));
 
 vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
-  isSharedRateLimitCircuitOpen: vi.fn(async () => false),
-  openSharedRateLimitCircuitBestEffort: vi.fn(),
+  isSharedRateLimitCircuitOpen: mocks.isSharedRateLimitCircuitOpen,
+  openSharedRateLimitCircuitBestEffort: mocks.openSharedRateLimitCircuitBestEffort,
 }));
 
 import * as durableJob from "../src/agentWork/durableJob.js";
@@ -175,6 +177,7 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
 describe("executeReviewJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.isSharedRateLimitCircuitOpen.mockResolvedValue(false);
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
     vi.spyOn(reviewLightweightCompletion, "tryLightweightAutoReviewCompletion").mockImplementation(
       mocks.lightweight,
@@ -240,6 +243,21 @@ describe("executeReviewJob", () => {
 
     expect(mocks.loadPublishContext).toHaveBeenCalledTimes(1);
     expect(mocks.loadPublishContext).toHaveBeenCalledWith(pool, "wi-1", "o/r#1", "review");
+  });
+
+  it("continues review when shared rate-limit circuit read fails", async () => {
+    mocks.isSharedRateLimitCircuitOpen.mockRejectedValueOnce(new Error("db down"));
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalled();
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      "github_shared_rate_limit_circuit_read_failed",
+      expect.objectContaining({
+        type: "review",
+        message: "db down",
+      }),
+    );
   });
 
   it("passes the resumed thread call count into the review run", async () => {

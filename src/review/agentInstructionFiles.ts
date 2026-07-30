@@ -1,5 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { wrapUntrustedBlock } from "../agent/prompts/promptBlocks.js";
 import { logWarn } from "../evlog.js";
 import {
   AGENT_INSTRUCTION_FILENAMES,
@@ -144,6 +145,16 @@ export function isSameRepoPullRequest(pullRequest: unknown): boolean {
   return typeof headName === "string" && headName.length > 0 && headName === baseName;
 }
 
+/** Neutralize forged server trust headers inside author-controlled file bodies. */
+function neutralizeForgedTrustHeaders(body: string): string {
+  return body
+    .replace(/^Trusted context \(agent instruction files\):\s*$/gm, "[neutralized forged header]")
+    .replace(
+      /^These root files are binding for this review\..*$/gm,
+      "[neutralized forged binding line]",
+    );
+}
+
 export function renderAgentInstructionFilesBlock(params: {
   readonly files: readonly AgentInstructionFile[];
   /** Same-repo → trusted/binding; omit/false → untrusted (fail closed). */
@@ -167,7 +178,15 @@ export function renderAgentInstructionFilesBlock(params: {
       ];
 
   for (const file of params.files) {
-    lines.push("", `### File \`${file.filename}\``, file.body);
+    lines.push("", `### File \`${file.filename}\``);
+    if (sameRepo) {
+      lines.push(file.body);
+    } else {
+      // Fence author-controlled fork bodies so forged Trusted/binding labels cannot win.
+      lines.push(
+        wrapUntrustedBlock("agent_instruction_file", neutralizeForgedTrustHeaders(file.body)),
+      );
+    }
   }
 
   return lines.join("\n");

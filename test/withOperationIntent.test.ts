@@ -179,7 +179,7 @@ describe("withOperationIntent", () => {
       workItemId: "wi-1",
       operationKey: "ask:reply:o/r#1",
       status: "failed",
-      detail: { errorMessage: "github down" },
+      detail: { __mutating: false, errorMessage: "github down" },
     });
   });
 
@@ -330,5 +330,58 @@ describe("withOperationIntent", () => {
         }),
       }),
     );
+  });
+
+  it("returns undefined on redelivery of reconciled intent without __result", async () => {
+    const mutate = vi.fn(async () => "fresh");
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "reconciled",
+      publishRecordId: "pub-1",
+      detail: { recoveredAfterMutating: true },
+    });
+
+    await expect(withOperationIntent({ ...baseParams, mutate })).resolves.toBeUndefined();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("remutates after status failed even if __mutating residue remains", async () => {
+    const mutate = vi.fn(async () => ({ commentId: 3 }));
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "failed",
+      publishRecordId: null,
+      detail: { __mutating: true, errorMessage: "502" },
+    });
+
+    const result = await withOperationIntent({ ...baseParams, mutate });
+    expect(result).toEqual({ commentId: 3 });
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(findCompletedPublishRecordId).not.toHaveBeenCalled();
+  });
+
+  it("wraps publish-record lookup failures without remutating", async () => {
+    const mutate = vi.fn(async () => "fresh");
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "pending",
+      publishRecordId: null,
+      detail: { __mutating: true },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockRejectedValue(new Error("db timeout"));
+
+    await expect(withOperationIntent({ ...baseParams, mutate })).rejects.toMatchObject({
+      code: "operation_intent.publish_record_lookup_failed",
+    });
+    expect(mutate).not.toHaveBeenCalled();
   });
 });

@@ -27,6 +27,7 @@ const EXPECTED_MIGRATIONS = [
   "017_agent_events.sql",
   "018_finding_history.sql",
   "019_code_index.sql",
+  "020_github_installation_rate_limit_circuits.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
