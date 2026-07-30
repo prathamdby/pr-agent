@@ -42,6 +42,7 @@ import {
   type SpecialistId,
   type SpecialistOutcome,
 } from "./orchestratorTypes.js";
+import { runChangedFilePass } from "./changedFilePass.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
 import { runSpecialist, type SpecialistTimeoutBudget } from "./specialistRun.js";
 import { tickProgressComment } from "./stubTick.js";
@@ -206,11 +207,14 @@ function budgetReceiptFromError(error: AppError): ReviewBudgetReceipt | undefine
   return undefined;
 }
 
-function renderCoveragePaths(paths: readonly string[]): string {
-  if (paths.length === 0) return "(none)";
-  const shown = paths.slice(0, 20);
-  const remaining = paths.length - shown.length;
-  return `${shown.join(", ")}${remaining > 0 ? ` (+${remaining} more)` : ""}`;
+const PR_FACING_UNREAD_PATH_CAP = 5;
+
+function renderShortUnreadNote(skippedPaths: readonly string[]): string {
+  if (skippedPaths.length === 0) return "";
+  if (skippedPaths.length <= PR_FACING_UNREAD_PATH_CAP) {
+    return `${skippedPaths.length} changed path${skippedPaths.length === 1 ? "" : "s"} unread: ${skippedPaths.join(", ")}.`;
+  }
+  return `${skippedPaths.length} changed paths unread.`;
 }
 
 function coverage(
@@ -268,10 +272,9 @@ function coverage(
         ? budgetReceipts.length > 0
           ? "Coverage partial: the active review budget ended the run."
           : "Coverage partial: not every changed path was inspected."
-        : `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed; per-specialist read scope is unavailable.`,
+        : `Coverage partial: ${names} specialist${failed.length === 1 ? "" : "s"} failed.`,
       budgetNote,
-      `Aggregate inspected coverage: ${inspectedPathCount} of ${changedPathCount} changed paths; ${scope.skippedPaths.length} skipped.`,
-      `Inspected paths: ${renderCoveragePaths(scope.inspectedPaths)}. Skipped paths: ${renderCoveragePaths(scope.skippedPaths)}.`,
+      renderShortUnreadNote(scope.skippedPaths),
     ]
       .filter((part) => part.length > 0)
       .join(" "),
@@ -675,42 +678,67 @@ export async function runOrchestratedPrReview(
     const brief = deterministicBrief(params);
     await markReconDoneAndTick();
 
+    const filePass = await runChangedFilePass({
+      workspace: params.workspace,
+      evidenceLedger: setup.evidenceLedger,
+      headSha: params.headSha,
+      shouldContinue: () =>
+        state.lifecycle.kind === "running" && Date.now() < activeModelStopAtMs,
+    });
+    logInfo("review_changed_file_pass", {
+      owner: params.owner,
+      repo: params.repo,
+      pr: params.prNumber,
+      attemptedPathCount: filePass.attemptedPathCount,
+      inspectedPathCount: filePass.inspectedPathCount,
+      boundedFailureCount: filePass.boundedFailures.length,
+      unreadPathCount: filePass.unreadPaths.length,
+      stoppedForBudget: filePass.stoppedForBudget,
+      boundedFailures: filePass.boundedFailures.slice(0, 20),
+      unreadPaths: filePass.unreadPaths.slice(0, 20),
+    });
+    if (filePass.stoppedForBudget) {
+      activateActiveBudgetFailure();
+    }
+
     const pending = new Map<SpecialistId, Promise<SpecialistOutcome>>();
     const specialistsSpawnedAtMs = Date.now();
-    for (const specialist of SPECIALIST_IDS) {
-      const controller = new AbortController();
-      specialistControllers.set(specialist, controller);
-      const remainingJobModelMs = params.timing.remainingModelMs();
-      const remainingActiveModelMs = Math.max(0, activeModelStopAtMs - Date.now());
-      const remainingModelMs = Math.min(remainingJobModelMs, remainingActiveModelMs);
-      const specialistTimeoutMs = Math.min(
-        params.cfg.reviewSpecialistTimeoutMs,
-        REVIEW_SPECIALIST_BUDGET_MS,
-      );
-      const timeoutMs = Math.max(0, Math.min(specialistTimeoutMs, remainingModelMs));
-      pending.set(
-        specialist,
-        runSpecialist({
-          cfg: params.cfg,
-          cwd: params.cwd ?? params.workspace.agentCwd,
+    if (state.lifecycle.kind === "running") {
+      for (const specialist of SPECIALIST_IDS) {
+        const controller = new AbortController();
+        specialistControllers.set(specialist, controller);
+        const remainingJobModelMs = params.timing.remainingModelMs();
+        const remainingActiveModelMs = Math.max(0, activeModelStopAtMs - Date.now());
+        const remainingModelMs = Math.min(remainingJobModelMs, remainingActiveModelMs);
+        const specialistTimeoutMs = Math.min(
+          params.cfg.reviewSpecialistTimeoutMs,
+          REVIEW_SPECIALIST_BUDGET_MS,
+        );
+        const timeoutMs = Math.max(0, Math.min(specialistTimeoutMs, remainingModelMs));
+        pending.set(
           specialist,
-          briefMessage: renderBriefMessage(brief, specialist),
-          workspaceTools: setup.workspaceTools,
-          timeoutMs,
-          timeoutBudget: specialistTimeoutBudget(
-            specialistTimeoutMs,
-            remainingJobModelMs,
-            remainingActiveModelMs,
-          ),
-          shouldContinue: () => state.lifecycle.kind === "running",
-          signal: controller.signal,
-          evidenceLedger: setup.evidenceLedger,
-          headSha: params.headSha,
-          checkoutCoverage: params.workspace.getCoverage(),
-          isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
-          agentEvents: agentEvents ?? undefined,
-        }),
-      );
+          runSpecialist({
+            cfg: params.cfg,
+            cwd: params.cwd ?? params.workspace.agentCwd,
+            specialist,
+            briefMessage: renderBriefMessage(brief, specialist),
+            workspaceTools: setup.workspaceTools,
+            timeoutMs,
+            timeoutBudget: specialistTimeoutBudget(
+              specialistTimeoutMs,
+              remainingJobModelMs,
+              remainingActiveModelMs,
+            ),
+            shouldContinue: () => state.lifecycle.kind === "running",
+            signal: controller.signal,
+            evidenceLedger: setup.evidenceLedger,
+            headSha: params.headSha,
+            checkoutCoverage: params.workspace.getCoverage(),
+            isPathInCheckout: (path) => params.workspace.isPathInCheckout(path),
+            agentEvents: agentEvents ?? undefined,
+          }),
+        );
+      }
     }
 
     const outcomes = await pumpSpecialistCompletions({
@@ -854,6 +882,8 @@ export async function runOrchestratedPrReview(
     promptProfile: "normal",
     inspectedPathCount: finalScope.inspectedPaths.length,
     changedPathCount: finalScope.changedPaths.length,
+    skippedPathCount: finalScope.skippedPaths.length,
+    unreadPathSample: finalScope.skippedPaths.slice(0, 20),
   });
   logReviewRunCompleted({
     judgment: "deterministic",
@@ -865,6 +895,11 @@ export async function runOrchestratedPrReview(
     pr: params.prNumber,
     completionOrder: state.completionOrder,
     judgment: "deterministic",
+    inspectedPathCount: finalScope.inspectedPaths.length,
+    changedPathCount: finalScope.changedPaths.length,
+    skippedPathCount: finalScope.skippedPaths.length,
+    inspectedPaths: finalScope.inspectedPaths.slice(0, 40),
+    skippedPaths: finalScope.skippedPaths.slice(0, 40),
   });
 
   const lastAssistant: AssistantMessage = assistantFromText(params.cfg, "", params.cfg.piProvider);

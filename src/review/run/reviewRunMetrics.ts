@@ -113,6 +113,9 @@ export type ReviewRunMetricsSnapshot = {
   readonly promptProfile: "normal";
   readonly inspectedPathCount?: number;
   readonly changedPathCount?: number;
+  readonly skippedPathCount?: number;
+  /** Capped sample of unread changed paths for analytics (not PR-facing). */
+  readonly unreadPathSample?: readonly string[];
   readonly lightweight?: boolean;
   readonly specialistOutcomes: Record<string, number>;
   readonly threadBatches: number;
@@ -184,6 +187,8 @@ type MutableReviewRunMetrics = {
   promptProfile: "normal";
   inspectedPathCount?: number;
   changedPathCount?: number;
+  skippedPathCount?: number;
+  unreadPathSample?: string[];
   reconMs?: number;
   specialistCorrectnessMs?: number;
   specialistSecurityMs?: number;
@@ -473,6 +478,8 @@ export function setReviewRunMetricFields(
       | "promptProfile"
       | "inspectedPathCount"
       | "changedPathCount"
+      | "skippedPathCount"
+      | "unreadPathSample"
     >
   > &
     ReviewPhaseReceiptFields,
@@ -494,6 +501,10 @@ export function setReviewRunMetricFields(
     metrics.inspectedPathCount = fields.inspectedPathCount;
   }
   if (fields.changedPathCount !== undefined) metrics.changedPathCount = fields.changedPathCount;
+  if (fields.skippedPathCount !== undefined) metrics.skippedPathCount = fields.skippedPathCount;
+  if (fields.unreadPathSample !== undefined) {
+    metrics.unreadPathSample = [...fields.unreadPathSample];
+  }
   if (fields.reconMs !== undefined) metrics.reconMs = fields.reconMs;
   if (fields.specialistCorrectnessMs !== undefined) {
     metrics.specialistCorrectnessMs = fields.specialistCorrectnessMs;
@@ -572,6 +583,12 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
       : {}),
     ...(metrics.changedPathCount !== undefined
       ? { changedPathCount: metrics.changedPathCount }
+      : {}),
+    ...(metrics.skippedPathCount !== undefined
+      ? { skippedPathCount: metrics.skippedPathCount }
+      : {}),
+    ...(metrics.unreadPathSample !== undefined
+      ? { unreadPathSample: [...metrics.unreadPathSample] }
       : {}),
     specialistOutcomes: { ...metrics.specialistOutcomes },
     threadBatches: metrics.threadBatches,

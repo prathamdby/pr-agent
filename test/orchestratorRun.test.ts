@@ -56,6 +56,42 @@ const testState = vi.hoisted(() => ({
   publishedBatchCount: 0,
 }));
 
+const evidenceState = vi.hoisted(() => {
+  type Read = {
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    contentHash: string;
+    headSha: string;
+    tool: string;
+    recordedAt?: string;
+  };
+  function makeLedger(headSha: string) {
+    const reads: Read[] = [];
+    return {
+      headSha,
+      record(read: Omit<Read, "recordedAt">) {
+        reads.push({ ...read, recordedAt: new Date().toISOString() });
+      },
+      covers() {
+        return true;
+      },
+      snapshot() {
+        return [...reads];
+      },
+    };
+  }
+  let ledger = makeLedger("a".repeat(40));
+  return {
+    reset() {
+      ledger = makeLedger("a".repeat(40));
+    },
+    get() {
+      return ledger;
+    },
+  };
+});
+
 vi.mock("../src/review/run/reviewRunSetup.js", () => ({
   buildReviewRunSetup: vi.fn(() => ({
     systemPrompt: "legacy prompt must not be used",
@@ -66,12 +102,7 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
       truncated: false,
       listPullRequestFilesIngested: false,
     },
-    evidenceLedger: {
-      headSha: "a".repeat(40),
-      record: () => undefined,
-      covers: () => true,
-      snapshot: () => [],
-    },
+    evidenceLedger: evidenceState.get(),
     getToken: () => "token",
     getTokenExpiresAtTs: () => Date.now() + 60_000,
     refreshBeforeTool: vi.fn(async () => undefined),
@@ -79,6 +110,58 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
       testState.refreshes += 1;
     }),
   })),
+}));
+
+vi.mock("../src/review/orchestrator/changedFilePass.js", () => ({
+  runChangedFilePass: vi.fn(
+    async (params: {
+      readonly workspace: { readonly changedFiles: readonly { readonly path: string }[] };
+      readonly evidenceLedger: {
+        record: (read: {
+          path: string;
+          startLine?: number;
+          endLine?: number;
+          contentHash: string;
+          headSha: string;
+          tool: string;
+        }) => void;
+      };
+      readonly headSha: string;
+      readonly shouldContinue: () => boolean;
+    }) => {
+      const paths = params.workspace.changedFiles.map((file) => file.path);
+      let attempted = 0;
+      const unread: string[] = [];
+      for (const path of paths) {
+        if (!params.shouldContinue()) {
+          unread.push(...paths.slice(attempted));
+          return {
+            attemptedPathCount: attempted,
+            inspectedPathCount: attempted,
+            boundedFailures: [],
+            unreadPaths: unread,
+            stoppedForBudget: true,
+          };
+        }
+        params.evidenceLedger.record({
+          path,
+          startLine: 1,
+          endLine: 1,
+          contentHash: "file-pass",
+          headSha: params.headSha,
+          tool: "server_changed_file_pass",
+        });
+        attempted += 1;
+      }
+      return {
+        attemptedPathCount: attempted,
+        inspectedPathCount: attempted,
+        boundedFailures: [],
+        unreadPaths: [],
+        stoppedForBudget: false,
+      };
+    },
+  ),
 }));
 
 vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
@@ -348,6 +431,7 @@ function coordinatedRecordPublishStep() {
 describe("runOrchestratedPrReview", () => {
   beforeEach(() => {
     runner.createSession.mockClear();
+    evidenceState.reset();
     testState.outcomes.clear();
     testState.publishOrder.length = 0;
     testState.activeSource = null;
@@ -537,23 +621,110 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.summaryNotes[0]).toContain("REVIEW_SPECIALIST_TIMEOUT_MS");
   });
 
-  it("marks uninspected changed paths as explicit partial coverage", async () => {
-    const base = params();
-    const run = runOrchestratedPrReview({
-      ...base,
-      workspace: {
-        ...workspace,
-        changedFiles: [{ path: "src/uninspected.ts", status: "modified" }],
-      },
+  it("reports full coverage when the server file pass read every changed path in budget", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      const base = params();
+      const run = runOrchestratedPrReview({
+        ...base,
+        workspace: {
+          ...workspace,
+          changedFiles: [
+            { path: "src/a.ts", status: "modified" },
+            { path: "README.md", status: "modified" },
+          ],
+        },
+      });
+      for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+        testState.outcomes.get(specialist)?.resolve(empty(specialist));
+      }
+
+      await run;
+
+      expect(testState.summaryNotes[0]).toBeUndefined();
+      expect(snapshotReviewRunMetrics()).toMatchObject({
+        partialCoverage: false,
+        inspectedPathCount: 2,
+        changedPathCount: 2,
+        skippedPathCount: 0,
+      });
     });
-    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
-      testState.outcomes.get(specialist)?.resolve(empty(specialist));
-    }
+  });
 
-    await run;
+  it("marks unfinished file-pass coverage partial without path inventory dump", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      const { runChangedFilePass } = await import("../src/review/orchestrator/changedFilePass.js");
+      vi.mocked(runChangedFilePass).mockImplementationOnce(async (params) => {
+        return {
+          attemptedPathCount: 0,
+          inspectedPathCount: 0,
+          boundedFailures: [],
+          unreadPaths: params.workspace.changedFiles.map((file) => file.path),
+          stoppedForBudget: true,
+        };
+      });
 
-    expect(testState.summaryNotes[0]).toContain("not every changed path was inspected");
-    expect(testState.summaryNotes[0]).toContain("Skipped paths: src/uninspected.ts");
+      const base = params();
+      const run = runOrchestratedPrReview({
+        ...base,
+        workspace: {
+          ...workspace,
+          changedFiles: [{ path: "src/uninspected.ts", status: "modified" }],
+        },
+      });
+      for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+        testState.outcomes.get(specialist)?.resolve(empty(specialist));
+      }
+
+      await run;
+
+      const note = testState.summaryNotes[0] ?? "";
+      expect(note).toContain("active review budget ended the run");
+      expect(note).not.toContain("Aggregate inspected coverage");
+      expect(note).not.toContain("Inspected paths:");
+      expect(note).not.toContain("Skipped paths:");
+      expect(snapshotReviewRunMetrics()).toMatchObject({
+        partialCoverage: true,
+        skippedPathCount: 1,
+      });
+    });
+  });
+
+  it("cannot report full coverage when changed paths remain unread in budget", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/review" }, async () => {
+      const { runChangedFilePass } = await import("../src/review/orchestrator/changedFilePass.js");
+      vi.mocked(runChangedFilePass).mockImplementationOnce(async () => ({
+        attemptedPathCount: 0,
+        inspectedPathCount: 0,
+        boundedFailures: [],
+        unreadPaths: ["src/missed.ts"],
+        stoppedForBudget: false,
+      }));
+
+      const base = params();
+      const run = runOrchestratedPrReview({
+        ...base,
+        workspace: {
+          ...workspace,
+          changedFiles: [{ path: "src/missed.ts", status: "modified" }],
+        },
+      });
+      for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+        testState.outcomes.get(specialist)?.resolve(empty(specialist));
+      }
+
+      await run;
+
+      const note = testState.summaryNotes[0] ?? "";
+      expect(note).toContain("not every changed path was inspected");
+      expect(note).toContain("1 changed path unread");
+      expect(note).toContain("src/missed.ts");
+      expect(note).not.toContain("Aggregate inspected coverage");
+      expect(note).not.toContain("Inspected paths:");
+      expect(snapshotReviewRunMetrics()?.partialCoverage).toBe(true);
+    });
   });
 
   it("publishes thread batches without orchestrator model turns", async () => {
@@ -602,9 +773,9 @@ describe("runOrchestratedPrReview", () => {
 
     await expect(run).resolves.toMatchObject({ published: true });
     expect(testState.publishOrder).toEqual(["correctness", "summary"]);
-    expect(testState.summaryNotes).toEqual([
-      "Coverage partial: security specialist failed; per-specialist read scope is unavailable. Aggregate inspected coverage: 0 of 0 changed paths; 0 skipped. Inspected paths: (none). Skipped paths: (none).",
-    ]);
+    expect(testState.summaryNotes).toEqual(["Coverage partial: security specialist failed."]);
+    expect(testState.summaryNotes[0]).not.toContain("Aggregate inspected coverage");
+    expect(testState.summaryNotes[0]).not.toContain("Inspected paths:");
   });
 
   it("carries specialist timeout receipts into final partial coverage", async () => {

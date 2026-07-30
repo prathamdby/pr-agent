@@ -374,6 +374,12 @@ function reviewTimingPostHogProperties(
   if (snapshot.changedPathCount != null) {
     properties.changed_path_count = snapshot.changedPathCount;
   }
+  if (snapshot.skippedPathCount != null) {
+    properties.skipped_path_count = snapshot.skippedPathCount;
+  }
+  if (snapshot.unreadPathSample != null && snapshot.unreadPathSample.length > 0) {
+    properties.unread_path_sample = snapshot.unreadPathSample.join(",");
+  }
   properties.provider_output_tokens = snapshot.providerOutputTokens;
   properties.token_coverage = snapshot.tokenCoverage;
   if (snapshot.generationMs > 0) {
