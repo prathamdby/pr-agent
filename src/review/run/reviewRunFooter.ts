@@ -24,19 +24,17 @@ export function formatReviewDuration(durationMs: number): string {
 }
 
 /**
- * Footer wall-clock: progress stub post → freeze before final summary.
- * Start precedence: stubPostedAtMs → metricsStartedAtMs → endedAtMs (duration 0).
+ * Footer wall-clock: review worker start → freeze before final summary.
+ * Never includes queue wait (stub post time is ignored).
+ * Start precedence: metricsStartedAtMs (worker start) → endedAtMs (duration 0).
  */
 export function resolveReviewWallClockMs(params: {
-  readonly stubPostedAtMs: number | null | undefined;
+  readonly stubPostedAtMs?: number | null | undefined;
   readonly metricsStartedAtMs: number | null | undefined;
   readonly endedAtMs: number;
 }): number {
   const endedAtMs = Number.isFinite(params.endedAtMs) ? params.endedAtMs : 0;
-  const startedAtMs =
-    finiteTimestampMs(params.stubPostedAtMs) ??
-    finiteTimestampMs(params.metricsStartedAtMs) ??
-    endedAtMs;
+  const startedAtMs = finiteTimestampMs(params.metricsStartedAtMs) ?? endedAtMs;
   return Math.max(0, endedAtMs - startedAtMs);
 }
 

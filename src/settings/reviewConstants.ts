@@ -23,6 +23,8 @@ export const REVIEW_EFFORT_WORDS = [
 export const REVIEW_OVERVIEW_ALERT = "NOTE";
 export const REVIEW_FAILURE_ALERT = "CAUTION";
 export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
+/** Progress stub while the review work item is still queued (before the review worker claims it). */
+export const REVIEW_PROGRESS_QUEUED_NOTE = "Review queued on the latest commit.";
 export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY_P3 = "Included in Fix all findings below.";

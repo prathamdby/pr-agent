@@ -524,7 +524,7 @@ describe("publishReview summary coordination", () => {
     vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 88, updated: true });
   });
 
-  it("publishes the final summary at revision five under the progress lock", async () => {
+  it("publishes the final summary at terminal progress revision under the progress lock", async () => {
     const recordPublishStep = attachSummaryCommentCoordination(vi.fn(), {
       pool,
       workItemId: "wi-1",
@@ -544,7 +544,7 @@ describe("publishReview summary coordination", () => {
       "o",
       "r",
       1,
-      expect.stringContaining("<!-- pr-agent:progress-revision workItemId=wi-1 value=6 -->"),
+      expect.stringContaining("<!-- pr-agent:progress-revision workItemId=wi-1 value=7 -->"),
       REVIEW_SUMMARY_SENTINEL,
       { id: 88, url: "https://example.com/88" },
       undefined,

@@ -78,7 +78,6 @@ import {
 } from "../findingHistoryRepository.js";
 import {
   loadReviewExecutorPublishContext,
-  getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
@@ -726,12 +725,11 @@ export async function executeReviewJob(
     execute: async (item, env) => {
       const reviewLens = item.reviewLens;
       const payload = item.payload;
-      const stubPostedAtMs = await getProgressStubPostedAtMs(pool, item.resourceKey, reviewLens);
+      // Wall-clock starts at worker start (now), never at progress-stub post (queue wait).
       initReviewRunMetrics({
         provider: cfg.piProvider,
         model: cfg.piModel,
         mode: reviewLens,
-        ...(stubPostedAtMs != null ? { startedAtMs: stubPostedAtMs } : {}),
       });
 
       const staleHeadResult = await handleStaleHeadReschedule({

@@ -138,9 +138,12 @@ describe("executeAckJob", () => {
         resourceKey: "o/r#1",
         reviewLens: "review",
         progressRevision: 0,
-        body: expect.stringMatching(/Recon[\s\S]*Waiting/),
+        body: expect.stringMatching(/Review queued/),
       }),
     );
+    const queuedBody = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    expect(queuedBody).not.toMatch(/Recon/);
+    expect(queuedBody).not.toMatch(/Correctness/);
     const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
     expect(recordPublishStep).not.toHaveBeenCalled();

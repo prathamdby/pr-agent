@@ -178,12 +178,11 @@ function transitionTools(
   session.setActiveTools(tools, executors);
 }
 
-/** Specialist completion ticks occupy revisions 2–5 (revision 1 is recon-done). */
-function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 2 | 3 | 4 | 5 {
+/** Specialist completion ticks occupy revisions 3–6 (1 worker-start, 2 recon-done). */
+function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 3 | 4 | 5 | 6 {
   switch (revision) {
     case 0:
     case 1:
-      return 2;
     case 2:
       return 3;
     case 3:
@@ -191,8 +190,10 @@ function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]
     case 4:
       return 5;
     case 5:
+      return 6;
     case 6:
-      return 5;
+    case 7:
+      return 6;
     default: {
       const exhaustive: never = revision;
       return exhaustive;
@@ -592,10 +593,17 @@ export async function runOrchestratedPrReview(
     };
   };
 
+  const snapshotSpecialists = (): OrchestratedRunState["specialists"] => ({
+    correctness: state.specialists.correctness,
+    security: state.specialists.security,
+    quality: state.specialists.quality,
+    tests: state.specialists.tests,
+  });
+
   const writeTick = async (): Promise<void> => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     const revision = state.progressRevision;
-    if (!coordination || revision === 0 || revision === 6) return;
+    if (!coordination || revision === 0 || revision === 7) return;
     await tickProgressComment({
       pool: coordination.pool,
       workItemId: coordination.workItemId,
@@ -610,7 +618,7 @@ export async function runOrchestratedPrReview(
       tickState: {
         kind: "specialists",
         recon: state.recon,
-        specialists: state.specialists,
+        specialists: snapshotSpecialists(),
       },
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
@@ -619,13 +627,24 @@ export async function runOrchestratedPrReview(
     });
   };
 
+  /** Edit queued stub → active roster as soon as the review worker starts agents. */
+  const writeWorkerStartTick = async (): Promise<void> => {
+    if (state.progressRevision !== 0) return;
+    state.progressRevision = 1;
+    await writeTick();
+  };
+
   const markReconDoneAndTick = async (): Promise<void> => {
     state.recon = "done";
     for (const specialist of SPECIALIST_IDS) {
       state.specialists[specialist] = { phase: "running" };
     }
+    // 0 → 1 if worker-start was skipped; 1 → 2 after worker-start (recon running).
     if (state.progressRevision === 0) {
       state.progressRevision = 1;
+      await writeTick();
+    } else if (state.progressRevision === 1) {
+      state.progressRevision = 2;
       await writeTick();
     }
   };
@@ -633,7 +652,7 @@ export async function runOrchestratedPrReview(
   const writeTerminalTick = async (reason: "superseded" | "stale_head"): Promise<void> => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     if (!coordination) return;
-    state.progressRevision = 6;
+    state.progressRevision = 7;
     await tickProgressComment({
       pool: coordination.pool,
       workItemId: coordination.workItemId,
@@ -644,12 +663,12 @@ export async function runOrchestratedPrReview(
       mode: reviewMode,
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
-      progressRevision: 6,
+      progressRevision: 7,
       tickState: {
         kind: "terminal",
         reason,
         recon: state.recon,
-        specialists: state.specialists,
+        specialists: snapshotSpecialists(),
       },
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
@@ -800,6 +819,8 @@ export async function runOrchestratedPrReview(
   };
 
   try {
+    await writeWorkerStartTick();
+
     if (session) {
       transitionTools(session, [...setup.workspaceTools.piTools, briefTool.piTool], {
         ...setup.workspaceTools.executors,

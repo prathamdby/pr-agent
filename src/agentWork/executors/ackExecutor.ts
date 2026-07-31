@@ -12,10 +12,7 @@ import { mintInstallationToken } from "../durableJob.js";
 import { getProgressCommentOwner, getWorkItemCore } from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
-import {
-  initialProgressTickState,
-  renderReviewProgressComment,
-} from "../../review/run/progressComment.js";
+import { renderReviewProgressComment } from "../../review/run/progressComment.js";
 import {
   getAppBotIdentity,
   getPullRequestHeadSha,
@@ -74,12 +71,12 @@ async function publishAckProgress(
     lightweight: true,
     waitMs: 0,
   });
+  // Queued stub: Head/Source/(CI) only — no Recon/specialist rows until the review worker starts.
   const body = renderReviewProgressComment({
     mode: data.progress.lens,
     headSha,
     source: data.progress.source,
     ciSummary,
-    tickState: initialProgressTickState(),
     progressRevision: 0,
     progressWorkItemId: data.workItemId,
   });

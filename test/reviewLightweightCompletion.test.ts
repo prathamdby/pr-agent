@@ -10,7 +10,6 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
-  getProgressStubPostedAtMs: vi.fn(async () => null),
   shouldSkipWork: vi.fn(),
   recordPublishStep: vi.fn(async () => undefined),
 }));
@@ -24,7 +23,6 @@ import {
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
 import {
-  getProgressStubPostedAtMs,
   getSummaryCommentGithubId,
   recordPublishStep,
   shouldSkipWork,
@@ -135,10 +133,12 @@ describe("tryLightweightAutoReviewCompletion", () => {
     );
   });
 
-  it("uses progress stub start time for the footer duration", async () => {
+  it("uses worker-start metrics for the footer duration and ignores stub post time", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-22T12:10:00.000Z"));
-    vi.mocked(getProgressStubPostedAtMs).mockResolvedValue(Date.parse("2026-07-22T12:00:00.000Z"));
+    vi.mocked(snapshotReviewRunMetrics).mockReturnValue({
+      startedAtMs: Date.parse("2026-07-22T12:08:00.000Z"),
+    } as ReturnType<typeof snapshotReviewRunMetrics>);
 
     await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem({ headSha: "abc123def456" }),
@@ -158,7 +158,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       "o",
       "r",
       1,
-      expect.stringContaining("<sub>abc123d ⋅ general ⋅ 10m ⋅ grok-4.5</sub>"),
+      expect.stringContaining("<sub>abc123d ⋅ general ⋅ 2m ⋅ grok-4.5</sub>"),
       expect.any(String),
       undefined,
       undefined,

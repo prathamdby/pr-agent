@@ -8,6 +8,7 @@ import {
 } from "../src/review/run/progressComment.js";
 import {
   REVIEW_PROGRESS_NOTE,
+  REVIEW_PROGRESS_QUEUED_NOTE,
   REVIEW_PROGRESS_SOURCE_SLASH,
   REVIEW_SUMMARY_SENTINEL,
 } from "../src/settings/index.js";
@@ -32,6 +33,29 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toMatch(/\d+\/\d+/);
   });
 
+  it("renders queued stub without Recon or specialist rows", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+    });
+    expect(body).toContain("[!NOTE]");
+    expect(body).toContain(REVIEW_PROGRESS_QUEUED_NOTE);
+    expect(body).not.toContain(REVIEW_PROGRESS_NOTE);
+    expect(body).toContain("<strong>Head</strong>");
+    expect(body).toContain("<code>abc123</code>");
+    expect(body).toContain("Pull request update");
+    expect(body).not.toContain("<strong>Recon</strong>");
+    expect(body).not.toContain("<strong>Correctness</strong>");
+    expect(body).not.toContain("<strong>Security</strong>");
+    expect(body).not.toContain("<strong>Quality</strong>");
+    expect(body).not.toContain("<strong>Tests</strong>");
+    expect(body).toContain("<table>");
+    expect(body).not.toContain("<strong>CI</strong>");
+    expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
+    expect(parseProgressRevision(body)).toBe(0);
+  });
+
   it("renders progress with NOTE alert, metadata table, and full roster", () => {
     const body = renderReviewProgressComment({
       mode: "review",
@@ -41,6 +65,7 @@ describe("progressComment fallback wording", () => {
     });
     expect(body).toContain("[!NOTE]");
     expect(body).toContain(REVIEW_PROGRESS_NOTE);
+    expect(body).not.toContain(REVIEW_PROGRESS_QUEUED_NOTE);
     expect(body).toContain("<strong>Head</strong>");
     expect(body).toContain("<code>abc123</code>");
     expect(body).toContain("Pull request update");
