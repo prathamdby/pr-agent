@@ -27,6 +27,46 @@ describe("formatAskReply", () => {
     expect(body).toContain("It is a hydration-safe hook.");
   });
 
+  it("keeps the first line of a multi-line answer as the Answer body start", () => {
+    const answer = [
+      "Open `src/auth.ts`.",
+      "",
+      "1. Replace `verifyToken`",
+      "2. Run the auth tests",
+    ].join("\n");
+    const body = formatAskReply({
+      question: "how do I fix auth?",
+      answer,
+      replyTarget: { kind: "prConversation", prNumber: 1 },
+    });
+    const answerIdx = body.indexOf("**Answer:**");
+    expect(answerIdx).toBeGreaterThan(-1);
+    const afterAnswer = body.slice(answerIdx + "**Answer:**".length).trimStart();
+    expect(afterAnswer.startsWith("Open `src/auth.ts`.")).toBe(true);
+    expect(body.startsWith("**Question:**")).toBe(true);
+  });
+
+  it("keeps multi-line action-first answers answer-only on inline threads", () => {
+    const answer = [
+      "Open `src/auth.ts`.",
+      "",
+      "1. Replace `verifyToken`",
+      "2. Run the auth tests",
+    ].join("\n");
+    const body = formatAskReply({
+      question: "how do I fix auth?",
+      answer,
+      replyTarget: {
+        kind: "inlineReviewThread",
+        prNumber: 1,
+        inReplyToCommentId: 42,
+      },
+    });
+    expect(body).toBe(answer);
+    expect(body).not.toContain("**Question:**");
+    expect(body).not.toContain("**Answer:**");
+  });
+
   it("redacts secret-shaped strings in the echoed PR conversation question", () => {
     const body = formatAskReply({
       question: "why does ghp_1234567890123456789012345678901234 fail auth?",
