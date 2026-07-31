@@ -201,7 +201,7 @@ async function insertAgentWorkItem(
   }
 }
 
-async function ensureProgressCommentRecord(
+export async function transferProgressCommentOwnership(
   client: PoolClient,
   params: {
     readonly workItemId: string;
@@ -222,7 +222,7 @@ async function ensureProgressCommentRecord(
 			                   COALESCE((publish_records.detail->>'progressGeneration')::integer, 0) + 1
 			                 ),
 			                 true
-			               ),
+			               ) - 'progressRevision',
 			               updated_at = now()
 			         WHERE publish_records.work_item_id IS DISTINCT FROM EXCLUDED.work_item_id`,
     [crypto.randomUUID(), params.workItemId, params.resourceKey, params.reviewLens],
@@ -277,7 +277,7 @@ export async function createReviewWorkItem(
     if (!insert.created) {
       return insert;
     }
-    await ensureProgressCommentRecord(client, {
+    await transferProgressCommentOwnership(client, {
       workItemId: insert.id,
       resourceKey,
       reviewLens: "review",
@@ -297,7 +297,7 @@ export async function createReviewWorkItem(
     payload,
     conflict: "none",
   });
-  await ensureProgressCommentRecord(client, {
+  await transferProgressCommentOwnership(client, {
     workItemId: insert.id,
     resourceKey,
     reviewLens: "review",

@@ -107,7 +107,7 @@ describe("createReviewRescheduleWorkItem", () => {
     );
 
     expect(replacement.replacementWorkItemId).toBe("existing-replacement");
-    expect(query).toHaveBeenCalledTimes(1);
+    expect(query).toHaveBeenCalledTimes(2);
   });
 
   it("persists marker then inserts replacement on first attempt", async () => {
@@ -123,7 +123,7 @@ describe("createReviewRescheduleWorkItem", () => {
     const replacement = await createReviewRescheduleWorkItem(pool, makeItem(), "newhead");
 
     expect(replacement.replacementWorkItemId).toBe("generated-replacement");
-    expect(query).toHaveBeenCalledTimes(2);
+    expect(query).toHaveBeenCalledTimes(3);
     expect(String(query.mock.calls[0]?.[0])).toContain(
       "payload->>'staleHeadReplacementWorkItemId') IS NULL",
     );
@@ -270,21 +270,24 @@ describe("enqueueReviewReschedule", () => {
   it("reuses an existing replacement review job after a partial enqueue", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
-    const send = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce("ack-job");
+    const send = vi.fn().mockResolvedValue("ack-job");
     const existingReplacement = {
       id: "review-job",
       state: "created",
       data: { kind: "review", workItemId: "replacement-wi" },
     };
-    const findJobs = vi.fn().mockResolvedValue([existingReplacement]);
+    const findJobs = vi
+      .fn()
+      .mockResolvedValueOnce([existingReplacement])
+      .mockResolvedValueOnce([existingReplacement])
+      .mockResolvedValueOnce([]);
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
     await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
 
-    expect(send).toHaveBeenCalledTimes(2);
-    expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
-    expect(send.mock.calls[1]?.[0]).toBe(ACK_QUEUE);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0]).toBe(ACK_QUEUE);
     expect(cancel).not.toHaveBeenCalled();
     expect(String(query.mock.calls[0]?.[0])).toContain("staleHeadReplacementEnqueued");
   });
@@ -292,22 +295,42 @@ describe("enqueueReviewReschedule", () => {
   it("accepts a deterministic review job id that is already terminal", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;
-    const send = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(null);
-    const findJobs = vi.fn().mockResolvedValue([
-      {
-        id: "replacement-wi",
-        state: "completed",
-        data: { kind: "review", workItemId: "replacement-wi" },
-      },
-    ]);
+    const send = vi.fn().mockResolvedValue("ack-job");
+    const existingReview = {
+      id: "replacement-wi",
+      state: "completed",
+      data: { kind: "review", workItemId: "replacement-wi" },
+    };
+    const findJobs = vi
+      .fn()
+      .mockResolvedValueOnce([existingReview])
+      .mockResolvedValueOnce([existingReview])
+      .mockResolvedValueOnce([]);
     const cancel = vi.fn();
     const boss = { send, findJobs, cancel } as unknown as PgBoss;
 
     await enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead");
 
-    expect(send).toHaveBeenCalledTimes(2);
+    expect(send).toHaveBeenCalledTimes(1);
     expect(cancel).not.toHaveBeenCalled();
     expect(String(query.mock.calls[0]?.[0])).toContain("staleHeadReplacementEnqueued");
+  });
+
+  it("fails when a missing deterministic job returns null", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValue(null);
+    const findJobs = vi.fn().mockResolvedValue([]);
+    const cancel = vi.fn();
+    const boss = { send, findJobs, cancel } as unknown as PgBoss;
+
+    await expect(
+      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
+    ).rejects.toMatchObject({ code: "agent_work.reschedule_enqueue_failed" });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("does not mark or send an ack when replacement review enqueue throws", async () => {
