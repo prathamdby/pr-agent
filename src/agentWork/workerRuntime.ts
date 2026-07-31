@@ -1,11 +1,6 @@
 import { Effect, Layer } from "effect";
 import type { Config } from "../config.js";
-import {
-  AgentWorkBoss,
-  AgentWorkBossLive,
-  AgentWorkPool,
-  AgentWorkPoolLive,
-} from "./runtime.js";
+import { AgentWorkBoss, AgentWorkBossLive, AgentWorkPool, AgentWorkPoolLive } from "./runtime.js";
 import { AgentWorkerLive } from "./worker.js";
 
 /** Worker role: full queue consumers for agent work items. */

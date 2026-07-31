@@ -14,21 +14,21 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 
 ### Dependency import cost (cold process, mean of 5)
 
-| Module | Mean ms |
-| --- | ---: |
-| `effect` | 258 |
-| `@effect/platform-node` | 510 |
-| `@earendil-works/pi-ai` | 176 |
-| `@earendil-works/pi-coding-agent` | 664 |
+| Module                            | Mean ms |
+| --------------------------------- | ------: |
+| `effect`                          |     258 |
+| `@effect/platform-node`           |     510 |
+| `@earendil-works/pi-ai`           |     176 |
+| `@earendil-works/pi-coding-agent` |     664 |
 
 ### App module import (nub, median of 5)
 
-| Entry | Median ms | RSS (median MiB) |
-| --- | ---: | ---: |
-| `src/config.ts` | 492 | 180 |
-| `src/agentWork/runtime.ts` | 772 | 225 |
-| `src/worker.ts` | 984 | 244 |
-| `src/effect/server.ts` | 1062 | 287 |
+| Entry                      | Median ms | RSS (median MiB) |
+| -------------------------- | --------: | ---------------: |
+| `src/config.ts`            |       492 |              180 |
+| `src/agentWork/runtime.ts` |       772 |              225 |
+| `src/worker.ts`            |       984 |              244 |
+| `src/effect/server.ts`     |      1062 |              287 |
 
 ### Static import graph
 
@@ -66,6 +66,7 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 **Hypothesis:** Removing the static `runtime → worker` edge cuts web cold import of ~orchestrator/Pi/executors (~hundreds of ms + RSS).
 
 **Changes:**
+
 1. Split `src/agentWork/runtime.ts` so `agentWorkWebLive` does not import `./worker.js`. Move worker-only Layer wiring into `src/agentWork/workerRuntime.ts` (or equivalent) imported only by `src/worker.ts`.
 2. In `src/index.ts`, load the worker entry via dynamic `import()` only when `cfg.role === "worker"` (defense in depth).
 3. Add a small unit/static test that the web entry module graph does not include `agentWork/executors/` or `review/orchestrator/`.
@@ -79,6 +80,7 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 **Hypothesis:** Web does not execute agent sessions; skipping `ModelRuntime.create` / pi-ai catalog work removes config-time cost and avoids pulling Pi into the web graph when combined with dynamic import.
 
 **Changes:**
+
 1. In `loadConfig()`, when `role === "web"`, keep reading `PI_*` env strings for boot logs, but **do not** call `assertPiModelSelection`. Set `piApi` to a stable unused placeholder (or omit validation-only resolution) documented as worker-validated.
 2. Dynamically import `./settings/modelsJson.js` only on the worker validation path so web does not statically depend on `@earendil-works/pi-*`.
 3. Update `docs/configuration.md` to state Pi catalog validation runs on `ROLE=worker` (and any combined/dev paths that load worker).
@@ -92,6 +94,7 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 **Hypothesis:** One `SELECT version FROM schema_migrations` + Set lookup beats 20 round-trips.
 
 **Changes:**
+
 1. In `applyMigrations`, after ensuring the table exists, load all applied versions once; skip files present in the set; apply remaining in the same per-file transactions as today.
 2. Keep advisory lock semantics unchanged.
 
@@ -104,6 +107,7 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 **Hypothesis:** Explicit lower `max` on pg-boss reduces connection fan-out without changing queue semantics.
 
 **Changes:**
+
 1. Add constants (e.g. `PG_BOSS_POOL_MAX_WEB`, `PG_BOSS_POOL_MAX_WORKER` or single `PG_BOSS_POOL_MAX`) in `src/settings/timeoutConstants.ts`.
 2. Pass `max` in `bossConstructorOptions`.
 3. Document in `docs/configuration.md`; extend `agentWorkBoss.test.ts`.
@@ -117,6 +121,7 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 **Hypothesis:** Bounded parallel `readFile` improves wall time on multi-file trees without changing indexed symbols.
 
 **Changes:**
+
 1. In `buildSymbolIndex`, process paths with a concurrency limit (constant, e.g. 8), preserving deterministic insertion order for equal names (process completion order must not change which symbols win the max-symbols cap — process paths in original order, only overlapping I/O).
 2. Prefer: read next N files concurrently, then index results in original path order (keeps symbol-cap semantics identical).
 3. Extend `test/symbolIndex.test.ts` with order/cap determinism + a timing-friendly multi-file case.
@@ -128,6 +133,7 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 **Hypothesis:** Computing `plainto_tsquery` once per statement reduces CPU on larger chunk tables.
 
 **Changes:**
+
 1. Rewrite `searchCodeIndexFts` SQL to bind/query once (CTE or `CROSS JOIN LATERAL` / subquery).
 2. Keep `limit * 4` overfetch + path filter behavior.
 
@@ -136,6 +142,7 @@ Reduce cold-start latency (especially `ROLE=web`), Postgres boot/query overhead,
 ### Batch G — Benchmark harness + report
 
 **Changes:**
+
 1. Add `scripts/bench-performance.mjs` (or `.ts` via nub) that prints JSON for: dependency imports, static graph sizes, web vs worker entry imports, symbol-index synthetic tree, migration no-op (if `DATABASE_URL` set).
 2. Save baseline and optimized JSON under `/tmp/perf-bench/` during the run; summarize in the PR body with % reduction formula `(baseline - optimized) / baseline * 100`.
 

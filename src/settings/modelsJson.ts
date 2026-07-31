@@ -4,11 +4,7 @@ import { join } from "node:path";
 import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { AppError } from "../errors/appError.js";
-import {
-  defaultModelsJsonCandidatePath,
-  MODELS_JSON_FILENAME,
-  resolveModelsJsonPath,
-} from "./modelsJsonPath.js";
+import { defaultModelsJsonCandidatePath, MODELS_JSON_FILENAME } from "./modelsJsonPath.js";
 
 export {
   defaultModelsJsonCandidatePath,

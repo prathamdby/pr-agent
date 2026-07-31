@@ -31,7 +31,9 @@ async function applyMigrations(pool: Pool): Promise<void> {
 	`);
 
   const files = (await readdir(MIGRATIONS_DIR)).filter((f) => /^\d+_.+\.sql$/.test(f)).toSorted();
-  const appliedRows = await pool.query<{ version: string }>("SELECT version FROM schema_migrations");
+  const appliedRows = await pool.query<{ version: string }>(
+    "SELECT version FROM schema_migrations",
+  );
   const applied = new Set(appliedRows.rows.map((row) => row.version));
 
   for (const file of files) {
