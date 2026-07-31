@@ -1,8 +1,5 @@
 import { loadConfig, type Config } from "./config.js";
 import { initEvlog, logDebug, logInfo } from "./evlog.js";
-import { startEffectWebhookServer } from "./effect/server.js";
-import { prewarmAppBotIdentity } from "./github/appAuth.js";
-import { startAgentWorker } from "./worker.js";
 import { initAnalytics } from "./analytics/index.js";
 import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
@@ -30,9 +27,14 @@ async function main() {
   });
   logDebug("runtime_selected", { runtime: "effect" });
   if (cfg.role === "worker") {
+    const { startAgentWorker } = await import("./worker.js");
     startAgentWorker(cfg);
     return;
   }
+  const [{ prewarmAppBotIdentity }, { startEffectWebhookServer }] = await Promise.all([
+    import("./github/appAuth.js"),
+    import("./effect/server.js"),
+  ]);
   prewarmAppBotIdentity(cfg);
   startEffectWebhookServer(cfg);
 }

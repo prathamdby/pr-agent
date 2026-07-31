@@ -60,4 +60,31 @@ describe("symbolIndex", () => {
     expect(formatSymbolIndexStatusLine({ available: false })).toBe("Symbol index: unavailable.");
     expect(querySymbolIndex(null, "foo")).toEqual([]);
   });
+
+  it("keeps max-symbols path order with concurrent reads", async () => {
+    const paths = Array.from({ length: 20 }, (_, i) => `src/f${String(i).padStart(2, "0")}.ts`);
+    const readOrder: string[] = [];
+    const index = await buildSymbolIndex(
+      paths,
+      async (path) => {
+        readOrder.push(path);
+        const id = path.match(/f(\d+)\.ts$/)?.[1] ?? "xx";
+        await new Promise((r) => setTimeout(r, id === "10" ? 15 : 1));
+        return `export function sym_${id}() {}\n`;
+      },
+      { maxSymbols: 5, readConcurrency: 8 },
+    );
+
+    // First chunk (8) is fully read; further chunks stop after the symbol cap.
+    expect(readOrder.length).toBe(8);
+    expect(index.symbolCount).toBe(5);
+    expect(querySymbolIndex(index, "sym_00")).toEqual([
+      { path: "src/f00.ts", line: 1, kind: "function" },
+    ]);
+    expect(querySymbolIndex(index, "sym_04")).toEqual([
+      { path: "src/f04.ts", line: 1, kind: "function" },
+    ]);
+    expect(querySymbolIndex(index, "sym_05")).toEqual([]);
+    expect(querySymbolIndex(index, "sym_10")).toEqual([]);
+  });
 });
