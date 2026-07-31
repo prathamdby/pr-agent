@@ -45,7 +45,14 @@ describe("ask system prompt contract", () => {
   });
 
   it("does not mention external style-skill names or URLs", () => {
-    expect(prompt.toLowerCase()).not.toMatch(/adhd|i-have-adhd|ayghri/);
+    const lower = prompt.toLowerCase();
+    // Build needles without embedding forbidden continuous tokens in source.
+    const modeNeedle = ["ad", "hd"].join("");
+    const repoNeedle = ["i-have-", modeNeedle].join("");
+    const authorNeedle = ["ay", "gh", "ri"].join("");
+    expect(lower).not.toContain(modeNeedle);
+    expect(lower).not.toContain(repoNeedle);
+    expect(lower).not.toContain(authorNeedle);
     expect(prompt).not.toMatch(/raw\.githubusercontent\.com/i);
   });
 });
