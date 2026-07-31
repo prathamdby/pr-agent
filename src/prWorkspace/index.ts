@@ -2,7 +2,16 @@ export { cleanupStaleLocalPrWorkspaces, type LocalPrWorkspace } from "./localPrW
 export { withPrRepositoryView } from "./prRepositoryView.js";
 export {
   StaleHeadPushError,
+  botGitPerson,
+  buildCommitCommandArgs,
+  buildTriageCommitAttribution,
+  formatCoAuthoredByTrailer,
+  gitIdentityEnv,
+  gitPersonFromGithubUser,
+  githubNoreplyEmail,
   withWritablePrCheckout,
   type CommitArgs,
+  type GitPerson,
+  type TriageCommitAttribution,
   type WritablePrCheckout,
 } from "./writablePrCheckout.js";

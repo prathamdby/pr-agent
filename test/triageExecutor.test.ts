@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
   pullsGet: vi.fn(),
   createComment: vi.fn(),
+  getById: vi.fn(),
   getAppBotIdentity: vi.fn(),
   fetchBotFindingThreads: vi.fn(),
   fetchReviewCommentParentGraph: vi.fn(),
@@ -40,6 +41,7 @@ vi.mock("../src/github/appAuth.js", () => ({
     rest: {
       pulls: { get: mocks.pullsGet },
       issues: { createComment: mocks.createComment },
+      users: { getById: mocks.getById },
     },
   })),
 }));
@@ -58,9 +60,13 @@ vi.mock("../src/github/reviewThreadResolution.js", () => ({
   warnReviewThreadResolutionDegraded: vi.fn(),
 }));
 
-vi.mock("../src/prWorkspace/index.js", () => ({
-  withWritablePrCheckout: mocks.withWritablePrCheckout,
-}));
+vi.mock("../src/prWorkspace/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/prWorkspace/index.js")>();
+  return {
+    ...actual,
+    withWritablePrCheckout: mocks.withWritablePrCheckout,
+  };
+});
 
 vi.mock("../src/agent/triage/triageRun.js", () => ({
   runFullPrTriage: mocks.runFullPrTriage,
@@ -162,6 +168,15 @@ describe("executeTriageJob", () => {
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.fetchReviewCommentParentGraph.mockResolvedValue([]);
+    mocks.getById.mockResolvedValue({
+      data: {
+        id: 42,
+        login: "alice",
+        name: "Alice",
+        email: null,
+        type: "User",
+      },
+    });
   });
 
   it("runs triage and publishes", async () => {
@@ -170,6 +185,96 @@ describe("executeTriageJob", () => {
     expect(mocks.withWritablePrCheckout).toHaveBeenCalled();
     expect(mocks.runFullPrTriage).toHaveBeenCalled();
     expect(mocks.publishTriage).toHaveBeenCalled();
+  });
+
+  it("passes human commit attribution when commenter resolves", async () => {
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 5,
+          scope: "all",
+          replyTarget: { kind: "prConversation", prNumber: 1 },
+          commenterId: 42,
+        },
+      }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.getById).toHaveBeenCalledWith({ account_id: 42 });
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commitAttribution: expect.objectContaining({
+          source: "human",
+          person: {
+            name: "Alice",
+            email: "42+alice@users.noreply.github.com",
+          },
+          coAuthoredBy: [
+            {
+              name: "pr-agent[bot]",
+              email: "999+pr-agent[bot]@users.noreply.github.com",
+            },
+          ],
+        }),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it("falls back to App attribution when commenter is the bot", async () => {
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 5,
+          scope: "all",
+          replyTarget: { kind: "prConversation", prNumber: 1 },
+          commenterId: 999,
+        },
+      }),
+    );
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.getById).not.toHaveBeenCalled();
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commitAttribution: expect.objectContaining({
+          source: "app",
+          coAuthoredBy: [],
+        }),
+      }),
+      expect.any(Function),
+    );
+  });
+
+  it("falls back to App attribution when user lookup fails", async () => {
+    mockDurableExecution(
+      item({
+        payload: {
+          source: "slash",
+          commentId: 5,
+          scope: "all",
+          replyTarget: { kind: "prConversation", prNumber: 1 },
+          commenterId: 42,
+        },
+      }),
+    );
+    mocks.getById.mockRejectedValue(new Error("not found"));
+
+    await executeTriageJob(cfg, pool, boss, job());
+
+    expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        commitAttribution: expect.objectContaining({
+          source: "app",
+          coAuthoredBy: [],
+        }),
+      }),
+      expect.any(Function),
+    );
   });
 
   it("fork PRs publish report only and never create checkout", async () => {
