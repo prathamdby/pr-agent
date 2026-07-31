@@ -141,11 +141,3 @@ export function coerceDescriptionPayloadInput(
   if (prFiles) coerced.prFiles = prFiles;
   return coerced;
 }
-
-export function formatDescriptionValidationError(error: z.ZodError): string {
-  const lines = error.issues.map((issue) => {
-    const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
-    return `- ${path}: ${issue.message}`;
-  });
-  return ["DescriptionPayload validation failed:", ...lines].join("\n");
-}

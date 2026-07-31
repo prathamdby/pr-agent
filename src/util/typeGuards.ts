@@ -1,9 +1,9 @@
-/** True for non-null objects, including arrays and boxed primitives. */
+/** True for non-null plain objects only (excludes arrays and boxed primitives that fail object shape). */
 export function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value != null;
+  return typeof value === "object" && value != null && !Array.isArray(value);
 }
 
-/** True for non-null plain objects only (excludes arrays). */
+/** Alias of isRecord — plain objects only. */
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return isRecord(value);
 }

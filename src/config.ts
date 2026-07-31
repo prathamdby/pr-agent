@@ -124,9 +124,23 @@ function readEnum<T extends string>(name: string, allowed: readonly T[], default
   return value as T;
 }
 
-/** Boolean env that rejects typos instead of silently reading them as false. */
+/**
+ * Boolean env that rejects typos instead of silently reading them as false.
+ * Empty or whitespace-only values fall back to the default (operator blank = unset).
+ */
 function readStrictBoolean(name: string, defaultValue: boolean): boolean {
-  return readEnum(name, ["true", "false"] as const, defaultValue ? "true" : "false") === "true";
+  const raw = process.env[name];
+  if (raw == null || raw.trim() === "") {
+    return defaultValue;
+  }
+  if (raw !== "true" && raw !== "false") {
+    throw new AppError({
+      code: "config.invalid_enum",
+      message: `${name} must be one of true, false`,
+      context: { name, allowed: ["true", "false"] },
+    });
+  }
+  return raw === "true";
 }
 
 const GITHUB_AUTHOR_ASSOCIATIONS = [
@@ -416,8 +430,8 @@ export async function loadConfig() {
     DEFAULT_LOG_LEVEL,
   );
 
-  const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
-  const logPretty = optionalEnv(ENV.LOG_PRETTY, logPrettyDefault) === "true";
+  const logPrettyDefault = process.env.NODE_ENV === "production" ? false : true;
+  const logPretty = readStrictBoolean(ENV.LOG_PRETTY, logPrettyDefault);
   const logRedact = readStrictBoolean(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
 
   const features = {

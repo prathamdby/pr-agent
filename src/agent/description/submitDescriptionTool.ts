@@ -8,8 +8,8 @@ import {
   coerceDescriptionPayloadInput,
   descriptionPayloadSchema,
   DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
-  formatDescriptionValidationError,
 } from "./descriptionSchema.js";
+import { formatZodIssues } from "../../util/formatZodIssues.js";
 import { enforceDescriptionMapPayload, type DescriptionMapMode } from "./descriptionMapMode.js";
 import {
   formatMermaidValidationError,
@@ -93,7 +93,10 @@ export function buildSubmitDescriptionTool(params: {
     const coerced = coerceDescriptionPayloadInput(args);
     const parsed = descriptionPayloadSchema.safeParse(coerced);
     if (!parsed.success) {
-      params.state.lastValidationError = formatDescriptionValidationError(parsed.error);
+      params.state.lastValidationError = formatZodIssues(
+        parsed.error,
+        "DescriptionPayload validation failed:",
+      );
       throw new AppError({
         code: "description.validation_failed",
         message: params.state.lastValidationError,
