@@ -10,6 +10,13 @@ import {
   createTriageWorkItem,
   createVerificationWorkItem,
 } from "../../src/agentWork/intake/workItemRepository.js";
+import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
+import { getWorkItem } from "../../src/agentWork/repository.js";
+import {
+  getProgressCommentOwner,
+  getProgressCommentRevision,
+  recordPublishStep,
+} from "../../src/agentWork/publishRecordRepository.js";
 import { prResourceKey } from "../../src/agentWork/types.js";
 import { hasDatabase, integrationPool } from "./db.js";
 
@@ -315,6 +322,65 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
       ]),
     );
     expect(rows).toHaveLength(2);
+  });
+
+  it("transfers progress ownership to a stale-head replacement", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const resourceKey = prResourceKey(OWNER, repo, 17);
+    const webhookEventId = randomUUID();
+    const parentId = randomUUID();
+
+    await pool.query(
+      `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+       VALUES ($1, $2, $3, 'sha', 'accepted')`,
+      [webhookEventId, `p-${webhookEventId}`, EVENT],
+    );
+    await pool.query(
+      `INSERT INTO agent_work_items (
+         id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
+         head_sha, review_lens, resource_key, priority, payload
+       ) VALUES (
+         $1, $2, 'review', 'slash', 'running', $3, $4, 17, 4242, 'sha-old', 'review', $5, 0,
+         '{"mode":"review","source":"slash"}'::jsonb
+       )`,
+      [parentId, webhookEventId, OWNER, repo, resourceKey],
+    );
+    await pool.query(
+      `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, status, detail)
+       VALUES ($1, $2, $3, 'review', 'progress_comment', 'completed',
+               '{"progressGeneration":4,"progressRevision":6}'::jsonb)`,
+      [randomUUID(), parentId, resourceKey],
+    );
+
+    const parent = await getWorkItem(pool, parentId);
+    expect(parent?.type).toBe("review");
+    if (parent?.type !== "review") throw new Error("expected review parent");
+
+    const replacement = await createReviewRescheduleWorkItem(pool, parent, "sha-new");
+    const owner = await getProgressCommentOwner(pool, resourceKey, "review");
+
+    expect(owner).toEqual({ workItemId: replacement.replacementWorkItemId, generation: 5 });
+    expect(await getProgressCommentRevision(pool, resourceKey, "review")).toBeNull();
+
+    await recordPublishStep(pool, {
+      workItemId: replacement.replacementWorkItemId,
+      resourceKey,
+      reviewLens: "review",
+      step: "progress_comment",
+      detail: { progressRevision: 0 },
+    });
+    await recordPublishStep(pool, {
+      workItemId: parentId,
+      resourceKey,
+      reviewLens: "review",
+      step: "progress_comment",
+      detail: { progressRevision: 6 },
+    });
+
+    expect(await getProgressCommentRevision(pool, resourceKey, "review")).toEqual({
+      workItemId: replacement.replacementWorkItemId,
+      revision: 0,
+    });
   });
 
   it("concurrent same-scope slash description inserts yield one winner id", async () => {

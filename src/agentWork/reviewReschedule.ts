@@ -7,6 +7,7 @@ import { logInfo, logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
 import { getPullRequestHeadSha } from "./githubPrSurface.js";
+import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
 import {
@@ -139,48 +140,49 @@ export async function createReviewRescheduleWorkItem(
   item: ReviewWorkItem,
   latestHeadSha: string,
 ): Promise<ReviewRescheduleWorkItem> {
-  const payload = item.payload;
-  const reviewLens = item.reviewLens;
-  let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
+  return inTransaction(pool, async (client) => {
+    const payload = item.payload;
+    const reviewLens = item.reviewLens;
+    let replacementWorkItemId = payload.staleHeadReplacementWorkItemId;
 
-  if (!replacementWorkItemId) {
-    replacementWorkItemId = crypto.randomUUID();
-    const marker = JSON.stringify({
-      staleHeadReplacementWorkItemId: replacementWorkItemId,
-    });
-    const updateResult = await pool.query<{ replacement_id: string }>(
-      `UPDATE agent_work_items
+    if (!replacementWorkItemId) {
+      replacementWorkItemId = crypto.randomUUID();
+      const marker = JSON.stringify({
+        staleHeadReplacementWorkItemId: replacementWorkItemId,
+      });
+      const updateResult = await client.query<{ replacement_id: string }>(
+        `UPDATE agent_work_items
          SET payload = payload || $2::jsonb,
              updated_at = now()
        WHERE id = $1
          AND (payload->>'staleHeadReplacementWorkItemId') IS NULL
        RETURNING payload->>'staleHeadReplacementWorkItemId' AS replacement_id`,
-      [item.id, marker],
-    );
-    if ((updateResult.rowCount ?? 0) === 0) {
-      const refreshed = await getWorkItem(pool, item.id);
-      if (refreshed?.type !== "review" || !refreshed.payload.staleHeadReplacementWorkItemId) {
-        throw new AppError({
-          code: "agent_work.stale_head_marker_persist_failed",
-          message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
-          context: { workItemId: item.id },
-        });
+        [item.id, marker],
+      );
+      if ((updateResult.rowCount ?? 0) === 0) {
+        const refreshed = await getWorkItem(pool, item.id);
+        if (refreshed?.type !== "review" || !refreshed.payload.staleHeadReplacementWorkItemId) {
+          throw new AppError({
+            code: "agent_work.stale_head_marker_persist_failed",
+            message: `Failed to persist stale-head replacement marker for work item ${item.id}`,
+            context: { workItemId: item.id },
+          });
+        }
+        replacementWorkItemId = refreshed.payload.staleHeadReplacementWorkItemId;
+      } else {
+        replacementWorkItemId = updateResult.rows[0].replacement_id;
       }
-      replacementWorkItemId = refreshed.payload.staleHeadReplacementWorkItemId;
-    } else {
-      replacementWorkItemId = updateResult.rows[0].replacement_id;
     }
-  }
 
-  const nextPayload: ReviewWorkPayload = {
-    ...payload,
-    source: item.source,
-    staleHeadRescheduled: true,
-    staleHeadReplacementWorkItemId: replacementWorkItemId,
-  };
+    const nextPayload: ReviewWorkPayload = {
+      ...payload,
+      source: item.source,
+      staleHeadRescheduled: true,
+      staleHeadReplacementWorkItemId: replacementWorkItemId,
+    };
 
-  const insertResult = await pool.query<{ head_sha: string }>(
-    `INSERT INTO agent_work_items (
+    const insertResult = await client.query<{ head_sha: string }>(
+      `INSERT INTO agent_work_items (
        id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id,
        head_sha, review_lens, resource_key, priority, payload
      )
@@ -189,25 +191,31 @@ export async function createReviewRescheduleWorkItem(
        payload = EXCLUDED.payload,
        updated_at = now()
      RETURNING head_sha`,
-    [
-      replacementWorkItemId,
-      item.webhookEventId,
-      item.source,
-      item.owner,
-      item.repo,
-      item.prNumber,
-      item.installationId,
-      latestHeadSha,
+      [
+        replacementWorkItemId,
+        item.webhookEventId,
+        item.source,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        item.installationId,
+        latestHeadSha,
+        reviewLens,
+        item.resourceKey,
+        JSON.stringify(nextPayload),
+      ],
+    );
+    await transferProgressCommentOwnership(client, {
+      workItemId: replacementWorkItemId,
+      resourceKey: item.resourceKey,
       reviewLens,
-      item.resourceKey,
-      JSON.stringify(nextPayload),
-    ],
-  );
+    });
 
-  return {
-    replacementWorkItemId,
-    headSha: insertResult.rows[0].head_sha,
-  };
+    return {
+      replacementWorkItemId,
+      headSha: insertResult.rows[0].head_sha,
+    };
+  });
 }
 
 async function markStaleHeadReplacementEnqueued(
@@ -240,6 +248,27 @@ async function replacementReviewJobExists(
   });
 }
 
+async function ensureDeterministicJob(
+  boss: PgBoss,
+  queue: string,
+  data: ReviewJobData | AckJobData,
+  options: Parameters<PgBoss["send"]>[2],
+  db: ReturnType<typeof pgBossDb>,
+): Promise<void> {
+  const workItemId = data.workItemId;
+  const existing = await boss.findJobs(queue, { db, id: workItemId });
+  if (existing.length > 0) return;
+
+  const jobId = await boss.send(queue, data, options);
+  if (jobId != null) return;
+
+  throw new AppError({
+    code: "agent_work.reschedule_enqueue_failed",
+    message: `pg-boss did not enqueue missing ${queue} job for stale-head replacement ${workItemId}`,
+    context: { queue, workItemId },
+  });
+}
+
 export async function enqueueReviewReschedule(
   pool: Pool,
   boss: PgBoss,
@@ -265,12 +294,18 @@ export async function enqueueReviewReschedule(
       workItemId,
       ...correlation,
     };
-    await boss.send(REVIEW_QUEUE, reviewData, {
+    await ensureDeterministicJob(
+      boss,
+      REVIEW_QUEUE,
+      reviewData,
+      {
+        db,
+        id: workItemId,
+        singletonKey: reviewKey,
+        group: { id: installationGroupId(item.installationId) },
+      },
       db,
-      id: workItemId,
-      singletonKey: reviewKey,
-      group: { id: installationGroupId(item.installationId) },
-    });
+    );
 
     const ackData: AckJobData = {
       kind: "ack",
@@ -283,12 +318,18 @@ export async function enqueueReviewReschedule(
       progress: { lens: reviewLens, headSha: replacementHeadSha, source: item.source },
       ...correlation,
     };
-    await boss.send(ACK_QUEUE, ackData, {
+    await ensureDeterministicJob(
+      boss,
+      ACK_QUEUE,
+      ackData,
+      {
+        db,
+        id: workItemId,
+        priority: 100,
+        group: { id: installationGroupId(item.installationId) },
+      },
       db,
-      id: workItemId,
-      priority: 100,
-      group: { id: installationGroupId(item.installationId) },
-    });
+    );
     await markStaleHeadReplacementEnqueued(client, item.id);
   });
 
