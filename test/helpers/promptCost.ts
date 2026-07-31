@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { isPlainObject } from "../../src/util/typeGuards.js";
 
 export type PromptCost = {
   readonly bytes: number;
@@ -51,10 +52,6 @@ function assertDimension(
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value != null && !Array.isArray(value);
-}
-
 function sortJson(value: unknown): unknown {
   if (
     typeof value === "object" &&
@@ -65,7 +62,7 @@ function sortJson(value: unknown): unknown {
     return sortJson(value.toJSON());
   }
   if (Array.isArray(value)) return value.map(sortJson);
-  if (!isRecord(value)) return value;
+  if (!isPlainObject(value)) return value;
   return Object.fromEntries(
     Object.keys(value)
       .toSorted()

@@ -8,17 +8,13 @@ import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
-  SENSITIVE_PATH_PATTERNS,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
 } from "../../settings/index.js";
+import { isSensitivePath } from "../ask/askSafety.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
 
 const exec = promisify(execFile);
-
-function isSensitivePath(path: string): boolean {
-  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
-}
 
 async function safePath(root: string, path: string): Promise<string> {
   const normalized = path.replace(/\\/g, "/");

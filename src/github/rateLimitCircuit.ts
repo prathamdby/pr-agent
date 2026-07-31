@@ -1,6 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import { logInfo, logWarn } from "../evlog.js";
-import { recordReviewMetric } from "../review/run/reviewRunMetrics.js";
+import { logWarn } from "../evlog.js";
 
 export const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
 
@@ -103,11 +102,6 @@ export function noteRateLimitRetryExhausted(kind: RateLimitFailureClass): void {
     kind,
     threshold: RATE_LIMIT_CIRCUIT_THRESHOLD,
   });
-  logInfo("github_rate_limit_circuit_opened", {
-    installationId: circuit.installationId,
-    kind,
-  });
-  recordReviewMetric({ kind: "rate_limit_circuit_opened" });
 }
 
 export function noteGithubRequestSuccess(): void {

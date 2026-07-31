@@ -18,6 +18,7 @@ import {
   stableJson,
   type PromptCost,
 } from "./helpers/promptCost.js";
+import { isRecord } from "../src/util/typeGuards.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
@@ -259,5 +260,5 @@ function requiredFields(schema: unknown): string[] {
 }
 
 function isObjectSchema(value: unknown): value is { readonly required?: readonly unknown[] } {
-  return typeof value === "object" && value != null;
+  return isRecord(value);
 }

@@ -45,6 +45,7 @@ import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../../review/reviewSch
 import {
   initReviewRunMetrics,
   logReviewRunCompleted,
+  recordReviewMetric,
   recordReviewPhaseSpan,
   setReviewRunMetricFields,
   snapshotReviewRunMetrics,
@@ -800,6 +801,7 @@ export async function executeReviewJob(
       const rateLimitCircuit = createRateLimitCircuit({
         installationId: item.installationId,
         onOpened: (kind) => {
+          recordReviewMetric({ kind: "rate_limit_circuit_opened" });
           openSharedRateLimitCircuitBestEffort(pool, {
             installationId: item.installationId,
             lastErrorKind: kind,

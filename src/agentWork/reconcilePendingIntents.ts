@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { logInfo } from "../evlog.js";
 import { queryOne } from "../db/postgres.js";
+import { isRecord } from "../util/typeGuards.js";
 import {
   listPendingOperationIntents,
   reconcileOperationIntent,
@@ -11,10 +12,6 @@ type ReconcilePendingIntentsResult = {
   readonly reconciled: number;
   readonly stillPending: number;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value != null;
-}
 
 export async function findCompletedPublishRecordId(
   client: Pool | PoolClient,

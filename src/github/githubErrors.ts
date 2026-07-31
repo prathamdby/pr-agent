@@ -8,12 +8,18 @@ export type GithubErrorKind =
   | "rate_limit"
   | "unknown";
 
+/** Message string for unknown errors (GitHub helpers share this). */
+export function githubErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error != null && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
+
 function githubErrorText(error: unknown): string {
   if (error instanceof Error) return `${error.name} ${error.message}`.toLowerCase();
-  if (typeof error === "object" && error != null && "message" in error) {
-    return String((error as { message: unknown }).message).toLowerCase();
-  }
-  return String(error).toLowerCase();
+  return githubErrorMessage(error).toLowerCase();
 }
 
 /** Logs/analytics-only classification for GitHub API failures. */

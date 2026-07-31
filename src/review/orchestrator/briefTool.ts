@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
+import { formatZodIssues } from "../../util/formatZodIssues.js";
 import type { SpecialistId } from "./orchestratorTypes.js";
 
 export const specialistBriefSchema = z.object({
@@ -26,15 +27,6 @@ export const specialistBriefSchema = z.object({
 
 export type SpecialistBrief = z.infer<typeof specialistBriefSchema>;
 
-function formatValidationError(error: z.ZodError): string {
-  return [
-    "SpecialistBrief validation failed:",
-    ...error.issues.map(
-      (issue) => `- ${issue.path.length > 0 ? issue.path.join(".") : "(root)"}: ${issue.message}`,
-    ),
-  ].join("\n");
-}
-
 export function buildSpecialistBriefTool(): {
   readonly piTool: PiTool;
   readonly executor: AgentRunnerToolExecutor;
@@ -52,7 +44,7 @@ export function buildSpecialistBriefTool(): {
   const executor: AgentRunnerToolExecutor = async (args) => {
     const parsed = specialistBriefSchema.safeParse(args);
     if (!parsed.success) {
-      validationError = formatValidationError(parsed.error);
+      validationError = formatZodIssues(parsed.error, "SpecialistBrief validation failed:");
       return { accepted: false, error: validationError };
     }
     brief = parsed.data;

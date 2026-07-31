@@ -347,16 +347,12 @@ async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Pro
 
 type SlashIntakeHandler = (ctx: SlashIntakeContext) => Promise<void>;
 
-const REVIEW_SLASH_HANDLERS = {
-  review: handleSlashReview,
-} satisfies Record<"review", SlashIntakeHandler>;
-
 const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
-  help: (ctx) => handleSlashHelp(ctx),
-  ask: (ctx) => handleSlashAsk(ctx),
-  describe: (ctx) => handleSlashDescribe(ctx),
-  triage: (ctx) => handleSlashTriage(ctx),
-  ...REVIEW_SLASH_HANDLERS,
+  help: handleSlashHelp,
+  ask: handleSlashAsk,
+  describe: handleSlashDescribe,
+  triage: handleSlashTriage,
+  review: handleSlashReview,
 };
 
 export async function applySlashCommandIntake(

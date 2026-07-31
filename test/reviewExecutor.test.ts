@@ -85,6 +85,7 @@ import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
 import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
+import * as rateLimitCircuit from "../src/github/rateLimitCircuit.js";
 import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
@@ -257,6 +258,27 @@ describe("executeReviewJob", () => {
         type: "review",
         message: "db down",
       }),
+    );
+  });
+
+  it("records the rate_limit_circuit_opened metric when the review circuit opens", async () => {
+    const recordMetric = vi
+      .spyOn(reviewRunMetrics, "recordReviewMetric")
+      .mockImplementation(() => undefined);
+    const realCreate = rateLimitCircuit.createRateLimitCircuit;
+    let onOpened: ((kind: "primary" | "secondary") => void) | undefined;
+    vi.spyOn(rateLimitCircuit, "createRateLimitCircuit").mockImplementation((params) => {
+      onOpened = params.onOpened;
+      return realCreate(params);
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    onOpened?.("primary");
+    expect(recordMetric).toHaveBeenCalledWith({ kind: "rate_limit_circuit_opened" });
+    expect(mocks.openSharedRateLimitCircuitBestEffort).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ lastErrorKind: "primary" }),
     );
   });
 

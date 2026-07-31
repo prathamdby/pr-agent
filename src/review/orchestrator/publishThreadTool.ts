@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import { AppError, toAppError } from "../../errors/appError.js";
+import { formatZodIssues } from "../../util/formatZodIssues.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
 import type { Config } from "../../config.js";
@@ -40,15 +41,6 @@ type PublishThreadToolParams = Omit<FindingBatchContext, "source" | "ledger"> & 
   readonly agentEvents?: AgentEventsContext;
   readonly cfg?: Pick<Config, "agentEventsEnabled">;
 };
-
-function formatValidationError(error: z.ZodError): string {
-  return [
-    "publish_thread validation failed:",
-    ...error.issues.map(
-      (issue) => `- ${issue.path.length > 0 ? issue.path.join(".") : "(root)"}: ${issue.message}`,
-    ),
-  ].join("\n");
-}
 
 function overlapHints(
   ledger: FindingLedger,
@@ -97,7 +89,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     if (!parsed.success) {
       throw new AppError({
         code: "review.publish_thread_validation_failed",
-        message: formatValidationError(parsed.error),
+        message: formatZodIssues(parsed.error, "publish_thread validation failed:"),
       });
     }
     if (source == null) {

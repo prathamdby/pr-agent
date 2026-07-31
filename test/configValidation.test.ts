@@ -65,10 +65,34 @@ describe("loadConfig validation", () => {
     );
   });
 
-  it("parses boolean knobs by exact 'true'", async () => {
-    expect((await load({ LOG_REDACT: "false" })).logRedact).toBe(false);
-    expect((await load({ LOG_REDACT: "true" })).logRedact).toBe(true);
-    expect((await load({ LOG_REDACT: "1" })).logRedact).toBe(false);
+  it.each([
+    ["LOG_REDACT", "logRedact"] as const,
+    ["AGENT_EVENTS_ENABLED", "agentEventsEnabled"] as const,
+    ["FINDING_HISTORY_ENABLED", "findingHistoryEnabled"] as const,
+    ["RETENTION_ENABLED", "retentionEnabled"] as const,
+  ])("parses boolean knob %s as strict true/false", async (name, field) => {
+    expect((await load({ [name]: "false" }))[field]).toBe(false);
+    expect((await load({ [name]: "true" }))[field]).toBe(true);
+    await expect(load({ [name]: "1" })).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("config.invalid_enum");
+      expect((error as AppError).context).toMatchObject({ name });
+      return true;
+    });
+  });
+
+  it("treats empty strict boolean env as the default", async () => {
+    const cfg = await load({ LOG_REDACT: "", AGENT_EVENTS_ENABLED: "   " });
+    expect(cfg.logRedact).toBe(true);
+    expect(cfg.agentEventsEnabled).toBe(true);
+  });
+
+  it("parses LOG_PRETTY with the same strict boolean rules", async () => {
+    expect((await load({ LOG_PRETTY: "false" })).logPretty).toBe(false);
+    expect((await load({ LOG_PRETTY: "true" })).logPretty).toBe(true);
+    await expect(load({ LOG_PRETTY: "yes" })).rejects.toThrow(
+      /LOG_PRETTY must be one of true, false/,
+    );
   });
 
   it("rejects an invalid enum", async () => {

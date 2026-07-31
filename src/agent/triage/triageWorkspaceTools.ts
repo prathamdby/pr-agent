@@ -9,7 +9,6 @@ import { AppError } from "../../errors/appError.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
-  SENSITIVE_PATH_PATTERNS,
   TRIAGE_COMMIT_BODY_MAX_BULLETS,
   TRIAGE_NEW_FILE_MAX_BYTES,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
@@ -31,13 +30,9 @@ export type TriageWorkspaceToolState = {
   readonly commitByThreadRootCommentId: Map<number, string>;
 };
 
-function isSensitivePath(path: string): boolean {
-  return SENSITIVE_PATH_PATTERNS.some((pattern) => pattern.test(path));
-}
-
 async function safeReadPath(root: string, path: string): Promise<string> {
   const normalized = normalizeRepoRelativePath(path);
-  if (isSensitivePath(normalized) || isTriageControlPath(normalized)) {
+  if (isTriageControlPath(normalized)) {
     throw new AppError({
       code: "triage.sensitive_path_blocked",
       message: `Blocked sensitive path "${normalized}"`,

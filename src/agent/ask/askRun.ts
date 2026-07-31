@@ -93,8 +93,7 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   }
 
   return runWithRateLimitCircuit(circuit, async () => {
-    const { refreshableGh, primePathGate } = buildAskRunSetup(params);
-    const primePathGatePromise = primePathGate();
+    const { refreshableGh } = buildAskRunSetup(params);
 
     const ctx7 = buildContext7Tools({
       apiKey: cfg.context7ApiKey,
@@ -116,7 +115,6 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       refreshBeforeTool: refreshableGh.refreshBeforeTool,
       durability: params.durability,
     });
-    await primePathGatePromise;
 
     try {
       const sendOpts = {
