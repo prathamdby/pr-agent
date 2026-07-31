@@ -17,6 +17,7 @@ import {
   REVIEW_FAILURE_ALERT,
   REVIEW_OVERVIEW_ALERT,
   REVIEW_PROGRESS_NOTE,
+  REVIEW_PROGRESS_QUEUED_NOTE,
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
 } from "../../settings/index.js";
@@ -93,7 +94,7 @@ function renderSpecialistPhase(state: SpecialistPhase): string {
   }
 }
 
-/** Ack stub: Recon running, specialists waiting. */
+/** Active roster once the review worker starts: Recon running, specialists waiting. */
 export function initialProgressTickState(): Extract<SpecialistTickState, { kind: "specialists" }> {
   return {
     kind: "specialists",
@@ -146,6 +147,10 @@ export function renderReviewProgressComment(params: {
   headSha: string;
   source: WorkSource;
   ciSummary?: CiSummary | null;
+  /**
+   * When omitted, the stub is in the queued presentation: Head/Source/(CI) only,
+   * no Recon or specialist rows, and a queued note (not “in progress”).
+   */
   tickState?: SpecialistTickState;
   progressRevision?: number;
   progressWorkItemId?: string;
@@ -172,11 +177,13 @@ export function renderReviewProgressComment(params: {
     }
   }
   const progressNote =
-    params.tickState?.kind === "terminal"
-      ? params.tickState.reason === "stale_head" || params.source === "slash"
-        ? "Superseded. Rescheduled for new head."
-        : "Superseded by a newer pull request update."
-      : REVIEW_PROGRESS_NOTE;
+    params.tickState == null
+      ? REVIEW_PROGRESS_QUEUED_NOTE
+      : params.tickState.kind === "terminal"
+        ? params.tickState.reason === "stale_head" || params.source === "slash"
+          ? "Superseded. Rescheduled for new head."
+          : "Superseded by a newer pull request update."
+        : REVIEW_PROGRESS_NOTE;
   return [
     REVIEW_SUMMARY_SENTINEL,
     "",

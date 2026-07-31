@@ -9,12 +9,7 @@ import {
   resolveVerifiedSummaryCommentRef,
   upsertReviewSummaryComment,
 } from "../github/reviewPublish.js";
-import {
-  getProgressStubPostedAtMs,
-  getSummaryCommentGithubId,
-  recordPublishStep,
-  shouldSkipWork,
-} from "./repository.js";
+import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 
 export type LightweightAutoReviewResult =
@@ -55,15 +50,9 @@ export async function tryLightweightAutoReviewCompletion(
   }
 
   const metricsSnapshot = snapshotReviewRunMetrics();
-  const stubPostedAtMs = await getProgressStubPostedAtMs(
-    pool,
-    params.item.resourceKey,
-    params.reviewLens,
-  );
   const body = renderLightweightReviewCompletion({
     headSha: params.item.headSha,
     durationMs: resolveReviewWallClockMs({
-      stubPostedAtMs,
       metricsStartedAtMs: metricsSnapshot?.startedAtMs,
       endedAtMs: Date.now(),
     }),

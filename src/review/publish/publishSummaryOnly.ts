@@ -101,7 +101,7 @@ async function resolveKnownSummaryCommentRef(
   return resolved ? { id: resolved.id, url: resolved.url } : null;
 }
 
-type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 type SummaryCommentUpsertResult = {
   readonly id: number;
@@ -506,15 +506,7 @@ export async function publishReviewSummaryOnly(params: {
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
     author: params.ciAuthor,
   });
-  const stubPostedAtMs = summaryCoordination
-    ? await getProgressStubPostedAtMs(
-        summaryCoordination.pool,
-        summaryCoordination.resourceKey,
-        mode,
-      )
-    : null;
   const durationMs = resolveReviewWallClockMs({
-    stubPostedAtMs,
     metricsStartedAtMs: metricsSnapshot?.startedAtMs,
     endedAtMs: Date.now(),
   });
@@ -595,7 +587,7 @@ export async function publishReviewSummaryOnly(params: {
           sentinel: summarySentinel,
           expiresAtTs: summaryTokenExpiresAtTs,
           hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
-          progressRevision: 6,
+          progressRevision: 7,
         })
       : upsertReviewSummaryComment(
           summaryToken,

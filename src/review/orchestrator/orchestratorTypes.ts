@@ -70,8 +70,8 @@ export type OrchestratedRunState = {
   briefFallback: boolean;
   judgment: "model" | "degraded";
   lifecycle: OrchestratedRunLifecycle;
-  /** 0 ack · 1 recon done · 2–5 specialist ticks · 6 terminal/summary */
-  progressRevision: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+  /** 0 queued ack · 1 worker start (recon running) · 2 recon done · 3–6 specialist ticks · 7 terminal/summary */
+  progressRevision: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
   summary: OrchestratedSummaryState;
 };
 

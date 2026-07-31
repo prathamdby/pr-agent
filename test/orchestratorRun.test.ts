@@ -784,6 +784,17 @@ describe("runOrchestratedPrReview", () => {
       {
         progressRevision: 1,
         kind: "specialists",
+        recon: "running",
+        specialists: {
+          correctness: { phase: "waiting" },
+          security: { phase: "waiting" },
+          quality: { phase: "waiting" },
+          tests: { phase: "waiting" },
+        },
+      },
+      {
+        progressRevision: 2,
+        kind: "specialists",
         recon: "done",
         specialists: {
           correctness: { phase: "running" },
@@ -793,7 +804,7 @@ describe("runOrchestratedPrReview", () => {
         },
       },
       {
-        progressRevision: 6,
+        progressRevision: 7,
         kind: "terminal",
         recon: "done",
         specialists: {
@@ -848,6 +859,7 @@ describe("runOrchestratedPrReview", () => {
     }
     await run;
 
-    expect(testState.refreshes).toBe(10);
+    // +1 refresh for the worker-start progress tick before recon.
+    expect(testState.refreshes).toBe(11);
   });
 });
