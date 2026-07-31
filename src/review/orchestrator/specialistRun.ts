@@ -21,6 +21,7 @@ import { specialistReportSchema, type SpecialistReport } from "./specialistRepor
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
+import { formatZodIssues } from "../../util/formatZodIssues.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
@@ -111,15 +112,6 @@ async function waitBeforeStage(
   assertCanContinue(params, deadlineMs);
 }
 
-function formatValidationError(error: z.ZodError): string {
-  return [
-    "SpecialistReport validation failed:",
-    ...error.issues.map(
-      (issue) => `- ${issue.path.length > 0 ? issue.path.join(".") : "(root)"}: ${issue.message}`,
-    ),
-  ].join("\n");
-}
-
 function buildSubmitTool(
   state: SubmissionState,
   evidence?: {
@@ -143,7 +135,7 @@ function buildSubmitTool(
   const executor: AgentRunnerToolExecutor = async (args) => {
     const parsed = specialistReportSchema.safeParse(args);
     if (!parsed.success) {
-      state.validationError = formatValidationError(parsed.error);
+      state.validationError = formatZodIssues(parsed.error, "SpecialistReport validation failed:");
       return { accepted: false, error: state.validationError };
     }
 

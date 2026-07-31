@@ -2,6 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import { AppError, toAppError } from "../../errors/appError.js";
 import { MAX_REVIEW_PAYLOAD_FINDINGS } from "../../settings/index.js";
+import { formatZodIssues } from "../../util/formatZodIssues.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
 import {
@@ -66,15 +67,6 @@ export function createPublishSummaryState(initial?: {
     lastValidationError: null,
     stoppedReason: null,
   };
-}
-
-function formatSchemaError(error: z.ZodError): string {
-  return [
-    "publish_summary validation failed:",
-    ...error.issues.map(
-      (issue) => `- ${issue.path.length > 0 ? issue.path.join(".") : "(root)"}: ${issue.message}`,
-    ),
-  ].join("\n");
 }
 
 function throwValidationError(
@@ -225,7 +217,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       throwValidationError(
         state,
         "review.publish_summary_validation_failed",
-        formatSchemaError(parsed.error),
+        formatZodIssues(parsed.error, "publish_summary validation failed:"),
       );
     }
 

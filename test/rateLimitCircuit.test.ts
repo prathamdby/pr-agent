@@ -15,7 +15,6 @@ import {
   PRIMARY_RATE_LIMIT_MAX_RETRIES,
   SECONDARY_RATE_LIMIT_MAX_RETRIES,
 } from "../src/settings/index.js";
-import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
 import * as evlog from "../src/evlog.js";
 
 describe("rateLimitCircuit", () => {
@@ -81,19 +80,19 @@ describe("rateLimitCircuit", () => {
   });
 
   it("records exhausted primary and secondary throttle retries into the active circuit", () => {
-    vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
+    const logWarn = vi.spyOn(evlog, "logWarn").mockImplementation(() => undefined);
     vi.spyOn(evlog, "logInfo").mockImplementation(() => undefined);
     vi.spyOn(evlog, "logDebug").mockImplementation(() => undefined);
-    const recordMetric = vi
-      .spyOn(reviewRunMetrics, "recordReviewMetric")
-      .mockImplementation(() => undefined);
     const circuit = createRateLimitCircuit({ installationId: 9, threshold: 1 });
     const options = { method: "GET", url: "/rate" } as never;
 
     runWithRateLimitCircuit(circuit, () => {
       expect(onRateLimit(1, options, {} as never, PRIMARY_RATE_LIMIT_MAX_RETRIES)).toBe(false);
       expect(circuit.isOpen()).toBe(true);
-      expect(recordMetric).toHaveBeenCalledWith({ kind: "rate_limit_circuit_opened" });
+      expect(logWarn).toHaveBeenCalledWith(
+        "github_rate_limit_circuit_opened",
+        expect.objectContaining({ installationId: 9, kind: "primary" }),
+      );
     });
 
     const secondary = createRateLimitCircuit({ installationId: 10, threshold: 1 });

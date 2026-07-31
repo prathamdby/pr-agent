@@ -1,5 +1,6 @@
 import { logWarn } from "../evlog.js";
 import { MAX_REVIEW_THREAD_PAGES } from "../settings/index.js";
+import { isRecord } from "../util/typeGuards.js";
 import { installationOctokit } from "./appAuth.js";
 import { classifyGithubError } from "./githubErrors.js";
 
@@ -79,7 +80,7 @@ function fullDatabaseId(value: unknown): number | null {
 }
 
 function isReviewThreadsPage(value: unknown): value is ReviewThreadsPage {
-  return typeof value === "object" && value != null;
+  return isRecord(value);
 }
 
 function ingestThreadsPage(

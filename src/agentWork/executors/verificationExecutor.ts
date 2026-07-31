@@ -213,16 +213,9 @@ export async function executeVerificationJob(
               message: "Verification run ended without submitVerification",
             });
           }
-          return { runResult, policyResult };
+          return { payload: runResult.payload, policyResult };
         },
       );
-
-      if (!result.runResult.payload) {
-        throw new AppError({
-          code: "verification.missing_submit",
-          message: "Verification run ended without submitVerification",
-        });
-      }
 
       if (await shouldSkipWork(pool, item)) {
         logInfo("verification_publish_skipped", {
@@ -272,7 +265,7 @@ export async function executeVerificationJob(
         headSha,
         inventory: unresolvedThreads,
         resolutionByRootCommentId,
-        payload: result.runResult.payload,
+        payload: result.payload,
         changedFilePaths,
         changedFilePathsTruncated: compareFilesTruncated,
         policyResult: result.policyResult,

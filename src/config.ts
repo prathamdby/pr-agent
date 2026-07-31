@@ -112,10 +112,6 @@ function readNonNegativeNumber(name: string, defaultValue: number): number {
   return value;
 }
 
-function readBooleanEnv(name: string, defaultValue: boolean): boolean {
-  return optionalEnv(name, String(defaultValue)) === "true";
-}
-
 function readEnum<T extends string>(name: string, allowed: readonly T[], defaultValue: T): T {
   const value = optionalEnv(name, defaultValue);
   if (!allowed.includes(value as T)) {
@@ -260,12 +256,15 @@ export async function loadConfig() {
     ENV.AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
     DEFAULT_AGENT_RESUME_SNAPSHOT_MARGIN_SECONDS,
   );
-  const agentEventsEnabled = readBooleanEnv(ENV.AGENT_EVENTS_ENABLED, DEFAULT_AGENT_EVENTS_ENABLED);
+  const agentEventsEnabled = readStrictBoolean(
+    ENV.AGENT_EVENTS_ENABLED,
+    DEFAULT_AGENT_EVENTS_ENABLED,
+  );
   const agentEventsRetentionSeconds = readNonNegativeNumber(
     ENV.AGENT_EVENTS_RETENTION_SECONDS,
     DEFAULT_AGENT_EVENTS_RETENTION_SECONDS,
   );
-  const findingHistoryEnabled = readBooleanEnv(
+  const findingHistoryEnabled = readStrictBoolean(
     ENV.FINDING_HISTORY_ENABLED,
     DEFAULT_FINDING_HISTORY_ENABLED,
   );
@@ -402,7 +401,7 @@ export async function loadConfig() {
     DEFAULT_AGENT_WORK_RETENTION_SECONDS,
   );
   const retentionCron = optionalEnv(ENV.RETENTION_CRON, DEFAULT_RETENTION_CRON);
-  const retentionEnabled = readBooleanEnv(ENV.RETENTION_ENABLED, DEFAULT_RETENTION_ENABLED);
+  const retentionEnabled = readStrictBoolean(ENV.RETENTION_ENABLED, DEFAULT_RETENTION_ENABLED);
 
   const installationGroupConcurrency = readPositiveNumber(
     ENV.INSTALLATION_GROUP_CONCURRENCY,
@@ -419,7 +418,7 @@ export async function loadConfig() {
 
   const logPrettyDefault = process.env.NODE_ENV === "production" ? "false" : "true";
   const logPretty = optionalEnv(ENV.LOG_PRETTY, logPrettyDefault) === "true";
-  const logRedact = readBooleanEnv(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
+  const logRedact = readStrictBoolean(ENV.LOG_REDACT, DEFAULT_LOG_REDACT);
 
   const features = {
     review: readEnum(ENV.FEATURE_REVIEW, REVIEW_FEATURE_MODES, DEFAULT_FEATURE_REVIEW),

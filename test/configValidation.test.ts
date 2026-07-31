@@ -65,10 +65,12 @@ describe("loadConfig validation", () => {
     );
   });
 
-  it("parses boolean knobs by exact 'true'", async () => {
+  it("parses boolean knobs as strict true/false", async () => {
     expect((await load({ LOG_REDACT: "false" })).logRedact).toBe(false);
     expect((await load({ LOG_REDACT: "true" })).logRedact).toBe(true);
-    expect((await load({ LOG_REDACT: "1" })).logRedact).toBe(false);
+    await expect(load({ LOG_REDACT: "1" })).rejects.toThrow(
+      /LOG_REDACT must be one of true, false/,
+    );
   });
 
   it("rejects an invalid enum", async () => {
