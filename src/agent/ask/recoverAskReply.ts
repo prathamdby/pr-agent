@@ -1,14 +1,11 @@
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import { installationOctokit } from "../../github/appAuth.js";
+import { isRecord } from "../../util/typeGuards.js";
 import { redactOutboundSecrets } from "./askSafety.js";
 
 export type RecoveredAskReply = {
   readonly commentId: number;
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value != null;
-}
 
 /** Extract a stashed GitHub comment id from operation-intent detail. */
 export function askReplyCommentIdFromIntentDetail(

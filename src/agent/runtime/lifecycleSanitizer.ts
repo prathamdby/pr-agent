@@ -1,5 +1,6 @@
 import { logWarn } from "../../evlog.js";
 import { sanitizeLogMessage } from "../../security/sanitizeLogMessage.js";
+import { isPlainObject } from "../../util/typeGuards.js";
 import { isAgentLifecycleEventKind, type AgentLifecycleEvent } from "./lifecycleEvents.js";
 import type { AgentSessionPhase, AgentSessionRole } from "./types.js";
 
@@ -29,10 +30,6 @@ const SESSION_PHASES = new Set<AgentSessionPhase>([
 
 const FORBIDDEN_KEY_RE =
   /prompt|message|text|reasoning|content|argument|result|payload|token|secret|key|authorization|cookie|body|diff|patch|errorMessage|stack|cause/i;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;

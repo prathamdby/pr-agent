@@ -15,6 +15,7 @@ import {
   VERIFICATION_PUBLISH_LENS,
 } from "../settings/index.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
+import { isRecord } from "../util/typeGuards.js";
 
 export type PublishLens =
   | AnyReviewLens
@@ -379,10 +380,6 @@ type StoredInlineBatchRef = {
     readonly canonicalFingerprint: string;
   }[];
 };
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value != null;
-}
 
 function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"][number] | null {
   if (!isRecord(value)) return null;
