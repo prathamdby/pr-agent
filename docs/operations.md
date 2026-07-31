@@ -91,7 +91,7 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 
 - Production boot uses a **web/worker split** (`ROLE` env).
 - **Web:** [`processWebhookRequestEffect`](../src/effect/programs/processWebhookRequestEffect.ts) verifies signatures, parses payloads, and dispatches to [`WebhookHandlers`](../src/effect/services/webhookHandlers.ts), which call [`AgentWorkScheduler`](../src/agentWork/scheduler.ts) for Postgres intake and pg-boss enqueue.
-- **Worker:** [`agentWorkWorkerLive`](../src/agentWork/runtime.ts) consumes acknowledgement, review, ask, description, triage, verification, and CI-refresh queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).
+- **Worker:** [`agentWorkWorkerLive`](../src/agentWork/workerRuntime.ts) consumes acknowledgement, review, ask, description, triage, verification, and CI-refresh queues; PR-surface I/O and LLM runs happen via [`executors/`](../src/agentWork/executors/).
 
 ### Local development edge cases
 

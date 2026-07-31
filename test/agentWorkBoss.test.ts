@@ -27,6 +27,7 @@ describe("bossConstructorOptions", () => {
     ).toMatchObject({
       schedule: true,
       supervise: true,
+      max: 8,
     });
   });
 
@@ -34,6 +35,7 @@ describe("bossConstructorOptions", () => {
     expect(bossConstructorOptions({ databaseUrl: "postgres://test", role: "web" })).toMatchObject({
       schedule: false,
       supervise: false,
+      max: 4,
     });
   });
 });

@@ -1,7 +1,7 @@
 import { NodeRuntime } from "@effect/platform-node";
 import { Layer } from "effect";
 import type { Config } from "./config.js";
-import { agentWorkWorkerLive } from "./agentWork/runtime.js";
+import { agentWorkWorkerLive } from "./agentWork/workerRuntime.js";
 
 export function startAgentWorker(cfg: Config): void {
   NodeRuntime.runMain(Layer.launch(agentWorkWorkerLive(cfg)));

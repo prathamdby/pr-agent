@@ -18,3 +18,5 @@ export const LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS = 86_400;
 export const LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS = 5_000;
 export const LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS = 50_000;
 export const LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS = 50;
+/** Concurrent file reads while building the symbol index (index order stays path-order). */
+export const LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY = 16;

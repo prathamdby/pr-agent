@@ -28,11 +28,13 @@ export async function searchCodeIndexFts(
   allowedPaths?: ReadonlySet<string>,
 ): Promise<readonly SearchRow[]> {
   const { rows } = await pool.query<SearchRow>(
-    `SELECT path, start_line, end_line, content, content_hash
-       FROM code_index_chunks
-      WHERE snapshot_id = $1
-        AND tsv @@ plainto_tsquery('english', $2)
-      ORDER BY ts_rank(tsv, plainto_tsquery('english', $2)) DESC
+    `WITH q AS (SELECT plainto_tsquery('english', $2) AS tsq)
+     SELECT c.path, c.start_line, c.end_line, c.content, c.content_hash
+       FROM code_index_chunks c
+       CROSS JOIN q
+      WHERE c.snapshot_id = $1
+        AND c.tsv @@ q.tsq
+      ORDER BY ts_rank(c.tsv, q.tsq) DESC
       LIMIT $3`,
     [snapshotId, query, limit * 4],
   );

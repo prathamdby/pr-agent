@@ -67,10 +67,12 @@ import {
   EXTERNAL_ENV,
 } from "./settings/index.js";
 import {
-  assertPiModelSelection,
   defaultModelsJsonCandidatePath,
   resolveModelsJsonPath,
-} from "./settings/modelsJson.js";
+} from "./settings/modelsJsonPath.js";
+
+/** Placeholder api for ROLE=web; worker boot validates and resolves the real Pi api. */
+const WEB_UNVALIDATED_PI_API = "web-unvalidated";
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -300,27 +302,32 @@ export async function loadConfig() {
     explicitPath: optionalEnv(ENV.MODELS_JSON_PATH, "").trim() || null,
   });
   const catalogCandidatePath = modelsJsonPath ?? defaultModelsJsonCandidatePath();
-  const piApi = await assertPiModelSelection({
-    modelsJsonPath,
-    piProvider,
-    piModel,
-    catalogCandidatePath,
-  });
-  if (piOrchestratorProvider || piOrchestratorModel) {
-    await assertPiModelSelection({
+  // Web never creates Pi sessions; worker validates before any agent run.
+  let piApi = WEB_UNVALIDATED_PI_API;
+  if (role === "worker") {
+    const { assertPiModelSelection } = await import("./settings/modelsJson.js");
+    piApi = await assertPiModelSelection({
       modelsJsonPath,
-      piProvider: piOrchestratorProvider || piProvider,
-      piModel: piOrchestratorModel || piModel,
+      piProvider,
+      piModel,
       catalogCandidatePath,
     });
-  }
-  if (piFallbackProvider && piFallbackModel) {
-    await assertPiModelSelection({
-      modelsJsonPath,
-      piProvider: piFallbackProvider,
-      piModel: piFallbackModel,
-      catalogCandidatePath,
-    });
+    if (piOrchestratorProvider || piOrchestratorModel) {
+      await assertPiModelSelection({
+        modelsJsonPath,
+        piProvider: piOrchestratorProvider || piProvider,
+        piModel: piOrchestratorModel || piModel,
+        catalogCandidatePath,
+      });
+    }
+    if (piFallbackProvider && piFallbackModel) {
+      await assertPiModelSelection({
+        modelsJsonPath,
+        piProvider: piFallbackProvider,
+        piModel: piFallbackModel,
+        catalogCandidatePath,
+      });
+    }
   }
 
   const posthogProjectToken = optionalEnv(ENV.POSTHOG_PROJECT_TOKEN, DEFAULT_POSTHOG_PROJECT_TOKEN);

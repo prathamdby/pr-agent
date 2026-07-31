@@ -103,15 +103,15 @@ caps, CI-summary waits, workspace limits) are now code constants in
 
 ### Project `models.json` (optional Pi catalog)
 
-`loadConfig()` loads an optional Pi `models.json` catalog (same shape as `~/.pi/agent/models.json`) and validates that `PI_PROVIDER` / `PI_MODEL` resolve against built-ins ∪ that file. Selection stays in env; the file is only the catalog.
+`loadConfig()` resolves an optional Pi `models.json` catalog path (same shape as `~/.pi/agent/models.json`). **`ROLE=worker`** validates that `PI_PROVIDER` / `PI_MODEL` (and orchestrator/fallback pairs when set) resolve against built-ins ∪ that file before any agent session starts. **`ROLE=web`** only resolves the path and keeps the env selection strings for boot logs — it does not load Pi / `ModelRuntime` (web never creates sessions). Selection stays in env; the file is only the catalog.
 
 **Resolution order**
 
 1. `MODELS_JSON_PATH` when set (must exist; absolute or cwd-relative).
 2. Else `models.json` at `process.cwd()` (Docker image workdir: `/app/models.json`).
 
-- Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). A non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
-- Present but invalid, or selection not found → `loadConfig()` throws.
+- Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). On **worker**, a non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
+- Present but invalid, or selection not found → **worker** `loadConfig()` throws; **web** accepts the env strings without catalog validation.
 - Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
@@ -364,6 +364,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS` | 5000       |
 | `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS`      | 50000      |
 | `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS`      | 50         |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY` | 16         |
 
 ### Code index (optional FTS hints)
 
@@ -380,7 +381,9 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 
 | Symbol                                    | Default | Role                                   |
 | ----------------------------------------- | ------- | -------------------------------------- |
-| `POSTGRES_POOL_MAX`                       | 10      | pool size                              |
+| `POSTGRES_POOL_MAX`                       | 10      | app pool size                          |
+| `PG_BOSS_POOL_MAX_WEB`                    | 4       | pg-boss pool size for `ROLE=web`       |
+| `PG_BOSS_POOL_MAX_WORKER`                 | 8       | pg-boss pool size for `ROLE=worker`    |
 | `POSTGRES_IDLE_TIMEOUT_MS`                | 30000   | idle client reap                       |
 | `POSTGRES_CONNECTION_TIMEOUT_MS`          | 5000    | connect timeout                        |
 | `POSTGRES_STATEMENT_TIMEOUT_MS`           | 60000   | per-statement timeout                  |

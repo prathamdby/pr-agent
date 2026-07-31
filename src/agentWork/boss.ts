@@ -11,6 +11,8 @@ import {
   CODE_INDEX_BUILD_QUEUE,
   DESCRIPTION_DEAD_LETTER_QUEUE,
   DESCRIPTION_QUEUE,
+  PG_BOSS_POOL_MAX_WEB,
+  PG_BOSS_POOL_MAX_WORKER,
   REVIEW_DEAD_LETTER_QUEUE,
   REVIEW_QUEUE,
   TRIAGE_DEAD_LETTER_QUEUE,
@@ -40,6 +42,7 @@ export function bossConstructorOptions(cfg: BossConfig): ConstructorOptions {
   return {
     connectionString: cfg.databaseUrl,
     application_name: "pr-agent",
+    max: workerOwnsMaintenance ? PG_BOSS_POOL_MAX_WORKER : PG_BOSS_POOL_MAX_WEB,
     schedule: workerOwnsMaintenance,
     supervise: workerOwnsMaintenance,
   };

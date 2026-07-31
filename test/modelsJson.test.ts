@@ -246,7 +246,7 @@ describe("loadConfig models.json", () => {
     expect(cfg.modelsJsonPath).toBeNull();
   });
 
-  it("loads custom provider selection from project models.json", async () => {
+  it("skips Pi catalog validation on ROLE=web", async () => {
     const dir = tempDir();
     writeFileSync(
       join(dir, "models.json"),
@@ -262,6 +262,33 @@ describe("loadConfig models.json", () => {
       }),
     );
     const cfg = await loadWithCwd(dir, {
+      ROLE: "web",
+      PI_PROVIDER: "ollama",
+      PI_MODEL: "missing-model",
+    });
+    expect(cfg.modelsJsonPath).toBe(join(dir, "models.json"));
+    expect(cfg.piProvider).toBe("ollama");
+    expect(cfg.piModel).toBe("missing-model");
+    expect(cfg.piApi).toBe("web-unvalidated");
+  });
+
+  it("loads custom provider selection from project models.json on ROLE=worker", async () => {
+    const dir = tempDir();
+    writeFileSync(
+      join(dir, "models.json"),
+      JSON.stringify({
+        providers: {
+          ollama: {
+            baseUrl: "http://127.0.0.1:11434/v1",
+            api: "openai-completions",
+            apiKey: "ollama",
+            models: [{ id: "llama3.1:8b" }],
+          },
+        },
+      }),
+    );
+    const cfg = await loadWithCwd(dir, {
+      ROLE: "worker",
       PI_PROVIDER: "ollama",
       PI_MODEL: "llama3.1:8b",
     });
@@ -271,7 +298,7 @@ describe("loadConfig models.json", () => {
     expect(cfg.piApi).toBe("openai-completions");
   });
 
-  it("loads custom provider via MODELS_JSON_PATH outside cwd", async () => {
+  it("loads custom provider via MODELS_JSON_PATH outside cwd on ROLE=worker", async () => {
     const cwd = tempDir();
     const catalogDir = tempDir();
     const catalogPath = join(catalogDir, "providers.json");
@@ -289,6 +316,7 @@ describe("loadConfig models.json", () => {
       }),
     );
     const cfg = await loadWithCwd(cwd, {
+      ROLE: "worker",
       PI_PROVIDER: "agent-router",
       PI_MODEL: "claude-opus-4-6",
       MODELS_JSON_PATH: catalogPath,
@@ -298,17 +326,18 @@ describe("loadConfig models.json", () => {
     expect(cfg.piApi).toBe("anthropic-messages");
   });
 
-  it("rejects unknown custom PI_PROVIDER with a missing-catalog hint", async () => {
+  it("rejects unknown custom PI_PROVIDER with a missing-catalog hint on ROLE=worker", async () => {
     const dir = tempDir();
     await expect(
       loadWithCwd(dir, {
+        ROLE: "worker",
         PI_PROVIDER: "agent-router",
         PI_MODEL: "claude-opus-4-6",
       }),
     ).rejects.toThrow(/no models\.json catalog was loaded/);
   });
 
-  it("rejects invalid selection when models.json is present", async () => {
+  it("rejects invalid selection when models.json is present on ROLE=worker", async () => {
     const dir = tempDir();
     writeFileSync(
       join(dir, "models.json"),
@@ -325,6 +354,7 @@ describe("loadConfig models.json", () => {
     );
     await expect(
       loadWithCwd(dir, {
+        ROLE: "worker",
         PI_PROVIDER: "ollama",
         PI_MODEL: "missing-model",
       }),

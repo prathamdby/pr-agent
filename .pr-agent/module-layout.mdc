@@ -3,4 +3,4 @@ globs:
   - "src/**"
 ---
 
-Keep public entries: review → `orchestrator/orchestratorRun.ts`, `publish/publishReview.ts`, `ci/analyzeCi.ts`; workspace → `prWorkspace/index.ts`; intake → `planner.ts` / `applier.ts`; executors → `executors/index.ts`; web/worker → `agentWork/runtime.ts`. Import GitHub review error helpers (`isLineResolutionPublishError`, etc.) from `src/github/reviewErrors.js` — not via `reviewDiffPlacement.ts` or other placement re-exports.
+Keep public entries: review → `orchestrator/orchestratorRun.ts`, `publish/publishReview.ts`, `ci/analyzeCi.ts`; workspace → `prWorkspace/index.ts`; intake → `planner.ts` / `applier.ts`; executors → `executors/index.ts`; web → `agentWork/runtime.ts` (`agentWorkWebLive`); worker → `agentWork/workerRuntime.ts` (`agentWorkWorkerLive`). Import GitHub review error helpers (`isLineResolutionPublishError`, etc.) from `src/github/reviewErrors.js` — not via `reviewDiffPlacement.ts` or other placement re-exports.

@@ -2,6 +2,7 @@ import {
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
   LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS,
+  LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY,
 } from "../settings/index.js";
 
 export type SymbolKind = "function" | "class" | "type" | "variable";
@@ -136,21 +137,41 @@ export async function buildSymbolIndex(
   options?: {
     readonly maxSymbols?: number;
     readonly maxFileBytes?: number;
+    readonly readConcurrency?: number;
     readonly signal?: AbortSignal;
   },
 ): Promise<SymbolIndex> {
   const maxSymbols = options?.maxSymbols ?? LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS;
   const maxFileBytes = options?.maxFileBytes ?? LOCAL_WORKSPACE_MAX_FILE_BYTES;
+  const readConcurrency = Math.max(
+    1,
+    options?.readConcurrency ?? LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY,
+  );
   const byName = new Map<string, SymbolIndexEntry[]>();
   const symbolCount = { value: 0 };
+  const indexable = paths.filter(isIndexableSourcePath);
 
-  for (const path of paths) {
+  // Concurrent reads per chunk; index in path order; stop after the symbol cap.
+  for (let offset = 0; offset < indexable.length; offset += readConcurrency) {
     if (options?.signal?.aborted) break;
-    if (!isIndexableSourcePath(path)) continue;
-    const content = await readFile(path);
-    if (content == null) continue;
-    if (Buffer.byteLength(content, "utf8") > maxFileBytes) continue;
-    if (!indexFileContent(byName, path, content, maxSymbols, symbolCount)) break;
+    const chunk = indexable.slice(offset, offset + readConcurrency);
+    const loaded = await Promise.all(
+      chunk.map(async (path) => ({ path, content: await readFile(path) })),
+    );
+    let capped = false;
+    for (const { path, content } of loaded) {
+      if (options?.signal?.aborted) {
+        capped = true;
+        break;
+      }
+      if (content == null) continue;
+      if (Buffer.byteLength(content, "utf8") > maxFileBytes) continue;
+      if (!indexFileContent(byName, path, content, maxSymbols, symbolCount)) {
+        capped = true;
+        break;
+      }
+    }
+    if (capped) break;
   }
 
   return { byName, symbolCount: symbolCount.value };
