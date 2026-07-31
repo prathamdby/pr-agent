@@ -24,10 +24,27 @@ import { assertWorkspacePath, stripWorkspaceSymlinks } from "./localPrWorkspace.
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
 
+/** Git author/committer or Co-authored-by person. */
+export type GitPerson = {
+  readonly name: string;
+  readonly email: string;
+};
+
 export type CommitArgs = {
   readonly files: readonly string[];
   readonly subject: string;
   readonly body?: readonly string[];
+  /** When set, overrides author and committer for this commit via GIT_* env. */
+  readonly person?: GitPerson;
+  /** Co-authored-by trailers appended after body bullets (blank line before trailers). */
+  readonly coAuthoredBy?: readonly GitPerson[];
+};
+
+/** Per-run triage commit identity: human triggerer path or App fallback. */
+export type TriageCommitAttribution = {
+  readonly person: GitPerson;
+  readonly coAuthoredBy: readonly GitPerson[];
+  readonly source: "human" | "app";
 };
 
 export type WritablePrCheckout = {
@@ -58,8 +75,90 @@ type WritablePrCheckoutParams = {
   readonly headSha: string;
   readonly installationToken: string;
   readonly botIdentity: BotIdentity;
+  /**
+   * Default identity for every commit in this checkout.
+   * Human path: triggerer as author+committer and App as Co-authored-by.
+   * Omitted or App source: bot author+committer with no App Co-authored-by.
+   */
+  readonly commitAttribution?: TriageCommitAttribution;
   readonly remoteUrlOverride?: string;
 };
+
+export function githubNoreplyEmail(userId: number, login: string): string {
+  return `${userId}+${login}@users.noreply.github.com`;
+}
+
+export function botGitPerson(bot: BotIdentity): GitPerson {
+  return {
+    name: bot.login,
+    email: githubNoreplyEmail(bot.userId, bot.login),
+  };
+}
+
+/**
+ * Build commit attribution for a triage run.
+ * Human path when `triggerer` is set; otherwise App author+committer with no App co-author trailer.
+ */
+export function buildTriageCommitAttribution(params: {
+  readonly botIdentity: BotIdentity;
+  readonly triggerer: GitPerson | null;
+}): TriageCommitAttribution {
+  const bot = botGitPerson(params.botIdentity);
+  if (params.triggerer == null) {
+    return { person: bot, coAuthoredBy: [], source: "app" };
+  }
+  return {
+    person: params.triggerer,
+    coAuthoredBy: [bot],
+    source: "human",
+  };
+}
+
+/**
+ * Map a GitHub user profile to a git person.
+ * Bot accounts and missing login/id return null (caller falls back to App).
+ * Private/missing profile email uses id-based noreply (still human path).
+ */
+export function gitPersonFromGithubUser(user: {
+  readonly id: number;
+  readonly login: string;
+  readonly name?: string | null;
+  readonly email?: string | null;
+  readonly type?: string;
+}): GitPerson | null {
+  if (!Number.isFinite(user.id) || user.id <= 0) return null;
+  const login = user.login?.trim();
+  if (!login) return null;
+  if (user.type === "Bot" || login.endsWith("[bot]")) return null;
+  const name = (user.name?.trim() || login).trim();
+  if (!name) return null;
+  const email = (user.email?.trim() || githubNoreplyEmail(user.id, login)).trim();
+  if (!email.includes("@")) return null;
+  return { name, email };
+}
+
+export function formatCoAuthoredByTrailer(person: GitPerson): string {
+  return `Co-authored-by: ${person.name} <${person.email}>`;
+}
+
+function validateGitPerson(person: GitPerson, field: string): void {
+  const name = person.name.trim();
+  const email = person.email.trim();
+  if (!name || name.includes("<") || name.includes(">")) {
+    throw new AppError({
+      code: "pr_workspace.commit_identity_invalid",
+      message: `${field} name is invalid`,
+      context: { field },
+    });
+  }
+  if (!email.includes("@") || email.includes("<") || email.includes(">")) {
+    throw new AppError({
+      code: "pr_workspace.commit_identity_invalid",
+      message: `${field} email is invalid`,
+      context: { field },
+    });
+  }
+}
 
 function assertSha(value: string, field: string): void {
   if (!/^[0-9a-f]{40}$/i.test(value)) {
@@ -162,9 +261,36 @@ function validateBody(body: readonly string[] | undefined): string | undefined {
 export function buildCommitCommandArgs(args: CommitArgs): readonly string[] {
   validateSubject(args.subject);
   const body = validateBody(args.body);
-  return body == null
+  const coAuthors = args.coAuthoredBy ?? [];
+  for (const person of coAuthors) {
+    validateGitPerson(person, "coAuthoredBy");
+  }
+  const trailerBlock =
+    coAuthors.length === 0
+      ? undefined
+      : coAuthors.map((person) => formatCoAuthoredByTrailer(person)).join("\n");
+  let messageBody: string | undefined;
+  if (body != null && trailerBlock != null) {
+    messageBody = `${body}\n\n${trailerBlock}`;
+  } else if (body != null) {
+    messageBody = body;
+  } else if (trailerBlock != null) {
+    messageBody = trailerBlock;
+  }
+  return messageBody == null
     ? ["commit", "-n", "-m", args.subject]
-    : ["commit", "-n", "-m", args.subject, "-m", body];
+    : ["commit", "-n", "-m", args.subject, "-m", messageBody];
+}
+
+/** Env overrides so author and committer match without rewriting global user.* mid-run. */
+export function gitIdentityEnv(person: GitPerson): Record<string, string> {
+  validateGitPerson(person, "person");
+  return {
+    GIT_AUTHOR_NAME: person.name,
+    GIT_AUTHOR_EMAIL: person.email,
+    GIT_COMMITTER_NAME: person.name,
+    GIT_COMMITTER_EMAIL: person.email,
+  };
 }
 
 function validateFiles(root: string, files: readonly string[]): readonly string[] {
@@ -271,18 +397,27 @@ export async function withWritablePrCheckout<T>(
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const credentials = await createGitCredentialFiles(rootDir, installationToken);
   const committed: { sha: string; subject: string; diff: string }[] = [];
+  const defaultAttribution =
+    params.commitAttribution ?? buildTriageCommitAttribution({ botIdentity, triggerer: null });
+  const botPerson = botGitPerson(botIdentity);
 
-  const git = (args: readonly string[], timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS) =>
+  const baseGitEnv = {
+    ...process.env,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_LFS_SKIP_SMUDGE: "1",
+    GIT_ASKPASS: credentials.askpass,
+    GIT_TOKEN_FILE: credentials.tokenFile,
+  };
+
+  const git = (
+    args: readonly string[],
+    timeoutMs = LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
+    extraEnv?: Record<string, string>,
+  ) =>
     exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
       cwd: dir,
-      env: {
-        ...process.env,
-        GIT_CONFIG_NOSYSTEM: "1",
-        GIT_TERMINAL_PROMPT: "0",
-        GIT_LFS_SKIP_SMUDGE: "1",
-        GIT_ASKPASS: credentials.askpass,
-        GIT_TOKEN_FILE: credentials.tokenFile,
-      },
+      env: extraEnv ? { ...baseGitEnv, ...extraEnv } : baseGitEnv,
       timeout: timeoutMs,
       maxBuffer: 20 * 1024 * 1024,
     });
@@ -323,22 +458,23 @@ export async function withWritablePrCheckout<T>(
       });
     }
     await stripWorkspaceSymlinks(dir);
-    await git(["config", "user.name", botIdentity.login], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
-    await git(
-      [
-        "config",
-        "user.email",
-        `${botIdentity.userId}+${botIdentity.login}@users.noreply.github.com`,
-      ],
-      LOCAL_WORKSPACE_CLONE_TIMEOUT_MS,
-    );
+    // Fallback identity for git ops that do not set GIT_* env (commit always sets env).
+    await git(["config", "user.name", botPerson.name], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
+    await git(["config", "user.email", botPerson.email], LOCAL_WORKSPACE_CLONE_TIMEOUT_MS);
     const checkout: WritablePrCheckout = {
       dir,
       headRef,
       baseSha: headSha,
       commit: async (args) => {
         const files = validateFiles(dir, args.files);
-        const commitArgs = buildCommitCommandArgs(args);
+        const person = args.person ?? defaultAttribution.person;
+        const coAuthoredBy = args.coAuthoredBy ?? defaultAttribution.coAuthoredBy;
+        const commitArgs = buildCommitCommandArgs({
+          files: args.files,
+          subject: args.subject,
+          body: args.body,
+          coAuthoredBy,
+        });
         await git(["reset"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         await git(["add", "--", ...files], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         const { stdout: diff } = await git(
@@ -352,7 +488,7 @@ export async function withWritablePrCheckout<T>(
             message: "commitFix rejected: staged diff is not minimal",
           });
         }
-        await git(commitArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
+        await git(commitArgs, LOCAL_WORKSPACE_FETCH_TIMEOUT_MS, gitIdentityEnv(person));
         const { stdout: sha } = await git(["rev-parse", "HEAD"], LOCAL_WORKSPACE_FETCH_TIMEOUT_MS);
         const committedSha = sha.trim();
         committed.push({ sha: committedSha, subject: args.subject, diff });

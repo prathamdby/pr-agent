@@ -22,6 +22,10 @@ vi.mock("../src/settings/index.js", async (importOriginal) => {
 import { AppError } from "../src/errors/appError.js";
 import {
   buildCommitCommandArgs,
+  buildTriageCommitAttribution,
+  formatCoAuthoredByTrailer,
+  gitPersonFromGithubUser,
+  githubNoreplyEmail,
   StaleHeadPushError,
   withWritablePrCheckout,
 } from "../src/prWorkspace/writablePrCheckout.js";
@@ -83,6 +87,65 @@ describe("writable PR checkout", () => {
         const clone = join(root, "clone");
         await git(root, ["clone", "--branch", "main", remote, clone]);
         expect(await readFile(join(clone, "src.txt"), "utf8")).toContain("two");
+        const author = await git(clone, ["log", "-1", "--format=%an <%ae>"]);
+        const committer = await git(clone, ["log", "-1", "--format=%cn <%ce>"]);
+        const message = await git(clone, ["log", "-1", "--format=%B"]);
+        expect(author).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
+        expect(committer).toBe("pr-agent[bot] <123+pr-agent[bot]@users.noreply.github.com>");
+        expect(message).not.toContain("Co-authored-by:");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    "attributes human triggerer as author/committer with App Co-authored-by",
+    async () => {
+      const { root, remote, headSha } = await makeRemote();
+      const botIdentity = { userId: 123, login: "pr-agent[bot]" };
+      const human = { name: "Alice", email: githubNoreplyEmail(42, "alice") };
+      try {
+        await withWritablePrCheckout(
+          {
+            owner: "owner",
+            repo: "repo",
+            headRef: "main",
+            headSha,
+            installationToken: "unused",
+            botIdentity,
+            commitAttribution: buildTriageCommitAttribution({
+              botIdentity,
+              triggerer: human,
+            }),
+            remoteUrlOverride: remote,
+          },
+          async (checkout) => {
+            await writeFile(join(checkout.dir, "src.txt"), "one\ntwo\n");
+            await checkout.commit({
+              files: ["src.txt"],
+              subject: "fix: add missing line",
+              body: ["- Add missing line"],
+            });
+            await checkout.push();
+          },
+        );
+
+        const clone = join(root, "clone");
+        await git(root, ["clone", "--branch", "main", remote, clone]);
+        const author = await git(clone, ["log", "-1", "--format=%an <%ae>"]);
+        const committer = await git(clone, ["log", "-1", "--format=%cn <%ce>"]);
+        const message = await git(clone, ["log", "-1", "--format=%B"]);
+        expect(author).toBe(`Alice <${human.email}>`);
+        expect(committer).toBe(`Alice <${human.email}>`);
+        expect(message).toContain("- Add missing line");
+        expect(message).toContain(
+          formatCoAuthoredByTrailer({
+            name: "pr-agent[bot]",
+            email: githubNoreplyEmail(123, "pr-agent[bot]"),
+          }),
+        );
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -109,6 +172,94 @@ describe("writable PR checkout", () => {
     expect(buildCommitCommandArgs({ files: ["x"], subject: "fix: guard null user" })).toContain(
       "-n",
     );
+  });
+
+  it("appends Co-authored-by trailers after body with a blank line", () => {
+    const app = { name: "pr-agent[bot]", email: "123+pr-agent[bot]@users.noreply.github.com" };
+    expect(
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject: "fix: guard null user",
+        body: ["- Cover null user path"],
+        coAuthoredBy: [app],
+      }),
+    ).toEqual([
+      "commit",
+      "-n",
+      "-m",
+      "fix: guard null user",
+      "-m",
+      `- Cover null user path\n\n${formatCoAuthoredByTrailer(app)}`,
+    ]);
+    expect(
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject: "fix: guard null user",
+        coAuthoredBy: [app],
+      }),
+    ).toEqual(["commit", "-n", "-m", "fix: guard null user", "-m", formatCoAuthoredByTrailer(app)]);
+    expect(() =>
+      buildCommitCommandArgs({
+        files: ["x"],
+        subject: "fix: guard null user",
+        coAuthoredBy: [{ name: "bad <name>", email: "a@b.com" }],
+      }),
+    ).toThrow(/coAuthoredBy name is invalid/);
+  });
+
+  it("builds human vs app triage commit attribution", () => {
+    const bot = { userId: 123, login: "pr-agent[bot]" };
+    const human = {
+      name: "Alice",
+      email: githubNoreplyEmail(42, "alice"),
+    };
+    expect(buildTriageCommitAttribution({ botIdentity: bot, triggerer: human })).toEqual({
+      person: human,
+      coAuthoredBy: [{ name: "pr-agent[bot]", email: githubNoreplyEmail(123, "pr-agent[bot]") }],
+      source: "human",
+    });
+    expect(buildTriageCommitAttribution({ botIdentity: bot, triggerer: null })).toEqual({
+      person: { name: "pr-agent[bot]", email: githubNoreplyEmail(123, "pr-agent[bot]") },
+      coAuthoredBy: [],
+      source: "app",
+    });
+  });
+
+  it("maps GitHub users to git people with noreply and bot rejection", () => {
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: "Alice Example",
+        email: null,
+        type: "User",
+      }),
+    ).toEqual({ name: "Alice Example", email: githubNoreplyEmail(42, "alice") });
+    expect(
+      gitPersonFromGithubUser({
+        id: 42,
+        login: "alice",
+        name: null,
+        email: "alice@example.com",
+        type: "User",
+      }),
+    ).toEqual({ name: "alice", email: "alice@example.com" });
+    expect(
+      gitPersonFromGithubUser({
+        id: 99,
+        login: "dependabot[bot]",
+        name: "Dependabot",
+        type: "Bot",
+      }),
+    ).toBeNull();
+    expect(
+      gitPersonFromGithubUser({
+        id: 123,
+        login: "pr-agent[bot]",
+        name: "PR Agent",
+        type: "User",
+      }),
+    ).toBeNull();
   });
 
   it(

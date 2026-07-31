@@ -35,7 +35,13 @@ import {
   TRIAGE_THREAD_NOT_ELIGIBLE,
   TRIAGE_SUMMARY_SENTINEL,
 } from "../../settings/index.js";
-import { type WritablePrCheckout, withWritablePrCheckout } from "../../prWorkspace/index.js";
+import {
+  buildTriageCommitAttribution,
+  gitPersonFromGithubUser,
+  type GitPerson,
+  type WritablePrCheckout,
+  withWritablePrCheckout,
+} from "../../prWorkspace/index.js";
 import {
   getCompletedPublishStepDetail,
   getCompletedPublishStepDetailWithoutNewerStep,
@@ -480,6 +486,41 @@ async function tryResumeStoredPush(params: {
   return publish.degraded ? { degraded: true } : {};
 }
 
+/**
+ * Resolve the /triage command issuer to a git person.
+ * Falls back to null (App authorship) for missing id, bot/app commenter, or lookup failure.
+ * Private profile email still yields human path via id-based noreply.
+ */
+async function resolveTriggererGitPerson(params: {
+  readonly token: string;
+  readonly tokenExpiresAtTs?: number;
+  readonly commenterId?: number;
+  readonly botIdentity: BotIdentity;
+  readonly analytics: TriageAnalyticsRef;
+}): Promise<GitPerson | null> {
+  if (params.commenterId == null) return null;
+  if (params.commenterId === params.botIdentity.userId) return null;
+  try {
+    const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
+    const { data } = await octokit.rest.users.getById({
+      account_id: params.commenterId,
+    });
+    return gitPersonFromGithubUser(data);
+  } catch (error) {
+    const errorObj = error instanceof Error ? error : new Error(String(error));
+    logWarn("triage_commit_identity_lookup_failed", {
+      commenterId: params.commenterId,
+      message: errorObj.message,
+    });
+    captureTriageEvent(params.analytics, "triage commit identity fallback", {
+      step: "commit_identity",
+      fallback: "app",
+      reason: "lookup_failed",
+    });
+    return null;
+  }
+}
+
 async function runFreshTriageAgent(params: {
   readonly cfg: Config;
   readonly pool: Pool;
@@ -496,6 +537,21 @@ async function runFreshTriageAgent(params: {
   readonly previouslyResolvedCount: number;
   readonly reportContext: TriageReportContext;
 }): Promise<TriageExecuteResult> {
+  const triggerer = await resolveTriggererGitPerson({
+    token: params.token,
+    tokenExpiresAtTs: params.tokenExpiresAtTs,
+    commenterId: params.item.payload.commenterId,
+    botIdentity: params.botIdentity,
+    analytics: params.analytics,
+  });
+  const commitAttribution = buildTriageCommitAttribution({
+    botIdentity: params.botIdentity,
+    triggerer,
+  });
+  captureTriageEvent(params.analytics, "triage commit identity resolved", {
+    step: "commit_identity",
+    source: commitAttribution.source,
+  });
   return withWritablePrCheckout(
     {
       owner: params.item.owner,
@@ -504,6 +560,7 @@ async function runFreshTriageAgent(params: {
       headSha: params.headSha,
       installationToken: params.token,
       botIdentity: params.botIdentity,
+      commitAttribution,
     },
     async (checkout) => {
       captureTriageEvent(params.analytics, "triage agent started", {
