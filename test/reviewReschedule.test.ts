@@ -333,6 +333,24 @@ describe("enqueueReviewReschedule", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("does not mark replacement enqueued when the ack job is missing", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValueOnce("review-job").mockResolvedValueOnce(null);
+    const findJobs = vi.fn().mockResolvedValue([]);
+    const cancel = vi.fn();
+    const boss = { send, findJobs, cancel } as unknown as PgBoss;
+
+    await expect(
+      enqueueReviewReschedule(pool, boss, makeItem(), "replacement-wi", "newhead"),
+    ).rejects.toMatchObject({ code: "agent_work.reschedule_enqueue_failed" });
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[0]?.[0]).toBe(REVIEW_QUEUE);
+    expect(send.mock.calls[1]?.[0]).toBe(ACK_QUEUE);
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("does not mark or send an ack when replacement review enqueue throws", async () => {
     const query = vi.fn();
     const pool = { query } as unknown as Pool;
