@@ -23,7 +23,7 @@ import {
 } from "../../settings/index.js";
 
 const TRIAGE_SUBMIT_ONLY_NUDGE =
-  "You replied with text only. Call submitTriage now with a complete TriagePayload.";
+  "You replied with text only. If you have uncommitted workspace edits, call commitFix for each finding first, then call submitTriage once with a complete TriagePayload.";
 
 export async function runTriageHarness(params: {
   readonly cfg: Config;
@@ -50,8 +50,14 @@ export async function runTriageHarness(params: {
     durability: params.durability,
   });
   let lastText = "";
-  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt);
+  const sendFinalizeRound = async (prompt: string): Promise<string> =>
+    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt, (active, text) =>
+      active.send(text, {
+        phase: "triage",
+        checkpointId: "triage:triage",
+        maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
+      }),
+    );
 
   const runValidationRepair = async () => {
     await runValidationRepairLoop({
@@ -62,8 +68,11 @@ export async function runTriageHarness(params: {
         setup.submitState.lastValidationError = null;
       },
       repair: async (validationError) => {
-        lastText = await sendSubmitOnlyRepair(
-          [validationError, "Fix the payload and call submitTriage again."].join("\n\n"),
+        lastText = await sendFinalizeRound(
+          [
+            validationError,
+            "If needed, commitFix pending edits, then call submitTriage again with a complete TriagePayload.",
+          ].join("\n\n"),
         );
       },
     });
@@ -93,7 +102,7 @@ export async function runTriageHarness(params: {
               nudge < TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueTriageRun(setup);
               nudge++
             ) {
-              lastText = await sendSubmitOnlyRepair(TRIAGE_SUBMIT_ONLY_NUDGE);
+              lastText = await sendFinalizeRound(TRIAGE_SUBMIT_ONLY_NUDGE);
               await runValidationRepair();
             }
           },

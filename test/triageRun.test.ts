@@ -95,4 +95,48 @@ describe("triage run", () => {
     expect(result.submitted).toBe(false);
     expect(result.payload).toBeNull();
   });
+
+  it("pre-submit finalize keeps commitFix and caps tool rounds", async () => {
+    const setActiveTools = vi.fn();
+    const send = vi.fn(async () => ({ text: "I am done" }));
+    providerState.createSession.mockImplementation(async () => ({
+      role: "triage",
+      send,
+      abort: vi.fn(async () => undefined),
+      setActiveTools,
+      restoreTools: vi.fn(),
+      dispose: vi.fn(),
+    }));
+
+    await runFullPrTriage({
+      cfg,
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(),
+      inventory,
+    });
+
+    expect(send.mock.calls.length).toBeGreaterThan(1);
+    const finalizeCall = send.mock.calls.find(
+      (call) =>
+        typeof call[0] === "string" &&
+        call[0].includes("commitFix") &&
+        call[0].includes("submitTriage"),
+    );
+    expect(finalizeCall?.[1]).toMatchObject({
+      phase: "triage",
+      maxToolRounds: 32,
+    });
+
+    const finalizeToolSets = setActiveTools.mock.calls.map(
+      (call) => (call[0] as { name: string }[]).map((tool) => tool.name),
+    );
+    expect(
+      finalizeToolSets.some(
+        (names) => names.includes("commitFix") && names.includes("submitTriage"),
+      ),
+    ).toBe(true);
+  });
 });

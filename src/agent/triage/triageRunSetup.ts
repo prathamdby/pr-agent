@@ -76,12 +76,27 @@ export function buildTriageRunSetup(params: {
   };
 }
 
+/** Tools kept during pre-submit / validation repair so pending edits can still be committed. */
+const TRIAGE_FINALIZE_TOOL_NAMES = [
+  "readWorkspaceFile",
+  "getWorkspaceDiff",
+  "editWorkspaceFile",
+  "createWorkspaceFile",
+  "commitFix",
+  "submitTriage",
+] as const;
+
 export function buildSubmitOnlyTriageSessionTools(setup: TriageRunSetup): {
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
-  const submitTool = setup.piTools.find((tool) => tool.name === "submitTriage");
-  const submitTriage = setup.executors.submitTriage;
-  if (!submitTool || !submitTriage) return { piTools: setup.piTools, executors: setup.executors };
-  return { piTools: [submitTool], executors: { submitTriage } };
+  const keep = new Set<string>(TRIAGE_FINALIZE_TOOL_NAMES);
+  const piTools = setup.piTools.filter((tool) => keep.has(tool.name));
+  const executors = Object.fromEntries(
+    Object.entries(setup.executors).filter(([name]) => keep.has(name)),
+  );
+  if (piTools.length === 0 || !executors.submitTriage) {
+    return { piTools: setup.piTools, executors: setup.executors };
+  }
+  return { piTools, executors };
 }
