@@ -28,6 +28,11 @@ export type SpecialistOutcome =
 type ReviewRunGateResult =
   | { readonly kind: "continue" }
   | { readonly kind: "stop"; readonly reason: "superseded" | "stale_head" }
+  | {
+      readonly kind: "stop";
+      readonly reason: "cancelled";
+      readonly cancelledByLogin: string;
+    }
   | { readonly kind: "finalize"; readonly reason: "deadline" };
 
 export type ReviewRunTiming = {
@@ -53,6 +58,11 @@ export type ReconRunPhase = "running" | "done";
 type OrchestratedRunLifecycle =
   | { readonly kind: "running" }
   | { readonly kind: "stopped"; readonly reason: "superseded" | "stale_head" }
+  | {
+      readonly kind: "stopped";
+      readonly reason: "cancelled";
+      readonly cancelledByLogin: string;
+    }
   | { readonly kind: "finalizing"; readonly reason: "deadline" }
   | { readonly kind: "complete" };
 

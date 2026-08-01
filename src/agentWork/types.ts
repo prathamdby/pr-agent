@@ -47,6 +47,13 @@ export type AckJobData = JobCorrelation & {
     readonly headSha: string;
     readonly source: WorkSource;
   };
+  /** Edit the review progress stub to a cancelled NOTE after `/cancel`. */
+  readonly cancelProgress?: {
+    readonly workItemId: string;
+    readonly headSha: string;
+    readonly source: WorkSource;
+    readonly cancelledByLogin: string;
+  };
   readonly reply?: {
     readonly target: ReplyTarget;
     readonly body: string;
@@ -104,6 +111,8 @@ export type ReviewWorkPayload = {
   readonly staleHeadReplacementWorkItemId?: string;
   /** Set on the parent after replacement ack/review jobs are enqueued */
   readonly staleHeadReplacementEnqueued?: boolean;
+  /** GitHub login of the command issuer who cancelled via `/cancel`. */
+  readonly cancelledByLogin?: string;
 };
 
 export type AskWorkPayload = {

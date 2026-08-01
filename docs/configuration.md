@@ -186,6 +186,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `REVIEW_PROGRESS_NOTE`                                                                                                 | In-progress NOTE body                                                                          |
 | `REVIEW_PROGRESS_QUEUED_NOTE`                                                                                          | Queued progress stub NOTE body (before the review worker claims the work item)                 |
 | `REVIEW_PROGRESS_QUEUE_LABEL`                                                                                          | Queued progress stub table label for wait-queue rank (`Queue`)                                 |
+| `reviewProgressCancelledNote` / `sanitizeGithubLogin`                                                                  | Cancelled progress stub NOTE (`Cancelled by @login.`) and login sanitizer                      |
 | `REVIEW_PROGRESS_SOURCE_AUTO` / `REVIEW_PROGRESS_SOURCE_SLASH`                                                         | Progress table source labels                                                                   |
 | `LIGHTWEIGHT_REVIEW_COMPLETION_*`                                                                                      | Docs-only auto-review skip copy                                                                |
 | `REVIEW_CHECK_RUN_RESERVATION_STALE_MS`                                                                                | 300000                                                                                         |
@@ -396,20 +397,21 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 
 ### Other
 
-| Symbol                              | Role                                          |
-| ----------------------------------- | --------------------------------------------- |
-| `CONTEXT7_BASE_URL`                 | Context7 API                                  |
-| `MAX_LOG_MESSAGE_LEN`               | 2000                                          |
-| `MAX_LOG_REDACTION_SCAN_LEN`        | 8000                                          |
-| `SLASH_HELP_BODY`                   | `/help` text                                  |
-| `MIGRATIONS_DIR_NAME`               | `migrations`                                  |
-| `MIGRATION_ADVISORY_LOCK_KEY`       | runMigrations cross-process lock              |
-| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS` | 2000ms margin before GitHub's webhook timeout |
-| `WEBHOOK_MAX_BODY_BYTES`            | 25000000 (GitHub payload cap)                 |
-| `WEBHOOK_TIMEOUT_MS`                | 10000 (intake 503 budget)                     |
-| `CONTEXT7_RESPONSE_BYTES`           | 64000                                         |
-| `LOG_MAX_WIDE_EVENTS`               | 128                                           |
-| `HEALTH_DB_PING_TIMEOUT_MS`         | 2000 (`/ready` Postgres ping budget)          |
+| Symbol                                              | Role                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------- |
+| `CONTEXT7_BASE_URL`                                 | Context7 API                                                  |
+| `MAX_LOG_MESSAGE_LEN`                               | 2000                                                          |
+| `MAX_LOG_REDACTION_SCAN_LEN`                        | 8000                                                          |
+| `SLASH_HELP_BODY`                                   | `/help` text                                                  |
+| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY` | `/cancel` ack replies when no review is active / after cancel |
+| `MIGRATIONS_DIR_NAME`                               | `migrations`                                                  |
+| `MIGRATION_ADVISORY_LOCK_KEY`                       | runMigrations cross-process lock                              |
+| `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS`                 | 2000ms margin before GitHub's webhook timeout                 |
+| `WEBHOOK_MAX_BODY_BYTES`                            | 25000000 (GitHub payload cap)                                 |
+| `WEBHOOK_TIMEOUT_MS`                                | 10000 (intake 503 budget)                                     |
+| `CONTEXT7_RESPONSE_BYTES`                           | 64000                                                         |
+| `LOG_MAX_WIDE_EVENTS`                               | 128                                                           |
+| `HEALTH_DB_PING_TIMEOUT_MS`                         | 2000 (`/ready` Postgres ping budget)                          |
 
 Prompt prose (investigator contracts) remains in `src/review/prompts/`, `src/agent/prompts/`, `src/agent/ask/`, `src/agent/description/`, `src/agent/triage/`, and `src/agent/verification/`.
 

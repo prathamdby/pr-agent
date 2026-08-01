@@ -21,6 +21,7 @@ import {
   REVIEW_PROGRESS_QUEUED_NOTE,
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
+  reviewProgressCancelledNote,
 } from "../../settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
@@ -41,6 +42,8 @@ export type { ReviewQueuePosition };
 const PROGRESS_REVISION_RE =
   /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
 
+const PROGRESS_NOTE_ALERT_RE = /> \[!NOTE\]\r?\n(?:>[^\n]*\r?\n)*/;
+
 type SpecialistPhase = SpecialistRunPhase;
 
 type ReconPhase = ReconRunPhase;
@@ -57,6 +60,11 @@ export type SpecialistTickState =
   | ({
       readonly kind: "terminal";
       readonly reason: "superseded" | "stale_head";
+    } & ProgressRoster)
+  | ({
+      readonly kind: "terminal";
+      readonly reason: "cancelled";
+      readonly cancelledByLogin: string;
     } & ProgressRoster);
 
 const SPECIALIST_LABELS: Record<SpecialistId, string> = {
@@ -150,6 +158,27 @@ export function formatReviewQueuePosition(position: ReviewQueuePosition): string
   return `#${position.position} of ${position.total}`;
 }
 
+function terminalProgressNote(
+  reason: "superseded" | "stale_head" | "cancelled",
+  source: WorkSource,
+  cancelledByLogin?: string,
+): string {
+  switch (reason) {
+    case "cancelled":
+      return reviewProgressCancelledNote(cancelledByLogin ?? "user");
+    case "stale_head":
+      return "Superseded. Rescheduled for new head.";
+    case "superseded":
+      return source === "slash"
+        ? "Superseded. Rescheduled for new head."
+        : "Superseded by a newer pull request update.";
+    default: {
+      const exhaustive: never = reason;
+      return exhaustive;
+    }
+  }
+}
+
 export function renderReviewProgressComment(params: {
   mode: AnyReviewLens;
   headSha: string;
@@ -162,6 +191,8 @@ export function renderReviewProgressComment(params: {
   tickState?: SpecialistTickState;
   /** Shown only on the queued stub (no tickState) when lookup succeeded. */
   queuePosition?: ReviewQueuePosition | null;
+  /** When set, overrides the NOTE with cancelled attribution (keeps table/roster). */
+  cancelledByLogin?: string;
   progressRevision?: number;
   progressWorkItemId?: string;
 }): string {
@@ -193,13 +224,19 @@ export function renderReviewProgressComment(params: {
     }
   }
   const progressNote =
-    params.tickState == null
-      ? REVIEW_PROGRESS_QUEUED_NOTE
-      : params.tickState.kind === "terminal"
-        ? params.tickState.reason === "stale_head" || params.source === "slash"
-          ? "Superseded. Rescheduled for new head."
-          : "Superseded by a newer pull request update."
-        : REVIEW_PROGRESS_NOTE;
+    params.cancelledByLogin != null
+      ? reviewProgressCancelledNote(params.cancelledByLogin)
+      : params.tickState == null
+        ? REVIEW_PROGRESS_QUEUED_NOTE
+        : params.tickState.kind === "terminal"
+          ? terminalProgressNote(
+              params.tickState.reason,
+              params.source,
+              params.tickState.reason === "cancelled"
+                ? params.tickState.cancelledByLogin
+                : undefined,
+            )
+          : REVIEW_PROGRESS_NOTE;
   return [
     REVIEW_SUMMARY_SENTINEL,
     "",
@@ -214,6 +251,21 @@ export function renderReviewProgressComment(params: {
     }),
     renderProgressRevisionComment(params.progressRevision ?? 0, params.progressWorkItemId),
   ].join("\n");
+}
+
+/** Replace the progress stub NOTE with cancelled attribution; keep table/meta intact. */
+export function patchReviewProgressCancelledNote(
+  body: string,
+  cancelledByLogin: string,
+): string | null {
+  if (!body.startsWith(REVIEW_SUMMARY_SENTINEL)) return null;
+  if (!PROGRESS_NOTE_ALERT_RE.test(body)) return null;
+  const alert = renderGitHubAlert(
+    REVIEW_OVERVIEW_ALERT,
+    reviewProgressCancelledNote(cancelledByLogin),
+  );
+  const next = body.replace(PROGRESS_NOTE_ALERT_RE, `${alert}\n`);
+  return next === body ? null : next;
 }
 
 export function renderReviewFailureNotice(params: {

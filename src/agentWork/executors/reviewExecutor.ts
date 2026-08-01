@@ -79,6 +79,7 @@ import {
 import {
   loadReviewExecutorPublishContext,
   getSummaryCommentGithubId,
+  getWorkItem,
   recordPublishStep,
   shouldSkipWork,
   type ReviewExecutorPublishContext,
@@ -156,6 +157,12 @@ function reviewRunGate(args: {
     check: async () => {
       if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
       if (await shouldSkipWork(args.pool, args.item)) {
+        const fresh = await getWorkItem(args.pool, args.item.id);
+        const cancelledByLogin =
+          fresh?.type === "review" ? fresh.payload.cancelledByLogin?.trim() : undefined;
+        if (cancelledByLogin) {
+          return { kind: "stop", reason: "cancelled", cancelledByLogin };
+        }
         return { kind: "stop", reason: "superseded" };
       }
       if (deadlineReached()) return { kind: "finalize", reason: "deadline" };

@@ -11,6 +11,8 @@ import {
   DESCRIPTION_ALREADY_IN_PROGRESS,
   DESCRIPTION_QUEUE,
   REVIEW_QUEUE,
+  SLASH_CANCEL_DONE_BODY,
+  SLASH_CANCEL_NONE_BODY,
   SLASH_HELP_BODY,
   TRIAGE_QUEUE,
 } from "../src/settings/index.js";
@@ -30,6 +32,7 @@ function makeSlashInput(body: string) {
     prNumber: 7,
     commentId: 99,
     commenterId: 1,
+    commenterLogin: "alice",
     body,
     command,
     replyTarget: { kind: "prConversation" as const, prNumber: 7 },
@@ -508,5 +511,187 @@ describe("applySlashCommandIntake", () => {
     expect(intakeLog.getContext().events ?? []).not.toContainEqual(
       expect.objectContaining({ event: "agent_work_enqueued" }),
     );
+  });
+
+  it("acks when /cancel finds no active review", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs: vi.fn(async () => []),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("SET status = 'cancelled'")) return { rows: [] };
+        if (sql.includes("SET cancel_requested_at")) return { rows: [] };
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/cancel"), intakeLog));
+
+    expect(sentJobs).toEqual([
+      expect.objectContaining({
+        queue: ACK_QUEUE,
+        data: expect.objectContaining({
+          reply: {
+            target: { kind: "prConversation", prNumber: 7 },
+            body: SLASH_CANCEL_NONE_BODY,
+          },
+        }),
+      }),
+    ]);
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "ignored_slash_cancel_no_active_review",
+      }),
+    );
+  });
+
+  it("cancels an active review and enqueues cancelProgress ack", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const findJobs = vi.fn(async () => [
+      { id: "live-job", state: "created", data: { workItemId: "wi-review" } },
+    ]);
+    const cancel = vi.fn(async () => ({ rows: [] }));
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs,
+      cancel,
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("SET status = 'cancelled'")) {
+          return {
+            rows: [
+              {
+                id: "wi-review",
+                source: "slash",
+                head_sha: "abc123",
+                created_at: "2026-01-01T00:00:00Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("SET cancel_requested_at")) return { rows: [] };
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({
+      method: "POST",
+      path: "/webhooks",
+    });
+
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/cancel"), intakeLog));
+
+    expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "live-job", expect.anything());
+    expect(sentJobs).toHaveLength(1);
+    expect(sentJobs[0]?.queue).toBe(ACK_QUEUE);
+    expect(sentJobs[0]?.data.reply).toEqual({
+      target: { kind: "prConversation", prNumber: 7 },
+      body: SLASH_CANCEL_DONE_BODY,
+    });
+    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+      workItemId: "wi-review",
+      headSha: "abc123",
+      source: "slash",
+      cancelledByLogin: "alice",
+    });
+    expect(intakeLog.getContext().events).toContainEqual(
+      expect.objectContaining({
+        event: "agent_work_cancel_requested",
+        type: "review",
+        cancelledByLogin: "alice",
+      }),
+    );
+  });
+
+  it("lists /cancel in /help", async () => {
+    expect(SLASH_HELP_BODY).toContain("`/cancel`");
+  });
+
+  it("prefers a running review as cancelProgress primary over queued", async () => {
+    const sentJobs: { queue: string; data: Record<string, unknown> }[] = [];
+    const boss = {
+      send: vi.fn(async (queue: string, data: Record<string, unknown>) => {
+        sentJobs.push({ queue, data });
+        return "job-1";
+      }),
+      findJobs: vi.fn(async () => []),
+      cancel: vi.fn(async () => ({ rows: [] })),
+      deleteJob: vi.fn(async () => ({ rows: [] })),
+    } as unknown as PgBoss;
+    const client = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
+        if (sql.includes("SET status = 'cancelled'")) {
+          expect(sql).toContain("last_error");
+          expect(sql).toContain("completed_at");
+          return {
+            rows: [
+              {
+                id: "wi-queued",
+                source: "auto",
+                head_sha: "queued-sha",
+                created_at: "2026-01-01T00:00:02Z",
+              },
+            ],
+          };
+        }
+        if (sql.includes("SET cancel_requested_at")) {
+          expect(sql).toContain("COALESCE(cancel_requested_at");
+          expect(sql).not.toMatch(/status\s*=\s*'cancelled'/);
+          return {
+            rows: [
+              {
+                id: "wi-running",
+                source: "slash",
+                head_sha: "running-sha",
+                created_at: "2026-01-01T00:00:01Z",
+              },
+            ],
+          };
+        }
+        throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
+      }),
+    } as unknown as PoolClient;
+    vi.spyOn(postgres, "inTransaction").mockImplementation(async (_pool, fn) => fn(client));
+
+    const scheduler = makeAgentWorkScheduler({} as Pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+    await Effect.runPromise(scheduler.submitSlashCommand(makeSlashInput("/cancel"), intakeLog));
+
+    expect(sentJobs[0]?.data.cancelProgress).toEqual({
+      workItemId: "wi-running",
+      headSha: "running-sha",
+      source: "slash",
+      cancelledByLogin: "alice",
+    });
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'cancelled'"), [
+      "acme/app#7",
+      JSON.stringify({ cancelledByLogin: "alice" }),
+    ]);
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("SET cancel_requested_at"), [
+      "acme/app#7",
+      JSON.stringify({ cancelledByLogin: "alice" }),
+    ]);
   });
 });

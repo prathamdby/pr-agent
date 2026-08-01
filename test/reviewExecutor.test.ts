@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   captureEvent: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
+  getWorkItem: vi.fn(async (): Promise<unknown> => null),
   recordPublishStep: vi.fn(),
   shouldSkipWork: vi.fn(async () => false),
   getPullRequestHeadSha: vi.fn(async () => "head"),
@@ -53,6 +54,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   shouldSkipWork: mocks.shouldSkipWork,
   getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
   getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
+  getWorkItem: mocks.getWorkItem,
 }));
 
 vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
@@ -401,6 +403,9 @@ describe("executeReviewJob", () => {
 
   it("preserves superseded gate stops without checking the pull request head", async () => {
     mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    mocks.getWorkItem.mockResolvedValueOnce(
+      makeReviewWorkItem({ id: "wi-1", source: "auto", status: "running" }),
+    );
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "superseded" });
@@ -411,6 +416,42 @@ describe("executeReviewJob", () => {
 
     expect(mocks.getPullRequestHeadSha).not.toHaveBeenCalled();
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+  });
+
+  it("maps slash /cancel into a cancelled gate stop with attribution", async () => {
+    mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    mocks.getWorkItem.mockResolvedValueOnce(
+      makeReviewWorkItem({
+        id: "wi-1",
+        source: "slash",
+        status: "running",
+        payload: {
+          mode: "review",
+          source: "slash",
+          cancelledByLogin: "alice",
+        },
+      }),
+    );
+    mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
+      const gate = await params.gate.check();
+      expect(gate).toEqual({
+        kind: "stop",
+        reason: "cancelled",
+        cancelledByLogin: "alice",
+      });
+      return { published: false, publishAttempts: 0, publishSuperseded: true };
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.getPullRequestHeadSha).not.toHaveBeenCalled();
+    expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+      }),
+    );
   });
 
   it("runs auto preflight and lightweight completion before full review", async () => {
