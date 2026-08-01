@@ -3,8 +3,16 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { inTransaction, pgBossDb } from "../../db/postgres.js";
 import { DESCRIPTION_QUEUE, REVIEW_QUEUE, VERIFICATION_QUEUE } from "../../settings/index.js";
-import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
-import { releaseSingletonSlot, type SingletonSlotDb } from "../singletonQueue.js";
+import {
+  cancelActiveReviewsForResource,
+  replaceAutoWorkItem,
+  type AutoWorkSupersedeTarget,
+} from "../autoWorkEnqueue.js";
+import {
+  releaseReviewSingletonSlot,
+  releaseSingletonSlot,
+  type SingletonSlotDb,
+} from "../singletonQueue.js";
 import type { RequestLogger } from "../../evlog.js";
 import { recordEvent } from "../../evlog.js";
 import {
@@ -218,6 +226,43 @@ async function applyPlannedAutomatedPullRequestIntake(
   return events;
 }
 
+async function applyReviewMergeCancelIntake(
+  boss: PgBoss,
+  client: PoolClient,
+  headers: WebhookHeaders,
+  ref: PrRef,
+): Promise<DeferredIntakeEvent[]> {
+  const events: DeferredIntakeEvent[] = [];
+  const event = await insertWebhookEvent(client, headers, "review_cancelled_pr_merged");
+  if (event.duplicate) {
+    events.push({
+      name: "deduped_delivery",
+      fields: {
+        dedupeKey: event.dedupeKey,
+        event: headers.event,
+      },
+    });
+    return events;
+  }
+  const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
+  const cancelledIds = await cancelActiveReviewsForResource(client, resourceKey);
+  await releaseReviewSingletonSlot(boss, resourceKey, {
+    db: pgBossDb(client),
+    cancelNonTerminal: cancelledIds.length > 0,
+    cancelWorkItemIds: cancelledIds,
+  });
+  events.push({
+    name: "review_cancelled_pr_merged",
+    fields: {
+      resourceKey,
+      cancelledCount: cancelledIds.length,
+      cancelledIds,
+      ...jobCorrelation(event.id, headers),
+    },
+  });
+  return events;
+}
+
 export async function applyAutomatedPullRequestIntake(
   boss: PgBoss,
   pool: Pool,
@@ -227,7 +272,20 @@ export async function applyAutomatedPullRequestIntake(
   intakeLog: RequestLogger,
   cfg: Pick<Config, "features">,
   pushBeforeSha?: string,
+  merged?: boolean,
 ): Promise<void> {
+  if (action === "closed") {
+    if (merged !== true) {
+      await recordIgnoredWebhook(pool, headers, "ignored_pull_request_closed", intakeLog);
+      return;
+    }
+    const events = await inTransaction(pool, (client) =>
+      applyReviewMergeCancelIntake(boss, client, headers, ref),
+    );
+    flushDeferredEvents(intakeLog, events);
+    return;
+  }
+
   const plan = planAutomatedPullRequestIntake(action, cfg.features);
   if (plan.kinds.length === 0) {
     // Ignored actions have no transactional intake work; dedupe insert uses the pool directly.

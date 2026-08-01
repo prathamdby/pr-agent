@@ -29,6 +29,7 @@ export class AgentWorkScheduler extends Context.Tag("AgentWorkScheduler")<
       action: string,
       intakeLog: RequestLogger,
       pushBeforeSha?: string,
+      merged?: boolean,
     ) => Effect.Effect<void, Error>;
     readonly submitCiRefresh: (
       headers: WebhookHeaders,
@@ -57,7 +58,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Confi
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),
 
-    submitAutomatedReview: (headers, ref, action, intakeLog, pushBeforeSha) =>
+    submitAutomatedReview: (headers, ref, action, intakeLog, pushBeforeSha, merged) =>
       Effect.tryPromise({
         try: () =>
           applyAutomatedPullRequestIntake(
@@ -69,6 +70,7 @@ export function makeAgentWorkScheduler(pool: Pool, boss: PgBoss, cfg: Pick<Confi
             intakeLog,
             cfg,
             pushBeforeSha,
+            merged,
           ),
         catch: (e) => (e instanceof Error ? e : new Error(String(e))),
       }),

@@ -158,7 +158,7 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `CODE_INDEX_BUILD_QUEUE`                   | `code-index-build` — optional Postgres FTS index build (when `CODE_INDEX_MODE=fts`)                                                                |
 | `RETENTION_QUEUE_POLLING_INTERVAL_SECONDS` | 60                                                                                                                                                 |
 | `DEFERRED_HEAD_SHA`                        | worker resolves head SHA                                                                                                                           |
-| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened — `pull_request` actions accepted at webhook intake (not the auto-enqueue map)                                       |
+| `AUTOMATED_PR_ACTIONS`                     | opened, synchronize, reopened, closed — `pull_request` actions accepted at webhook intake (not the auto-enqueue map); `closed` + merged cancels in-progress reviews |
 | `AUTO_TRIGGER_ACTIONS`                     | feature auto-trigger map: review/describe on `opened`, verification on `synchronize`; `reopened` enqueues nothing (see [features.md](features.md)) |
 | `DESCRIPTION_PUBLISH_LENS`                 | `description`                                                                                                                                      |
 | `ASK_PUBLISH_LENS`                         | `ask`                                                                                                                                              |

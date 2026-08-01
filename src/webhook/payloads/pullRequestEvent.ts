@@ -11,6 +11,7 @@ export const pullRequestWebhookSchema = z.object({
     head: z.object({
       sha: z.string(),
     }),
+    merged: z.boolean().optional().default(false),
   }),
 });
 
