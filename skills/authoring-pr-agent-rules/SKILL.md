@@ -14,7 +14,7 @@ description: >
 
 One structured pass → inventory gaps → emit **new** one-gotcha `.mdc` files under **`.pr-agent/`** (leading dot). That directory is the only durable preference memory the PR Agent loads (`REPO_POLICY_DIRNAME` in `src/settings/reviewConstants.ts`, ADR 0025).
 
-**Core principle:** A rule earns its slot only if a careful reviewer of *this* repo would miss the bug without it.
+**Core principle:** A rule earns its slot only if a careful reviewer of _this_ repo would miss the bug without it.
 
 ## Iron Law
 
@@ -23,6 +23,7 @@ NO GENERIC ADVICE. NO BLOBS. NO WRONG DIRECTORY. NO DUPLICATES.
 ```
 
 **No exceptions:**
+
 - Do not ship `CONVENTIONS.md`, handbook dumps, or AGENTS.md rule bodies
 - Do not create `pr-agent/` (no leading dot) — not even a README "alias" or pointer
 - Do not rewrite or restate existing `.pr-agent/*.mdc` bodies
@@ -57,15 +58,15 @@ globs:
 <imperative instruction ≤1000 chars; name modules, constants, ADRs, or test files from THIS repo>
 ```
 
-| Field | Rule |
-| --- | --- |
-| Path | `.pr-agent/<kebab-gotcha>.mdc` only |
+| Field            | Rule                                                                         |
+| ---------------- | ---------------------------------------------------------------------------- |
+| Path             | `.pr-agent/<kebab-gotcha>.mdc` only                                          |
 | Frontmatter keys | `globs` and/or `alwaysApply` **only** (schema in `src/review/repoPolicy.ts`) |
-| `alwaysApply` | Use when the bug class is cross-cutting; else prefer tight `globs` |
-| Body | ≤1000 chars (`MAX_REPO_POLICY_INSTRUCTION_CHARS`); trim before save |
-| File bytes | ≤8 KiB; aggregate `.pr-agent/` ≤32 KiB; ≤20 files total |
-| Voice | Imperative "do / do not"; one concern per file |
-| Evidence | Cite resolvable repo paths (`src/...`, `test/...`, `docs/adr/00XX-...`) |
+| `alwaysApply`    | Use when the bug class is cross-cutting; else prefer tight `globs`           |
+| Body             | ≤1000 chars (`MAX_REPO_POLICY_INSTRUCTION_CHARS`); trim before save          |
+| File bytes       | ≤8 KiB; aggregate `.pr-agent/` ≤32 KiB; ≤20 files total                      |
+| Voice            | Imperative "do / do not"; one concern per file                               |
+| Evidence         | Cite resolvable repo paths (`src/...`, `test/...`, `docs/adr/00XX-...`)      |
 
 ### Good vs bad body
 
@@ -79,13 +80,15 @@ globs:
 ---
 
 Feature harnesses must call `createFeaturePiSession` → `createPiSession` in `src/agent/runtime/piSession.ts`. Do not import `piSessionImpl.ts` or construct raw Pi SDK sessions from feature modules. Keep the web import graph free of Pi/models (`test/webImportGraph.test.ts`, ADR 0031).
-```
+
+````
 </Good>
 
 <Bad>
 ```markdown
 Always handle errors properly in async TypeScript code and follow best practices for Node services.
-```
+````
+
 </Bad>
 
 ## Quality gate (before finish)
@@ -101,17 +104,17 @@ For every new `.mdc`:
 
 ## Common rationalizations
 
-| Excuse | Reality |
-| --- | --- |
-| "Generic rules catch real bugs without repo knowledge" | Loader budget is tiny; generic advice crowds out the gotchas only this repo knows. |
-| "Ship a CONVENTIONS.md blob; split later" | Later never comes. PR Agent loads `.pr-agent/*.mdc` only. Blob = zero steering. |
-| "Senior said `pr-agent/` without the dot" | `REPO_POLICY_DIRNAME` is `.pr-agent`. Wrong path never loads. |
-| "Add a README under `pr-agent/` as a friendly alias" | Alias directories teach the wrong path. Correct the senior; do not create `pr-agent/`. |
-| "`.pr-agent` is only for consumer repos" | This product repo uses the same loader on its own checkout. |
-| "Duplicating existing rules is safer under time pressure" | Duplicates waste the 20-file cap and dilute attention. Inventory first. |
-| "Fill all remaining slots so the stakeholder sees volume" | Empty slots beat weak rules. Stop when the quality bar fails. |
-| "Bodies over 1000 chars are fine; more detail helps" | Excess is truncated at load — silent loss. Cut to ≤1000. |
-| "Update AGENTS.md instead; it's always applied" | AGENTS.md is navigation (`AGENTS.md` says so). Binding review prefs are `.mdc`. |
+| Excuse                                                    | Reality                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| "Generic rules catch real bugs without repo knowledge"    | Loader budget is tiny; generic advice crowds out the gotchas only this repo knows.     |
+| "Ship a CONVENTIONS.md blob; split later"                 | Later never comes. PR Agent loads `.pr-agent/*.mdc` only. Blob = zero steering.        |
+| "Senior said `pr-agent/` without the dot"                 | `REPO_POLICY_DIRNAME` is `.pr-agent`. Wrong path never loads.                          |
+| "Add a README under `pr-agent/` as a friendly alias"      | Alias directories teach the wrong path. Correct the senior; do not create `pr-agent/`. |
+| "`.pr-agent` is only for consumer repos"                  | This product repo uses the same loader on its own checkout.                            |
+| "Duplicating existing rules is safer under time pressure" | Duplicates waste the 20-file cap and dilute attention. Inventory first.                |
+| "Fill all remaining slots so the stakeholder sees volume" | Empty slots beat weak rules. Stop when the quality bar fails.                          |
+| "Bodies over 1000 chars are fine; more detail helps"      | Excess is truncated at load — silent loss. Cut to ≤1000.                               |
+| "Update AGENTS.md instead; it's always applied"           | AGENTS.md is navigation (`AGENTS.md` says so). Binding review prefs are `.mdc`.        |
 
 ## Red flags — STOP
 

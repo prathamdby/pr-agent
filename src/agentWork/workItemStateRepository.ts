@@ -157,11 +157,21 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   return row ? mapWorkItemCore(row) : null;
 }
 
-/** Rank of a still-queued review work item among all queued reviews; null when not waiting. */
+/** Wait-queue rank for the queued progress stub (`#2 of 10`). */
+export type ReviewQueuePosition = {
+  readonly position: number;
+  readonly total: number;
+};
+
+/**
+ * Rank of a still-queued review work item among all queued reviews; null when not waiting.
+ * Scan cost is O(queued work items of every type) under the (status) index until a
+ * `(type, status, created_at)` covering index lands; no migration in this change.
+ */
 export async function getReviewQueuePosition(
   pool: Pool,
   workItemId: string,
-): Promise<{ readonly position: number; readonly total: number } | null> {
+): Promise<ReviewQueuePosition | null> {
   const row = await queryOne<{ position: number; total: number }>(
     pool,
     `WITH target AS (

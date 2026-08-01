@@ -11,14 +11,8 @@ describe("getReviewQueuePosition", () => {
       position: 2,
       total: 10,
     });
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("status = 'queued'"),
-      ["wi-2"],
-    );
-    expect(query).toHaveBeenCalledWith(
-      expect.stringContaining("type = 'review'"),
-      ["wi-2"],
-    );
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'queued'"), ["wi-2"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("type = 'review'"), ["wi-2"]);
   });
 
   it("returns #1 of 1 for a sole queued review", async () => {
@@ -43,5 +37,24 @@ describe("getReviewQueuePosition", () => {
     const pool = { query } as unknown as Pool;
 
     await expect(getReviewQueuePosition(pool, "wi-bad")).resolves.toBeNull();
+  });
+
+  it("returns null when total is less than position", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ position: 5, total: 3 }] });
+    const pool = { query } as unknown as Pool;
+
+    await expect(getReviewQueuePosition(pool, "wi-bad")).resolves.toBeNull();
+  });
+
+  it("returns null for non-safe-integer position or total", async () => {
+    const positionFrac = vi.fn().mockResolvedValue({ rows: [{ position: 2.5, total: 10 }] });
+    await expect(
+      getReviewQueuePosition({ query: positionFrac } as unknown as Pool, "wi-bad"),
+    ).resolves.toBeNull();
+
+    const totalFrac = vi.fn().mockResolvedValue({ rows: [{ position: 1, total: 1.5 }] });
+    await expect(
+      getReviewQueuePosition({ query: totalFrac } as unknown as Pool, "wi-bad"),
+    ).resolves.toBeNull();
   });
 });

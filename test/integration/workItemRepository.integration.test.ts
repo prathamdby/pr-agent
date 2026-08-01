@@ -11,7 +11,7 @@ import {
   createVerificationWorkItem,
 } from "../../src/agentWork/intake/workItemRepository.js";
 import { createReviewRescheduleWorkItem } from "../../src/agentWork/reviewReschedule.js";
-import { getWorkItem } from "../../src/agentWork/repository.js";
+import { getReviewQueuePosition, getWorkItem } from "../../src/agentWork/repository.js";
 import {
   getProgressCommentOwner,
   getProgressCommentRevision,
@@ -425,5 +425,89 @@ describe.skipIf(!hasDatabase)("work item repository inserts (integration)", () =
     );
     expect(rows).toHaveLength(1);
     expect(rows[0]?.id).toBe(created[0]?.id);
+  });
+
+  it("ranks queued reviews with self-inclusive FIFO position SQL", async () => {
+    const repo = `repo-${randomUUID().slice(0, 8)}`;
+    const events = [randomUUID(), randomUUID(), randomUUID(), randomUUID(), randomUUID()];
+    for (const id of events) {
+      await pool.query(
+        `INSERT INTO webhook_events (id, dedupe_key, event_name, body_sha256, processing_decision)
+         VALUES ($1, $2, $3, 'sha', 'accepted')`,
+        [id, `dedupe-${id}`, EVENT],
+      );
+    }
+
+    const firstId = await inTransaction(pool, (client) =>
+      createReviewWorkItem(client, {
+        webhookEventId: events[0]!,
+        source: "auto",
+        ref: makeRef(repo, 101),
+      }),
+    );
+    const secondId = await inTransaction(pool, (client) =>
+      createReviewWorkItem(client, {
+        webhookEventId: events[1]!,
+        source: "auto",
+        ref: makeRef(repo, 102),
+      }),
+    );
+    const thirdId = await inTransaction(pool, (client) =>
+      createReviewWorkItem(client, {
+        webhookEventId: events[2]!,
+        source: "auto",
+        ref: makeRef(repo, 103),
+      }),
+    );
+    const runningId = await inTransaction(pool, (client) =>
+      createReviewWorkItem(client, {
+        webhookEventId: events[3]!,
+        source: "auto",
+        ref: makeRef(repo, 104),
+      }),
+    );
+    const askId = await inTransaction(pool, (client) =>
+      createAskWorkItem(client, {
+        webhookEventId: events[4]!,
+        ref: makeRef(repo, 105),
+        question: "queue noise?",
+        replyTarget: { kind: "prConversation", prNumber: 105 },
+        commentId: 50,
+        commenterId: 9,
+      }),
+    );
+
+    await pool.query(`UPDATE agent_work_items SET created_at = $2 WHERE id = $1`, [
+      firstId,
+      "2026-01-01T00:00:01Z",
+    ]);
+    await pool.query(`UPDATE agent_work_items SET created_at = $2 WHERE id = $1`, [
+      secondId,
+      "2026-01-01T00:00:02Z",
+    ]);
+    await pool.query(`UPDATE agent_work_items SET created_at = $2 WHERE id = $1`, [
+      thirdId,
+      "2026-01-01T00:00:03Z",
+    ]);
+    await pool.query(
+      `UPDATE agent_work_items SET status = 'running', created_at = $2 WHERE id = $1`,
+      [runningId, "2026-01-01T00:00:00Z"],
+    );
+    expect(typeof askId === "string" || (askId as { id: string }).id).toBeTruthy();
+
+    await expect(getReviewQueuePosition(pool, firstId)).resolves.toEqual({
+      position: 1,
+      total: 3,
+    });
+    await expect(getReviewQueuePosition(pool, secondId)).resolves.toEqual({
+      position: 2,
+      total: 3,
+    });
+    await expect(getReviewQueuePosition(pool, thirdId)).resolves.toEqual({
+      position: 3,
+      total: 3,
+    });
+    await expect(getReviewQueuePosition(pool, runningId)).resolves.toBeNull();
+    await expect(getReviewQueuePosition(pool, randomUUID())).resolves.toBeNull();
   });
 });

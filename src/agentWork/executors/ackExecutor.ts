@@ -9,13 +9,15 @@ import {
   GITHUB_REACTION_PLUS_ONE,
 } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
-import { getProgressCommentOwner, getReviewQueuePosition, getWorkItemCore } from "../repository.js";
+import {
+  getProgressCommentOwner,
+  getReviewQueuePosition,
+  getWorkItemCore,
+  type ReviewQueuePosition,
+} from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
-import {
-  renderReviewProgressComment,
-  type ReviewQueuePosition,
-} from "../../review/run/progressComment.js";
+import { renderReviewProgressComment } from "../../review/run/progressComment.js";
 import {
   getAppBotIdentity,
   getPullRequestHeadSha,

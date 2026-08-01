@@ -216,6 +216,7 @@ describe("executeAckJob", () => {
         progressRevision: 0,
       }),
     );
+    expect(getReviewQueuePosition).not.toHaveBeenCalled();
     expect(getSummaryCommentGithubId).not.toHaveBeenCalled();
     expect(resolveVerifiedSummaryCommentRef).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();

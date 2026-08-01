@@ -27,6 +27,7 @@ import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
 import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
+import type { ReviewQueuePosition } from "../../agentWork/workItemStateRepository.js";
 import {
   SPECIALIST_IDS,
   type ReconRunPhase,
@@ -34,6 +35,8 @@ import {
   type SpecialistRunPhase,
 } from "../orchestrator/orchestratorTypes.js";
 import { renderStaleReviewMetadataComment } from "./reviewRender.js";
+
+export type { ReviewQueuePosition };
 
 const PROGRESS_REVISION_RE =
   /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
@@ -142,12 +145,6 @@ export function parseProgressRevisionState(
     return null;
   }
 }
-
-/** Wait-queue rank for the queued progress stub (`#2 of 10`). */
-export type ReviewQueuePosition = {
-  readonly position: number;
-  readonly total: number;
-};
 
 export function formatReviewQueuePosition(position: ReviewQueuePosition): string {
   return `#${position.position} of ${position.total}`;
