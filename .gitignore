@@ -9,5 +9,4 @@ site/out/
 site/.next/
 site/.output/
 site/.vercel/
-.superpowers/
 .tmp-bench/
