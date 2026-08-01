@@ -9,7 +9,12 @@ import {
   GITHUB_REACTION_PLUS_ONE,
 } from "../../settings/index.js";
 import { mintInstallationToken } from "../durableJob.js";
-import { getProgressCommentOwner, getWorkItemCore } from "../repository.js";
+import {
+  getProgressCommentOwner,
+  getReviewQueuePosition,
+  getWorkItemCore,
+  type ReviewQueuePosition,
+} from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
 import { renderReviewProgressComment } from "../../review/run/progressComment.js";
@@ -71,12 +76,24 @@ async function publishAckProgress(
     lightweight: true,
     waitMs: 0,
   });
-  // Queued stub: Head/Source/(CI) only — no Recon/specialist rows until the review worker starts.
+  let queuePosition: ReviewQueuePosition | null = null;
+  if (data.workItemId != null) {
+    try {
+      queuePosition = await getReviewQueuePosition(pool, data.workItemId);
+    } catch (e) {
+      logWarn("ack_queue_position_failed", {
+        workItemId: data.workItemId,
+        message: e instanceof Error ? e.message : String(e),
+      });
+    }
+  }
+  // Queued stub: Head/Source/(Queue)/(CI) only — no Recon/specialist rows until the review worker starts.
   const body = renderReviewProgressComment({
     mode: data.progress.lens,
     headSha,
     source: data.progress.source,
     ciSummary,
+    queuePosition,
     progressRevision: 0,
     progressWorkItemId: data.workItemId,
   });

@@ -28,6 +28,7 @@ vi.mock("../src/github/reviewPublish.js", () => ({
 vi.mock("../src/agentWork/repository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
   getProgressCommentOwner: vi.fn(async () => null),
+  getReviewQueuePosition: vi.fn(async () => null),
   getWorkItemCore: vi.fn(async () => ({
     id: "wi-1",
     status: "running",
@@ -57,11 +58,13 @@ import {
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
 import {
   getProgressCommentOwner,
+  getReviewQueuePosition,
   getSummaryCommentGithubId,
   getWorkItemCore,
   recordPublishStep,
 } from "../src/agentWork/repository.js";
 import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
+import { REVIEW_PROGRESS_QUEUE_LABEL } from "../src/settings/index.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
@@ -144,6 +147,7 @@ describe("executeAckJob", () => {
     const queuedBody = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
     expect(queuedBody).not.toMatch(/Recon/);
     expect(queuedBody).not.toMatch(/Correctness/);
+    expect(queuedBody).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
     const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
     expect(recordPublishStep).not.toHaveBeenCalled();
@@ -158,6 +162,36 @@ describe("executeAckJob", () => {
         reviewLens: "review",
       }),
     );
+  });
+
+  it("includes queue position on the queued progress stub when lookup succeeds", async () => {
+    vi.mocked(getReviewQueuePosition).mockResolvedValueOnce({ position: 2, total: 10 });
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-1",
+      progress: { lens: "review", headSha: "sha", source: "auto" },
+    });
+
+    expect(getReviewQueuePosition).toHaveBeenCalledWith(pool, "wi-1");
+    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    expect(body).toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
+    expect(body).toContain("#2 of 10");
+  });
+
+  it("omits queue position when lookup fails and still posts the stub", async () => {
+    vi.mocked(getReviewQueuePosition).mockRejectedValueOnce(new Error("db down"));
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      workItemId: "wi-1",
+      progress: { lens: "review", headSha: "sha", source: "auto" },
+    });
+
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalled();
+    const body = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
+    expect(body).toContain("Review queued");
+    expect(body).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
   });
 
   it("uses revision coordination when progress has no work item id", async () => {
@@ -182,6 +216,7 @@ describe("executeAckJob", () => {
         progressRevision: 0,
       }),
     );
+    expect(getReviewQueuePosition).not.toHaveBeenCalled();
     expect(getSummaryCommentGithubId).not.toHaveBeenCalled();
     expect(resolveVerifiedSummaryCommentRef).not.toHaveBeenCalled();
     expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
