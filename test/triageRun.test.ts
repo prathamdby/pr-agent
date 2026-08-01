@@ -98,7 +98,9 @@ describe("triage run", () => {
 
   it("pre-submit finalize keeps commitFix and caps tool rounds", async () => {
     const setActiveTools = vi.fn();
-    const send = vi.fn(async () => ({ text: "I am done" }));
+    const send = vi.fn(async (_prompt: string, _opts?: Record<string, unknown>) => ({
+      text: "I am done",
+    }));
     providerState.createSession.mockImplementation(async () => ({
       role: "triage",
       send,
