@@ -21,24 +21,25 @@
 
 ## File map
 
-| File | Responsibility |
-| --- | --- |
-| `src/settings/reviewConstants.ts` | `REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS` |
-| `src/settings/index.ts` | re-export if needed |
-| `src/review/reviewSchema.ts` | optional field + refine |
-| `src/review/run/reviewRender.ts` | footer render helper |
+| File                                       | Responsibility                                       |
+| ------------------------------------------ | ---------------------------------------------------- |
+| `src/settings/reviewConstants.ts`          | `REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS`             |
+| `src/settings/index.ts`                    | re-export if needed                                  |
+| `src/review/reviewSchema.ts`               | optional field + refine                              |
+| `src/review/run/reviewRender.ts`           | footer render helper                                 |
 | `src/review/prompts/reviewPromptBlocks.ts` | field contract in `reviewPayloadPerFindingContracts` |
-| `CONTEXT.md` | glossary note on finding / repo policy |
-| `docs/configuration.md` | constant row |
-| `test/reviewSchema.test.ts` | accept/reject |
-| `test/reviewRender.test.ts` | footer present/absent |
-| `test/reviewPromptContract.test.ts` | contract string present |
+| `CONTEXT.md`                               | glossary note on finding / repo policy               |
+| `docs/configuration.md`                    | constant row                                         |
+| `test/reviewSchema.test.ts`                | accept/reject                                        |
+| `test/reviewRender.test.ts`                | footer present/absent                                |
+| `test/reviewPromptContract.test.ts`        | contract string present                              |
 
 ---
 
 ### Task 1: Schema + constant
 
 **Files:**
+
 - Modify: `src/settings/reviewConstants.ts`
 - Modify: `src/settings/index.ts` (only if constant not already barrel-exported via wildcards)
 - Modify: `src/review/reviewSchema.ts`
@@ -56,6 +57,7 @@
 ### Task 2: Render footer
 
 **Files:**
+
 - Modify: `src/review/run/reviewRender.ts`
 - Test: `test/reviewRender.test.ts`
 
@@ -67,6 +69,7 @@
 ### Task 3: Prompt + glossary
 
 **Files:**
+
 - Modify: `src/review/prompts/reviewPromptBlocks.ts`
 - Modify: `CONTEXT.md`
 - Test: `test/reviewPromptContract.test.ts`

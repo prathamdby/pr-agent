@@ -99,7 +99,9 @@ describe("specialist-specific obligations", () => {
     expect(violatedRuleFieldContract).toContain("violatedRule");
     expect(violatedRuleFieldContract).toContain(".pr-agent/");
     for (const [name, prompt] of SPECIALIST_PROMPTS) {
-      expect(prompt, `${name} should include violatedRule contract`).toContain("violatedRule");
+      expect(prompt, `${name} should include violatedRule contract`).toContain(
+        violatedRuleFieldContract,
+      );
     }
   });
 });

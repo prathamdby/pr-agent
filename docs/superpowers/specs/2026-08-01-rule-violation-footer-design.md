@@ -21,10 +21,10 @@ When a finding is an evidenced violation of a **repo policy rule** (`.pr-agent/*
 
 ## Surfaces
 
-| Surface | Change |
-| --- | --- |
-| `reviewFindingSchema` | optional `violatedRule` |
-| Specialist + review prompts | field contract |
-| `renderInlineThreadBody` | subscript footer |
-| Docs | `CONTEXT.md` glossary note; `docs/configuration.md` max-char constant |
-| Tests | schema, render, prompt contract |
+| Surface                     | Change                                                                |
+| --------------------------- | --------------------------------------------------------------------- |
+| `reviewFindingSchema`       | optional `violatedRule`                                               |
+| Specialist + review prompts | field contract                                                        |
+| `renderInlineThreadBody`    | subscript footer                                                      |
+| Docs                        | `CONTEXT.md` glossary note; `docs/configuration.md` max-char constant |
+| Tests                       | schema, render, prompt contract                                       |

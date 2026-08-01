@@ -333,6 +333,13 @@ describe("reviewFinding violatedRule", () => {
       ".pr-agent/nested/foo.mdc",
       "AGENTS.md",
       ".pr-agent/foo.txt",
+      ".pr-agent/..mdc",
+      ".pr-agent/...mdc",
+      ".pr-agent/.mdc",
+      " .pr-agent/foo.mdc",
+      ".pr-agent/foo.mdc ",
+      null,
+      `.pr-agent/${"a".repeat(67)}.mdc`,
     ]) {
       const parsed = reviewPayloadSchema.safeParse({
         prCharacter: "Bad rule path",
@@ -343,6 +350,23 @@ describe("reviewFinding violatedRule", () => {
         followUps: [],
       });
       expect(parsed.success, `expected reject for ${JSON.stringify(violatedRule)}`).toBe(false);
+    }
+  });
+
+  it("accepts the exactly-80-char violatedRule path and rejects over-max", () => {
+    const exactly80 = `.pr-agent/${"a".repeat(66)}.mdc`;
+    expect(exactly80.length).toBe(80);
+    const accepted = reviewPayloadSchema.safeParse({
+      prCharacter: "Max rule path",
+      findings: [{ ...makeFinding("P2", "max path"), violatedRule: exactly80 }],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(accepted.success).toBe(true);
+    if (accepted.success) {
+      expect(accepted.data.findings[0]?.violatedRule).toBe(exactly80);
     }
   });
 });

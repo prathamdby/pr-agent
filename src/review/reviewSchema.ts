@@ -29,7 +29,7 @@ const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "style"] as const;
 export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
 
-const VIOLATED_RULE_PATH_RE = /^\.pr-agent\/[A-Za-z0-9._-]+\.mdc$/;
+const VIOLATED_RULE_PATH_RE = /^\.pr-agent\/[A-Za-z0-9][A-Za-z0-9._-]*\.mdc$/;
 
 export const reviewFindingSchema = z
   .object({
