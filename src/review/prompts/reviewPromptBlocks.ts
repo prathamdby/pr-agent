@@ -13,6 +13,11 @@ export const categoryFieldContract = [
   "Use bug for correctness defects, security for vulnerabilities, performance for measurable regressions, style for formatting-only issues.",
 ].join("\n- ");
 
+export const violatedRuleFieldContract = [
+  "violatedRule (optional): when this finding is an evidenced violation of a repo policy rule from trusted context, set it to that rule's exact relative path (for example `.pr-agent/module-layout.mdc`).",
+  "Omit it for ordinary findings. Never invent a path that was not listed in trusted context. Do not use agent instruction files (`AGENTS.md`, `CLAUDE.md`, `GEMINI.md`) here.",
+].join("\n- ");
+
 export const pathAndSizeGuidance = [
   "## Path and size guidance",
   "Use any trusted-context blocks in the user message to order your investigation; read auth, migration, config, and security paths before docs and tests.",
@@ -80,6 +85,7 @@ export const reviewPayloadPerFindingContracts = [
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
+  violatedRuleFieldContract,
 ]
   .map((line) => `- ${line}`)
   .join("\n");

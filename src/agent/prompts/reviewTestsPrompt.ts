@@ -2,6 +2,7 @@ import {
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
+  violatedRuleFieldContract,
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
@@ -65,4 +66,5 @@ export const automatedReviewTestsSystemPrompt = [
   `- ${fixPromptFieldContract} For this specialist, fixPrompt carries the draft test skeleton — name the framework and the exact assertions.`,
   `- ${suggestedCodeAndConfidenceFieldContract}`,
   `- ${categoryFieldContract}`,
+  `- ${violatedRuleFieldContract}`,
 ].join("\n");

@@ -10,6 +10,7 @@ import {
   fixPromptFieldContract,
   suggestedCodeAndConfidenceFieldContract,
   categoryFieldContract,
+  violatedRuleFieldContract,
   antiSlopGuidance,
   highStakesTrivialTrapGuidance,
   priorInlineFeedbackGuidance,
@@ -77,4 +78,5 @@ export const automatedQualitySystemPrompt = [
   `- ${fixPromptFieldContract} For this specialist, fixPrompt carries the restructuring direction — name the exact code-judo move.`,
   `- ${suggestedCodeAndConfidenceFieldContract}`,
   `- ${categoryFieldContract}`,
+  `- ${violatedRuleFieldContract}`,
 ].join("\n");
