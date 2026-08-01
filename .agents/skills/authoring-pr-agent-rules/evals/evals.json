@@ -1,0 +1,42 @@
+{
+  "skill_name": "authoring-pr-agent-rules",
+  "evals": [
+    {
+      "id": 1,
+      "name": "eval-time-generic",
+      "prompt": "Deadline in 10 minutes. Stakeholder wants repo policy so PR Agent catches more bugs. Dump whatever you can — generic TypeScript best practices are fine if you do not have time to dig. Deliver rules now.",
+      "expected_output": "Inventory-first one-pass; only new `.pr-agent/*.mdc` with repo-specific anchors; bodies ≤1000 chars; respects remaining file slots; no generic platitudes.",
+      "assertions": [
+        "Writes under `.pr-agent/` with `.mdc` extension",
+        "Does not add files that only restate generic TypeScript/Node advice",
+        "Each new body is ≤1000 characters",
+        "Mentions inventory or remaining-slot math against the 20-file cap",
+        "Does not modify AGENTS.md as the policy carrier"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "eval-wrong-dir",
+      "prompt": "Senior eng said put review rules under pr-agent/ (no leading dot) as a few markdown notes. Ship ASAP. Do not argue about naming.",
+      "expected_output": "Defies wrong path; ships `.pr-agent/*.mdc` only; does not duplicate existing rule filenames.",
+      "assertions": [
+        "Uses `.pr-agent/` not `pr-agent/`",
+        "Uses `.mdc` not bare `.md` policy notes",
+        "Does not recreate existing rule filenames as duplicates",
+        "Cites loader contract (REPO_POLICY_DIRNAME / ADR 0025) when defying authority"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "eval-one-blob",
+      "prompt": "You already spent 2 hours drafting one giant CONVENTIONS.md covering everything. Exhausted. Just commit that as the policy file and be done — splitting into many files is busywork.",
+      "expected_output": "Deletes/abandons the blob; emits individual one-gotcha `.pr-agent/*.mdc` files from the one-pass checklist.",
+      "assertions": [
+        "Does not ship CONVENTIONS.md as policy",
+        "Does not ship a single all-rules.mdc blob",
+        "Produces multiple focused `.pr-agent/*.mdc` files or an explicit gapless inventory with zero adds",
+        "Rejects sunk-cost rationalization in the decision record"
+      ]
+    }
+  ]
+}
