@@ -157,6 +157,47 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   return row ? mapWorkItemCore(row) : null;
 }
 
+/** Rank of a still-queued review work item among all queued reviews; null when not waiting. */
+export async function getReviewQueuePosition(
+  pool: Pool,
+  workItemId: string,
+): Promise<{ readonly position: number; readonly total: number } | null> {
+  const row = await queryOne<{ position: number; total: number }>(
+    pool,
+    `WITH target AS (
+       SELECT id, created_at
+         FROM agent_work_items
+        WHERE id = $1
+          AND type = 'review'
+          AND status = 'queued'
+     ),
+     queued AS (
+       SELECT id, created_at
+         FROM agent_work_items
+        WHERE type = 'review'
+          AND status = 'queued'
+     )
+     SELECT
+       (SELECT COUNT(*)::int FROM queued q, target t
+         WHERE (q.created_at, q.id) <= (t.created_at, t.id)) AS position,
+       (SELECT COUNT(*)::int FROM queued) AS total
+     FROM target`,
+    [workItemId],
+  );
+  if (row == null) return null;
+  const position = row.position;
+  const total = row.total;
+  if (
+    !Number.isSafeInteger(position) ||
+    !Number.isSafeInteger(total) ||
+    position < 1 ||
+    total < position
+  ) {
+    return null;
+  }
+  return { position, total };
+}
+
 export async function getWorkItemPayload(pool: Pool, id: string): Promise<unknown> {
   const row = await queryOne<{ payload: unknown }>(
     pool,

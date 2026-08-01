@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatReviewQueuePosition,
   initialProgressTickState,
   parseProgressRevision,
   parseProgressRevisionState,
@@ -8,6 +9,7 @@ import {
 } from "../src/review/run/progressComment.js";
 import {
   REVIEW_PROGRESS_NOTE,
+  REVIEW_PROGRESS_QUEUE_LABEL,
   REVIEW_PROGRESS_QUEUED_NOTE,
   REVIEW_PROGRESS_SOURCE_SLASH,
   REVIEW_SUMMARY_SENTINEL,
@@ -45,6 +47,7 @@ describe("progressComment fallback wording", () => {
     expect(body).toContain("<strong>Head</strong>");
     expect(body).toContain("<code>abc123</code>");
     expect(body).toContain("Pull request update");
+    expect(body).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
     expect(body).not.toContain("<strong>Recon</strong>");
     expect(body).not.toContain("<strong>Correctness</strong>");
     expect(body).not.toContain("<strong>Security</strong>");
@@ -54,6 +57,52 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toContain("<strong>CI</strong>");
     expect(body).toContain("<!-- pr-agent:review-meta headSha=invalid lens=review stale=false -->");
     expect(parseProgressRevision(body)).toBe(0);
+  });
+
+  it("renders queue position on the queued stub between Source and CI", () => {
+    expect(formatReviewQueuePosition({ position: 2, total: 10 })).toBe("#2 of 10");
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+      queuePosition: { position: 2, total: 10 },
+      ciSummary: {
+        status: "pending",
+        headline: "⏳ CI still running",
+        failures: [],
+      },
+    });
+    expect(body).toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
+    expect(body).toContain("#2 of 10");
+    expect(body.indexOf("<strong>Source</strong>")).toBeLessThan(
+      body.indexOf(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`),
+    );
+    expect(body.indexOf(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`)).toBeLessThan(
+      body.indexOf("<strong>CI</strong>"),
+    );
+  });
+
+  it("renders #1 of 1 when this review is alone in the queue", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "slash",
+      queuePosition: { position: 1, total: 1 },
+    });
+    expect(body).toContain("#1 of 1");
+  });
+
+  it("ignores queue position once the in-progress roster is present", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+      queuePosition: { position: 2, total: 10 },
+      tickState: initialProgressTickState(),
+    });
+    expect(body).not.toContain(`<strong>${REVIEW_PROGRESS_QUEUE_LABEL}</strong>`);
+    expect(body).not.toContain("#2 of 10");
+    expect(body).toContain("<strong>Recon</strong>");
   });
 
   it("renders progress with NOTE alert, metadata table, and full roster", () => {

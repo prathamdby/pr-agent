@@ -17,6 +17,7 @@ import {
   REVIEW_FAILURE_ALERT,
   REVIEW_OVERVIEW_ALERT,
   REVIEW_PROGRESS_NOTE,
+  REVIEW_PROGRESS_QUEUE_LABEL,
   REVIEW_PROGRESS_QUEUED_NOTE,
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
@@ -142,16 +143,28 @@ export function parseProgressRevisionState(
   }
 }
 
+/** Wait-queue rank for the queued progress stub (`#2 of 10`). */
+export type ReviewQueuePosition = {
+  readonly position: number;
+  readonly total: number;
+};
+
+export function formatReviewQueuePosition(position: ReviewQueuePosition): string {
+  return `#${position.position} of ${position.total}`;
+}
+
 export function renderReviewProgressComment(params: {
   mode: AnyReviewLens;
   headSha: string;
   source: WorkSource;
   ciSummary?: CiSummary | null;
   /**
-   * When omitted, the stub is in the queued presentation: Head/Source/(CI) only,
+   * When omitted, the stub is in the queued presentation: Head/Source/(Queue)/(CI) only,
    * no Recon or specialist rows, and a queued note (not “in progress”).
    */
   tickState?: SpecialistTickState;
+  /** Shown only on the queued stub (no tickState) when lookup succeeded. */
+  queuePosition?: ReviewQueuePosition | null;
   progressRevision?: number;
   progressWorkItemId?: string;
 }): string {
@@ -161,6 +174,12 @@ export function renderReviewProgressComment(params: {
     [renderTableStrong("Head"), renderTableCode(params.headSha)],
     [renderTableStrong("Source"), escapeTableHtml(sourceLabel)],
   ];
+  if (params.tickState == null && params.queuePosition != null) {
+    tableRows.push([
+      renderTableStrong(REVIEW_PROGRESS_QUEUE_LABEL),
+      escapeTableHtml(formatReviewQueuePosition(params.queuePosition)),
+    ]);
+  }
   if (shouldRenderCiSummaryRow(params.ciSummary)) {
     tableRows.push([renderTableStrong("CI"), renderCiSummaryCell(params.ciSummary)]);
   }
