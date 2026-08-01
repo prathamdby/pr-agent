@@ -76,10 +76,7 @@ import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
 } from "../src/review/run/progressComment.js";
-import {
-  REVIEW_PROGRESS_QUEUE_LABEL,
-  reviewProgressCancelledNote,
-} from "../src/settings/index.js";
+import { REVIEW_PROGRESS_QUEUE_LABEL, reviewProgressCancelledNote } from "../src/settings/index.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
