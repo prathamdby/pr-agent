@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
   captureEvent: vi.fn(),
   getSummaryCommentGithubId: vi.fn(async (): Promise<number | null> => null),
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
-  getWorkItem: vi.fn(async () => null),
+  getWorkItem: vi.fn(async (): Promise<unknown> => null),
   recordPublishStep: vi.fn(),
   shouldSkipWork: vi.fn(async () => false),
   getPullRequestHeadSha: vi.fn(async () => "head"),
