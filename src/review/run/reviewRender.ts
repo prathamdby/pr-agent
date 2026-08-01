@@ -227,6 +227,11 @@ function renderSuggestedCodeBlock(finding: ReviewFinding): string[] {
   return ["", "```suggestion", escapedCode, "```"];
 }
 
+function renderViolatedRuleFooter(finding: ReviewFinding): string[] {
+  if (finding.violatedRule == null) return [];
+  return ["", `<sub>Rule · ${escapeTableHtml(finding.violatedRule)}</sub>`];
+}
+
 export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContext): string {
   const lines = [
     `**${finding.severity}** · **${finding.title}**`,
@@ -244,6 +249,7 @@ export function renderInlineThreadBody(finding: ReviewFinding, ctx: RenderContex
     "```",
     "",
     "</details>",
+    ...renderViolatedRuleFooter(finding),
   ];
   return lines.join("\n");
 }

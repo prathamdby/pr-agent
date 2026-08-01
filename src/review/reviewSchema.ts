@@ -8,6 +8,7 @@ import {
   REVIEW_FINDING_FIX_PROMPT_MAX_CHARS,
   REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS,
   REVIEW_FINDING_TITLE_MAX_CHARS,
+  REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS,
   REVIEW_FOLLOW_UP_MAX_CHARS,
   REVIEW_OVERVIEW_MAX_CHARS,
   REVIEW_SECURITY_CONCERNS_MAX_CHARS,
@@ -28,6 +29,8 @@ const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
 export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "style"] as const;
 export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
 
+const VIOLATED_RULE_PATH_RE = /^\.pr-agent\/[A-Za-z0-9._-]+\.mdc$/;
+
 export const reviewFindingSchema = z
   .object({
     severity: severitySchema,
@@ -40,6 +43,7 @@ export const reviewFindingSchema = z
     suggestedCode: z.string().max(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS).optional(),
     confidence: z.number().int().min(1).max(5).optional(),
     category: z.enum(REVIEW_FINDING_CATEGORIES).optional(),
+    violatedRule: z.string().min(1).max(REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS).optional(),
   })
   .superRefine((f, ctx) => {
     if (f.startLine > f.endLine) {
@@ -54,6 +58,13 @@ export const reviewFindingSchema = z
         code: "custom",
         message: "fixPrompt is required for P0/P1/P2/P3 findings",
         path: ["fixPrompt"],
+      });
+    }
+    if (f.violatedRule != null && !VIOLATED_RULE_PATH_RE.test(f.violatedRule)) {
+      ctx.addIssue({
+        code: "custom",
+        message: "violatedRule must be a flat .pr-agent/<name>.mdc path",
+        path: ["violatedRule"],
       });
     }
   });

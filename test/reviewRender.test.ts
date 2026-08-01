@@ -728,6 +728,61 @@ describe("renderInlineThreadBody", () => {
     expect(body).not.toContain("```suggestion");
     expect(body).not.toContain("\\`\\`\\`literal");
   });
+
+  it("appends a subscript rule footer after Prompt to fix when violatedRule is set", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P2",
+        file: "src/review/foo.ts",
+        startLine: 10,
+        endLine: 12,
+        title: "Cross-layer import",
+        detail: "Worker imports a web-only module.",
+        fixPrompt: "Move the shared helper into a neutral module.",
+        violatedRule: ".pr-agent/web-worker-boundary.mdc",
+      },
+      inlineCtx,
+    );
+
+    expect(body).toContain("</details>\n\n<sub>Rule · .pr-agent/web-worker-boundary.mdc</sub>");
+    expect(body.endsWith("<sub>Rule · .pr-agent/web-worker-boundary.mdc</sub>")).toBe(true);
+  });
+
+  it("omits the rule footer when violatedRule is absent", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P1",
+        file: "src/b.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Missing await",
+        detail: "Promise not awaited in handler.",
+        fixPrompt: "Await the promise before returning.",
+      },
+      inlineCtx,
+    );
+
+    expect(body).not.toContain("<sub>Rule");
+  });
+
+  it("HTML-escapes violatedRule in the subscript footer", () => {
+    const body = renderInlineThreadBody(
+      {
+        severity: "P3",
+        file: "src/b.ts",
+        startLine: 1,
+        endLine: 1,
+        title: "Style",
+        detail: "Formatting.",
+        fixPrompt: "Reformat.",
+        violatedRule: ".pr-agent/evil<script>.mdc",
+      },
+      inlineCtx,
+    );
+
+    expect(body).toContain("<sub>Rule · .pr-agent/evil&lt;script&gt;.mdc</sub>");
+    expect(body).not.toContain("<sub>Rule · .pr-agent/evil<script>.mdc</sub>");
+  });
 });
 
 describe("renderAgentFixPrompt", () => {

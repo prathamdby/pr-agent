@@ -291,6 +291,62 @@ describe("coerceReviewPayloadInput", () => {
   });
 });
 
+describe("reviewFinding violatedRule", () => {
+  it("accepts optional flat .pr-agent/*.mdc path and legacy payloads without it", () => {
+    const withRule = reviewPayloadSchema.safeParse({
+      prCharacter: "Policy violation",
+      findings: [
+        {
+          ...makeFinding("P2", "breaks layout rule"),
+          violatedRule: ".pr-agent/module-layout.mdc",
+        },
+      ],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(withRule.success).toBe(true);
+    if (withRule.success) {
+      expect(withRule.data.findings[0]?.violatedRule).toBe(".pr-agent/module-layout.mdc");
+    }
+
+    const legacy = reviewPayloadSchema.safeParse({
+      prCharacter: "No policy field",
+      findings: [makeFinding("P2", "ordinary bug")],
+      estimatedEffort: 2,
+      relevantTests: "no",
+      securityConcerns: null,
+      followUps: [],
+    });
+    expect(legacy.success).toBe(true);
+    if (legacy.success) {
+      expect(legacy.data.findings[0]?.violatedRule).toBeUndefined();
+    }
+  });
+
+  it("rejects empty, nested, parent, and non-.pr-agent violatedRule paths", () => {
+    for (const violatedRule of [
+      "",
+      "pr-agent/foo.mdc",
+      ".pr-agent/../secrets.mdc",
+      ".pr-agent/nested/foo.mdc",
+      "AGENTS.md",
+      ".pr-agent/foo.txt",
+    ]) {
+      const parsed = reviewPayloadSchema.safeParse({
+        prCharacter: "Bad rule path",
+        findings: [{ ...makeFinding("P2", "bad rule"), violatedRule }],
+        estimatedEffort: 2,
+        relevantTests: "no",
+        securityConcerns: null,
+        followUps: [],
+      });
+      expect(parsed.success, `expected reject for ${JSON.stringify(violatedRule)}`).toBe(false);
+    }
+  });
+});
+
 describe("reviewFinding category", () => {
   it("accepts optional category enum and legacy payloads without category", () => {
     expect(
