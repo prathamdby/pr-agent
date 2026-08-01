@@ -31,10 +31,7 @@ export const REVIEW_PROGRESS_QUEUE_LABEL = "Queue";
 /** Sanitize a GitHub login for public progress-stub attribution. */
 export function sanitizeGithubLogin(login: string): string {
   const trimmed = login.trim().replace(/^@+/, "");
-  if (
-    trimmed.length > 0 &&
-    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(trimmed)
-  ) {
+  if (trimmed.length > 0 && /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(trimmed)) {
     return trimmed;
   }
   return "user";

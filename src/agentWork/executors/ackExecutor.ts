@@ -1,10 +1,7 @@
 import type { Pool } from "pg";
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
-import {
-  findIssueCommentBySentinel,
-  updateIssueComment,
-} from "../../github/reviewPublish.js";
+import { findIssueCommentBySentinel, updateIssueComment } from "../../github/reviewPublish.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
 import {
@@ -22,6 +19,7 @@ import {
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
 import {
+  parseProgressRevisionState,
   patchReviewProgressCancelledNote,
   renderReviewProgressComment,
 } from "../../review/run/progressComment.js";
@@ -159,20 +157,25 @@ async function publishCancelProgress(
     installation.expiresAtTs,
   );
   if (existing != null) {
-    const patched = patchReviewProgressCancelledNote(
-      existing.body,
-      data.cancelProgress.cancelledByLogin,
-    );
-    if (patched != null) {
-      await updateIssueComment(
-        installation.token,
-        data.owner,
-        data.repo,
-        existing.id,
-        patched,
-        installation.expiresAtTs,
+    // Only rewrite a stub owned by this cancel target (or legacy stubs without workItemId).
+    const rev = parseProgressRevisionState(existing.body);
+    const ownsStub = rev?.workItemId == null || rev.workItemId === data.cancelProgress.workItemId;
+    if (ownsStub) {
+      const patched = patchReviewProgressCancelledNote(
+        existing.body,
+        data.cancelProgress.cancelledByLogin,
       );
-      return;
+      if (patched != null) {
+        await updateIssueComment(
+          installation.token,
+          data.owner,
+          data.repo,
+          existing.id,
+          patched,
+          installation.expiresAtTs,
+        );
+        return;
+      }
     }
   }
 

@@ -15,6 +15,7 @@ import {
   REVIEW_PROGRESS_SOURCE_SLASH,
   REVIEW_SUMMARY_SENTINEL,
   reviewProgressCancelledNote,
+  sanitizeGithubLogin,
 } from "../src/settings/index.js";
 import {
   STATUS_FAILED,
@@ -298,6 +299,30 @@ describe("progressComment fallback wording", () => {
     expect(patched).toContain(STATUS_WAITING);
     expect(patched).not.toContain(REVIEW_PROGRESS_NOTE);
     expect(parseProgressRevision(patched!)).toBe(1);
+  });
+
+  it("returns null when patch targets are not progress-stub NOTE bodies", () => {
+    expect(patchReviewProgressCancelledNote("no sentinel here", "bob")).toBeNull();
+    const failure = renderReviewFailureNotice({ mode: "review", retryCommand: "/review" });
+    expect(patchReviewProgressCancelledNote(failure, "bob")).toBeNull();
+    const sentinelOnly = `${REVIEW_SUMMARY_SENTINEL}\n\nno alert block`;
+    expect(patchReviewProgressCancelledNote(sentinelOnly, "bob")).toBeNull();
+  });
+
+  it.each([
+    ["@alice", "alice"],
+    ["@@alice", "alice"],
+    ["a", "a"],
+    ["alice-bob", "alice-bob"],
+    ["", "user"],
+    ["   ", "user"],
+    ["-alice", "user"],
+    ["alice-", "user"],
+    ["alice@corp", "user"],
+    ["a".repeat(40), "user"],
+    ["a".repeat(39), "a".repeat(39)],
+  ] as const)("sanitizeGithubLogin(%j) → %j", (input, expected) => {
+    expect(sanitizeGithubLogin(input)).toBe(expected);
   });
 
   it.each([

@@ -23,6 +23,8 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 vi.mock("../src/github/reviewPublish.js", () => ({
   resolveVerifiedSummaryCommentRef: vi.fn(),
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 77, updated: true })),
+  findIssueCommentBySentinel: vi.fn(async () => null),
+  updateIssueComment: vi.fn(async () => undefined),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -50,9 +52,15 @@ vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
   ensureReviewCheckRunStarted: vi.fn(),
 }));
 
+vi.mock("../src/review/ci/analyzeCi.js", () => ({
+  buildCiSummary: vi.fn(async () => null),
+}));
+
 import { postAckReply, reactOnAckTargets } from "../src/agentWork/githubPrSurface.js";
 import {
+  findIssueCommentBySentinel,
   resolveVerifiedSummaryCommentRef,
+  updateIssueComment,
   upsertReviewSummaryComment,
 } from "../src/github/reviewPublish.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
@@ -64,7 +72,14 @@ import {
   recordPublishStep,
 } from "../src/agentWork/repository.js";
 import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
-import { REVIEW_PROGRESS_QUEUE_LABEL } from "../src/settings/index.js";
+import {
+  renderReviewProgressComment,
+  renderReviewFailureNotice,
+} from "../src/review/run/progressComment.js";
+import {
+  REVIEW_PROGRESS_QUEUE_LABEL,
+  reviewProgressCancelledNote,
+} from "../src/settings/index.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
@@ -292,5 +307,98 @@ describe("executeAckJob", () => {
     });
 
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+  });
+
+  it("patches an owned progress stub on cancelProgress without upserting", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha",
+      source: "slash",
+      progressRevision: 1,
+      progressWorkItemId: "wi-cancel",
+    });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValueOnce({
+      id: 99,
+      body: stub,
+      url: "https://example.com/99",
+    });
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      cancelProgress: {
+        workItemId: "wi-cancel",
+        headSha: "sha",
+        source: "slash",
+        cancelledByLogin: "alice",
+      },
+    });
+
+    expect(updateIssueComment).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      99,
+      expect.stringContaining(reviewProgressCancelledNote("alice")),
+      expect.any(Number),
+    );
+    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+  });
+
+  it("falls back to upsert when cancelProgress finds a foreign or non-patchable stub", async () => {
+    const foreign = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha",
+      source: "auto",
+      progressRevision: 2,
+      progressWorkItemId: "wi-other",
+    });
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValueOnce({
+      id: 100,
+      body: foreign,
+      url: "https://example.com/100",
+    });
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      cancelProgress: {
+        workItemId: "wi-cancel",
+        headSha: "sha",
+        source: "slash",
+        cancelledByLogin: "alice",
+      },
+    });
+
+    expect(updateIssueComment).not.toHaveBeenCalled();
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-cancel",
+        body: expect.stringContaining(reviewProgressCancelledNote("alice")),
+      }),
+    );
+
+    vi.mocked(findIssueCommentBySentinel).mockResolvedValueOnce({
+      id: 101,
+      body: renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }),
+      url: "https://example.com/101",
+    });
+    vi.mocked(upsertSummaryCommentWithCreationClaim).mockClear();
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      cancelProgress: {
+        workItemId: "wi-cancel",
+        headSha: "sha",
+        source: "slash",
+        cancelledByLogin: "bob",
+      },
+    });
+
+    expect(updateIssueComment).not.toHaveBeenCalled();
+    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workItemId: "wi-cancel",
+        body: expect.stringContaining(reviewProgressCancelledNote("bob")),
+      }),
+    );
   });
 });

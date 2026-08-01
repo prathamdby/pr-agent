@@ -19,8 +19,7 @@ export const SLASH_HELP_BODY = [
 ].join("\n");
 
 /** Ack reply when `/cancel` finds no queued/running review. */
-export const SLASH_CANCEL_NONE_BODY =
-  "No review is queued or in progress for this pull request.";
+export const SLASH_CANCEL_NONE_BODY = "No review is queued or in progress for this pull request.";
 
 /** Ack reply when `/cancel` cancels an active review. */
 export const SLASH_CANCEL_DONE_BODY = "Cancelled the in-progress review.";

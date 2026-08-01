@@ -339,11 +339,7 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
 async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
   const cancelledByLogin = sanitizeGithubLogin(ctx.input.commenterLogin ?? "");
-  const cancelled = await cancelActiveReviewWorkItems(
-    ctx.client,
-    resourceKey,
-    cancelledByLogin,
-  );
+  const cancelled = await cancelActiveReviewWorkItems(ctx.client, resourceKey, cancelledByLogin);
   if (cancelled.length === 0) {
     await enqueueSlashAck(ctx, {
       reply: { target: ctx.input.replyTarget, body: SLASH_CANCEL_NONE_BODY },

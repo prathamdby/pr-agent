@@ -458,13 +458,14 @@ export type CancelledActiveReview = {
   readonly id: string;
   readonly source: WorkSource;
   readonly headSha: string;
-  readonly priorStatus: "queued" | "running";
 };
 
 /**
  * Cancel every queued/running review for a PR (auto or slash).
  * Queued rows become `cancelled`; running rows get `cancel_requested_at`.
  * Records `cancelledByLogin` on the payload for progress-stub attribution.
+ * Returns running rows first (newest `created_at`), then queued — so callers that
+ * take `[0]` as the ack primary prefer the live progress-stub owner.
  */
 export async function cancelActiveReviewWorkItems(
   client: PoolClient,
@@ -472,10 +473,32 @@ export async function cancelActiveReviewWorkItems(
   cancelledByLogin: string,
 ): Promise<readonly CancelledActiveReview[]> {
   const loginPatch = JSON.stringify({ cancelledByLogin });
+  const mapRows = (
+    rows: readonly {
+      id: string;
+      source: WorkSource;
+      head_sha: string;
+      created_at: Date | string;
+    }[],
+  ): CancelledActiveReview[] =>
+    [...rows]
+      .sort((a, b) => {
+        const ta = new Date(a.created_at).getTime();
+        const tb = new Date(b.created_at).getTime();
+        if (tb !== ta) return tb - ta;
+        return b.id.localeCompare(a.id);
+      })
+      .map((row) => ({
+        id: row.id,
+        source: row.source,
+        headSha: row.head_sha,
+      }));
+
   const queued = await client.query<{
     id: string;
     source: WorkSource;
     head_sha: string;
+    created_at: Date | string;
   }>(
     `UPDATE agent_work_items
 		    SET status = 'cancelled',
@@ -486,13 +509,14 @@ export async function cancelActiveReviewWorkItems(
 		  WHERE resource_key = $1
 		    AND type = 'review'
 		    AND status = 'queued'
-		  RETURNING id, source, head_sha`,
+		  RETURNING id, source, head_sha, created_at`,
     [resourceKey, loginPatch],
   );
   const running = await client.query<{
     id: string;
     source: WorkSource;
     head_sha: string;
+    created_at: Date | string;
   }>(
     `UPDATE agent_work_items
 		    SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
@@ -501,23 +525,10 @@ export async function cancelActiveReviewWorkItems(
 		  WHERE resource_key = $1
 		    AND type = 'review'
 		    AND status = 'running'
-		  RETURNING id, source, head_sha`,
+		  RETURNING id, source, head_sha, created_at`,
     [resourceKey, loginPatch],
   );
-  return [
-    ...queued.rows.map((row) => ({
-      id: row.id,
-      source: row.source,
-      headSha: row.head_sha,
-      priorStatus: "queued" as const,
-    })),
-    ...running.rows.map((row) => ({
-      id: row.id,
-      source: row.source,
-      headSha: row.head_sha,
-      priorStatus: "running" as const,
-    })),
-  ];
+  return [...mapRows(running.rows), ...mapRows(queued.rows)];
 }
 
 export async function createAskWorkItem(

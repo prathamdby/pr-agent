@@ -446,6 +446,12 @@ describe("executeReviewJob", () => {
 
     expect(mocks.getPullRequestHeadSha).not.toHaveBeenCalled();
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        conclusion: "cancelled",
+      }),
+    );
   });
 
   it("runs auto preflight and lightweight completion before full review", async () => {
