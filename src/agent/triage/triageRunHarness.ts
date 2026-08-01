@@ -22,8 +22,13 @@ import {
   MAX_TOOL_ROUNDS_TRIAGE,
 } from "../../settings/index.js";
 
-const TRIAGE_SUBMIT_ONLY_NUDGE =
-  "You replied with text only. If you have uncommitted workspace edits, call commitFix for each finding first, then call submitTriage once with a complete TriagePayload.";
+/** Shared finalize instruction so nudge + validation-repair wording cannot drift. */
+const TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT =
+  "call commitFix for each pending finding first, then call submitTriage once with a complete TriagePayload";
+
+const TRIAGE_SUBMIT_ONLY_NUDGE = `You replied with text only. If you have uncommitted workspace edits, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
+
+const TRIAGE_VALIDATION_REPAIR_HINT = `If needed, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
 
 export async function runTriageHarness(params: {
   readonly cfg: Config;
@@ -51,13 +56,9 @@ export async function runTriageHarness(params: {
   });
   let lastText = "";
   const sendFinalizeRound = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt, (active, text) =>
-      active.send(text, {
-        phase: "triage",
-        checkpointId: "triage:triage",
-        maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
-      }),
-    );
+    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt, {
+      maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
+    });
 
   const runValidationRepair = async () => {
     await runValidationRepairLoop({
@@ -69,11 +70,13 @@ export async function runTriageHarness(params: {
       },
       repair: async (validationError) => {
         lastText = await sendFinalizeRound(
-          [
-            validationError,
-            "If needed, commitFix pending edits, then call submitTriage again with a complete TriagePayload.",
-          ].join("\n\n"),
+          [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n"),
         );
+        // Cap-aborted repair rounds clear lastValidationError before send; restore so
+        // remaining repair budget is not forfeited when submit never ran.
+        if (!setup.submitState.submitted && setup.submitState.lastValidationError == null) {
+          setup.submitState.lastValidationError = validationError;
+        }
       },
     });
   };

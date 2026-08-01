@@ -60,4 +60,26 @@ describe("buildSubmitOnlyTriageSessionTools", () => {
     expect(finalize.executors.submitTriage).toEqual(expect.any(Function));
     expect(finalize.executors.searchWorkspace).toBeUndefined();
   });
+
+  it("falls back to the full setup when submit or commitFix would be missing", () => {
+    const setup = buildTriageRunSetup({
+      cfg: makeTestConfig(),
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      headSha: "a".repeat(40),
+      checkout: checkout(),
+      inventory,
+    });
+    const stripped = {
+      ...setup,
+      piTools: setup.piTools.filter((tool) => tool.name !== "submitTriage"),
+      executors: Object.fromEntries(
+        Object.entries(setup.executors).filter(([name]) => name !== "submitTriage"),
+      ),
+    };
+    const fallback = buildSubmitOnlyTriageSessionTools(stripped);
+    expect(fallback.piTools).toBe(stripped.piTools);
+    expect(fallback.executors).toBe(stripped.executors);
+  });
 });

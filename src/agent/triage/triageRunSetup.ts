@@ -76,26 +76,25 @@ export function buildTriageRunSetup(params: {
   };
 }
 
-/** Tools kept during pre-submit / validation repair so pending edits can still be committed. */
-const TRIAGE_FINALIZE_TOOL_NAMES = [
-  "readWorkspaceFile",
-  "getWorkspaceDiff",
-  "editWorkspaceFile",
-  "createWorkspaceFile",
-  "commitFix",
-  "submitTriage",
-] as const;
+/**
+ * Finalize keeps every triage workspace tool except search, plus submitTriage.
+ * Names come from the live setup tool list so renames cannot silently drop commitFix.
+ */
+const TRIAGE_FINALIZE_EXCLUDED = new Set(["searchWorkspace"]);
 
 export function buildSubmitOnlyTriageSessionTools(setup: TriageRunSetup): {
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
-  const keep = new Set<string>(TRIAGE_FINALIZE_TOOL_NAMES);
-  const piTools = setup.piTools.filter((tool) => keep.has(tool.name));
-  const executors = Object.fromEntries(
-    Object.entries(setup.executors).filter(([name]) => keep.has(name)),
+  const keepNames = new Set(
+    setup.piTools.map((tool) => tool.name).filter((name) => !TRIAGE_FINALIZE_EXCLUDED.has(name)),
   );
-  if (piTools.length === 0 || !executors.submitTriage) {
+  keepNames.add("submitTriage");
+  const piTools = setup.piTools.filter((tool) => keepNames.has(tool.name));
+  const executors = Object.fromEntries(
+    Object.entries(setup.executors).filter(([name]) => keepNames.has(name)),
+  );
+  if (piTools.length === 0 || !executors.submitTriage || !executors.commitFix) {
     return { piTools: setup.piTools, executors: setup.executors };
   }
   return { piTools, executors };
