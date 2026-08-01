@@ -65,6 +65,43 @@ function cancelRunningSql(target: AutoWorkSupersedeTarget): {
   };
 }
 
+/**
+ * Cancel active orchestrated reviews for a PR (auto + slash).
+ * Queued → terminal cancelled; running → cooperative cancel_requested_at only
+ * (status stays `running` until the worker's next shouldSkipWork checkpoint
+ * calls markWorkCancelled). The slash-active partial unique index still
+ * matches that row, so /review is deduped until the worker terminals it —
+ * intentional cooperative cancel, not an immediate free of the slot.
+ */
+export async function cancelActiveReviewsForResource(
+  client: PoolClient,
+  resourceKey: string,
+): Promise<readonly string[]> {
+  const queued = await client.query<{ id: string }>(
+    `UPDATE agent_work_items
+         SET status = 'cancelled',
+             last_error = $2,
+             completed_at = now(),
+             updated_at = now()
+       WHERE resource_key = $1
+         AND type = 'review'
+         AND status = 'queued'
+     RETURNING id`,
+    [resourceKey, "Pull request merged"],
+  );
+  const running = await client.query<{ id: string }>(
+    `UPDATE agent_work_items
+         SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
+             updated_at = now()
+       WHERE resource_key = $1
+         AND type = 'review'
+         AND status = 'running'
+     RETURNING id`,
+    [resourceKey],
+  );
+  return [...queued.rows, ...running.rows].map((row) => row.id);
+}
+
 /** Supersede queued auto work, request cancel on running, create replacement, link superseded rows. */
 export async function replaceAutoWorkItem(params: {
   readonly client: PoolClient;

@@ -21,8 +21,10 @@ export const DEFERRED_HEAD_SHA = "deferred-to-worker";
 
 export const IGNORED_BOT_SLASH_COMMAND = "ignored_bot_slash_command";
 export const IGNORED_UNAUTHORIZED_SLASH = "ignored_unauthorized_slash";
+/** Intake decision + deferred log event when closed+merged cancels active reviews. */
+export const REVIEW_CANCELLED_PR_MERGED = "review_cancelled_pr_merged";
 
-export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened"]);
+export const AUTOMATED_PR_ACTIONS = new Set(["opened", "synchronize", "reopened", "closed"]);
 export const DESCRIPTION_PUBLISH_LENS = "description" as const;
 export const ASK_PUBLISH_LENS = "ask" as const;
 export const TRIAGE_PUBLISH_LENS = "triage" as const;

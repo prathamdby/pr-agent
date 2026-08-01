@@ -100,4 +100,37 @@ describe("makeAgentWorkScheduler ignored intake", () => {
       txSpy.mockRestore();
     }
   });
+
+  it("records close-without-merge as ignored without a transaction", async () => {
+    const { pool, query } = makePool();
+    const boss = { send: vi.fn() } as unknown as PgBoss;
+    const txSpy = vi.spyOn(postgres, "inTransaction");
+    const scheduler = makeAgentWorkScheduler(pool, boss, intakeCfg);
+    const intakeLog = createOperationLogger({ method: "POST", path: "/webhooks" });
+
+    try {
+      await Effect.runPromise(
+        scheduler.submitAutomatedReview(
+          makeHeaders("pull_request"),
+          makePrRef(),
+          "closed",
+          intakeLog,
+          { merged: false },
+        ),
+      );
+
+      expect(txSpy).not.toHaveBeenCalled();
+      expect(query).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO webhook_events"), [
+        expect.any(String),
+        "delivery:d-pull_request",
+        "d-pull_request",
+        "pull_request",
+        expect.any(String),
+        "ignored_pull_request_closed",
+      ]);
+      expect(boss.send).not.toHaveBeenCalled();
+    } finally {
+      txSpy.mockRestore();
+    }
+  });
 });
