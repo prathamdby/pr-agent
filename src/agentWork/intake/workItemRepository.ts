@@ -454,6 +454,72 @@ export async function fetchActiveTriageWorkItem(
   return { id: row.id, payload: parseWorkItemPayload("triage", row.payload) };
 }
 
+export type CancelledActiveReview = {
+  readonly id: string;
+  readonly source: WorkSource;
+  readonly headSha: string;
+  readonly priorStatus: "queued" | "running";
+};
+
+/**
+ * Cancel every queued/running review for a PR (auto or slash).
+ * Queued rows become `cancelled`; running rows get `cancel_requested_at`.
+ * Records `cancelledByLogin` on the payload for progress-stub attribution.
+ */
+export async function cancelActiveReviewWorkItems(
+  client: PoolClient,
+  resourceKey: string,
+  cancelledByLogin: string,
+): Promise<readonly CancelledActiveReview[]> {
+  const loginPatch = JSON.stringify({ cancelledByLogin });
+  const queued = await client.query<{
+    id: string;
+    source: WorkSource;
+    head_sha: string;
+  }>(
+    `UPDATE agent_work_items
+		    SET status = 'cancelled',
+		        last_error = 'Cancelled by slash /cancel',
+		        completed_at = now(),
+		        updated_at = now(),
+		        payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb
+		  WHERE resource_key = $1
+		    AND type = 'review'
+		    AND status = 'queued'
+		  RETURNING id, source, head_sha`,
+    [resourceKey, loginPatch],
+  );
+  const running = await client.query<{
+    id: string;
+    source: WorkSource;
+    head_sha: string;
+  }>(
+    `UPDATE agent_work_items
+		    SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
+		        updated_at = now(),
+		        payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb
+		  WHERE resource_key = $1
+		    AND type = 'review'
+		    AND status = 'running'
+		  RETURNING id, source, head_sha`,
+    [resourceKey, loginPatch],
+  );
+  return [
+    ...queued.rows.map((row) => ({
+      id: row.id,
+      source: row.source,
+      headSha: row.head_sha,
+      priorStatus: "queued" as const,
+    })),
+    ...running.rows.map((row) => ({
+      id: row.id,
+      source: row.source,
+      headSha: row.head_sha,
+      priorStatus: "running" as const,
+    })),
+  ];
+}
+
 export async function createAskWorkItem(
   client: PoolClient,
   params: {

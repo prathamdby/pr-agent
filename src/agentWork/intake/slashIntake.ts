@@ -5,10 +5,13 @@ import {
   DEFERRED_HEAD_SHA,
   DESCRIPTION_ALREADY_IN_PROGRESS,
   MAX_STORED_COMMENT_TEXT_LEN,
+  SLASH_CANCEL_DONE_BODY,
+  SLASH_CANCEL_NONE_BODY,
   SLASH_HELP_BODY,
   TRIAGE_ALREADY_IN_PROGRESS,
   TRIAGE_FULL_RUN_IN_PROGRESS,
   TRIAGE_INLINE_USAGE_HINT,
+  sanitizeGithubLogin,
   slashDisabledBody,
   type Features,
 } from "../../settings/index.js";
@@ -36,6 +39,7 @@ import { promoteAskFromWebhookEvent } from "./askIntake.js";
 import { releaseReviewSingletonSlot } from "../singletonQueue.js";
 import { pgBossDb } from "../../db/postgres.js";
 import {
+  cancelActiveReviewWorkItems,
   createDescriptionWorkItem,
   createReviewWorkItem,
   createTriageWorkItem,
@@ -51,6 +55,8 @@ export type SlashCommandInput = {
   readonly prNumber: number;
   readonly commentId: number;
   readonly commenterId: number;
+  /** GitHub login of the command issuer (for `/cancel` attribution). */
+  readonly commenterLogin?: string;
   readonly body: string;
   readonly command: string;
   readonly replyTarget: ReplyTarget;
@@ -81,7 +87,7 @@ type SlashIntakeContext = {
 
 async function enqueueSlashAck(
   ctx: SlashIntakeContext,
-  extra: Partial<Pick<AckJobData, "workItemId" | "progress" | "reply">>,
+  extra: Partial<Pick<AckJobData, "workItemId" | "progress" | "cancelProgress" | "reply">>,
 ): Promise<void> {
   await enqueueAck(ctx.boss, ctx.client, {
     ...ctx.baseAck,
@@ -330,6 +336,53 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
   });
 }
 
+async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
+  const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
+  const cancelledByLogin = sanitizeGithubLogin(ctx.input.commenterLogin ?? "");
+  const cancelled = await cancelActiveReviewWorkItems(
+    ctx.client,
+    resourceKey,
+    cancelledByLogin,
+  );
+  if (cancelled.length === 0) {
+    await enqueueSlashAck(ctx, {
+      reply: { target: ctx.input.replyTarget, body: SLASH_CANCEL_NONE_BODY },
+    });
+    ctx.events.push({
+      name: "ignored_slash_cancel_no_active_review",
+      fields: { resourceKey },
+    });
+    return;
+  }
+  const primary = cancelled[0]!;
+  await releaseReviewSingletonSlot(ctx.boss, resourceKey, {
+    db: pgBossDb(ctx.client),
+    cancelNonTerminal: true,
+    cancelWorkItemIds: cancelled.map((row) => row.id),
+  });
+  await enqueueSlashAck(ctx, {
+    cancelProgress: {
+      workItemId: primary.id,
+      headSha: primary.headSha,
+      source: primary.source,
+      cancelledByLogin,
+    },
+    reply: { target: ctx.input.replyTarget, body: SLASH_CANCEL_DONE_BODY },
+  });
+  ctx.events.push({
+    name: "agent_work_cancel_requested",
+    fields: {
+      type: "review",
+      source: "slash",
+      workItemId: primary.id,
+      resourceKey,
+      cancelledCount: cancelled.length,
+      cancelledByLogin,
+      ...ctx.correlation,
+    },
+  });
+}
+
 async function handleSlashUnknown(ctx: SlashIntakeContext, command: string): Promise<void> {
   await enqueueSlashAck(ctx, {
     reply: {
@@ -353,6 +406,7 @@ const SLASH_INTAKE_HANDLERS: Record<string, SlashIntakeHandler> = {
   describe: handleSlashDescribe,
   triage: handleSlashTriage,
   review: handleSlashReview,
+  cancel: handleSlashCancel,
 };
 
 export async function applySlashCommandIntake(

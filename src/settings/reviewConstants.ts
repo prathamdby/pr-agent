@@ -27,6 +27,23 @@ export const REVIEW_PROGRESS_NOTE = "Review in progress on the latest commit.";
 export const REVIEW_PROGRESS_QUEUED_NOTE = "Review queued on the latest commit.";
 /** Queued progress stub table label for wait-queue rank among review work items. */
 export const REVIEW_PROGRESS_QUEUE_LABEL = "Queue";
+
+/** Sanitize a GitHub login for public progress-stub attribution. */
+export function sanitizeGithubLogin(login: string): string {
+  const trimmed = login.trim().replace(/^@+/, "");
+  if (
+    trimmed.length > 0 &&
+    /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(trimmed)
+  ) {
+    return trimmed;
+  }
+  return "user";
+}
+
+/** Progress stub NOTE when a command issuer cancels an in-flight review (`/cancel`). */
+export function reviewProgressCancelledNote(cancelledByLogin: string): string {
+  return `Cancelled by @${sanitizeGithubLogin(cancelledByLogin)}.`;
+}
 export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY_P3 = "Included in Fix all findings below.";

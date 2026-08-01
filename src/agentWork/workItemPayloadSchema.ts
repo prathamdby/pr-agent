@@ -61,6 +61,7 @@ const ReviewWorkPayloadSchema = z.looseObject({
   staleHeadRescheduled: z.boolean().optional(),
   staleHeadReplacementWorkItemId: z.string().min(1).optional(),
   staleHeadReplacementEnqueued: z.boolean().optional(),
+  cancelledByLogin: z.string().min(1).optional(),
 });
 
 const AskWorkPayloadSchema = z.looseObject({

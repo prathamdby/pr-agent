@@ -474,7 +474,14 @@ export async function runOrchestratedPrReview(
         };
       }
       if (gate.kind === "stop") {
-        state.lifecycle = { kind: "stopped", reason: gate.reason };
+        state.lifecycle =
+          gate.reason === "cancelled"
+            ? {
+                kind: "stopped",
+                reason: "cancelled",
+                cancelledByLogin: gate.cancelledByLogin,
+              }
+            : { kind: "stopped", reason: gate.reason };
         abortSpecialists();
         await retireSession();
         return {
@@ -649,10 +656,27 @@ export async function runOrchestratedPrReview(
     }
   };
 
-  const writeTerminalTick = async (reason: "superseded" | "stale_head"): Promise<void> => {
+  const writeTerminalTick = async (
+    stopped: Extract<OrchestratedRunState["lifecycle"], { kind: "stopped" }>,
+  ): Promise<void> => {
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     if (!coordination) return;
     state.progressRevision = 7;
+    const tickState =
+      stopped.reason === "cancelled"
+        ? {
+            kind: "terminal" as const,
+            reason: "cancelled" as const,
+            cancelledByLogin: stopped.cancelledByLogin,
+            recon: state.recon,
+            specialists: snapshotSpecialists(),
+          }
+        : {
+            kind: "terminal" as const,
+            reason: stopped.reason,
+            recon: state.recon,
+            specialists: snapshotSpecialists(),
+          };
     await tickProgressComment({
       pool: coordination.pool,
       workItemId: coordination.workItemId,
@@ -664,12 +688,7 @@ export async function runOrchestratedPrReview(
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
       progressRevision: 7,
-      tickState: {
-        kind: "terminal",
-        reason,
-        recon: state.recon,
-        specialists: snapshotSpecialists(),
-      },
+      tickState,
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
       refreshLiveAuth: setup.refreshLiveAuth,
@@ -908,7 +927,13 @@ export async function runOrchestratedPrReview(
           if (gate.kind !== "continue") {
             state.lifecycle =
               gate.kind === "stop"
-                ? { kind: "stopped", reason: gate.reason }
+                ? gate.reason === "cancelled"
+                  ? {
+                      kind: "stopped",
+                      reason: "cancelled",
+                      cancelledByLogin: gate.cancelledByLogin,
+                    }
+                  : { kind: "stopped", reason: gate.reason }
                 : { kind: "finalizing", reason: gate.reason };
             abortSpecialists();
             await retireSession();
@@ -966,7 +991,7 @@ export async function runOrchestratedPrReview(
     if (fatalError != null) throw fatalError;
 
     if (state.lifecycle.kind === "stopped") {
-      await writeTerminalTick(state.lifecycle.reason);
+      await writeTerminalTick(state.lifecycle);
     } else if (state.lifecycle.kind === "finalizing") {
       for (const outcome of outcomes) {
         if (state.outcomes[outcome.specialist] == null) await recordOutcome(outcome);

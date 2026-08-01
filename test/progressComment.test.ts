@@ -4,6 +4,7 @@ import {
   initialProgressTickState,
   parseProgressRevision,
   parseProgressRevisionState,
+  patchReviewProgressCancelledNote,
   renderReviewFailureNotice,
   renderReviewProgressComment,
 } from "../src/review/run/progressComment.js";
@@ -13,6 +14,7 @@ import {
   REVIEW_PROGRESS_QUEUED_NOTE,
   REVIEW_PROGRESS_SOURCE_SLASH,
   REVIEW_SUMMARY_SENTINEL,
+  reviewProgressCancelledNote,
 } from "../src/settings/index.js";
 import {
   STATUS_FAILED,
@@ -251,6 +253,51 @@ describe("progressComment fallback wording", () => {
     expect(body).toContain(STATUS_NO_FINDINGS);
     expect(body).toContain(STATUS_FAILED);
     expect(body).not.toContain("0 threads");
+  });
+
+  it("renders cancelled NOTE with attribution and keeps the table", () => {
+    const body = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "slash",
+      cancelledByLogin: "alice",
+      tickState: {
+        kind: "terminal",
+        reason: "cancelled",
+        cancelledByLogin: "alice",
+        recon: "done",
+        specialists: {
+          correctness: { phase: "running" },
+          security: { phase: "waiting" },
+          quality: { phase: "waiting" },
+          tests: { phase: "waiting" },
+        },
+      },
+    });
+    expect(body).toContain(reviewProgressCancelledNote("alice"));
+    expect(body).toContain("<strong>Recon</strong>");
+    expect(body).toContain("<strong>Correctness</strong>");
+    expect(body).not.toContain(REVIEW_PROGRESS_NOTE);
+    expect(body).not.toContain("Superseded");
+  });
+
+  it("patches an existing progress stub NOTE to cancelled attribution", () => {
+    const original = renderReviewProgressComment({
+      mode: "review",
+      headSha: "abc123",
+      source: "auto",
+      tickState: initialProgressTickState(),
+      progressRevision: 1,
+      progressWorkItemId: "wi-1",
+    });
+    const patched = patchReviewProgressCancelledNote(original, "bob");
+    expect(patched).not.toBeNull();
+    expect(patched).toContain(reviewProgressCancelledNote("bob"));
+    expect(patched).toContain("<strong>Recon</strong>");
+    expect(patched).toContain(STATUS_RUNNING);
+    expect(patched).toContain(STATUS_WAITING);
+    expect(patched).not.toContain(REVIEW_PROGRESS_NOTE);
+    expect(parseProgressRevision(patched!)).toBe(1);
   });
 
   it.each([

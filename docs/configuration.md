@@ -186,6 +186,7 @@ Operators using branch protection must replace required checks named `PR Agent S
 | `REVIEW_PROGRESS_NOTE`                                                                                                 | In-progress NOTE body                                                                          |
 | `REVIEW_PROGRESS_QUEUED_NOTE`                                                                                          | Queued progress stub NOTE body (before the review worker claims the work item)                 |
 | `REVIEW_PROGRESS_QUEUE_LABEL`                                                                                          | Queued progress stub table label for wait-queue rank (`Queue`)                                 |
+| `reviewProgressCancelledNote` / `sanitizeGithubLogin`                                                                  | Cancelled progress stub NOTE (`Cancelled by @login.`) and login sanitizer                      |
 | `REVIEW_PROGRESS_SOURCE_AUTO` / `REVIEW_PROGRESS_SOURCE_SLASH`                                                         | Progress table source labels                                                                   |
 | `LIGHTWEIGHT_REVIEW_COMPLETION_*`                                                                                      | Docs-only auto-review skip copy                                                                |
 | `REVIEW_CHECK_RUN_RESERVATION_STALE_MS`                                                                                | 300000                                                                                         |
@@ -402,6 +403,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `MAX_LOG_MESSAGE_LEN`               | 2000                                          |
 | `MAX_LOG_REDACTION_SCAN_LEN`        | 8000                                          |
 | `SLASH_HELP_BODY`                   | `/help` text                                  |
+| `SLASH_CANCEL_NONE_BODY` / `SLASH_CANCEL_DONE_BODY` | `/cancel` ack replies when no review is active / after cancel |
 | `MIGRATIONS_DIR_NAME`               | `migrations`                                  |
 | `MIGRATION_ADVISORY_LOCK_KEY`       | runMigrations cross-process lock              |
 | `GITHUB_WEBHOOK_RESPONSE_MARGIN_MS` | 2000ms margin before GitHub's webhook timeout |

@@ -1,6 +1,10 @@
 import type { Pool } from "pg";
 import type { Config } from "../../config.js";
 import { logWarn } from "../../evlog.js";
+import {
+  findIssueCommentBySentinel,
+  updateIssueComment,
+} from "../../github/reviewPublish.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
 import {
@@ -17,7 +21,10 @@ import {
 } from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
-import { renderReviewProgressComment } from "../../review/run/progressComment.js";
+import {
+  patchReviewProgressCancelledNote,
+  renderReviewProgressComment,
+} from "../../review/run/progressComment.js";
 import {
   getAppBotIdentity,
   getPullRequestHeadSha,
@@ -126,6 +133,83 @@ async function publishAckProgress(
   }
 }
 
+async function publishCancelProgress(
+  pool: Pool,
+  data: AckJobData & { readonly cancelProgress: NonNullable<AckJobData["cancelProgress"]> },
+  installation: AckInstallation,
+  resourceKey: string,
+): Promise<void> {
+  const headSha =
+    data.cancelProgress.headSha === DEFERRED_HEAD_SHA
+      ? await getPullRequestHeadSha(
+          installation.token,
+          data.owner,
+          data.repo,
+          data.prNumber,
+          installation.expiresAtTs,
+        )
+      : data.cancelProgress.headSha;
+
+  const existing = await findIssueCommentBySentinel(
+    installation.token,
+    data.owner,
+    data.repo,
+    data.prNumber,
+    REVIEW_SUMMARY_SENTINEL,
+    installation.expiresAtTs,
+  );
+  if (existing != null) {
+    const patched = patchReviewProgressCancelledNote(
+      existing.body,
+      data.cancelProgress.cancelledByLogin,
+    );
+    if (patched != null) {
+      await updateIssueComment(
+        installation.token,
+        data.owner,
+        data.repo,
+        existing.id,
+        patched,
+        installation.expiresAtTs,
+      );
+      return;
+    }
+  }
+
+  const ciSummary = await buildCiSummary({
+    token: installation.token,
+    owner: data.owner,
+    repo: data.repo,
+    headSha,
+    expiresAtTs: installation.expiresAtTs,
+    lightweight: true,
+    waitMs: 0,
+  });
+  const body = renderReviewProgressComment({
+    mode: "review",
+    headSha,
+    source: data.cancelProgress.source,
+    ciSummary,
+    cancelledByLogin: data.cancelProgress.cancelledByLogin,
+    progressRevision: 0,
+    progressWorkItemId: data.cancelProgress.workItemId,
+  });
+  await upsertSummaryCommentWithCreationClaim({
+    pool,
+    workItemId: data.cancelProgress.workItemId,
+    resourceKey,
+    reviewLens: "review",
+    token: installation.token,
+    owner: data.owner,
+    repo: data.repo,
+    prNumber: data.prNumber,
+    body,
+    sentinel: REVIEW_SUMMARY_SENTINEL,
+    expiresAtTs: installation.expiresAtTs,
+    progressRevision: 0,
+  });
+}
+
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
   let botUserId: number | undefined;
@@ -173,11 +257,29 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
     }
   }
 
+  if (data.cancelProgress) {
+    const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
+    try {
+      await publishCancelProgress(
+        pool,
+        { ...data, cancelProgress: data.cancelProgress },
+        installation,
+        resourceKey,
+      );
+    } catch (error) {
+      logWarn("ack_cancel_progress_failed", {
+        workItemId: data.cancelProgress.workItemId,
+        resourceKey,
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   if (data.reply) {
     await postAckReply(installation.token, data, data.reply.body, installation.expiresAtTs);
   }
 
-  // Ack-only interactions (help / disabled / usage) finish here — no durable work item.
+  // Ack-only interactions (help / disabled / usage / cancel) finish here — no durable work item.
   if (data.reply && data.workItemId == null) {
     await reactOnAckTargets(
       installation.token,
