@@ -56,6 +56,30 @@ describe("parseGithubPayload", () => {
     expect(p.data.pull_request.merged).toBe(true);
   });
 
+  it("defaults merged to false on closed when the field is absent", () => {
+    const raw = {
+      action: "closed",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r", size: 1234 },
+      pull_request: { number: 3, head: { sha: "abc" } },
+    };
+    const p = parseGithubPayload("pull_request", raw);
+    expect(p.name).toBe("pull_request");
+    if (p.name !== "pull_request") throw new Error("expected pull_request payload");
+    expect(p.data.action).toBe("closed");
+    expect(p.data.pull_request.merged).toBe(false);
+  });
+
+  it("rejects closed payloads when merged is null", () => {
+    const raw = {
+      action: "closed",
+      installation: { id: 42 },
+      repository: { owner: { login: "o" }, name: "r", size: 1234 },
+      pull_request: { number: 3, head: { sha: "abc" }, merged: null },
+    };
+    expect(() => parseGithubPayload("pull_request", raw)).toThrow(WebhookParseError);
+  });
+
   it("parses optional top-level before on pull_request synchronize", () => {
     const raw = {
       action: "synchronize",

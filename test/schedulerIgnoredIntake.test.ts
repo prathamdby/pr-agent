@@ -115,8 +115,7 @@ describe("makeAgentWorkScheduler ignored intake", () => {
           makePrRef(),
           "closed",
           intakeLog,
-          undefined,
-          false,
+          { merged: false },
         ),
       );
 

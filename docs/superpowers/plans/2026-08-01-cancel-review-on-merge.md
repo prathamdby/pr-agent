@@ -20,25 +20,26 @@
 
 ## File map
 
-| File | Responsibility |
-| --- | --- |
-| `src/settings/queueConstants.ts` | Accept `closed` in `AUTOMATED_PR_ACTIONS` (otherwise merge webhooks are ignored at parse) |
-| `docs/configuration.md` | Document `closed` in `AUTOMATED_PR_ACTIONS` |
-| `src/webhook/payloads/pullRequestEvent.ts` | Parse `pull_request.merged` |
-| `src/effect/services/webhookHandlers.ts` | Pass merge flag into scheduler |
-| `src/agentWork/scheduler.ts` | Plumb merge flag to applier |
-| `src/agentWork/intake/applier.ts` | Merge-cancel intake path |
-| `src/agentWork/autoWorkEnqueue.ts` | SQL to cancel active reviews by resource key |
-| `CONTEXT.md` | Glossary for review merge cancel |
-| `test/reviewMergeCancel.test.ts` | Unit tests for cancel helper + intake routing |
-| `test/parseGithubPayload.test.ts` | `closed` parses; `merged` defaults false |
-| `test/schedulerIgnoredIntake.test.ts` | closed-without-merge still ignored |
+| File                                       | Responsibility                                                                            |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `src/settings/queueConstants.ts`           | Accept `closed` in `AUTOMATED_PR_ACTIONS` (otherwise merge webhooks are ignored at parse) |
+| `docs/configuration.md`                    | Document `closed` in `AUTOMATED_PR_ACTIONS`                                               |
+| `src/webhook/payloads/pullRequestEvent.ts` | Parse `pull_request.merged`                                                               |
+| `src/effect/services/webhookHandlers.ts`   | Pass merge flag into scheduler                                                            |
+| `src/agentWork/scheduler.ts`               | Plumb merge flag to applier                                                               |
+| `src/agentWork/intake/applier.ts`          | Merge-cancel intake path                                                                  |
+| `src/agentWork/autoWorkEnqueue.ts`         | SQL to cancel active reviews by resource key                                              |
+| `CONTEXT.md`                               | Glossary for review merge cancel                                                          |
+| `test/reviewMergeCancel.test.ts`           | Unit tests for cancel helper + intake routing                                             |
+| `test/parseGithubPayload.test.ts`          | `closed` parses; `merged` defaults false                                                  |
+| `test/schedulerIgnoredIntake.test.ts`      | closed-without-merge still ignored                                                        |
 
 ---
 
 ### Task 1: Parse merge flag and cancel active reviews on merge intake
 
 **Files:**
+
 - Modify: `src/webhook/payloads/pullRequestEvent.ts`
 - Modify: `src/effect/services/webhookHandlers.ts`
 - Modify: `src/agentWork/scheduler.ts`
@@ -49,6 +50,7 @@
 - Test: `test/schedulerIgnoredIntake.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing `applyAutomatedPullRequestIntake`, `releaseReviewSingletonSlot`, `prResourceKey`, `recordIgnoredWebhook`, `insertWebhookEvent`
 - Produces:
   - `cancelActiveReviewsForResource(client, resourceKey) => Promise<readonly string[]>`
@@ -58,6 +60,7 @@
 - [ ] **Step 1: Write failing unit tests**
 
 Cover:
+
 1. `cancelActiveReviewsForResource` marks queued reviews `cancelled` and running reviews `cancel_requested_at` (auto + slash); leaves non-review types alone.
 2. `applyAutomatedPullRequestIntake` with `action=closed` and `merged=true` cancels review jobs and records `review_cancelled_pr_merged`.
 3. `action=closed` with `merged=false` records `ignored_pull_request_closed` and cancels nothing.
