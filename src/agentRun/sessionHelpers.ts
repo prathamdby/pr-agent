@@ -24,6 +24,25 @@ export function assistantFromText(cfg: Config, text: string, provider: string): 
   };
 }
 
+export type SubmitOnlySend = (session: PiSession, prompt: string) => Promise<AgentRunnerTurn>;
+
+export type SubmitOnlyRoundOptions = {
+  readonly maxToolRounds?: number;
+};
+
+function defaultSubmitOnlySend(
+  activeSession: PiSession,
+  activePrompt: string,
+  options?: SubmitOnlyRoundOptions,
+): Promise<AgentRunnerTurn> {
+  const phase = activeSession.role === "orchestrator" ? "synthesis" : activeSession.role;
+  return activeSession.send(activePrompt, {
+    phase,
+    checkpointId: `${activeSession.role}:${phase}`,
+    ...(options?.maxToolRounds != null ? { maxToolRounds: options.maxToolRounds } : {}),
+  });
+}
+
 export async function runSubmitOnlyRound(
   session: PiSession,
   submitOnly: {
@@ -31,17 +50,15 @@ export async function runSubmitOnlyRound(
     readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   },
   prompt: string,
-  send: (session: PiSession, prompt: string) => Promise<AgentRunnerTurn> = (
-    activeSession,
-    activePrompt,
-  ) => {
-    const phase = activeSession.role === "orchestrator" ? "synthesis" : activeSession.role;
-    return activeSession.send(activePrompt, {
-      phase,
-      checkpointId: `${activeSession.role}:${phase}`,
-    });
-  },
+  sendOrOptions?: SubmitOnlySend | SubmitOnlyRoundOptions,
 ): Promise<string> {
+  const options =
+    sendOrOptions != null && typeof sendOrOptions !== "function" ? sendOrOptions : undefined;
+  const send: SubmitOnlySend =
+    typeof sendOrOptions === "function"
+      ? sendOrOptions
+      : (active, text) => defaultSubmitOnlySend(active, text, options);
+
   session.setActiveTools(submitOnly.piTools, submitOnly.executors);
   try {
     return (await send(session, prompt)).text;

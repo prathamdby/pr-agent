@@ -22,8 +22,13 @@ import {
   MAX_TOOL_ROUNDS_TRIAGE,
 } from "../../settings/index.js";
 
-const TRIAGE_SUBMIT_ONLY_NUDGE =
-  "You replied with text only. Call submitTriage now with a complete TriagePayload.";
+/** Shared finalize instruction so nudge + validation-repair wording cannot drift. */
+const TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT =
+  "call commitFix for each pending finding first, then call submitTriage once with a complete TriagePayload";
+
+const TRIAGE_SUBMIT_ONLY_NUDGE = `You replied with text only. If you have uncommitted workspace edits, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
+
+const TRIAGE_VALIDATION_REPAIR_HINT = `If needed, ${TRIAGE_FINALIZE_COMMIT_THEN_SUBMIT}.`;
 
 export async function runTriageHarness(params: {
   readonly cfg: Config;
@@ -50,8 +55,10 @@ export async function runTriageHarness(params: {
     durability: params.durability,
   });
   let lastText = "";
-  const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt);
+  const sendFinalizeRound = async (prompt: string): Promise<string> =>
+    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt, {
+      maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
+    });
 
   const runValidationRepair = async () => {
     await runValidationRepairLoop({
@@ -62,9 +69,14 @@ export async function runTriageHarness(params: {
         setup.submitState.lastValidationError = null;
       },
       repair: async (validationError) => {
-        lastText = await sendSubmitOnlyRepair(
-          [validationError, "Fix the payload and call submitTriage again."].join("\n\n"),
+        lastText = await sendFinalizeRound(
+          [validationError, TRIAGE_VALIDATION_REPAIR_HINT].join("\n\n"),
         );
+        // Cap-aborted repair rounds clear lastValidationError before send; restore so
+        // remaining repair budget is not forfeited when submit never ran.
+        if (!setup.submitState.submitted && setup.submitState.lastValidationError == null) {
+          setup.submitState.lastValidationError = validationError;
+        }
       },
     });
   };
@@ -93,7 +105,7 @@ export async function runTriageHarness(params: {
               nudge < TRIAGE_PRE_SUBMIT_NUDGE_ROUNDS && shouldContinueTriageRun(setup);
               nudge++
             ) {
-              lastText = await sendSubmitOnlyRepair(TRIAGE_SUBMIT_ONLY_NUDGE);
+              lastText = await sendFinalizeRound(TRIAGE_SUBMIT_ONLY_NUDGE);
               await runValidationRepair();
             }
           },
