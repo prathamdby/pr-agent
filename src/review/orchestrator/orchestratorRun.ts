@@ -56,7 +56,7 @@ import {
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
 import { runSpecialist } from "./specialistRun.js";
-import { tickProgressComment } from "./stubTick.js";
+import { tickProgressComment, writeCancelledProgressComment } from "./stubTick.js";
 
 export type OrchestratedReviewRunParams = ReviewRunParams & {
   readonly timing: ReviewRunTiming;
@@ -479,7 +479,7 @@ export async function runOrchestratedPrReview(
             ? {
                 kind: "stopped",
                 reason: "cancelled",
-                cancelledByLogin: gate.cancelledByLogin,
+                attribution: gate.attribution,
               }
             : { kind: "stopped", reason: gate.reason };
         abortSpecialists();
@@ -662,21 +662,23 @@ export async function runOrchestratedPrReview(
     const coordination = params.recordPublishStep?.summaryCommentCoordination;
     if (!coordination) return;
     state.progressRevision = 7;
-    const tickState =
-      stopped.reason === "cancelled"
-        ? {
-            kind: "terminal" as const,
-            reason: "cancelled" as const,
-            cancelledByLogin: stopped.cancelledByLogin,
-            recon: state.recon,
-            specialists: snapshotSpecialists(),
-          }
-        : {
-            kind: "terminal" as const,
-            reason: stopped.reason,
-            recon: state.recon,
-            specialists: snapshotSpecialists(),
-          };
+    if (stopped.reason === "cancelled") {
+      await writeCancelledProgressComment({
+        pool: coordination.pool,
+        workItemId: coordination.workItemId,
+        resourceKey: coordination.resourceKey,
+        owner: params.owner,
+        repo: params.repo,
+        prNumber: params.prNumber,
+        mode: reviewMode,
+        attribution: stopped.attribution,
+        getToken: setup.getToken,
+        getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
+        refreshLiveAuth: setup.refreshLiveAuth,
+        hintCommentId: params.summaryCommentIdHint,
+      });
+      return;
+    }
     await tickProgressComment({
       pool: coordination.pool,
       workItemId: coordination.workItemId,
@@ -688,7 +690,12 @@ export async function runOrchestratedPrReview(
       headSha: params.headSha,
       source: params.reviewSource ?? "auto",
       progressRevision: 7,
-      tickState,
+      tickState: {
+        kind: "terminal",
+        reason: stopped.reason,
+        recon: state.recon,
+        specialists: snapshotSpecialists(),
+      },
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
       refreshLiveAuth: setup.refreshLiveAuth,
@@ -931,7 +938,7 @@ export async function runOrchestratedPrReview(
                   ? {
                       kind: "stopped",
                       reason: "cancelled",
-                      cancelledByLogin: gate.cancelledByLogin,
+                      attribution: gate.attribution,
                     }
                   : { kind: "stopped", reason: gate.reason }
                 : { kind: "finalizing", reason: gate.reason };

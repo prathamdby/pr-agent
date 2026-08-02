@@ -22,6 +22,7 @@ import {
   REVIEW_PROGRESS_SOURCE_AUTO,
   REVIEW_PROGRESS_SOURCE_SLASH,
   reviewProgressCancelledNote,
+  type ReviewCancelAttribution,
 } from "../../settings/index.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
@@ -42,8 +43,6 @@ export type { ReviewQueuePosition };
 const PROGRESS_REVISION_RE =
   /<!--\s*pr-agent:progress-revision(?:\s+workItemId=([^\s]+)\s+value=|\s+)(\d+)\s*-->/;
 
-const PROGRESS_NOTE_ALERT_RE = /> \[!NOTE\]\r?\n(?:>[^\n]*\r?\n)*/;
-
 type SpecialistPhase = SpecialistRunPhase;
 
 type ReconPhase = ReconRunPhase;
@@ -53,6 +52,7 @@ type ProgressRoster = {
   readonly specialists: Readonly<Record<SpecialistId, SpecialistPhase>>;
 };
 
+/** In-progress and non-cancel terminal roster ticks (cancelled uses renderReviewCancelledNotice). */
 export type SpecialistTickState =
   | ({
       readonly kind: "specialists";
@@ -60,11 +60,6 @@ export type SpecialistTickState =
   | ({
       readonly kind: "terminal";
       readonly reason: "superseded" | "stale_head";
-    } & ProgressRoster)
-  | ({
-      readonly kind: "terminal";
-      readonly reason: "cancelled";
-      readonly cancelledByLogin: string;
     } & ProgressRoster);
 
 const SPECIALIST_LABELS: Record<SpecialistId, string> = {
@@ -158,14 +153,8 @@ export function formatReviewQueuePosition(position: ReviewQueuePosition): string
   return `#${position.position} of ${position.total}`;
 }
 
-function terminalProgressNote(
-  reason: "superseded" | "stale_head" | "cancelled",
-  source: WorkSource,
-  cancelledByLogin?: string,
-): string {
+function terminalProgressNote(reason: "superseded" | "stale_head", source: WorkSource): string {
   switch (reason) {
-    case "cancelled":
-      return reviewProgressCancelledNote(cancelledByLogin ?? "user");
     case "stale_head":
       return "Superseded. Rescheduled for new head.";
     case "superseded":
@@ -177,6 +166,29 @@ function terminalProgressNote(
       return exhaustive;
     }
   }
+}
+
+/**
+ * Cancelled review notice — same layout as the failure notice: sentinel + alert only.
+ * No Head/Source/CI/Recon/specialist table.
+ */
+export function renderReviewCancelledNotice(params: {
+  attribution: ReviewCancelAttribution;
+  progressRevision?: number;
+  progressWorkItemId?: string;
+}): string {
+  const parts = [
+    REVIEW_SUMMARY_SENTINEL,
+    "",
+    renderGitHubAlert(REVIEW_FAILURE_ALERT, reviewProgressCancelledNote(params.attribution)),
+  ];
+  if (params.progressRevision != null || params.progressWorkItemId != null) {
+    parts.push(
+      "",
+      renderProgressRevisionComment(params.progressRevision ?? 0, params.progressWorkItemId),
+    );
+  }
+  return parts.join("\n");
 }
 
 export function renderReviewProgressComment(params: {
@@ -191,8 +203,6 @@ export function renderReviewProgressComment(params: {
   tickState?: SpecialistTickState;
   /** Shown only on the queued stub (no tickState) when lookup succeeded. */
   queuePosition?: ReviewQueuePosition | null;
-  /** When set, overrides the NOTE with cancelled attribution (keeps table/roster). */
-  cancelledByLogin?: string;
   progressRevision?: number;
   progressWorkItemId?: string;
 }): string {
@@ -224,19 +234,11 @@ export function renderReviewProgressComment(params: {
     }
   }
   const progressNote =
-    params.cancelledByLogin != null
-      ? reviewProgressCancelledNote(params.cancelledByLogin)
-      : params.tickState == null
-        ? REVIEW_PROGRESS_QUEUED_NOTE
-        : params.tickState.kind === "terminal"
-          ? terminalProgressNote(
-              params.tickState.reason,
-              params.source,
-              params.tickState.reason === "cancelled"
-                ? params.tickState.cancelledByLogin
-                : undefined,
-            )
-          : REVIEW_PROGRESS_NOTE;
+    params.tickState == null
+      ? REVIEW_PROGRESS_QUEUED_NOTE
+      : params.tickState.kind === "terminal"
+        ? terminalProgressNote(params.tickState.reason, params.source)
+        : REVIEW_PROGRESS_NOTE;
   return [
     REVIEW_SUMMARY_SENTINEL,
     "",
@@ -251,21 +253,6 @@ export function renderReviewProgressComment(params: {
     }),
     renderProgressRevisionComment(params.progressRevision ?? 0, params.progressWorkItemId),
   ].join("\n");
-}
-
-/** Replace the progress stub NOTE with cancelled attribution; keep table/meta intact. */
-export function patchReviewProgressCancelledNote(
-  body: string,
-  cancelledByLogin: string,
-): string | null {
-  if (!body.startsWith(REVIEW_SUMMARY_SENTINEL)) return null;
-  if (!PROGRESS_NOTE_ALERT_RE.test(body)) return null;
-  const alert = renderGitHubAlert(
-    REVIEW_OVERVIEW_ALERT,
-    reviewProgressCancelledNote(cancelledByLogin),
-  );
-  const next = body.replace(PROGRESS_NOTE_ALERT_RE, `${alert}\n`);
-  return next === body ? null : next;
 }
 
 export function renderReviewFailureNotice(params: {

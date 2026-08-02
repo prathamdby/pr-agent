@@ -428,7 +428,7 @@ describe("executeReviewJob", () => {
         payload: {
           mode: "review",
           source: "slash",
-          cancelledByLogin: "alice",
+          cancelAttribution: { kind: "user", login: "alice" },
         },
       }),
     );
@@ -437,7 +437,7 @@ describe("executeReviewJob", () => {
       expect(gate).toEqual({
         kind: "stop",
         reason: "cancelled",
-        cancelledByLogin: "alice",
+        attribution: { kind: "user", login: "alice" },
       });
       return { published: false, publishAttempts: 0, publishSuperseded: true };
     });

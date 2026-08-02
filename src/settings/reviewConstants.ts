@@ -37,9 +37,26 @@ export function sanitizeGithubLogin(login: string): string {
   return "user";
 }
 
-/** Progress stub NOTE when a command issuer cancels an in-flight review (`/cancel`). */
-export function reviewProgressCancelledNote(cancelledByLogin: string): string {
-  return `Cancelled by @${sanitizeGithubLogin(cancelledByLogin)}.`;
+/** Why a review progress stub was cancelled (slash `/cancel` vs PR merge). */
+export type ReviewCancelAttribution =
+  | { readonly kind: "user"; readonly login: string }
+  | { readonly kind: "merged" };
+
+/**
+ * Progress stub body for a cancelled review (failure-notice layout: alert only).
+ * Slash: names the issuer. Merge: states the PR was merged.
+ */
+export function reviewProgressCancelledNote(attribution: ReviewCancelAttribution): string {
+  switch (attribution.kind) {
+    case "merged":
+      return "PR merged.";
+    case "user":
+      return `Cancelled by @${sanitizeGithubLogin(attribution.login)}. Run \`/review\` to try again.`;
+    default: {
+      const exhaustive: never = attribution;
+      return exhaustive;
+    }
+  }
 }
 export const REVIEW_FINDING_FOOTNOTE_INLINE = "Fix prompt on the inline thread.";
 export const REVIEW_FINDING_FOOTNOTE_SUMMARY = "Expand Prompt to fix below (summary-only).";
