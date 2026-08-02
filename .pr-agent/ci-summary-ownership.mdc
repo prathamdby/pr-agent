@@ -1,0 +1,8 @@
+---
+globs:
+  - "src/review/ci/**"
+  - "src/agentWork/executors/ciRefreshExecutor.ts"
+  - "src/settings/reviewConstants.ts"
+---
+
+CI summary split (ADR 0026): server owns Checks/status facts, wait/poll, Actions log condense+redact, schema validation, and HTML table cell rendering. The model only fills structured `headline` / `reason` / `fixHint` fields (`authorCiSummary.ts`). Server must overwrite model-drifted `status` and check names from GitHub facts. Ack stays non-LLM. CI refresh edits the CI cell only — never a full re-review. Do not let the model emit table markup.
