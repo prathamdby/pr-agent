@@ -6,7 +6,16 @@
     "suspicious": "warn"
   },
   "rules": {
-    "typescript/no-unsafe-type-assertion": "off"
+    "typescript/no-unsafe-type-assertion": "off",
+    "eslint/complexity": ["warn", 15],
+    "eslint/max-lines": [
+      "warn",
+      {
+        "max": 800,
+        "skipBlankLines": true,
+        "skipComments": true
+      }
+    ]
   },
   "env": {
     "node": true
@@ -19,7 +28,9 @@
   "overrides": [
     {
       "files": ["test/**/*.ts"],
-      "env": { "vitest": true },
+      "env": {
+        "vitest": true
+      },
       "rules": {
         "typescript/no-floating-promises": "off",
         "typescript/no-unsafe-type-assertion": "off",

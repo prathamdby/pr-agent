@@ -1,0 +1,19 @@
+{
+  "name": "pr-agent",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "forwardPorts": [7224, 3000, 5432],
+  "postCreateCommand": "corepack enable && corepack prepare pnpm@10.34.1 --activate && pnpm install && npm install -g @nubjs/nub",
+  "customizations": {
+    "vscode": {
+      "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]
+    }
+  },
+  "containerEnv": {
+    "DATABASE_URL": "postgres://pr_agent:pr_agent@localhost:5432/pr_agent"
+  },
+  "runArgs": ["--network=host"],
+  "onCreateCommand": "cp -n .env.example .env || true"
+}

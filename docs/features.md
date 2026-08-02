@@ -35,3 +35,7 @@ Notes:
 Defaults reproduce the pre-revision out-of-the-box behavior exactly.
 CI enforces that every `FEATURE_*` key is documented here
 ([`test/settingsInventory.test.ts`](../test/settingsInventory.test.ts)).
+
+## Landing site analytics (optional)
+
+The marketing package (`site/`) can load `posthog-js` when `PUBLIC_POSTHOG_KEY` or `VITE_PUBLIC_POSTHOG_KEY` is set at build/runtime. Default is **off** (no key → no SDK). Session recording masks all inputs. This is independent of the backend `POSTHOG_PROJECT_TOKEN` facade.

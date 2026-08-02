@@ -1,3 +1,4 @@
+import { mergeExceptionProperties } from "./context.js";
 import { noopAnalyticsSink } from "./noop.js";
 import type { AnalyticsSink, CaptureEventInput } from "./types.js";
 
@@ -38,8 +39,10 @@ export function captureException(
   distinctId: string,
   properties?: Record<string, unknown>,
 ): void {
-  sink.captureException(error, distinctId, properties);
+  sink.captureException(error, distinctId, mergeExceptionProperties(properties));
 }
+
+export { setAnalyticsRuntimeContext } from "./context.js";
 
 export function shutdownAnalytics(): Promise<void> {
   const current = sink;

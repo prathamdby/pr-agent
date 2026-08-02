@@ -1,0 +1,25 @@
+# Weekly Dependabot cadence pairs with pnpm-workspace.yaml minimumReleaseAge: 10080 (7 days):
+# most proposed bumps have already aged past the install gate by the time the PR opens.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: npm
+    directory: "/site"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly

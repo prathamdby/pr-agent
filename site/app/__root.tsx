@@ -1,6 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { PRODUCT_NAME, SEO_DESCRIPTION, SEO_KEYWORDS, SEO_TITLE } from "@/lib/seo";
 import { SITE_ORIGIN } from "@/lib/site";
+import { AnalyticsBootstrap } from "@/components/analytics-bootstrap";
 import appCss from "./globals.css?url";
 
 export const Route = createRootRoute({
@@ -125,6 +126,7 @@ function RootLayout() {
           Skip to content
         </a>
         <Outlet />
+        <AnalyticsBootstrap />
         <Scripts />
       </body>
     </html>

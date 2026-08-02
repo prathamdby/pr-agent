@@ -32,3 +32,29 @@ Long investigator prompt blocks stay in prompt modules under `src/review/prompts
 ## README runtime topology diagram
 
 When a change alters **runtime topology**, update the Mermaid diagram in [README.md](../README.md) **How It Works** in the same PR. Binding rule: [`.pr-agent/topology-diagram.mdc`](../.pr-agent/topology-diagram.mdc).
+
+## File naming conventions
+
+Backend modules under `src/` and tests under `test/` follow:
+
+| Kind                     | Pattern                                         | Examples                        |
+| ------------------------ | ----------------------------------------------- | ------------------------------- |
+| Module                   | camelCase `.ts`                                 | `askRun.ts`, `publishReview.ts` |
+| Constants                | `*Constants.ts` or `constants.ts`               | `reviewConstants.ts`            |
+| Unit / integration tests | `*.test.ts`                                     | `askRunHarness.test.ts`         |
+| Setup helpers            | camelCase; a few setup files use kebab segments | `test/setup/ciStatus-mock.ts`   |
+
+Enforced by `scripts/check-naming.mjs` (wired into `nub run check:code`).
+
+## Coverage ratchet
+
+Unit coverage uses `@vitest/coverage-v8` with thresholds in `vitest.config.ts`.
+
+- Measure with `nub run test -- --coverage`.
+- Thresholds are set at **baseline − 5%** so natural variance does not fail CI.
+- Only raise thresholds after intentional coverage work; never lower them without a note here.
+
+## Dead code / duplicates
+
+- `nub run check:knip` — unused exports and dependencies (`knip.json`).
+- `nub run check:jscpd` — copy-paste detection (`threshold` 3%).

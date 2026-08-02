@@ -157,3 +157,51 @@ Agent index: [AGENTS.md](../AGENTS.md).
 - **Review duration vs provider TPS** — `"review published"` and `"review failed"` include `wall_clock_ms`, `provider_output_tokens`, `generation_ms`, and (when `generation_ms > 0`) derived `provider_output_tps` = tokens / (generation_ms/1000), plus `token_coverage` (`orchestrator_only` \| `full_run`). Use these to separate slow reviews caused by provider generation speed from failures (`failure_domain` / `error_kind`) and retry/degraded runs (`publish_attempts > 1` or `tool_call_errors > 0`). Do not treat wall-clock alone as provider TPS. Suggested dashboard gate: `wall_clock_ms >= 180000`; provider-TPS-slow when also `provider_output_tps < 10` with no retry signal.
 - Structured logging uses [evlog](https://www.evlog.dev) with `service: pr-agent`. `LOG_LEVEL` maps to evlog `minLevel` (default `info`). `LOG_MAX_WIDE_EVENTS` (code constant, default `128`) caps sub-events per webhook/worker operation. `LOG_REDACT` (default true) redacts secret-shaped substrings from logs. `LOG_PRETTY` defaults to off in production (JSON lines).
 - Production logging should stay at `info` unless debugging a specific review run (`LOG_LEVEL=debug`).
+
+## Test timing and flakes (CI)
+
+- Unit CI writes Vitest JSON to `test-results.json` and uploads it with the coverage report as a workflow artifact (`unit-test-results`).
+- In CI, Vitest retries failed tests up to **2** times (`retry` gated on `process.env.CI` in `vitest.config.ts`). Retries appear in the JSON report so flakes stay visible rather than silently masked.
+- Locally, retries are disabled for faster feedback.
+
+## Rollback runbook
+
+### Landing site (Vercel)
+
+1. Open the Vercel project → **Deployments**.
+2. Find the last known-good production deployment.
+3. **⋯ → Promote to Production** (instant rollback; no rebuild required).
+4. Verify `https://<host>/health` returns `{"status":"ok"}` and spot-check the home page.
+
+### Backend (compose / container host)
+
+1. Pin or redeploy the previous image tag, e.g. `ghcr.io/<org>/pr-agent:<previous-sha>`.
+2. Or `git revert <bad-commit>` on `main`, let CI build, and redeploy.
+3. Compose example:
+
+```bash
+# stop current
+docker compose down
+# checkout or pull previous tag, then
+docker compose up -d --build
+curl -sS http://127.0.0.1:7224/health
+curl -sS http://127.0.0.1:7224/ready
+```
+
+4. Confirm worker `/ready` (consumers registered) via container healthchecks.
+
+## Site QA and deploy observability
+
+See [site/README.md](../site/README.md) for the agent-followable QA path (`site:dev`, `/health`, `site:build`) and Vercel post-deploy checks.
+
+## Error tracking context (PostHog)
+
+When `POSTHOG_PROJECT_TOKEN` is set, `captureException` enriches events with:
+
+- `service` (`pr-agent`)
+- `role` (`web` | `worker`)
+- `release` / `commit_sha` (from `GITHUB_SHA` / `COMMIT_SHA` when present)
+- installation/repo fields callers already pass
+- redaction of secret-shaped property keys
+
+Still optional OSS analytics — empty token disables the SDK entirely.

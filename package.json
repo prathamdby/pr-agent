@@ -13,7 +13,7 @@
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
     "fmt:check": "oxfmt --check",
-    "check:code": "nub run typecheck && nub run lint && nub run fmt:check",
+    "check:code": "nub run typecheck && nub run lint && nub run fmt:check && node scripts/check-naming.mjs && node scripts/check-todos.mjs && node scripts/generate-configuration-docs.mjs --check",
     "check:prod-deps": "node scripts/check-production-dependency-graph.mjs",
     "pretest": "node scripts/check-effect-versions.mjs",
     "test": "vitest run",
@@ -23,7 +23,14 @@
     "check:effect-versions": "node scripts/check-effect-versions.mjs",
     "site:dev": "nub --node run --filter pr-agent-landing dev",
     "site:build": "nub --node run --filter pr-agent-landing build",
-    "site:generate-og": "nub --node run --filter pr-agent-landing generate:og"
+    "site:generate-og": "nub --node run --filter pr-agent-landing generate:og",
+    "prepare": "husky || true",
+    "check:knip": "knip",
+    "check:jscpd": "node scripts/check-jscpd.mjs",
+    "check:site-boundary": "node scripts/check-site-boundary.mjs",
+    "check:bundle-size": "node scripts/check-bundle-size.mjs",
+    "docs:config": "node scripts/generate-configuration-docs.mjs",
+    "site:test": "nub --node run --filter pr-agent-landing test"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.82.1",
@@ -52,11 +59,22 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@types/pg": "^8.20.0",
+    "@vitest/coverage-v8": "^4.1.10",
+    "husky": "^9.1.7",
+    "jscpd": "^5.0.14",
+    "knip": "^6.31.0",
+    "lint-staged": "^17.3.0",
     "oxfmt": "^0.60.0",
     "oxlint": "1.75.0",
     "oxlint-tsgolint": "7.0.2001",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
+  },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "oxfmt",
+      "oxlint --fix"
+    ]
   },
   "engines": {
     "node": ">=22.19.0"

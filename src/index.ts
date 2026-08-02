@@ -1,6 +1,6 @@
 import { loadConfig, type Config } from "./config.js";
 import { initEvlog, logDebug, logInfo } from "./evlog.js";
-import { initAnalytics } from "./analytics/index.js";
+import { initAnalytics, setAnalyticsRuntimeContext } from "./analytics/index.js";
 import { LOG_MAX_WIDE_EVENTS } from "./settings/index.js";
 
 async function main() {
@@ -17,6 +17,11 @@ async function main() {
     maxWideEvents: LOG_MAX_WIDE_EVENTS,
     pretty: cfg.logPretty,
     redact: cfg.logRedact,
+  });
+  setAnalyticsRuntimeContext({
+    role: cfg.role,
+    service: "pr-agent",
+    release: process.env.GITHUB_SHA?.slice(0, 12) ?? process.env.COMMIT_SHA?.slice(0, 12),
   });
   await initAnalytics({ projectToken: cfg.posthogProjectToken, host: cfg.posthogHost });
   logInfo("boot", {

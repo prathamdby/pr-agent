@@ -103,6 +103,7 @@ describe("analytics facade", () => {
       properties: { type: "review" },
     });
     expect(client?.captureException).toHaveBeenCalledWith(err, "installation:1", {
+      service: "pr-agent",
       type: "review",
     });
   });

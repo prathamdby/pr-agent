@@ -71,3 +71,57 @@ describe("settings inventory", () => {
     }
   });
 });
+
+const FEATURE_PROP: Record<string, string> = {
+  FEATURE_REVIEW: "review",
+  FEATURE_DESCRIBE: "describe",
+  FEATURE_VERIFICATION: "verification",
+  FEATURE_ASK: "ask",
+  FEATURE_TRIAGE: "triage",
+  FEATURE_REVIEW_LABELS: "reviewLabels",
+  FEATURE_COMMIT_STATUS: "commitStatus",
+  FEATURE_TITLE_REWRITE: "titleRewrite",
+};
+
+function collectSrcOutsideConfig(): string {
+  const srcRoot = path.join(process.cwd(), "src");
+  const chunks: string[] = [];
+  function walk(dir: string) {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const p = path.join(dir, ent.name);
+      if (ent.isDirectory()) walk(p);
+      else if (ent.name.endsWith(".ts") && ent.name !== "config.ts") {
+        chunks.push(fs.readFileSync(p, "utf8"));
+      }
+    }
+  }
+  walk(srcRoot);
+  return chunks.join("\n");
+}
+
+describe("feature flag liveness", () => {
+  it("every FEATURE_* is referenced in src/ outside config.ts", () => {
+    const body = collectSrcOutsideConfig();
+    const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
+    for (const key of featureKeys) {
+      const prop = FEATURE_PROP[key];
+      expect(prop, `missing prop map for ${key}`).toBeTruthy();
+      const used =
+        body.includes(key) ||
+        body.includes(`features.${prop}`) ||
+        body.includes(`features?.${prop}`);
+      expect(used, `${key} / features.${prop} unused outside config.ts`).toBe(true);
+    }
+  });
+
+  it("every features.* mode field used outside config maps to a documented FEATURE_*", () => {
+    const featuresDoc = fs.readFileSync(path.join(process.cwd(), "docs", "features.md"), "utf8");
+    const body = collectSrcOutsideConfig();
+    for (const [envKey, prop] of Object.entries(FEATURE_PROP)) {
+      const re = new RegExp(`features\\??\\.${prop}\\b`);
+      if (re.test(body)) {
+        expect(featuresDoc.includes(envKey), `docs/features.md missing ${envKey}`).toBe(true);
+      }
+    }
+  });
+});

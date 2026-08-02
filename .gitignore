@@ -10,3 +10,10 @@ site/.next/
 site/.output/
 site/.vercel/
 .tmp-bench/
+.idea/
+.vscode/
+coverage/
+test-results.json
+.jscpd-report/
+site/coverage/
+site/stats.html

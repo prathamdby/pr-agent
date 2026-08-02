@@ -1,0 +1,47 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "include": ["files", "dependencies", "unlisted", "binaries", "unresolved", "duplicates"],
+  "exclude": ["exports", "types", "nsExports", "nsTypes", "enumMembers", "duplicates"],
+  "workspaces": {
+    ".": {
+      "entry": [
+        "src/index.ts",
+        "scripts/**/*.mjs",
+        "vitest.config.ts",
+        "vitest.integration.config.ts"
+      ],
+      "project": ["src/**/*.ts", "scripts/**/*.mjs"]
+    },
+    "site": {
+      "entry": [
+        "vite.config.ts",
+        "router.tsx",
+        "start.ts",
+        "app/**/*.{ts,tsx}",
+        "scripts/**/*.mjs"
+      ],
+      "project": ["**/*.{ts,tsx,js,mjs}"],
+      "ignore": ["routeTree.gen.ts", "**/*.test.{ts,tsx}"]
+    }
+  },
+  "ignore": [
+    "migrations/**",
+    "test/**",
+    "coverage/**",
+    "dist/**",
+    "site/.output/**",
+    "site/dist/**",
+    "site/stats.html"
+  ],
+  "ignoreDependencies": [
+    "@testing-library/jest-dom",
+    "@vitest/coverage-v8",
+    "husky",
+    "jscpd",
+    "lint-staged",
+    "oxfmt",
+    "oxlint-tsgolint",
+    "tailwindcss"
+  ],
+  "ignoreBinaries": ["nub", "pnpm"]
+}

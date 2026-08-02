@@ -34,6 +34,7 @@ jobs:
               - ".oxfmtrc.json"
               - ".oxlintrc.json"
               - "Dockerfile"
+              - "knip.json"
               - "migrations/**"
               - "package.json"
               - "pnpm-lock.yaml"
@@ -43,18 +44,21 @@ jobs:
               - "test/**"
               - "tsconfig*.json"
               - "vitest*.config.ts"
+              - "docs/**"
             site:
               - ".github/workflows/ci.yml"
               - ".node-version"
               - "pnpm-lock.yaml"
               - "pnpm-workspace.yaml"
               - "site/**"
+              - "scripts/check-bundle-size.mjs"
+              - "scripts/check-site-boundary.mjs"
 
   check:
     needs: changes
     if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: nubjs/setup-nub@v0
@@ -64,8 +68,21 @@ jobs:
       - run: nub ci --filter pr-agent... --filter pr-agent-landing...
       - run: nub run check:effect-versions
       - run: nub run check:prod-deps
+      - run: nub run check:site-boundary
+      - run: pnpm dedupe --check
       - run: nub run check:code
-      - run: nub run test
+      - run: nub run check:knip
+      - run: nub run check:jscpd
+      - name: Unit tests with JSON report + coverage
+        run: nub run test -- --coverage --reporter=default --reporter=json --outputFile=test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: unit-test-results
+          path: |
+            test-results.json
+            coverage/**
+          if-no-files-found: ignore
       - run: nub run build
 
   integration:
@@ -117,7 +134,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: nubjs/setup-nub@v0
@@ -127,4 +144,42 @@ jobs:
       - run: nub ci --filter pr-agent... --filter pr-agent-landing...
       - run: nub run lint
       - run: nub run fmt:check
+      - run: nub run site:test
       - run: nub run --node site:build
+      - run: nub run check:bundle-size
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-bundle-stats
+          path: site/stats.html
+          if-no-files-found: ignore
+
+  # Always-run aggregator for branch protection (B7). Skipped path-filtered
+  # jobs count as success so protection can require this single check.
+  ci-required:
+    if: always()
+    needs: [check, integration, docker, site]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate path-filtered job results
+        run: |
+          set -euo pipefail
+          results=(
+            "check=${{ needs.check.result }}"
+            "integration=${{ needs.integration.result }}"
+            "docker=${{ needs.docker.result }}"
+            "site=${{ needs.site.result }}"
+          )
+          echo "Job results: ${results[*]}"
+          for entry in "${results[@]}"; do
+            r="${entry#*=}"
+            case "$r" in
+              success|skipped) ;;
+              *)
+                echo "Required job ended with $r ($entry)"
+                exit 1
+                ;;
+            esac
+          done
+          echo "ci-required: all needed jobs succeeded or were skipped"

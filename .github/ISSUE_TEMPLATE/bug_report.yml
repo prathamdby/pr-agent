@@ -1,0 +1,39 @@
+name: Bug report
+description: Report a defect in pr-agent or the landing site
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the project is affected?
+      options:
+        - area:backend
+        - area:site
+        - area:infra
+        - area:docs
+      default: 0
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Steps to reproduce, expected vs actual.
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: Role (web/worker), versions, relevant FEATURE_* settings (no secrets).
+    validations:
+      required: false

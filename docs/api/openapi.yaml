@@ -1,0 +1,65 @@
+openapi: 3.1.0
+info:
+  title: pr-agent web service
+  version: 0.1.0
+  description: >
+    HTTP surface for ROLE=web (webhook intake) and ROLE=worker (health/ready).
+    See src/effect/server.ts and src/agentWork/workerHealth.ts.
+servers:
+  - url: http://127.0.0.1:7224
+    description: Compose default
+paths:
+  /webhooks:
+    post:
+      summary: GitHub webhook intake
+      description: >
+        Verifies the HMAC signature, parses the event, dedupes in Postgres,
+        enqueues agent work, and returns after intake (202 semantics).
+      parameters:
+        - in: header
+          name: X-Hub-Signature-256
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-GitHub-Event
+          required: true
+          schema:
+            type: string
+        - in: header
+          name: X-GitHub-Delivery
+          required: true
+          schema:
+            type: string
+      responses:
+        "202":
+          description: Accepted for durable processing
+        "400":
+          description: Invalid payload
+        "401":
+          description: Signature verification failed
+  /health:
+    get:
+      summary: Liveness
+      description: Returns ok when the process is up (web and worker).
+      responses:
+        "200":
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /ready:
+    get:
+      summary: Readiness
+      description: >
+        Web checks Postgres. Worker checks registered consumers plus Postgres/pg-boss.
+      responses:
+        "200":
+          description: Ready to serve
+        "503":
+          description: Dependencies not ready

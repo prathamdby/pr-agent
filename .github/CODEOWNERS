@@ -1,0 +1,8 @@
+# Default owner for the whole repository
+* @prathamdby
+
+# Landing site
+site/** @prathamdby
+
+# CI, templates, and automation
+.github/** @prathamdby
