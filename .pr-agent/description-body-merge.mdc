@@ -1,0 +1,7 @@
+---
+globs:
+  - "src/agent/description/**"
+  - "src/agentWork/executors/descriptionExecutor.ts"
+---
+
+Description publish must merge only the `## PR Agent Description` agent block via `mergeDescriptionIntoPrBody` (`descriptionBodyMerge.ts`); never overwrite user-authored body above the header. Map mode is server-owned (`descriptionMapMode.ts`): `omit` strips the map; `read_first` caps at five files — enforce on `submitDescription`, do not trust the model alone. Title rewrite stays behind `FEATURE_TITLE_REWRITE`.
