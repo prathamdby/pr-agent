@@ -4,11 +4,12 @@ import {
   initialProgressTickState,
   parseProgressRevision,
   parseProgressRevisionState,
-  patchReviewProgressCancelledNote,
+  renderReviewCancelledNotice,
   renderReviewFailureNotice,
   renderReviewProgressComment,
 } from "../src/review/run/progressComment.js";
 import {
+  REVIEW_FAILURE_ALERT,
   REVIEW_PROGRESS_NOTE,
   REVIEW_PROGRESS_QUEUE_LABEL,
   REVIEW_PROGRESS_QUEUED_NOTE,
@@ -256,57 +257,29 @@ describe("progressComment fallback wording", () => {
     expect(body).not.toContain("0 threads");
   });
 
-  it("renders cancelled NOTE with attribution and keeps the table", () => {
-    const body = renderReviewProgressComment({
-      mode: "review",
-      headSha: "abc123",
-      source: "slash",
-      cancelledByLogin: "alice",
-      tickState: {
-        kind: "terminal",
-        reason: "cancelled",
-        cancelledByLogin: "alice",
-        recon: "done",
-        specialists: {
-          correctness: { phase: "running" },
-          security: { phase: "waiting" },
-          quality: { phase: "waiting" },
-          tests: { phase: "waiting" },
-        },
-      },
-    });
-    expect(body).toContain(reviewProgressCancelledNote("alice"));
-    expect(body).toContain("<strong>Recon</strong>");
-    expect(body).toContain("<strong>Correctness</strong>");
-    expect(body).not.toContain(REVIEW_PROGRESS_NOTE);
-    expect(body).not.toContain("Superseded");
-  });
-
-  it("patches an existing progress stub NOTE to cancelled attribution", () => {
-    const original = renderReviewProgressComment({
-      mode: "review",
-      headSha: "abc123",
-      source: "auto",
-      tickState: initialProgressTickState(),
+  it("renders cancelled notice like failure (alert only, no progress table)", () => {
+    const userBody = renderReviewCancelledNotice({
+      attribution: { kind: "user", login: "alice" },
       progressRevision: 1,
       progressWorkItemId: "wi-1",
     });
-    const patched = patchReviewProgressCancelledNote(original, "bob");
-    expect(patched).not.toBeNull();
-    expect(patched).toContain(reviewProgressCancelledNote("bob"));
-    expect(patched).toContain("<strong>Recon</strong>");
-    expect(patched).toContain(STATUS_RUNNING);
-    expect(patched).toContain(STATUS_WAITING);
-    expect(patched).not.toContain(REVIEW_PROGRESS_NOTE);
-    expect(parseProgressRevision(patched!)).toBe(1);
-  });
+    expect(userBody).toContain(REVIEW_SUMMARY_SENTINEL);
+    expect(userBody).toContain(`[!${REVIEW_FAILURE_ALERT}]`);
+    expect(userBody).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
+    expect(userBody).toContain("Run `/review` to try again.");
+    expect(userBody).not.toContain("<strong>Recon</strong>");
+    expect(userBody).not.toContain("<strong>Head</strong>");
+    expect(userBody).not.toContain(REVIEW_PROGRESS_NOTE);
+    expect(parseProgressRevision(userBody)).toBe(1);
 
-  it("returns null when patch targets are not progress-stub NOTE bodies", () => {
-    expect(patchReviewProgressCancelledNote("no sentinel here", "bob")).toBeNull();
-    const failure = renderReviewFailureNotice({ mode: "review", retryCommand: "/review" });
-    expect(patchReviewProgressCancelledNote(failure, "bob")).toBeNull();
-    const sentinelOnly = `${REVIEW_SUMMARY_SENTINEL}\n\nno alert block`;
-    expect(patchReviewProgressCancelledNote(sentinelOnly, "bob")).toBeNull();
+    const mergeBody = renderReviewCancelledNotice({
+      attribution: { kind: "merged" },
+    });
+    expect(mergeBody).toContain(reviewProgressCancelledNote({ kind: "merged" }));
+    expect(mergeBody).toBe(
+      [REVIEW_SUMMARY_SENTINEL, "", `> [!${REVIEW_FAILURE_ALERT}]`, "> PR merged."].join("\n"),
+    );
+    expect(mergeBody).not.toContain("/review");
   });
 
   it.each([

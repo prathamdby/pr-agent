@@ -611,9 +611,7 @@ describe("applySlashCommandIntake", () => {
     });
     expect(sentJobs[0]?.data.cancelProgress).toEqual({
       workItemId: "wi-review",
-      headSha: "abc123",
-      source: "slash",
-      cancelledByLogin: "alice",
+      attribution: { kind: "user", login: "alice" },
     });
     expect(intakeLog.getContext().events).toContainEqual(
       expect.objectContaining({
@@ -681,17 +679,19 @@ describe("applySlashCommandIntake", () => {
 
     expect(sentJobs[0]?.data.cancelProgress).toEqual({
       workItemId: "wi-running",
-      headSha: "running-sha",
-      source: "slash",
-      cancelledByLogin: "alice",
+      attribution: { kind: "user", login: "alice" },
+    });
+    const attributionPatch = JSON.stringify({
+      cancelAttribution: { kind: "user", login: "alice" },
     });
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'cancelled'"), [
       "acme/app#7",
-      JSON.stringify({ cancelledByLogin: "alice" }),
+      "Cancelled by slash /cancel",
+      attributionPatch,
     ]);
     expect(client.query).toHaveBeenCalledWith(expect.stringContaining("SET cancel_requested_at"), [
       "acme/app#7",
-      JSON.stringify({ cancelledByLogin: "alice" }),
+      attributionPatch,
     ]);
   });
 });

@@ -13,6 +13,7 @@ import type {
   VerificationWorkPayload,
 } from "../types.js";
 import type { ReviewMode, WorkSource } from "../../review/reviewSchema.js";
+import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
 import { prResourceKey, type PrRef } from "../types.js";
 import { parseWorkItemPayload } from "../workItemPayloadSchema.js";
 
@@ -460,19 +461,23 @@ export type CancelledActiveReview = {
   readonly headSha: string;
 };
 
+function cancelLastError(attribution: ReviewCancelAttribution): string {
+  return attribution.kind === "merged" ? "Pull request merged" : "Cancelled by slash /cancel";
+}
+
 /**
  * Cancel every queued/running review for a PR (auto or slash).
- * Queued rows become `cancelled`; running rows get `cancel_requested_at`.
- * Records `cancelledByLogin` on the payload for progress-stub attribution.
- * Returns running rows first (newest `created_at`), then queued — so callers that
- * take `[0]` as the ack primary prefer the live progress-stub owner.
+ * Queued → `cancelled`; running → cooperative `cancel_requested_at`.
+ * Writes `cancelAttribution` on the payload for the cancelled progress notice.
+ * Returns running rows first (newest), then queued — ack primary owns the stub.
  */
-export async function cancelActiveReviewWorkItems(
+export async function cancelActiveReviews(
   client: PoolClient,
   resourceKey: string,
-  cancelledByLogin: string,
+  attribution: ReviewCancelAttribution,
 ): Promise<readonly CancelledActiveReview[]> {
-  const loginPatch = JSON.stringify({ cancelledByLogin });
+  const payloadPatch = JSON.stringify({ cancelAttribution: attribution });
+  const lastError = cancelLastError(attribution);
   const mapRows = (
     rows: readonly {
       id: string;
@@ -502,15 +507,15 @@ export async function cancelActiveReviewWorkItems(
   }>(
     `UPDATE agent_work_items
 		    SET status = 'cancelled',
-		        last_error = 'Cancelled by slash /cancel',
+		        last_error = $2,
 		        completed_at = now(),
 		        updated_at = now(),
-		        payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb
+		        payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
 		  WHERE resource_key = $1
 		    AND type = 'review'
 		    AND status = 'queued'
 		  RETURNING id, source, head_sha, created_at`,
-    [resourceKey, loginPatch],
+    [resourceKey, lastError, payloadPatch],
   );
   const running = await client.query<{
     id: string;
@@ -526,7 +531,7 @@ export async function cancelActiveReviewWorkItems(
 		    AND type = 'review'
 		    AND status = 'running'
 		  RETURNING id, source, head_sha, created_at`,
-    [resourceKey, loginPatch],
+    [resourceKey, payloadPatch],
   );
   return [...mapRows(running.rows), ...mapRows(queued.rows)];
 }

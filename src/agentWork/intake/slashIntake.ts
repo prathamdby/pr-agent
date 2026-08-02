@@ -39,7 +39,7 @@ import { promoteAskFromWebhookEvent } from "./askIntake.js";
 import { releaseReviewSingletonSlot } from "../singletonQueue.js";
 import { pgBossDb } from "../../db/postgres.js";
 import {
-  cancelActiveReviewWorkItems,
+  cancelActiveReviews,
   createDescriptionWorkItem,
   createReviewWorkItem,
   createTriageWorkItem,
@@ -338,8 +338,11 @@ async function handleSlashReview(ctx: SlashIntakeContext): Promise<void> {
 
 async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
   const resourceKey = prResourceKey(ctx.input.owner, ctx.input.repo, ctx.input.prNumber);
-  const cancelledByLogin = sanitizeGithubLogin(ctx.input.commenterLogin ?? "");
-  const cancelled = await cancelActiveReviewWorkItems(ctx.client, resourceKey, cancelledByLogin);
+  const attribution = {
+    kind: "user" as const,
+    login: sanitizeGithubLogin(ctx.input.commenterLogin ?? ""),
+  };
+  const cancelled = await cancelActiveReviews(ctx.client, resourceKey, attribution);
   if (cancelled.length === 0) {
     await enqueueSlashAck(ctx, {
       reply: { target: ctx.input.replyTarget, body: SLASH_CANCEL_NONE_BODY },
@@ -359,9 +362,7 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
   await enqueueSlashAck(ctx, {
     cancelProgress: {
       workItemId: primary.id,
-      headSha: primary.headSha,
-      source: primary.source,
-      cancelledByLogin,
+      attribution,
     },
     reply: { target: ctx.input.replyTarget, body: SLASH_CANCEL_DONE_BODY },
   });
@@ -373,7 +374,7 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
       workItemId: primary.id,
       resourceKey,
       cancelledCount: cancelled.length,
-      cancelledByLogin,
+      cancelledByLogin: attribution.login,
       ...ctx.correlation,
     },
   });

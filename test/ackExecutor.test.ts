@@ -306,7 +306,7 @@ describe("executeAckJob", () => {
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
   });
 
-  it("patches an owned progress stub on cancelProgress without upserting", async () => {
+  it("replaces an owned progress stub on cancelProgress without upserting", async () => {
     const stub = renderReviewProgressComment({
       mode: "review",
       headSha: "sha",
@@ -324,9 +324,7 @@ describe("executeAckJob", () => {
       ...ackData(),
       cancelProgress: {
         workItemId: "wi-cancel",
-        headSha: "sha",
-        source: "slash",
-        cancelledByLogin: "alice",
+        attribution: { kind: "user", login: "alice" },
       },
     });
 
@@ -335,13 +333,15 @@ describe("executeAckJob", () => {
       "o",
       "r",
       99,
-      expect.stringContaining(reviewProgressCancelledNote("alice")),
+      expect.stringContaining(reviewProgressCancelledNote({ kind: "user", login: "alice" })),
       expect.any(Number),
     );
+    const body = vi.mocked(updateIssueComment).mock.calls[0]?.[4] as string;
+    expect(body).not.toContain("<strong>Recon</strong>");
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
   });
 
-  it("falls back to upsert when cancelProgress finds a foreign or non-patchable stub", async () => {
+  it("falls back to upsert when cancelProgress finds a foreign stub", async () => {
     const foreign = renderReviewProgressComment({
       mode: "review",
       headSha: "sha",
@@ -359,9 +359,7 @@ describe("executeAckJob", () => {
       ...ackData(),
       cancelProgress: {
         workItemId: "wi-cancel",
-        headSha: "sha",
-        source: "slash",
-        cancelledByLogin: "alice",
+        attribution: { kind: "user", login: "alice" },
       },
     });
 
@@ -369,7 +367,9 @@ describe("executeAckJob", () => {
     expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-cancel",
-        body: expect.stringContaining(reviewProgressCancelledNote("alice")),
+        body: expect.stringContaining(
+          reviewProgressCancelledNote({ kind: "user", login: "alice" }),
+        ),
       }),
     );
 
@@ -379,23 +379,25 @@ describe("executeAckJob", () => {
       url: "https://example.com/101",
     });
     vi.mocked(upsertSummaryCommentWithCreationClaim).mockClear();
+    vi.mocked(updateIssueComment).mockClear();
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
       cancelProgress: {
         workItemId: "wi-cancel",
-        headSha: "sha",
-        source: "slash",
-        cancelledByLogin: "bob",
+        attribution: { kind: "merged" },
       },
     });
 
-    expect(updateIssueComment).not.toHaveBeenCalled();
-    expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
-      expect.objectContaining({
-        workItemId: "wi-cancel",
-        body: expect.stringContaining(reviewProgressCancelledNote("bob")),
-      }),
+    // Failure notice has no progress-revision workItemId — treated as owned legacy stub.
+    expect(updateIssueComment).toHaveBeenCalledWith(
+      "tok",
+      "o",
+      "r",
+      101,
+      expect.stringContaining(reviewProgressCancelledNote({ kind: "merged" })),
+      expect.any(Number),
     );
+    expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
   });
 });

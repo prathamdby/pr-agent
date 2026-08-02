@@ -61,7 +61,12 @@ const ReviewWorkPayloadSchema = z.looseObject({
   staleHeadRescheduled: z.boolean().optional(),
   staleHeadReplacementWorkItemId: z.string().min(1).optional(),
   staleHeadReplacementEnqueued: z.boolean().optional(),
-  cancelledByLogin: z.string().min(1).optional(),
+  cancelAttribution: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("user"), login: z.string().min(1) }),
+      z.object({ kind: z.literal("merged") }),
+    ])
+    .optional(),
 });
 
 const AskWorkPayloadSchema = z.looseObject({

@@ -3,6 +3,7 @@ import type { CodeAnchor } from "../agent/ask/askRunTypes.js";
 import type { ReviewMode } from "../review/reviewSchema.js";
 import type { WorkSource } from "../review/reviewSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
+import type { ReviewCancelAttribution } from "../settings/reviewConstants.js";
 
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
@@ -47,12 +48,10 @@ export type AckJobData = JobCorrelation & {
     readonly headSha: string;
     readonly source: WorkSource;
   };
-  /** Edit the review progress stub to a cancelled NOTE after `/cancel`. */
+  /** Replace the review progress stub with a cancelled notice (`/cancel` or PR merge). */
   readonly cancelProgress?: {
     readonly workItemId: string;
-    readonly headSha: string;
-    readonly source: WorkSource;
-    readonly cancelledByLogin: string;
+    readonly attribution: ReviewCancelAttribution;
   };
   readonly reply?: {
     readonly target: ReplyTarget;
@@ -111,8 +110,8 @@ export type ReviewWorkPayload = {
   readonly staleHeadReplacementWorkItemId?: string;
   /** Set on the parent after replacement ack/review jobs are enqueued */
   readonly staleHeadReplacementEnqueued?: boolean;
-  /** GitHub login of the command issuer who cancelled via `/cancel`. */
-  readonly cancelledByLogin?: string;
+  /** Set when the review is cancelled (slash or merge); drives the cancelled progress notice. */
+  readonly cancelAttribution?: ReviewCancelAttribution;
 };
 
 export type AskWorkPayload = {

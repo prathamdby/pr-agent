@@ -8,11 +8,7 @@ import {
   REVIEW_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
-import {
-  cancelActiveReviewsForResource,
-  replaceAutoWorkItem,
-  type AutoWorkSupersedeTarget,
-} from "../autoWorkEnqueue.js";
+import { replaceAutoWorkItem, type AutoWorkSupersedeTarget } from "../autoWorkEnqueue.js";
 import {
   releaseReviewSingletonSlot,
   releaseSingletonSlot,
@@ -45,6 +41,7 @@ import type { CiRefreshJobData } from "../types.js";
 import { applySlashCommandIntake, type SlashCommandInput } from "./slashIntake.js";
 import { insertWebhookEvent } from "./webhookEvents.js";
 import {
+  cancelActiveReviews,
   createDescriptionWorkItem,
   createReviewWorkItem,
   createVerificationWorkItem,
@@ -250,12 +247,32 @@ async function applyReviewMergeCancelIntake(
     return events;
   }
   const resourceKey = prResourceKey(ref.owner, ref.repo, ref.prNumber);
-  const cancelledIds = await cancelActiveReviewsForResource(client, resourceKey);
+  const attribution = { kind: "merged" as const };
+  const cancelled = await cancelActiveReviews(client, resourceKey, attribution);
+  const cancelledIds = cancelled.map((row) => row.id);
   await releaseReviewSingletonSlot(boss, resourceKey, {
     db: pgBossDb(client),
     cancelNonTerminal: cancelledIds.length > 0,
     cancelWorkItemIds: cancelledIds,
   });
+  const primary = cancelled[0];
+  if (primary != null) {
+    const correlation = jobCorrelation(event.id, headers);
+    const ackData: AckJobData = {
+      kind: "ack",
+      installationId: ref.installationId,
+      owner: ref.owner,
+      repo: ref.repo,
+      prNumber: ref.prNumber,
+      targets: [],
+      cancelProgress: {
+        workItemId: primary.id,
+        attribution,
+      },
+      ...correlation,
+    };
+    await enqueueAck(boss, client, ackData);
+  }
   events.push({
     name: REVIEW_CANCELLED_PR_MERGED,
     fields: {

@@ -1,15 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import type { PgBoss } from "pg-boss";
-import { cancelActiveReviewsForResource } from "../src/agentWork/autoWorkEnqueue.js";
+import { cancelActiveReviews } from "../src/agentWork/intake/workItemRepository.js";
 import { applyAutomatedPullRequestIntake } from "../src/agentWork/intake/applier.js";
 import { makeTestConfig } from "./helpers/config.js";
 import { createOperationLogger } from "../src/evlog.js";
 import * as postgres from "../src/db/postgres.js";
 import * as evlog from "../src/evlog.js";
-import { REVIEW_CANCELLED_PR_MERGED, REVIEW_QUEUE } from "../src/settings/index.js";
+import { ACK_QUEUE, REVIEW_CANCELLED_PR_MERGED, REVIEW_QUEUE } from "../src/settings/index.js";
 
 const intakeCfg = makeTestConfig();
+const mergedAttribution = { kind: "merged" as const };
+const mergedPatch = JSON.stringify({ cancelAttribution: mergedAttribution });
 
 function makeHeaders(delivery = "d-merge") {
   return {
@@ -29,43 +31,67 @@ function makePrRef() {
   };
 }
 
-describe("cancelActiveReviewsForResource", () => {
+describe("cancelActiveReviews (merge)", () => {
   it("cancels queued reviews and requests cancel on running reviews", async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("status = 'queued'")) {
-        return { rows: [{ id: "queued-auto" }, { id: "queued-slash" }] };
+        return {
+          rows: [
+            {
+              id: "queued-auto",
+              source: "auto",
+              head_sha: "sha-a",
+              created_at: "2026-01-01T00:00:02Z",
+            },
+            {
+              id: "queued-slash",
+              source: "slash",
+              head_sha: "sha-b",
+              created_at: "2026-01-01T00:00:01Z",
+            },
+          ],
+        };
       }
       if (sql.includes("status = 'running'")) {
-        return { rows: [{ id: "running-1" }] };
+        return {
+          rows: [
+            {
+              id: "running-1",
+              source: "auto",
+              head_sha: "sha-r",
+              created_at: "2026-01-01T00:00:03Z",
+            },
+          ],
+        };
       }
       throw new Error(`unexpected sql: ${sql}`);
     });
     const client = { query } as unknown as PoolClient;
 
-    const ids = await cancelActiveReviewsForResource(client, "acme/app#7");
+    const cancelled = await cancelActiveReviews(client, "acme/app#7", mergedAttribution);
 
-    expect(ids).toEqual(["queued-auto", "queued-slash", "running-1"]);
+    expect(cancelled.map((row) => row.id)).toEqual(["running-1", "queued-auto", "queued-slash"]);
     expect(query).toHaveBeenCalledTimes(2);
     const queuedSql = String(query.mock.calls[0]?.[0]);
     const runningSql = String(query.mock.calls[1]?.[0]);
     expect(queuedSql).toContain("type = 'review'");
     expect(queuedSql).not.toContain("source = 'auto'");
     expect(runningSql).toContain("cancel_requested_at");
-    expect(runningSql).not.toContain("source = 'auto'");
-    // Cooperative cancel: running stays status=running until the worker checkpoints.
     expect(runningSql).not.toMatch(/status\s*=\s*'cancelled'/);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'queued'"), [
       "acme/app#7",
       "Pull request merged",
+      mergedPatch,
     ]);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'running'"), [
       "acme/app#7",
+      mergedPatch,
     ]);
   });
 });
 
 describe("applyAutomatedPullRequestIntake merge cancel", () => {
-  it("cancels active review jobs when the PR is merged", async () => {
+  it("cancels active review jobs and enqueues cancelProgress ack when the PR is merged", async () => {
     const poolQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-merged" }] };
@@ -77,10 +103,28 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
         return { rows: [{ id: "event-merged" }] };
       }
       if (sql.includes("status = 'queued'")) {
-        return { rows: [{ id: "wi-queued" }] };
+        return {
+          rows: [
+            {
+              id: "wi-queued",
+              source: "auto",
+              head_sha: "abc123",
+              created_at: "2026-01-01T00:00:01Z",
+            },
+          ],
+        };
       }
       if (sql.includes("status = 'running'")) {
-        return { rows: [{ id: "wi-running" }] };
+        return {
+          rows: [
+            {
+              id: "wi-running",
+              source: "slash",
+              head_sha: "abc123",
+              created_at: "2026-01-01T00:00:02Z",
+            },
+          ],
+        };
       }
       throw new Error(`unexpected client query: ${sql.slice(0, 120)}`);
     });
@@ -91,7 +135,8 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
     ]);
     const cancel = vi.fn(async () => ({ rows: [] }));
     const deleteJob = vi.fn(async () => ({ rows: [] }));
-    const boss = { findJobs, cancel, deleteJob, send: vi.fn() } as unknown as PgBoss;
+    const send = vi.fn(async () => "ack-job");
+    const boss = { findJobs, cancel, deleteJob, send } as unknown as PgBoss;
     const pool = { query: poolQuery } as unknown as Pool;
     const txSpy = vi
       .spyOn(postgres, "inTransaction")
@@ -122,7 +167,17 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
       expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "job-queued", expect.anything());
       expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "job-running", expect.anything());
       expect(cancel).not.toHaveBeenCalledWith(REVIEW_QUEUE, "job-other", expect.anything());
-      expect(boss.send).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith(
+        ACK_QUEUE,
+        expect.objectContaining({
+          kind: "ack",
+          cancelProgress: {
+            workItemId: "wi-running",
+            attribution: { kind: "merged" },
+          },
+        }),
+        expect.anything(),
+      );
     } finally {
       txSpy.mockRestore();
     }
@@ -259,6 +314,7 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
 
       expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "job-failed", expect.anything());
       expect(cancel).not.toHaveBeenCalled();
+      expect(boss.send).not.toHaveBeenCalled();
       expect(recordSpy).toHaveBeenCalledWith(
         intakeLog,
         REVIEW_CANCELLED_PR_MERGED,

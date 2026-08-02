@@ -1,4 +1,5 @@
 import type { AppError } from "../../errors/appError.js";
+import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
 import type { SpecialistReport } from "./specialistReport.js";
 import type { InlinePlacement } from "../placement/reviewDiffPlacement.js";
 
@@ -31,7 +32,7 @@ type ReviewRunGateResult =
   | {
       readonly kind: "stop";
       readonly reason: "cancelled";
-      readonly cancelledByLogin: string;
+      readonly attribution: ReviewCancelAttribution;
     }
   | { readonly kind: "finalize"; readonly reason: "deadline" };
 
@@ -61,7 +62,7 @@ type OrchestratedRunLifecycle =
   | {
       readonly kind: "stopped";
       readonly reason: "cancelled";
-      readonly cancelledByLogin: string;
+      readonly attribution: ReviewCancelAttribution;
     }
   | { readonly kind: "finalizing"; readonly reason: "deadline" }
   | { readonly kind: "complete" };

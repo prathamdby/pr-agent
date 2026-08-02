@@ -20,7 +20,7 @@ import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
 import { buildCiSummary } from "../../review/ci/analyzeCi.js";
 import {
   parseProgressRevisionState,
-  patchReviewProgressCancelledNote,
+  renderReviewCancelledNotice,
   renderReviewProgressComment,
 } from "../../review/run/progressComment.js";
 import {
@@ -137,17 +137,6 @@ async function publishCancelProgress(
   installation: AckInstallation,
   resourceKey: string,
 ): Promise<void> {
-  const headSha =
-    data.cancelProgress.headSha === DEFERRED_HEAD_SHA
-      ? await getPullRequestHeadSha(
-          installation.token,
-          data.owner,
-          data.repo,
-          data.prNumber,
-          installation.expiresAtTs,
-        )
-      : data.cancelProgress.headSha;
-
   const existing = await findIssueCommentBySentinel(
     installation.token,
     data.owner,
@@ -156,47 +145,28 @@ async function publishCancelProgress(
     REVIEW_SUMMARY_SENTINEL,
     installation.expiresAtTs,
   );
-  if (existing != null) {
-    // Only rewrite a stub owned by this cancel target (or legacy stubs without workItemId).
-    const rev = parseProgressRevisionState(existing.body);
-    const ownsStub = rev?.workItemId == null || rev.workItemId === data.cancelProgress.workItemId;
-    if (ownsStub) {
-      const patched = patchReviewProgressCancelledNote(
-        existing.body,
-        data.cancelProgress.cancelledByLogin,
-      );
-      if (patched != null) {
-        await updateIssueComment(
-          installation.token,
-          data.owner,
-          data.repo,
-          existing.id,
-          patched,
-          installation.expiresAtTs,
-        );
-        return;
-      }
-    }
-  }
-
-  const ciSummary = await buildCiSummary({
-    token: installation.token,
-    owner: data.owner,
-    repo: data.repo,
-    headSha,
-    expiresAtTs: installation.expiresAtTs,
-    lightweight: true,
-    waitMs: 0,
-  });
-  const body = renderReviewProgressComment({
-    mode: "review",
-    headSha,
-    source: data.cancelProgress.source,
-    ciSummary,
-    cancelledByLogin: data.cancelProgress.cancelledByLogin,
-    progressRevision: 0,
+  const rev = existing != null ? parseProgressRevisionState(existing.body) : null;
+  const ownsStub =
+    existing != null &&
+    (rev?.workItemId == null || rev.workItemId === data.cancelProgress.workItemId);
+  const body = renderReviewCancelledNotice({
+    attribution: data.cancelProgress.attribution,
+    progressRevision: ownsStub ? (rev?.revision ?? 0) : 0,
     progressWorkItemId: data.cancelProgress.workItemId,
   });
+
+  if (ownsStub && existing != null) {
+    await updateIssueComment(
+      installation.token,
+      data.owner,
+      data.repo,
+      existing.id,
+      body,
+      installation.expiresAtTs,
+    );
+    return;
+  }
+
   await upsertSummaryCommentWithCreationClaim({
     pool,
     workItemId: data.cancelProgress.workItemId,
