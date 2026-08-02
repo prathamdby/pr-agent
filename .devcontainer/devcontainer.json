@@ -5,7 +5,7 @@
     "ghcr.io/devcontainers/features/docker-in-docker:2": {}
   },
   "forwardPorts": [7224, 3000, 5432],
-  "postCreateCommand": "corepack enable && corepack prepare pnpm@10.34.1 --activate && pnpm install && npm install -g @nubjs/nub",
+  "postCreateCommand": "npm install -g --ignore-scripts=false @nubjs/nub && nub install",
   "customizations": {
     "vscode": {
       "extensions": ["dbaeumer.vscode-eslint", "esbenp.prettier-vscode"]

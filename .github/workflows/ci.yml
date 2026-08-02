@@ -69,7 +69,7 @@ jobs:
       - run: nub run check:effect-versions
       - run: nub run check:prod-deps
       - run: nub run check:site-boundary
-      - run: pnpm dedupe --check
+      - run: nub dedupe --check
       - run: nub run check:code
       - run: nub run check:knip
       - run: nub run check:jscpd
