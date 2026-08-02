@@ -70,11 +70,7 @@ describe("cancelActiveReviews (merge)", () => {
 
     const cancelled = await cancelActiveReviews(client, "acme/app#7", mergedAttribution);
 
-    expect(cancelled.map((row) => row.id)).toEqual([
-      "running-1",
-      "queued-auto",
-      "queued-slash",
-    ]);
+    expect(cancelled.map((row) => row.id)).toEqual(["running-1", "queued-auto", "queued-slash"]);
     expect(query).toHaveBeenCalledTimes(2);
     const queuedSql = String(query.mock.calls[0]?.[0]);
     const runningSql = String(query.mock.calls[1]?.[0]);

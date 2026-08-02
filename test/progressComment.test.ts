@@ -265,9 +265,7 @@ describe("progressComment fallback wording", () => {
     });
     expect(userBody).toContain(REVIEW_SUMMARY_SENTINEL);
     expect(userBody).toContain(`[!${REVIEW_FAILURE_ALERT}]`);
-    expect(userBody).toContain(
-      reviewProgressCancelledNote({ kind: "user", login: "alice" }),
-    );
+    expect(userBody).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
     expect(userBody).toContain("Run `/review` to try again.");
     expect(userBody).not.toContain("<strong>Recon</strong>");
     expect(userBody).not.toContain("<strong>Head</strong>");
@@ -279,12 +277,7 @@ describe("progressComment fallback wording", () => {
     });
     expect(mergeBody).toContain(reviewProgressCancelledNote({ kind: "merged" }));
     expect(mergeBody).toBe(
-      [
-        REVIEW_SUMMARY_SENTINEL,
-        "",
-        `> [!${REVIEW_FAILURE_ALERT}]`,
-        "> PR merged.",
-      ].join("\n"),
+      [REVIEW_SUMMARY_SENTINEL, "", `> [!${REVIEW_FAILURE_ALERT}]`, "> PR merged."].join("\n"),
     );
     expect(mergeBody).not.toContain("/review");
   });

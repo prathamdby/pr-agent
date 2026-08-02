@@ -158,8 +158,7 @@ function reviewRunGate(args: {
       if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
       if (await shouldSkipWork(args.pool, args.item)) {
         const fresh = await getWorkItem(args.pool, args.item.id);
-        const attribution =
-          fresh?.type === "review" ? fresh.payload.cancelAttribution : undefined;
+        const attribution = fresh?.type === "review" ? fresh.payload.cancelAttribution : undefined;
         if (attribution != null) {
           return { kind: "stop", reason: "cancelled", attribution };
         }

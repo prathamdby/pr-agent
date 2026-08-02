@@ -333,9 +333,7 @@ describe("executeAckJob", () => {
       "o",
       "r",
       99,
-      expect.stringContaining(
-        reviewProgressCancelledNote({ kind: "user", login: "alice" }),
-      ),
+      expect.stringContaining(reviewProgressCancelledNote({ kind: "user", login: "alice" })),
       expect.any(Number),
     );
     const body = vi.mocked(updateIssueComment).mock.calls[0]?.[4] as string;
