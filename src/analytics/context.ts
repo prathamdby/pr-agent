@@ -1,4 +1,4 @@
-/** Shared context fields attached to analytics exception captures. */
+/** Runtime fields attached to every analytics exception capture. */
 export type AnalyticsRuntimeContext = {
   readonly release?: string;
   readonly role?: "web" | "worker";
@@ -11,14 +11,9 @@ export function setAnalyticsRuntimeContext(ctx: AnalyticsRuntimeContext): void {
   runtimeContext = { ...runtimeContext, ...ctx };
 }
 
-export function getAnalyticsRuntimeContext(): AnalyticsRuntimeContext {
-  return runtimeContext;
-}
-
 const SENSITIVE_KEY = /(?:password|secret|token|authorization|private[_-]?key|cookie|api[_-]?key)/i;
 
-/** Drop or redact sensitive keys before PostHog capture. */
-export function redactAnalyticsProperties(
+function redactAnalyticsProperties(
   properties?: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
   if (!properties) return undefined;
@@ -33,20 +28,15 @@ export function redactAnalyticsProperties(
   return out;
 }
 
+/** Merge boot context and redact secret-shaped keys for captureException. */
 export function mergeExceptionProperties(
   properties?: Record<string, unknown>,
 ): Record<string, unknown> {
-  const ctx = getAnalyticsRuntimeContext();
-  const release =
-    ctx.release ??
-    process.env.GITHUB_SHA?.slice(0, 12) ??
-    process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ??
-    process.env.COMMIT_SHA?.slice(0, 12) ??
-    undefined;
+  const ctx = runtimeContext;
   const base: Record<string, unknown> = {
     service: ctx.service ?? "pr-agent",
     ...(ctx.role ? { role: ctx.role } : {}),
-    ...(release ? { release, commit_sha: release } : {}),
+    ...(ctx.release ? { release: ctx.release, commit_sha: ctx.release } : {}),
   };
   const extra = redactAnalyticsProperties(properties);
   return extra ? { ...base, ...extra } : base;

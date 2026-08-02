@@ -1,14 +1,9 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
-
-const localBin = path.join(process.cwd(), "node_modules", ".bin", "jscpd");
-const cmd = fs.existsSync(localBin) ? localBin : "jscpd";
 
 // Production + site sources only (test doubles inflate clone %). Spec threshold 3%.
 const result = spawnSync(
-  cmd,
+  "jscpd",
   [
     "src",
     "site",
@@ -19,6 +14,11 @@ const result = spawnSync(
     "--reporters",
     "console,threshold",
   ],
-  { stdio: "inherit", cwd: process.cwd(), shell: process.platform === "win32" },
+  {
+    stdio: "inherit",
+    cwd: process.cwd(),
+    shell: process.platform === "win32",
+    env: { ...process.env, PATH: `${process.cwd()}/node_modules/.bin:${process.env.PATH ?? ""}` },
+  },
 );
 process.exit(result.status ?? 1);

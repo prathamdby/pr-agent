@@ -38,4 +38,7 @@ CI enforces that every `FEATURE_*` key is documented here
 
 ## Landing site analytics (optional)
 
-The marketing package (`site/`) can load `posthog-js` when `PUBLIC_POSTHOG_KEY` or `VITE_PUBLIC_POSTHOG_KEY` is set at build/runtime. Default is **off** (no key → no SDK). Session recording masks all inputs. This is independent of the backend `POSTHOG_PROJECT_TOKEN` facade.
+The marketing package (`site/`) loads the PostHog browser snippet when
+`VITE_PUBLIC_POSTHOG_KEY` is set at build time. Empty key keeps analytics off.
+Session recording masks all inputs. This is independent of the backend
+`POSTHOG_PROJECT_TOKEN` facade.

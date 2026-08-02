@@ -34,7 +34,6 @@
     "site/stats.html"
   ],
   "ignoreDependencies": [
-    "@testing-library/jest-dom",
     "@vitest/coverage-v8",
     "husky",
     "jscpd",

@@ -18,10 +18,11 @@ async function main() {
     pretty: cfg.logPretty,
     redact: cfg.logRedact,
   });
+  const release = process.env.GITHUB_SHA?.slice(0, 12) ?? process.env.COMMIT_SHA?.slice(0, 12);
   setAnalyticsRuntimeContext({
     role: cfg.role,
     service: "pr-agent",
-    release: process.env.GITHUB_SHA?.slice(0, 12) ?? process.env.COMMIT_SHA?.slice(0, 12),
+    ...(release ? { release } : {}),
   });
   await initAnalytics({ projectToken: cfg.posthogProjectToken, host: cfg.posthogHost });
   logInfo("boot", {

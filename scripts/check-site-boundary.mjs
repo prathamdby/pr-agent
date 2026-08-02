@@ -7,6 +7,8 @@ import path from "node:path";
 
 const ROOT = path.join(process.cwd(), "site");
 const CLIENT_DIRS = ["components", "lib"].map((d) => path.join(ROOT, d));
+// Server-only modules under lib/ (wired from start.ts), not shipped as client UI.
+const SERVER_ONLY = new Set(["requestLogging.ts", "log.ts"]);
 const FORBIDDEN = [
   /^nitro(\/|$)/,
   /^node:/,
@@ -22,7 +24,6 @@ const FORBIDDEN = [
   /^worker_threads$/,
 ];
 
-// Server-only files under site may import node; client surfaces must not.
 const IMPORT_RE =
   /(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\sfrom\s*)?["']([^"']+)["']|require\(\s*["']([^"']+)["']\s*\)/g;
 
@@ -32,7 +33,9 @@ function walk(dir, out = []) {
     if (ent.name === "node_modules") continue;
     const p = path.join(dir, ent.name);
     if (ent.isDirectory()) walk(p, out);
-    else if (/\.(tsx?|jsx?|mjs)$/.test(ent.name)) out.push(p);
+    else if (/\.(tsx?|jsx?|mjs)$/.test(ent.name) && !/\.test\./.test(ent.name)) {
+      if (!SERVER_ONLY.has(ent.name)) out.push(p);
+    }
   }
   return out;
 }

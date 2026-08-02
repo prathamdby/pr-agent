@@ -199,9 +199,9 @@ See [site/README.md](../site/README.md) for the agent-followable QA path (`site:
 When `POSTHOG_PROJECT_TOKEN` is set, `captureException` enriches events with:
 
 - `service` (`pr-agent`)
-- `role` (`web` | `worker`)
-- `release` / `commit_sha` (from `GITHUB_SHA` / `COMMIT_SHA` when present)
+- `role` (`web` | `worker`) from boot context
+- `release` / `commit_sha` when set at boot (`GITHUB_SHA` or `COMMIT_SHA`)
 - installation/repo fields callers already pass
 - redaction of secret-shaped property keys
 
-Still optional OSS analytics — empty token disables the SDK entirely.
+Empty token disables the SDK.

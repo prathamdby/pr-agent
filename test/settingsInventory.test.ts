@@ -72,16 +72,13 @@ describe("settings inventory", () => {
   });
 });
 
-const FEATURE_PROP: Record<string, string> = {
-  FEATURE_REVIEW: "review",
-  FEATURE_DESCRIBE: "describe",
-  FEATURE_VERIFICATION: "verification",
-  FEATURE_ASK: "ask",
-  FEATURE_TRIAGE: "triage",
-  FEATURE_REVIEW_LABELS: "reviewLabels",
-  FEATURE_COMMIT_STATUS: "commitStatus",
-  FEATURE_TITLE_REWRITE: "titleRewrite",
-};
+/** FEATURE_REVIEW_LABELS → reviewLabels (product field on Config.features). */
+function featureEnvToProp(envKey: string): string {
+  return envKey
+    .replace(/^FEATURE_/, "")
+    .toLowerCase()
+    .replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+}
 
 function collectSrcOutsideConfig(): string {
   const srcRoot = path.join(process.cwd(), "src");
@@ -104,8 +101,7 @@ describe("feature flag liveness", () => {
     const body = collectSrcOutsideConfig();
     const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
     for (const key of featureKeys) {
-      const prop = FEATURE_PROP[key];
-      expect(prop, `missing prop map for ${key}`).toBeTruthy();
+      const prop = featureEnvToProp(key);
       const used =
         body.includes(key) ||
         body.includes(`features.${prop}`) ||
@@ -114,12 +110,14 @@ describe("feature flag liveness", () => {
     }
   });
 
-  it("every features.* mode field used outside config maps to a documented FEATURE_*", () => {
+  it("every FEATURE_* used outside config is documented in docs/features.md", () => {
     const featuresDoc = fs.readFileSync(path.join(process.cwd(), "docs", "features.md"), "utf8");
     const body = collectSrcOutsideConfig();
-    for (const [envKey, prop] of Object.entries(FEATURE_PROP)) {
+    const featureKeys = Object.values(ENV).filter((key) => key.startsWith("FEATURE_"));
+    for (const envKey of featureKeys) {
+      const prop = featureEnvToProp(envKey);
       const re = new RegExp(`features\\??\\.${prop}\\b`);
-      if (re.test(body)) {
+      if (re.test(body) || body.includes(envKey)) {
         expect(featuresDoc.includes(envKey), `docs/features.md missing ${envKey}`).toBe(true);
       }
     }

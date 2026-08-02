@@ -1,55 +1,21 @@
-/** Optional site analytics via PostHog CDN snippet when PUBLIC_POSTHOG_KEY is set. */
-
-export type SiteAnalytics = {
-  readonly capture: (event: string, properties?: Record<string, unknown>) => void;
-  readonly shutdown: () => void;
-};
+/**
+ * Optional site analytics via the PostHog browser snippet.
+ * On when `VITE_PUBLIC_POSTHOG_KEY` is set at build time; off otherwise.
+ */
 
 type PostHogStub = {
-  capture: (event: string, properties?: Record<string, unknown>) => void;
-  reset: () => void;
   init: (key: string, options: Record<string, unknown>) => void;
 };
 
-const noop: SiteAnalytics = {
-  capture() {},
-  shutdown() {},
-};
-
-let instance: SiteAnalytics = noop;
-
-function readPublicKey(): string {
-  const viteKey =
-    (typeof import.meta !== "undefined" &&
-      (import.meta as ImportMeta & { env?: Record<string, string> }).env
-        ?.VITE_PUBLIC_POSTHOG_KEY) ||
-    "";
-  const processKey =
-    typeof process !== "undefined"
-      ? (process.env.PUBLIC_POSTHOG_KEY ?? process.env.VITE_PUBLIC_POSTHOG_KEY ?? "")
-      : "";
-  return (viteKey || processKey).trim();
+function readViteEnv(name: string): string {
+  const env = (import.meta as ImportMeta & { env?: Record<string, string> }).env;
+  return (env?.[name] ?? "").trim();
 }
 
-function readHost(): string {
-  const viteHost =
-    (typeof import.meta !== "undefined" &&
-      (import.meta as ImportMeta & { env?: Record<string, string> }).env
-        ?.VITE_PUBLIC_POSTHOG_HOST) ||
-    "";
-  const processHost =
-    typeof process !== "undefined"
-      ? (process.env.PUBLIC_POSTHOG_HOST ?? process.env.VITE_PUBLIC_POSTHOG_HOST ?? "")
-      : "";
-  return (viteHost || processHost || "https://us.i.posthog.com").trim();
-}
-
-export async function initSiteAnalytics(): Promise<SiteAnalytics> {
-  const key = readPublicKey();
-  if (!key || typeof document === "undefined") {
-    instance = noop;
-    return instance;
-  }
+/** Load PostHog when a public key is present. No-op when the key is empty or not in a browser. */
+export async function initSiteAnalytics(): Promise<void> {
+  const key = readViteEnv("VITE_PUBLIC_POSTHOG_KEY");
+  if (!key || typeof document === "undefined") return;
 
   try {
     const w = window as Window & { posthog?: PostHogStub };
@@ -65,13 +31,11 @@ export async function initSiteAnalytics(): Promise<SiteAnalytics> {
     }
 
     const ph = (window as Window & { posthog?: PostHogStub }).posthog;
-    if (!ph) {
-      instance = noop;
-      return instance;
-    }
+    if (!ph) return;
 
+    const host = readViteEnv("VITE_PUBLIC_POSTHOG_HOST") || "https://us.i.posthog.com";
     ph.init(key, {
-      api_host: readHost(),
+      api_host: host,
       persistence: "localStorage+cookie",
       autocapture: true,
       session_recording: {
@@ -79,25 +43,7 @@ export async function initSiteAnalytics(): Promise<SiteAnalytics> {
         maskTextSelector: "*",
       },
     });
-
-    instance = {
-      capture(event, properties) {
-        ph.capture(event, properties);
-      },
-      shutdown() {
-        ph.reset();
-      },
-    };
   } catch {
-    instance = noop;
+    // ignore load/init failures; analytics is optional
   }
-  return instance;
-}
-
-export function getSiteAnalytics(): SiteAnalytics {
-  return instance;
-}
-
-export function isSiteAnalyticsEnabled(): boolean {
-  return Boolean(readPublicKey());
 }
