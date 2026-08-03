@@ -71,34 +71,12 @@ export const reviewFindingSchema = z
 
 export function createReviewPayloadSchema() {
   return z.object({
-    prCharacter: z
-      .string()
-      .min(1)
-      .max(REVIEW_OVERVIEW_MAX_CHARS)
-      .describe(
-        "Review summary Note: ASD-STE100 prose sized by the overview-scale hard rule (short sentences or bullets; what changed and review stakes; no file inventory, specialist process, or findings restatement).",
-      ),
+    prCharacter: z.string().min(1).max(REVIEW_OVERVIEW_MAX_CHARS),
     findings: z.array(reviewFindingSchema).max(MAX_REVIEW_PAYLOAD_FINDINGS),
-    estimatedEffort: z
-      .number()
-      .int()
-      .min(REVIEW_EFFORT_MIN)
-      .max(REVIEW_EFFORT_MAX)
-      .describe("Review cost estimate from 1 (trivial) to 5 (heavy)."),
-    relevantTests: z
-      .enum(["yes", "no", "partial"])
-      .describe("Whether accepted evidence shows adequate tests for the change."),
-    securityConcerns: z
-      .string()
-      .max(REVIEW_SECURITY_CONCERNS_MAX_CHARS)
-      .nullable()
-      .describe(
-        "Null when none. Otherwise one or two short ASD-STE100 sentences naming the security risk.",
-      ),
-    followUps: z
-      .array(z.string().max(REVIEW_FOLLOW_UP_MAX_CHARS))
-      .max(MAX_REVIEW_FOLLOW_UPS)
-      .describe("Short STE100 follow-up lines; empty when none."),
+    estimatedEffort: z.number().int().min(REVIEW_EFFORT_MIN).max(REVIEW_EFFORT_MAX),
+    relevantTests: z.enum(["yes", "no", "partial"]),
+    securityConcerns: z.string().max(REVIEW_SECURITY_CONCERNS_MAX_CHARS).nullable(),
+    followUps: z.array(z.string().max(REVIEW_FOLLOW_UP_MAX_CHARS)).max(MAX_REVIEW_FOLLOW_UPS),
   });
 }
 
