@@ -1,16 +1,9 @@
 /** Prompt blocks for PR description generation (writing style, Mermaid, review map). */
 
-export const descriptionSte100Guidance = [
-  "## Writing style (ASD-STE100)",
-  "",
-  "Apply these rules to title, description bullets, and review-map reasons:",
-  "- Use one plain word for one idea. Do not rotate synonyms for the same action.",
-  '- Use active voice. Write "The change adds session checks", not "Session checks are added".',
-  "- Use simple present or simple past only. Avoid perfect and continuous tenses.",
-  "- Write short sentences. Keep each sentence at 25 words or less.",
-  "- Keep one topic in each bullet. Prefer a bullet list over long paragraphs.",
-  "- Keep necessary domain terms. Prefer plain words when both work.",
-].join("\n");
+import { ste100WritingGuidance } from "../prompts/ste100Guidance.js";
+
+/** STE100 for description title, body bullets, and review-map reasons. */
+export const descriptionSte100Guidance = ste100WritingGuidance;
 
 export const descriptionBodyScaleGuidance = [
   "## Description body scale",

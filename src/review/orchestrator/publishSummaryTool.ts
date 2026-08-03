@@ -204,7 +204,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
   const piTool: PiTool = {
     name: "publish_summary",
     description:
-      "Publish the final review summary exactly once. Supply display copy for every accepted finding ID without changing severity or placement.",
+      "Publish the final review summary exactly once. Supply display copy for every accepted finding ID without changing severity or placement. Write prCharacter per the overview-scale hard rule and ASD-STE100 (short active sentences; no specialist process dump or findings restatement).",
     parameters: z.toJSONSchema(publishSummarySchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {

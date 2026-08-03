@@ -14,6 +14,7 @@ import {
   SPECIALIST_IDS,
   type SpecialistOutcome,
 } from "../src/review/orchestrator/orchestratorTypes.js";
+import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.js";
 
 function validRiskArea() {
   return {
@@ -220,11 +221,27 @@ describe("orchestrator prompts", () => {
       acceptedFindings: [],
       partialSpecialists: ["security"],
       outcomes: [],
+      overviewPolicy: resolveDescriptionWritingPolicy({
+        fileCount: 12,
+        totalChanges: 500,
+        truncated: false,
+      }),
+      fileCount: 12,
+      totalChanges: 500,
+      truncated: false,
     });
 
     expect(prompt).toContain("sole source of review findings");
     expect(prompt).toContain("partial coverage");
     expect(prompt).toContain("publish_summary` exactly once");
     expect(prompt).toContain('"security"');
+    expect(prompt).toContain("Hard rule (overview scale: standard)");
+    expect(prompt).toContain("Overview scale: standard");
+  });
+
+  it("documents STE100 and overview scale in the orchestrator system prompt", () => {
+    expect(orchestratorSystemPrompt).toContain("## Writing style (ASD-STE100)");
+    expect(orchestratorSystemPrompt).toContain("## Review overview (prCharacter)");
+    expect(orchestratorSystemPrompt).toContain("Do not report specialist lane status");
   });
 });

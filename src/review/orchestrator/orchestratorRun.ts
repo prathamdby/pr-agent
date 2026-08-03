@@ -36,6 +36,7 @@ import { buildReviewRunSetup } from "../run/reviewRunSetup.js";
 import type { ReviewRunParams, ReviewRunResult } from "../run/reviewRunTypes.js";
 import { buildSpecialistBriefTool, renderBriefMessage, type SpecialistBrief } from "./briefTool.js";
 import { pumpSpecialistCompletions } from "./completionPump.js";
+import { resolveDescriptionWritingPolicy } from "../../agent/description/descriptionWritingPolicy.js";
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
@@ -1028,6 +1029,7 @@ export async function runOrchestratedPrReview(
         publish_summary: publishSummary.executor,
       });
       publishAttempts += 1;
+      const overviewPolicy = resolveDescriptionWritingPolicy(params.workspace.stats);
       const synthesisPrompt = renderSynthesisTurn({
         acceptedFindings: publishThread.getLedger().accepted,
         partialSpecialists: state.failedSpecialists,
@@ -1035,6 +1037,10 @@ export async function runOrchestratedPrReview(
           const outcome = state.outcomes[specialist];
           return outcome ? [outcome] : [];
         }),
+        overviewPolicy,
+        fileCount: params.workspace.stats.fileCount,
+        totalChanges: params.workspace.stats.totalChanges,
+        truncated: params.workspace.stats.truncated,
       });
       const synthesis = await sendWithRetry("synthesis", synthesisPrompt);
       if (synthesis.kind === "sent") lastText = synthesis.text;
