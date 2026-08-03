@@ -237,6 +237,44 @@ describe("orchestrator prompts", () => {
     expect(prompt).toContain('"security"');
     expect(prompt).toContain("Hard rule (overview scale: standard)");
     expect(prompt).toContain("Overview scale: standard");
+    expect(prompt).toContain("notable risks or contracts");
+  });
+
+  it("injects brief overview hard rule for small change sets", () => {
+    const prompt = renderSynthesisTurn({
+      acceptedFindings: [],
+      partialSpecialists: [],
+      outcomes: [],
+      overviewPolicy: resolveDescriptionWritingPolicy({
+        fileCount: 2,
+        totalChanges: 40,
+        truncated: false,
+      }),
+      fileCount: 2,
+      totalChanges: 40,
+      truncated: false,
+    });
+    expect(prompt).toContain("Hard rule (overview scale: brief)");
+    expect(prompt).toContain("what changed and why it matters");
+  });
+
+  it("injects detailed overview hard rule for large or truncated change sets", () => {
+    const prompt = renderSynthesisTurn({
+      acceptedFindings: [],
+      partialSpecialists: [],
+      outcomes: [],
+      overviewPolicy: resolveDescriptionWritingPolicy({
+        fileCount: 1,
+        totalChanges: 1,
+        truncated: true,
+      }),
+      fileCount: 1,
+      totalChanges: 1,
+      truncated: true,
+    });
+    expect(prompt).toContain("Hard rule (overview scale: detailed)");
+    expect(prompt).toContain("how key modules or paths interact");
+    expect(prompt).toContain("Change set truncated: yes");
   });
 
   it("documents STE100 and overview scale in the orchestrator system prompt", () => {

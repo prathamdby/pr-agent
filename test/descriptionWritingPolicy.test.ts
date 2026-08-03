@@ -121,6 +121,36 @@ describe("resolveDescriptionBodyScale", () => {
     ).toBe("standard");
   });
 
+  it("flips to standard at the omit line-change bound with omit-max files", () => {
+    expect(
+      resolveDescriptionBodyScale({
+        fileCount: DESCRIPTION_MAP_OMIT_MAX_FILES,
+        totalChanges: DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES,
+        truncated: false,
+      }),
+    ).toBe("standard");
+  });
+
+  it("stays standard at the standard file bound under the line-change bound", () => {
+    expect(
+      resolveDescriptionBodyScale({
+        fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES,
+        totalChanges: 10,
+        truncated: false,
+      }),
+    ).toBe("standard");
+  });
+
+  it("stays standard at the standard file bound just under the line-change bound", () => {
+    expect(
+      resolveDescriptionBodyScale({
+        fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES,
+        totalChanges: DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES - 1,
+        truncated: false,
+      }),
+    ).toBe("standard");
+  });
+
   it("uses detailed when file count exceeds standard max", () => {
     expect(
       resolveDescriptionBodyScale({
@@ -135,6 +165,16 @@ describe("resolveDescriptionBodyScale", () => {
     expect(
       resolveDescriptionBodyScale({
         fileCount: 1,
+        totalChanges: DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES,
+        truncated: false,
+      }),
+    ).toBe("detailed");
+  });
+
+  it("uses detailed at the standard file bound when line changes hit the max", () => {
+    expect(
+      resolveDescriptionBodyScale({
+        fileCount: DESCRIPTION_BODY_STANDARD_MAX_FILES,
         totalChanges: DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES,
         truncated: false,
       }),

@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { buildDescriptionUserContent } from "../src/agent/description/descriptionUserMessage.js";
 import { resolveDescriptionWritingPolicy } from "../src/agent/description/descriptionWritingPolicy.js";
+import {
+  DESCRIPTION_BODY_BRIEF_BULLET_MAX,
+  DESCRIPTION_BODY_BRIEF_BULLET_MIN,
+  DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET,
+  DESCRIPTION_BODY_DETAILED_BULLET_MAX,
+  DESCRIPTION_BODY_DETAILED_BULLET_MIN,
+  DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET,
+  DESCRIPTION_BODY_STANDARD_BULLET_MAX,
+  DESCRIPTION_BODY_STANDARD_BULLET_MIN,
+  DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET,
+} from "../src/settings/index.js";
 
 function baseDescriptionParams(
   userSupplement?: string,
@@ -47,6 +58,10 @@ describe("buildDescriptionUserContent", () => {
     expect(content).toContain("Body scale: brief");
     expect(content).toContain("Map mode: omit");
     expect(content).toContain("Hard rule (body scale: brief)");
+    expect(content).toContain(
+      `Write ${DESCRIPTION_BODY_BRIEF_BULLET_MIN}–${DESCRIPTION_BODY_BRIEF_BULLET_MAX} markdown bullets`,
+    );
+    expect(content).toContain(`at most ${DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET} words`);
     expect(content).toContain("do not emit prFiles");
     expect(content).toContain("Changed files: 2");
   });
@@ -62,6 +77,10 @@ describe("buildDescriptionUserContent", () => {
     expect(content).toContain("Body scale: standard");
     expect(content).toContain("Map mode: read_first");
     expect(content).toContain("Hard rule (body scale: standard)");
+    expect(content).toContain(
+      `Write ${DESCRIPTION_BODY_STANDARD_BULLET_MIN}–${DESCRIPTION_BODY_STANDARD_BULLET_MAX} markdown bullets`,
+    );
+    expect(content).toContain(`at most ${DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET} words`);
     expect(content).toContain("emit prFiles with 1–5 entries only");
     expect(content).toContain("notable risks or contracts");
   });
@@ -76,6 +95,10 @@ describe("buildDescriptionUserContent", () => {
     );
     expect(content).toContain("Body scale: detailed");
     expect(content).toContain("Hard rule (body scale: detailed)");
+    expect(content).toContain(
+      `Write ${DESCRIPTION_BODY_DETAILED_BULLET_MIN}–${DESCRIPTION_BODY_DETAILED_BULLET_MAX} markdown bullets`,
+    );
+    expect(content).toContain(`at most ${DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET} words`);
     expect(content).toContain("how key modules or paths interact");
   });
 });

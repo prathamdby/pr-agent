@@ -1,19 +1,8 @@
 import { ste100WritingGuidance } from "../../../agent/prompts/ste100Guidance.js";
-import type {
-  DescriptionTechnicalDepth,
-  DescriptionWritingPolicy,
+import {
+  technicalDepthRule,
+  type DescriptionWritingPolicy,
 } from "../../../agent/description/descriptionWritingPolicy.js";
-
-function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
-  const rules: Record<DescriptionTechnicalDepth, string> = {
-    what_why: "Cover what the PR changes and why it matters for reviewers.",
-    what_why_risk:
-      "Cover what the PR changes, why it matters, and notable risks or contracts the diff touches.",
-    what_why_how:
-      "Cover what the PR changes, why it matters, how key modules or paths interact, and review risks.",
-  };
-  return rules[depth];
-}
 
 /**
  * System-prompt contract for ReviewPayload overview fields (Note + security row).

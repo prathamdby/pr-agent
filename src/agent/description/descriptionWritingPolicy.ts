@@ -93,12 +93,17 @@ export function resolveDescriptionBodyScale(input: DescriptionSizeInput): Descri
   return "detailed";
 }
 
+/** Pair map mode with body scale: brief omits the review map; larger scales keep it. */
+export function mapModeForBodyScale(bodyScale: DescriptionBodyScale): DescriptionMapMode {
+  return bodyScale === "brief" ? "omit" : "read_first";
+}
+
 /**
- * Map mode follows body scale: brief PRs omit the review map; larger scales keep it.
- * Truncation forces detailed body scale, so truncated sets always get read_first.
+ * Map mode follows body scale. Truncation forces detailed body scale, so truncated
+ * sets always get read_first.
  */
 export function resolveDescriptionMapMode(input: DescriptionSizeInput): DescriptionMapMode {
-  return resolveDescriptionBodyScale(input) === "brief" ? "omit" : "read_first";
+  return mapModeForBodyScale(resolveDescriptionBodyScale(input));
 }
 
 /**
@@ -109,7 +114,7 @@ export function resolveDescriptionWritingPolicy(
   input: DescriptionSizeInput,
 ): DescriptionWritingPolicy {
   const bodyScale = resolveDescriptionBodyScale(input);
-  const mapMode: DescriptionMapMode = bodyScale === "brief" ? "omit" : "read_first";
+  const mapMode = mapModeForBodyScale(bodyScale);
   const spec = BODY_SCALE_SPEC[bodyScale];
   return {
     mapMode,
@@ -119,6 +124,18 @@ export function resolveDescriptionWritingPolicy(
     maxWordsPerBullet: spec.maxWordsPerBullet,
     technicalDepth: spec.technicalDepth,
   };
+}
+
+/** Hard-rule prose for technical depth; shared by description body and review overview. */
+export function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
+  const rules: Record<DescriptionTechnicalDepth, string> = {
+    what_why: "Cover what changed and why it matters for reviewers.",
+    what_why_risk:
+      "Cover what changed, why it matters, and notable risks or contracts the diff touches.",
+    what_why_how:
+      "Cover what changed, why it matters, how key modules or paths interact, and review risks.",
+  };
+  return rules[depth];
 }
 
 export type EnforceDescriptionMapOptions = {

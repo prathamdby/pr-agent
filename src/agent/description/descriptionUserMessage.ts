@@ -1,20 +1,5 @@
 import { wrapUntrustedBlock } from "../prompts/promptBlocks.js";
-import type {
-  DescriptionTechnicalDepth,
-  DescriptionWritingPolicy,
-} from "./descriptionWritingPolicy.js";
-
-const TECHNICAL_DEPTH_RULE: Record<DescriptionTechnicalDepth, string> = {
-  what_why: "Cover what changed and why it matters for reviewers.",
-  what_why_risk:
-    "Cover what changed, why it matters, and notable risks or contracts the diff touches.",
-  what_why_how:
-    "Cover what changed, why it matters, how key modules or paths interact, and review risks.",
-};
-
-function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
-  return TECHNICAL_DEPTH_RULE[depth];
-}
+import { technicalDepthRule, type DescriptionWritingPolicy } from "./descriptionWritingPolicy.js";
 
 function bodyScaleHardRule(policy: DescriptionWritingPolicy): string {
   return [
