@@ -1,4 +1,30 @@
-/** Prompt blocks for PR description generation (Mermaid + review map). */
+/** Prompt blocks for PR description generation (writing style, Mermaid, review map). */
+
+export const descriptionSte100Guidance = [
+  "## Writing style (ASD-STE100)",
+  "",
+  "Apply these rules to title, description bullets, and review-map reasons:",
+  "- Use one plain word for one idea. Do not rotate synonyms for the same action.",
+  "- Use active voice. Write \"The change adds session checks\", not \"Session checks are added\".",
+  "- Use simple present or simple past only. Avoid perfect and continuous tenses.",
+  "- Write short sentences. Keep each sentence at 25 words or less.",
+  "- Keep one topic in each bullet. Prefer a bullet list over long paragraphs.",
+  "- Keep necessary domain terms. Prefer plain words when both work.",
+].join("\n");
+
+export const descriptionBodyScaleGuidance = [
+  "## Description body scale",
+  "",
+  "The server chooses body scale from workspace size stats and injects a hard rule in the user message.",
+  "Follow that rule for bullet count, words per bullet, and technical depth.",
+  "Do not stay at a fixed short template when the hard rule asks for more detail.",
+  "Do not pad with empty or repeated bullets when the hard rule asks for fewer.",
+  "",
+  "### Depth meanings",
+  "- what_why: state what changed and why it matters for reviewers.",
+  "- what_why_risk: also name notable risks, contracts, or failure modes the diff touches.",
+  "- what_why_how: also name key modules or paths and how they interact.",
+].join("\n");
 
 export const descriptionMermaidGuidance = [
   "## Changes diagram (changesDiagram)",
