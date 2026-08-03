@@ -293,24 +293,24 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 
 Writing policy is computed once per description run from workspace size stats (`fileCount`, `totalChanges`, truncated). It sets **body scale** (bullet range, words per bullet, technical depth) and **map mode** together. Prompt prose lives in `src/agent/description/`; numeric limits stay here.
 
-| Symbol                                           | Default / role                                                                                          |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `MAX_TOOL_ROUNDS_DESCRIBE`                       | 16                                                                                                      |
-| `DESCRIPTION_MAP_OMIT_MAX_FILES`                 | 5 — brief body + omit map when at or under this file count (and line-change bound, not truncated)       |
-| `DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES`          | 300 — brief body + omit map when under this total line changes                                          |
-| `DESCRIPTION_MAP_MAX_ENTRIES`                    | 5 — publish cap for review-map `prFiles`                                                                |
-| `MAX_DESCRIPTION_PAYLOAD_PR_FILES`               | 20 — schema ceiling so enforce can cap-and-publish                                                      |
-| `DESCRIPTION_BODY_STANDARD_MAX_FILES`            | 20 — standard body scale upper file bound; above becomes detailed                                       |
-| `DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES`     | 1500 — standard body scale upper line-change bound; at or above becomes detailed                        |
-| `DESCRIPTION_BODY_BRIEF_BULLET_MIN` / `_MAX`     | 2 / 5                                                                                                   |
-| `DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET`    | 25                                                                                                      |
-| `DESCRIPTION_BODY_STANDARD_BULLET_MIN` / `_MAX`  | 4 / 8                                                                                                   |
-| `DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET` | 30                                                                                                      |
-| `DESCRIPTION_BODY_DETAILED_BULLET_MIN` / `_MAX`  | 6 / 12                                                                                                  |
-| `DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET` | 35                                                                                                      |
-| `DESCRIPTION_AGENT_BODY_BEGIN` / `_END`          | HTML markers wrapping the agent description block in the PR body                                        |
-| `DESCRIPTION_AGENT_HEADER`                       | `## PR Agent Description`                                                                               |
-| `DESCRIPTION_REVIEW_MAP_HEADING`                 | `### Review map`                                                                                        |
+| Symbol                                           | Default / role                                                                                    |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `MAX_TOOL_ROUNDS_DESCRIBE`                       | 16                                                                                                |
+| `DESCRIPTION_MAP_OMIT_MAX_FILES`                 | 5 — brief body + omit map when at or under this file count (and line-change bound, not truncated) |
+| `DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES`          | 300 — brief body + omit map when under this total line changes                                    |
+| `DESCRIPTION_MAP_MAX_ENTRIES`                    | 5 — publish cap for review-map `prFiles`                                                          |
+| `MAX_DESCRIPTION_PAYLOAD_PR_FILES`               | 20 — schema ceiling so enforce can cap-and-publish                                                |
+| `DESCRIPTION_BODY_STANDARD_MAX_FILES`            | 20 — standard body scale upper file bound; above becomes detailed                                 |
+| `DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES`     | 1500 — standard body scale upper line-change bound; at or above becomes detailed                  |
+| `DESCRIPTION_BODY_BRIEF_BULLET_MIN` / `_MAX`     | 2 / 5                                                                                             |
+| `DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET`    | 25                                                                                                |
+| `DESCRIPTION_BODY_STANDARD_BULLET_MIN` / `_MAX`  | 4 / 8                                                                                             |
+| `DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET` | 30                                                                                                |
+| `DESCRIPTION_BODY_DETAILED_BULLET_MIN` / `_MAX`  | 6 / 12                                                                                            |
+| `DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET` | 35                                                                                                |
+| `DESCRIPTION_AGENT_BODY_BEGIN` / `_END`          | HTML markers wrapping the agent description block in the PR body                                  |
+| `DESCRIPTION_AGENT_HEADER`                       | `## PR Agent Description`                                                                         |
+| `DESCRIPTION_REVIEW_MAP_HEADING`                 | `### Review map`                                                                                  |
 
 ### Triage
 

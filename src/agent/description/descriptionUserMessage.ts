@@ -4,15 +4,16 @@ import type {
   DescriptionWritingPolicy,
 } from "./descriptionWritingPolicy.js";
 
+const TECHNICAL_DEPTH_RULE: Record<DescriptionTechnicalDepth, string> = {
+  what_why: "Cover what changed and why it matters for reviewers.",
+  what_why_risk:
+    "Cover what changed, why it matters, and notable risks or contracts the diff touches.",
+  what_why_how:
+    "Cover what changed, why it matters, how key modules or paths interact, and review risks.",
+};
+
 function technicalDepthRule(depth: DescriptionTechnicalDepth): string {
-  switch (depth) {
-    case "what_why":
-      return "Cover what changed and why it matters for reviewers.";
-    case "what_why_risk":
-      return "Cover what changed, why it matters, and notable risks or contracts the diff touches.";
-    case "what_why_how":
-      return "Cover what changed, why it matters, how key modules or paths interact, and review risks.";
-  }
+  return TECHNICAL_DEPTH_RULE[depth];
 }
 
 function bodyScaleHardRule(policy: DescriptionWritingPolicy): string {

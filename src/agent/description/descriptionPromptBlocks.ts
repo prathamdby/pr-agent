@@ -5,7 +5,7 @@ export const descriptionSte100Guidance = [
   "",
   "Apply these rules to title, description bullets, and review-map reasons:",
   "- Use one plain word for one idea. Do not rotate synonyms for the same action.",
-  "- Use active voice. Write \"The change adds session checks\", not \"Session checks are added\".",
+  '- Use active voice. Write "The change adds session checks", not "Session checks are added".',
   "- Use simple present or simple past only. Avoid perfect and continuous tenses.",
   "- Write short sentences. Keep each sentence at 25 words or less.",
   "- Keep one topic in each bullet. Prefer a bullet list over long paragraphs.",
