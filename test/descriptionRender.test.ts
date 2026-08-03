@@ -119,12 +119,12 @@ describe("descriptionRender", () => {
 });
 
 describe("prBodyHasDescriptionReviewMap", () => {
-  it("is true only when both description header and review map heading exist", () => {
+  it("is true only when the agent block includes the review map heading", () => {
     expect(prBodyHasDescriptionReviewMap(null)).toBe(false);
     expect(prBodyHasDescriptionReviewMap(`${DESCRIPTION_AGENT_HEADER}\n\n### PR Type`)).toBe(false);
     expect(
       prBodyHasDescriptionReviewMap(
-        `${DESCRIPTION_AGENT_HEADER}\n\n${DESCRIPTION_REVIEW_MAP_HEADING}\n\n1. path`,
+        `<!-- PR_AGENT_DESCRIPTION_BEGIN -->\n${DESCRIPTION_AGENT_HEADER}\n\n${DESCRIPTION_REVIEW_MAP_HEADING}\n\n1. path\n<!-- PR_AGENT_DESCRIPTION_END -->`,
       ),
     ).toBe(true);
   });

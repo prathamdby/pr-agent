@@ -12,7 +12,7 @@ export const SLASH_HELP_BODY = [
   "",
   "Notes:",
   "- What runs automatically depends on the `FEATURE_*` settings (see docs/features.md). Review and describe fire on PR open in `auto` mode; later pushes need a manual `/review`.",
-  "- `/describe` writes below the PR Agent description header and keeps your text above it.",
+  "- `/describe` writes in the PR Agent description block and keeps your text outside it.",
   "- `/ask` and `@bot` mentions read the containing thread so follow-ups stay in conversation. They do not change finding severity or dismiss threads.",
   "- `/cancel` stops the active review immediately and updates the progress stub with who cancelled it.",
   "- Edited comments are ignored for slash parsing in v1.",
