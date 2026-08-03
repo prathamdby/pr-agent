@@ -11,11 +11,33 @@ export const DESCRIPTION_SUBMIT_ONLY_NUDGE =
 export const DESCRIPTION_VALIDATION_REPAIR_ROUNDS = 3;
 export const DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS = 2;
 
+/** Map mode omit when file count and line changes stay under these and the set is not truncated. */
 export const DESCRIPTION_MAP_OMIT_MAX_FILES = 5;
 export const DESCRIPTION_MAP_OMIT_MAX_LINE_CHANGES = 300;
 export const DESCRIPTION_MAP_MAX_ENTRIES = 5;
 /** Schema ceiling above publish cap so enforce can cap-and-publish. */
 export const MAX_DESCRIPTION_PAYLOAD_PR_FILES = 20;
 export const DESCRIPTION_REVIEW_MAP_HEADING = "### Review map";
+
+/**
+ * Body scale upper bounds for the standard tier.
+ * At or above either bound (or truncated) becomes detailed.
+ * Brief uses the map-omit thresholds above.
+ */
+export const DESCRIPTION_BODY_STANDARD_MAX_FILES = 20;
+export const DESCRIPTION_BODY_STANDARD_MAX_LINE_CHANGES = 1500;
+
+/** Bullet and word budgets per body scale (injected as hard prompt rules). */
+export const DESCRIPTION_BODY_BRIEF_BULLET_MIN = 2;
+export const DESCRIPTION_BODY_BRIEF_BULLET_MAX = 5;
+export const DESCRIPTION_BODY_BRIEF_MAX_WORDS_PER_BULLET = 25;
+
+export const DESCRIPTION_BODY_STANDARD_BULLET_MIN = 4;
+export const DESCRIPTION_BODY_STANDARD_BULLET_MAX = 8;
+export const DESCRIPTION_BODY_STANDARD_MAX_WORDS_PER_BULLET = 30;
+
+export const DESCRIPTION_BODY_DETAILED_BULLET_MIN = 6;
+export const DESCRIPTION_BODY_DETAILED_BULLET_MAX = 12;
+export const DESCRIPTION_BODY_DETAILED_MAX_WORDS_PER_BULLET = 35;
 
 export const MAX_TOOL_ROUNDS_DESCRIBE = 16;

@@ -31,7 +31,8 @@ export type DescriptionPrFile = z.infer<typeof descriptionFileSchema>;
 export const DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE: DescriptionPayload = {
   title: "Add user session validation",
   type: ["Enhancement"],
-  description: "- Validate session on each request\n- Add middleware hook",
+  description:
+    "- The change validates the user session on each request.\n- It adds a middleware hook at the auth boundary.",
   prFiles: [
     {
       filename: "src/auth/session.ts",

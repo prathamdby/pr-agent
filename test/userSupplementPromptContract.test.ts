@@ -22,4 +22,10 @@ describe("user supplement prompt contracts", () => {
   it("documents user supplements as untrusted in the description prompt", () => {
     expect(descriptionSystemPrompt).toContain(descriptionSupplementContract);
   });
+
+  it("documents STE100 writing style and body scale for description", () => {
+    expect(descriptionSystemPrompt).toContain("## Writing style (ASD-STE100)");
+    expect(descriptionSystemPrompt).toContain("## Description body scale");
+    expect(descriptionSystemPrompt).not.toContain("1–4 bullet points");
+  });
 });

@@ -4,4 +4,4 @@ globs:
   - "src/agentWork/executors/descriptionExecutor.ts"
 ---
 
-Description publish must merge only the marker-wrapped agent block via `mergeDescriptionIntoPrBody` (`descriptionBodyMerge.ts`); never overwrite user-authored body outside `<!-- PR_AGENT_DESCRIPTION_BEGIN -->` / `<!-- PR_AGENT_DESCRIPTION_END -->`. Map mode is server-owned (`descriptionMapMode.ts`): `omit` strips the map; `read_first` caps at five files — enforce on `submitDescription`, do not trust the model alone. Title rewrite stays behind `FEATURE_TITLE_REWRITE`.
+Description publish must merge only the marker-wrapped agent block via `mergeDescriptionIntoPrBody` (`descriptionBodyMerge.ts`); never overwrite user-authored body outside `<!-- PR_AGENT_DESCRIPTION_BEGIN -->` / `<!-- PR_AGENT_DESCRIPTION_END -->`. Writing policy is server-owned (`descriptionWritingPolicy.ts`): body scale and map mode come from workspace size stats; map mode `omit` strips the map and `read_first` caps at five files — enforce on `submitDescription` (`resolveDescriptionMapMode` / `enforceDescriptionMapPayload`), do not trust the model alone. Title rewrite stays behind `FEATURE_TITLE_REWRITE`.

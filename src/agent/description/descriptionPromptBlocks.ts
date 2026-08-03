@@ -1,4 +1,23 @@
-/** Prompt blocks for PR description generation (Mermaid + review map). */
+/** Prompt blocks for PR description generation (writing style, Mermaid, review map). */
+
+import { ste100WritingGuidance } from "../prompts/ste100Guidance.js";
+
+/** STE100 for description title, body bullets, and review-map reasons. */
+export const descriptionSte100Guidance = ste100WritingGuidance;
+
+export const descriptionBodyScaleGuidance = [
+  "## Description body scale",
+  "",
+  "The server chooses body scale from workspace size stats and injects a hard rule in the user message.",
+  "Follow that rule for bullet count, words per bullet, and technical depth.",
+  "Do not stay at a fixed short template when the hard rule asks for more detail.",
+  "Do not pad with empty or repeated bullets when the hard rule asks for fewer.",
+  "",
+  "### Depth meanings",
+  "- what_why: state what changed and why it matters for reviewers.",
+  "- what_why_risk: also name notable risks, contracts, or failure modes the diff touches.",
+  "- what_why_how: also name key modules or paths and how they interact.",
+].join("\n");
 
 export const descriptionMermaidGuidance = [
   "## Changes diagram (changesDiagram)",

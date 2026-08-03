@@ -10,7 +10,10 @@ import {
   DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
 } from "./descriptionSchema.js";
 import { formatZodIssues } from "../../util/formatZodIssues.js";
-import { enforceDescriptionMapPayload, type DescriptionMapMode } from "./descriptionMapMode.js";
+import {
+  enforceDescriptionMapPayload,
+  type DescriptionMapMode,
+} from "./descriptionWritingPolicy.js";
 import {
   formatMermaidValidationError,
   sanitizeMermaidDiagram,

@@ -41,3 +41,17 @@ Indexer for agents working on **pr-agent**. Open the linked source; do not treat
 | Cursor Cloud setup                           | [docs/cursor-cloud.md](docs/cursor-cloud.md)   |
 
 Skip doc updates when none of the above apply.
+
+## Before ship (local CI gate)
+
+Run the backend **check** job from [`.github/workflows/ci.yml`](.github/workflows/ci.yml) locally before every push or PR update. Do not ship a fix that fails these steps.
+
+```bash
+nub run check:effect-versions
+nub run check:prod-deps
+nub run check:code
+nub run test
+nub run build
+```
+
+`check:code` is typecheck + lint + fmt. Fix format with `nub run fmt` when `fmt:check` fails. Integration and docker jobs need services; run `nub run test:integration` when the change touches durable work, webhooks, or DB paths.
