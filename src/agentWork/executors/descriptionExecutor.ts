@@ -10,11 +10,8 @@ import {
 } from "../../errors/classifiedFailure.js";
 import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
-import {
-  DESCRIPTION_AGENT_HEADER,
-  DESCRIPTION_FAILURE_MESSAGE,
-  DESCRIPTION_PUBLISH_LENS,
-} from "../../settings/index.js";
+import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
+import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { recordPublishStep, shouldSkipWork } from "../repository.js";
 import {
@@ -134,7 +131,7 @@ export async function executeDescriptionJob(
           repo: item.repo,
           pull_number: item.prNumber,
         });
-        if ((pr.body ?? "").includes(DESCRIPTION_AGENT_HEADER)) return;
+        if (prBodyHasAgentDescriptionBlock(pr.body)) return;
       }
       await octokit.rest.issues.createComment({
         owner: item.owner,

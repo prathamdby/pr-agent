@@ -5,6 +5,7 @@ import {
 } from "../../github/prFileUrls.js";
 import { redactOutboundSecrets } from "../../security/redactOutboundSecrets.js";
 import { DESCRIPTION_AGENT_HEADER, DESCRIPTION_REVIEW_MAP_HEADING } from "../../settings/index.js";
+import { extractAgentDescriptionBlock } from "./descriptionBodyMerge.js";
 import type { DescriptionPayload, DescriptionPrFile } from "./descriptionSchema.js";
 
 export { sanitizeMermaidDiagram } from "./mermaidDiagram.js";
@@ -57,6 +58,7 @@ export function renderDescriptionAgentBlock(
 }
 
 export function prBodyHasDescriptionReviewMap(body: string | null | undefined): boolean {
-  const text = body ?? "";
-  return text.includes(DESCRIPTION_AGENT_HEADER) && text.includes(DESCRIPTION_REVIEW_MAP_HEADING);
+  const agentBlock = extractAgentDescriptionBlock(body);
+  if (!agentBlock) return false;
+  return agentBlock.includes(DESCRIPTION_REVIEW_MAP_HEADING);
 }
