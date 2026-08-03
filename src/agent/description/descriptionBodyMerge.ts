@@ -16,10 +16,11 @@ export function extractUserAuthoredPrBody(body: string | null | undefined): stri
     const endIndex = current.indexOf(DESCRIPTION_AGENT_BODY_END, beginIndex);
     const before = current.slice(0, beginIndex).trimEnd();
     const after =
-      endIndex >= 0
-        ? current.slice(endIndex + DESCRIPTION_AGENT_BODY_END.length).trimStart()
-        : "";
-    return [before, after].filter((part) => part.length > 0).join("\n\n").trim();
+      endIndex >= 0 ? current.slice(endIndex + DESCRIPTION_AGENT_BODY_END.length).trimStart() : "";
+    return [before, after]
+      .filter((part) => part.length > 0)
+      .join("\n\n")
+      .trim();
   }
 
   const headerIndex = current.indexOf(DESCRIPTION_AGENT_HEADER);
