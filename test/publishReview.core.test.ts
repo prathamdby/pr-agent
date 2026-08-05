@@ -53,7 +53,7 @@ describe("publishReview core", () => {
     const publishState = testPublishState();
     await publishReviewForTest({
       ...baseParams,
-      summaryCommentIdHint: 99,
+      progressCommentIdHint: 99,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
@@ -334,7 +334,7 @@ describe("publishReview core", () => {
     await publishReviewForTest({
       ...baseParams,
       mode: "review-security",
-      summaryCommentIdHint: 99,
+      progressCommentIdHint: 99,
       publishState,
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
@@ -374,7 +374,7 @@ describe("publishReview core", () => {
     await publishReviewForTest({
       ...baseParams,
       shouldLinkToSummary: true,
-      summaryCommentIdHint: 99,
+      progressCommentIdHint: 99,
       publishState: testPublishState(),
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
@@ -411,7 +411,7 @@ describe("publishReview core", () => {
       publishReviewForTest({
         ...baseParams,
         shouldLinkToSummary: true,
-        summaryCommentIdHint: null,
+        progressCommentIdHint: null,
         publishState: testPublishState(),
         cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       }),
@@ -430,7 +430,7 @@ describe("publishReview core", () => {
     await publishReviewForTest({
       ...baseParams,
       shouldLinkToSummary: true,
-      summaryCommentIdHint: 99,
+      progressCommentIdHint: 99,
       publishState,
       payload: { ...payload, findings: [] },
     });

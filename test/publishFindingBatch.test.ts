@@ -100,7 +100,7 @@ function batchContext(
     },
     source: "correctness",
     workItemId: "wi-1",
-    progressCommentUrl: PROGRESS_COMMENT_URL,
+    resolveProgressCommentUrl: async () => PROGRESS_COMMENT_URL,
     getToken: () => "token",
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
     recordPublishStep,
@@ -225,10 +225,24 @@ describe("publishFindingBatch", () => {
     await expect(
       publishFindingBatch(
         [finding],
-        batchContext(createFindingLedger(), undefined, { progressCommentUrl: undefined }),
+        batchContext(createFindingLedger(), undefined, {
+          resolveProgressCommentUrl: async () => undefined,
+        }),
       ),
     ).rejects.toThrow(/progress comment/i);
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+  });
+
+  it("resolves the progress comment URL when the batch is published", async () => {
+    const resolveProgressCommentUrl = vi.fn(async () => PROGRESS_COMMENT_URL);
+
+    const result = await publishFindingBatch(
+      [finding],
+      batchContext(createFindingLedger(), undefined, { resolveProgressCommentUrl }),
+    );
+
+    expect(result.kind).toBe("published");
+    expect(resolveProgressCommentUrl).toHaveBeenCalledOnce();
   });
 
   it("stops before the GitHub write when the run was superseded", async () => {

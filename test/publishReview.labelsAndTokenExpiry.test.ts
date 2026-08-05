@@ -213,7 +213,7 @@ describe("publishReview labels and token expiry", () => {
       ...baseParams,
       tokenExpiresAtTs,
       shouldLinkToSummary: true,
-      summaryCommentIdHint: 99,
+      progressCommentIdHint: 99,
       publishState: testPublishState(),
       payload: { ...payload, findings: [] },
     });

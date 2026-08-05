@@ -512,7 +512,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     shouldLinkToSummary,
     storedInlineFingerprints,
     resumedPlacements,
-    summaryCommentGithubId: summaryCommentIdHint,
+    progressCommentGithubId: progressCommentIdHint,
   } = publishContext;
 
   const priorInlineFeedbackResult = await priorInlineFeedback;
@@ -627,7 +627,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     workspace: repositoryView.workspace,
     codeIndexSnapshotId: codeIndexStatus.available ? codeIndexStatus.snapshotId : undefined,
     shouldLinkToSummary,
-    summaryCommentIdHint,
+    progressCommentIdHint,
     hasDescriptionReviewMap: prBodyHasDescriptionReviewMap(
       (pullRequest as { body?: string | null } | undefined)?.body,
     ),

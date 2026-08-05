@@ -217,7 +217,7 @@ describe("executeReviewJob", () => {
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],
       resumedPlacements: [],
-      summaryCommentGithubId: null,
+      progressCommentGithubId: null,
     });
     mocks.fetchPrFiles.mockResolvedValue(prFiles);
     mocks.lightweight.mockResolvedValue({ handled: false });
@@ -294,7 +294,7 @@ describe("executeReviewJob", () => {
       shouldLinkToSummary: false,
       storedInlineFingerprints: [],
       resumedPlacements: [],
-      summaryCommentGithubId: null,
+      progressCommentGithubId: null,
     });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
@@ -307,6 +307,26 @@ describe("executeReviewJob", () => {
           threadCallCount: 8,
         },
       }),
+    );
+  });
+
+  it("passes the persisted progress comment id into the review run as the hint", async () => {
+    mocks.loadPublishContext.mockResolvedValueOnce({
+      publishState: {
+        summaryPublished: false,
+        inlineReviewIds: [],
+        threadCallCount: 0,
+      },
+      shouldLinkToSummary: false,
+      storedInlineFingerprints: [],
+      resumedPlacements: [],
+      progressCommentGithubId: 4321,
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.runOrchestratedPrReview).toHaveBeenCalledWith(
+      expect.objectContaining({ progressCommentIdHint: 4321 }),
     );
   });
 

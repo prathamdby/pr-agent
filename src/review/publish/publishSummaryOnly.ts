@@ -424,7 +424,7 @@ export async function publishReviewSummaryOnly(params: {
   readonly mode?: AnyReviewLens;
   readonly cachedDiffIndex?: CachedPrDiffIndex;
   readonly shouldLinkToSummary?: boolean;
-  readonly summaryCommentIdHint?: number | null;
+  readonly progressCommentIdHint?: number | null;
   readonly staleReview?: boolean;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly ciAuthor?: CiSummaryAuthor;
@@ -556,7 +556,7 @@ export async function publishReviewSummaryOnly(params: {
       repo,
       prNumber,
       summarySentinel,
-      params.summaryCommentIdHint,
+      params.progressCommentIdHint,
       summaryTokenExpiresAtTs,
     );
     knownSummaryCommentRef = resolvedSummary
@@ -586,7 +586,7 @@ export async function publishReviewSummaryOnly(params: {
           body: summaryBody,
           sentinel: summarySentinel,
           expiresAtTs: summaryTokenExpiresAtTs,
-          hintCommentId: params.summaryCommentIdHint ?? knownSummaryCommentRef?.id,
+          hintCommentId: params.progressCommentIdHint ?? knownSummaryCommentRef?.id,
           progressRevision: 7,
         })
       : upsertReviewSummaryComment(

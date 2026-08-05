@@ -75,8 +75,8 @@ export type FindingBatchContext = {
   readonly ctx: ReviewPublishContext;
   readonly source: FindingSource;
   readonly workItemId?: string;
-  /** URL of the review progress comment (progress stub / final summary). Required to publish. */
-  readonly progressCommentUrl?: string;
+  /** Resolves the current review progress comment (progress stub / final summary). */
+  readonly resolveProgressCommentUrl: () => Promise<string | undefined>;
   readonly getToken: () => string;
   readonly getTokenExpiresAtTs?: () => number | undefined;
   readonly refreshLiveAuth?: () => Promise<void>;
@@ -274,7 +274,7 @@ export async function publishFindingBatch(
     };
   }
 
-  const progressCommentUrl = context.progressCommentUrl?.trim();
+  const progressCommentUrl = (await context.resolveProgressCommentUrl())?.trim();
   if (!progressCommentUrl) {
     throw new AppError({
       code: "review.progress_comment_url_required",

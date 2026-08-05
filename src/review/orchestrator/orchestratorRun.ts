@@ -1,5 +1,6 @@
 import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
+import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { classifyFallbackEligibility } from "../../agent/runtime/fallbackClassification.js";
@@ -249,6 +250,31 @@ export async function runOrchestratedPrReview(
   const briefTool = buildSpecialistBriefTool();
   const state = initialState();
   const agentEvents = resolveAgentEventsContext(params.cfg, params.durability);
+  const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
+  const resolveProgressCommentUrl = async (): Promise<string | undefined> => {
+    let commentId: number | null | undefined;
+    if (progressCommentCoordination) {
+      try {
+        commentId = await getSummaryCommentGithubId(
+          progressCommentCoordination.pool,
+          progressCommentCoordination.resourceKey,
+          reviewMode,
+        );
+        if (commentId == null) {
+          commentId = params.progressCommentIdHint;
+        }
+      } catch (error) {
+        const appError = toAppError(error, {
+          code: "review.progress_comment_lookup_failed",
+        });
+        logWarn("review_progress_comment_lookup_failed", errorLogFields(appError));
+        commentId = params.progressCommentIdHint;
+      }
+    } else {
+      commentId = params.progressCommentIdHint;
+    }
+    return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
+  };
   const publishThread = buildPublishThreadTool({
     ctx: {
       owner: params.owner,
@@ -258,12 +284,7 @@ export async function runOrchestratedPrReview(
       hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
     },
     workItemId: params.workItemId,
-    progressCommentUrl: reviewCheckDetailsUrl(
-      params.owner,
-      params.repo,
-      params.prNumber,
-      params.summaryCommentIdHint,
-    ),
+    resolveProgressCommentUrl,
     getToken: setup.getToken,
     getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
     refreshLiveAuth: setup.refreshLiveAuth,
@@ -309,7 +330,7 @@ export async function runOrchestratedPrReview(
     mode: reviewMode,
     cachedDiffIndex: setup.cachedDiffIndex,
     shouldLinkToSummary: params.shouldLinkToSummary,
-    summaryCommentIdHint: params.summaryCommentIdHint,
+    progressCommentIdHint: params.progressCommentIdHint,
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
     publishAbortState: params.publishAbortState,
@@ -631,7 +652,7 @@ export async function runOrchestratedPrReview(
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
       refreshLiveAuth: setup.refreshLiveAuth,
-      hintCommentId: params.summaryCommentIdHint,
+      hintCommentId: params.progressCommentIdHint,
     });
   };
 
@@ -676,7 +697,7 @@ export async function runOrchestratedPrReview(
         getToken: setup.getToken,
         getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
         refreshLiveAuth: setup.refreshLiveAuth,
-        hintCommentId: params.summaryCommentIdHint,
+        hintCommentId: params.progressCommentIdHint,
       });
       return;
     }
@@ -700,7 +721,7 @@ export async function runOrchestratedPrReview(
       getToken: setup.getToken,
       getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
       refreshLiveAuth: setup.refreshLiveAuth,
-      hintCommentId: params.summaryCommentIdHint,
+      hintCommentId: params.progressCommentIdHint,
     });
   };
 
@@ -814,7 +835,7 @@ export async function runOrchestratedPrReview(
       mode: reviewMode,
       cachedDiffIndex: setup.cachedDiffIndex,
       shouldLinkToSummary: params.shouldLinkToSummary,
-      summaryCommentIdHint: params.summaryCommentIdHint,
+      progressCommentIdHint: params.progressCommentIdHint,
       recordPublishStep: params.recordPublishStep,
       coverage: coverage(state),
       shouldAbortPublish: params.shouldAbortPublish,
