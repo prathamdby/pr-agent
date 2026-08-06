@@ -895,4 +895,101 @@ describe("runOrchestratedPrReview", () => {
     }
     await run;
   });
+
+  it("re-reads the progress comment on every batch instead of memoizing the first", async () => {
+    publishRecordMocks.getSummaryCommentGithubId
+      .mockResolvedValueOnce(99)
+      .mockResolvedValueOnce(123);
+    const recordPublishStep = coordinatedRecordPublishStep();
+    const run = runOrchestratedPrReview({
+      ...params(),
+      progressCommentIdHint: null,
+      recordPublishStep,
+    });
+
+    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    const resolveUrl = testState.progressUrlResolvers[0];
+    await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-99");
+    await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-123");
+    expect(publishRecordMocks.getSummaryCommentGithubId).toHaveBeenCalledTimes(2);
+
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await run;
+  });
+
+  it("falls back to the progress comment hint when the live read fails", async () => {
+    publishRecordMocks.getSummaryCommentGithubId.mockRejectedValueOnce(new Error("db down"));
+    const recordPublishStep = coordinatedRecordPublishStep();
+    const run = runOrchestratedPrReview({
+      ...params(),
+      progressCommentIdHint: 77,
+      recordPublishStep,
+    });
+
+    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    const resolveUrl = testState.progressUrlResolvers[0];
+    await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-77");
+
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await run;
+  });
+
+  it("falls back to the progress comment hint when the live read finds no record", async () => {
+    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(null);
+    const recordPublishStep = coordinatedRecordPublishStep();
+    const run = runOrchestratedPrReview({
+      ...params(),
+      progressCommentIdHint: 77,
+      recordPublishStep,
+    });
+
+    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    const resolveUrl = testState.progressUrlResolvers[0];
+    await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-77");
+
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await run;
+  });
+
+  it("resolves no progress comment url when neither the live read nor the hint has one", async () => {
+    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(null);
+    const recordPublishStep = coordinatedRecordPublishStep();
+    const run = runOrchestratedPrReview({
+      ...params(),
+      progressCommentIdHint: null,
+      recordPublishStep,
+    });
+
+    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    const resolveUrl = testState.progressUrlResolvers[0];
+    await expect(resolveUrl?.()).resolves.toBeUndefined();
+
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await run;
+  });
+
+  it("uses the progress comment hint without a database read when coordination is absent", async () => {
+    const run = runOrchestratedPrReview({
+      ...params(),
+      progressCommentIdHint: 99,
+    });
+
+    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    const resolveUrl = testState.progressUrlResolvers[0];
+    await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-99");
+    expect(publishRecordMocks.getSummaryCommentGithubId).not.toHaveBeenCalled();
+
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await run;
+  });
 });

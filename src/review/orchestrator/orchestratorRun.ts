@@ -252,13 +252,27 @@ export async function runOrchestratedPrReview(
   const agentEvents = resolveAgentEventsContext(params.cfg, params.durability);
   const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
   const resolveProgressCommentUrl = async (): Promise<string | undefined> => {
-    const commentId = progressCommentCoordination
-      ? await getSummaryCommentGithubId(
+    let commentId: number | null | undefined;
+    if (progressCommentCoordination) {
+      try {
+        commentId = await getSummaryCommentGithubId(
           progressCommentCoordination.pool,
           progressCommentCoordination.resourceKey,
           reviewMode,
-        )
-      : params.progressCommentIdHint;
+        );
+        if (commentId == null) {
+          commentId = params.progressCommentIdHint;
+        }
+      } catch (error) {
+        const appError = toAppError(error, {
+          code: "review.progress_comment_lookup_failed",
+        });
+        logWarn("review_progress_comment_lookup_failed", errorLogFields(appError));
+        commentId = params.progressCommentIdHint;
+      }
+    } else {
+      commentId = params.progressCommentIdHint;
+    }
     return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
   };
   const publishThread = buildPublishThreadTool({
