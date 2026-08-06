@@ -31,7 +31,7 @@ export async function publishReview(
     publishState: SubmitReviewState;
     cachedDiffIndex?: CachedPrDiffIndex;
     shouldLinkToSummary?: boolean;
-    summaryCommentIdHint?: number | null;
+    progressCommentIdHint?: number | null;
     staleReview?: boolean;
     recordPublishStep?: RecordPublishStepWithCoordination;
     storedInlineFingerprints?: readonly string[];
@@ -64,12 +64,13 @@ export async function publishReview(
           resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
         }
       : undefined,
-    progressCommentUrl: reviewCheckDetailsUrl(
-      params.owner,
-      params.repo,
-      params.prNumber,
-      params.summaryCommentIdHint,
-    ),
+    resolveProgressCommentUrl: async () =>
+      reviewCheckDetailsUrl(
+        params.owner,
+        params.repo,
+        params.prNumber,
+        params.progressCommentIdHint,
+      ),
     getToken,
     getTokenExpiresAtTs,
     cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),
@@ -97,7 +98,7 @@ export async function publishReview(
     mode: params.mode,
     cachedDiffIndex: params.cachedDiffIndex,
     shouldLinkToSummary: params.shouldLinkToSummary,
-    summaryCommentIdHint: params.summaryCommentIdHint,
+    progressCommentIdHint: params.progressCommentIdHint,
     staleReview: params.staleReview,
     recordPublishStep: params.recordPublishStep,
     ciAuthor: params.ciSummaryAuthor,

@@ -499,7 +499,7 @@ export type ReviewExecutorPublishContext = {
   shouldLinkToSummary: boolean;
   storedInlineFingerprints: string[];
   resumedPlacements: AcceptedPlacement[];
-  summaryCommentGithubId: number | null;
+  progressCommentGithubId: number | null;
 };
 
 export async function loadReviewExecutorPublishContext(
@@ -514,7 +514,7 @@ export async function loadReviewExecutorPublishContext(
       | null;
     prior_summary_exists: boolean;
     fingerprint_details: { detail: Record<string, unknown> }[] | null;
-    latest_summary_github_id: string | null;
+    latest_progress_comment_github_id: string | null;
   }>(
     pool,
     `SELECT
@@ -560,21 +560,23 @@ export async function loadReviewExecutorPublishContext(
             AND github_id IS NOT NULL
           ORDER BY updated_at DESC
           LIMIT 1
-       ) AS latest_summary_github_id`,
+       ) AS latest_progress_comment_github_id`,
     [resourceKey, reviewLens, workItemId],
   );
   const currentPublish = row?.current_publish ?? [];
   const shouldLinkToSummary = row?.prior_summary_exists ?? false;
-  const summaryCommentGithubId =
-    row?.latest_summary_github_id != null ? Number(row.latest_summary_github_id) : null;
+  const progressCommentGithubId =
+    row?.latest_progress_comment_github_id != null
+      ? Number(row.latest_progress_comment_github_id)
+      : null;
   return {
     publishState: parseReviewPublishStateRows(currentPublish, workItemId),
     shouldLinkToSummary,
     storedInlineFingerprints: mergeStoredInlineFingerprints(row?.fingerprint_details ?? []),
     resumedPlacements: parseResumedPlacements(currentPublish, workItemId),
-    summaryCommentGithubId:
-      summaryCommentGithubId != null && Number.isFinite(summaryCommentGithubId)
-        ? summaryCommentGithubId
+    progressCommentGithubId:
+      progressCommentGithubId != null && Number.isFinite(progressCommentGithubId)
+        ? progressCommentGithubId
         : null,
   };
 }

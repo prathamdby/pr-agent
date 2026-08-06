@@ -64,7 +64,14 @@ const testState = vi.hoisted(() => ({
   restrictionFailureTool: null as string | null,
   publishedBatchCount: 0,
   synthesisPublishesSummary: true,
+  progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
 }));
+
+const publishRecordMocks = vi.hoisted(() => ({
+  getSummaryCommentGithubId: vi.fn<() => Promise<number | null>>(async () => 99),
+}));
+
+vi.mock("../src/agentWork/publishRecordRepository.js", () => publishRecordMocks);
 
 vi.mock("../src/review/run/reviewRunSetup.js", () => ({
   buildReviewRunSetup: vi.fn(() => ({
@@ -113,49 +120,52 @@ vi.mock("../src/review/orchestrator/specialistRun.js", () => ({
 }));
 
 vi.mock("../src/review/orchestrator/publishThreadTool.js", () => ({
-  buildPublishThreadTool: vi.fn(() => {
-    testState.ledger = createFindingLedger();
-    return {
-      piTool: { name: "publish_thread", description: "publish", parameters: {} },
-      executor: vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
-        if (!testState.activeSource) throw new Error("missing active source");
-        testState.publishOrder.push(testState.activeSource);
-        testState.publishedBatchCount += 1;
-        const ledger = testState.ledger ?? createFindingLedger();
-        const accepted = (args.findings ?? []).map((item, index) => ({
-          kind: "posted" as const,
-          source: testState.activeSource ?? "correctness",
-          placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
-          canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
-          reviewId: testState.publishOrder.length,
-        }));
-        testState.ledger = {
-          ...ledger,
-          accepted: [...ledger.accepted, ...accepted],
-          postedInlineCount: ledger.postedInlineCount + accepted.length,
-          threadCallCount: ledger.threadCallCount + 1,
-        };
-        return {
-          kind: "empty",
-          delta: {
-            accepted: [],
-            suppressionFingerprints: [],
-            inlineReviewIds: [],
-            postedInlineCount: 0,
-            threadCallCount: 1,
-            threadBudgetExhausted: false,
-          },
-          publishedThreadOverlapHints: [],
-        };
-      }),
-      setSource: (source: SpecialistId) => {
-        testState.activeSource = source;
-      },
-      getLedger: () => testState.ledger ?? createFindingLedger(),
-      getPublishedBatchCount: () => testState.publishedBatchCount,
-      getStopReason: () => null,
-    };
-  }),
+  buildPublishThreadTool: vi.fn(
+    (params: { resolveProgressCommentUrl: () => Promise<string | undefined> }) => {
+      testState.progressUrlResolvers.push(params.resolveProgressCommentUrl);
+      testState.ledger = createFindingLedger();
+      return {
+        piTool: { name: "publish_thread", description: "publish", parameters: {} },
+        executor: vi.fn(async (args: { findings?: readonly ReviewFinding[] }) => {
+          if (!testState.activeSource) throw new Error("missing active source");
+          testState.publishOrder.push(testState.activeSource);
+          testState.publishedBatchCount += 1;
+          const ledger = testState.ledger ?? createFindingLedger();
+          const accepted = (args.findings ?? []).map((item, index) => ({
+            kind: "posted" as const,
+            source: testState.activeSource ?? "correctness",
+            placement: { finding: item, inlineLine: item.startLine, inlinePosted: true },
+            canonicalFingerprint: `${testState.activeSource}-${index}-${item.file}`,
+            reviewId: testState.publishOrder.length,
+          }));
+          testState.ledger = {
+            ...ledger,
+            accepted: [...ledger.accepted, ...accepted],
+            postedInlineCount: ledger.postedInlineCount + accepted.length,
+            threadCallCount: ledger.threadCallCount + 1,
+          };
+          return {
+            kind: "empty",
+            delta: {
+              accepted: [],
+              suppressionFingerprints: [],
+              inlineReviewIds: [],
+              postedInlineCount: 0,
+              threadCallCount: 1,
+              threadBudgetExhausted: false,
+            },
+            publishedThreadOverlapHints: [],
+          };
+        }),
+        setSource: (source: SpecialistId) => {
+          testState.activeSource = source;
+        },
+        getLedger: () => testState.ledger ?? createFindingLedger(),
+        getPublishedBatchCount: () => testState.publishedBatchCount,
+        getStopReason: () => null,
+      };
+    },
+  ),
 }));
 
 vi.mock("../src/review/orchestrator/publishSummaryTool.js", () => ({
@@ -381,6 +391,9 @@ describe("runOrchestratedPrReview", () => {
     testState.sendDelay = null;
     testState.restrictionFailureTool = null;
     testState.publishedBatchCount = 0;
+    testState.progressUrlResolvers.length = 0;
+    publishRecordMocks.getSummaryCommentGithubId.mockReset();
+    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(99);
     testState.synthesisPublishesSummary = true;
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.set(specialist, deferred());
@@ -861,5 +874,25 @@ describe("runOrchestratedPrReview", () => {
 
     // +1 refresh for the worker-start progress tick before recon.
     expect(testState.refreshes).toBe(11);
+  });
+
+  it("resolves the current progress comment after orchestration starts", async () => {
+    publishRecordMocks.getSummaryCommentGithubId.mockResolvedValue(123);
+    const recordPublishStep = coordinatedRecordPublishStep();
+    const run = runOrchestratedPrReview({
+      ...params(),
+      progressCommentIdHint: null,
+      recordPublishStep,
+    });
+
+    await vi.waitFor(() => expect(testState.progressUrlResolvers).toHaveLength(1));
+    const resolveUrl = testState.progressUrlResolvers[0];
+    expect(resolveUrl).toBeDefined();
+    await expect(resolveUrl?.()).resolves.toBe("https://github.com/o/r/pull/1#issuecomment-123");
+
+    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
+      testState.outcomes.get(specialist)?.resolve(empty(specialist));
+    }
+    await run;
   });
 });

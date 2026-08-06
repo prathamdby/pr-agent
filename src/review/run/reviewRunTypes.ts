@@ -23,7 +23,7 @@ export type ReviewRunParams = {
   readonly cwd?: string;
   readonly workspace: LocalPrWorkspace;
   readonly shouldLinkToSummary?: boolean;
-  readonly summaryCommentIdHint?: number | null;
+  readonly progressCommentIdHint?: number | null;
   readonly hasDescriptionReviewMap?: boolean;
   readonly initialPublishState?: {
     readonly published?: boolean;

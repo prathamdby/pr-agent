@@ -80,7 +80,7 @@ describe("loadReviewExecutorPublishContext", () => {
           },
         },
       ],
-      latest_summary_github_id: "1001",
+      latest_progress_comment_github_id: "1001",
     });
 
     await expect(
@@ -102,7 +102,7 @@ describe("loadReviewExecutorPublishContext", () => {
           reviewId: 42,
         },
       ],
-      summaryCommentGithubId: 1001,
+      progressCommentGithubId: 1001,
     });
 
     expect(queryOne).toHaveBeenCalledTimes(1);
@@ -115,14 +115,14 @@ describe("loadReviewExecutorPublishContext", () => {
       current_publish: [],
       prior_summary_exists: false,
       fingerprint_details: [],
-      latest_summary_github_id: "1001",
+      latest_progress_comment_github_id: "1001",
     });
 
     await expect(
       loadReviewExecutorPublishContext(pool, "wi-2", "o/r#1", "review-security"),
     ).resolves.toMatchObject({
       shouldLinkToSummary: false,
-      summaryCommentGithubId: 1001,
+      progressCommentGithubId: 1001,
     });
   });
 });
