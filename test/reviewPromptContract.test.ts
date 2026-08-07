@@ -66,8 +66,36 @@ describe("specialist-specific obligations", () => {
   });
 
   it("keeps tests draft skeleton guidance", () => {
-    expect(automatedReviewTestsSystemPrompt).toContain("Draft skeletons are required");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "Draft skeletons are required when this specialist reports findings",
+    );
     expect(automatedReviewTestsSystemPrompt).toContain("draft test skeleton");
+  });
+
+  it("gates test suggestions on project testing posture", () => {
+    expect(automatedReviewTestsSystemPrompt).toContain("## Testing posture (gate first)");
+    expect(automatedReviewTestsSystemPrompt).toContain("**Incomplete evidence**");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "Never choose **Brownfield, no tests** or **Greenfield, no tests** from that absence",
+    );
+    expect(automatedReviewTestsSystemPrompt).toContain("**Brownfield, no tests**");
+    expect(automatedReviewTestsSystemPrompt).toContain("**Greenfield, no tests**");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "only when checkout coverage is full (not sparse)",
+    );
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "Do not recommend creating test files, scaffolding a suite, or adopting a framework",
+    );
+    expect(automatedReviewTestsSystemPrompt).toContain("Do not report missing-test findings");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "Submit an empty report per the Findings report contract below",
+    );
+    expect(automatedReviewTestsSystemPrompt).not.toContain(
+      'Call `submit_findings_report` with `status: "no_findings"` and `findings: []`',
+    );
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "When unsure between brownfield and greenfield with no tests under full coverage, prefer brownfield",
+    );
   });
 
   it("includes security tripwires and prose contracts only for correctness", () => {
