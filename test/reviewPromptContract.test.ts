@@ -66,8 +66,22 @@ describe("specialist-specific obligations", () => {
   });
 
   it("keeps tests draft skeleton guidance", () => {
-    expect(automatedReviewTestsSystemPrompt).toContain("Draft skeletons are required");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "Draft skeletons are required when this specialist reports findings",
+    );
     expect(automatedReviewTestsSystemPrompt).toContain("draft test skeleton");
+  });
+
+  it("gates test suggestions on project testing posture", () => {
+    expect(automatedReviewTestsSystemPrompt).toContain("## Testing posture (gate first)");
+    expect(automatedReviewTestsSystemPrompt).toContain("**Brownfield, no tests**");
+    expect(automatedReviewTestsSystemPrompt).toContain("**Greenfield, no tests**");
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "Do not recommend creating test files, scaffolding a suite, or adopting a framework",
+    );
+    expect(automatedReviewTestsSystemPrompt).toContain(
+      "When unsure between brownfield and greenfield with no tests, prefer brownfield",
+    );
   });
 
   it("includes security tripwires and prose contracts only for correctness", () => {
