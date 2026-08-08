@@ -31,12 +31,64 @@ describe("renderCiSummary", () => {
         "❌ CI failing — lint",
         "",
         "lint",
+        "https://example.com/lint",
         "src/foo.ts:12 — Unexpected any",
         "Fix the reported lint/format findings locally, then re-push.",
         "",
         "Grant Actions: Read for richer digests.",
       ].join("\n"),
     );
+  });
+
+  it("keeps each failure block intact with a blank line between failures", () => {
+    const text = formatCiSummaryPlainText({
+      status: "failing",
+      headline: "❌ CI failing — lint, test",
+      failures: [
+        {
+          name: "lint",
+          reason: "Unexpected any",
+          fixHint: "Remove the any.",
+        },
+        {
+          name: "test",
+          reason: "Assertion failed",
+          fixHint: "Update the expectation.",
+        },
+      ],
+    });
+    expect(text).toBe(
+      [
+        "❌ CI failing — lint, test",
+        "",
+        "lint",
+        "Unexpected any",
+        "Remove the any.",
+        "",
+        "test",
+        "Assertion failed",
+        "Update the expectation.",
+      ].join("\n"),
+    );
+  });
+
+  it("keeps a permission note without failures and drops whitespace-only notes", () => {
+    expect(
+      formatCiSummaryPlainText({
+        status: "failing",
+        headline: "❌ CI failing — lint",
+        failures: [],
+        permissionNote: "Grant Actions: Read for richer digests.",
+      }),
+    ).toBe(["❌ CI failing — lint", "", "Grant Actions: Read for richer digests."].join("\n"));
+    expect(
+      formatCiSummaryPlainText({
+        status: "passing",
+        headline: "✅ All CI is passing",
+        failures: [],
+        permissionNote: "   \n\t  ",
+      }),
+    ).toBe("✅ All CI is passing");
   });
 
   it("renders a passing headline with markers", () => {

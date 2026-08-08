@@ -43,6 +43,7 @@ import {
   type ReviewRunFooterMeta,
 } from "./reviewRunFooter.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
+import { wrapUntrustedBlock } from "../../agent/prompts/promptBlocks.js";
 import {
   formatCiSummaryPlainText,
   renderCiSummaryCell,
@@ -288,7 +289,12 @@ export function renderAgentFixPrompt(
     blocks.join("\n\n"),
   ];
   if (shouldRenderCiSummaryRow(ciSummary)) {
-    lines.push("", escapeCodeFenceBreakers(formatCiSummaryPlainText(ciSummary)));
+    lines.push(
+      "",
+      escapeCodeFenceBreakers(
+        wrapUntrustedBlock("ci_summary", formatCiSummaryPlainText(ciSummary)),
+      ),
+    );
   }
   return lines.join("\n");
 }

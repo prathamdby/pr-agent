@@ -4,7 +4,7 @@ import {
   renderTableEm,
   renderTableLink,
 } from "../../github/markdownFormat.js";
-import type { CiSummary } from "./ciSummaryTypes.js";
+import type { CiFailureDetail, CiSummary } from "./ciSummaryTypes.js";
 
 /** HTML comment markers for surgical CI-cell refresh (ADR 0026). */
 export const CI_SUMMARY_CELL_START = "<!-- pr-agent:ci-summary -->";
@@ -13,36 +13,60 @@ export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 const CI_SUMMARY_CELL_RE =
   /<!--\s*pr-agent:ci-summary\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
 
-/** Plain-text CI digest for the agent fix prompt (same fields as the table cell). */
+export type CiSummarySections = {
+  readonly headline: string;
+  readonly failures: readonly CiFailureDetail[];
+  readonly permissionNote?: string;
+};
+
+/** Shared field selection for the CI table cell and agent-fix plain-text digest. */
+export function selectCiSummarySections(summary: CiSummary): CiSummarySections {
+  const failures =
+    summary.status === "failing" && summary.failures.length > 0 ? [...summary.failures] : [];
+  const permissionNote = summary.permissionNote?.trim();
+  return {
+    headline: summary.headline,
+    failures,
+    ...(permissionNote != null && permissionNote.length > 0 ? { permissionNote } : {}),
+  };
+}
+
+/**
+ * Plain-text CI digest for the agent fix prompt.
+ * Same section selection as the table cell; includes failure URL when present.
+ */
 export function formatCiSummaryPlainText(summary: CiSummary): string {
-  const parts: string[] = [summary.headline];
-  if (summary.status === "failing" && summary.failures.length > 0) {
-    for (const failure of summary.failures) {
-      parts.push([failure.name, failure.reason, failure.fixHint].join("\n"));
+  const sections = selectCiSummarySections(summary);
+  const parts: string[] = [sections.headline];
+  for (const failure of sections.failures) {
+    const lines = [failure.name];
+    if (failure.url != null && failure.url.length > 0) {
+      lines.push(failure.url);
     }
+    lines.push(failure.reason, failure.fixHint);
+    parts.push(lines.join("\n"));
   }
-  if (summary.permissionNote != null && summary.permissionNote.trim().length > 0) {
-    parts.push(summary.permissionNote.trim());
+  if (sections.permissionNote != null) {
+    parts.push(sections.permissionNote);
   }
   return parts.join("\n\n");
 }
 
 /** Renders the CI gate cell for the review summary / progress stub table. */
 export function renderCiSummaryCell(summary: CiSummary): string {
-  const parts: string[] = [escapeTablePlainCell(summary.headline)];
-  if (summary.status === "failing" && summary.failures.length > 0) {
-    for (const failure of summary.failures) {
-      const nameHtml =
-        failure.url != null
-          ? renderTableLink(failure.name, failure.url)
-          : `<strong>${escapeTableHtml(failure.name)}</strong>`;
-      parts.push(
-        `${nameHtml}<br>${escapeTablePlainCell(failure.reason)}<br>${renderTableEm(failure.fixHint)}`,
-      );
-    }
+  const sections = selectCiSummarySections(summary);
+  const parts: string[] = [escapeTablePlainCell(sections.headline)];
+  for (const failure of sections.failures) {
+    const nameHtml =
+      failure.url != null
+        ? renderTableLink(failure.name, failure.url)
+        : `<strong>${escapeTableHtml(failure.name)}</strong>`;
+    parts.push(
+      `${nameHtml}<br>${escapeTablePlainCell(failure.reason)}<br>${renderTableEm(failure.fixHint)}`,
+    );
   }
-  if (summary.permissionNote != null && summary.permissionNote.trim().length > 0) {
-    parts.push(renderTableEm(summary.permissionNote));
+  if (sections.permissionNote != null) {
+    parts.push(renderTableEm(sections.permissionNote));
   }
   const inner = parts.join("<br><br>");
   return `${CI_SUMMARY_CELL_START}${inner}${CI_SUMMARY_CELL_END}`;
