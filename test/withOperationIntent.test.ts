@@ -107,8 +107,11 @@ describe("withOperationIntent", () => {
     expect(mergeOperationIntentDetail).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        detail: expect.objectContaining({ __mutating: true, __mutateAttempt: expect.any(String) }),
+        detail: expect.objectContaining({ __mutating: true }),
       }),
+    );
+    expect(mergeOperationIntentDetail.mock.calls[0]?.[1]?.detail).not.toHaveProperty(
+      "__mutateAttempt",
     );
     expect(persistOperationIntent).toHaveBeenCalledBefore(vi.mocked(reconcileOperationIntent));
   });
@@ -269,7 +272,7 @@ describe("withOperationIntent", () => {
       mutationKind: "github.ask_reply",
       status: "pending",
       publishRecordId: null,
-      detail: { __mutating: true, __mutateAttempt: "attempt-1", step: "ask_reply" },
+      detail: { __mutating: true, step: "ask_reply" },
     });
     vi.mocked(mergeOperationIntentDetail).mockClear();
     vi.mocked(findCompletedPublishRecordId).mockResolvedValue(null);
@@ -286,12 +289,39 @@ describe("withOperationIntent", () => {
     expect(reconcileOperationIntent).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        status: "failed",
+        status: "outcome_unknown",
         detail: expect.objectContaining({
           errorCode: "operation_intent.mutation_outcome_unknown",
         }),
       }),
     );
+  });
+
+  it("never remutates after status outcome_unknown", async () => {
+    const mutate = vi.fn(async () => "second");
+    vi.mocked(persistOperationIntent).mockResolvedValue({
+      id: "intent-1",
+      workItemId: "wi-1",
+      operationKey: "ask:reply:o/r#1",
+      mutationKind: "github.ask_reply",
+      status: "outcome_unknown",
+      publishRecordId: null,
+      detail: {
+        __mutating: false,
+        errorCode: "operation_intent.mutation_outcome_unknown",
+      },
+    });
+    vi.mocked(findCompletedPublishRecordId).mockResolvedValue(null);
+
+    await expect(
+      withOperationIntent({
+        ...baseParams,
+        mutate,
+      }),
+    ).rejects.toMatchObject({ code: "operation_intent.mutation_outcome_unknown" });
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(findCompletedPublishRecordId).toHaveBeenCalled();
   });
 
   it("recovers from publish_records without remutating when __mutating and no __result", async () => {

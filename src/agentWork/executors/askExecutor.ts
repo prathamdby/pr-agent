@@ -129,8 +129,9 @@ async function recoverDeliveredAskReplyCommentId(params: {
     return null;
   }
 
-  // Require a pending intent so an older identical-question reply is not reused.
-  if (intent == null || intent.status !== "pending") {
+  // Scan only while the mutation may still be in flight or outcome-unknown.
+  // Skip failed/reconciled so an older identical-question reply is not reused.
+  if (intent == null || (intent.status !== "pending" && intent.status !== "outcome_unknown")) {
     return null;
   }
 

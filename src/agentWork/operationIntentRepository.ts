@@ -3,7 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 
-export type OperationIntentStatus = "pending" | "reconciled" | "failed";
+export type OperationIntentStatus = "pending" | "reconciled" | "failed" | "outcome_unknown";
 
 export type OperationIntentRow = {
   readonly id: string;
@@ -63,9 +63,9 @@ export async function persistOperationIntent(
 }
 
 /**
- * Merge detail into a still-pending intent without changing status.
- * Used to stash a successful mutation result before status reconciliation so a
- * crash in that window can resume without remutating.
+ * Merge detail into a pending or failed intent.
+ * Failed rows reopen to pending so the in-flight marker can re-arm across retries.
+ * Reconciled / outcome_unknown rows are left untouched (never auto-remutate).
  */
 export async function mergeOperationIntentDetail(
   client: Pool | PoolClient,
@@ -86,11 +86,13 @@ export async function mergeOperationIntentDetail(
   }>(
     client,
     `UPDATE operation_intents
-        SET detail = detail || $3::jsonb,
+        SET status = CASE WHEN status = 'failed' THEN 'pending' ELSE status END,
+            reconciled_at = CASE WHEN status = 'failed' THEN NULL ELSE reconciled_at END,
+            detail = detail || $3::jsonb,
             updated_at = now()
       WHERE work_item_id = $1
         AND operation_key = $2
-        AND status = 'pending'
+        AND status IN ('pending', 'failed')
       RETURNING id, work_item_id, operation_key, mutation_kind, status, publish_record_id, detail`,
     [params.workItemId, params.operationKey, JSON.stringify(params.detail)],
   );
