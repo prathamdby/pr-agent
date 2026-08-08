@@ -112,7 +112,7 @@ caps, CI-summary waits, workspace limits) are now code constants in
 
 - Missing catalog → today’s env + built-in provider path (`modelsJsonPath: null`). On **worker**, a non-built-in `PI_PROVIDER` fails with an error that includes the path that was looked for.
 - Present but invalid, or selection not found → **worker** `loadConfig()` throws; **web** accepts the env strings without catalog validation.
-- Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side.
+- Prefer `$ENV_VAR` / `${ENV_VAR}` for `apiKey` values (see [Pi models.md](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md)). Sample: [`models.json.example`](../models.json.example). Do not commit a real API-key-bearing catalog; keep injection operator-side. Model `cost` fields are USD per 1M tokens (`input` / `output` / `cacheRead` / `cacheWrite`). Use `0` only for free local models; billed proxies need real rates so cache accounting is not silently free.
 - **How the file reaches Docker `/app/models.json`:**
   - **Build context:** if repo-root `models.json` exists at `docker build` time (e.g. Dokploy patch), the image copies it to `/app/models.json`. Missing file → build succeeds, no catalog in the image.
   - **Runtime mount:** Compose `./models.json:/app/models.json:ro` (create the host file first — a missing path becomes a directory).
