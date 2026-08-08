@@ -132,6 +132,14 @@ export function retentionQueueWorkOptions(): Parameters<PgBoss["work"]>[1] {
   };
 }
 
+/**
+ * Stop accepting new jobs without waiting for in-flight handlers.
+ * `stopBoss`'s drain timeout bounds how long those handlers may finish.
+ */
+export async function stopWorkerConsumers(boss: PgBoss): Promise<void> {
+  await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q, { wait: false })));
+}
+
 export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
   Layer.scopedDiscard(
     Effect.acquireRelease(
@@ -285,7 +293,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           try: async () => {
             handles.diagnostics.stop();
             await handles.health.close().catch(() => undefined);
-            await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q)));
+            await stopWorkerConsumers(boss);
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),

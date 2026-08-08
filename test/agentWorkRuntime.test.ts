@@ -1,11 +1,13 @@
-import { Effect, Layer } from "effect";
+import { Context, Effect, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
 const runtimeMocks = vi.hoisted(() => {
   const trace: string[] = [];
   const pool = {
-    end: vi.fn(async () => undefined),
+    end: vi.fn(async () => {
+      trace.push("pool.end");
+    }),
   };
   const boss = {};
 
@@ -45,6 +47,7 @@ vi.mock("../src/analytics/index.js", () => ({
 
 describe("agent work runtime teardown", () => {
   it("shuts down analytics after pg-boss drains", async () => {
+    runtimeMocks.trace.length = 0;
     const { agentWorkWebLive } = await import("../src/agentWork/runtime.js");
     const cfg = makeTestConfig();
 
@@ -54,6 +57,41 @@ describe("agent work runtime teardown", () => {
       runtimeMocks.boss,
       cfg.shutdownDrainTimeoutSeconds * 1000,
     );
-    expect(runtimeMocks.trace).toEqual(["boss.stop", "analytics.shutdown"]);
+    expect(runtimeMocks.trace.filter((step) => step !== "pool.end")).toEqual([
+      "boss.stop",
+      "analytics.shutdown",
+    ]);
+    expect(runtimeMocks.trace).toContain("pool.end");
+  });
+
+  it("releases the pool after the boss drain when Boss is provided before Pool", async () => {
+    runtimeMocks.trace.length = 0;
+    const { AgentWorkBossLive, AgentWorkPoolLive } = await import("../src/agentWork/runtime.js");
+    const cfg = makeTestConfig({ role: "worker" });
+
+    const Worker = Context.GenericTag<"Worker", void>("Worker");
+    // Same provide order as workerRuntime: Boss then Pool → pool.end last.
+    const workerLive = Layer.scoped(
+      Worker,
+      Effect.acquireRelease(
+        Effect.sync(() => {
+          runtimeMocks.trace.push("worker.start");
+        }),
+        () =>
+          Effect.sync(() => {
+            runtimeMocks.trace.push("worker.stop");
+          }),
+      ),
+    ).pipe(Layer.provide(AgentWorkBossLive(cfg)), Layer.provide(AgentWorkPoolLive(cfg)));
+
+    await Effect.runPromise(Effect.scoped(Layer.build(workerLive)));
+
+    expect(runtimeMocks.trace).toEqual([
+      "worker.start",
+      "worker.stop",
+      "boss.stop",
+      "analytics.shutdown",
+      "pool.end",
+    ]);
   });
 });
