@@ -9,6 +9,7 @@ function baseItem() {
     status: "running" as const,
     resourceKey: "o/r#1",
     attemptCount: 1,
+    executionEpoch: 1,
     cancelRequestedAt: null,
     owner: "o",
     repo: "r",

@@ -467,7 +467,9 @@ function cancelLastError(attribution: ReviewCancelAttribution): string {
 
 /**
  * Cancel every queued/running review for a PR (auto or slash).
- * Queued → `cancelled`; running → cooperative `cancel_requested_at`.
+ * Both queued and running become `cancelled` immediately so the slash uniqueness
+ * slot frees without depending on pg-boss redelivery (cancelled jobs never redeliver).
+ * Also sets `cancel_requested_at` on former running rows for in-process skip checks.
  * Writes `cancelAttribution` on the payload for the cancelled progress notice.
  * Returns running rows first (newest), then queued — ack primary owns the stub.
  */
@@ -524,14 +526,17 @@ export async function cancelActiveReviews(
     created_at: Date | string;
   }>(
     `UPDATE agent_work_items
-		    SET cancel_requested_at = COALESCE(cancel_requested_at, now()),
+		    SET status = 'cancelled',
+		        cancel_requested_at = COALESCE(cancel_requested_at, now()),
+		        last_error = $2,
+		        completed_at = now(),
 		        updated_at = now(),
-		        payload = COALESCE(payload, '{}'::jsonb) || $2::jsonb
+		        payload = COALESCE(payload, '{}'::jsonb) || $3::jsonb
 		  WHERE resource_key = $1
 		    AND type = 'review'
 		    AND status = 'running'
 		  RETURNING id, source, head_sha, created_at`,
-    [resourceKey, payloadPatch],
+    [resourceKey, lastError, payloadPatch],
   );
   return [...mapRows(running.rows), ...mapRows(queued.rows)];
 }

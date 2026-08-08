@@ -13,6 +13,31 @@ type ReconcilePendingIntentsResult = {
   readonly stillPending: number;
 };
 
+const TRIAGE_THREAD_KEY = /^triage:thread:(\d+)(?::resolve)?$/;
+const VERIFICATION_THREAD_KEY = /^verification:thread:(\d+)$/;
+
+function triageThreadRootFromOperationKey(operationKey: string): {
+  readonly rootCommentId: number;
+  readonly isResolve: boolean;
+} | null {
+  const match = TRIAGE_THREAD_KEY.exec(operationKey);
+  if (!match) return null;
+  return {
+    rootCommentId: Number(match[1]),
+    isResolve: operationKey.endsWith(":resolve"),
+  };
+}
+
+function verificationThreadRootFromOperationKey(operationKey: string): number | null {
+  const match = VERIFICATION_THREAD_KEY.exec(operationKey);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Find a completed publish_record that proves this operation already landed.
+ * Match on operation identity (key + kind-specific ledger shape), never on
+ * shared detail alone — triage reply vs :resolve share threadRootCommentId.
+ */
 export async function findCompletedPublishRecordId(
   client: Pool | PoolClient,
   workItemId: string,
@@ -21,6 +46,12 @@ export async function findCompletedPublishRecordId(
   const detail = intent.detail;
   const step = detail.step;
   if (typeof step !== "string") return null;
+
+  const triageThread = triageThreadRootFromOperationKey(intent.operationKey);
+  // Resolve has no publish_records row; never borrow the reply ledger.
+  if (triageThread?.isResolve) {
+    return null;
+  }
 
   const values: unknown[] = [workItemId, step];
   let query = `SELECT id
@@ -47,13 +78,22 @@ export async function findCompletedPublishRecordId(
     query += ` AND detail @> jsonb_build_object('batches', jsonb_build_array(jsonb_build_object('batchId', $${values.length}::text)))`;
   }
 
-  const threadRootCommentId = detail.threadRootCommentId;
-  if (typeof threadRootCommentId === "number") {
-    values.push(String(threadRootCommentId));
-    query += ` AND (
-      detail @> jsonb_build_object('actedThreadIds', jsonb_build_array(($${values.length}::text)::bigint))
-      OR detail @> jsonb_build_object('threadRootCommentId', ($${values.length}::text)::bigint)
-    )`;
+  if (triageThread != null) {
+    values.push(String(triageThread.rootCommentId));
+    query += ` AND detail @> jsonb_build_object('actedThreadIds', jsonb_build_array(($${values.length}::text)::bigint))`;
+  } else {
+    const verificationRoot = verificationThreadRootFromOperationKey(intent.operationKey);
+    if (verificationRoot != null) {
+      values.push(String(verificationRoot));
+      // ADR-0023 ledger: { threads: { "<rootCommentId>": { ... } } }
+      query += ` AND detail -> 'threads' ? $${values.length}::text`;
+    } else {
+      const threadRootCommentId = detail.threadRootCommentId;
+      if (typeof threadRootCommentId === "number") {
+        values.push(String(threadRootCommentId));
+        query += ` AND detail @> jsonb_build_object('threadRootCommentId', ($${values.length}::text)::bigint)`;
+      }
+    }
   }
 
   query += " ORDER BY updated_at DESC LIMIT 1";

@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { captureEvent } from "../analytics/index.js";
-import { AppError, errorLogFields } from "../errors/appError.js";
+import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
 import {
   getAppBotIdentity,
@@ -34,6 +34,7 @@ import {
   getWorkItem,
   getWorkItemCore,
   getWorkItemPayload,
+  isExecutionEpochCurrent,
   markWorkCancelled,
   markWorkCompleted,
   markWorkFailed,
@@ -51,10 +52,14 @@ import { attachWorkItemPayload } from "./workItemPayloadSchema.js";
 import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
 import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
 
-type DurableExecutionContext = {
+export type DurableExecutionContext = {
   installation: InstallationToken;
   headSha: string;
   pullRequest?: PullRequestForFileList;
+  /** Fencing token from the claim that owns this execution. */
+  executionEpoch: number;
+  /** pg-boss job abort signal; aborted when the worker is stopped or the job is cancelled. */
+  signal: AbortSignal;
 };
 
 const installationTokenCache = new Map<number, InstallationToken | Promise<InstallationToken>>();
@@ -182,8 +187,9 @@ async function finishRescheduledParentWorkItem(
   itemId: string,
   type: WorkType,
   replacementWorkItemId: string | undefined,
+  executionEpoch: number,
 ): Promise<void> {
-  if (await markWorkCompleted(pool, itemId)) {
+  if (await markWorkCompleted(pool, itemId, executionEpoch)) {
     await clearResumeSnapshotsBestEffort(pool, itemId);
     logInfo("agent_work_completed", {
       type,
@@ -219,7 +225,7 @@ async function finishRescheduledParentWorkItem(
     });
   }
   if (await shouldSkipWork(pool, refreshed ?? { id: itemId })) {
-    await markWorkCancelled(pool, itemId);
+    await markWorkCancelled(pool, itemId, executionEpoch);
     await clearResumeSnapshotsBestEffort(pool, itemId);
   }
 }
@@ -272,6 +278,8 @@ export async function runDurableWorkItem<T extends WorkType>(
   type TypedCore = Extract<AgentWorkItemCore, { type: T }>;
 
   let workItem: TypedItem | undefined;
+  let executionEpoch = 0;
+  const jobSignal = spec.job.signal;
   const phaseState: WorkItemPhaseState = { phase: "claiming" };
   let installation: InstallationToken | undefined;
   /** Set while a reschedule afterComplete may still need abort on terminal failure. */
@@ -301,8 +309,23 @@ export async function runDurableWorkItem<T extends WorkType>(
     item: TypedCore,
     currentInstallation: InstallationToken | undefined,
     reason: string,
+    /** When set, only this claim may terminalise the row. */
+    cancelEpoch?: number,
   ): Promise<void> {
-    await markWorkCancelled(spec.pool, item.id);
+    if (cancelEpoch != null && !(await isExecutionEpochCurrent(spec.pool, item.id, cancelEpoch))) {
+      logInfo("agent_work_stale_execution_skipped", {
+        type: spec.type,
+        workItemId: item.id,
+        executionEpoch: cancelEpoch,
+        reason,
+      });
+      return;
+    }
+    if (cancelEpoch != null) {
+      await markWorkCancelled(spec.pool, item.id, cancelEpoch);
+    } else {
+      await markWorkCancelled(spec.pool, item.id);
+    }
     await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     await invokeCancelledHook(item, currentInstallation, reason);
   }
@@ -310,7 +333,10 @@ export async function runDurableWorkItem<T extends WorkType>(
   if (spec.acceptItem == null) {
     workItem =
       (await claimQueuedWorkItem(spec.pool, spec.job.data.workItemId, spec.type)) ?? undefined;
-    if (workItem) enterExecutingPhase(phaseState);
+    if (workItem) {
+      executionEpoch = workItem.executionEpoch;
+      enterExecutingPhase(phaseState);
+    }
   }
 
   if (workItem === undefined) {
@@ -325,27 +351,44 @@ export async function runDurableWorkItem<T extends WorkType>(
     };
 
     if (await cancelBeforeClaim()) return;
-    if (!(await claimWorkForExecution(spec.pool, core.id))) return;
+    if (jobSignal.aborted) {
+      await markCancelledAndInvokeHook(core, installation, "job_aborted_before_claim");
+      return;
+    }
+    const claim = await claimWorkForExecution(spec.pool, core.id);
+    if (!claim) return;
+    executionEpoch = claim.executionEpoch;
     enterExecutingPhase(phaseState);
     const rawPayload = await getWorkItemPayload(spec.pool, core.id);
     if (rawPayload === undefined) return;
     try {
-      workItem = attachWorkItemPayload(core, rawPayload);
+      workItem = attachWorkItemPayload({ ...core, executionEpoch }, rawPayload) as TypedItem;
     } catch (error) {
-      await markWorkFailed(spec.pool, core.id, error);
+      await markWorkFailed(spec.pool, core.id, error, executionEpoch);
       throw error;
     }
   }
 
+  if (workItem === undefined) return;
   const item = workItem;
 
   const cancelIfSkippable = async (reason: string, notifyHook = true) => {
     if (isSkipCheckSuppressed(phaseState)) return false;
+    // Newer claim owns the row — exit without terminalising their work item.
+    if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {
+      logInfo("agent_work_stale_execution_skipped", {
+        type: spec.type,
+        workItemId: item.id,
+        executionEpoch,
+        reason,
+      });
+      return true;
+    }
     if (!(await shouldSkipWork(spec.pool, item))) return false;
     if (notifyHook) {
-      await markCancelledAndInvokeHook(item, installation, reason);
+      await markCancelledAndInvokeHook(item, installation, reason, executionEpoch);
     } else {
-      await markWorkCancelled(spec.pool, item.id);
+      await markWorkCancelled(spec.pool, item.id, executionEpoch);
       await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     }
     return true;
@@ -360,7 +403,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     installationToken: InstallationToken,
   ): Promise<DurableExecutionContext | undefined> {
     if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
-      await markCancelledAndInvokeHook(item, installationToken, "bot_commenter");
+      await markCancelledAndInvokeHook(item, installationToken, "bot_commenter", executionEpoch);
       return undefined;
     }
 
@@ -370,11 +413,13 @@ export async function runDurableWorkItem<T extends WorkType>(
       item,
     );
     const headSha = resolvedHead.headSha;
-    if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha)) {
+    if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, executionEpoch)) {
       return {
         installation: installationToken,
         headSha,
         pullRequest: resolvedHead.pullRequest,
+        executionEpoch,
+        signal: jobSignal,
       };
     }
 
@@ -394,6 +439,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       item.id,
       spec.type,
       result.replacementWorkItemId,
+      executionEpoch,
     );
   }
 
@@ -465,7 +511,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
     if (result.degraded) await markWorkPublishDegraded(spec.pool, item.id);
-    if (!(await markWorkCompleted(spec.pool, item.id))) {
+    if (!(await markWorkCompleted(spec.pool, item.id, executionEpoch))) {
       await recheckSkippableAndCancel("completion_race", false);
       return;
     }
@@ -475,7 +521,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function markRetryingOrCancel(error: unknown, message: string): Promise<void> {
-    if (await markWorkRetrying(spec.pool, item.id, error)) {
+    if (await markWorkRetrying(spec.pool, item.id, error, executionEpoch)) {
       const failure = classifyFailure(error);
       logWarn("agent_work_retrying", {
         type: spec.type,
@@ -506,6 +552,18 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function handleDurableExecutionError(error: unknown): Promise<void> {
+    if (isAppError(error) && error.code === "agent_work.stale_execution_epoch") {
+      logInfo("agent_work_stale_execution_skipped", {
+        type: spec.type,
+        workItemId: item.id,
+        executionEpoch,
+      });
+      return;
+    }
+    if (jobSignal.aborted) {
+      await recheckSkippableAndCancel("job_aborted");
+      return;
+    }
     if (await recheckSkippableAndCancel("skipped_after_error")) return;
     const message = error instanceof Error ? error.message : String(error);
     if (!(spec.job.retryCount >= spec.job.retryLimit)) {
@@ -513,7 +571,7 @@ export async function runDurableWorkItem<T extends WorkType>(
       return;
     }
 
-    if (!(await markWorkFailed(spec.pool, item.id, error))) {
+    if (!(await markWorkFailed(spec.pool, item.id, error, executionEpoch))) {
       await recheckSkippableAndCancel("failure_race");
       return;
     }
@@ -558,6 +616,19 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   try {
+    if (jobSignal.aborted) {
+      await markCancelledAndInvokeHook(item, installation, "job_aborted", executionEpoch);
+      return;
+    }
+    if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {
+      // A newer claim owns the row — do not terminalise it.
+      logInfo("agent_work_stale_execution_skipped", {
+        type: spec.type,
+        workItemId: item.id,
+        executionEpoch,
+      });
+      return;
+    }
     installation = await mintInstallationToken(spec.cfg, item.installationId);
     const execution = await prepareDurableExecution(installation);
     if (!execution) return;
@@ -566,8 +637,21 @@ export async function runDurableWorkItem<T extends WorkType>(
       type: spec.type,
       workItemId: item.id,
       resourceKey: item.resourceKey,
+      executionEpoch,
     });
     await reconcilePendingIntents(spec.pool, item.id);
+    if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {
+      logInfo("agent_work_stale_execution_skipped", {
+        type: spec.type,
+        workItemId: item.id,
+        executionEpoch,
+      });
+      return;
+    }
+    if (jobSignal.aborted) {
+      await recheckSkippableAndCancel("job_aborted");
+      return;
+    }
     const result = await spec.execute(item, execution);
     await completeDurableExecution(result);
   } catch (error) {

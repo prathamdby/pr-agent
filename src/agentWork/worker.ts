@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
 import type { Config } from "../config.js";
 import { errorLogFields } from "../errors/appError.js";
-import { logDebug, logError, logInfo, runWithOperationLogger } from "../evlog.js";
+import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
   ACK_QUEUE,
@@ -38,6 +38,7 @@ import {
   type VerificationJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
+import { reapStrandedWorkItems } from "./strandedWorkReaper.js";
 import {
   collectQueueDiagnostics,
   evaluateWorkerReadiness,
@@ -132,6 +133,14 @@ export function retentionQueueWorkOptions(): Parameters<PgBoss["work"]>[1] {
   };
 }
 
+/**
+ * Stop accepting new jobs without waiting for in-flight handlers.
+ * `stopBoss`'s drain timeout bounds how long those handlers may finish.
+ */
+export async function stopWorkerConsumers(boss: PgBoss): Promise<void> {
+  await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q, { wait: false })));
+}
+
 export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
   Layer.scopedDiscard(
     Effect.acquireRelease(
@@ -147,7 +156,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
           };
           const registeredQueues = new Set<string>();
-          await cleanupStaleLocalPrWorkspaces();
           await ensureRetentionSchedule(boss, cfg);
           await Promise.all([
             registerPlainQueue<AckJobData>(
@@ -254,6 +262,25 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           const runDiagnostics = async (now: Date): Promise<void> => {
             const report = await collectQueueDiagnostics({ boss, pool, now });
             logQueueDiagnosticsReport(report);
+            try {
+              await cleanupStaleLocalPrWorkspaces();
+            } catch (e) {
+              logWarn("local_pr_workspace_sweep_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
+            try {
+              const reaped = await reapStrandedWorkItems(pool);
+              if (reaped.reaped > 0) {
+                logInfo("stranded_work_reaper_tick", reaped);
+              }
+            } catch (e) {
+              logWarn("stranded_work_reaper_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
           };
           await runDiagnostics(new Date());
 
@@ -285,7 +312,7 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           try: async () => {
             handles.diagnostics.stop();
             await handles.health.close().catch(() => undefined);
-            await Promise.all([...WORKER_CONSUMER_QUEUES].map((q) => boss.offWork(q)));
+            await stopWorkerConsumers(boss);
           },
           catch: (e) => (e instanceof Error ? e : new Error(String(e))),
         }).pipe(Effect.orDie),

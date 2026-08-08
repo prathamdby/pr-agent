@@ -21,6 +21,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   markQueuedWorkCancelled: vi.fn(),
   claimQueuedWorkItem: vi.fn(),
   claimWorkForExecution: vi.fn(),
+  isExecutionEpochCurrent: vi.fn(),
   markWorkCompleted: vi.fn(),
   forceMarkRescheduledParentCompleted: vi.fn(),
   markWorkFailed: vi.fn(),
@@ -89,6 +90,7 @@ function makeJob(retryCount = 0, retryLimit = 3): JobWithMetadata<{ workItemId: 
     data: { workItemId: "wi-1" },
     retryCount,
     retryLimit,
+    signal: new AbortController().signal,
   } as unknown as JobWithMetadata<{ workItemId: string }>;
 }
 
@@ -112,7 +114,8 @@ function defaultMocks() {
   vi.mocked(repo.getWorkItemPayload).mockReset();
   vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(null);
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-  vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
+  vi.mocked(repo.claimWorkForExecution).mockResolvedValue({ executionEpoch: 1 });
+  vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(true);
   vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);
@@ -151,7 +154,7 @@ describe("runDurableWorkItem", () => {
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[1].headSha).toBe("abc123");
     expect(execute.mock.calls[0]?.[1].installation.token).toBe("tok");
-    expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
     expect(repo.shouldSkipWork).toHaveBeenCalledTimes(2);
     expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
@@ -206,6 +209,7 @@ describe("runDurableWorkItem", () => {
       pool,
       "wi-1",
       expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
+      1,
     );
     expect(execute).not.toHaveBeenCalled();
   });
@@ -226,7 +230,7 @@ describe("runDurableWorkItem", () => {
       execute,
     });
 
-    expect(repo.updateRunningWorkHeadSha).toHaveBeenCalledWith(pool, "wi-1", "abc123");
+    expect(repo.updateRunningWorkHeadSha).toHaveBeenCalledWith(pool, "wi-1", "abc123", 1);
     expect(execute.mock.calls[0]?.[1].pullRequest).toBe(pullRequest);
   });
 
@@ -259,6 +263,7 @@ describe("runDurableWorkItem", () => {
       pool,
       "wi-1",
       expect.objectContaining({ name: "WorkItemPayloadValidationError" }),
+      1,
     );
     expect(execute).not.toHaveBeenCalled();
   });
@@ -319,7 +324,7 @@ describe("runDurableWorkItem", () => {
 
   it("returns without executing when claim fails", async () => {
     mockFetchedItem(makeItem());
-    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(false);
+    vi.mocked(repo.claimWorkForExecution).mockResolvedValue(null);
     const execute = vi.fn();
 
     await runReviewWorkItem({ execute });
@@ -339,7 +344,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
   });
 
   it("single-flights concurrent installation token mints", async () => {
@@ -426,7 +431,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
   });
 
@@ -525,7 +530,7 @@ describe("runDurableWorkItem", () => {
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
 
-    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
 
@@ -537,7 +542,7 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure });
 
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(onTerminalFailure).toHaveBeenCalledTimes(1);
     const [itemArg, installArg, errArg] = onTerminalFailure.mock.calls[0];
     expect(itemArg.id).toBe("wi-1");
@@ -641,7 +646,7 @@ describe("runDurableWorkItem", () => {
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
 
-    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
     expect(repo.markWorkFailed).not.toHaveBeenCalled();
   });
@@ -668,7 +673,7 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
     expect(repo.markWorkRetrying).not.toHaveBeenCalled();
     expect(
@@ -694,7 +699,7 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
     expect(
       reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
@@ -716,7 +721,7 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(
       reviewReschedule.cancelOrphanedStaleHeadReplacementOnTerminalFailure,
     ).toHaveBeenCalledWith(pool, boss, item, boom);
@@ -776,7 +781,7 @@ describe("runDurableWorkItem", () => {
       runReviewWorkItem({ job: makeJob(3, 3), execute, onTerminalFailure }),
     ).resolves.toBeUndefined();
 
-    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(onRescheduleAbort).toHaveBeenCalledWith(boss, boom);
     expect(evlog.logWarn).toHaveBeenCalledWith(
       "agent_work_replacement_cancel_failed",
@@ -798,6 +803,81 @@ describe("runDurableWorkItem", () => {
       }),
       boom,
     );
+  });
+
+  it("swallows stale-execution-epoch errors without terminalising", async () => {
+    mockFetchedItem(makeItem());
+    const { AppError } = await import("../src/errors/appError.js");
+    const boom = new AppError({
+      code: "agent_work.stale_execution_epoch",
+      message: "Work-item execution epoch is no longer current",
+    });
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", executionEpoch: 1 }),
+    );
+  });
+
+  it("cancels with claim epoch when the job signal is aborted after claim", async () => {
+    const item = makeItem({ status: "running" });
+    vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(item);
+    const controller = new AbortController();
+    controller.abort();
+    const execute = vi.fn();
+
+    await runReviewWorkItem({
+      job: { ...makeJob(), signal: controller.signal },
+      execute,
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
+  });
+
+  it("does not cancel a newer claim when abort races a stale epoch", async () => {
+    const item = makeItem({ status: "running" });
+    vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(false);
+    const controller = new AbortController();
+    controller.abort();
+    const execute = vi.fn();
+
+    await runReviewWorkItem({
+      job: { ...makeJob(), signal: controller.signal },
+      execute,
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", executionEpoch: 1 }),
+    );
+  });
+
+  it("cancels before claim when the job signal is aborted pre-claim", async () => {
+    mockFetchedItem(makeItem());
+    const controller = new AbortController();
+    controller.abort();
+    // Force legacy claim path so abort is checked before claimWorkForExecution.
+    const execute = vi.fn();
+
+    await runReviewWorkItem({
+      job: { ...makeJob(), signal: controller.signal },
+      acceptItem: (it) => it.reviewLens != null,
+      execute,
+    });
+
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("recovers replacement on retry after transient afterComplete failure", async () => {
@@ -822,12 +902,12 @@ describe("runDurableWorkItem", () => {
 
     await expect(runReviewWorkItem({ job: makeJob(0, 3), execute })).rejects.toBe(boom);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
-    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom);
+    expect(repo.markWorkRetrying).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
 
     await runReviewWorkItem({ job: makeJob(1, 3), execute });
 
     expect(afterComplete).toHaveBeenCalledTimes(2);
-    expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(onRescheduleAbort).not.toHaveBeenCalled();
   });
 });

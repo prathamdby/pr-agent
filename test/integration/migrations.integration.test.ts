@@ -28,6 +28,8 @@ const EXPECTED_MIGRATIONS = [
   "018_finding_history.sql",
   "019_code_index.sql",
   "020_github_installation_rate_limit_circuits.sql",
+  "021_operation_intent_outcome_unknown.sql",
+  "022_execution_epoch.sql",
 ].sort();
 
 function migrationFilesOnDisk(): string[] {
@@ -88,6 +90,18 @@ describe.skipIf(!hasDatabase)("migrations (integration)", () => {
     expect(publishIndexNames).toContain("publish_records_unique_shared_step_idx");
     expect(publishIndexNames).toContain("publish_records_unique_ask_work_item_step_idx");
     expect(publishIndexNames).toContain("publish_records_unique_check_run_work_item_step_idx");
+  });
+
+  it("accepts outcome_unknown on operation_intents.status", async () => {
+    const { rows } = await pool.query<{ check_clause: string }>(
+      `SELECT pg_get_constraintdef(c.oid) AS check_clause
+         FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'operation_intents'
+          AND c.contype = 'c'
+          AND c.conname = 'operation_intents_status_check'`,
+    );
+    expect(rows[0]?.check_clause ?? "").toContain("outcome_unknown");
   });
 
   it("is idempotent under concurrent runs (advisory lock)", async () => {

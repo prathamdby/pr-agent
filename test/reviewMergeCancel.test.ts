@@ -32,7 +32,7 @@ function makePrRef() {
 }
 
 describe("cancelActiveReviews (merge)", () => {
-  it("cancels queued reviews and requests cancel on running reviews", async () => {
+  it("cancels queued and running reviews to terminal cancelled", async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("status = 'queued'")) {
         return {
@@ -77,7 +77,7 @@ describe("cancelActiveReviews (merge)", () => {
     expect(queuedSql).toContain("type = 'review'");
     expect(queuedSql).not.toContain("source = 'auto'");
     expect(runningSql).toContain("cancel_requested_at");
-    expect(runningSql).not.toMatch(/status\s*=\s*'cancelled'/);
+    expect(runningSql).toMatch(/status\s*=\s*'cancelled'/);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'queued'"), [
       "acme/app#7",
       "Pull request merged",
@@ -85,6 +85,7 @@ describe("cancelActiveReviews (merge)", () => {
     ]);
     expect(query).toHaveBeenCalledWith(expect.stringContaining("status = 'running'"), [
       "acme/app#7",
+      "Pull request merged",
       mergedPatch,
     ]);
   });

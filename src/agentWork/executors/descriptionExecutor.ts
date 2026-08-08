@@ -13,7 +13,7 @@ import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { recordPublishStep, shouldSkipWork } from "../repository.js";
+import { isExecutionEpochCurrent, recordPublishStep, shouldSkipWork } from "../repository.js";
 import {
   makeInstallationTokenRefresher,
   resolveWorkItemHead,
@@ -57,7 +57,10 @@ export async function executeDescriptionJob(
             userSupplement: payload.userSupplement,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
-            shouldAbortPublish: async () => shouldSkipWork(pool, item),
+            shouldAbortPublish: async () =>
+              env.signal.aborted ||
+              (await shouldSkipWork(pool, item)) ||
+              !(await isExecutionEpochCurrent(pool, item.id, env.executionEpoch)),
             recordPublishStep: (detail) =>
               recordPublishStep(pool, {
                 workItemId: item.id,
@@ -65,11 +68,13 @@ export async function executeDescriptionJob(
                 reviewLens: DESCRIPTION_PUBLISH_LENS,
                 step: "pr_body",
                 detail,
+                executionEpoch: env.executionEpoch,
               }),
             operationIntent: {
               client: pool,
               workItemId: item.id,
               resourceKey: item.resourceKey,
+              executionEpoch: env.executionEpoch,
             },
             refreshInstallationToken: makeInstallationTokenRefresher(
               cfg,

@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { logWarn } from "../evlog.js";
+import { SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS } from "../settings/index.js";
 
 export const RATE_LIMIT_CIRCUIT_THRESHOLD = 3;
 
@@ -12,7 +13,7 @@ export type RateLimitCircuit = {
   readonly isOpen: () => boolean;
   readonly consecutiveFailures: () => number;
   /** Open from shared DB state without firing onOpened. */
-  readonly hydrateOpenFromShared: (kind?: RateLimitFailureClass) => void;
+  readonly hydrateOpenFromShared: (kind?: RateLimitFailureClass, openUntil?: Date) => void;
 };
 
 const circuitStore = new AsyncLocalStorage<RateLimitCircuit>();
@@ -56,29 +57,49 @@ export function createRateLimitCircuit(params: {
   readonly installationId: number;
   readonly threshold?: number;
   readonly onOpened?: (kind: RateLimitFailureClass) => void;
+  readonly now?: () => number;
 }): RateLimitCircuit {
   const threshold = params.threshold ?? RATE_LIMIT_CIRCUIT_THRESHOLD;
+  const now = params.now ?? (() => Date.now());
   let consecutive = 0;
   let open = false;
+  /** Null means the circuit stays open for the rest of the run (local threshold trip). */
+  let openUntilMs: number | null = null;
+
+  function clearExpiredSharedOpen(): boolean {
+    if (!open || openUntilMs == null) return open;
+    if (now() < openUntilMs) return true;
+    open = false;
+    openUntilMs = null;
+    consecutive = 0;
+    return false;
+  }
 
   return {
     installationId: params.installationId,
     consecutiveFailures: () => consecutive,
-    isOpen: () => open,
+    isOpen: () => clearExpiredSharedOpen(),
     recordSuccess: () => {
       consecutive = 0;
+      if (open && openUntilMs != null && now() >= openUntilMs) {
+        open = false;
+        openUntilMs = null;
+      }
     },
     recordFailure: (kind) => {
-      if (open) return false;
+      if (clearExpiredSharedOpen()) return false;
       consecutive += 1;
       if (consecutive < threshold) return false;
       open = true;
+      openUntilMs = null;
       params.onOpened?.(kind);
       return true;
     },
-    hydrateOpenFromShared: (_kind) => {
-      if (open) return;
+    hydrateOpenFromShared: (_kind, openUntil) => {
+      const untilMs = openUntil?.getTime() ?? now() + SHARED_RATE_LIMIT_CIRCUIT_COOLDOWN_MS;
+      if (now() >= untilMs) return;
       open = true;
+      openUntilMs = untilMs;
       consecutive = threshold;
     },
   };

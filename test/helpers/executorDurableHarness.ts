@@ -41,7 +41,8 @@ export function mockFetchedWorkItem(item: AgentWorkItem | null): void {
 
 export function setupDefaultDurableRepositoryMocks(): void {
   vi.mocked(repo.shouldSkipWork).mockResolvedValue(false);
-  vi.mocked(repo.claimWorkForExecution).mockResolvedValue(true);
+  vi.mocked(repo.claimWorkForExecution).mockResolvedValue({ executionEpoch: 1 });
+  vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(true);
   vi.mocked(repo.updateRunningWorkHeadSha).mockResolvedValue(true);
   vi.mocked(repo.markWorkCompleted).mockResolvedValue(true);
   vi.mocked(repo.markWorkFailed).mockResolvedValue(true);

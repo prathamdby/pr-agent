@@ -216,8 +216,10 @@ describe("publish records", () => {
       fingerprints: ["fp-1"],
     };
 
+    vi.mocked(queryOne).mockResolvedValue({ execution_epoch: 1 });
     await recordPublishStep(scopedPool, {
       workItemId: "wi-1",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       reviewLens: "review",
       step: "inline_review",
@@ -236,8 +238,10 @@ describe("publish records", () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const scopedPool = { query } as unknown as Pool;
 
+    vi.mocked(queryOne).mockResolvedValue({ execution_epoch: 1 });
     await recordPublishStep(scopedPool, {
       workItemId: "wi-1",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       reviewLens: "review",
       step: "progress_comment",

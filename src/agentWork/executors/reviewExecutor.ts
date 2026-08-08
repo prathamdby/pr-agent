@@ -11,7 +11,7 @@ import {
 import type { InstallationToken } from "../../github/appAuth.js";
 import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
-  isSharedRateLimitCircuitOpen,
+  getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
 import {
@@ -51,7 +51,10 @@ import {
   snapshotReviewRunMetrics,
   type ReviewRunMetricsSnapshot,
 } from "../../review/run/reviewRunMetrics.js";
-import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
+import {
+  findIssueCommentBySentinel,
+  upsertReviewSummaryComment,
+} from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
@@ -77,9 +80,11 @@ import {
   safeLoadFindingHistoryCandidates,
 } from "../findingHistoryRepository.js";
 import {
+  hasCompletedPublishStep,
   loadReviewExecutorPublishContext,
   getSummaryCommentGithubId,
   getWorkItem,
+  isExecutionEpochCurrent,
   recordPublishStep,
   shouldSkipWork,
   type ReviewExecutorPublishContext,
@@ -259,8 +264,9 @@ async function runLightweightCompletionOrSkip(args: {
   readonly payload: ReviewWorkPayload;
   readonly tokenState: TokenState;
   readonly headSha: string;
+  readonly executionEpoch: number;
 }): Promise<LightweightPhaseResult> {
-  const { cfg, pool, item, reviewLens, payload, tokenState, headSha } = args;
+  const { cfg, pool, item, reviewLens, payload, tokenState, headSha, executionEpoch } = args;
   if (payload.source !== "auto") {
     return { done: false, prefetchedPrFiles: undefined };
   }
@@ -287,6 +293,7 @@ async function runLightweightCompletionOrSkip(args: {
     tokenExpiresAtTs: tokenState.installation.expiresAtTs,
     preflight,
     model: cfg.piModel,
+    executionEpoch,
   });
   if (!lightweightResult.handled) {
     return { done: false, prefetchedPrFiles };
@@ -488,6 +495,8 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly staleHeadAtPublish: { value: boolean };
   readonly priorInlineFeedback: Promise<SettledPriorInlineFeedback>;
   readonly repositoryView: PrRepositoryView;
+  readonly executionEpoch: number;
+  readonly signal: AbortSignal;
 }): Promise<ReviewExecutionResult> {
   const {
     cfg,
@@ -506,6 +515,8 @@ async function runFullReviewAgainstRepositoryView(args: {
     staleHeadAtPublish,
     priorInlineFeedback,
     repositoryView,
+    executionEpoch,
+    signal,
   } = args;
   const {
     publishState,
@@ -645,8 +656,14 @@ async function runFullReviewAgainstRepositoryView(args: {
           step,
           githubId: detail?.githubId,
           detail: detail?.meta,
+          executionEpoch,
         }),
-      { pool, workItemId: item.id, resourceKey: item.resourceKey },
+      {
+        pool,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        executionEpoch,
+      },
     ),
     reviewSource: payload.source,
     staleHeadRescheduled: payload.staleHeadRescheduled,
@@ -656,7 +673,9 @@ async function runFullReviewAgainstRepositoryView(args: {
     prTitle: (pullRequest as { title?: string } | undefined)?.title ?? "",
     prBody: (pullRequest as { body?: string | null } | undefined)?.body ?? null,
     shouldAbortPublish: async () => {
+      if (signal.aborted) return true;
       if (await shouldSkipWork(pool, item)) return true;
+      if (!(await isExecutionEpochCurrent(pool, item.id, executionEpoch))) return true;
       const latestHeadSha = await getPullRequestHeadSha(
         tokenState.installation.token,
         item.owner,
@@ -792,6 +811,7 @@ export async function executeReviewJob(
         payload,
         tokenState,
         headSha,
+        executionEpoch: env.executionEpoch,
       });
       if (lightweight.done) return lightweight.result;
 
@@ -813,8 +833,12 @@ export async function executeReviewJob(
         },
       });
       try {
-        if (await isSharedRateLimitCircuitOpen(pool, item.installationId)) {
-          rateLimitCircuit.hydrateOpenFromShared("primary");
+        const sharedCircuit = await getSharedRateLimitCircuit(pool, item.installationId);
+        if (sharedCircuit != null && sharedCircuit.openUntil.getTime() > Date.now()) {
+          rateLimitCircuit.hydrateOpenFromShared(
+            sharedCircuit.lastErrorKind === "secondary" ? "secondary" : "primary",
+            sharedCircuit.openUntil,
+          );
           logInfo("github_shared_rate_limit_circuit_honored", {
             installationId: item.installationId,
             type: "review",
@@ -857,6 +881,8 @@ export async function executeReviewJob(
               staleHeadAtPublish,
               priorInlineFeedback,
               repositoryView,
+              executionEpoch: env.executionEpoch,
+              signal: env.signal,
             }),
         ),
       );
@@ -882,6 +908,28 @@ export async function executeReviewJob(
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
       const reviewLens = item.reviewLens;
+      if (!reviewLens) return;
+      if (
+        await hasCompletedPublishStep(
+          pool,
+          item.id,
+          item.resourceKey,
+          reviewLens,
+          "summary_comment",
+        )
+      ) {
+        return;
+      }
+      // Summary may have landed on GitHub before the publish record / intent __result.
+      const landedSummary = await findIssueCommentBySentinel(
+        installation.token,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        REVIEW_SUMMARY_SENTINEL,
+        installation.expiresAtTs,
+      );
+      if (landedSummary != null) return;
       const summary = await upsertReviewSummaryComment(
         installation.token,
         item.owner,

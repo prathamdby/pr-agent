@@ -9,11 +9,14 @@ import {
   type OperationIntentRow,
 } from "./operationIntentRepository.js";
 import { findCompletedPublishRecordId } from "./reconcilePendingIntents.js";
+import { assertCurrentExecutionEpoch } from "./workItemStateRepository.js";
 
 export type OperationIntentContext = {
   readonly client: Pool | PoolClient;
   readonly workItemId: string;
   readonly resourceKey: string;
+  /** When set, mutate/publish is rejected if a newer claim owns the work item. */
+  readonly executionEpoch?: number;
 };
 
 export type WithOperationIntentParams<T> = {
@@ -25,12 +28,12 @@ export type WithOperationIntentParams<T> = {
   readonly mutate: () => Promise<T>;
   readonly publishRecordId?: string | null;
   readonly reconcileDetail?: Record<string, unknown>;
+  readonly executionEpoch?: number;
 };
 
 /** Durable marker: mutate() was entered; crash before __result must not remutate. */
 export const OPERATION_INTENT_MUTATING_KEY = "__mutating";
 export const OPERATION_INTENT_RESULT_KEY = "__result";
-export const OPERATION_INTENT_MUTATE_ATTEMPT_KEY = "__mutateAttempt";
 
 export function askReplyOperationKey(resourceKey: string): string {
   return `ask:reply:${resourceKey}`;
@@ -154,7 +157,7 @@ async function recoverAfterMutatingWithoutResult<T>(
   await reconcileOperationIntent(params.client, {
     workItemId: params.workItemId,
     operationKey: params.operationKey,
-    status: "failed",
+    status: "outcome_unknown",
     detail: {
       ...params.reconcileDetail,
       [OPERATION_INTENT_MUTATING_KEY]: false,
@@ -176,6 +179,9 @@ async function recoverAfterMutatingWithoutResult<T>(
 }
 
 export async function withOperationIntent<T>(params: WithOperationIntentParams<T>): Promise<T> {
+  if (params.executionEpoch != null) {
+    await assertCurrentExecutionEpoch(params.client, params.workItemId, params.executionEpoch);
+  }
   const intent = await persistOperationIntent(params.client, {
     workItemId: params.workItemId,
     operationKey: params.operationKey,
@@ -195,6 +201,11 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
     return undefined as T;
   }
 
+  // Crash between mutate() and __result: never auto-remutate. Resolve by evidence.
+  if (intent.status === "outcome_unknown") {
+    return recoverAfterMutatingWithoutResult(params, intent);
+  }
+
   // Known mutate() throw before success: clear path so redelivery can remutate.
   // Do not enter recovery — __mutating may still be present on older failed rows.
   if (intent.status === "failed") {
@@ -203,13 +214,11 @@ export async function withOperationIntent<T>(params: WithOperationIntentParams<T
     return recoverAfterMutatingWithoutResult(params, intent);
   }
 
-  const mutateAttempt = crypto.randomUUID();
   await mergeOperationIntentDetail(params.client, {
     workItemId: params.workItemId,
     operationKey: params.operationKey,
     detail: {
       [OPERATION_INTENT_MUTATING_KEY]: true,
-      [OPERATION_INTENT_MUTATE_ATTEMPT_KEY]: mutateAttempt,
     },
   });
 

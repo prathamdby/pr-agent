@@ -32,6 +32,16 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: mocks.recordPublishStep,
 }));
 
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
+  return {
+    ...actual,
+    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
+    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
+  };
+});
+
 vi.mock("../src/agentWork/triageAnalytics.js", () => ({
   captureTriageEvent: vi.fn(),
   captureTriageFailure: vi.fn(),
@@ -93,6 +103,7 @@ describe("publishTriage", () => {
     const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -128,6 +139,7 @@ describe("publishTriage", () => {
     const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -174,6 +186,7 @@ describe("publishTriage", () => {
     await publishTriage({
       pool: pool({ actedThreadIds: [1] }),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -204,6 +217,7 @@ describe("publishTriage", () => {
     await publishTriage({
       pool: pool({ actedThreadIds: [1] }),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -234,6 +248,7 @@ describe("publishTriage", () => {
     await publishTriage({
       pool: pool(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -264,6 +279,7 @@ describe("publishTriage", () => {
     await publishTriage({
       pool: poolWithPriorRunActedIds(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -294,6 +310,7 @@ describe("publishTriage", () => {
     const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -326,6 +343,7 @@ describe("publishTriage", () => {
     await publishTriage({
       pool: pool(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -360,6 +378,7 @@ describe("publishTriage", () => {
     await publishTriage({
       pool: pool(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",
@@ -395,6 +414,7 @@ describe("publishTriage", () => {
     await publishTriageReportOnly({
       pool: pool(),
       workItemId: "wi",
+      executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
       token: "tok",

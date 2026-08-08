@@ -30,7 +30,9 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
     shouldSkipWork: vi.fn().mockResolvedValue(false),
     getWorkItemCore: vi.fn(),
     getWorkItemPayload: vi.fn(),
-    claimWorkForExecution: vi.fn().mockResolvedValue(true),
+    claimWorkForExecution: vi.fn().mockResolvedValue({ executionEpoch: 1 }),
+    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
+    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
     markWorkCompleted: vi.fn().mockResolvedValue(true),
     markWorkFailed: vi.fn().mockResolvedValue(true),
     markWorkRetrying: vi.fn().mockResolvedValue(true),
@@ -70,6 +72,7 @@ vi.mock("../src/github/appAuth.js", () => ({
 
 import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
 import { executeDescriptionJob } from "../src/agentWork/executors/descriptionExecutor.js";
+import { AppError } from "../src/errors/appError.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
@@ -126,6 +129,8 @@ function mockDurableExecution(item = descriptionItem()): void {
     const result = await spec.execute(item, {
       installation,
       headSha: "head",
+      executionEpoch: 1,
+      signal: new AbortController().signal,
     });
     if (result?.degraded) {
       await repo.markWorkPublishDegraded(pool, item.id);
@@ -248,5 +253,48 @@ describe("executeDescriptionJob", () => {
     });
 
     expect(repo.markWorkPublishDegraded).toHaveBeenCalledWith(pool, "wi-1");
+  });
+
+  it("treats a stale execution epoch as publish superseded", async () => {
+    vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(false);
+    mocks.runDescriptionRun.mockImplementation(
+      async (params: { shouldAbortPublish?: () => Promise<boolean> }) => {
+        const aborted = params.shouldAbortPublish ? await params.shouldAbortPublish() : false;
+        return { published: !aborted, publishSuperseded: aborted };
+      },
+    );
+    mockDurableExecution();
+
+    await executeDescriptionJob(cfg, pool, boss, descriptionJob());
+
+    expect(mocks.runDescriptionRun).toHaveBeenCalled();
+    expect(repo.markWorkPublishDegraded).not.toHaveBeenCalled();
+  });
+
+  it("rejects description publish when assertCurrentExecutionEpoch fails", async () => {
+    vi.mocked(repo.recordPublishStep).mockImplementation(async (_pool, params) => {
+      if (params.executionEpoch != null) {
+        await repo.assertCurrentExecutionEpoch(pool, params.workItemId, params.executionEpoch);
+      }
+    });
+    vi.mocked(repo.assertCurrentExecutionEpoch).mockRejectedValue(
+      new AppError({
+        code: "agent_work.stale_execution_epoch",
+        message: "Work-item execution epoch is no longer current",
+      }),
+    );
+    mocks.runDescriptionRun.mockImplementation(
+      async (params: {
+        recordPublishStep?: (detail: Record<string, unknown>) => Promise<void>;
+      }) => {
+        await params.recordPublishStep?.({ body: "x" });
+        return { published: true, publishSuperseded: false };
+      },
+    );
+    mockDurableExecution();
+
+    await expect(executeDescriptionJob(cfg, pool, boss, descriptionJob())).rejects.toMatchObject({
+      code: "agent_work.stale_execution_epoch",
+    });
   });
 });

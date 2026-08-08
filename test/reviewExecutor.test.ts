@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   getProgressStubPostedAtMs: vi.fn(async (): Promise<number | null> => null),
   getWorkItem: vi.fn(async (): Promise<unknown> => null),
   recordPublishStep: vi.fn(),
+  hasCompletedPublishStep: vi.fn(async () => false),
   shouldSkipWork: vi.fn(async () => false),
   getPullRequestHeadSha: vi.fn(async () => "head"),
   ensureCheckRunStarted: vi.fn(async (): Promise<number | null> => null),
@@ -39,7 +40,7 @@ const mocks = vi.hoisted(() => ({
       _summaryCommentId?: string | number | null,
     ): string | undefined => undefined,
   ),
-  isSharedRateLimitCircuitOpen: vi.fn(async () => false),
+  getSharedRateLimitCircuit: vi.fn(async () => null),
   openSharedRateLimitCircuitBestEffort: vi.fn(),
 }));
 
@@ -51,7 +52,9 @@ vi.mock("../src/analytics/index.js", () => ({
 vi.mock("../src/agentWork/repository.js", () => ({
   loadReviewExecutorPublishContext: mocks.loadPublishContext,
   recordPublishStep: mocks.recordPublishStep,
+  hasCompletedPublishStep: mocks.hasCompletedPublishStep,
   shouldSkipWork: mocks.shouldSkipWork,
+  isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
   getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
   getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   getWorkItem: mocks.getWorkItem,
@@ -74,7 +77,7 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 }));
 
 vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
-  isSharedRateLimitCircuitOpen: mocks.isSharedRateLimitCircuitOpen,
+  getSharedRateLimitCircuit: mocks.getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort: mocks.openSharedRateLimitCircuitBestEffort,
 }));
 
@@ -172,6 +175,8 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
         ttlMs: 300_000,
       },
       headSha: "head",
+      executionEpoch: 1,
+      signal: new AbortController().signal,
       pullRequest: source === "slash" ? pullRequest : undefined,
     });
   });
@@ -180,7 +185,7 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
 describe("executeReviewJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.isSharedRateLimitCircuitOpen.mockResolvedValue(false);
+    mocks.getSharedRateLimitCircuit.mockResolvedValue(null);
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
     vi.spyOn(reviewLightweightCompletion, "tryLightweightAutoReviewCompletion").mockImplementation(
       mocks.lightweight,
@@ -249,7 +254,7 @@ describe("executeReviewJob", () => {
   });
 
   it("continues review when shared rate-limit circuit read fails", async () => {
-    mocks.isSharedRateLimitCircuitOpen.mockRejectedValueOnce(new Error("db down"));
+    mocks.getSharedRateLimitCircuit.mockRejectedValueOnce(new Error("db down"));
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
@@ -688,6 +693,7 @@ describe("executeReviewJob", () => {
   });
 
   it("completes an existing check as failure from the terminal failure hook", async () => {
+    vi.spyOn(reviewPublish, "findIssueCommentBySentinel").mockResolvedValue(null);
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
@@ -710,6 +716,59 @@ describe("executeReviewJob", () => {
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
       }),
     );
+  });
+
+  it("skips failure notice when a summary sentinel already exists on GitHub", async () => {
+    vi.spyOn(reviewPublish, "findIssueCommentBySentinel").mockResolvedValue({
+      id: 4242,
+      url: "https://github.test/comment/4242",
+      body: "landed",
+    });
+    const upsert = vi.spyOn(reviewPublish, "upsertReviewSummaryComment");
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onTerminalFailure?.(
+        makeItem("slash"),
+        {
+          token: "tok",
+          expiresAtTs: Date.now() + 300_000,
+          ttlMs: 300_000,
+        },
+        new Error("dead"),
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).not.toHaveBeenCalled();
+  });
+
+  it("does not overwrite a completed summary from the terminal failure hook", async () => {
+    mocks.hasCompletedPublishStep.mockResolvedValueOnce(true);
+    const upsert = vi.spyOn(reviewPublish, "upsertReviewSummaryComment");
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onTerminalFailure?.(
+        makeItem("slash"),
+        {
+          token: "tok",
+          expiresAtTs: Date.now() + 300_000,
+          ttlMs: 300_000,
+        },
+        new Error("dead"),
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(mocks.hasCompletedPublishStep).toHaveBeenCalledWith(
+      pool,
+      expect.any(String),
+      expect.any(String),
+      "review",
+      "summary_comment",
+    );
+    expect(upsert).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).not.toHaveBeenCalled();
   });
 
   it("completes an existing check as cancelled from the durable cancellation hook", async () => {
@@ -971,6 +1030,8 @@ describe("executeReviewJob", () => {
           ttlMs: 60_000,
         },
         headSha: "head",
+        executionEpoch: 1,
+        signal: new AbortController().signal,
         pullRequest: prWithDescriptionOnly,
       });
     });
@@ -995,6 +1056,8 @@ describe("executeReviewJob", () => {
           ttlMs: 60_000,
         },
         headSha: "head",
+        executionEpoch: 1,
+        signal: new AbortController().signal,
         pullRequest: prWithDescription,
       });
     });

@@ -24,6 +24,7 @@ import {
   getOperationIntent,
   mergeOperationIntentDetail,
   persistOperationIntent,
+  reconcileOperationIntent,
 } from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
 import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
@@ -98,7 +99,18 @@ async function stashRecoveredAskReply(params: {
     });
     return;
   }
-  if (intent.status === "pending" && askReplyCommentIdFromIntentDetail(intent.detail) == null) {
+  if (askReplyCommentIdFromIntentDetail(intent.detail) != null) return;
+  if (intent.status === "outcome_unknown") {
+    // Evidence recovered from GitHub: finish the unknown outcome without remutating.
+    await reconcileOperationIntent(pool, {
+      workItemId: item.id,
+      operationKey,
+      status: "reconciled",
+      detail: { __result: result, recoveredAfterMutating: true },
+    });
+    return;
+  }
+  if (intent.status === "pending") {
     await mergeOperationIntentDetail(pool, {
       workItemId: item.id,
       operationKey,
@@ -129,8 +141,9 @@ async function recoverDeliveredAskReplyCommentId(params: {
     return null;
   }
 
-  // Require a pending intent so an older identical-question reply is not reused.
-  if (intent == null || intent.status !== "pending") {
+  // Scan only while the mutation may still be in flight or outcome-unknown.
+  // Skip failed/reconciled so an older identical-question reply is not reused.
+  if (intent == null || (intent.status !== "pending" && intent.status !== "outcome_unknown")) {
     return null;
   }
 
@@ -159,13 +172,15 @@ async function finalizeAskReplyPublish(params: {
   readonly pool: Pool;
   readonly item: AskWorkItem;
   readonly commentId: number;
+  readonly executionEpoch: number;
 }): Promise<"ok" | "degraded"> {
-  const { pool, item, commentId } = params;
+  const { pool, item, commentId, executionEpoch } = params;
   await withOperationIntent({
     client: pool,
     workItemId: item.id,
     operationKey: askReplyOperationKey(item.resourceKey),
     mutationKind: "github.ask_reply",
+    executionEpoch,
     detail: {
       step: "ask_reply",
       resourceKey: item.resourceKey,
@@ -183,6 +198,7 @@ async function finalizeAskReplyPublish(params: {
         replyTargetKind: item.payload.replyTarget.kind,
         commentId,
       },
+      executionEpoch,
     });
     return "ok";
   } catch (e) {
@@ -249,6 +265,7 @@ export async function executeAskJob(
           pool,
           item,
           commentId: recoveredCommentId,
+          executionEpoch: env.executionEpoch,
         });
         return status === "degraded" ? { degraded: true } : {};
       }
@@ -301,6 +318,7 @@ export async function executeAskJob(
               workItemId: item.id,
               operationKey: askReplyOperationKey(item.resourceKey),
               mutationKind: "github.ask_reply",
+              executionEpoch: env.executionEpoch,
               detail: {
                 step: "ask_reply",
                 resourceKey: item.resourceKey,
@@ -336,6 +354,7 @@ export async function executeAskJob(
                   replyTargetKind: payload.replyTarget.kind,
                   commentId: posted.commentId,
                 },
+                executionEpoch: env.executionEpoch,
               });
             } catch (e) {
               const failure = classifyFailure(e, { phase: "publish" });
@@ -382,7 +401,20 @@ export async function executeAskJob(
           ...classifiedFailurePostHogProperties(failure),
         },
       });
-      if (!installation || answerDelivered) return;
+      if (!installation) return;
+      // Durable publish_records survive process death; answerDelivered does not.
+      if (
+        await hasCompletedPublishStep(
+          pool,
+          item.id,
+          item.resourceKey,
+          ASK_PUBLISH_LENS,
+          "ask_reply",
+        )
+      ) {
+        return;
+      }
+      if (answerDelivered) return;
       const payload = item.payload;
       await publishAskAnswer(
         installation.token,

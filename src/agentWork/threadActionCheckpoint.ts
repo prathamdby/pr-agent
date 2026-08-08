@@ -44,6 +44,7 @@ export async function recordActedThreadIds(
     readonly reviewLens: ThreadActionPublishLens;
     readonly step: ThreadActionPublishStep;
     readonly actedThreadIds: readonly number[];
+    readonly executionEpoch: number;
   },
 ): Promise<void> {
   await recordPublishStep(pool, {
@@ -52,5 +53,6 @@ export async function recordActedThreadIds(
     reviewLens: params.reviewLens,
     step: params.step,
     detail: { actedThreadIds: params.actedThreadIds },
+    executionEpoch: params.executionEpoch,
   });
 }

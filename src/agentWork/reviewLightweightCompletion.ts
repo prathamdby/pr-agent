@@ -35,6 +35,7 @@ export async function tryLightweightAutoReviewCompletion(
     tokenExpiresAtTs?: number;
     preflight: ReviewPreflightMetadata;
     model: string;
+    executionEpoch: number;
   },
 ): Promise<LightweightAutoReviewResult> {
   if (params.item.source !== "auto") return { handled: false };
@@ -97,6 +98,7 @@ export async function tryLightweightAutoReviewCompletion(
       lightweightCompletion: true,
       trivialReason: "docs_only",
     },
+    executionEpoch: params.executionEpoch,
   });
   return { handled: true, published: true, summaryId: summary.id };
 }

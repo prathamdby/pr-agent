@@ -133,7 +133,12 @@ export function createMemoryOperationIntentStore() {
     ): Promise<OperationIntentRow | null> {
       const key = rowKey(params.workItemId, params.operationKey);
       const existing = rows.get(key);
-      if (!existing || existing.status !== "pending") return null;
+      if (!existing || (existing.status !== "pending" && existing.status !== "failed")) {
+        return null;
+      }
+      if (existing.status === "failed") {
+        existing.status = "pending";
+      }
       existing.detail = { ...existing.detail, ...params.detail };
       existing.updatedAtMs = nextClock();
       return toRow(existing);

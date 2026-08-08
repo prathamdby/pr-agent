@@ -452,6 +452,18 @@ async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
   }
 }
 
+async function ensureWorkspaceMinFreeSpace(dir: string, minBytes: number): Promise<void> {
+  try {
+    await ensureFreeSpace(dir, minBytes);
+  } catch (error) {
+    if (!(error instanceof AppError && error.code === "pr_workspace.insufficient_free_space")) {
+      throw error;
+    }
+    await cleanupStaleLocalPrWorkspaces();
+    await ensureFreeSpace(dir, minBytes);
+  }
+}
+
 function gitObjectStoreBytes(countObjectsOutput: string): number {
   let sizeKiB = 0;
   let sizePackKiB = 0;
@@ -530,6 +542,19 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): st
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
+/** In-process roots currently owned by a live checkout; sweeps must not delete these. */
+const liveLocalPrWorkspaceRoots = new Set<string>();
+
+/** Mark a workspace root as in use so periodic sweeps skip it. */
+export function registerLiveLocalPrWorkspace(rootDir: string): void {
+  liveLocalPrWorkspaceRoots.add(rootDir);
+}
+
+/** Clear the live marker before deleting a workspace root. */
+export function unregisterLiveLocalPrWorkspace(rootDir: string): void {
+  liveLocalPrWorkspaceRoots.delete(rootDir);
+}
+
 async function cleanupStalePiAgentDirs(): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
@@ -565,6 +590,7 @@ export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
     const full = join(tmpdir(), entry.name);
     const entryStat = await statIfPresent(full);
     if (!entryStat) continue;
+    if (liveLocalPrWorkspaceRoots.has(full)) continue;
     const ageMs = now - entryStat.mtimeMs;
     if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
       await removeWorkspace(full).catch(() => undefined);
@@ -579,7 +605,7 @@ export async function prepareLocalPrWorkspace(
   assertRepoPart(owner, "owner");
   assertRepoPart(repo, "repo");
   assertSha(headSha, "headSha");
-  await ensureFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
+  await ensureWorkspaceMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
   const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);
@@ -774,6 +800,7 @@ export async function prepareLocalPrWorkspace(
 
     const getSymbolIndexStatus = () => symbolIndexStatus(symbolIndex);
 
+    registerLiveLocalPrWorkspace(rootDir);
     return {
       rootDir,
       privateGitDir,
@@ -800,10 +827,12 @@ export async function prepareLocalPrWorkspace(
       getSymbolIndexStatus,
       cleanup: async () => {
         symbolIndex = null;
+        unregisterLiveLocalPrWorkspace(rootDir);
         await removeWorkspace(rootDir);
       },
     };
   } catch (e) {
+    unregisterLiveLocalPrWorkspace(rootDir);
     await removeWorkspace(rootDir).catch(() => undefined);
     throw e;
   }

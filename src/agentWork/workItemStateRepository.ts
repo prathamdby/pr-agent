@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { AppError } from "../errors/appError.js";
 import { queryOne } from "../db/postgres.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
@@ -25,6 +25,7 @@ type AgentWorkRow = {
   review_lens: AnyReviewLens | "description" | "ask" | "triage" | "verification" | null;
   resource_key: string;
   attempt_count: number;
+  execution_epoch: string | number;
   payload: unknown;
   cancel_requested_at: Date | null;
 };
@@ -41,6 +42,7 @@ function workItemRowBase(row: Omit<AgentWorkRow, "payload" | "type" | "source" |
     headSha: row.head_sha,
     resourceKey: row.resource_key,
     attemptCount: row.attempt_count,
+    executionEpoch: Number(row.execution_epoch),
     cancelRequestedAt: row.cancel_requested_at,
   };
 }
@@ -128,8 +130,9 @@ async function terminalizeInvalidClaimedWorkItem(
   pool: Pool,
   id: string,
   error: unknown,
+  executionEpoch: number,
 ): Promise<never> {
-  await markWorkFailed(pool, id, error);
+  await markWorkFailed(pool, id, error, executionEpoch);
   throw error;
 }
 
@@ -137,7 +140,7 @@ export async function getWorkItem(pool: Pool, id: string): Promise<AgentWorkItem
   const row = await queryOne<AgentWorkRow>(
     pool,
     `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
-		        review_lens, resource_key, attempt_count, payload, cancel_requested_at
+		        review_lens, resource_key, attempt_count, execution_epoch, payload, cancel_requested_at
 		   FROM agent_work_items
 		  WHERE id = $1`,
     [id],
@@ -149,7 +152,7 @@ export async function getWorkItemCore(pool: Pool, id: string): Promise<AgentWork
   const row = await queryOne<Omit<AgentWorkRow, "payload">>(
     pool,
     `SELECT id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
-		        review_lens, resource_key, attempt_count, cancel_requested_at
+		        review_lens, resource_key, attempt_count, execution_epoch, cancel_requested_at
 		   FROM agent_work_items
 		  WHERE id = $1`,
     [id],
@@ -222,22 +225,7 @@ function sanitizeWorkError(error: unknown): string {
 }
 
 const CLAIM_QUEUED_WORK_ITEM_RETURNING = `id, webhook_event_id, type, source, status, owner, repo, pr_number, installation_id, head_sha,
-		        review_lens, resource_key, attempt_count, payload, cancel_requested_at`;
-
-async function markWorkRunning(pool: Pool, id: string): Promise<boolean> {
-  const result = await pool.query(
-    `UPDATE agent_work_items
-		    SET status = 'running',
-		        started_at = COALESCE(started_at, now()),
-		        attempt_count = attempt_count + 1,
-		        updated_at = now()
-		  WHERE id = $1
-		    AND status = 'queued'
-		    AND cancel_requested_at IS NULL`,
-    [id],
-  );
-  return (result.rowCount ?? 0) > 0;
-}
+		        review_lens, resource_key, attempt_count, execution_epoch, payload, cancel_requested_at`;
 
 /** One-query claim: UPDATE queued→running and return the full item; null = not claimable this way. */
 export async function claimQueuedWorkItem<T extends WorkType>(
@@ -251,6 +239,7 @@ export async function claimQueuedWorkItem<T extends WorkType>(
 		    SET status = 'running',
 		        started_at = COALESCE(started_at, now()),
 		        attempt_count = attempt_count + 1,
+		        execution_epoch = execution_epoch + 1,
 		        updated_at = now()
 		  WHERE id = $1
 		    AND type = $2
@@ -260,6 +249,7 @@ export async function claimQueuedWorkItem<T extends WorkType>(
     [id, type],
   );
   if (!row) return null;
+  const claimedEpoch = Number(row.execution_epoch);
   try {
     const item = mapWorkItem(row);
     if (!isWorkItemType(item, type)) {
@@ -271,18 +261,65 @@ export async function claimQueuedWorkItem<T extends WorkType>(
     }
     return item;
   } catch (error) {
-    return await terminalizeInvalidClaimedWorkItem(pool, id, error);
+    return await terminalizeInvalidClaimedWorkItem(pool, id, error, claimedEpoch);
   }
 }
 
-/** Claim queued work or resume a pg-boss retry while the row is still running. */
-export async function claimWorkForExecution(pool: Pool, id: string): Promise<boolean> {
-  if (await markWorkRunning(pool, id)) return true;
-  const row = await queryOne<{
-    status: WorkStatus;
-    cancel_requested_at: Date | null;
-  }>(pool, "SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1", [id]);
-  return row?.status === "running" && row.cancel_requested_at == null;
+/**
+ * Claim queued work or resume a pg-boss retry while the row is still running.
+ * Always takes the next execution epoch so a live and a redelivered execution
+ * cannot both own the row.
+ */
+export async function claimWorkForExecution(
+  pool: Pool,
+  id: string,
+): Promise<{ readonly executionEpoch: number } | null> {
+  const row = await queryOne<{ execution_epoch: string | number }>(
+    pool,
+    `UPDATE agent_work_items
+		    SET status = 'running',
+		        started_at = COALESCE(started_at, now()),
+		        attempt_count = CASE
+		          WHEN status = 'queued' THEN attempt_count + 1
+		          ELSE attempt_count
+		        END,
+		        execution_epoch = execution_epoch + 1,
+		        updated_at = now()
+		  WHERE id = $1
+		    AND status IN ('queued', 'running')
+		    AND cancel_requested_at IS NULL
+		  RETURNING execution_epoch`,
+    [id],
+  );
+  return row ? { executionEpoch: Number(row.execution_epoch) } : null;
+}
+
+/** True when this claim still owns the row (no newer claim took the epoch). */
+export async function isExecutionEpochCurrent(
+  pool: Pool | PoolClient,
+  id: string,
+  executionEpoch: number,
+): Promise<boolean> {
+  const row = await queryOne<{ execution_epoch: string | number }>(
+    pool,
+    "SELECT execution_epoch FROM agent_work_items WHERE id = $1",
+    [id],
+  );
+  return row != null && Number(row.execution_epoch) === executionEpoch;
+}
+
+/** Reject durable writes/publishes from a superseded claim. */
+export async function assertCurrentExecutionEpoch(
+  pool: Pool | PoolClient,
+  id: string,
+  executionEpoch: number,
+): Promise<void> {
+  if (await isExecutionEpochCurrent(pool, id, executionEpoch)) return;
+  throw new AppError({
+    code: "agent_work.stale_execution_epoch",
+    message: "Work-item execution epoch is no longer current",
+    context: { workItemId: id, executionEpoch },
+  });
 }
 
 export async function markWorkPublishDegraded(pool: Pool, id: string): Promise<void> {
@@ -295,7 +332,11 @@ export async function markWorkPublishDegraded(pool: Pool, id: string): Promise<v
   );
 }
 
-export async function markWorkCompleted(pool: Pool, id: string): Promise<boolean> {
+export async function markWorkCompleted(
+  pool: Pool,
+  id: string,
+  executionEpoch: number,
+): Promise<boolean> {
   const result = await pool.query(
     `UPDATE agent_work_items
 		    SET status = 'completed',
@@ -303,8 +344,9 @@ export async function markWorkCompleted(pool: Pool, id: string): Promise<boolean
 		        updated_at = now()
 		  WHERE id = $1
 		    AND status = 'running'
-		    AND cancel_requested_at IS NULL`,
-    [id],
+		    AND cancel_requested_at IS NULL
+		    AND execution_epoch = $2`,
+    [id, executionEpoch],
   );
   return (result.rowCount ?? 0) > 0;
 }
@@ -332,6 +374,7 @@ export async function updateRunningWorkHeadSha(
   pool: Pool,
   id: string,
   headSha: string,
+  executionEpoch: number,
 ): Promise<boolean> {
   const result = await pool.query(
     `UPDATE agent_work_items
@@ -339,16 +382,24 @@ export async function updateRunningWorkHeadSha(
 		        updated_at = now()
 		  WHERE id = $1
 		    AND status = 'running'
-		    AND cancel_requested_at IS NULL`,
-    [id, headSha],
+		    AND cancel_requested_at IS NULL
+		    AND execution_epoch = $3`,
+    [id, headSha, executionEpoch],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function markWorkFailed(pool: Pool, id: string, error: unknown): Promise<boolean> {
+export async function markWorkFailed(
+  pool: Pool,
+  id: string,
+  error: unknown,
+  executionEpoch?: number,
+): Promise<boolean> {
   const message = sanitizeWorkError(error);
-  const result = await pool.query(
-    `UPDATE agent_work_items
+  const result =
+    executionEpoch == null
+      ? await pool.query(
+          `UPDATE agent_work_items
 		    SET status = 'failed',
 		        last_error = $2,
 		        completed_at = now(),
@@ -356,8 +407,20 @@ export async function markWorkFailed(pool: Pool, id: string, error: unknown): Pr
 		  WHERE id = $1
 		    AND status = 'running'
 		    AND cancel_requested_at IS NULL`,
-    [id, message],
-  );
+          [id, message],
+        )
+      : await pool.query(
+          `UPDATE agent_work_items
+		    SET status = 'failed',
+		        last_error = $2,
+		        completed_at = now(),
+		        updated_at = now()
+		  WHERE id = $1
+		    AND status = 'running'
+		    AND cancel_requested_at IS NULL
+		    AND execution_epoch = $3`,
+          [id, message, executionEpoch],
+        );
   return (result.rowCount ?? 0) > 0;
 }
 
@@ -381,7 +444,12 @@ export async function markQueuedWorkCancelled(
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function markWorkRetrying(pool: Pool, id: string, error: unknown): Promise<boolean> {
+export async function markWorkRetrying(
+  pool: Pool,
+  id: string,
+  error: unknown,
+  executionEpoch: number,
+): Promise<boolean> {
   const message = sanitizeWorkError(error);
   const result = await pool.query(
     `UPDATE agent_work_items
@@ -390,21 +458,39 @@ export async function markWorkRetrying(pool: Pool, id: string, error: unknown): 
 		        updated_at = now()
 		  WHERE id = $1
 		    AND status = 'running'
-		    AND cancel_requested_at IS NULL`,
-    [id, message],
+		    AND cancel_requested_at IS NULL
+		    AND execution_epoch = $3`,
+    [id, message, executionEpoch],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function markWorkCancelled(pool: Pool, id: string): Promise<void> {
+export async function markWorkCancelled(
+  pool: Pool,
+  id: string,
+  executionEpoch?: number,
+): Promise<void> {
+  if (executionEpoch == null) {
+    await pool.query(
+      `UPDATE agent_work_items
+		    SET status = 'cancelled',
+		        completed_at = now(),
+		        updated_at = now()
+		  WHERE id = $1
+		    AND status IN ('queued', 'running')`,
+      [id],
+    );
+    return;
+  }
   await pool.query(
     `UPDATE agent_work_items
 		    SET status = 'cancelled',
 		        completed_at = now(),
 		        updated_at = now()
 		  WHERE id = $1
-		    AND status IN ('queued', 'running')`,
-    [id],
+		    AND status IN ('queued', 'running')
+		    AND execution_epoch = $2`,
+    [id, executionEpoch],
   );
 }
 
@@ -416,11 +502,9 @@ export async function shouldSkipWork(
     status: WorkStatus;
     cancel_requested_at: Date | null;
   }>(pool, "SELECT status, cancel_requested_at FROM agent_work_items WHERE id = $1", [item.id]);
+  if (!row) return true;
   return (
-    !row ||
-    row.status === "superseded" ||
-    row.status === "cancelled" ||
-    row.cancel_requested_at != null
+    row.status === "superseded" || row.status === "cancelled" || row.cancel_requested_at != null
   );
 }
 

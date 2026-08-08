@@ -117,6 +117,8 @@ function mockDurableExecution(workItem = item()): void {
     spec.execute(workItem, {
       installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
       headSha: "a".repeat(40),
+      executionEpoch: 1,
+      signal: new AbortController().signal,
     }),
   );
 }
@@ -458,6 +460,8 @@ describe("executeVerificationJob", () => {
       executeResult = await spec.execute(item(), {
         installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
         headSha: "a".repeat(40),
+        executionEpoch: 1,
+        signal: new AbortController().signal,
       });
     });
 
@@ -491,6 +495,8 @@ describe("executeVerificationJob", () => {
       executeResult = await spec.execute(item(), {
         installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
         headSha: "a".repeat(40),
+        executionEpoch: 1,
+        signal: new AbortController().signal,
       });
     });
 
@@ -559,6 +565,8 @@ describe("executeVerificationJob", () => {
         {
           installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
           headSha: "a".repeat(40),
+          executionEpoch: 1,
+          signal: new AbortController().signal,
         },
       );
     });

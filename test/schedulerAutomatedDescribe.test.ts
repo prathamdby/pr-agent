@@ -48,6 +48,9 @@ function mockAutomatedClient() {
       ) {
         return { rows: [] };
       }
+      if (sql.includes("pg_advisory_xact_lock")) {
+        return { rows: [] };
+      }
       throw new Error(`unexpected query: ${sql.slice(0, 120)}`);
     }),
   } as unknown as PoolClient;

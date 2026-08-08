@@ -57,6 +57,7 @@ const base = {
   headSha: "deadbeef",
   resourceKey: "o/r#1",
   attemptCount: 0,
+  executionEpoch: 1,
   cancelRequestedAt: null as Date | null,
 };
 

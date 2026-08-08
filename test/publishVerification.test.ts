@@ -31,6 +31,16 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: mocks.recordPublishStep,
 }));
 
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
+  return {
+    ...actual,
+    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
+    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
+  };
+});
+
 import { publishVerification } from "../src/agent/verification/publishVerification.js";
 
 const thread = {
@@ -77,11 +87,13 @@ function baseParams(overrides: {
   readonly changedFilePathsTruncated?: boolean;
   readonly pool?: Pool;
   readonly workItemId?: string;
+  readonly executionEpoch?: number;
   readonly policyResult?: Parameters<typeof publishVerification>[0]["policyResult"];
 }) {
   return {
     pool: overrides.pool ?? pool(),
     workItemId: overrides.workItemId ?? "wi",
+    executionEpoch: overrides.executionEpoch ?? 1,
     installationId: 1,
     resourceKey: "o/r#1",
     token: "tok",
@@ -633,6 +645,7 @@ describe("publishVerification", () => {
       baseParams({
         pool: { query } as unknown as Pool,
         workItemId: "wi-new",
+        executionEpoch: 1,
         inventory: [thread],
         payload: {
           verdicts: [
