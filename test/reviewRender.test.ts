@@ -65,9 +65,22 @@ describe("renderReviewSummaryComment", () => {
   });
 
   it("renders a CI gate row when a CI summary is provided", () => {
-    const body = renderReviewSummaryComment(basePayload(), {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/x.ts",
+          startLine: 4,
+          endLine: 4,
+          title: "Bug",
+          detail: "Bad logic.",
+          fixPrompt: "Fix it.",
+        },
+      ],
+    });
+    const body = renderReviewSummaryComment(payload, {
       ...ctx,
-      placements: testPlacements(basePayload().findings),
+      placements: testPlacements(payload.findings),
       ciSummary: {
         status: "failing",
         headline: "❌ CI failing — lint",
@@ -89,6 +102,10 @@ describe("renderReviewSummaryComment", () => {
     expect(body.indexOf("<strong>Security</strong>")).toBeLessThan(
       body.indexOf("<strong>CI</strong>"),
     );
+    const fixAll = body.indexOf(`<summary>${AGENT_FIX_PROMPT_ACCORDION_SUMMARY}</summary>`);
+    expect(fixAll).toBeGreaterThan(-1);
+    expect(body.indexOf("❌ CI failing — lint", fixAll)).toBeGreaterThan(fixAll);
+    expect(body.indexOf("src/foo.ts:12 — Unexpected any", fixAll)).toBeGreaterThan(fixAll);
   });
 
   it("shows the CI gate row when Checks permission is missing", () => {
@@ -933,6 +950,67 @@ describe("renderAgentFixPrompt", () => {
 
     expect(prompt).toContain("[inline thread omitted — summary only]");
     expect(prompt).not.toContain("[inline thread omitted — severity cap]");
+  });
+
+  it("appends CI summary plain text after findings", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Bug",
+          detail: "d",
+          fixPrompt: "Fix src/a.ts line 1.",
+        },
+      ],
+    });
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+      {
+        status: "failing",
+        headline: "❌ CI failing — lint",
+        failures: [
+          {
+            name: "lint",
+            reason: "src/foo.ts:12 — Unexpected any",
+            fixHint: "Fix the reported lint/format findings locally, then re-push.",
+          },
+        ],
+      },
+    );
+
+    expect(prompt).toContain("Fix src/a.ts line 1.");
+    expect(prompt.indexOf("Findings:")).toBeLessThan(prompt.indexOf("❌ CI failing — lint"));
+    expect(prompt).toContain("src/foo.ts:12 — Unexpected any");
+    expect(prompt).toContain("Fix the reported lint/format findings locally, then re-push.");
+    expect(prompt.endsWith("then re-push.")).toBe(true);
+  });
+
+  it("omits CI text when summary status is none", () => {
+    const payload = basePayload({
+      findings: [
+        {
+          severity: "P1",
+          file: "src/a.ts",
+          startLine: 1,
+          endLine: 1,
+          title: "Bug",
+          detail: "d",
+          fixPrompt: "Fix src/a.ts line 1.",
+        },
+      ],
+    });
+    const prompt = renderAgentFixPrompt(
+      payload,
+      renderCtx,
+      planInlinePlacements(payload.findings, undefined),
+      { status: "none", headline: "No CI checks on this head", failures: [] },
+    );
+    expect(prompt).not.toContain("No CI checks on this head");
   });
 });
 

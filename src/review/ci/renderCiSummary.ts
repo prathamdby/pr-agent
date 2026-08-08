@@ -13,6 +13,20 @@ export const CI_SUMMARY_CELL_END = "<!-- /pr-agent:ci-summary -->";
 const CI_SUMMARY_CELL_RE =
   /<!--\s*pr-agent:ci-summary\s*-->[\s\S]*?<!--\s*\/pr-agent:ci-summary\s*-->/;
 
+/** Plain-text CI digest for the agent fix prompt (same fields as the table cell). */
+export function formatCiSummaryPlainText(summary: CiSummary): string {
+  const parts: string[] = [summary.headline];
+  if (summary.status === "failing" && summary.failures.length > 0) {
+    for (const failure of summary.failures) {
+      parts.push([failure.name, failure.reason, failure.fixHint].join("\n"));
+    }
+  }
+  if (summary.permissionNote != null && summary.permissionNote.trim().length > 0) {
+    parts.push(summary.permissionNote.trim());
+  }
+  return parts.join("\n\n");
+}
+
 /** Renders the CI gate cell for the review summary / progress stub table. */
 export function renderCiSummaryCell(summary: CiSummary): string {
   const parts: string[] = [escapeTablePlainCell(summary.headline)];

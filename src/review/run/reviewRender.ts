@@ -43,7 +43,11 @@ import {
   type ReviewRunFooterMeta,
 } from "./reviewRunFooter.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
-import { renderCiSummaryCell, shouldRenderCiSummaryRow } from "../ci/renderCiSummary.js";
+import {
+  formatCiSummaryPlainText,
+  renderCiSummaryCell,
+  shouldRenderCiSummaryRow,
+} from "../ci/renderCiSummary.js";
 
 export {
   AGENT_FIX_PROMPT_ACCORDION_SUMMARY,
@@ -258,6 +262,7 @@ export function renderAgentFixPrompt(
   payload: ReviewPayload,
   ctx: RenderContext,
   placements: readonly InlinePlacement[],
+  ciSummary?: CiSummary | null,
 ): string {
   const placementByKey = new Map(
     placements.map((placement) => [reviewFindingPlacementKey(placement.finding), placement]),
@@ -271,7 +276,7 @@ export function renderAgentFixPrompt(
     });
   });
 
-  return [
+  const lines = [
     AGENT_FIX_PROMPT_PREAMBLE,
     "",
     `Repository: ${ctx.owner}/${ctx.repo}`,
@@ -281,7 +286,11 @@ export function renderAgentFixPrompt(
     "Findings:",
     "",
     blocks.join("\n\n"),
-  ].join("\n");
+  ];
+  if (shouldRenderCiSummaryRow(ciSummary)) {
+    lines.push("", escapeCodeFenceBreakers(formatCiSummaryPlainText(ciSummary)));
+  }
+  return lines.join("\n");
 }
 
 function assembleAgentFixAccordion(agentFixPrompt: string): string {
@@ -419,7 +428,9 @@ function buildReviewSummaryBody(
 
   if (options.includeAgentFixAccordion && ctx.placements.length > 0) {
     rows.push("");
-    rows.push(assembleAgentFixAccordion(renderAgentFixPrompt(payload, ctx, ctx.placements)));
+    rows.push(
+      assembleAgentFixAccordion(renderAgentFixPrompt(payload, ctx, ctx.placements, ctx.ciSummary)),
+    );
   }
 
   if (options.compactionNote) {
