@@ -542,6 +542,19 @@ function sparseCheckoutPatterns(changedFiles: readonly LocalPrChangedFile[]): st
 
 const PI_AGENT_DIR_PREFIX = "pr-agent-pi-";
 
+/** In-process roots currently owned by a live checkout; sweeps must not delete these. */
+const liveLocalPrWorkspaceRoots = new Set<string>();
+
+/** Mark a workspace root as in use so periodic sweeps skip it. */
+export function registerLiveLocalPrWorkspace(rootDir: string): void {
+  liveLocalPrWorkspaceRoots.add(rootDir);
+}
+
+/** Clear the live marker before deleting a workspace root. */
+export function unregisterLiveLocalPrWorkspace(rootDir: string): void {
+  liveLocalPrWorkspaceRoots.delete(rootDir);
+}
+
 async function cleanupStalePiAgentDirs(): Promise<void> {
   const now = Date.now();
   for (const entry of await readdir(tmpdir(), { withFileTypes: true })) {
@@ -577,6 +590,7 @@ export async function cleanupStaleLocalPrWorkspaces(): Promise<void> {
     const full = join(tmpdir(), entry.name);
     const entryStat = await statIfPresent(full);
     if (!entryStat) continue;
+    if (liveLocalPrWorkspaceRoots.has(full)) continue;
     const ageMs = now - entryStat.mtimeMs;
     if (ageMs > LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS * 1000) {
       await removeWorkspace(full).catch(() => undefined);
@@ -786,6 +800,7 @@ export async function prepareLocalPrWorkspace(
 
     const getSymbolIndexStatus = () => symbolIndexStatus(symbolIndex);
 
+    registerLiveLocalPrWorkspace(rootDir);
     return {
       rootDir,
       privateGitDir,
@@ -812,10 +827,12 @@ export async function prepareLocalPrWorkspace(
       getSymbolIndexStatus,
       cleanup: async () => {
         symbolIndex = null;
+        unregisterLiveLocalPrWorkspace(rootDir);
         await removeWorkspace(rootDir);
       },
     };
   } catch (e) {
+    unregisterLiveLocalPrWorkspace(rootDir);
     await removeWorkspace(rootDir).catch(() => undefined);
     throw e;
   }

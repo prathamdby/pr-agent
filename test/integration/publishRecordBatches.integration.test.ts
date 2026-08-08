@@ -64,6 +64,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       const write = (detail: typeof firstBatch) =>
         recordPublishStep(pool, {
           workItemId,
+          executionEpoch: 0,
           resourceKey,
           reviewLens: "review",
           step: "inline_review",
@@ -76,6 +77,7 @@ describe.skipIf(!hasDatabase)("inline review publish batches (integration)", () 
       await write(secondBatch);
       await recordPublishStep(pool, {
         workItemId,
+        executionEpoch: 0,
         resourceKey,
         reviewLens: "review-security",
         step: "inline_review",

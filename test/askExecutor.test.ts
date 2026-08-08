@@ -82,6 +82,8 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import { executeAskJob } from "../src/agentWork/executors/askExecutor.js";
+import { assertCurrentExecutionEpoch } from "../src/agentWork/workItemStateRepository.js";
+import { AppError } from "../src/errors/appError.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
 const pool = {} as Pool;
@@ -419,6 +421,51 @@ describe("executeAskJob", () => {
     expect(memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"))?.status).toBe(
       "reconciled",
     );
+  });
+
+  it("recovers a remote ask reply when intent is outcome_unknown without __result", async () => {
+    const operationKey = askReplyOperationKey("o/r#1");
+    await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-1",
+      operationKey,
+      mutationKind: "github.ask_reply",
+      detail: { step: "ask_reply" },
+    });
+    await memoryOperationIntentStore.reconcile(pool, {
+      workItemId: "wi-1",
+      operationKey,
+      status: "outcome_unknown",
+    });
+    mocks.findExistingAskReplyComment.mockResolvedValue({ commentId: 5151 });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.runAskRun).not.toHaveBeenCalled();
+    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        detail: expect.objectContaining({ commentId: 5151 }),
+      }),
+    );
+    const intent = memoryOperationIntentStore.get("wi-1", operationKey);
+    expect(intent?.status).toBe("reconciled");
+    expect(intent?.detail.__result).toEqual({ commentId: 5151 });
+    expect(intent?.detail.recoveredAfterMutating).toBe(true);
+  });
+
+  it("rejects ask publish when the execution epoch is stale", async () => {
+    vi.mocked(assertCurrentExecutionEpoch).mockRejectedValueOnce(
+      new AppError({
+        code: "agent_work.stale_execution_epoch",
+        message: "Work-item execution epoch is no longer current",
+      }),
+    );
+
+    await expect(executeAskJob(cfg, pool, boss, askJob())).rejects.toMatchObject({
+      code: "agent_work.stale_execution_epoch",
+    });
+    expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
   });
 
   it("does not scan remote comments when no pending intent exists for this ask", async () => {

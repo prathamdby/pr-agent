@@ -63,7 +63,7 @@ type PublishTriageParams = {
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
-  readonly executionEpoch?: number;
+  readonly executionEpoch: number;
 };
 
 type ReportOnlyParams = Omit<
@@ -359,6 +359,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_thread_actions",
         actedThreadIds: [...actedThreadIds],
+        executionEpoch: params.executionEpoch,
       });
     }
     try {

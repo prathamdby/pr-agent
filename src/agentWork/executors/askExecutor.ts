@@ -24,6 +24,7 @@ import {
   getOperationIntent,
   mergeOperationIntentDetail,
   persistOperationIntent,
+  reconcileOperationIntent,
 } from "../operationIntentRepository.js";
 import { hasCompletedPublishStep, recordAskPublishStep } from "../repository.js";
 import { askReplyOperationKey, withOperationIntent } from "../withOperationIntent.js";
@@ -98,7 +99,18 @@ async function stashRecoveredAskReply(params: {
     });
     return;
   }
-  if (intent.status === "pending" && askReplyCommentIdFromIntentDetail(intent.detail) == null) {
+  if (askReplyCommentIdFromIntentDetail(intent.detail) != null) return;
+  if (intent.status === "outcome_unknown") {
+    // Evidence recovered from GitHub: finish the unknown outcome without remutating.
+    await reconcileOperationIntent(pool, {
+      workItemId: item.id,
+      operationKey,
+      status: "reconciled",
+      detail: { __result: result, recoveredAfterMutating: true },
+    });
+    return;
+  }
+  if (intent.status === "pending") {
     await mergeOperationIntentDetail(pool, {
       workItemId: item.id,
       operationKey,

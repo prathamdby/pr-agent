@@ -227,12 +227,14 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
     await recordAskPublishStep(pool, {
       workItemId: first,
+      executionEpoch: 0,
       resourceKey,
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation" },
     });
     await recordAskPublishStep(pool, {
       workItemId: second,
+      executionEpoch: 0,
       resourceKey,
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation" },

@@ -693,6 +693,7 @@ describe("executeReviewJob", () => {
   });
 
   it("completes an existing check as failure from the terminal failure hook", async () => {
+    vi.spyOn(reviewPublish, "findIssueCommentBySentinel").mockResolvedValue(null);
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
@@ -715,6 +716,31 @@ describe("executeReviewJob", () => {
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
       }),
     );
+  });
+
+  it("skips failure notice when a summary sentinel already exists on GitHub", async () => {
+    vi.spyOn(reviewPublish, "findIssueCommentBySentinel").mockResolvedValue({
+      id: 4242,
+      url: "https://github.test/comment/4242",
+      body: "landed",
+    });
+    const upsert = vi.spyOn(reviewPublish, "upsertReviewSummaryComment");
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onTerminalFailure?.(
+        makeItem("slash"),
+        {
+          token: "tok",
+          expiresAtTs: Date.now() + 300_000,
+          ttlMs: 300_000,
+        },
+        new Error("dead"),
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(mocks.completeCheckRun).not.toHaveBeenCalled();
   });
 
   it("does not overwrite a completed summary from the terminal failure hook", async () => {

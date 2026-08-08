@@ -591,7 +591,11 @@ export async function recordPublishStep(
     step: SharedPublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
-    executionEpoch?: number;
+    /**
+     * Claim epoch that owns this write. Pass `null` only for pre-claim writers
+     * (e.g. ack progress stubs); durable executors must pass the live epoch.
+     */
+    executionEpoch: number | null;
   },
 ): Promise<void> {
   if (params.executionEpoch != null) {
@@ -652,7 +656,7 @@ export async function recordAskPublishStep(
     step: AskPublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
-    executionEpoch?: number;
+    executionEpoch: number | null;
   },
 ): Promise<void> {
   if (params.executionEpoch != null) {

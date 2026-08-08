@@ -95,6 +95,7 @@ export async function saveVerificationThreadLedger(
     readonly workItemId: string;
     readonly resourceKey: string;
     readonly ledger: VerificationThreadLedger;
+    readonly executionEpoch: number;
   },
 ): Promise<void> {
   await recordPublishStep(pool, {
@@ -103,6 +104,7 @@ export async function saveVerificationThreadLedger(
     reviewLens: VERIFICATION_PUBLISH_LENS,
     step: VERIFICATION_THREAD_ACTIONS_STEP,
     detail: { threads: params.ledger.threads },
+    executionEpoch: params.executionEpoch,
   });
 }
 

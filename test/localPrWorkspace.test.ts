@@ -1,5 +1,5 @@
 import { execFile as execFileCb } from "node:child_process";
-import { mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -24,7 +24,10 @@ afterEach(() => {
 import {
   assertWorkspacePath,
   buildCheckoutCoverage,
+  cleanupStaleLocalPrWorkspaces,
   prepareLocalPrWorkspace,
+  registerLiveLocalPrWorkspace,
+  unregisterLiveLocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
 import * as symbolIndexModule from "../src/prWorkspace/symbolIndex.js";
 
@@ -466,4 +469,21 @@ describe("local PR workspace", () => {
     },
     GIT_WORKSPACE_TEST_TIMEOUT_MS,
   );
+});
+
+describe("cleanupStaleLocalPrWorkspaces live registry", () => {
+  it("skips live registered workspace roots even when mtime is stale", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "pr-agent-workspace-"));
+    const stale = new Date(Date.now() - 4 * 3_600_000);
+    await utimes(rootDir, stale, stale);
+    registerLiveLocalPrWorkspace(rootDir);
+    try {
+      await cleanupStaleLocalPrWorkspaces();
+      await expect(readdir(rootDir)).resolves.toEqual([]);
+    } finally {
+      unregisterLiveLocalPrWorkspace(rootDir);
+      await cleanupStaleLocalPrWorkspaces();
+      await expect(readdir(rootDir)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
 });

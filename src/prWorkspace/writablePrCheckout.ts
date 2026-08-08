@@ -22,6 +22,8 @@ import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredenti
 import {
   assertWorkspacePath,
   cleanupStaleLocalPrWorkspaces,
+  registerLiveLocalPrWorkspace,
+  unregisterLiveLocalPrWorkspace,
   stripWorkspaceSymlinks,
 } from "./localPrWorkspace.js";
 
@@ -409,6 +411,7 @@ export async function withWritablePrCheckout<T>(
   await ensureWritableCheckoutMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
   const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
+  registerLiveLocalPrWorkspace(rootDir);
   const dir = join(rootDir, "checkout");
   const remoteUrl = params.remoteUrlOverride ?? `https://github.com/${owner}/${repo}.git`;
   const credentials = await createGitCredentialFiles(rootDir, installationToken);
@@ -526,6 +529,7 @@ export async function withWritablePrCheckout<T>(
 
     return await fn(checkout);
   } finally {
+    unregisterLiveLocalPrWorkspace(rootDir);
     await credentials.cleanup().catch(() => undefined);
     await removeWorkspace(rootDir).catch(() => undefined);
   }

@@ -130,8 +130,9 @@ async function terminalizeInvalidClaimedWorkItem(
   pool: Pool,
   id: string,
   error: unknown,
+  executionEpoch: number,
 ): Promise<never> {
-  await markWorkFailed(pool, id, error);
+  await markWorkFailed(pool, id, error, executionEpoch);
   throw error;
 }
 
@@ -248,6 +249,7 @@ export async function claimQueuedWorkItem<T extends WorkType>(
     [id, type],
   );
   if (!row) return null;
+  const claimedEpoch = Number(row.execution_epoch);
   try {
     const item = mapWorkItem(row);
     if (!isWorkItemType(item, type)) {
@@ -259,7 +261,7 @@ export async function claimQueuedWorkItem<T extends WorkType>(
     }
     return item;
   } catch (error) {
-    return await terminalizeInvalidClaimedWorkItem(pool, id, error);
+    return await terminalizeInvalidClaimedWorkItem(pool, id, error, claimedEpoch);
   }
 }
 
@@ -463,15 +465,32 @@ export async function markWorkRetrying(
   return (result.rowCount ?? 0) > 0;
 }
 
-export async function markWorkCancelled(pool: Pool, id: string): Promise<void> {
+export async function markWorkCancelled(
+  pool: Pool,
+  id: string,
+  executionEpoch?: number,
+): Promise<void> {
+  if (executionEpoch == null) {
+    await pool.query(
+      `UPDATE agent_work_items
+		    SET status = 'cancelled',
+		        completed_at = now(),
+		        updated_at = now()
+		  WHERE id = $1
+		    AND status IN ('queued', 'running')`,
+      [id],
+    );
+    return;
+  }
   await pool.query(
     `UPDATE agent_work_items
 		    SET status = 'cancelled',
 		        completed_at = now(),
 		        updated_at = now()
 		  WHERE id = $1
-		    AND status IN ('queued', 'running')`,
-    [id],
+		    AND status IN ('queued', 'running')
+		    AND execution_epoch = $2`,
+    [id, executionEpoch],
   );
 }
 

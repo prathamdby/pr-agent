@@ -67,6 +67,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       token: "tok",
       model: "grok-4.5",
+      executionEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -90,6 +91,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       token: "tok",
       model: "grok-4.5",
+      executionEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -112,6 +114,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       token: "tok",
       model: "grok-4.5",
+      executionEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -146,6 +149,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       reviewLens: "review",
       token: "tok",
       model: "grok-4.5",
+      executionEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,
@@ -181,6 +185,7 @@ describe("tryLightweightAutoReviewCompletion", () => {
       token: "tok",
       tokenExpiresAtTs: 1_000_000,
       model: "grok-4.5",
+      executionEpoch: 1,
       preflight: {
         files: [{ filename: "README.md" }],
         truncated: false,

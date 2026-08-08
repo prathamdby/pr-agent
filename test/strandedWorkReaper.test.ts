@@ -35,7 +35,13 @@ describe("reapStrandedWorkItems", () => {
 
     await expect(reapStrandedWorkItems(pool)).resolves.toEqual({ reaped: 1 });
 
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("pgboss.job"), [
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("pgboss.job");
+    expect(sql).toContain("status IN ('queued', 'running')");
+    expect(sql).toContain("j.state IN ('created', 'active', 'retry')");
+    expect(sql).toContain("FOR UPDATE OF wi SKIP LOCKED");
+    expect(sql).toContain("j.data->>'workItemId' = wi.id::text");
+    expect(query).toHaveBeenCalledWith(expect.any(String), [
       STRANDED_WORK_REAPER_GRACE_SECONDS,
       STRANDED_WORK_REAPER_BATCH_SIZE,
     ]);
@@ -45,5 +51,13 @@ describe("reapStrandedWorkItems", () => {
       priorStatus: "queued",
       resourceKey: "o/r#1",
     });
+  });
+
+  it("returns zero when no stranded rows match the safety predicates", async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const pool = { query } as unknown as Pool;
+
+    await expect(reapStrandedWorkItems(pool)).resolves.toEqual({ reaped: 0 });
+    expect(mocks.logWarn).not.toHaveBeenCalled();
   });
 });

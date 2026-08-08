@@ -51,7 +51,10 @@ import {
   snapshotReviewRunMetrics,
   type ReviewRunMetricsSnapshot,
 } from "../../review/run/reviewRunMetrics.js";
-import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
+import {
+  findIssueCommentBySentinel,
+  upsertReviewSummaryComment,
+} from "../../github/reviewPublish.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
@@ -261,8 +264,9 @@ async function runLightweightCompletionOrSkip(args: {
   readonly payload: ReviewWorkPayload;
   readonly tokenState: TokenState;
   readonly headSha: string;
+  readonly executionEpoch: number;
 }): Promise<LightweightPhaseResult> {
-  const { cfg, pool, item, reviewLens, payload, tokenState, headSha } = args;
+  const { cfg, pool, item, reviewLens, payload, tokenState, headSha, executionEpoch } = args;
   if (payload.source !== "auto") {
     return { done: false, prefetchedPrFiles: undefined };
   }
@@ -289,6 +293,7 @@ async function runLightweightCompletionOrSkip(args: {
     tokenExpiresAtTs: tokenState.installation.expiresAtTs,
     preflight,
     model: cfg.piModel,
+    executionEpoch,
   });
   if (!lightweightResult.handled) {
     return { done: false, prefetchedPrFiles };
@@ -806,6 +811,7 @@ export async function executeReviewJob(
         payload,
         tokenState,
         headSha,
+        executionEpoch: env.executionEpoch,
       });
       if (lightweight.done) return lightweight.result;
 
@@ -914,6 +920,16 @@ export async function executeReviewJob(
       ) {
         return;
       }
+      // Summary may have landed on GitHub before the publish record / intent __result.
+      const landedSummary = await findIssueCommentBySentinel(
+        installation.token,
+        item.owner,
+        item.repo,
+        item.prNumber,
+        REVIEW_SUMMARY_SENTINEL,
+        installation.expiresAtTs,
+      );
+      if (landedSummary != null) return;
       const summary = await upsertReviewSummaryComment(
         installation.token,
         item.owner,

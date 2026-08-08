@@ -344,7 +344,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
   });
 
   it("single-flights concurrent installation token mints", async () => {
@@ -431,7 +431,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(execute).not.toHaveBeenCalled();
-    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCompleted).not.toHaveBeenCalled();
   });
 
@@ -803,6 +803,81 @@ describe("runDurableWorkItem", () => {
       }),
       boom,
     );
+  });
+
+  it("swallows stale-execution-epoch errors without terminalising", async () => {
+    mockFetchedItem(makeItem());
+    const { AppError } = await import("../src/errors/appError.js");
+    const boom = new AppError({
+      code: "agent_work.stale_execution_epoch",
+      message: "Work-item execution epoch is no longer current",
+    });
+    const execute = vi.fn().mockRejectedValue(boom);
+
+    await runReviewWorkItem({ job: makeJob(3, 3), execute });
+
+    expect(repo.markWorkFailed).not.toHaveBeenCalled();
+    expect(repo.markWorkRetrying).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", executionEpoch: 1 }),
+    );
+  });
+
+  it("cancels with claim epoch when the job signal is aborted after claim", async () => {
+    const item = makeItem({ status: "running" });
+    vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(item);
+    const controller = new AbortController();
+    controller.abort();
+    const execute = vi.fn();
+
+    await runReviewWorkItem({
+      job: { ...makeJob(), signal: controller.signal },
+      execute,
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1", 1);
+  });
+
+  it("does not cancel a newer claim when abort races a stale epoch", async () => {
+    const item = makeItem({ status: "running" });
+    vi.mocked(repo.claimQueuedWorkItem).mockResolvedValue(item);
+    vi.mocked(repo.isExecutionEpochCurrent).mockResolvedValue(false);
+    const controller = new AbortController();
+    controller.abort();
+    const execute = vi.fn();
+
+    await runReviewWorkItem({
+      job: { ...makeJob(), signal: controller.signal },
+      execute,
+    });
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).not.toHaveBeenCalled();
+    expect(evlog.logInfo).toHaveBeenCalledWith(
+      "agent_work_stale_execution_skipped",
+      expect.objectContaining({ workItemId: "wi-1", executionEpoch: 1 }),
+    );
+  });
+
+  it("cancels before claim when the job signal is aborted pre-claim", async () => {
+    mockFetchedItem(makeItem());
+    const controller = new AbortController();
+    controller.abort();
+    // Force legacy claim path so abort is checked before claimWorkForExecution.
+    const execute = vi.fn();
+
+    await runReviewWorkItem({
+      job: { ...makeJob(), signal: controller.signal },
+      acceptItem: (it) => it.reviewLens != null,
+      execute,
+    });
+
+    expect(repo.claimWorkForExecution).not.toHaveBeenCalled();
+    expect(repo.markWorkCancelled).toHaveBeenCalledWith(pool, "wi-1");
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it("recovers replacement on retry after transient afterComplete failure", async () => {

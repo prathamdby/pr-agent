@@ -225,7 +225,7 @@ async function finishRescheduledParentWorkItem(
     });
   }
   if (await shouldSkipWork(pool, refreshed ?? { id: itemId })) {
-    await markWorkCancelled(pool, itemId);
+    await markWorkCancelled(pool, itemId, executionEpoch);
     await clearResumeSnapshotsBestEffort(pool, itemId);
   }
 }
@@ -309,8 +309,23 @@ export async function runDurableWorkItem<T extends WorkType>(
     item: TypedCore,
     currentInstallation: InstallationToken | undefined,
     reason: string,
+    /** When set, only this claim may terminalise the row. */
+    cancelEpoch?: number,
   ): Promise<void> {
-    await markWorkCancelled(spec.pool, item.id);
+    if (cancelEpoch != null && !(await isExecutionEpochCurrent(spec.pool, item.id, cancelEpoch))) {
+      logInfo("agent_work_stale_execution_skipped", {
+        type: spec.type,
+        workItemId: item.id,
+        executionEpoch: cancelEpoch,
+        reason,
+      });
+      return;
+    }
+    if (cancelEpoch != null) {
+      await markWorkCancelled(spec.pool, item.id, cancelEpoch);
+    } else {
+      await markWorkCancelled(spec.pool, item.id);
+    }
     await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     await invokeCancelledHook(item, currentInstallation, reason);
   }
@@ -371,9 +386,9 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     if (!(await shouldSkipWork(spec.pool, item))) return false;
     if (notifyHook) {
-      await markCancelledAndInvokeHook(item, installation, reason);
+      await markCancelledAndInvokeHook(item, installation, reason, executionEpoch);
     } else {
-      await markWorkCancelled(spec.pool, item.id);
+      await markWorkCancelled(spec.pool, item.id, executionEpoch);
       await clearResumeSnapshotsBestEffort(spec.pool, item.id);
     }
     return true;
@@ -388,7 +403,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     installationToken: InstallationToken,
   ): Promise<DurableExecutionContext | undefined> {
     if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
-      await markCancelledAndInvokeHook(item, installationToken, "bot_commenter");
+      await markCancelledAndInvokeHook(item, installationToken, "bot_commenter", executionEpoch);
       return undefined;
     }
 
@@ -602,7 +617,7 @@ export async function runDurableWorkItem<T extends WorkType>(
 
   try {
     if (jobSignal.aborted) {
-      await markCancelledAndInvokeHook(item, installation, "job_aborted");
+      await markCancelledAndInvokeHook(item, installation, "job_aborted", executionEpoch);
       return;
     }
     if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {

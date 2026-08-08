@@ -334,6 +334,7 @@ async function upsertSummaryCommentAtRevision(
       reviewLens: params.reviewLens,
       step: "progress_comment",
       detail: { stubPostedAtMs },
+      executionEpoch: null,
     });
   }
 
@@ -354,6 +355,7 @@ async function upsertSummaryCommentAtRevision(
       reviewLens: params.reviewLens,
       step: "progress_comment",
       githubId: result.id,
+      executionEpoch: null,
       detail: {
         progressRevision: params.progressRevision,
         updated: result.updated,
