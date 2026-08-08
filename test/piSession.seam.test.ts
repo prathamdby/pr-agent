@@ -3,15 +3,23 @@ import { makeTestConfig } from "./helpers/config.js";
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
   ModelRuntime: {
-    create: vi.fn(async () => ({
-      setRuntimeApiKey: vi.fn(async () => undefined),
-      getError: vi.fn(() => undefined),
-      getModel: vi.fn(() => ({
-        id: "gpt-4o-mini",
-        provider: "openai",
-        api: "openai-responses",
-      })),
-    })),
+    create: vi.fn(async () => {
+      const streamSimple = vi.fn();
+      const stream = vi.fn();
+      return {
+        setRuntimeApiKey: vi.fn(async () => undefined),
+        getError: vi.fn(() => undefined),
+        getModel: vi.fn(() => ({
+          id: "gpt-4o-mini",
+          provider: "openai",
+          api: "openai-responses",
+        })),
+        streamSimple,
+        stream,
+        completeSimple: vi.fn(),
+        complete: vi.fn(),
+      };
+    }),
   },
   createAgentSession: vi.fn(),
   createExtensionRuntime: vi.fn(),
@@ -27,6 +35,7 @@ import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import {
   createPiSession,
   DEFAULT_COMPACTION_POLICY,
+  DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   EMPTY_STRUCTURED_STATE,
@@ -73,6 +82,7 @@ describe("createPiSession seam", () => {
       primary: { provider: "openai", model: "gpt-4o-mini" },
       thinkingPolicy: DEFAULT_THINKING_POLICY,
       compactionPolicy: DEFAULT_COMPACTION_POLICY,
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
       structuredState: EMPTY_STRUCTURED_STATE,
       systemPrompt: "orchestrator",

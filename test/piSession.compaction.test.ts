@@ -6,6 +6,7 @@ import {
 import {
   createFakePiSession,
   DEFAULT_COMPACTION_POLICY,
+  DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
 } from "../src/agent/runtime/piSession.js";
@@ -40,6 +41,7 @@ describe("compaction policy", () => {
       primary: { provider: "openai", model: "gpt-4o-mini" },
       thinkingPolicy: DEFAULT_THINKING_POLICY,
       compactionPolicy: DEFAULT_COMPACTION_POLICY,
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
       structuredState: authoritative,
       systemPrompt: "test",

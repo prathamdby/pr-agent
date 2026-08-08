@@ -26,6 +26,8 @@ import {
   structuredStateReinjectionPrompt,
 } from "./compactionPolicy.js";
 import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
+import { bindPromptCacheRetention } from "./modelRuntimeCache.js";
+import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
 import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
 
@@ -162,6 +164,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         },
       });
     }
+    bindPromptCacheRetention(modelRuntime, params.promptCachePolicy.retention);
 
     const settingsManager = SettingsManager.inMemory({
       compaction: {
@@ -188,15 +191,19 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       policy: params.thinkingPolicy,
       phase: "synthesis",
     });
+    const sessionCacheId = sessionCacheIdFromIdentity(
+      cacheIdentityFromAssignment(params.role, params.primary, params.specialistId),
+    );
+    const cwd = params.cwd ?? process.cwd();
     const { session } = await createAgentSession({
-      cwd: params.cwd ?? process.cwd(),
+      cwd,
       agentDir,
       model,
       thinkingLevel: initialThinking,
       modelRuntime,
       resourceLoader,
       settingsManager,
-      sessionManager: SessionManager.inMemory(params.cwd ?? process.cwd()),
+      sessionManager: SessionManager.inMemory(cwd, { id: sessionCacheId }),
       noTools: "builtin",
       customTools: params.tools.map((tool) =>
         toCodingAgentTool(

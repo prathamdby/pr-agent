@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createFakePiSession,
   DEFAULT_COMPACTION_POLICY,
+  DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   EMPTY_STRUCTURED_STATE,
@@ -15,6 +16,7 @@ function baseParams() {
     fallback: { provider: "openai", model: "gpt-4o" },
     thinkingPolicy: DEFAULT_THINKING_POLICY,
     compactionPolicy: DEFAULT_COMPACTION_POLICY,
+    promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     structuredState: {
       version: 1,

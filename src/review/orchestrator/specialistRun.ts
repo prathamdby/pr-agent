@@ -219,6 +219,7 @@ async function createSessionWithinDeadline(
   const sessionTools = buildSpecialistSessionTools(params.workspaceTools, submitTool);
   const creation = createFeaturePiSession({
     role: "specialist",
+    specialistId: params.specialist,
     cfg: params.cfg,
     cwd: params.cwd,
     systemPrompt: specialistSystemPrompt(params.specialist),

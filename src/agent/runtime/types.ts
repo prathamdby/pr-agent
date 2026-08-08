@@ -2,8 +2,10 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
+import type { PromptCachePolicy } from "./promptCachePolicy.js";
 
 export type { AgentLifecycleEvent } from "./lifecycleEvents.js";
+export type { PromptCachePolicy } from "./promptCachePolicy.js";
 
 export type AgentSessionRole =
   | "orchestrator"
@@ -65,10 +67,13 @@ export type PiSessionSendOptions = {
 
 export type PiSessionCreateParams = {
   readonly role: AgentSessionRole;
+  /** Optional specialist persona; included in OpenAI-style session cache identity. */
+  readonly specialistId?: string;
   readonly primary: ModelAssignment;
   readonly fallback?: ModelAssignment;
   readonly thinkingPolicy: ThinkingPolicy;
   readonly compactionPolicy: CompactionPolicy;
+  readonly promptCachePolicy: PromptCachePolicy;
   readonly toolPolicy: ToolPolicy;
   readonly structuredState: AuthoritativeStructuredState;
   readonly systemPrompt: string;

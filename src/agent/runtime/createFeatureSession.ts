@@ -12,6 +12,7 @@ import {
   saveResumeSnapshotIfConfigured,
   type FeatureSessionDurability,
 } from "./sessionDurability.js";
+import { DEFAULT_PROMPT_CACHE_POLICY } from "./promptCachePolicy.js";
 import {
   DEFAULT_COMPACTION_POLICY,
   DEFAULT_TOOL_POLICY,
@@ -89,6 +90,7 @@ function wrapSessionWithDurability(
 
 export async function createFeaturePiSession(params: {
   readonly role: AgentSessionRole;
+  readonly specialistId?: string;
   readonly cfg: Config;
   readonly systemPrompt: string;
   readonly tools: readonly PiTool[];
@@ -115,10 +117,12 @@ export async function createFeaturePiSession(params: {
       : (durableEventSink ?? params.eventSink ?? (() => undefined));
   const session = await createPiSession({
     role: params.role,
+    ...(params.specialistId ? { specialistId: params.specialistId } : {}),
     primary,
     fallback: policy.fallback,
     thinkingPolicy: thinkingPolicyFromCeiling(params.cfg.piThinkingCeiling),
     compactionPolicy: DEFAULT_COMPACTION_POLICY,
+    promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     structuredState,
     systemPrompt: params.systemPrompt,
