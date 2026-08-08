@@ -5,4 +5,4 @@ globs:
   - "scripts/check-production-dependency-graph.mjs"
 ---
 
-`site/` is a separate landing package (`pr-agent-landing`); Vercel deploys use pnpm. Do not pull React, Vite, Next, or other frontend frameworks into the backend production dependency graph. Backend stays on Nub; do not "unify" package managers by contaminating prod deps (`check:prod-deps` must stay green).
+`site/` is a separate landing package (`pr-agent-landing`); Vercel deploys use Nub via [`site/vercel.json`](../site/vercel.json) (`npm install -g @nubjs/nub@…` then `nub ci --filter pr-agent-landing...`). Do not pull React, Vite, Next, or other frontend frameworks into the backend production dependency graph. Backend stays on Nub; do not contaminate prod deps (`check:prod-deps` must stay green).

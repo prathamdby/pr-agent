@@ -46,6 +46,7 @@ jobs:
             site:
               - ".github/workflows/ci.yml"
               - ".node-version"
+              - "package.json"
               - "nub.lock"
               - "nub.jsonc"
               - "site/**"

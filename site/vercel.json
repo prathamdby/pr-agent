@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "tanstack-start",
-  "installCommand": "curl -fsSL https://nubjs.com/install.sh | bash && export PATH=$HOME/.nub/bin:$PATH && cd .. && nub ci --filter pr-agent-landing...",
-  "buildCommand": "export PATH=$HOME/.nub/bin:$PATH && nub run build"
+  "installCommand": "npm install -g --ignore-scripts=false @nubjs/nub@0.7.2 && cd .. && nub ci --filter pr-agent-landing...",
+  "buildCommand": "nub run build"
 }

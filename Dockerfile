@@ -5,7 +5,7 @@ WORKDIR /app
 RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
-RUN npm install -g --ignore-scripts=false @nubjs/nub
+RUN npm install -g --ignore-scripts=false @nubjs/nub@0.7.2
 COPY package.json nub.lock nub.jsonc .npmrc .node-version ./
 COPY site/package.json ./site/package.json
 # nub ci uses a project-local store so node_modules is COPY-safe across stages.
