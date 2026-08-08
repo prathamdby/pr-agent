@@ -37,29 +37,15 @@ export function buildSpecialistSessionTools(
 ): {
   readonly piTools: readonly PiTool[];
   readonly executors: Record<string, AgentRunnerToolExecutor>;
-  readonly toolNames: readonly string[];
 } {
   if (submit.piTool.name !== SUBMIT_FINDINGS_REPORT_NAME) {
     throw new Error(`expected ${SUBMIT_FINDINGS_REPORT_NAME}, got ${submit.piTool.name}`);
   }
-  const piTools = [...workspaceTools.piTools, submit.piTool];
   return {
-    piTools,
+    piTools: [...workspaceTools.piTools, submit.piTool],
     executors: {
       ...workspaceTools.executors,
       [SUBMIT_FINDINGS_REPORT_NAME]: submit.executor,
     },
-    toolNames: piTools.map((tool) => tool.name),
   };
-}
-
-/** Serialize tool definitions for equality tests (excludes executors). */
-export function specialistToolDefinitionsJson(piTools: readonly PiTool[]): string {
-  return JSON.stringify(
-    piTools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.parameters,
-    })),
-  );
 }

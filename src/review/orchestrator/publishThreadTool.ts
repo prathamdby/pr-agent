@@ -17,7 +17,7 @@ import {
   type FindingLedger,
   type SpecialistId,
 } from "./orchestratorTypes.js";
-import { gateOrchestratorPhaseTool, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
 const publishThreadSchema = z.object({
   findings: z.array(reviewFindingSchema),
@@ -95,7 +95,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     parameters: z.toJSONSchema(publishThreadSchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishThreadToolResult> => {
-    const gate = gateOrchestratorPhaseTool(params.phaseRef, "publish_thread");
+    const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_thread");
     if (!gate.ok) {
       return {
         kind: "wrong_phase",

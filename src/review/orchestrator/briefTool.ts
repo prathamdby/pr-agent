@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { formatZodIssues } from "../../util/formatZodIssues.js";
 import type { SpecialistId } from "./orchestratorTypes.js";
-import { gateOrchestratorPhaseTool, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
 export const specialistBriefSchema = z.object({
   prIntent: z.string().min(1).max(2000),
@@ -43,7 +43,7 @@ export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
     parameters: z.toJSONSchema(specialistBriefSchema),
   };
   const executor: AgentRunnerToolExecutor = async (args) => {
-    const gate = gateOrchestratorPhaseTool(phaseRef, "submit_specialist_brief");
+    const gate = assertPhaseToolAllowed(phaseRef.current, "submit_specialist_brief");
     if (!gate.ok) {
       validationError = gate.error;
       return {

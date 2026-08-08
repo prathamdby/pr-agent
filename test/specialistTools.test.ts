@@ -5,9 +5,18 @@ import {
   SUBMIT_FINDINGS_REPORT_NAME,
   buildSpecialistSessionTools,
   buildSubmitFindingsReportPiTool,
-  specialistToolDefinitionsJson,
 } from "../src/review/orchestrator/specialistTools.js";
 import { specialistSystemPrompt } from "../src/review/orchestrator/prompts/specialistPersonas.js";
+
+function specialistToolDefinitionsJson(piTools: readonly PiTool[]): string {
+  return JSON.stringify(
+    piTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    })),
+  );
+}
 
 describe("specialistTools", () => {
   it("builds identical tool definition JSON for every specialist id", () => {
@@ -41,7 +50,7 @@ describe("specialistTools", () => {
         specialist,
         systemPrompt: specialistSystemPrompt(specialist),
         toolJson: specialistToolDefinitionsJson(tools.piTools),
-        toolNames: tools.toolNames,
+        toolNames: tools.piTools.map((tool) => tool.name),
       };
     });
 

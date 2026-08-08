@@ -107,11 +107,3 @@ Requirements source: https://github.com/prathamdby/pr-agent/issues/423 (body + p
 ## Out of scope
 
 - Long retention default; full conversation resume replay; broad ask/triage/description/verification metrics parity; persona redesign; generic prompt-cache framework; deferred-tool loading; one-session-per-phase.
-
-## Principles shaping this plan
-
-- Subtract-before-add / migrate-then-delete: remove dead compact + tool mutation APIs in the same wave as their replacements.
-- Model-the-domain: policy tables (retention, identity, compaction-by-role, phase tools), not scattered flags.
-- Laziness: no framework for one feature.
-- Sequence-verifiable-units: one phase commit, verify before next.
-- Outcome-oriented: reshape to the final surface, not the smallest historical patch.

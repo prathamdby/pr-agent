@@ -17,7 +17,7 @@ import {
   type ReviewPayload,
 } from "../reviewSchema.js";
 import type { AcceptedPlacement, FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
-import { gateOrchestratorPhaseTool, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
 const summaryFindingCopySchema = z.object({
   findingId: z.string().min(1),
@@ -217,7 +217,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     parameters: z.toJSONSchema(publishSummarySchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
-    const gate = gateOrchestratorPhaseTool(params.phaseRef, "publish_summary");
+    const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_summary");
     if (!gate.ok) {
       return {
         ok: false,

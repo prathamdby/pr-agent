@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   assertPhaseToolAllowed,
   createOrchestratorPhaseRef,
-  gateOrchestratorPhaseTool,
   WRONG_PHASE_TOOL_CODE,
 } from "../src/review/orchestrator/phaseToolPolicy.js";
 import { buildSpecialistBriefTool } from "../src/review/orchestrator/briefTool.js";
@@ -62,6 +61,6 @@ describe("phaseToolPolicy", () => {
     });
     expect(accepted).toEqual({ accepted: true });
     expect(brief.getBrief()?.prIntent).toBe("Add cache policy");
-    expect(gateOrchestratorPhaseTool(phaseRef, "submit_specialist_brief").ok).toBe(true);
+    expect(assertPhaseToolAllowed(phaseRef.current, "submit_specialist_brief").ok).toBe(true);
   });
 });
