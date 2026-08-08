@@ -1038,7 +1038,6 @@ export async function runOrchestratedPrReview(
       await publishDeterministicSummary();
       markCompleteUnlessStopped();
     } else {
-      const synthesisSession = session;
       publishAttempts += 1;
       const overviewPolicy = resolveDescriptionWritingPolicy(params.workspace.stats);
       const synthesisPrompt = renderSynthesisTurn({

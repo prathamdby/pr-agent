@@ -14,24 +14,24 @@ export function bindPromptCacheRetention(
   const complete = modelRuntime.complete.bind(modelRuntime);
   const completeSimple = modelRuntime.completeSimple.bind(modelRuntime);
 
-  modelRuntime.stream = ((model, context, options) =>
+  modelRuntime.stream = (model, context, options) =>
     stream(model, context, {
-      ...(options ?? {}),
+      ...options,
       cacheRetention: retention,
-    } as never)) as typeof stream;
-  modelRuntime.streamSimple = ((model, context, options) =>
+    } as never);
+  modelRuntime.streamSimple = (model, context, options) =>
     streamSimple(model, context, {
-      ...(options ?? {}),
+      ...options,
       cacheRetention: retention,
-    })) as typeof streamSimple;
-  modelRuntime.complete = ((model, context, options) =>
+    });
+  modelRuntime.complete = (model, context, options) =>
     complete(model, context, {
-      ...(options ?? {}),
+      ...options,
       cacheRetention: retention,
-    } as never)) as typeof complete;
-  modelRuntime.completeSimple = ((model, context, options) =>
+    } as never);
+  modelRuntime.completeSimple = (model, context, options) =>
     completeSimple(model, context, {
-      ...(options ?? {}),
+      ...options,
       cacheRetention: retention,
-    })) as typeof completeSimple;
+    });
 }

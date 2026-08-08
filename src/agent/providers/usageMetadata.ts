@@ -66,10 +66,7 @@ export function mergeExactUsage(
 ): AgentRunnerUsageMetadata | undefined {
   if (!left) return right;
   if (!right) return left;
-  const cacheWrite1hTokens = mergeOptionalCount(
-    left.cacheWrite1hTokens,
-    right.cacheWrite1hTokens,
-  );
+  const cacheWrite1hTokens = mergeOptionalCount(left.cacheWrite1hTokens, right.cacheWrite1hTokens);
   return {
     estimated: false,
     inputTokens: mergeOptionalCount(left.inputTokens, right.inputTokens),

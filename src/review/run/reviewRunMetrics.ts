@@ -281,8 +281,7 @@ export function deriveCacheExcellenceMetrics(params: {
   if (params.cacheReadTokens == null || params.cacheWriteTokens == null) {
     return { cacheHitRate: null, cacheWriteAmplification: null };
   }
-  const denominator =
-    params.providerInputTokens + params.cacheReadTokens + params.cacheWriteTokens;
+  const denominator = params.providerInputTokens + params.cacheReadTokens + params.cacheWriteTokens;
   return {
     cacheHitRate: denominator > 0 ? params.cacheReadTokens / denominator : null,
     cacheWriteAmplification: params.cacheWriteTokens / Math.max(params.cacheReadTokens, 1),
