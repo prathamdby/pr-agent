@@ -49,6 +49,7 @@ type PublishVerificationParams = {
   readonly changedFilePathsTruncated?: boolean;
   readonly policyResult: RepoPolicyResult;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly executionEpoch?: number;
 };
 
 function withStubMarker(body: string): string {
@@ -249,6 +250,7 @@ export async function publishVerification(
         const stubCommentId = await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
+          executionEpoch: params.executionEpoch,
           operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.verification_thread",
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
@@ -296,6 +298,7 @@ export async function publishVerification(
         const stubCommentId = await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
+          executionEpoch: params.executionEpoch,
           operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.verification_thread",
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
@@ -336,6 +339,7 @@ export async function publishVerification(
         const stubCommentId = await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
+          executionEpoch: params.executionEpoch,
           operationKey: verificationThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.verification_thread",
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),

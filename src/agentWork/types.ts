@@ -160,6 +160,8 @@ type WorkItemBase = PrRef & {
   readonly status: WorkStatus;
   readonly resourceKey: string;
   readonly attemptCount: number;
+  /** Monotonic fencing token; durable writes from a stale claim are rejected. */
+  readonly executionEpoch: number;
   readonly cancelRequestedAt: Date | null;
 };
 

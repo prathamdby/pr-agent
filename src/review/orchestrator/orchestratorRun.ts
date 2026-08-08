@@ -288,6 +288,7 @@ export async function runOrchestratedPrReview(
           client: params.recordPublishStep.summaryCommentCoordination.pool,
           workItemId: params.recordPublishStep.summaryCommentCoordination.workItemId,
           resourceKey: params.recordPublishStep.summaryCommentCoordination.resourceKey,
+          executionEpoch: params.recordPublishStep.summaryCommentCoordination.executionEpoch,
         }
       : undefined,
     shouldAbortPublish: params.shouldAbortPublish,

@@ -30,7 +30,9 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
     shouldSkipWork: vi.fn().mockResolvedValue(false),
     getWorkItemCore: vi.fn(),
     getWorkItemPayload: vi.fn(),
-    claimWorkForExecution: vi.fn().mockResolvedValue(true),
+    claimWorkForExecution: vi.fn().mockResolvedValue({ executionEpoch: 1 }),
+    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
+    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
     markWorkCompleted: vi.fn().mockResolvedValue(true),
     markWorkFailed: vi.fn().mockResolvedValue(true),
     markWorkRetrying: vi.fn().mockResolvedValue(true),
@@ -126,6 +128,8 @@ function mockDurableExecution(item = descriptionItem()): void {
     const result = await spec.execute(item, {
       installation,
       headSha: "head",
+      executionEpoch: 1,
+      signal: new AbortController().signal,
     });
     if (result?.degraded) {
       await repo.markWorkPublishDegraded(pool, item.id);

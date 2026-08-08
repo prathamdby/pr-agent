@@ -28,6 +28,7 @@ type InsertWorkItemInput = {
 type WorkRow = {
   readonly status: WorkStatus;
   readonly attempt_count: number;
+  readonly execution_epoch: string | number;
   readonly started_at: Date | null;
   readonly completed_at: Date | null;
   readonly cancel_requested_at: Date | null;
@@ -96,7 +97,7 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
 
   async function getWorkRow(id: string): Promise<WorkRow> {
     const { rows } = await pool.query<WorkRow>(
-      `SELECT status, attempt_count, started_at, completed_at, cancel_requested_at, last_error
+      `SELECT status, attempt_count, execution_epoch, started_at, completed_at, cancel_requested_at, last_error
          FROM agent_work_items
         WHERE id = $1`,
       [id],
@@ -106,69 +107,82 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     return row;
   }
 
-  it("claims queued work and increments attempt count", async () => {
+  it("claims queued work and increments attempt count and epoch", async () => {
     const id = await insertWorkItem();
 
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+    await expect(claimWorkForExecution(pool, id)).resolves.toEqual({ executionEpoch: 1 });
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("running");
     expect(row.attempt_count).toBe(1);
+    expect(Number(row.execution_epoch)).toBe(1);
     expect(row.started_at).toBeInstanceOf(Date);
   });
 
-  it("claims running work through the resume path", async () => {
+  it("claims running work through the resume path and advances the epoch", async () => {
     const id = await insertWorkItem();
 
     await claimWorkForExecution(pool, id);
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+    await expect(claimWorkForExecution(pool, id)).resolves.toEqual({ executionEpoch: 2 });
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("running");
     expect(row.attempt_count).toBe(1);
+    expect(Number(row.execution_epoch)).toBe(2);
   });
 
   it("does not claim work after cancellation is requested", async () => {
     const id = await insertWorkItem({ cancelRequestedAt: new Date().toISOString() });
 
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(false);
+    await expect(claimWorkForExecution(pool, id)).resolves.toBeNull();
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("queued");
     expect(row.attempt_count).toBe(0);
   });
 
-  it("completes running work once only", async () => {
+  it("completes running work once only for the owning epoch", async () => {
     const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = 1 WHERE id = $1`, [id]);
 
-    await expect(markWorkCompleted(pool, id)).resolves.toBe(true);
-    await expect(markWorkCompleted(pool, id)).resolves.toBe(false);
+    await expect(markWorkCompleted(pool, id, 1)).resolves.toBe(true);
+    await expect(markWorkCompleted(pool, id, 1)).resolves.toBe(false);
 
     const row = await getWorkRow(id);
     expect(row.status).toBe("completed");
     expect(row.completed_at).toBeInstanceOf(Date);
   });
 
+  it("rejects completion from a stale execution epoch", async () => {
+    const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = 2 WHERE id = $1`, [id]);
+
+    await expect(markWorkCompleted(pool, id, 1)).resolves.toBe(false);
+    await expect(getWorkRow(id)).resolves.toMatchObject({ status: "running" });
+  });
+
   it("prevents completion after cancellation wins", async () => {
     const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = 1 WHERE id = $1`, [id]);
 
     await markWorkCancelled(pool, id);
 
-    await expect(markWorkCompleted(pool, id)).resolves.toBe(false);
+    await expect(markWorkCompleted(pool, id, 1)).resolves.toBe(false);
     await expect(getWorkRow(id)).resolves.toMatchObject({ status: "cancelled" });
   });
 
   it("requeues retrying work and increments attempt on the next claim", async () => {
     const id = await insertWorkItem({ status: "running", attemptCount: 1 });
+    await pool.query(`UPDATE agent_work_items SET execution_epoch = 1 WHERE id = $1`, [id]);
 
-    await expect(markWorkRetrying(pool, id, new Error("retry me"))).resolves.toBe(true);
+    await expect(markWorkRetrying(pool, id, new Error("retry me"), 1)).resolves.toBe(true);
 
     const retrying = await getWorkRow(id);
     expect(retrying.status).toBe("queued");
     expect(retrying.attempt_count).toBe(1);
     expect(retrying.last_error).toBe("retry me");
 
-    await expect(claimWorkForExecution(pool, id)).resolves.toBe(true);
+    await expect(claimWorkForExecution(pool, id)).resolves.toEqual({ executionEpoch: 2 });
     await expect(getWorkRow(id)).resolves.toMatchObject({
       status: "running",
       attempt_count: 2,
@@ -189,17 +203,21 @@ describe.skipIf(!hasDatabase)("agent work repository (integration)", () => {
     await expect(getWorkRow(rescheduled)).resolves.toMatchObject({ status: "completed" });
   });
 
-  it("allows concurrent double-claim through one running resume", async () => {
+  it("gives concurrent claims distinct execution epochs", async () => {
     const id = await insertWorkItem();
 
-    await expect(
-      Promise.all([claimWorkForExecution(pool, id), claimWorkForExecution(pool, id)]),
-    ).resolves.toEqual([true, true]);
+    const claims = await Promise.all([
+      claimWorkForExecution(pool, id),
+      claimWorkForExecution(pool, id),
+    ]);
+    const epochs = claims.map((c) => c?.executionEpoch).sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(epochs).toEqual([1, 2]);
 
     await expect(getWorkRow(id)).resolves.toMatchObject({
       status: "running",
       attempt_count: 1,
     });
+    expect(Number((await getWorkRow(id)).execution_epoch)).toBe(2);
   });
 
   it("keeps ask publish records separate per work item", async () => {

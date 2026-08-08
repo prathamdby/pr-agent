@@ -63,6 +63,7 @@ type PublishTriageParams = {
   readonly scope?: TriageScope;
   readonly threadRootCommentId?: number;
   readonly findingHistoryCfg?: Pick<Config, "findingHistoryEnabled">;
+  readonly executionEpoch?: number;
 };
 
 type ReportOnlyParams = Omit<
@@ -159,6 +160,7 @@ async function upsertTriageReport(
     | "pool"
     | "workItemId"
     | "resourceKey"
+    | "executionEpoch"
   > & {
     readonly body: string;
   },
@@ -166,6 +168,7 @@ async function upsertTriageReport(
   const result = await withOperationIntent({
     client: params.pool,
     workItemId: params.workItemId,
+    executionEpoch: params.executionEpoch,
     operationKey: triageReportOperationKey(params.resourceKey),
     mutationKind: "github.triage_report",
     detail: {
@@ -187,6 +190,7 @@ async function upsertTriageReport(
   });
   await recordPublishStep(params.pool, {
     workItemId: params.workItemId,
+    executionEpoch: params.executionEpoch,
     resourceKey: params.resourceKey,
     reviewLens: TRIAGE_PUBLISH_LENS,
     step: "triage_report",
@@ -231,6 +235,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       await withOperationIntent({
         client: params.pool,
         workItemId: params.workItemId,
+        executionEpoch: params.executionEpoch,
         operationKey: triagePushOperationKey(params.resourceKey),
         mutationKind: "github.triage_push",
         detail: {
@@ -245,6 +250,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       pushed = true;
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
+        executionEpoch: params.executionEpoch,
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
@@ -269,6 +275,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       });
       await recordPublishStep(params.pool, {
         workItemId: params.workItemId,
+        executionEpoch: params.executionEpoch,
         resourceKey: params.resourceKey,
         reviewLens: TRIAGE_PUBLISH_LENS,
         step: "triage_push",
@@ -284,6 +291,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
   } else if (!params.priorPush) {
     await recordPublishStep(params.pool, {
       workItemId: params.workItemId,
+      executionEpoch: params.executionEpoch,
       resourceKey: params.resourceKey,
       reviewLens: TRIAGE_PUBLISH_LENS,
       step: "triage_push",
@@ -327,6 +335,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
         await withOperationIntent({
           client: params.pool,
           workItemId: params.workItemId,
+          executionEpoch: params.executionEpoch,
           operationKey: triageThreadOperationKey(verdict.threadRootCommentId),
           mutationKind: "github.triage_thread_reply",
           detail: {
@@ -356,6 +365,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
       await withOperationIntent({
         client: params.pool,
         workItemId: params.workItemId,
+        executionEpoch: params.executionEpoch,
         operationKey: `${triageThreadOperationKey(verdict.threadRootCommentId)}:resolve`,
         mutationKind: "github.triage_thread_resolve",
         detail: {

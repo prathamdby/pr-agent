@@ -81,6 +81,7 @@ import {
   loadReviewExecutorPublishContext,
   getSummaryCommentGithubId,
   getWorkItem,
+  isExecutionEpochCurrent,
   recordPublishStep,
   shouldSkipWork,
   type ReviewExecutorPublishContext,
@@ -489,6 +490,8 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly staleHeadAtPublish: { value: boolean };
   readonly priorInlineFeedback: Promise<SettledPriorInlineFeedback>;
   readonly repositoryView: PrRepositoryView;
+  readonly executionEpoch: number;
+  readonly signal: AbortSignal;
 }): Promise<ReviewExecutionResult> {
   const {
     cfg,
@@ -507,6 +510,8 @@ async function runFullReviewAgainstRepositoryView(args: {
     staleHeadAtPublish,
     priorInlineFeedback,
     repositoryView,
+    executionEpoch,
+    signal,
   } = args;
   const {
     publishState,
@@ -646,8 +651,14 @@ async function runFullReviewAgainstRepositoryView(args: {
           step,
           githubId: detail?.githubId,
           detail: detail?.meta,
+          executionEpoch,
         }),
-      { pool, workItemId: item.id, resourceKey: item.resourceKey },
+      {
+        pool,
+        workItemId: item.id,
+        resourceKey: item.resourceKey,
+        executionEpoch,
+      },
     ),
     reviewSource: payload.source,
     staleHeadRescheduled: payload.staleHeadRescheduled,
@@ -657,7 +668,9 @@ async function runFullReviewAgainstRepositoryView(args: {
     prTitle: (pullRequest as { title?: string } | undefined)?.title ?? "",
     prBody: (pullRequest as { body?: string | null } | undefined)?.body ?? null,
     shouldAbortPublish: async () => {
+      if (signal.aborted) return true;
       if (await shouldSkipWork(pool, item)) return true;
+      if (!(await isExecutionEpochCurrent(pool, item.id, executionEpoch))) return true;
       const latestHeadSha = await getPullRequestHeadSha(
         tokenState.installation.token,
         item.owner,
@@ -858,6 +871,8 @@ export async function executeReviewJob(
               staleHeadAtPublish,
               priorInlineFeedback,
               repositoryView,
+              executionEpoch: env.executionEpoch,
+              signal: env.signal,
             }),
         ),
       );

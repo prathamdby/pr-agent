@@ -260,6 +260,7 @@ async function handleForkPrReport(params: {
     headSha: params.headSha,
     inventory: [],
     previouslyResolvedCount: 0,
+    executionEpoch: params.item.executionEpoch,
     body: reportOnlyBody({
       message: TRIAGE_FORK_PR_NOTICE,
       headSha: params.headSha,
@@ -393,6 +394,7 @@ async function publishEmptyInventoryReport(params: {
     headSha: params.headSha,
     inventory: params.inventory,
     previouslyResolvedCount: params.previouslyResolvedCount,
+    executionEpoch: params.item.executionEpoch,
     ...params.reportContext,
     body: reportOnlyBody({
       message,
@@ -473,6 +475,7 @@ async function tryResumeStoredPush(params: {
     previouslyResolvedCount: params.previouslyResolvedCount,
     priorPush: parsed,
     findingHistoryCfg: params.cfg,
+    executionEpoch: params.item.executionEpoch,
     ...params.reportContext,
   });
   if (publish.degraded) {
@@ -609,6 +612,7 @@ async function runFreshTriageAgent(params: {
         payload: result.payload,
         previouslyResolvedCount: params.previouslyResolvedCount,
         findingHistoryCfg: params.cfg,
+        executionEpoch: params.item.executionEpoch,
         ...params.reportContext,
       });
       if (publish.degraded) {

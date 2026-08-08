@@ -270,6 +270,7 @@ export async function executeVerificationJob(
         changedFilePathsTruncated: compareFilesTruncated,
         policyResult: result.policyResult,
         findingHistoryCfg: cfg,
+        executionEpoch: env.executionEpoch,
       });
 
       const degraded = publish.degraded || resolutionDegraded || compareFilesTruncated;

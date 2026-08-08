@@ -16,6 +16,7 @@ import {
 } from "../settings/index.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import { isRecord } from "../util/typeGuards.js";
+import { assertCurrentExecutionEpoch } from "./workItemStateRepository.js";
 
 export type PublishLens =
   | AnyReviewLens
@@ -590,8 +591,12 @@ export async function recordPublishStep(
     step: SharedPublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
+    executionEpoch?: number;
   },
 ): Promise<void> {
+  if (params.executionEpoch != null) {
+    await assertCurrentExecutionEpoch(pool, params.workItemId, params.executionEpoch);
+  }
   const detail =
     params.step === "inline_review" && typeof params.detail?.batchId === "string"
       ? { batches: [params.detail] }
@@ -647,8 +652,12 @@ export async function recordAskPublishStep(
     step: AskPublishStep;
     githubId?: string | number;
     detail?: Record<string, unknown>;
+    executionEpoch?: number;
   },
 ): Promise<void> {
+  if (params.executionEpoch != null) {
+    await assertCurrentExecutionEpoch(pool, params.workItemId, params.executionEpoch);
+  }
   await pool.query(
     `INSERT INTO publish_records (id, work_item_id, resource_key, review_lens, step, github_id, status, detail)
 			 VALUES ($1, $2, $3, $4, $5, $6, 'completed', $7::jsonb)

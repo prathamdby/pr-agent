@@ -54,6 +54,7 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordPublishStep: mocks.recordPublishStep,
   hasCompletedPublishStep: mocks.hasCompletedPublishStep,
   shouldSkipWork: mocks.shouldSkipWork,
+  isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
   getSummaryCommentGithubId: mocks.getSummaryCommentGithubId,
   getProgressStubPostedAtMs: mocks.getProgressStubPostedAtMs,
   getWorkItem: mocks.getWorkItem,
@@ -174,6 +175,8 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
         ttlMs: 300_000,
       },
       headSha: "head",
+      executionEpoch: 1,
+      signal: new AbortController().signal,
       pullRequest: source === "slash" ? pullRequest : undefined,
     });
   });
@@ -1001,6 +1004,8 @@ describe("executeReviewJob", () => {
           ttlMs: 60_000,
         },
         headSha: "head",
+        executionEpoch: 1,
+        signal: new AbortController().signal,
         pullRequest: prWithDescriptionOnly,
       });
     });
@@ -1025,6 +1030,8 @@ describe("executeReviewJob", () => {
           ttlMs: 60_000,
         },
         headSha: "head",
+        executionEpoch: 1,
+        signal: new AbortController().signal,
         pullRequest: prWithDescription,
       });
     });

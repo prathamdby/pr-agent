@@ -62,6 +62,7 @@ export type SummaryCommentCoordination = {
   pool: Pool;
   workItemId: string;
   resourceKey: string;
+  executionEpoch?: number;
 };
 
 export type RecordPublishStepFn = (
@@ -607,6 +608,7 @@ export async function publishReviewSummaryOnly(params: {
           workItemId: summaryCoordination.workItemId,
           operationKey: reviewSummaryOperationKey(summaryCoordination.resourceKey, mode),
           mutationKind: "github.summary_comment",
+          executionEpoch: summaryCoordination.executionEpoch,
           detail: {
             step: "summary_comment",
             resourceKey: summaryCoordination.resourceKey,

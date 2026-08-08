@@ -27,6 +27,15 @@ vi.mock("../src/agentWork/repository.js", () => ({
   recordAskPublishStep: mocks.recordAskPublishStep,
 }));
 
+vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
+  return {
+    ...actual,
+    assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),
+    isExecutionEpochCurrent: vi.fn().mockResolvedValue(true),
+  };
+});
+
 vi.mock("../src/agent/ask/askRun.js", () => ({
   runAskRun: mocks.runAskRun,
 }));
@@ -127,6 +136,8 @@ function mockDurableExecution(): void {
         ttlMs: 60_000,
       },
       headSha: "head",
+      executionEpoch: 1,
+      signal: new AbortController().signal,
     });
   });
 }
@@ -173,6 +184,7 @@ describe("executeAskJob", () => {
       resourceKey: "o/r#1",
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation", commentId: 9001 },
+      executionEpoch: 1,
     });
     const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"));
     expect(intent?.status).toBe("reconciled");
@@ -201,6 +213,8 @@ describe("executeAskJob", () => {
           ttlMs: 60_000,
         },
         headSha: "head",
+        executionEpoch: 1,
+        signal: new AbortController().signal,
       });
     });
 
@@ -224,6 +238,8 @@ describe("executeAskJob", () => {
       await spec.execute(item, {
         installation,
         headSha: "head",
+        executionEpoch: 1,
+        signal: new AbortController().signal,
       });
       await spec.onTerminalFailure?.(item, installation, new Error("complete failed"));
     });
@@ -274,6 +290,8 @@ describe("executeAskJob", () => {
           ttlMs: 60_000,
         },
         headSha: "head",
+        executionEpoch: 1,
+        signal: new AbortController().signal,
       });
     });
 
@@ -308,6 +326,8 @@ describe("executeAskJob", () => {
         spec.execute(item, {
           installation,
           headSha: "head",
+          executionEpoch: 1,
+          signal: new AbortController().signal,
         }),
       ).rejects.toThrow("agent failed");
       await spec.onTerminalFailure?.(item, installation, new Error("dead"));
@@ -335,6 +355,8 @@ describe("executeAskJob", () => {
         spec.execute(item, {
           installation,
           headSha: "head",
+          executionEpoch: 1,
+          signal: new AbortController().signal,
         }),
       ).rejects.toThrow("transient");
     });
@@ -391,6 +413,7 @@ describe("executeAskJob", () => {
       resourceKey: "o/r#1",
       step: "ask_reply",
       detail: { replyTargetKind: "prConversation", commentId: 4242 },
+      executionEpoch: 1,
     });
     expect(memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"))?.status).toBe(
       "reconciled",
