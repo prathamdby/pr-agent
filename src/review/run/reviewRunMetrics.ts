@@ -37,6 +37,7 @@ export type ReviewMetricEvent =
         readonly outputTokens?: number;
         readonly cacheReadTokens?: number;
         readonly cacheWriteTokens?: number;
+        readonly cacheWrite1hTokens?: number;
         readonly totalTokens?: number;
       };
       readonly prompt?: {
@@ -100,6 +101,11 @@ export type ReviewRunMetricsSnapshot = {
   readonly providerOutputTokens: number;
   readonly cacheReadTokens: number | null;
   readonly cacheWriteTokens: number | null;
+  readonly cacheWrite1hTokens: number | null;
+  /** cacheRead / (input + cacheRead + cacheWrite); null when usage unknown. */
+  readonly cacheHitRate: number | null;
+  /** cacheWrite / max(cacheRead, 1); null when usage unknown. */
+  readonly cacheWriteAmplification: number | null;
   readonly estimatedTurnCount: number;
   readonly findingsCount: number;
   readonly severities: readonly string[];
@@ -149,6 +155,7 @@ type MutableReviewRunMetrics = {
   providerOutputTokens: number;
   cacheReadTokens: number | null;
   cacheWriteTokens: number | null;
+  cacheWrite1hTokens: number | null;
   estimatedTurnCount: number;
   findingsCount: number;
   severities: string[];
@@ -204,6 +211,7 @@ function createEmptyMetrics(meta: {
     providerOutputTokens: 0,
     cacheReadTokens: null,
     cacheWriteTokens: null,
+    cacheWrite1hTokens: null,
     estimatedTurnCount: 0,
     findingsCount: 0,
     severities: [],
@@ -255,7 +263,30 @@ function recordModelTurnUsage(
     metrics.providerOutputTokens += usage.outputTokens ?? 0;
     metrics.cacheReadTokens = addKnownCacheTotal(metrics.cacheReadTokens, usage.cacheReadTokens);
     metrics.cacheWriteTokens = addKnownCacheTotal(metrics.cacheWriteTokens, usage.cacheWriteTokens);
+    metrics.cacheWrite1hTokens = addKnownCacheTotal(
+      metrics.cacheWrite1hTokens,
+      usage.cacheWrite1hTokens,
+    );
   }
+}
+
+export function deriveCacheExcellenceMetrics(params: {
+  readonly providerInputTokens: number;
+  readonly cacheReadTokens: number | null;
+  readonly cacheWriteTokens: number | null;
+}): {
+  readonly cacheHitRate: number | null;
+  readonly cacheWriteAmplification: number | null;
+} {
+  if (params.cacheReadTokens == null || params.cacheWriteTokens == null) {
+    return { cacheHitRate: null, cacheWriteAmplification: null };
+  }
+  const denominator =
+    params.providerInputTokens + params.cacheReadTokens + params.cacheWriteTokens;
+  return {
+    cacheHitRate: denominator > 0 ? params.cacheReadTokens / denominator : null,
+    cacheWriteAmplification: params.cacheWriteTokens / Math.max(params.cacheReadTokens, 1),
+  };
 }
 
 export function recordReviewMetric(event: ReviewMetricEvent): void {
@@ -430,6 +461,11 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
   if (!metrics) return null;
   const wallClockMs = Date.now() - metrics.startedAtMs;
   const generationMs = Math.max(0, metrics.providerSendMs - metrics.toolMs);
+  const cacheExcellence = deriveCacheExcellenceMetrics({
+    providerInputTokens: metrics.providerInputTokens,
+    cacheReadTokens: metrics.cacheReadTokens,
+    cacheWriteTokens: metrics.cacheWriteTokens,
+  });
   return {
     provider: metrics.provider,
     model: metrics.model,
@@ -464,6 +500,9 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     providerOutputTokens: metrics.providerOutputTokens,
     cacheReadTokens: metrics.cacheReadTokens,
     cacheWriteTokens: metrics.cacheWriteTokens,
+    cacheWrite1hTokens: metrics.cacheWrite1hTokens,
+    cacheHitRate: cacheExcellence.cacheHitRate,
+    cacheWriteAmplification: cacheExcellence.cacheWriteAmplification,
     estimatedTurnCount: metrics.estimatedTurnCount,
     findingsCount: metrics.findingsCount,
     severities: [...metrics.severities],

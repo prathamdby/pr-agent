@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import * as evlog from "../src/evlog.js";
 import {
+  deriveCacheExcellenceMetrics,
   initReviewRunMetrics,
   logReviewRunCompleted,
   recordAgentTurnMetrics,
@@ -89,6 +90,7 @@ describe("reviewRunMetrics", () => {
           outputTokens: 6,
           cacheReadTokens: 0,
           cacheWriteTokens: 3,
+          cacheWrite1hTokens: 2,
           totalTokens: 18,
         },
       });
@@ -131,6 +133,9 @@ describe("reviewRunMetrics", () => {
         providerOutputTokens: 6,
         cacheReadTokens: 0,
         cacheWriteTokens: 3,
+        cacheWrite1hTokens: 2,
+        cacheHitRate: 0,
+        cacheWriteAmplification: 3,
         estimatedTurnCount: 1,
         findingsCount: 1,
         severities: ["P1"],
@@ -139,6 +144,29 @@ describe("reviewRunMetrics", () => {
         briefFallback: true,
       });
       expect(snapshot?.wallClockMs).toBeGreaterThanOrEqual(0);
+    });
+  });
+
+  it("derives cache hit rate and write amplification", () => {
+    expect(
+      deriveCacheExcellenceMetrics({
+        providerInputTokens: 10,
+        cacheReadTokens: 30,
+        cacheWriteTokens: 5,
+      }),
+    ).toEqual({
+      cacheHitRate: 30 / 45,
+      cacheWriteAmplification: 5 / 30,
+    });
+    expect(
+      deriveCacheExcellenceMetrics({
+        providerInputTokens: 10,
+        cacheReadTokens: null,
+        cacheWriteTokens: 5,
+      }),
+    ).toEqual({
+      cacheHitRate: null,
+      cacheWriteAmplification: null,
     });
   });
 
@@ -165,6 +193,9 @@ describe("reviewRunMetrics", () => {
       modelTurnCount: 0,
       cacheReadTokens: null,
       cacheWriteTokens: null,
+      cacheWrite1hTokens: null,
+      cacheHitRate: null,
+      cacheWriteAmplification: null,
     });
     expect(JSON.stringify(payload)).not.toMatch(/submitReview|password|BEGIN RSA/i);
     infoSpy.mockRestore();

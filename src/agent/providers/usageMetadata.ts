@@ -5,6 +5,8 @@ export type AgentRunnerUsageMetadata = {
   readonly outputTokens?: number;
   readonly cacheReadTokens?: number;
   readonly cacheWriteTokens?: number;
+  /** Subset of cacheWriteTokens written with 1h retention when the provider reports it. */
+  readonly cacheWrite1hTokens?: number;
   readonly totalTokens?: number;
   readonly estimated: boolean;
 };
@@ -48,6 +50,7 @@ export function exactUsageFromProviderUsage(usage: Usage): AgentRunnerUsageMetad
     outputTokens: usage.output,
     cacheReadTokens: usage.cacheRead,
     cacheWriteTokens: usage.cacheWrite,
+    ...(usage.cacheWrite1h != null ? { cacheWrite1hTokens: usage.cacheWrite1h } : {}),
     totalTokens: usage.totalTokens,
   };
 }
@@ -63,12 +66,17 @@ export function mergeExactUsage(
 ): AgentRunnerUsageMetadata | undefined {
   if (!left) return right;
   if (!right) return left;
+  const cacheWrite1hTokens = mergeOptionalCount(
+    left.cacheWrite1hTokens,
+    right.cacheWrite1hTokens,
+  );
   return {
     estimated: false,
     inputTokens: mergeOptionalCount(left.inputTokens, right.inputTokens),
     outputTokens: mergeOptionalCount(left.outputTokens, right.outputTokens),
     cacheReadTokens: mergeOptionalCount(left.cacheReadTokens, right.cacheReadTokens),
     cacheWriteTokens: mergeOptionalCount(left.cacheWriteTokens, right.cacheWriteTokens),
+    ...(cacheWrite1hTokens !== undefined ? { cacheWrite1hTokens } : {}),
     totalTokens: mergeOptionalCount(left.totalTokens, right.totalTokens),
   };
 }
