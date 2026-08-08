@@ -91,10 +91,14 @@ describe("sharedRateLimitCircuit (cross-client MVP)", () => {
     ).toBe(false);
 
     // Worker B: new local circuit hydrates from shared state — no mutate/burst.
-    const circuitB = createRateLimitCircuit({ installationId });
+    const circuitB = createRateLimitCircuit({
+      installationId,
+      now: () => now.getTime(),
+    });
     expect(circuitB.isOpen()).toBe(false);
     if (await isSharedRateLimitCircuitOpen(poolB, installationId, now)) {
-      circuitB.hydrateOpenFromShared("secondary");
+      const shared = await getSharedRateLimitCircuit(poolB, installationId);
+      circuitB.hydrateOpenFromShared("secondary", shared?.openUntil);
     }
     expect(circuitB.isOpen()).toBe(true);
 

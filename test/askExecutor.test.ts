@@ -28,7 +28,8 @@ vi.mock("../src/agentWork/repository.js", () => ({
 }));
 
 vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
+  const actual =
+    await importOriginal<typeof import("../src/agentWork/workItemStateRepository.js")>();
   return {
     ...actual,
     assertCurrentExecutionEpoch: vi.fn().mockResolvedValue(undefined),

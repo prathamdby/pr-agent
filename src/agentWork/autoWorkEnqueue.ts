@@ -9,6 +9,10 @@ export type AutoWorkSupersedeTarget =
   | { readonly kind: "triage"; readonly resourceKey: string }
   | { readonly kind: "verification"; readonly resourceKey: string };
 
+function autoWorkIntakeLockKey(target: AutoWorkSupersedeTarget): string {
+  return JSON.stringify(["auto_work_intake", target.kind, target.resourceKey]);
+}
+
 function supersedeQueuedSql(target: AutoWorkSupersedeTarget): {
   sql: string;
   params: unknown[];
@@ -74,6 +78,9 @@ export async function replaceAutoWorkItem(params: {
   readonly workItemId: string;
   readonly supersededIds: readonly string[];
 }> {
+  await params.client.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+    autoWorkIntakeLockKey(params.target),
+  ]);
   const queuedQuery = supersedeQueuedSql(params.target);
   const runningQuery = cancelRunningSql(params.target);
   const queued = await params.client.query<{ id: string }>(queuedQuery.sql, queuedQuery.params);

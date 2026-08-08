@@ -114,4 +114,37 @@ describe("rateLimitCircuit", () => {
       expect(circuit.isOpen()).toBe(false);
     });
   });
+
+  it("closes a shared-hydrated circuit after openUntil expires", () => {
+    let nowMs = 1_000_000;
+    const circuit = createRateLimitCircuit({
+      installationId: 12,
+      now: () => nowMs,
+    });
+    circuit.hydrateOpenFromShared("primary", new Date(nowMs + 5_000));
+    expect(circuit.isOpen()).toBe(true);
+    nowMs += 5_000;
+    expect(circuit.isOpen()).toBe(false);
+  });
+
+  it("keeps a locally opened circuit open after shared cooldown would expire", () => {
+    const t0 = 1_000_000;
+    const circuit = createRateLimitCircuit({
+      installationId: 13,
+      threshold: 1,
+      now: () => t0 + 120_000,
+    });
+    circuit.recordFailure("primary");
+    expect(circuit.isOpen()).toBe(true);
+  });
+
+  it("does not hydrate when shared openUntil is already expired", () => {
+    const t0 = 2_000_000;
+    const circuit = createRateLimitCircuit({
+      installationId: 14,
+      now: () => t0,
+    });
+    circuit.hydrateOpenFromShared("secondary", new Date(t0 - 1));
+    expect(circuit.isOpen()).toBe(false);
+  });
 });

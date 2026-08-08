@@ -156,7 +156,6 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
             pollingIntervalSeconds: cfg.queuePollingIntervalSeconds,
           };
           const registeredQueues = new Set<string>();
-          await cleanupStaleLocalPrWorkspaces();
           await ensureRetentionSchedule(boss, cfg);
           await Promise.all([
             registerPlainQueue<AckJobData>(
@@ -263,6 +262,14 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           const runDiagnostics = async (now: Date): Promise<void> => {
             const report = await collectQueueDiagnostics({ boss, pool, now });
             logQueueDiagnosticsReport(report);
+            try {
+              await cleanupStaleLocalPrWorkspaces();
+            } catch (e) {
+              logWarn("local_pr_workspace_sweep_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
             try {
               const reaped = await reapStrandedWorkItems(pool);
               if (reaped.reaped > 0) {

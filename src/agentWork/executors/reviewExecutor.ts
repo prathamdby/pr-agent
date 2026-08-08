@@ -11,7 +11,7 @@ import {
 import type { InstallationToken } from "../../github/appAuth.js";
 import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
-  isSharedRateLimitCircuitOpen,
+  getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
 import {
@@ -827,8 +827,12 @@ export async function executeReviewJob(
         },
       });
       try {
-        if (await isSharedRateLimitCircuitOpen(pool, item.installationId)) {
-          rateLimitCircuit.hydrateOpenFromShared("primary");
+        const sharedCircuit = await getSharedRateLimitCircuit(pool, item.installationId);
+        if (sharedCircuit != null && sharedCircuit.openUntil.getTime() > Date.now()) {
+          rateLimitCircuit.hydrateOpenFromShared(
+            sharedCircuit.lastErrorKind === "secondary" ? "secondary" : "primary",
+            sharedCircuit.openUntil,
+          );
           logInfo("github_shared_rate_limit_circuit_honored", {
             installationId: item.installationId,
             type: "review",

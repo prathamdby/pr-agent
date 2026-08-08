@@ -19,7 +19,11 @@ import {
 } from "../settings/index.js";
 import { isTriageControlPath } from "../agent/triage/triageWritePolicy.js";
 import { createGitCredentialFiles, makeDirectoriesWritable } from "./gitCredentials.js";
-import { assertWorkspacePath, stripWorkspaceSymlinks } from "./localPrWorkspace.js";
+import {
+  assertWorkspacePath,
+  cleanupStaleLocalPrWorkspaces,
+  stripWorkspaceSymlinks,
+} from "./localPrWorkspace.js";
 
 const exec = promisify(execFile);
 const WORKSPACE_ROOT_PREFIX = "pr-agent-triage-";
@@ -350,6 +354,18 @@ async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
   }
 }
 
+async function ensureWritableCheckoutMinFreeSpace(dir: string, minBytes: number): Promise<void> {
+  try {
+    await ensureFreeSpace(dir, minBytes);
+  } catch (error) {
+    if (!(error instanceof AppError && error.code === "pr_workspace.insufficient_free_space")) {
+      throw error;
+    }
+    await cleanupStaleLocalPrWorkspaces();
+    await ensureFreeSpace(dir, minBytes);
+  }
+}
+
 function gitObjectStoreBytes(countObjectsOutput: string): number {
   let sizeKiB = 0;
   let sizePackKiB = 0;
@@ -390,7 +406,7 @@ export async function withWritablePrCheckout<T>(
   assertRepoPart(repo, "repo");
   assertHeadRef(headRef);
   assertSha(headSha, "headSha");
-  await ensureFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
+  await ensureWritableCheckoutMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
   const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
   const dir = join(rootDir, "checkout");

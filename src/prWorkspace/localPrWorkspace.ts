@@ -452,6 +452,18 @@ async function ensureFreeSpace(dir: string, minBytes: number): Promise<void> {
   }
 }
 
+async function ensureWorkspaceMinFreeSpace(dir: string, minBytes: number): Promise<void> {
+  try {
+    await ensureFreeSpace(dir, minBytes);
+  } catch (error) {
+    if (!(error instanceof AppError && error.code === "pr_workspace.insufficient_free_space")) {
+      throw error;
+    }
+    await cleanupStaleLocalPrWorkspaces();
+    await ensureFreeSpace(dir, minBytes);
+  }
+}
+
 function gitObjectStoreBytes(countObjectsOutput: string): number {
   let sizeKiB = 0;
   let sizePackKiB = 0;
@@ -579,7 +591,7 @@ export async function prepareLocalPrWorkspace(
   assertRepoPart(owner, "owner");
   assertRepoPart(repo, "repo");
   assertSha(headSha, "headSha");
-  await ensureFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
+  await ensureWorkspaceMinFreeSpace(tmpdir(), LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES);
 
   const rootDir = await mkdtemp(join(tmpdir(), WORKSPACE_ROOT_PREFIX));
   const privateGitDir = join(rootDir, PRIVATE_CHECKOUT_DIR);

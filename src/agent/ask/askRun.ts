@@ -22,7 +22,7 @@ import {
   wrapExecutorsWithRateLimitCircuit,
 } from "../../github/rateLimitCircuit.js";
 import {
-  isSharedRateLimitCircuitOpen,
+  getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
 
@@ -75,8 +75,12 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   });
   if (durabilityPool != null && installationId > 0) {
     try {
-      if (await isSharedRateLimitCircuitOpen(durabilityPool, installationId)) {
-        circuit.hydrateOpenFromShared("primary");
+      const sharedCircuit = await getSharedRateLimitCircuit(durabilityPool, installationId);
+      if (sharedCircuit != null && sharedCircuit.openUntil.getTime() > Date.now()) {
+        circuit.hydrateOpenFromShared(
+          sharedCircuit.lastErrorKind === "secondary" ? "secondary" : "primary",
+          sharedCircuit.openUntil,
+        );
         logInfo("github_shared_rate_limit_circuit_honored", {
           installationId,
           type: "ask",

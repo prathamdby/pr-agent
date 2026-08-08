@@ -40,7 +40,7 @@ const mocks = vi.hoisted(() => ({
       _summaryCommentId?: string | number | null,
     ): string | undefined => undefined,
   ),
-  isSharedRateLimitCircuitOpen: vi.fn(async () => false),
+  getSharedRateLimitCircuit: vi.fn(async () => null),
   openSharedRateLimitCircuitBestEffort: vi.fn(),
 }));
 
@@ -77,7 +77,7 @@ vi.mock("../src/agentWork/githubPrSurface.js", () => ({
 }));
 
 vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
-  isSharedRateLimitCircuitOpen: mocks.isSharedRateLimitCircuitOpen,
+  getSharedRateLimitCircuit: mocks.getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort: mocks.openSharedRateLimitCircuitBestEffort,
 }));
 
@@ -185,7 +185,7 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
 describe("executeReviewJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.isSharedRateLimitCircuitOpen.mockResolvedValue(false);
+    mocks.getSharedRateLimitCircuit.mockResolvedValue(null);
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
     vi.spyOn(reviewLightweightCompletion, "tryLightweightAutoReviewCompletion").mockImplementation(
       mocks.lightweight,
@@ -254,7 +254,7 @@ describe("executeReviewJob", () => {
   });
 
   it("continues review when shared rate-limit circuit read fails", async () => {
-    mocks.isSharedRateLimitCircuitOpen.mockRejectedValueOnce(new Error("db down"));
+    mocks.getSharedRateLimitCircuit.mockRejectedValueOnce(new Error("db down"));
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
