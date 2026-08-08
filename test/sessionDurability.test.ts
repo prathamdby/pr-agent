@@ -53,8 +53,6 @@ function fakeSession(overrides: Partial<PiSession> = {}): PiSession {
     role: "ask",
     primary: { provider: "openai", model: "gpt-4o-mini" },
     send: vi.fn(async () => ({ text: "ok", toolCalls: [], usage: undefined })),
-    setActiveTools: vi.fn(),
-    restoreTools: vi.fn(),
     abort: vi.fn(async () => undefined),
     dispose: vi.fn(async () => undefined),
     restartWithFallback: vi.fn(),
@@ -62,8 +60,6 @@ function fakeSession(overrides: Partial<PiSession> = {}): PiSession {
     setStructuredState: (state) => {
       structuredState = state as typeof structuredState;
     },
-    setExternalMutationPending: vi.fn(),
-    compactIfNeeded: vi.fn(async () => false),
     ...overrides,
   };
 }

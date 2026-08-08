@@ -8,7 +8,6 @@ import { logInfo } from "../../evlog.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { VerificationRunResult } from "./verificationRun.js";
 import {
-  buildSubmitOnlyVerificationSessionTools,
   buildVerificationRunSetup,
   shouldContinueVerificationRun,
 } from "./verificationRunSetup.js";
@@ -49,7 +48,7 @@ export async function runVerificationHarness(params: {
   });
   let lastText = "";
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyVerificationSessionTools(setup), prompt);
+    runSubmitOnlyRound(session, prompt);
 
   const runValidationRepair = async () => {
     await runValidationRepairLoop({

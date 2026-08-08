@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
+import {
+  createOrchestratorPhaseRef,
+  WRONG_PHASE_TOOL_CODE,
+} from "../src/review/orchestrator/phaseToolPolicy.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
@@ -46,6 +50,7 @@ function finding(line: number): ReviewFinding {
 
 function buildTool(getToken: () => string, shouldAbortPublish?: () => Promise<boolean>) {
   return buildPublishThreadTool({
+    phaseRef: createOrchestratorPhaseRef("judgment"),
     ctx: {
       owner: "o",
       repo: "r",
@@ -78,19 +83,23 @@ describe("buildPublishThreadTool", () => {
     const second = await tool.executor({ findings: [finding(10), finding(20)] });
 
     expect(tool.piTool.name).toBe("publish_thread");
-    expect(first.kind).toBe("published");
-    expect(first.publishedThreadOverlapHints).toEqual([
-      expect.objectContaining({
-        file: "src/a.ts",
-        startLine: 10,
-        title: "Bug at line 10",
-      }),
-    ]);
-    expect(second.kind).toBe("published");
-    expect(second.publishedThreadOverlapHints).toEqual([
-      expect.objectContaining({ startLine: 10 }),
-      expect.objectContaining({ startLine: 20 }),
-    ]);
+    expect(first).toMatchObject({
+      kind: "published",
+      publishedThreadOverlapHints: [
+        expect.objectContaining({
+          file: "src/a.ts",
+          startLine: 10,
+          title: "Bug at line 10",
+        }),
+      ],
+    });
+    expect(second).toMatchObject({
+      kind: "published",
+      publishedThreadOverlapHints: [
+        expect.objectContaining({ startLine: 10 }),
+        expect.objectContaining({ startLine: 20 }),
+      ],
+    });
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(2);
     expect(tool.getLedger().accepted).toHaveLength(2);
     expect(tool.getLedger().accepted.map((placement) => placement.source)).toEqual([
@@ -149,6 +158,37 @@ describe("buildPublishThreadTool", () => {
     });
     expect(tool.getLedger()).toEqual(createFindingLedger());
     expect(tool.getPublishedBatchCount()).toBe(0);
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+  });
+
+  it("rejects wrong-phase calls before publish with a structured shape", async () => {
+    const tool = buildPublishThreadTool({
+      phaseRef: createOrchestratorPhaseRef("recon"),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "abc1234",
+        hasDescriptionReviewMap: false,
+      },
+      workItemId: "wi-1",
+      resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
+      getToken: () => "token",
+      cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
+      recordPublishStep: vi.fn(async () => undefined),
+      initialLedger: createFindingLedger(),
+    });
+
+    const result = await tool.executor({});
+
+    expect(result).toEqual({
+      kind: "wrong_phase",
+      code: WRONG_PHASE_TOOL_CODE,
+      phase: "recon",
+      allowed: ["submit_specialist_brief"],
+      error: expect.stringContaining("publish_thread"),
+    });
+    expect(tool.getLedger()).toEqual(createFindingLedger());
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 

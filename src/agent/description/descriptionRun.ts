@@ -17,11 +17,7 @@ import {
   TOKEN_FRESHNESS_BUFFER_MS,
   MAX_TOOL_ROUNDS_DESCRIBE,
 } from "../../settings/index.js";
-import {
-  buildDescriptionRunSetup,
-  buildSubmitOnlyDescriptionSessionTools,
-  shouldContinueDescriptionRun,
-} from "./descriptionRunSetup.js";
+import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.js";
 import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 
@@ -82,7 +78,7 @@ export async function runFullPrDescription(params: {
   let lastText = "";
 
   const sendSubmitOnlyRepair = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyDescriptionSessionTools(setup), prompt);
+    runSubmitOnlyRound(session, prompt);
 
   const runValidationRepair = async () => {
     await runValidationRepairLoop({

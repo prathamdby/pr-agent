@@ -20,12 +20,9 @@ import {
   mergeExactUsage,
   promptMetadataFromText,
 } from "../providers/usageMetadata.js";
-import {
-  canCompactAtBoundary,
-  SERVER_COMPACTION_INSTRUCTIONS,
-  structuredStateReinjectionPrompt,
-} from "./compactionPolicy.js";
 import { createSanitizedEventSink } from "./lifecycleSanitizer.js";
+import { bindPromptCacheRetention } from "./modelRuntimeCache.js";
+import { cacheIdentityFromAssignment, sessionCacheIdFromIdentity } from "./promptCachePolicy.js";
 import { resolveThinkingLevel } from "./thinkingPolicy.js";
 import type { AuthoritativeStructuredState, PiSession, PiSessionCreateParams } from "./types.js";
 
@@ -63,7 +60,6 @@ function toCodingAgentTool(
   tool: PiTool,
   executor: AgentRunnerToolExecutor | undefined,
   refreshBeforeTool?: (toolName: string) => Promise<void>,
-  setExternalMutationPending?: (pending: boolean) => void,
 ): ReturnType<typeof defineTool> {
   return defineTool({
     name: tool.name,
@@ -86,7 +82,6 @@ function toCodingAgentTool(
           context: { toolName: tool.name },
         });
       }
-      setExternalMutationPending?.(true);
       try {
         if (refreshBeforeTool) {
           await refreshBeforeTool(tool.name);
@@ -114,8 +109,6 @@ function toCodingAgentTool(
           errorMessage: error instanceof Error ? error.message : String(error),
         });
         throw error;
-      } finally {
-        setExternalMutationPending?.(false);
       }
     },
   });
@@ -124,7 +117,6 @@ function toCodingAgentTool(
 export async function createPiSessionImpl(params: PiSessionCreateParams): Promise<PiSession> {
   const agentDir = await mkdtemp(join(tmpdir(), "pr-agent-pi-"));
   let structuredState: AuthoritativeStructuredState = params.structuredState;
-  let pendingExternalMutation = false;
   const emit = createSanitizedEventSink(params.eventSink);
 
   try {
@@ -162,6 +154,7 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
         },
       });
     }
+    bindPromptCacheRetention(modelRuntime, params.promptCachePolicy.retention);
 
     const settingsManager = SettingsManager.inMemory({
       compaction: {
@@ -183,30 +176,26 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       }),
     });
     await resourceLoader.reload();
-    const allToolNames = params.tools.map((tool) => tool.name);
     const initialThinking = resolveThinkingLevel({
       policy: params.thinkingPolicy,
       phase: "synthesis",
     });
+    const sessionCacheId = sessionCacheIdFromIdentity(
+      cacheIdentityFromAssignment(params.role, params.primary, params.specialistId),
+    );
+    const cwd = params.cwd ?? process.cwd();
     const { session } = await createAgentSession({
-      cwd: params.cwd ?? process.cwd(),
+      cwd,
       agentDir,
       model,
       thinkingLevel: initialThinking,
       modelRuntime,
       resourceLoader,
       settingsManager,
-      sessionManager: SessionManager.inMemory(params.cwd ?? process.cwd()),
+      sessionManager: SessionManager.inMemory(cwd, { id: sessionCacheId }),
       noTools: "builtin",
       customTools: params.tools.map((tool) =>
-        toCodingAgentTool(
-          tool,
-          params.executors[tool.name],
-          params.refreshBeforeTool,
-          (pending) => {
-            pendingExternalMutation = pending;
-          },
-        ),
+        toCodingAgentTool(tool, params.executors[tool.name], params.refreshBeforeTool),
       ),
     });
 
@@ -367,12 +356,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           unsubscribe();
         }
       },
-      setActiveTools(nextTools) {
-        session.setActiveToolsByName(nextTools.map((tool) => tool.name));
-      },
-      restoreTools() {
-        session.setActiveToolsByName(allToolNames);
-      },
       abort,
       async dispose() {
         try {
@@ -399,56 +382,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       getStructuredState: () => structuredState,
       setStructuredState(state) {
         structuredState = state;
-      },
-      setExternalMutationPending(pending) {
-        pendingExternalMutation = pending;
-      },
-      async compactIfNeeded(reason = "threshold") {
-        if (!params.compactionPolicy.enabled) return false;
-        const gate = canCompactAtBoundary({
-          turnSettled: true,
-          pendingExternalMutation,
-        });
-        if (!gate.ok) {
-          throw new AppError({
-            code: "runtime.compaction_blocked_pending_mutation",
-            message: "Compaction cannot run while an external mutation is unresolved",
-            context: { reason: gate.reason },
-          });
-        }
-        const instructions = [
-          params.compactionPolicy.instructions || SERVER_COMPACTION_INSTRUCTIONS,
-          structuredStateReinjectionPrompt(structuredState),
-        ].join("\n\n");
-        await session.compact(instructions);
-        emit({
-          kind: "compaction",
-          role: params.role,
-          provider: params.primary.provider,
-          model: params.primary.model,
-          reason,
-        });
-        try {
-          // Re-assert authoritative state after compaction summary (advisory only).
-          await session.prompt(structuredStateReinjectionPrompt(structuredState));
-        } catch (error) {
-          emit({
-            kind: "failure",
-            role: params.role,
-            provider: params.primary.provider,
-            model: params.primary.model,
-            ok: false,
-            failureCode: "runtime.compaction_reinjection_failed",
-          });
-          await abort();
-          if (error instanceof AppError) throw error;
-          throw new AppError({
-            code: "runtime.compaction_reinjection_failed",
-            message: "Failed to re-inject structured state after compaction",
-            cause: error,
-          });
-        }
-        return true;
       },
     };
 

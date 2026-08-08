@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { formatZodIssues } from "../../util/formatZodIssues.js";
 import type { SpecialistId } from "./orchestratorTypes.js";
+import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
 export const specialistBriefSchema = z.object({
   prIntent: z.string().min(1).max(2000),
@@ -27,7 +28,7 @@ export const specialistBriefSchema = z.object({
 
 export type SpecialistBrief = z.infer<typeof specialistBriefSchema>;
 
-export function buildSpecialistBriefTool(): {
+export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
   readonly piTool: PiTool;
   readonly executor: AgentRunnerToolExecutor;
   readonly getBrief: () => SpecialistBrief | null;
@@ -42,6 +43,17 @@ export function buildSpecialistBriefTool(): {
     parameters: z.toJSONSchema(specialistBriefSchema),
   };
   const executor: AgentRunnerToolExecutor = async (args) => {
+    const gate = assertPhaseToolAllowed(phaseRef.current, "submit_specialist_brief");
+    if (!gate.ok) {
+      validationError = gate.error;
+      return {
+        accepted: false,
+        code: gate.code,
+        phase: gate.phase,
+        allowed: gate.allowed,
+        error: gate.error,
+      };
+    }
     const parsed = specialistBriefSchema.safeParse(args);
     if (!parsed.success) {
       validationError = formatZodIssues(parsed.error, "SpecialistBrief validation failed:");

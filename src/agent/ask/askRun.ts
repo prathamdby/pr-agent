@@ -125,18 +125,15 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       let lastText = (await session.send(buildAskUserContent(params), sendOpts)).text.trim();
 
       if (!lastText && MAX_ASK_FINALIZE_ROUNDS > 0) {
-        session.setActiveTools([], {});
-        try {
-          for (let round = 0; round < MAX_ASK_FINALIZE_ROUNDS && !lastText; round++) {
-            lastText = (
-              await session.send(ASK_RETRY_NUDGE, {
-                phase: "ask",
-                checkpointId: "ask:ask",
-              })
-            ).text.trim();
-          }
-        } finally {
-          session.restoreTools();
+        for (let round = 0; round < MAX_ASK_FINALIZE_ROUNDS && !lastText; round++) {
+          lastText = (
+            await session.send(ASK_RETRY_NUDGE, {
+              phase: "ask",
+              checkpointId: "ask:ask",
+              // Keep tool definitions registered for cache prefixes; forbid tool turns.
+              maxToolRounds: 0,
+            })
+          ).text.trim();
         }
       }
 

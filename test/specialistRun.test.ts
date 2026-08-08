@@ -10,10 +10,7 @@ type AttemptBehavior =
   | { readonly kind: "no_report" }
   | { readonly kind: "pending" };
 
-type TestSession = Pick<
-  PiSession,
-  "role" | "send" | "abort" | "setActiveTools" | "restoreTools" | "dispose"
-> & {
+type TestSession = Pick<PiSession, "role" | "send" | "abort" | "dispose"> & {
   readonly send: ReturnType<typeof vi.fn>;
   readonly abort: ReturnType<typeof vi.fn>;
   readonly dispose: ReturnType<typeof vi.fn>;
@@ -71,8 +68,6 @@ describe("runSpecialist", () => {
           role: "specialist",
           send: vi.fn(async () => ({ text: "" })),
           abort: vi.fn(async () => undefined),
-          setActiveTools: vi.fn(),
-          restoreTools: vi.fn(),
           dispose: vi.fn(async () => undefined),
         };
         runnerMocks.sessions.push(session);
@@ -103,8 +98,6 @@ describe("runSpecialist", () => {
           return { text: "" };
         }),
         abort,
-        setActiveTools: vi.fn(),
-        restoreTools: vi.fn(),
         dispose: vi.fn(async () => undefined),
       };
       runnerMocks.sessions.push(session);

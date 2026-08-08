@@ -52,12 +52,35 @@ describe("usageMetadata", () => {
     });
   });
 
+  it("preserves cacheWrite1h when the provider reports it", () => {
+    expect(
+      exactUsageFromProviderUsage({
+        input: 10,
+        output: 5,
+        cacheRead: 3,
+        cacheWrite: 4,
+        cacheWrite1h: 2,
+        totalTokens: 15,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      }),
+    ).toEqual({
+      estimated: false,
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 3,
+      cacheWriteTokens: 4,
+      cacheWrite1hTokens: 2,
+      totalTokens: 15,
+    });
+  });
+
   it("merges exact usage across turns", () => {
     const left = exactUsageFromProviderUsage({
       input: 10,
       output: 5,
       cacheRead: 1,
       cacheWrite: 0,
+      cacheWrite1h: 1,
       totalTokens: 15,
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     });
@@ -75,6 +98,7 @@ describe("usageMetadata", () => {
       outputTokens: 7,
       cacheReadTokens: 1,
       cacheWriteTokens: 2,
+      cacheWrite1hTokens: 1,
       totalTokens: 20,
     });
   });

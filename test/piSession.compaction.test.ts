@@ -1,70 +1,94 @@
-import { describe, expect, it } from "vitest";
-import {
-  canCompactAtBoundary,
-  structuredStateReinjectionPrompt,
-} from "../src/agent/runtime/compactionPolicy.js";
-import {
-  createFakePiSession,
-  DEFAULT_COMPACTION_POLICY,
-  DEFAULT_THINKING_POLICY,
-  DEFAULT_TOOL_POLICY,
-} from "../src/agent/runtime/piSession.js";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import { makeTestConfig } from "./helpers/config.js";
 
-describe("compaction policy", () => {
-  it("requires a settled turn and no pending external mutation", () => {
-    expect(canCompactAtBoundary({ turnSettled: false, pendingExternalMutation: false }).ok).toBe(
-      false,
-    );
-    expect(canCompactAtBoundary({ turnSettled: true, pendingExternalMutation: true }).ok).toBe(
-      false,
-    );
-    expect(canCompactAtBoundary({ turnSettled: true, pendingExternalMutation: false }).ok).toBe(
-      true,
-    );
+vi.mock("@earendil-works/pi-coding-agent", () => ({
+  ModelRuntime: {
+    create: vi.fn(async () => {
+      const streamSimple = vi.fn();
+      const stream = vi.fn();
+      return {
+        setRuntimeApiKey: vi.fn(async () => undefined),
+        getError: vi.fn(() => undefined),
+        getModel: vi.fn(() => ({
+          id: "gpt-4o-mini",
+          provider: "openai",
+          api: "openai-responses",
+        })),
+        streamSimple,
+        stream,
+        completeSimple: vi.fn(),
+        complete: vi.fn(),
+      };
+    }),
+  },
+  createAgentSession: vi.fn(),
+  createExtensionRuntime: vi.fn(),
+  defineTool: vi.fn((tool: unknown) => tool),
+  DefaultResourceLoader: vi.fn(function DefaultResourceLoader() {
+    return { reload: vi.fn(async () => undefined) };
+  }),
+  SessionManager: { inMemory: vi.fn(() => ({})) },
+  SettingsManager: { inMemory: vi.fn(() => ({})) },
+}));
+
+import { createAgentSession, SettingsManager } from "@earendil-works/pi-coding-agent";
+import { createFeaturePiSession } from "../src/agent/runtime/createFeatureSession.js";
+import { compactionPolicyForRole } from "../src/agent/runtime/compactionPolicy.js";
+import type { AgentSessionRole } from "../src/agent/runtime/types.js";
+
+describe("compactionPolicyForRole", () => {
+  it("disables auto-compaction for short review roles", () => {
+    for (const role of ["orchestrator", "specialist", "ci_summary"] as const) {
+      expect(compactionPolicyForRole(role)).toEqual({ enabled: false });
+    }
   });
 
-  it("re-injects authoritative structured state and does not let summaries replace it", async () => {
-    const authoritative = {
-      version: 3,
-      payload: {
-        specialistReports: [{ specialist: "security", findingCount: 2 }],
-        acceptedFindings: ["f1"],
-        publishLedger: [{ step: "inline_review", status: "completed" }],
-        phaseCheckpoint: "judgment-done",
-        remainingWork: ["synthesis"],
+  it("enables auto-compaction for long interactive roles", () => {
+    for (const role of ["ask", "triage", "description", "verification"] as const) {
+      expect(compactionPolicyForRole(role)).toEqual({ enabled: true });
+    }
+  });
+});
+
+describe("createFeaturePiSession compaction by role", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(createAgentSession).mockResolvedValue({
+      session: {
+        subscribe: () => () => undefined,
+        prompt: async () => undefined,
+        abort: vi.fn(),
+        setActiveToolsByName: vi.fn(),
+        setThinkingLevel: vi.fn(),
+        dispose: vi.fn(),
       },
-    };
-    const { session, controls } = createFakePiSession({
-      role: "orchestrator",
-      primary: { provider: "openai", model: "gpt-4o-mini" },
-      thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: DEFAULT_COMPACTION_POLICY,
-      toolPolicy: DEFAULT_TOOL_POLICY,
-      structuredState: authoritative,
-      systemPrompt: "test",
-      eventSink: () => undefined,
-      cfg: makeTestConfig(),
+    } as never);
+  });
+
+  async function createForRole(role: AgentSessionRole) {
+    return createFeaturePiSession({
+      role,
+      cfg: makeTestConfig({ modelProviderKeys: { openai: "k" } }),
+      systemPrompt: role,
       tools: [],
       executors: {},
     });
+  }
 
-    session.setExternalMutationPending(true);
-    await expect(session.compactIfNeeded()).rejects.toThrow(/unresolved/);
+  it("passes SettingsManager compaction.enabled=false for orchestrator and specialist", async () => {
+    await createForRole("orchestrator");
+    await createForRole("specialist");
+    const settings = vi.mocked(SettingsManager.inMemory).mock.calls.map((call) => call[0]);
+    expect(settings).toEqual([
+      { compaction: { enabled: false } },
+      { compaction: { enabled: false } },
+    ]);
+  });
 
-    session.setExternalMutationPending(false);
-    // Simulate a model-authored compaction summary trying to wipe state.
-    session.setStructuredState({
-      version: 3,
-      payload: { ...authoritative.payload },
+  it("passes SettingsManager compaction.enabled=true for ask", async () => {
+    await createForRole("ask");
+    expect(SettingsManager.inMemory).toHaveBeenCalledWith({
+      compaction: { enabled: true },
     });
-    const compacted = await session.compactIfNeeded("threshold");
-    expect(compacted).toBe(true);
-    expect(controls.compactionCount()).toBe(1);
-    expect(session.getStructuredState()).toEqual(authoritative);
-    expect(structuredStateReinjectionPrompt(authoritative)).toContain(
-      "Authoritative structured state",
-    );
-    expect(structuredStateReinjectionPrompt(authoritative)).toContain("specialistReports");
   });
 });

@@ -58,15 +58,31 @@ function buildMockSession(script: (emit: (event: MockTurnEndEvent) => void) => v
 }
 
 const createDefaultModelRuntimeMock = vi.hoisted(() => {
-  return () => ({
-    setRuntimeApiKey: vi.fn(async () => undefined),
-    getError: vi.fn(() => undefined),
-    getModel: vi.fn(() => ({
-      id: "gpt-4o-mini",
-      provider: "openai",
-      api: "openai-responses",
-    })),
-  });
+  return () => {
+    const streamSimple = vi.fn((_model, _context, options) => ({
+      options,
+      result: async () => undefined,
+    }));
+    const stream = vi.fn((_model, _context, options) => ({
+      options,
+      result: async () => undefined,
+    }));
+    return {
+      setRuntimeApiKey: vi.fn(async () => undefined),
+      getError: vi.fn(() => undefined),
+      getModel: vi.fn(() => ({
+        id: "gpt-4o-mini",
+        provider: "openai",
+        api: "openai-responses",
+      })),
+      streamSimple,
+      stream,
+      completeSimple: vi.fn(async (model, context, options) =>
+        streamSimple(model, context, options).result(),
+      ),
+      complete: vi.fn(async (model, context, options) => stream(model, context, options).result()),
+    };
+  };
 });
 
 vi.mock("@earendil-works/pi-coding-agent", () => ({
@@ -88,13 +104,16 @@ import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
 import {
+  compactionPolicyForRole,
   createPiSession,
-  DEFAULT_COMPACTION_POLICY,
+  DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
   EMPTY_STRUCTURED_STATE,
+  sessionCacheIdFromIdentity,
 } from "../src/agent/runtime/piSession.js";
 import type { Config } from "../src/config.js";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
 
 const cfg = makeTestConfig({
   modelProviderKeys: { openai: "test-key" },
@@ -115,7 +134,8 @@ async function createPiRunnerSession(params: {
     role: "ask",
     primary: { provider: params.cfg.piProvider, model: params.cfg.piModel },
     thinkingPolicy: DEFAULT_THINKING_POLICY,
-    compactionPolicy: DEFAULT_COMPACTION_POLICY,
+    compactionPolicy: compactionPolicyForRole("ask"),
+    promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     structuredState: EMPTY_STRUCTURED_STATE,
     systemPrompt: params.systemPrompt,
@@ -144,7 +164,7 @@ describe("createPiSession models.json", () => {
       api: "openai-completions",
     }));
     vi.mocked(ModelRuntime.create).mockResolvedValue({
-      setRuntimeApiKey: vi.fn(async () => undefined),
+      ...createDefaultModelRuntimeMock(),
       getError: () => undefined,
       getModel,
     } as never);
@@ -544,5 +564,154 @@ describe("createPiSession.send", () => {
     expect(typeof agentDir).toBe("string");
     if (typeof agentDir !== "string") throw new Error("expected agentDir");
     await expect(access(agentDir, constants.F_OK)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("createPiSession prompt cache identity", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(ModelRuntime.create).mockImplementation(
+      async () => createDefaultModelRuntimeMock() as never,
+    );
+  });
+
+  it("uses a stable SessionManager id for the same role and model", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await createPiRunnerSession({
+      cfg,
+      cwd: "/tmp/pr-agent-cache-id",
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+    await createPiRunnerSession({
+      cfg,
+      cwd: "/tmp/pr-agent-cache-id",
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    const expectedId = sessionCacheIdFromIdentity({
+      role: "ask",
+      provider: cfg.piProvider,
+      model: cfg.piModel,
+    });
+    expect(SessionManager.inMemory).toHaveBeenCalledWith("/tmp/pr-agent-cache-id", {
+      id: expectedId,
+    });
+    const ids = vi.mocked(SessionManager.inMemory).mock.calls.map((call) => call[1]?.id);
+    expect(ids).toEqual([expectedId, expectedId]);
+  });
+
+  it("includes specialistId in the session cache identity", async () => {
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await createPiSession({
+      role: "specialist",
+      specialistId: "correctness",
+      primary: { provider: cfg.piProvider, model: cfg.piModel },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("specialist"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "specialist",
+      cwd: "/tmp/pr-agent-specialist-cache",
+      eventSink: () => undefined,
+      cfg,
+      tools: [],
+      executors: {},
+    });
+
+    expect(SessionManager.inMemory).toHaveBeenCalledWith("/tmp/pr-agent-specialist-cache", {
+      id: sessionCacheIdFromIdentity({
+        role: "specialist",
+        specialistId: "correctness",
+        provider: cfg.piProvider,
+        model: cfg.piModel,
+      }),
+    });
+  });
+
+  it("injects short cacheRetention on ModelRuntime stream entry", async () => {
+    const runtime = createDefaultModelRuntimeMock();
+    const originalStreamSimple = runtime.streamSimple;
+    vi.mocked(ModelRuntime.create).mockResolvedValue(runtime as never);
+    const session = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession).mockResolvedValue({ session } as never);
+
+    await createPiRunnerSession({
+      cfg,
+      systemPrompt: "test",
+      tools: [],
+      executors: {},
+    });
+
+    // After bindPromptCacheRetention, streamSimple is replaced; call the bound method.
+    runtime.streamSimple({ id: "m" }, { messages: [] }, { maxTokens: 1 });
+    expect(originalStreamSimple).toHaveBeenCalledWith(
+      { id: "m" },
+      { messages: [] },
+      expect.objectContaining({ cacheRetention: "short", maxTokens: 1 }),
+    );
+  });
+
+  it("binds short retention and fallback cache id on restartWithFallback", async () => {
+    const primaryRuntime = createDefaultModelRuntimeMock();
+    const fallbackRuntime = createDefaultModelRuntimeMock();
+    const primaryStreamSimple = primaryRuntime.streamSimple;
+    const fallbackStreamSimple = fallbackRuntime.streamSimple;
+    vi.mocked(ModelRuntime.create)
+      .mockResolvedValueOnce(primaryRuntime as never)
+      .mockResolvedValueOnce(fallbackRuntime as never);
+
+    const primarySession = buildMockSession(() => undefined);
+    const fallbackSession = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession)
+      .mockResolvedValueOnce({ session: primarySession } as never)
+      .mockResolvedValueOnce({ session: fallbackSession } as never);
+
+    const session = await createPiSession({
+      role: "ask",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      fallback: { provider: "openai", model: "gpt-4o" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("ask"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "test",
+      cwd: "/tmp/pr-agent-fallback-cache",
+      eventSink: () => undefined,
+      cfg,
+      tools: [],
+      executors: {},
+    });
+
+    await session.restartWithFallback({
+      checkpointId: "ask:ask",
+      structuredState: EMPTY_STRUCTURED_STATE,
+    });
+
+    const fallbackId = sessionCacheIdFromIdentity({
+      role: "ask",
+      provider: "openai",
+      model: "gpt-4o",
+    });
+    expect(SessionManager.inMemory).toHaveBeenLastCalledWith("/tmp/pr-agent-fallback-cache", {
+      id: fallbackId,
+    });
+
+    fallbackRuntime.streamSimple({ id: "m" }, { messages: [] }, { maxTokens: 2 });
+    expect(fallbackStreamSimple).toHaveBeenCalledWith(
+      { id: "m" },
+      { messages: [] },
+      expect.objectContaining({ cacheRetention: "short", maxTokens: 2 }),
+    );
+    expect(primaryStreamSimple).not.toHaveBeenCalled();
   });
 });

@@ -75,27 +75,3 @@ export function buildTriageRunSetup(params: {
     workspaceState,
   };
 }
-
-/**
- * Finalize keeps every triage workspace tool except search, plus submitTriage.
- * Names come from the live setup tool list so renames cannot silently drop commitFix.
- */
-const TRIAGE_FINALIZE_EXCLUDED = new Set(["searchWorkspace"]);
-
-export function buildSubmitOnlyTriageSessionTools(setup: TriageRunSetup): {
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const keepNames = new Set(
-    setup.piTools.map((tool) => tool.name).filter((name) => !TRIAGE_FINALIZE_EXCLUDED.has(name)),
-  );
-  keepNames.add("submitTriage");
-  const piTools = setup.piTools.filter((tool) => keepNames.has(tool.name));
-  const executors = Object.fromEntries(
-    Object.entries(setup.executors).filter(([name]) => keepNames.has(name)),
-  );
-  if (piTools.length === 0 || !executors.submitTriage || !executors.commitFix) {
-    return { piTools: setup.piTools, executors: setup.executors };
-  }
-  return { piTools, executors };
-}

@@ -2,8 +2,10 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
 import type { AgentLifecycleEvent } from "./lifecycleEvents.js";
+import type { PromptCachePolicy } from "./promptCachePolicy.js";
 
 export type { AgentLifecycleEvent } from "./lifecycleEvents.js";
+export type { PromptCachePolicy } from "./promptCachePolicy.js";
 
 export type AgentSessionRole =
   | "orchestrator"
@@ -41,8 +43,8 @@ export type ThinkingPolicy = {
 };
 
 export type CompactionPolicy = {
+  /** When true, Pi SettingsManager enables SDK auto-compaction for the session. */
   readonly enabled: boolean;
-  readonly instructions: string;
 };
 
 export type ToolPolicy = {
@@ -65,10 +67,13 @@ export type PiSessionSendOptions = {
 
 export type PiSessionCreateParams = {
   readonly role: AgentSessionRole;
+  /** Optional specialist persona; included in OpenAI-style session cache identity. */
+  readonly specialistId?: string;
   readonly primary: ModelAssignment;
   readonly fallback?: ModelAssignment;
   readonly thinkingPolicy: ThinkingPolicy;
   readonly compactionPolicy: CompactionPolicy;
+  readonly promptCachePolicy: PromptCachePolicy;
   readonly toolPolicy: ToolPolicy;
   readonly structuredState: AuthoritativeStructuredState;
   readonly systemPrompt: string;
@@ -84,11 +89,6 @@ export type PiSession = {
   readonly role: AgentSessionRole;
   readonly primary: ModelAssignment;
   readonly send: (prompt: string, opts: PiSessionSendOptions) => Promise<AgentRunnerTurn>;
-  readonly setActiveTools: (
-    tools: readonly PiTool[],
-    executors: Record<string, AgentRunnerToolExecutor>,
-  ) => void;
-  readonly restoreTools: () => void;
   readonly abort: () => Promise<void>;
   readonly dispose: () => Promise<void>;
   readonly restartWithFallback: (params: {
@@ -98,13 +98,6 @@ export type PiSession = {
   /** Test/harness access to the latest authoritative structured state. */
   readonly getStructuredState: () => AuthoritativeStructuredState;
   readonly setStructuredState: (state: AuthoritativeStructuredState) => void;
-  /** Block compaction while a GitHub mutation is unresolved. */
-  readonly setExternalMutationPending: (pending: boolean) => void;
-  /**
-   * Run compaction at a safe boundary, then re-inject authoritative structured state.
-   * No-ops when compaction policy is disabled.
-   */
-  readonly compactIfNeeded: (reason?: string) => Promise<boolean>;
 };
 
 export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
@@ -130,12 +123,6 @@ export const DEFAULT_THINKING_POLICY: ThinkingPolicy = {
       }
     }
   },
-};
-
-export const DEFAULT_COMPACTION_POLICY: CompactionPolicy = {
-  enabled: true,
-  instructions:
-    "Compact the conversation to free context. Preserve the task goal and remaining work. Do not invent specialist reports, findings, publish outcomes, or checkpoint state.",
 };
 
 export const DEFAULT_TOOL_POLICY: ToolPolicy = {

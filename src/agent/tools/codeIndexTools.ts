@@ -13,6 +13,15 @@ import {
   type CodeIndexSearchResult,
 } from "../../codeIndex/search.js";
 
+/** Stable tool surface for prompt-cache prefixes (available and unavailable share these bytes). */
+export const SEARCH_CODE_INDEX_DESCRIPTION =
+  "Search the optional Postgres FTS code index for navigation hints (path and line ranges). Hints only — you must call readWorkspaceFile on any match before citing path or line numbers in findings. When the index is unavailable for this run, the tool returns { unavailable: true }; use listChangedFiles, searchWorkspace, and readWorkspaceFile instead.";
+
+export const searchCodeIndexSchema = z.object({
+  query: z.string().min(1),
+  limit: z.number().int().positive().optional().default(CODE_INDEX_MAX_RESULTS),
+});
+
 async function verifyChunkHash(
   workspace: LocalPrWorkspace,
   path: string,
@@ -28,6 +37,19 @@ async function verifyChunkHash(
   const lines = content.split("\n");
   const slice = lines.slice(startLine - 1, endLine).join("\n");
   return createHash("sha256").update(slice).digest().equals(contentHash);
+}
+
+function toCodeIndexBundle(tool: LocalTool): {
+  readonly piTools: PiTool[];
+  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+} {
+  const tools = { searchCodeIndex: tool };
+  return {
+    piTools: Object.entries(tools).map(([name, entry]) => toPiTool(name, entry)),
+    executors: Object.fromEntries(
+      Object.entries(tools).map(([name, entry]) => [name, toExecutor(entry)]),
+    ),
+  };
 }
 
 export function buildCodeIndexTools(params: {
@@ -47,13 +69,9 @@ export function buildCodeIndexTools(params: {
     }
   }
 
-  const searchCodeIndex: LocalTool = {
-    description:
-      "Search the optional Postgres FTS code index for navigation hints (path and line ranges). Hints only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
-    schema: z.object({
-      query: z.string().min(1),
-      limit: z.number().int().positive().optional().default(CODE_INDEX_MAX_RESULTS),
-    }),
+  return toCodeIndexBundle({
+    description: SEARCH_CODE_INDEX_DESCRIPTION,
+    schema: searchCodeIndexSchema,
     run: async ({ query, limit }): Promise<CodeIndexSearchResult> => {
       const rows = await searchCodeIndexFts(
         params.pool,
@@ -87,35 +105,16 @@ export function buildCodeIndexTools(params: {
       }));
       return { hints };
     },
-  };
-
-  const tools = { searchCodeIndex };
-  return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
-    ),
-  };
+  });
 }
 
 export function buildUnavailableCodeIndexTools(): {
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
 } {
-  const searchCodeIndex: LocalTool = {
-    description:
-      "Search the optional Postgres FTS code index for navigation hints. Unavailable for this run — use listChangedFiles, searchWorkspace, and readWorkspaceFile instead.",
-    schema: z.object({
-      query: z.string().min(1),
-      limit: z.number().int().positive().optional(),
-    }),
+  return toCodeIndexBundle({
+    description: SEARCH_CODE_INDEX_DESCRIPTION,
+    schema: searchCodeIndexSchema,
     run: async (): Promise<CodeIndexSearchResult> => ({ unavailable: true }),
-  };
-  const tools = { searchCodeIndex };
-  return {
-    piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
-    executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
-    ),
-  };
+  });
 }

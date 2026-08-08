@@ -65,15 +65,3 @@ export function buildVerificationRunSetup(params: {
     submitState,
   };
 }
-
-export function buildSubmitOnlyVerificationSessionTools(setup: VerificationRunSetup): {
-  readonly piTools: PiTool[];
-  readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const submitTool = setup.piTools.find((tool) => tool.name === "submitVerification");
-  const submitVerification = setup.executors.submitVerification;
-  if (!submitTool || !submitVerification) {
-    return { piTools: setup.piTools, executors: setup.executors };
-  }
-  return { piTools: [submitTool], executors: { submitVerification } };
-}

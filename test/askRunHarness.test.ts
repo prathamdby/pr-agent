@@ -8,8 +8,6 @@ vi.mock("../src/agent/tools/context7Tools.js", () => ({
 }));
 
 const sendMock = vi.fn();
-const setActiveToolsMock = vi.fn();
-const restoreToolsMock = vi.fn();
 const disposeMock = vi.fn(async () => undefined);
 
 vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
@@ -17,8 +15,6 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
     role: "ask",
     send: sendMock,
     abort: vi.fn(async () => undefined),
-    setActiveTools: setActiveToolsMock,
-    restoreTools: restoreToolsMock,
     dispose: disposeMock,
   })),
 }));
@@ -49,7 +45,7 @@ describe("runAskRun finalize", () => {
     vi.clearAllMocks();
   });
 
-  it("tool-restricted finalize runs when investigation returns empty text", async () => {
+  it("prompt-only finalize runs when investigation returns empty text", async () => {
     sendMock
       .mockResolvedValueOnce({ text: "" })
       .mockResolvedValueOnce({ text: "End-user summary and E2E checklist." });
@@ -65,9 +61,8 @@ describe("runAskRun finalize", () => {
     expect(sendMock.mock.calls[1]?.[1]).toEqual({
       phase: "ask",
       checkpointId: "ask:ask",
+      maxToolRounds: 0,
     });
-    expect(setActiveToolsMock).toHaveBeenCalledWith([], {});
-    expect(restoreToolsMock).toHaveBeenCalled();
     expect(result.answer).toContain("End-user summary and E2E checklist.");
     expect(result.answer).not.toContain("I'll examine");
   });
@@ -78,8 +73,6 @@ describe("runAskRun finalize", () => {
     const result = await runAskRun(askParams);
 
     expect(sendMock).toHaveBeenCalledTimes(3);
-    expect(setActiveToolsMock).toHaveBeenCalledWith([], {});
-    expect(restoreToolsMock).toHaveBeenCalled();
     expect(result.answer).toContain(ASK_FAILURE_MESSAGE);
   });
 });

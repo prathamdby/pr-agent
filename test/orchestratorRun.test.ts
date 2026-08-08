@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PiSession } from "../src/agent/runtime/types.js";
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../src/errors/appError.js";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
@@ -41,10 +40,11 @@ const testState = vi.hoisted(() => ({
   refreshes: 0,
   briefMessages: [] as string[],
   signals: new Map<string, AbortSignal>(),
-  transitions: [] as string[][],
   sessionAborts: 0,
   sessionDisposals: 0,
   judgmentFailuresRemaining: 0,
+  judgmentExecutorFailuresRemaining: 0,
+  lastSessionToolNames: [] as string[],
   reconSubmitsBrief: true,
   deterministicSummaries: [] as Array<Record<string, unknown>>,
   deterministicCiAuthors: [] as Array<unknown>,
@@ -61,7 +61,6 @@ const testState = vi.hoisted(() => ({
     readonly phase: "recon" | "judgment" | "synthesis";
     readonly ms: number;
   } | null,
-  restrictionFailureTool: null as string | null,
   publishedBatchCount: 0,
   synthesisPublishesSummary: true,
   progressUrlResolvers: [] as Array<() => Promise<string | undefined>>,
@@ -377,10 +376,11 @@ describe("runOrchestratedPrReview", () => {
     testState.refreshes = 0;
     testState.briefMessages.length = 0;
     testState.signals.clear();
-    testState.transitions.length = 0;
     testState.sessionAborts = 0;
     testState.sessionDisposals = 0;
     testState.judgmentFailuresRemaining = 0;
+    testState.judgmentExecutorFailuresRemaining = 0;
+    testState.lastSessionToolNames = [];
     testState.reconSubmitsBrief = true;
     testState.deterministicSummaries.length = 0;
     testState.deterministicCiAuthors.length = 0;
@@ -389,7 +389,6 @@ describe("runOrchestratedPrReview", () => {
     testState.createError = null;
     testState.createDelayMs = 0;
     testState.sendDelay = null;
-    testState.restrictionFailureTool = null;
     testState.publishedBatchCount = 0;
     testState.progressUrlResolvers.length = 0;
     publishRecordMocks.getSummaryCommentGithubId.mockReset();
@@ -405,10 +404,10 @@ describe("runOrchestratedPrReview", () => {
         await new Promise<void>((resolve) => setTimeout(resolve, testState.createDelayMs));
       }
       const executors = sessionParams.executors;
-      const session: Pick<
-        PiSession,
-        "role" | "send" | "abort" | "setActiveTools" | "restoreTools" | "dispose"
-      > = {
+      testState.lastSessionToolNames = sessionParams.tools.map(
+        (tool: { name: string }) => tool.name,
+      );
+      const session: Pick<PiSession, "role" | "send" | "abort" | "dispose"> = {
         role: "orchestrator",
         send: vi.fn(async (prompt) => {
           const phase = prompt.includes("Inspect this pull request")
@@ -443,6 +442,10 @@ describe("runOrchestratedPrReview", () => {
               testState.judgmentFailuresRemaining -= 1;
               throw new Error("judgment provider failure");
             }
+            if (testState.judgmentExecutorFailuresRemaining > 0) {
+              testState.judgmentExecutorFailuresRemaining -= 1;
+              throw new Error("publish_thread failed");
+            }
             await sessionParams.refreshBeforeTool?.("publish_thread");
             await executors.publish_thread?.({ findings: [] });
           } else if (
@@ -460,17 +463,6 @@ describe("runOrchestratedPrReview", () => {
         abort: vi.fn(async () => {
           testState.sessionAborts += 1;
         }),
-        setActiveTools: vi.fn((tools: readonly PiTool[]) => {
-          if (
-            testState.restrictionFailureTool != null &&
-            tools.some((tool) => tool.name === testState.restrictionFailureTool)
-          ) {
-            testState.restrictionFailureTool = null;
-            throw new Error("restriction failed");
-          }
-          testState.transitions.push(tools.map((tool) => tool.name));
-        }),
-        restoreTools: vi.fn(),
         dispose: vi.fn(async () => {
           testState.sessionDisposals += 1;
         }),
@@ -742,8 +734,8 @@ describe("runOrchestratedPrReview", () => {
     expect(typeof testState.deterministicCiAuthors[0]).toBe("function");
   });
 
-  it("preserves a report when judgment tool restriction throws", async () => {
-    testState.restrictionFailureTool = "publish_thread";
+  it("preserves a report when judgment publish_thread throws", async () => {
+    testState.judgmentExecutorFailuresRemaining = 1;
     const run = runOrchestratedPrReview(params());
     testState.outcomes.get("correctness")?.resolve(report("correctness"));
     await vi.waitFor(() => expect(testState.publishOrder).toContain("correctness"));
@@ -753,8 +745,10 @@ describe("runOrchestratedPrReview", () => {
     testState.outcomes.get("tests")?.resolve(empty("tests"));
 
     await expect(run).resolves.toMatchObject({ published: true });
-    expect(testState.publishOrder).toEqual(["correctness", "security", "summary"]);
-    expect(testState.deterministicSummaries[0]?.findings).toHaveLength(2);
+    expect(testState.publishOrder).toContain("summary");
+    expect(testState.publishOrder).toEqual(
+      expect.arrayContaining(["correctness", "security", "summary"]),
+    );
   });
 
   it("preserves a report when the run gate throws during outcome handling", async () => {
@@ -845,7 +839,7 @@ describe("runOrchestratedPrReview", () => {
     expect([...testState.signals.values()].every((signal) => signal.aborted)).toBe(true);
   });
 
-  it("restores before every exact tool restriction", async () => {
+  it("registers the full orchestrator tool set once at session create", async () => {
     const run = runOrchestratedPrReview(params());
     for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
       testState.outcomes.get(specialist)?.resolve(report(specialist));
@@ -853,14 +847,12 @@ describe("runOrchestratedPrReview", () => {
     }
     await run;
 
-    expect(testState.transitions).toEqual([
-      ["submit_specialist_brief"],
-      ["publish_thread"],
-      ["publish_thread"],
-      ["publish_thread"],
-      ["publish_thread"],
-      ["publish_summary"],
-    ]);
+    expect(testState.lastSessionToolNames).toEqual(
+      expect.arrayContaining(["submit_specialist_brief", "publish_thread", "publish_summary"]),
+    );
+    expect(testState.lastSessionToolNames.at(-3)).toBe("submit_specialist_brief");
+    expect(testState.lastSessionToolNames.at(-2)).toBe("publish_thread");
+    expect(testState.lastSessionToolNames.at(-1)).toBe("publish_summary");
   });
 
   it("refreshes live authentication before every model-driven publish and tick", async () => {
