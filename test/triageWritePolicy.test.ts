@@ -37,6 +37,7 @@ describe("triageWritePolicy", () => {
     "Taskfile.yml",
     "Makefile",
     "package.json",
+    "nub.jsonc",
   ] as const)("denies control-plane path %s", (path) => {
     expect(isTriageControlPath(path)).toBe(true);
   });

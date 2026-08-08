@@ -2,6 +2,10 @@
   "name": "pr-agent",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    ".",
+    "site"
+  ],
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
@@ -58,16 +62,21 @@
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"
   },
+  "overrides": {
+    "@tootallnate/once@<2.0.1": ">=2.0.1",
+    "brace-expansion": ">=5.0.8",
+    "tar@<7.5.11": ">=7.5.11",
+    "undici@<6.24.0": "6.24.0"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "nub",
+      "version": "^0.7.2",
+      "onFail": "ignore"
+    }
+  },
   "engines": {
     "node": ">=22.19.0"
   },
-  "packageManager": "pnpm@10.34.1+sha512.b58fbde6dca66a929538021581f648b4570b6ca19b18e7cbd7f2c07a7b24454155388dacdf08f2af3678e88a6d1fe04f9d609df24bf51735a060ea041b374ab7",
-  "pnpm": {
-    "overrides": {
-      "@tootallnate/once@<2.0.1": ">=2.0.1",
-      "tar@<7.5.11": ">=7.5.11",
-      "undici@<6.24.0": "6.24.0",
-      "brace-expansion": ">=5.0.8"
-    }
-  }
+  "packageManager": "nub@0.7.2"
 }

@@ -1,9 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { ENV, EXTERNAL_ENV } from "../src/settings/index.js";
 
 const ENV_EXAMPLE_PATH = path.join(process.cwd(), ".env.example");
+const NUB_JSONC_PATH = path.join(process.cwd(), "nub.jsonc");
+const NUB_LOCK_PATH = path.join(process.cwd(), "nub.lock");
+const PACKAGE_JSON_PATH = path.join(process.cwd(), "package.json");
 
 function parseEnvExampleKeys(content: string): string[] {
   const keys: string[] = [];
@@ -68,6 +72,47 @@ describe("settings inventory", () => {
 
     for (const key of documented) {
       expect(cataloguedKeys.has(key), `${key} in .env.example is not catalogued`).toBe(true);
+    }
+  });
+
+  it("nub.jsonc keeps a 7d cooling window with string excludes", () => {
+    const config = parseYaml(fs.readFileSync(NUB_JSONC_PATH, "utf8")) as {
+      install?: {
+        minimumReleaseAge?: unknown;
+        minimumReleaseAgeExclude?: unknown;
+      };
+    };
+    expect(config.install?.minimumReleaseAge).toBe("7d");
+    const excludes = config.install?.minimumReleaseAgeExclude;
+    expect(Array.isArray(excludes)).toBe(true);
+    expect((excludes as unknown[]).length).toBeGreaterThan(0);
+    for (const entry of excludes as unknown[]) {
+      expect(typeof entry).toBe("string");
+      expect((entry as string).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("nub.lock overrides and importers match package.json", () => {
+    const pkg = JSON.parse(fs.readFileSync(PACKAGE_JSON_PATH, "utf8")) as {
+      overrides?: Record<string, string>;
+      workspaces?: string[];
+    };
+    const lock = parseYaml(fs.readFileSync(NUB_LOCK_PATH, "utf8")) as {
+      overrides?: Record<string, string | number>;
+      importers?: Record<string, unknown>;
+    };
+    expect(pkg.overrides).toBeTruthy();
+    expect(lock.overrides).toBeTruthy();
+    const pkgOverrides = pkg.overrides!;
+    const lockOverrides = Object.fromEntries(
+      Object.entries(lock.overrides!).map(([key, value]) => [key, String(value)]),
+    );
+    expect(lockOverrides).toEqual(pkgOverrides);
+    const workspaces = pkg.workspaces ?? [];
+    expect(workspaces.length).toBeGreaterThan(0);
+    for (const workspace of workspaces) {
+      const importerKey = workspace === "." ? "." : workspace;
+      expect(lock.importers?.[importerKey], `missing importer ${importerKey}`).toBeTruthy();
     }
   });
 });

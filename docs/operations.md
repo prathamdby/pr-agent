@@ -100,8 +100,8 @@ PR_AGENT_ENV_FILE=/abs/path/to/.env docker compose up
 - **`nub src/index.ts` loads `.env` automatically** for local development. `nub watch src/index.ts` restarts on source, tsconfig, and env changes.
 - **`GITHUB_APP_PRIVATE_KEY` must be a valid PEM key**. For local-only dev: `openssl genrsa 2048 > key.pem` and set the escaped PEM in `.env`.
 - Tunnel webhooks (e.g. [smee.io](https://smee.io)) to local `PORT`, then point the GitHub App webhook at the smee URL forwarding to `/webhooks`.
-- If switching from pnpm-installed trees, delete `node_modules` before the first `nub install`.
-- **Vercel** site deploys keep the platform installer (pnpm via [`site/vercel.json`](../site/vercel.json)). Add `@nubjs/nub` as a devDependency only if site scripts need the `nub` binary.
+- If switching from a prior pnpm- or npm-installed tree, delete `node_modules` before the first `nub install`.
+- **Vercel** site deploys install pinned Nub in [`site/vercel.json`](../site/vercel.json) (`npm install -g @nubjs/nub@…` + `nub ci`), then build with `nub run build`.
 - **Docker image** installs with Nub only (`nub ci` for build deps; `nub prune --prod` for the runtime tree). No `corepack` / `pnpm deploy` in the Dockerfile. [`.dockerignore`](../.dockerignore) keeps `site/package.json` in the build context so the workspace lockfile stays valid under frozen installs; the rest of `site/` stays excluded.
 
 Canonical quick start steps live in [README.md](../README.md) **Host with Docker Compose**.
@@ -134,7 +134,7 @@ Canonical quick start steps live in [README.md](../README.md) **Host with Docker
 | `nub run site:build`                   | Landing site production build                                           |
 | `nub run site:generate-og`             | Generate landing OG assets                                              |
 
-Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). [`pnpm-workspace.yaml`](../pnpm-workspace.yaml) sets `minimumReleaseAge: 10080` (7 days) for registry installs, with temporary `minimumReleaseAgeExclude` entries: Oxc (`oxlint@1.75.0`, `oxlint-tsgolint@7.0.2001`, `@oxlint/*`, `@oxlint-tsgolint/*`) — remove after 2026-07-29; Pi 0.82.1 (`@earendil-works/pi-*@0.82.1`) plus `evlog@2.22.3`, `oxfmt@0.60.0` / `@oxfmt/*`, `pg-boss@12.26.3`, `posthog-node@5.46.1` / `@posthog/*` — remove after 2026-08-01; `brace-expansion@5.0.8` (GHSA-mh99-v99m-4gvg override in `package.json`) — remove override + exclude after 2026-07-30 once upstream ages past the gate.
+Type awareness comes from [`.oxlintrc.json`](../.oxlintrc.json) `options.typeAware` (lint scripts do not pass `--type-aware`). Keep `nub run typecheck` as separate `tsc`. Type-aware lint requires `oxlint-tsgolint` (dev dependency). Registry cooling-window settings live only in [`nub.jsonc`](../nub.jsonc) (`install.minimumReleaseAge`, `install.minimumReleaseAgeExclude`); edit that file when adding or removing temporary excludes.
 
 ### Effect version gate
 

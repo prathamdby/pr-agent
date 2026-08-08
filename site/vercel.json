@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "tanstack-start",
-  "installCommand": "cd .. && corepack enable && pnpm install --frozen-lockfile --filter pr-agent-landing...",
-  "buildCommand": "pnpm run build"
+  "installCommand": "npm install -g --ignore-scripts=false @nubjs/nub@0.7.2 && cd .. && nub ci --filter pr-agent-landing...",
+  "buildCommand": "nub run build"
 }
