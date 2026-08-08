@@ -234,6 +234,24 @@ describe("executeAskJob", () => {
     expect(mocks.postSlashReply.mock.calls[0]?.[4]).toBe("answer");
   });
 
+  it("skips terminal failure reply when durable ask_reply is already published", async () => {
+    mocks.hasCompletedPublishStep.mockResolvedValue(true);
+    mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
+      const item = askItem();
+      const installation = {
+        token: "tok",
+        expiresAtTs: 1_000_000,
+        ttlMs: 60_000,
+      };
+      // New process: answerDelivered starts false; durable state must suppress the notice.
+      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+    });
+
+    await executeAskJob(cfg, pool, boss, askJob());
+
+    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+  });
+
   it("falls back to a PR comment when inline thread reply fails", async () => {
     const item = makeAskWorkItem({
       headSha: "head",

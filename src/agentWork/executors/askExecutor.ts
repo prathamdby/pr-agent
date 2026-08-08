@@ -382,7 +382,20 @@ export async function executeAskJob(
           ...classifiedFailurePostHogProperties(failure),
         },
       });
-      if (!installation || answerDelivered) return;
+      if (!installation) return;
+      // Durable publish_records survive process death; answerDelivered does not.
+      if (
+        await hasCompletedPublishStep(
+          pool,
+          item.id,
+          item.resourceKey,
+          ASK_PUBLISH_LENS,
+          "ask_reply",
+        )
+      ) {
+        return;
+      }
+      if (answerDelivered) return;
       const payload = item.payload;
       await publishAskAnswer(
         installation.token,

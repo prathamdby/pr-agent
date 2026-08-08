@@ -77,6 +77,7 @@ import {
   safeLoadFindingHistoryCandidates,
 } from "../findingHistoryRepository.js";
 import {
+  hasCompletedPublishStep,
   loadReviewExecutorPublishContext,
   getSummaryCommentGithubId,
   getWorkItem,
@@ -882,6 +883,18 @@ export async function executeReviewJob(
     onTerminalFailure: async (item, installation) => {
       if (!installation) return;
       const reviewLens = item.reviewLens;
+      if (!reviewLens) return;
+      if (
+        await hasCompletedPublishStep(
+          pool,
+          item.id,
+          item.resourceKey,
+          reviewLens,
+          "summary_comment",
+        )
+      ) {
+        return;
+      }
       const summary = await upsertReviewSummaryComment(
         installation.token,
         item.owner,
