@@ -9,7 +9,7 @@ vi.mock("../src/db/postgres.js", () => ({
 vi.unmock("../src/agentWork/reconcilePendingIntents.js");
 
 const { queryOne } = await import("../src/db/postgres.js");
-const { reconcilePendingIntents, intentDetailMatchesPublishRecord } =
+const { reconcilePendingIntents, intentDetailMatchesPublishRecord, findCompletedPublishRecordId } =
   await import("../src/agentWork/reconcilePendingIntents.js");
 
 const pool = {} as Pool;
@@ -79,7 +79,81 @@ describe("reconcilePendingIntents", () => {
     expect(queryOne).not.toHaveBeenCalled();
   });
 
-  it("includes batchId and threadRootCommentId filters when present on the intent", async () => {
+  it("matches triage reply intents by actedThreadIds from the operation key", async () => {
+    await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-2",
+      operationKey: "triage:thread:55",
+      mutationKind: "github.triage_thread",
+      detail: {
+        step: "triage_thread_actions",
+        reviewLens: "triage",
+        resourceKey: "o/r#1",
+        threadRootCommentId: 55,
+      },
+    });
+    vi.mocked(queryOne).mockResolvedValue({ id: "pub-reply" });
+
+    await reconcilePendingIntents(pool, "wi-2");
+
+    expect(queryOne).toHaveBeenCalledWith(pool, expect.stringMatching(/actedThreadIds/), [
+      "wi-2",
+      "triage_thread_actions",
+      "triage",
+      "o/r#1",
+      "55",
+    ]);
+    expect(queryOne.mock.calls[0]?.[1]).not.toMatch(/threadRootCommentId/);
+  });
+
+  it("does not reconcile triage :resolve from the reply publish record", async () => {
+    const intent = await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-2",
+      operationKey: "triage:thread:55:resolve",
+      mutationKind: "github.triage_thread_resolve",
+      detail: {
+        step: "triage_thread_actions",
+        reviewLens: "triage",
+        resourceKey: "o/r#1",
+        threadRootCommentId: 55,
+      },
+    });
+
+    await expect(findCompletedPublishRecordId(pool, "wi-2", intent)).resolves.toBeNull();
+    expect(queryOne).not.toHaveBeenCalled();
+
+    const result = await reconcilePendingIntents(pool, "wi-2");
+    expect(result).toEqual({ reconciled: 0, stillPending: 1 });
+    expect(memoryOperationIntentStore.get("wi-2", "triage:thread:55:resolve")).toMatchObject({
+      status: "pending",
+    });
+  });
+
+  it("matches verification thread intents against the ADR-0023 threads ledger", async () => {
+    await memoryOperationIntentStore.persist(pool, {
+      workItemId: "wi-3",
+      operationKey: "verification:thread:99",
+      mutationKind: "github.verification_thread",
+      detail: {
+        step: "verification_thread_actions",
+        reviewLens: "verification",
+        resourceKey: "o/r#1",
+        threadRootCommentId: 99,
+      },
+    });
+    vi.mocked(queryOne).mockResolvedValue({ id: "pub-v" });
+
+    await reconcilePendingIntents(pool, "wi-3");
+
+    expect(queryOne).toHaveBeenCalledWith(pool, expect.stringMatching(/detail -> 'threads' \?/), [
+      "wi-3",
+      "verification_thread_actions",
+      "verification",
+      "o/r#1",
+      "99",
+    ]);
+  });
+
+  it("includes batchId filters when present on the intent", async () => {
     await memoryOperationIntentStore.persist(pool, {
       workItemId: "wi-2",
       operationKey: "review:inline:t-9",
@@ -88,7 +162,6 @@ describe("reconcilePendingIntents", () => {
         step: "review_inline",
         reviewLens: "correctness",
         batchId: "b-9",
-        threadRootCommentId: 55,
       },
     });
     vi.mocked(queryOne).mockResolvedValue({ id: "pub-9" });
@@ -97,8 +170,8 @@ describe("reconcilePendingIntents", () => {
 
     expect(queryOne).toHaveBeenCalledWith(
       pool,
-      expect.stringMatching(/review_lens[\s\S]*batches[\s\S]*actedThreadIds/),
-      ["wi-2", "review_inline", "correctness", "b-9", "55"],
+      expect.stringMatching(/review_lens[\s\S]*batches/),
+      ["wi-2", "review_inline", "correctness", "b-9"],
     );
   });
 
