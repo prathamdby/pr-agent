@@ -1,4 +1,4 @@
-import type { AuthoritativeStructuredState, CompactionPolicy } from "./types.js";
+import type { AuthoritativeStructuredState } from "./types.js";
 
 export const SERVER_COMPACTION_INSTRUCTIONS = [
   "Compact the conversation to free context.",
@@ -6,13 +6,6 @@ export const SERVER_COMPACTION_INSTRUCTIONS = [
   "Do not invent specialist reports, findings, publish outcomes, or checkpoint state.",
   "Treat any prior summary as advisory; server-owned structured state will be re-injected after compaction.",
 ].join(" ");
-
-export function compactionPolicyFromConfig(enabled: boolean): CompactionPolicy {
-  return {
-    enabled,
-    instructions: SERVER_COMPACTION_INSTRUCTIONS,
-  };
-}
 
 /** JSON block re-injected after compaction; authoritative over model-authored summaries. */
 export function structuredStateReinjectionPrompt(state: AuthoritativeStructuredState): string {

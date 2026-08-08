@@ -1,4 +1,3 @@
-import { createFakePiSession } from "./fakePiSession.js";
 import { createPiSessionImpl } from "./piSessionImpl.js";
 import type { PiSession, PiSessionCreateParams } from "./types.js";
 
@@ -11,13 +10,19 @@ export {
 } from "./types.js";
 export { createFakePiSession } from "./fakePiSession.js";
 export type { FakePiSessionControls, FakePiSessionScript } from "./fakePiSession.js";
+export {
+  DEFAULT_PROMPT_CACHE_POLICY,
+  SESSION_CACHE_ID_MAX_LENGTH,
+  cacheIdentityFromAssignment,
+  sessionCacheIdFromIdentity,
+} from "./promptCachePolicy.js";
+export type {
+  AgentSessionCacheIdentity,
+  PromptCachePolicy,
+  PromptCacheRetention,
+} from "./promptCachePolicy.js";
 
 /** Production factory for the Pi-specific session seam. */
 export async function createPiSession(params: PiSessionCreateParams): Promise<PiSession> {
   return createPiSessionImpl(params);
-}
-
-/** Test helper that returns a controllable fake session without touching the SDK. */
-export function createTestPiSession(params: PiSessionCreateParams) {
-  return createFakePiSession(params);
 }
