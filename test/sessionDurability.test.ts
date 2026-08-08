@@ -62,8 +62,6 @@ function fakeSession(overrides: Partial<PiSession> = {}): PiSession {
     setStructuredState: (state) => {
       structuredState = state as typeof structuredState;
     },
-    setExternalMutationPending: vi.fn(),
-    compactIfNeeded: vi.fn(async () => false),
     ...overrides,
   };
 }

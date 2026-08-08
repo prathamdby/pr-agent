@@ -12,9 +12,9 @@ import {
   saveResumeSnapshotIfConfigured,
   type FeatureSessionDurability,
 } from "./sessionDurability.js";
+import { compactionPolicyForRole } from "./compactionPolicy.js";
 import { DEFAULT_PROMPT_CACHE_POLICY } from "./promptCachePolicy.js";
 import {
-  DEFAULT_COMPACTION_POLICY,
   DEFAULT_TOOL_POLICY,
   EMPTY_STRUCTURED_STATE,
   type AgentLifecycleEvent,
@@ -121,7 +121,7 @@ export async function createFeaturePiSession(params: {
     primary,
     fallback: policy.fallback,
     thinkingPolicy: thinkingPolicyFromCeiling(params.cfg.piThinkingCeiling),
-    compactionPolicy: DEFAULT_COMPACTION_POLICY,
+    compactionPolicy: compactionPolicyForRole(params.role),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     structuredState,

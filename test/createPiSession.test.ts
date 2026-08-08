@@ -104,8 +104,8 @@ import { createAgentSession, defineTool, ModelRuntime } from "@earendil-works/pi
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunnerToolExecutor } from "../src/agent/providers/interface.js";
 import {
+  compactionPolicyForRole,
   createPiSession,
-  DEFAULT_COMPACTION_POLICY,
   DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
@@ -134,7 +134,7 @@ async function createPiRunnerSession(params: {
     role: "ask",
     primary: { provider: params.cfg.piProvider, model: params.cfg.piModel },
     thinkingPolicy: DEFAULT_THINKING_POLICY,
-    compactionPolicy: DEFAULT_COMPACTION_POLICY,
+    compactionPolicy: compactionPolicyForRole("ask"),
     promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
     toolPolicy: DEFAULT_TOOL_POLICY,
     structuredState: EMPTY_STRUCTURED_STATE,
@@ -615,7 +615,7 @@ describe("createPiSession prompt cache identity", () => {
       specialistId: "correctness",
       primary: { provider: cfg.piProvider, model: cfg.piModel },
       thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: DEFAULT_COMPACTION_POLICY,
+      compactionPolicy: compactionPolicyForRole("specialist"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
       structuredState: EMPTY_STRUCTURED_STATE,

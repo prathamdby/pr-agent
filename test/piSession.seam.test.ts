@@ -33,8 +33,8 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
 
 import { createAgentSession } from "@earendil-works/pi-coding-agent";
 import {
+  compactionPolicyForRole,
   createPiSession,
-  DEFAULT_COMPACTION_POLICY,
   DEFAULT_PROMPT_CACHE_POLICY,
   DEFAULT_THINKING_POLICY,
   DEFAULT_TOOL_POLICY,
@@ -81,7 +81,7 @@ describe("createPiSession seam", () => {
       role: "orchestrator",
       primary: { provider: "openai", model: "gpt-4o-mini" },
       thinkingPolicy: DEFAULT_THINKING_POLICY,
-      compactionPolicy: DEFAULT_COMPACTION_POLICY,
+      compactionPolicy: compactionPolicyForRole("orchestrator"),
       promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
       toolPolicy: DEFAULT_TOOL_POLICY,
       structuredState: EMPTY_STRUCTURED_STATE,

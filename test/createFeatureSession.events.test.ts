@@ -55,7 +55,6 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
       setActiveTools: vi.fn(),
     };
   }),
-  DEFAULT_COMPACTION_POLICY: {},
   DEFAULT_TOOL_POLICY: {},
   EMPTY_STRUCTURED_STATE: { version: 1, payload: {} },
 }));
