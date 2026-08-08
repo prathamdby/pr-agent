@@ -18,14 +18,14 @@ Requirements source: https://github.com/prathamdby/pr-agent/issues/423 (body + p
 
 ## End-state product surface
 
-| Concern | Single owner |
-|---|---|
-| Prompt-cache policy (`retention: "short"`) | `src/agent/runtime/promptCachePolicy.ts` |
-| Session cache identity → stable id (≤64 chars) | same module + `PiSessionCreateParams` |
-| Role → compaction enabled | `src/agent/runtime/compactionPolicy.ts` (or adjacent role table) |
-| Phase → allowed tool names | `src/review/orchestrator/phaseToolPolicy.ts` |
-| Stream retention injection | wrap `ModelRuntime.stream*` in `piSessionImpl.ts` |
-| Metrics ratios | `src/review/run/reviewRunMetrics.ts` + usage mapping |
+| Concern                                        | Single owner                                                     |
+| ---------------------------------------------- | ---------------------------------------------------------------- |
+| Prompt-cache policy (`retention: "short"`)     | `src/agent/runtime/promptCachePolicy.ts`                         |
+| Session cache identity → stable id (≤64 chars) | same module + `PiSessionCreateParams`                            |
+| Role → compaction enabled                      | `src/agent/runtime/compactionPolicy.ts` (or adjacent role table) |
+| Phase → allowed tool names                     | `src/review/orchestrator/phaseToolPolicy.ts`                     |
+| Stream retention injection                     | wrap `ModelRuntime.stream*` in `piSessionImpl.ts`                |
+| Metrics ratios                                 | `src/review/run/reviewRunMetrics.ts` + usage mapping             |
 
 ## Deletes (callerless today)
 

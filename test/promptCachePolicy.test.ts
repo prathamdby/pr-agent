@@ -33,11 +33,7 @@ describe("promptCachePolicy", () => {
       ),
     );
     const security = sessionCacheIdFromIdentity(
-      cacheIdentityFromAssignment(
-        "specialist",
-        { provider: "openai", model: "gpt-5" },
-        "security",
-      ),
+      cacheIdentityFromAssignment("specialist", { provider: "openai", model: "gpt-5" }, "security"),
     );
     const orchestrator = sessionCacheIdFromIdentity(
       cacheIdentityFromAssignment("orchestrator", { provider: "openai", model: "gpt-5" }),

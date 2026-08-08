@@ -28,13 +28,7 @@ export type AgentSessionCacheIdentity = {
  */
 export function sessionCacheIdFromIdentity(identity: AgentSessionCacheIdentity): string {
   const specialist = identity.specialistId?.trim() || undefined;
-  const raw = [
-    "pragent",
-    identity.role,
-    specialist ?? "-",
-    identity.provider,
-    identity.model,
-  ]
+  const raw = ["pragent", identity.role, specialist ?? "-", identity.provider, identity.model]
     .map(sanitizeSessionCacheIdPart)
     .join(".");
   if (raw.length <= SESSION_CACHE_ID_MAX_LENGTH) return raw;
@@ -55,6 +49,8 @@ export function cacheIdentityFromAssignment(
 }
 
 function sanitizeSessionCacheIdPart(part: string): string {
-  const cleaned = part.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
+  const cleaned = part
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[^A-Za-z0-9]+|[^A-Za-z0-9]+$/g, "");
   return cleaned.length > 0 ? cleaned : "x";
 }

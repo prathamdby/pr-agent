@@ -1,5 +1,3 @@
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
@@ -22,25 +20,25 @@ import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
 import { formatZodIssues } from "../../util/formatZodIssues.js";
+import {
+  SUBMIT_FINDINGS_REPORT_NAME,
+  buildSpecialistSessionTools,
+  buildSubmitFindingsReportPiTool,
+  type SpecialistWorkspaceTools,
+} from "./specialistTools.js";
 
 const MAX_SESSION_ATTEMPTS = 3;
 const INITIAL_JITTER_MAX_MS = 3_000;
 const RETRY_BACKOFF_BASE_MS = 500;
-const SUBMIT_TOOL_NAME = "submit_findings_report";
 const MISSING_REPORT_ERROR =
   "No valid SpecialistReport was submitted. Call submit_findings_report with the complete report.";
-
-type WorkspaceTools = {
-  readonly piTools: readonly PiTool[];
-  readonly executors: Record<string, AgentRunnerToolExecutor>;
-};
 
 export type RunSpecialistParams = {
   readonly cfg: Config;
   readonly cwd: string;
   readonly specialist: SpecialistId;
   readonly briefMessage: string;
-  readonly workspaceTools: WorkspaceTools;
+  readonly workspaceTools: SpecialistWorkspaceTools;
   readonly timeoutMs: number;
   readonly shouldContinue: () => boolean;
   readonly signal?: AbortSignal;
@@ -124,14 +122,10 @@ function buildSubmitTool(
     readonly cfg: Config;
   },
 ): {
-  readonly piTool: PiTool;
+  readonly piTool: ReturnType<typeof buildSubmitFindingsReportPiTool>;
   readonly executor: AgentRunnerToolExecutor;
 } {
-  const piTool: PiTool = {
-    name: SUBMIT_TOOL_NAME,
-    description: "Submit the specialist's final findings report exactly once.",
-    parameters: z.toJSONSchema(specialistReportSchema),
-  };
+  const piTool = buildSubmitFindingsReportPiTool();
   const executor: AgentRunnerToolExecutor = async (args) => {
     const parsed = specialistReportSchema.safeParse(args);
     if (!parsed.success) {
@@ -222,16 +216,14 @@ async function createSessionWithinDeadline(
   deadlineMs: number,
   submitTool: ReturnType<typeof buildSubmitTool>,
 ): Promise<PiSession> {
+  const sessionTools = buildSpecialistSessionTools(params.workspaceTools, submitTool);
   const creation = createFeaturePiSession({
     role: "specialist",
     cfg: params.cfg,
     cwd: params.cwd,
     systemPrompt: specialistSystemPrompt(params.specialist),
-    tools: [...params.workspaceTools.piTools, submitTool.piTool],
-    executors: {
-      ...params.workspaceTools.executors,
-      [SUBMIT_TOOL_NAME]: submitTool.executor,
-    },
+    tools: sessionTools.piTools,
+    executors: sessionTools.executors,
     // Parallel specialists share session_role "specialist"; skip durability so
     // concurrent checkpoint/snapshot writes cannot overwrite each other.
   });
@@ -314,7 +306,7 @@ async function runAttempt(
             session,
             {
               piTools: [submitTool.piTool],
-              executors: { [SUBMIT_TOOL_NAME]: submitTool.executor },
+              executors: { [SUBMIT_FINDINGS_REPORT_NAME]: submitTool.executor },
             },
             [
               validationError,
