@@ -36,8 +36,8 @@ jobs:
               - "Dockerfile"
               - "migrations/**"
               - "package.json"
-              - "pnpm-lock.yaml"
-              - "pnpm-workspace.yaml"
+              - "nub.lock"
+              - "nub.jsonc"
               - "scripts/**"
               - "src/**"
               - "test/**"
@@ -46,8 +46,8 @@ jobs:
             site:
               - ".github/workflows/ci.yml"
               - ".node-version"
-              - "pnpm-lock.yaml"
-              - "pnpm-workspace.yaml"
+              - "nub.lock"
+              - "nub.jsonc"
               - "site/**"
 
   check:

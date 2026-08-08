@@ -6,7 +6,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g --ignore-scripts=false @nubjs/nub
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc .node-version ./
+COPY package.json nub.lock nub.jsonc .npmrc .node-version ./
 COPY site/package.json ./site/package.json
 # nub ci uses a project-local store so node_modules is COPY-safe across stages.
 RUN --mount=type=cache,id=nub-store,target=/root/.local/share/nub/store \

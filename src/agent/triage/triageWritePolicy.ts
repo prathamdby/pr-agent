@@ -47,6 +47,7 @@ export const TRIAGE_CONTROL_PATH_PATTERNS: readonly RegExp[] = [
   /(^|\/)Makefile$/i,
   /(^|\/)package\.json$/i,
   /(^|\/)\.npmrc$/i,
+  /(^|\/)nub\.jsonc$/i,
   /(^|\/)\.yarnrc(?:\.yml)?$/i,
   /(^|\/)\.pnpmfile\.cjs$/i,
   /(^|\/)pnpm-workspace\.ya?ml$/i,

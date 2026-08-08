@@ -1,0 +1,32 @@
+{
+  "$schema": "https://nubjs.com/schema/latest.json",
+
+  "install": {
+    "minimumReleaseAge": "7d",
+    "minimumReleaseAgeExclude": [
+      "pg-cloudflare",
+      "typescript",
+      "cron-parser@5.6.2",
+      "oxlint@1.75.0",
+      "oxlint-tsgolint@7.0.2001",
+      "@oxlint/*",
+      "@oxlint-tsgolint/*",
+      "@tanstack/react-start@1.168.31",
+      "@tanstack/react-start-rsc@0.1.30",
+      "@tanstack/start-plugin-core@1.171.23",
+      "@tanstack/router-generator@1.167.21",
+      "@tanstack/router-plugin@1.168.22",
+      "@earendil-works/pi-ai@0.82.1",
+      "@earendil-works/pi-coding-agent@0.82.1",
+      "@earendil-works/pi-agent-core@0.82.1",
+      "@earendil-works/pi-tui@0.82.1",
+      "evlog@2.22.3",
+      "oxfmt@0.60.0",
+      "@oxfmt/*",
+      "pg-boss@12.26.3",
+      "posthog-node@5.46.1",
+      "@posthog/*",
+      "brace-expansion@5.0.8",
+    ],
+  },
+}
