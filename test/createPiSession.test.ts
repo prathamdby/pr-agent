@@ -659,4 +659,59 @@ describe("createPiSession prompt cache identity", () => {
       expect.objectContaining({ cacheRetention: "short", maxTokens: 1 }),
     );
   });
+
+  it("binds short retention and fallback cache id on restartWithFallback", async () => {
+    const primaryRuntime = createDefaultModelRuntimeMock();
+    const fallbackRuntime = createDefaultModelRuntimeMock();
+    const primaryStreamSimple = primaryRuntime.streamSimple;
+    const fallbackStreamSimple = fallbackRuntime.streamSimple;
+    vi.mocked(ModelRuntime.create)
+      .mockResolvedValueOnce(primaryRuntime as never)
+      .mockResolvedValueOnce(fallbackRuntime as never);
+
+    const primarySession = buildMockSession(() => undefined);
+    const fallbackSession = buildMockSession(() => undefined);
+    vi.mocked(createAgentSession)
+      .mockResolvedValueOnce({ session: primarySession } as never)
+      .mockResolvedValueOnce({ session: fallbackSession } as never);
+
+    const session = await createPiSession({
+      role: "ask",
+      primary: { provider: "openai", model: "gpt-4o-mini" },
+      fallback: { provider: "openai", model: "gpt-4o" },
+      thinkingPolicy: DEFAULT_THINKING_POLICY,
+      compactionPolicy: compactionPolicyForRole("ask"),
+      promptCachePolicy: DEFAULT_PROMPT_CACHE_POLICY,
+      toolPolicy: DEFAULT_TOOL_POLICY,
+      structuredState: EMPTY_STRUCTURED_STATE,
+      systemPrompt: "test",
+      cwd: "/tmp/pr-agent-fallback-cache",
+      eventSink: () => undefined,
+      cfg,
+      tools: [],
+      executors: {},
+    });
+
+    await session.restartWithFallback({
+      checkpointId: "ask:ask",
+      structuredState: EMPTY_STRUCTURED_STATE,
+    });
+
+    const fallbackId = sessionCacheIdFromIdentity({
+      role: "ask",
+      provider: "openai",
+      model: "gpt-4o",
+    });
+    expect(SessionManager.inMemory).toHaveBeenLastCalledWith("/tmp/pr-agent-fallback-cache", {
+      id: fallbackId,
+    });
+
+    fallbackRuntime.streamSimple({ id: "m" }, { messages: [] }, { maxTokens: 2 });
+    expect(fallbackStreamSimple).toHaveBeenCalledWith(
+      { id: "m" },
+      { messages: [] },
+      expect.objectContaining({ cacheRetention: "short", maxTokens: 2 }),
+    );
+    expect(primaryStreamSimple).not.toHaveBeenCalled();
+  });
 });

@@ -135,18 +135,3 @@ export function buildDescriptionRunSetup(params: {
     refreshBeforeTool,
   };
 }
-
-export function buildSubmitOnlyDescriptionSessionTools(setup: DescriptionRunSetup): {
-  piTools: PiTool[];
-  executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
-} {
-  const submitTool = setup.piTools.find((tool) => tool.name === "submitDescription");
-  const submitDescription = setup.executors.submitDescription;
-  if (!submitTool || !submitDescription) {
-    return { piTools: setup.piTools, executors: setup.executors };
-  }
-  return {
-    piTools: [submitTool],
-    executors: { submitDescription },
-  };
-}

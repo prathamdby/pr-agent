@@ -130,6 +130,8 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
             await session.send(ASK_RETRY_NUDGE, {
               phase: "ask",
               checkpointId: "ask:ask",
+              // Keep tool definitions registered for cache prefixes; forbid tool turns.
+              maxToolRounds: 0,
             })
           ).text.trim();
         }

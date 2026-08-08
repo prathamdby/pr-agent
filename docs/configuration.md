@@ -281,6 +281,7 @@ An orchestrated review computes its hard return deadline from the pg-boss job st
 | `MAX_TRIAGE_FIXES_PER_RUN`               | 10                                                              |
 | `MAX_ASK_TOOL_ROUNDS`                    | 12                                                              |
 | `MAX_ASK_FINALIZE_ROUNDS`                | 2                                                               |
+| `SESSION_CACHE_ID_MAX_LENGTH`            | 64 — OpenAI-style `prompt_cache_key` clamp for Pi session ids   |
 | `VALIDATION_REPAIR_ROUNDS`               | 3                                                               |
 | `PUBLISH_RECOVERY_ROUNDS`                | 4 summary recovery sends                                        |
 | `PUBLISH_BUDGET_EXHAUSTED_MESSAGE`       | Structured review tool guard                                    |

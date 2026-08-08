@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
-import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
+import {
+  createOrchestratorPhaseRef,
+  WRONG_PHASE_TOOL_CODE,
+} from "../src/review/orchestrator/phaseToolPolicy.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
@@ -155,6 +158,37 @@ describe("buildPublishThreadTool", () => {
     });
     expect(tool.getLedger()).toEqual(createFindingLedger());
     expect(tool.getPublishedBatchCount()).toBe(0);
+    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+  });
+
+  it("rejects wrong-phase calls before publish with a structured shape", async () => {
+    const tool = buildPublishThreadTool({
+      phaseRef: createOrchestratorPhaseRef("recon"),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "abc1234",
+        hasDescriptionReviewMap: false,
+      },
+      workItemId: "wi-1",
+      resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
+      getToken: () => "token",
+      cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
+      recordPublishStep: vi.fn(async () => undefined),
+      initialLedger: createFindingLedger(),
+    });
+
+    const result = await tool.executor({});
+
+    expect(result).toEqual({
+      kind: "wrong_phase",
+      code: WRONG_PHASE_TOOL_CODE,
+      phase: "recon",
+      allowed: ["submit_specialist_brief"],
+      error: expect.stringContaining("publish_thread"),
+    });
+    expect(tool.getLedger()).toEqual(createFindingLedger());
     expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
   });
 

@@ -5,7 +5,10 @@ import {
   type FindingLedger,
   type ReviewCoverage,
 } from "../src/review/orchestrator/orchestratorTypes.js";
-import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
+import {
+  createOrchestratorPhaseRef,
+  WRONG_PHASE_TOOL_CODE,
+} from "../src/review/orchestrator/phaseToolPolicy.js";
 import {
   buildPublishSummaryTool,
   createPublishSummaryState,
@@ -115,6 +118,37 @@ describe("buildPublishSummaryTool", () => {
       kind: "published",
       summaryCommentId: 91,
     });
+  });
+
+  it("rejects wrong-phase calls before publish with a structured shape", async () => {
+    const state = createPublishSummaryState();
+    const tool = buildPublishSummaryTool({
+      phaseRef: createOrchestratorPhaseRef("judgment"),
+      cfg: makeTestConfig(),
+      ctx: {
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+        headSha: "abc1234",
+        hasDescriptionReviewMap: false,
+      },
+      getToken: () => "token",
+      getLedger: () => createFindingLedger(),
+      getCoverage: () => ({ kind: "full" }),
+      state,
+    });
+
+    const result = await tool.executor({});
+
+    expect(result).toEqual({
+      ok: false,
+      code: WRONG_PHASE_TOOL_CODE,
+      phase: "judgment",
+      allowed: ["publish_thread"],
+      error: expect.stringContaining("publish_summary"),
+    });
+    expect(state.published).toBe(false);
+    expect(publishReviewSummaryOnly).not.toHaveBeenCalled();
   });
 
   it("reconstructs immutable finding placement fields from the live ledger", async () => {

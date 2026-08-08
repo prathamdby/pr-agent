@@ -61,6 +61,7 @@ describe("runAskRun finalize", () => {
     expect(sendMock.mock.calls[1]?.[1]).toEqual({
       phase: "ask",
       checkpointId: "ask:ask",
+      maxToolRounds: 0,
     });
     expect(result.answer).toContain("End-user summary and E2E checklist.");
     expect(result.answer).not.toContain("I'll examine");

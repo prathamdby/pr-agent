@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
+import { AppError } from "../../errors/appError.js";
 import { specialistReportSchema } from "./specialistReport.js";
 
 export const SUBMIT_FINDINGS_REPORT_NAME = "submit_findings_report";
@@ -39,7 +40,11 @@ export function buildSpecialistSessionTools(
   readonly executors: Record<string, AgentRunnerToolExecutor>;
 } {
   if (submit.piTool.name !== SUBMIT_FINDINGS_REPORT_NAME) {
-    throw new Error(`expected ${SUBMIT_FINDINGS_REPORT_NAME}, got ${submit.piTool.name}`);
+    throw new AppError({
+      code: "review.submit_tool_mismatch",
+      message: `expected ${SUBMIT_FINDINGS_REPORT_NAME}, got ${submit.piTool.name}`,
+      context: { expected: SUBMIT_FINDINGS_REPORT_NAME, got: submit.piTool.name },
+    });
   }
   return {
     piTools: [...workspaceTools.piTools, submit.piTool],

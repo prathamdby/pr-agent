@@ -21,7 +21,6 @@ import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
 import { formatZodIssues } from "../../util/formatZodIssues.js";
 import {
-  SUBMIT_FINDINGS_REPORT_NAME,
   buildSpecialistSessionTools,
   buildSubmitFindingsReportPiTool,
   type SpecialistWorkspaceTools,
@@ -305,10 +304,6 @@ async function runAttempt(
           assertCanContinue(params, deadlineMs);
           await runSubmitOnlyRound(
             session,
-            {
-              piTools: [submitTool.piTool],
-              executors: { [SUBMIT_FINDINGS_REPORT_NAME]: submitTool.executor },
-            },
             [
               validationError,
               "Fix the report and call submit_findings_report now. Do not use any other tools.",

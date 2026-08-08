@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
+import { AppError } from "../src/errors/appError.js";
 import { SPECIALIST_IDS } from "../src/review/orchestrator/orchestratorTypes.js";
 import {
   SUBMIT_FINDINGS_REPORT_NAME,
@@ -61,5 +62,39 @@ describe("specialistTools", () => {
 
     const prompts = new Set(payloads.map((row) => row.systemPrompt));
     expect(prompts.size).toBe(SPECIALIST_IDS.length);
+  });
+
+  it("throws AppError when the submit tool name mismatches", () => {
+    expect(() =>
+      buildSpecialistSessionTools(
+        { piTools: [], executors: {} },
+        {
+          piTool: {
+            name: "wrong_tool",
+            description: "x",
+            parameters: { type: "object", properties: {} },
+          },
+          executor: async () => ({}),
+        },
+      ),
+    ).toThrow(AppError);
+    try {
+      buildSpecialistSessionTools(
+        { piTools: [], executors: {} },
+        {
+          piTool: {
+            name: "wrong_tool",
+            description: "x",
+            parameters: { type: "object", properties: {} },
+          },
+          executor: async () => ({}),
+        },
+      );
+    } catch (error) {
+      expect(error).toMatchObject({
+        code: "review.submit_tool_mismatch",
+        context: { expected: SUBMIT_FINDINGS_REPORT_NAME, got: "wrong_tool" },
+      });
+    }
   });
 });

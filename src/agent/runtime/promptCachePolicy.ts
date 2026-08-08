@@ -1,4 +1,8 @@
+import { createHash } from "node:crypto";
+import { SESSION_CACHE_ID_MAX_LENGTH } from "../../settings/index.js";
 import type { AgentSessionRole, ModelAssignment } from "./types.js";
+
+export { SESSION_CACHE_ID_MAX_LENGTH };
 
 /** v1 prompt-cache retention owned by the Pi session seam. Always short. */
 export type PromptCacheRetention = "short";
@@ -10,9 +14,6 @@ export type PromptCachePolicy = {
 export const DEFAULT_PROMPT_CACHE_POLICY: PromptCachePolicy = {
   retention: "short",
 };
-
-/** OpenAI `prompt_cache_key` max length (pi-ai clamp). */
-export const SESSION_CACHE_ID_MAX_LENGTH = 64;
 
 export type AgentSessionCacheIdentity = {
   readonly role: AgentSessionRole;
@@ -32,7 +33,11 @@ export function sessionCacheIdFromIdentity(identity: AgentSessionCacheIdentity):
     .map(sanitizeSessionCacheIdPart)
     .join(".");
   if (raw.length <= SESSION_CACHE_ID_MAX_LENGTH) return raw;
-  return raw.slice(0, SESSION_CACHE_ID_MAX_LENGTH).replace(/[._-]+$/g, "") || "pragent";
+  const digest = createHash("sha256").update(raw).digest("hex").slice(0, 8);
+  const prefixBudget = SESSION_CACHE_ID_MAX_LENGTH - digest.length - 1;
+  const prefix = raw.slice(0, Math.max(prefixBudget, 0)).replace(/[._-]+$/g, "");
+  const clamped = prefix.length > 0 ? `${prefix}.${digest}` : digest;
+  return clamped.slice(0, SESSION_CACHE_ID_MAX_LENGTH) || "pragent";
 }
 
 export function cacheIdentityFromAssignment(

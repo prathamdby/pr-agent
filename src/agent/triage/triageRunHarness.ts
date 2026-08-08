@@ -8,11 +8,7 @@ import {
 import { logInfo } from "../../evlog.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import type { TriageRunResult } from "./triageRun.js";
-import {
-  buildSubmitOnlyTriageSessionTools,
-  buildTriageRunSetup,
-  shouldContinueTriageRun,
-} from "./triageRunSetup.js";
+import { buildTriageRunSetup, shouldContinueTriageRun } from "./triageRunSetup.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
@@ -56,7 +52,7 @@ export async function runTriageHarness(params: {
   });
   let lastText = "";
   const sendFinalizeRound = async (prompt: string): Promise<string> =>
-    runSubmitOnlyRound(session, buildSubmitOnlyTriageSessionTools(setup), prompt, {
+    runSubmitOnlyRound(session, prompt, {
       maxToolRounds: MAX_TOOL_ROUNDS_TRIAGE,
     });
 

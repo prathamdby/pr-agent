@@ -48,10 +48,6 @@ function defaultSubmitOnlySend(
  */
 export async function runSubmitOnlyRound(
   session: PiSession,
-  _submitOnly: {
-    readonly piTools: readonly unknown[];
-    readonly executors: Record<string, unknown>;
-  },
   prompt: string,
   sendOrOptions?: SubmitOnlySend | SubmitOnlyRoundOptions,
 ): Promise<string> {
