@@ -11,6 +11,7 @@ import {
   TRIAGE_QUEUE,
   VERIFICATION_QUEUE,
 } from "../../settings/index.js";
+import { uuidv5 } from "../../util/uuidv5.js";
 import {
   descriptionSingletonKey,
   installationGroupId,
@@ -29,6 +30,11 @@ import {
   type VerificationJobData,
   type WebhookHeaders,
 } from "../types.js";
+
+/** Deterministic pg-boss job id for one webhook delivery + PR (uuid column). */
+export function ciRefreshBossJobId(webhookEventId: string, prNumber: number): string {
+  return uuidv5(webhookEventId, `ci-refresh:${prNumber}`);
+}
 
 export function jobCorrelation(
   eventId: string,
@@ -200,7 +206,7 @@ export async function enqueueCiRefreshIdempotent(
 ): Promise<"enqueued" | "already_present"> {
   return sendBossJobIdempotent(boss, CI_REFRESH_QUEUE, data, {
     db: pgBossDb(client),
-    id: `${webhookEventId}:ci-refresh:${data.prNumber}`,
+    id: ciRefreshBossJobId(webhookEventId, data.prNumber),
     priority: 40,
     group: { id: installationGroupId(data.installationId) },
   });
