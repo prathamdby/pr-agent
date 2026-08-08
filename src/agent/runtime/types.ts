@@ -89,11 +89,6 @@ export type PiSession = {
   readonly role: AgentSessionRole;
   readonly primary: ModelAssignment;
   readonly send: (prompt: string, opts: PiSessionSendOptions) => Promise<AgentRunnerTurn>;
-  readonly setActiveTools: (
-    tools: readonly PiTool[],
-    executors: Record<string, AgentRunnerToolExecutor>,
-  ) => void;
-  readonly restoreTools: () => void;
   readonly abort: () => Promise<void>;
   readonly dispose: () => Promise<void>;
   readonly restartWithFallback: (params: {

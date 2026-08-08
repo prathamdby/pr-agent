@@ -1,6 +1,5 @@
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { AppError } from "../../errors/appError.js";
-import type { AgentRunnerToolExecutor, AgentRunnerTurn } from "../providers/interface.js";
+import type { AgentRunnerTurn } from "../providers/interface.js";
 import { promptMetadataFromText } from "../providers/usageMetadata.js";
 import type {
   AgentLifecycleEvent,
@@ -36,8 +35,6 @@ export function createFakePiSession(
   let structuredState = params.structuredState;
   let aborted = false;
   let disposed = false;
-  let activeToolNames = params.tools.map((tool) => tool.name);
-  const allToolNames = [...activeToolNames];
   let activeModel: ModelAssignment = params.primary;
 
   const emit = (event: AgentLifecycleEvent) => {
@@ -95,13 +92,6 @@ export function createFakePiSession(
         ok: true,
       });
       return turn;
-    },
-    setActiveTools(tools: readonly PiTool[], _executors: Record<string, AgentRunnerToolExecutor>) {
-      activeToolNames = tools.map((tool) => tool.name);
-      void activeToolNames;
-    },
-    restoreTools() {
-      activeToolNames = [...allToolNames];
     },
     async abort() {
       aborted = true;

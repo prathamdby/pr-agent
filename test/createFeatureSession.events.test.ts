@@ -51,8 +51,6 @@ vi.mock("../src/agent/runtime/piSession.js", () => ({
       abort: vi.fn(),
       dispose: vi.fn(),
       getStructuredState: () => ({ version: 1, payload: {} }),
-      restoreTools: vi.fn(),
-      setActiveTools: vi.fn(),
     };
   }),
   DEFAULT_TOOL_POLICY: {},

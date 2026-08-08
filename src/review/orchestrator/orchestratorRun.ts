@@ -1,7 +1,6 @@
-import type { AssistantMessage, Tool as PiTool } from "@earendil-works/pi-ai";
+import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import { getSummaryCommentGithubId } from "../../agentWork/publishRecordRepository.js";
-import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
 import { classifyFallbackEligibility } from "../../agent/runtime/fallbackClassification.js";
 import {
@@ -55,6 +54,7 @@ import {
   type SpecialistId,
   type SpecialistOutcome,
 } from "./orchestratorTypes.js";
+import { createOrchestratorPhaseRef } from "./phaseToolPolicy.js";
 import { buildPublishSummaryTool, createPublishSummaryState } from "./publishSummaryTool.js";
 import { buildPublishThreadTool } from "./publishThreadTool.js";
 import { runSpecialist } from "./specialistRun.js";
@@ -171,15 +171,6 @@ function coverage(state: OrchestratedRunState): ReviewCoverage {
   };
 }
 
-function transitionTools(
-  session: PiSession,
-  tools: readonly PiTool[],
-  executors: Record<string, AgentRunnerToolExecutor>,
-): void {
-  session.restoreTools();
-  session.setActiveTools(tools, executors);
-}
-
 /** Specialist completion ticks occupy revisions 3–6 (1 worker-start, 2 recon-done). */
 function nextProgressRevision(revision: OrchestratedRunState["progressRevision"]): 3 | 4 | 5 | 6 {
   switch (revision) {
@@ -247,7 +238,8 @@ export async function runOrchestratedPrReview(
         ? params.tokenTtlMs
         : TOKEN_FRESHNESS_BUFFER_MS,
   });
-  const briefTool = buildSpecialistBriefTool();
+  const phaseRef = createOrchestratorPhaseRef("recon");
+  const briefTool = buildSpecialistBriefTool(phaseRef);
   const state = initialState();
   const agentEvents = resolveAgentEventsContext(params.cfg, params.durability);
   const progressCommentCoordination = params.recordPublishStep?.summaryCommentCoordination;
@@ -276,6 +268,7 @@ export async function runOrchestratedPrReview(
     return reviewCheckDetailsUrl(params.owner, params.repo, params.prNumber, commentId);
   };
   const publishThread = buildPublishThreadTool({
+    phaseRef,
     ctx: {
       owner: params.owner,
       repo: params.repo,
@@ -315,6 +308,7 @@ export async function runOrchestratedPrReview(
   });
   const ciAuthor = createAgentCiSummaryAuthor(params.cfg);
   const publishSummary = buildPublishSummaryTool({
+    phaseRef,
     cfg: params.cfg,
     ctx: {
       owner: params.owner,
@@ -463,6 +457,7 @@ export async function runOrchestratedPrReview(
     prompt: string,
     options?: Pick<PiSessionSendOptions, "maxToolRounds" | "deadlineMs">,
   ): Promise<SendResult> => {
+    phaseRef.current = phase;
     let firstError: AppError | null = null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       if (sessionRetired || !session) {
@@ -754,11 +749,19 @@ export async function runOrchestratedPrReview(
   const publishReportDeterministically = async (
     outcome: Extract<SpecialistOutcome, { readonly kind: "report" }>,
   ): Promise<void> => {
+    phaseRef.current = "judgment";
     publishThread.setSource(outcome.specialist);
     const ledgerBefore = publishThread.getLedger();
     await setup.refreshLiveAuth();
     publishAttempts += 1;
     const result = await publishThread.executor({ findings: outcome.report.findings });
+    if (result.kind === "wrong_phase") {
+      throw new AppError({
+        code: result.code,
+        message: result.error,
+        context: { phase: result.phase, allowed: result.allowed },
+      });
+    }
     if (result.kind === "stopped") {
       await applyPublishStop();
       return;
@@ -870,10 +873,6 @@ export async function runOrchestratedPrReview(
     await writeWorkerStartTick();
 
     if (session) {
-      transitionTools(session, [...setup.workspaceTools.piTools, briefTool.piTool], {
-        ...setup.workspaceTools.executors,
-        submit_specialist_brief: briefTool.executor,
-      });
       const recon = await sendWithRetry(
         "recon",
         [setup.orchestratorUserContent, ORCHESTRATOR_RECON_INSTRUCTION].join("\n\n"),
@@ -892,9 +891,6 @@ export async function runOrchestratedPrReview(
           briefTool.getValidationError() ?? "No specialist brief was submitted.",
         clearValidationError: briefTool.clearValidationError,
         repair: async (validationError) => {
-          transitionTools(reconSession, [briefTool.piTool], {
-            submit_specialist_brief: briefTool.executor,
-          });
           const repair = await sendWithRetry(
             "recon",
             [
@@ -979,9 +975,6 @@ export async function runOrchestratedPrReview(
 
           publishThread.setSource(outcome.specialist);
           const ledgerBefore = publishThread.getLedger();
-          transitionTools(judgmentSession, [publishThread.piTool], {
-            publish_thread: publishThread.executor,
-          });
           publishAttempts += 1;
           const judgment = await sendWithRetry("judgment", renderJudgmentTurn(outcome), {
             maxToolRounds: ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS,
@@ -1046,9 +1039,6 @@ export async function runOrchestratedPrReview(
       markCompleteUnlessStopped();
     } else {
       const synthesisSession = session;
-      transitionTools(synthesisSession, [publishSummary.piTool], {
-        publish_summary: publishSummary.executor,
-      });
       publishAttempts += 1;
       const overviewPolicy = resolveDescriptionWritingPolicy(params.workspace.stats);
       const synthesisPrompt = renderSynthesisTurn({
@@ -1079,9 +1069,6 @@ export async function runOrchestratedPrReview(
             summaryState.lastValidationError = null;
           },
           repair: async (validationError) => {
-            transitionTools(synthesisSession, [publishSummary.piTool], {
-              publish_summary: publishSummary.executor,
-            });
             const repair = await sendWithRetry(
               "synthesis",
               [validationError, "Fix the summary and call publish_summary now."].join("\n\n"),
@@ -1095,9 +1082,6 @@ export async function runOrchestratedPrReview(
 
       for (let round = 0; round < PUBLISH_RECOVERY_ROUNDS; round++) {
         if (summaryState.published || sessionRetired || state.lifecycle.kind !== "running") break;
-        transitionTools(synthesisSession, [publishSummary.piTool], {
-          publish_summary: publishSummary.executor,
-        });
         const recovery = await sendWithRetry(
           "synthesis",
           "Call publish_summary now with the complete final review. Do not reply with prose only.",

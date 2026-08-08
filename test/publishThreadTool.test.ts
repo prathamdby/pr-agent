@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createFindingLedger } from "../src/review/orchestrator/orchestratorTypes.js";
+import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
@@ -46,6 +47,7 @@ function finding(line: number): ReviewFinding {
 
 function buildTool(getToken: () => string, shouldAbortPublish?: () => Promise<boolean>) {
   return buildPublishThreadTool({
+    phaseRef: createOrchestratorPhaseRef("judgment"),
     ctx: {
       owner: "o",
       repo: "r",
@@ -78,19 +80,23 @@ describe("buildPublishThreadTool", () => {
     const second = await tool.executor({ findings: [finding(10), finding(20)] });
 
     expect(tool.piTool.name).toBe("publish_thread");
-    expect(first.kind).toBe("published");
-    expect(first.publishedThreadOverlapHints).toEqual([
-      expect.objectContaining({
-        file: "src/a.ts",
-        startLine: 10,
-        title: "Bug at line 10",
-      }),
-    ]);
-    expect(second.kind).toBe("published");
-    expect(second.publishedThreadOverlapHints).toEqual([
-      expect.objectContaining({ startLine: 10 }),
-      expect.objectContaining({ startLine: 20 }),
-    ]);
+    expect(first).toMatchObject({
+      kind: "published",
+      publishedThreadOverlapHints: [
+        expect.objectContaining({
+          file: "src/a.ts",
+          startLine: 10,
+          title: "Bug at line 10",
+        }),
+      ],
+    });
+    expect(second).toMatchObject({
+      kind: "published",
+      publishedThreadOverlapHints: [
+        expect.objectContaining({ startLine: 10 }),
+        expect.objectContaining({ startLine: 20 }),
+      ],
+    });
     expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(2);
     expect(tool.getLedger().accepted).toHaveLength(2);
     expect(tool.getLedger().accepted.map((placement) => placement.source)).toEqual([

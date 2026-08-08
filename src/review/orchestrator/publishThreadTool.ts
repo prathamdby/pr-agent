@@ -17,6 +17,7 @@ import {
   type FindingLedger,
   type SpecialistId,
 } from "./orchestratorTypes.js";
+import { gateOrchestratorPhaseTool, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
 const publishThreadSchema = z.object({
   findings: z.array(reviewFindingSchema),
@@ -32,11 +33,20 @@ type PublishedThreadOverlapHint = {
   readonly detail: string;
 };
 
-export type PublishThreadToolResult = FindingBatchResult & {
-  readonly publishedThreadOverlapHints: readonly PublishedThreadOverlapHint[];
-};
+export type PublishThreadToolResult =
+  | (FindingBatchResult & {
+      readonly publishedThreadOverlapHints: readonly PublishedThreadOverlapHint[];
+    })
+  | {
+      readonly kind: "wrong_phase";
+      readonly code: "review.tool_wrong_phase";
+      readonly phase: string;
+      readonly allowed: readonly string[];
+      readonly error: string;
+    };
 
 type PublishThreadToolParams = Omit<FindingBatchContext, "source" | "ledger"> & {
+  readonly phaseRef: OrchestratorPhaseRef;
   readonly initialLedger?: FindingLedger;
   readonly agentEvents?: AgentEventsContext;
   readonly cfg?: Pick<Config, "agentEventsEnabled">;
@@ -85,6 +95,16 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     parameters: z.toJSONSchema(publishThreadSchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishThreadToolResult> => {
+    const gate = gateOrchestratorPhaseTool(params.phaseRef, "publish_thread");
+    if (!gate.ok) {
+      return {
+        kind: "wrong_phase",
+        code: gate.code,
+        phase: gate.phase,
+        allowed: gate.allowed,
+        error: gate.error,
+      };
+    }
     const parsed = publishThreadSchema.safeParse(args);
     if (!parsed.success) {
       throw new AppError({

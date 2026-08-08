@@ -4,6 +4,7 @@ import {
   renderBriefMessage,
   specialistBriefSchema,
 } from "../src/review/orchestrator/briefTool.js";
+import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
 import {
   ORCHESTRATOR_RECON_INSTRUCTION,
   orchestratorSystemPrompt,
@@ -41,7 +42,7 @@ function validBrief() {
 
 describe("buildSpecialistBriefTool", () => {
   it("stores a valid parsed specialist brief", async () => {
-    const tool = buildSpecialistBriefTool();
+    const tool = buildSpecialistBriefTool(createOrchestratorPhaseRef("recon"));
     const brief = validBrief();
 
     const result = await tool.executor({ ...brief, ignored: "strip me" });
@@ -52,7 +53,7 @@ describe("buildSpecialistBriefTool", () => {
   });
 
   it("returns formatted errors and stores nothing for malformed or oversized input", async () => {
-    const tool = buildSpecialistBriefTool();
+    const tool = buildSpecialistBriefTool(createOrchestratorPhaseRef("recon"));
     const malformedResult = await tool.executor({ architectureNotes: "missing fields" });
 
     expect(malformedResult).toEqual({

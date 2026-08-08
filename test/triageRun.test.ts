@@ -53,8 +53,6 @@ describe("triage run", () => {
         return { text: "done" };
       }),
       abort: vi.fn(async () => undefined),
-      setActiveTools: vi.fn(),
-      restoreTools: vi.fn(),
       dispose: vi.fn(),
     }));
 
@@ -77,8 +75,6 @@ describe("triage run", () => {
       role: "triage",
       send: vi.fn(async () => ({ text: "I am done" })),
       abort: vi.fn(async () => undefined),
-      setActiveTools: vi.fn(),
-      restoreTools: vi.fn(),
       dispose: vi.fn(),
     }));
 
@@ -96,8 +92,7 @@ describe("triage run", () => {
     expect(result.payload).toBeNull();
   });
 
-  it("pre-submit finalize keeps commitFix and caps tool rounds", async () => {
-    const setActiveTools = vi.fn();
+  it("pre-submit finalize keeps commitFix nudge and caps tool rounds", async () => {
     const send = vi.fn(async (_prompt: string, _opts?: Record<string, unknown>) => ({
       text: "I am done",
     }));
@@ -105,8 +100,6 @@ describe("triage run", () => {
       role: "triage",
       send,
       abort: vi.fn(async () => undefined),
-      setActiveTools,
-      restoreTools: vi.fn(),
       dispose: vi.fn(),
     }));
 
@@ -121,7 +114,6 @@ describe("triage run", () => {
     });
 
     expect(send.mock.calls.length).toBeGreaterThan(1);
-    // Nudge prompt is the only send that includes the shared finalize instruction.
     const finalizeCall = send.mock.calls.find(
       (call) =>
         typeof call[0] === "string" &&
@@ -134,15 +126,6 @@ describe("triage run", () => {
       checkpointId: "triage:triage",
       maxToolRounds: 32,
     });
-
-    const finalizeToolSets = setActiveTools.mock.calls.map((call) =>
-      (call[0] as { name: string }[]).map((tool) => tool.name),
-    );
-    expect(
-      finalizeToolSets.some(
-        (names) => names.includes("commitFix") && names.includes("submitTriage"),
-      ),
-    ).toBe(true);
   });
 
   it("validation-repair can commitFix then resubmit after a failed submitTriage", async () => {
@@ -196,8 +179,6 @@ describe("triage run", () => {
         return { text: "investigate" };
       }),
       abort: vi.fn(async () => undefined),
-      setActiveTools: vi.fn(),
-      restoreTools: vi.fn(),
       dispose: vi.fn(),
     }));
 
@@ -262,8 +243,6 @@ describe("triage run", () => {
         return { text: "investigate" };
       }),
       abort: vi.fn(async () => undefined),
-      setActiveTools: vi.fn(),
-      restoreTools: vi.fn(),
       dispose: vi.fn(),
     }));
 

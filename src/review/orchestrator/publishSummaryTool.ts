@@ -17,6 +17,7 @@ import {
   type ReviewPayload,
 } from "../reviewSchema.js";
 import type { AcceptedPlacement, FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
+import { gateOrchestratorPhaseTool, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
 const summaryFindingCopySchema = z.object({
   findingId: z.string().min(1),
@@ -45,12 +46,20 @@ export type PublishSummaryToolResult =
   | {
       readonly ok: false;
       readonly reason: Extract<PublishSummaryOnlyResult, { readonly kind: "stopped" }>["reason"];
+    }
+  | {
+      readonly ok: false;
+      readonly code: "review.tool_wrong_phase";
+      readonly phase: string;
+      readonly allowed: readonly string[];
+      readonly error: string;
     };
 
 type PublishSummaryToolParams = Omit<
   Parameters<typeof publishReviewSummaryOnly>[0],
   "payload" | "ledger" | "coverage"
 > & {
+  readonly phaseRef: OrchestratorPhaseRef;
   readonly state: PublishSummaryState;
   readonly getLedger: () => FindingLedger;
   readonly getCoverage: () => ReviewCoverage;
@@ -208,6 +217,16 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     parameters: z.toJSONSchema(publishSummarySchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
+    const gate = gateOrchestratorPhaseTool(params.phaseRef, "publish_summary");
+    if (!gate.ok) {
+      return {
+        ok: false,
+        code: gate.code,
+        phase: gate.phase,
+        allowed: gate.allowed,
+        error: gate.error,
+      };
+    }
     if (state.published) {
       return { ok: true, duplicate: true };
     }

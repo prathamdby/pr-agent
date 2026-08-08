@@ -1,5 +1,4 @@
 import type { Api, AssistantMessage, ProviderId } from "@earendil-works/pi-ai";
-import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../config.js";
 import type { AgentRunnerTurn } from "../agent/providers/interface.js";
 import type { PiSession } from "../agent/runtime/types.js";
@@ -43,11 +42,15 @@ function defaultSubmitOnlySend(
   });
 }
 
+/**
+ * Send a submit-focused repair nudge without mutating the active tool list.
+ * Tool definitions stay registered for the session lifetime (prompt-cache stability).
+ */
 export async function runSubmitOnlyRound(
   session: PiSession,
-  submitOnly: {
-    readonly piTools: readonly PiTool[];
-    readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
+  _submitOnly: {
+    readonly piTools: readonly unknown[];
+    readonly executors: Record<string, unknown>;
   },
   prompt: string,
   sendOrOptions?: SubmitOnlySend | SubmitOnlyRoundOptions,
@@ -59,10 +62,5 @@ export async function runSubmitOnlyRound(
       ? sendOrOptions
       : (active, text) => defaultSubmitOnlySend(active, text, options);
 
-  session.setActiveTools(submitOnly.piTools, submitOnly.executors);
-  try {
-    return (await send(session, prompt)).text;
-  } finally {
-    session.restoreTools();
-  }
+  return (await send(session, prompt)).text;
 }

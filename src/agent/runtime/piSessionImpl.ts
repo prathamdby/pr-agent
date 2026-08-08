@@ -176,7 +176,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
       }),
     });
     await resourceLoader.reload();
-    const allToolNames = params.tools.map((tool) => tool.name);
     const initialThinking = resolveThinkingLevel({
       policy: params.thinkingPolicy,
       phase: "synthesis",
@@ -356,12 +355,6 @@ export async function createPiSessionImpl(params: PiSessionCreateParams): Promis
           if (idleCheckHandle) clearInterval(idleCheckHandle);
           unsubscribe();
         }
-      },
-      setActiveTools(nextTools) {
-        session.setActiveToolsByName(nextTools.map((tool) => tool.name));
-      },
-      restoreTools() {
-        session.setActiveToolsByName(allToolNames);
       },
       abort,
       async dispose() {

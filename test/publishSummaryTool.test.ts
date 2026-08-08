@@ -5,6 +5,7 @@ import {
   type FindingLedger,
   type ReviewCoverage,
 } from "../src/review/orchestrator/orchestratorTypes.js";
+import { createOrchestratorPhaseRef } from "../src/review/orchestrator/phaseToolPolicy.js";
 import {
   buildPublishSummaryTool,
   createPublishSummaryState,
@@ -90,6 +91,7 @@ function buildTool(params: {
   ciAuthor?: Parameters<typeof buildPublishSummaryTool>[0]["ciAuthor"];
 }) {
   return buildPublishSummaryTool({
+    phaseRef: createOrchestratorPhaseRef("synthesis"),
     cfg: makeTestConfig(),
     ctx: {
       owner: "o",
