@@ -576,7 +576,10 @@ describe("applySlashCommandIntake", () => {
     const client = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
-        if (sql.includes("SET status = 'cancelled'")) {
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
+          return { rows: [] };
+        }
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
           return {
             rows: [
               {
@@ -588,7 +591,6 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("SET cancel_requested_at")) return { rows: [] };
         throw new Error(`unexpected query: ${sql.slice(0, 80)}`);
       }),
     } as unknown as PoolClient;
@@ -640,7 +642,7 @@ describe("applySlashCommandIntake", () => {
     const client = {
       query: vi.fn(async (sql: string) => {
         if (sql.includes("INSERT INTO webhook_events")) return { rows: [{ id: "event-1" }] };
-        if (sql.includes("SET status = 'cancelled'")) {
+        if (sql.includes("status = 'queued'") && sql.includes("SET status = 'cancelled'")) {
           expect(sql).toContain("last_error");
           expect(sql).toContain("completed_at");
           return {
@@ -654,9 +656,9 @@ describe("applySlashCommandIntake", () => {
             ],
           };
         }
-        if (sql.includes("SET cancel_requested_at")) {
+        if (sql.includes("status = 'running'") && sql.includes("SET status = 'cancelled'")) {
           expect(sql).toContain("COALESCE(cancel_requested_at");
-          expect(sql).not.toMatch(/status\s*=\s*'cancelled'/);
+          expect(sql).toContain("last_error");
           return {
             rows: [
               {
@@ -684,13 +686,14 @@ describe("applySlashCommandIntake", () => {
     const attributionPatch = JSON.stringify({
       cancelAttribution: { kind: "user", login: "alice" },
     });
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("SET status = 'cancelled'"), [
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'queued'"), [
       "acme/app#7",
       "Cancelled by slash /cancel",
       attributionPatch,
     ]);
-    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("SET cancel_requested_at"), [
+    expect(client.query).toHaveBeenCalledWith(expect.stringContaining("status = 'running'"), [
       "acme/app#7",
+      "Cancelled by slash /cancel",
       attributionPatch,
     ]);
   });

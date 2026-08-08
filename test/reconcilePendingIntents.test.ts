@@ -102,7 +102,7 @@ describe("reconcilePendingIntents", () => {
       "o/r#1",
       "55",
     ]);
-    expect(queryOne.mock.calls[0]?.[1]).not.toMatch(/threadRootCommentId/);
+    expect(vi.mocked(queryOne).mock.calls[0]?.[1]).not.toMatch(/threadRootCommentId/);
   });
 
   it("does not reconcile triage :resolve from the reply publish record", async () => {

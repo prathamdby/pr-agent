@@ -110,7 +110,7 @@ describe("withOperationIntent", () => {
         detail: expect.objectContaining({ __mutating: true }),
       }),
     );
-    expect(mergeOperationIntentDetail.mock.calls[0]?.[1]?.detail).not.toHaveProperty(
+    expect(vi.mocked(mergeOperationIntentDetail).mock.calls[0]?.[1]?.detail).not.toHaveProperty(
       "__mutateAttempt",
     );
     expect(persistOperationIntent).toHaveBeenCalledBefore(vi.mocked(reconcileOperationIntent));

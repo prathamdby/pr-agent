@@ -214,6 +214,39 @@ describe("createReviewRescheduleWorkItem", () => {
 });
 
 describe("enqueueReviewReschedule", () => {
+  it("does not cancel a co-queued foreign work item on the singleton", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const pool = { query } as unknown as Pool;
+    const send = vi.fn().mockResolvedValue("job-id");
+    const findJobs = vi.fn().mockResolvedValue([
+      {
+        id: "foreign-job",
+        state: "created",
+        data: { kind: "review", workItemId: "slash-waiting" },
+      },
+      {
+        id: "active-job",
+        state: "active",
+        data: { kind: "review", workItemId: "replacement-wi" },
+      },
+    ]);
+    const cancel = vi.fn();
+    const deleteJob = vi.fn();
+    const boss = { send, findJobs, cancel, deleteJob } as unknown as PgBoss;
+
+    await enqueueReviewReschedule(
+      pool,
+      boss,
+      makeItem(),
+      "replacement-wi",
+      "newhead",
+      "active-job",
+    );
+
+    expect(cancel).not.toHaveBeenCalled();
+    expect(deleteJob).not.toHaveBeenCalled();
+  });
+
   it("repairs a stale enqueue marker when replacement jobs are absent", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
     const pool = { query } as unknown as Pool;

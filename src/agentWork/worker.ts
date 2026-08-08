@@ -3,7 +3,7 @@ import type { Pool } from "pg";
 import type { JobWithMetadata, Job, PgBoss, WorkOptions } from "pg-boss";
 import type { Config } from "../config.js";
 import { errorLogFields } from "../errors/appError.js";
-import { logDebug, logError, logInfo, runWithOperationLogger } from "../evlog.js";
+import { logDebug, logError, logInfo, logWarn, runWithOperationLogger } from "../evlog.js";
 import { cleanupStaleLocalPrWorkspaces } from "../prWorkspace/index.js";
 import {
   ACK_QUEUE,
@@ -38,6 +38,7 @@ import {
   type VerificationJobData,
 } from "./types.js";
 import { ensureRetentionSchedule, runRetention } from "./retention.js";
+import { reapStrandedWorkItems } from "./strandedWorkReaper.js";
 import {
   collectQueueDiagnostics,
   evaluateWorkerReadiness,
@@ -262,6 +263,17 @@ export const AgentWorkerLive = (cfg: Config, pool: Pool, boss: PgBoss) =>
           const runDiagnostics = async (now: Date): Promise<void> => {
             const report = await collectQueueDiagnostics({ boss, pool, now });
             logQueueDiagnosticsReport(report);
+            try {
+              const reaped = await reapStrandedWorkItems(pool);
+              if (reaped.reaped > 0) {
+                logInfo("stranded_work_reaper_tick", reaped);
+              }
+            } catch (e) {
+              logWarn("stranded_work_reaper_failed", {
+                message: e instanceof Error ? e.message : String(e),
+                ...errorLogFields(e),
+              });
+            }
           };
           await runDiagnostics(new Date());
 

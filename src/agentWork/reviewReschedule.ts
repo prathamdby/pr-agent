@@ -283,10 +283,13 @@ export async function enqueueReviewReschedule(
 
   await inTransaction(pool, async (client) => {
     const db = pgBossDb(client);
+    // Reschedule only clears failed blockers for this singleton; never cancel
+    // another work item's job (e.g. a slash /review waiting behind auto).
     await releaseReviewSingletonSlot(boss, item.resourceKey, {
       db,
       skipJobId: activePgBossJobId,
       skipWorkItemId: workItemId,
+      cancelWorkItemIds: [],
     });
 
     const reviewData: ReviewJobData = {

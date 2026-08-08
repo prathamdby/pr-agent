@@ -167,6 +167,8 @@ Work item retries are controlled only by pg-boss (`QUEUE_RETRY_LIMIT`, `QUEUE_RE
 | `VERIFICATION_STUB_MARKER`                 | `<!-- pr-agent:verification-stub -->` HTML marker in the single verification stub reply per finding thread                                                          |
 | `MAX_STORED_COMMENT_TEXT_LEN`              | 16384                                                                                                                                                               |
 | `RETENTION_DELETE_BATCH_SIZE`              | 5000, rows per batch in the retention sweep (each batch is its own transaction)                                                                                     |
+| `STRANDED_WORK_REAPER_GRACE_SECONDS`       | 180, non-terminal rows older than this with no live pg-boss job are cancelled                                                                                       |
+| `STRANDED_WORK_REAPER_BATCH_SIZE`          | 100, max stranded rows terminalised per diagnostics tick                                                                                                            |
 
 ### Review output
 
