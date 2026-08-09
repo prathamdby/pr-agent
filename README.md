@@ -197,6 +197,7 @@ Defaults match [`.env.example`](.env.example) and [docs/features.md](docs/featur
 | Verification        | PR `synchronize` when `FEATURE_VERIFICATION=auto` | (no slash)           |
 | Ask                 | On demand when `FEATURE_ASK=manual`               | `/ask …` or `@bot …` |
 | Triage autofix      | On demand when `FEATURE_TRIAGE=manual`            | `/triage`            |
+| Cancel review       | On demand                                         | `/cancel`            |
 | Help                | On demand                                         | `/help`              |
 
 Review runs four specialists (correctness, security, quality, tests) under one orchestrator and posts one `## PR Agent Review` summary. P0-P2 findings fail the review check run; P3 does not. Docs-only trivial PRs can take a short auto path instead of a full orchestrated run ([ADR 0014](docs/adr/0014-lightweight-review-completion.md)).
