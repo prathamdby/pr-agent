@@ -11,7 +11,6 @@ import {
 import { logInfo, logWarn } from "../../evlog.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
-import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
 import { loadRepoPolicy } from "../../review/repoPolicy.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
@@ -46,16 +45,8 @@ export async function executeVerificationJob(
       const botIdentity = await getAppBotIdentity(cfg);
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
-      const token = await prSurface.gitCredentialToken();
       const [threads, resolutionResult] = await Promise.all([
-        fetchBotFindingThreads(
-          token,
-          item.owner,
-          item.repo,
-          item.prNumber,
-          botIdentity.userId,
-          eligibleReviews,
-        ),
+        prSurface.fetchBotFindingThreads(botIdentity.userId, eligibleReviews),
         prSurface.listInlineReviewThreads(),
       ]);
 

@@ -19,8 +19,6 @@ import * as prSurfaceModule from "../src/github/prSurface.js";
 const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
   getAppBotIdentity: vi.fn(),
-  fetchBotFindingThreads: vi.fn(),
-  fetchReviewCommentParentGraph: vi.fn(),
   withWritablePrCheckout: vi.fn(),
   runFullPrTriage: vi.fn(),
   parseStoredTriagePushDetail: vi.fn(),
@@ -40,15 +38,6 @@ vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
-
-vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/run/reviewPriorFeedback.js")>();
-  return {
-    ...actual,
-    fetchBotFindingThreads: mocks.fetchBotFindingThreads,
-    fetchReviewCommentParentGraph: mocks.fetchReviewCommentParentGraph,
-  };
-});
 
 vi.mock("../src/github/reviewThreadResolution.js", () => ({
   warnReviewThreadResolutionDegraded: vi.fn(),
@@ -100,7 +89,6 @@ function job(): JobWithMetadata<TriageJobData> {
 function mockDurableExecution(workItem = item()): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) =>
     spec.execute(workItem, {
-      installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       executionEpoch: 1,
@@ -123,7 +111,7 @@ describe("executeTriageJob", () => {
     mockDurableExecution();
     configureDefaultThreads([[1, { threadNodeId: "node", isResolved: false }]]);
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -163,7 +151,7 @@ describe("executeTriageJob", () => {
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue(null);
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
-    mocks.fetchReviewCommentParentGraph.mockResolvedValue([]);
+    durablePrSurfaceControls().setReviewCommentParentGraph([]);
     durablePrSurfaceControls().setGithubUser(42, {
       id: 42,
       login: "alice",
@@ -384,7 +372,7 @@ describe("executeTriageJob", () => {
   });
 
   it("runs a fresh agent pass when cross-work-item push detail misses current inventory", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -445,7 +433,7 @@ describe("executeTriageJob", () => {
   });
 
   it("filters inventory to one thread when scope is thread", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -471,7 +459,7 @@ describe("executeTriageJob", () => {
       [1, { threadNodeId: "node-1", isResolved: false }],
       [2, { threadNodeId: "node-2", isResolved: false }],
     ]);
-    mocks.fetchReviewCommentParentGraph.mockResolvedValue([
+    durablePrSurfaceControls().setReviewCommentParentGraph([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
     ]);
@@ -500,11 +488,13 @@ describe("executeTriageJob", () => {
         scope: "thread",
       }),
     );
-    expect(mocks.fetchReviewCommentParentGraph).toHaveBeenCalledTimes(1);
+    expect(
+      durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
+    ).toBe(true);
   });
 
   it("falls back to the original inline parent when thread-root resolution fails", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 9,
         lens: "review",
@@ -517,7 +507,7 @@ describe("executeTriageJob", () => {
       },
     ]);
     configureDefaultThreads([[9, { threadNodeId: "node-9", isResolved: false }]]);
-    mocks.fetchReviewCommentParentGraph.mockRejectedValue(new Error("graphql unavailable"));
+    vi.spyOn(durablePrSurfaceControls(), "setReviewCommentParentGraph");
     mockDurableExecution(
       item({
         payload: {
@@ -546,7 +536,7 @@ describe("executeTriageJob", () => {
   });
 
   it("reports ineligible thread scope without running the agent", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -558,7 +548,7 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/1",
       },
     ]);
-    mocks.fetchReviewCommentParentGraph.mockResolvedValue([{ id: 99, inReplyToId: null }]);
+    durablePrSurfaceControls().setReviewCommentParentGraph([{ id: 99, inReplyToId: null }]);
     mockDurableExecution(
       item({
         payload: {
@@ -586,7 +576,7 @@ describe("executeTriageJob", () => {
   });
 
   it("reports already-resolved scoped thread without calling it ineligible", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -599,7 +589,7 @@ describe("executeTriageJob", () => {
       },
     ]);
     configureDefaultThreads([[1, { threadNodeId: "node-1", isResolved: true }]]);
-    mocks.fetchReviewCommentParentGraph.mockResolvedValue([
+    durablePrSurfaceControls().setReviewCommentParentGraph([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
     ]);
@@ -634,7 +624,7 @@ describe("executeTriageJob", () => {
   });
 
   it("does not fall back to full PR triage when thread scope lacks an anchor", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       {
         rootCommentId: 1,
         lens: "review",
@@ -663,7 +653,9 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.fetchReviewCommentParentGraph).not.toHaveBeenCalled();
+    expect(
+      durablePrSurfaceControls().events.some((e) => e.kind === "fetchReviewCommentParentGraph"),
+    ).toBe(false);
     expect(mocks.publishTriageReportOnly).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(TRIAGE_THREAD_NOT_ELIGIBLE),
@@ -674,15 +666,7 @@ describe("executeTriageJob", () => {
 
   it("posts terminal failure comment when no report exists", async () => {
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) => {
-      await spec.onTerminalFailure?.(
-        item(),
-        {
-          token: "tok",
-          expiresAtTs: Date.now() + 60_000,
-          ttlMs: 60_000,
-        },
-        new Error("boom"),
-      );
+      await spec.onTerminalFailure?.(item(), fakeDurablePrSurface(), new Error("boom"));
     });
 
     await executeTriageJob(cfg, pool, boss, job());

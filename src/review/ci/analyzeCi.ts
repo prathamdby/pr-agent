@@ -7,6 +7,8 @@ import { logDebug, logWarn } from "../../evlog.js";
 import {
   REVIEW_CI_SUMMARY_GRANT_ACTIONS,
   REVIEW_CI_SUMMARY_GRANT_CHECKS,
+  REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
+  REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_UNAVAILABLE,
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
@@ -24,7 +26,14 @@ import type {
   CiSummary,
 } from "./ciSummaryTypes.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { fetchCiLogContext } from "./fetchCiLogContext.js";
+import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "../../github/actionsLogs.js";
+import { listCheckRunAnnotations } from "../../github/ciStatus.js";
+import { redactReviewText } from "../findings/reviewPublicOutput.js";
+import {
+  condenseJobLogText,
+  mergeCondensedJobLogs,
+  type CondensedJobLog,
+} from "./condenseCiLogs.js";
 
 const OWN_CHECK_NAME_PREFIX = "PR Agent";
 const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
@@ -42,12 +51,12 @@ const PENDING_CHECK_STATUSES = new Set([
 const FAILING_LEGACY_STATES = new Set(["failure", "error"]);
 const PENDING_LEGACY_STATES = new Set(["pending"]);
 
-export type BuildCiSummaryOptions = {
-  readonly token: string;
+type BuildCiSummaryOptions = {
+  readonly gitCredential: string;
   readonly owner: string;
   readonly repo: string;
   readonly headSha: string;
-  readonly expiresAtTs?: number;
+  readonly gitCredentialExpiresAtTs?: number;
   /** Max failing checks to dig into with logs. */
   readonly maxFailures?: number;
   /** When true, skip log fetch and LLM (progress stub path). */
@@ -60,6 +69,116 @@ export type BuildCiSummaryOptions = {
    */
   readonly author?: CiSummaryAuthor;
 };
+
+type FetchCiLogContextResult = {
+  readonly condensedLogs: string;
+  readonly checkOutputFallback: string;
+  readonly actionsPermissionMissing: boolean;
+};
+
+async function fetchCiLogContext(options: {
+  readonly gitCredential: string;
+  readonly owner: string;
+  readonly repo: string;
+  readonly headSha: string;
+  readonly gitCredentialExpiresAtTs?: number;
+  readonly failingChecks: readonly CiCheckRunSnapshot[];
+  readonly maxFailures?: number;
+}): Promise<FetchCiLogContextResult> {
+  const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
+  const failing = options.failingChecks.slice(0, maxFailures);
+
+  const outputParts: string[] = [];
+  for (const run of failing) {
+    const chunks = [run.outputTitle, run.outputSummary, run.outputText]
+      .filter((part): part is string => part != null && part.trim().length > 0)
+      .map((part) => part.trim());
+    if (chunks.length > 0) {
+      outputParts.push(`### Check: ${run.name}\n${chunks.join("\n")}`);
+    }
+    try {
+      const annotations = await listCheckRunAnnotations(
+        options.gitCredential,
+        options.owner,
+        options.repo,
+        run.id,
+        options.gitCredentialExpiresAtTs,
+      );
+      const failureAnnotations = annotations.filter((a) => a.annotationLevel === "failure");
+      for (const annotation of failureAnnotations.slice(0, 5)) {
+        const loc =
+          annotation.startLine != null
+            ? `${annotation.path}:${annotation.startLine}`
+            : annotation.path;
+        outputParts.push(`${loc} — ${annotation.message}`);
+      }
+    } catch {
+      // annotations are best-effort fallback
+    }
+  }
+  const checkOutputFallback = redactReviewText(outputParts.join("\n\n"));
+
+  let jobs: CondensedJobLog[] = [];
+  let actionsPermissionMissing = false;
+  try {
+    const listed = await listFailingActionsJobsForHead(
+      options.gitCredential,
+      options.owner,
+      options.repo,
+      options.headSha,
+      options.gitCredentialExpiresAtTs,
+    );
+    if (!listed.ok) {
+      actionsPermissionMissing = true;
+      logDebug("review_ci_summary_actions_unavailable", {
+        owner: options.owner,
+        repo: options.repo,
+        reason: "actions_permission",
+      });
+    } else {
+      const selected = listed.jobs.slice(0, REVIEW_CI_SUMMARY_LOG_MAX_JOBS);
+      for (const job of selected) {
+        const downloaded = await downloadActionsJobLogs(
+          options.gitCredential,
+          options.owner,
+          options.repo,
+          job.id,
+          options.gitCredentialExpiresAtTs,
+        );
+        if (!downloaded.ok) {
+          if (downloaded.reason === "actions_permission") {
+            actionsPermissionMissing = true;
+            logDebug("review_ci_summary_actions_unavailable", {
+              owner: options.owner,
+              repo: options.repo,
+              reason: "actions_permission",
+              jobId: job.id,
+            });
+            break;
+          }
+          continue;
+        }
+        jobs.push({
+          name: job.name,
+          url: job.htmlUrl ?? undefined,
+          text: condenseJobLogText(downloaded.text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS),
+        });
+      }
+    }
+  } catch (error) {
+    logDebug("review_ci_summary_actions_logs_failed", {
+      owner: options.owner,
+      repo: options.repo,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    jobs = [];
+  }
+
+  const condensedLogs =
+    jobs.length > 0 ? mergeCondensedJobLogs(jobs) : condenseJobLogText(checkOutputFallback);
+
+  return { condensedLogs, checkOutputFallback, actionsPermissionMissing };
+}
 
 type ExternalCiLoad =
   | {
@@ -87,18 +206,18 @@ async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalC
   try {
     const [checks, statuses] = await Promise.all([
       listCheckRunsForHead(
-        options.token,
+        options.gitCredential,
         options.owner,
         options.repo,
         options.headSha,
-        options.expiresAtTs,
+        options.gitCredentialExpiresAtTs,
       ),
       listLegacyCommitStatusesForHead(
-        options.token,
+        options.gitCredential,
         options.owner,
         options.repo,
         options.headSha,
-        options.expiresAtTs,
+        options.gitCredentialExpiresAtTs,
       ),
     ]);
     return {
@@ -260,18 +379,21 @@ function buildAuthorInput(
 
 export async function buildCiSummaryForSurface(
   prSurface: PrSurface,
-  options: Omit<BuildCiSummaryOptions, "token" | "expiresAtTs" | "owner" | "repo">,
+  options: Omit<
+    BuildCiSummaryOptions,
+    "gitCredential" | "gitCredentialExpiresAtTs" | "owner" | "repo"
+  >,
 ): Promise<CiSummary> {
-  const token = await prSurface.gitCredentialToken();
+  const gitCredential = await prSurface.gitCredentialToken();
   return buildCiSummary({
     ...options,
-    token,
+    gitCredential,
     owner: prSurface.owner,
     repo: prSurface.repo,
   });
 }
 
-export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
+async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
   try {
     const loaded = await waitForTerminalCi(options);
     if (!loaded.ok) {
@@ -294,11 +416,11 @@ export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<Ci
     const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
     const { condensedLogs, checkOutputFallback, actionsPermissionMissing } =
       await fetchCiLogContext({
-        token: options.token,
+        gitCredential: options.gitCredential,
         owner: options.owner,
         repo: options.repo,
         headSha: options.headSha,
-        expiresAtTs: options.expiresAtTs,
+        gitCredentialExpiresAtTs: options.gitCredentialExpiresAtTs,
         failingChecks,
         maxFailures,
       });

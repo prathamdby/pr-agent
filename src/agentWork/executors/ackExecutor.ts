@@ -23,7 +23,7 @@ import {
   renderReviewCancelledNotice,
   renderReviewProgressComment,
 } from "../../review/run/progressComment.js";
-import { getAppBotIdentity } from "../githubPrSurface.js";
+import { getAppBotIdentity } from "../../github/appAuth.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { AckJobData, WorkStatus } from "../types.js";
 

@@ -56,10 +56,6 @@ vi.mock("../src/prWorkspace/index.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 
-vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
-}));
-
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
@@ -128,11 +124,6 @@ function askJob(): JobWithMetadata<AskJobData> {
 function mockDurableExecution(): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
     await spec.execute(askItem(), {
-      installation: {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      },
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
       executionEpoch: 1,
@@ -204,11 +195,6 @@ describe("executeAskJob", () => {
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       result = await spec.execute(askItem(), {
-        installation: {
-          token: "tok",
-          expiresAtTs: 1_000_000,
-          ttlMs: 60_000,
-        },
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
@@ -228,19 +214,14 @@ describe("executeAskJob", () => {
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
+      const prSurface = fakeDurablePrSurface();
       await spec.execute(item, {
-        installation,
-        prSurface: fakeDurablePrSurface(),
+        prSurface,
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
       });
-      await spec.onTerminalFailure?.(item, installation, new Error("complete failed"));
+      await spec.onTerminalFailure?.(item, prSurface, new Error("complete failed"));
     });
 
     await executeAskJob(cfg, pool, boss, askJob());
@@ -253,12 +234,8 @@ describe("executeAskJob", () => {
     mocks.hasCompletedPublishStep.mockResolvedValue(true);
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
-      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+      const prSurface = fakeDurablePrSurface();
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
     });
 
     await executeAskJob(cfg, pool, boss, askJob());
@@ -282,11 +259,6 @@ describe("executeAskJob", () => {
     durablePrSurfaceControls().rejectNextInlineReviewReply(new Error("thread unavailable"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       await spec.execute(item, {
-        installation: {
-          token: "tok",
-          expiresAtTs: 1_000_000,
-          ttlMs: 60_000,
-        },
         prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
@@ -317,21 +289,16 @@ describe("executeAskJob", () => {
     mocks.runAskRun.mockRejectedValue(new Error("agent failed"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
+      const prSurface = fakeDurablePrSurface();
       await expect(
         spec.execute(item, {
-          installation,
-          prSurface: fakeDurablePrSurface(),
+          prSurface,
           headSha: "head",
           executionEpoch: 1,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("agent failed");
-      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
     });
 
     await executeAskJob(cfg, pool, boss, askJob());
@@ -347,15 +314,10 @@ describe("executeAskJob", () => {
     mocks.runAskRun.mockRejectedValue(new Error("transient"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
+      const prSurface = fakeDurablePrSurface();
       await expect(
         spec.execute(item, {
-          installation,
-          prSurface: fakeDurablePrSurface(),
+          prSurface,
           headSha: "head",
           executionEpoch: 1,
           signal: new AbortController().signal,

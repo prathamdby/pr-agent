@@ -9,7 +9,6 @@ import {
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
-import { createPrSurface } from "../../github/prSurface.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
@@ -117,17 +116,9 @@ export async function executeDescriptionJob(
         },
       );
     },
-    onTerminalFailure: async (item, installation) => {
-      if (!installation) return;
+    onTerminalFailure: async (item, prSurface) => {
+      if (!prSurface) return;
       const payload = item.payload;
-      const prSurface = createPrSurface({
-        cfg,
-        installationId: item.installationId,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        installation,
-      });
       if (payload.source !== "slash") {
         const body = await prSurface.getPullRequestBody();
         if (prBodyHasAgentDescriptionBlock(body)) return;

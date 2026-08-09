@@ -11,6 +11,7 @@ export type {
   ListPullRequestReviewCommentsResult,
   PostedReply,
   PriorInlineFeedbackEntry,
+  ReviewCommentParentNode,
   PrConversationComment,
   ProgressCommentUpsert,
   PrSurface,

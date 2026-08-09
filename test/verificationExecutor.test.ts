@@ -13,7 +13,6 @@ import {
 const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
   getAppBotIdentity: vi.fn(),
-  fetchBotFindingThreads: vi.fn(),
   withPrRepositoryView: vi.fn(),
   runVerification: vi.fn(),
   publishVerification: vi.fn(),
@@ -31,11 +30,6 @@ vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
 }));
-
-vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/run/reviewPriorFeedback.js")>();
-  return { ...actual, fetchBotFindingThreads: mocks.fetchBotFindingThreads };
-});
 
 vi.mock("../src/prWorkspace/index.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
@@ -62,6 +56,7 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
   };
 });
 
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import { executeVerificationJob } from "../src/agentWork/executors/verificationExecutor.js";
 import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
 
@@ -86,7 +81,6 @@ function job(): JobWithMetadata<VerificationJobData> {
 function mockDurableExecution(workItem = item()): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) =>
     spec.execute(workItem, {
-      installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
       prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       executionEpoch: 1,
@@ -100,12 +94,12 @@ function findingThread(
   overrides: Partial<{
     path: string;
     line: number;
-    severity: string;
+    severity: BotFindingThread["severity"];
     titleSnippet: string;
     humanReplies: string[];
     hasTriageReply: boolean;
   }> = {},
-) {
+): BotFindingThread {
   return {
     rootCommentId,
     lens: "review" as const,
@@ -146,7 +140,7 @@ describe("executeVerificationJob", () => {
     configureDefaultPrFiles();
     configureVerificationThreads([[1, { threadNodeId: "node", isResolved: false }]]);
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
-    mocks.fetchBotFindingThreads.mockResolvedValue([]);
+    durablePrSurfaceControls().setBotFindingThreads([]);
     mocks.withPrRepositoryView.mockImplementation(
       async (_params: unknown, run: (view: unknown) => Promise<unknown>) =>
         run({ agentCwd: "/tmp/view", workspace: {}, preflight: {} }),
@@ -162,7 +156,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("short-circuits quietly when there are no open findings", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([]);
+    durablePrSurfaceControls().setBotFindingThreads([]);
 
     await executeVerificationJob(cfg, pool, boss, job());
 
@@ -172,7 +166,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("short-circuits when all findings are already resolved", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     configureVerificationThreads([[1, { threadNodeId: "node", isResolved: true }]]);
 
     await executeVerificationJob(cfg, pool, boss, job());
@@ -183,7 +177,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("runs the verification agent and publishes when there are open findings", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -229,7 +223,7 @@ describe("executeVerificationJob", () => {
         payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
       }),
     );
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
@@ -287,7 +281,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("uses an empty changedFilePaths set when pushBeforeSha is absent", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
@@ -336,7 +330,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("throws when the agent does not submit a payload", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: false,
       payload: null,
@@ -349,7 +343,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("does not publish when head SHA is stale at publish time", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -375,7 +369,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("does not publish when cancel was requested before publish", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -398,7 +392,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("propagates degraded when publishVerification reports degraded", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -417,7 +411,6 @@ describe("executeVerificationJob", () => {
     let executeResult: unknown;
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
       executeResult = await spec.execute(item(), {
-        installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         executionEpoch: 1,
@@ -431,7 +424,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     durablePrSurfaceControls().setThreadResolutionStatus(
       "permission_denied",
       "grant Pull requests read for reviewThreads",
@@ -452,7 +445,6 @@ describe("executeVerificationJob", () => {
     let executeResult: unknown;
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
       executeResult = await spec.execute(item(), {
-        installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
         prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         executionEpoch: 1,
@@ -490,7 +482,7 @@ describe("executeVerificationJob", () => {
         payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
       }),
     );
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     durablePrSurfaceControls().setChangedFilesResult({
       files: [
         { filename: "src/app.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
@@ -522,7 +514,6 @@ describe("executeVerificationJob", () => {
           payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
         }),
         {
-          installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
           prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
           executionEpoch: 1,

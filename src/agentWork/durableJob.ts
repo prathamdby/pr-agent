@@ -41,7 +41,6 @@ import {
   updateRunningWorkHeadSha,
 } from "./repository.js";
 import { createPrSurface, type PrSurface } from "../github/prSurface.js";
-import { getPullRequestHead, reactOnAckTargets } from "./githubPrSurface.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
 import type { AgentWorkItem, AgentWorkItemCore, WorkType } from "./types.js";
@@ -51,7 +50,6 @@ import { reconcilePendingIntents } from "./reconcilePendingIntents.js";
 import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurability.js";
 
 export type DurableExecutionContext = {
-  installation: InstallationToken;
   prSurface: PrSurface;
   headSha: string;
   pullRequest?: PullRequestForFileList;
@@ -102,8 +100,7 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   readonly type: T;
   readonly acceptItem?: (item: Extract<AgentWorkItemCore, { type: T }>) => boolean;
   readonly resolveHeadSha: (
-    token: string,
-    expiresAtTs: number,
+    prSurface: PrSurface,
     item: Extract<AgentWorkItem, { type: T }>,
   ) => Promise<DurableHeadResolution>;
   readonly execute: (
@@ -112,24 +109,36 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   ) => Promise<DurableExecutionResult>;
   readonly onTerminalFailure?: (
     item: Extract<AgentWorkItem, { type: T }>,
-    installation: InstallationToken | undefined,
+    prSurface: PrSurface | undefined,
     error: unknown,
   ) => Promise<void>;
   readonly onCancelled?: (
     item: Extract<AgentWorkItemCore, { type: T }>,
-    installation: InstallationToken,
+    prSurface: PrSurface,
     reason: string,
   ) => Promise<void>;
 };
 
 export async function resolveWorkItemHead(
-  token: string,
-  expiresAtTs: number,
+  prSurface: PrSurface,
   item: AgentWorkItemCore,
 ): Promise<DurableHeadResolution> {
-  return item.headSha === DEFERRED_HEAD_SHA
-    ? getPullRequestHead(token, item.owner, item.repo, item.prNumber, expiresAtTs)
-    : { headSha: item.headSha };
+  return item.headSha === DEFERRED_HEAD_SHA ? prSurface.getHead() : { headSha: item.headSha };
+}
+
+function createPrSurfaceForItem(
+  cfg: Config,
+  item: Pick<AgentWorkItemCore, "installationId" | "owner" | "repo" | "prNumber">,
+  installation?: InstallationToken,
+): PrSurface {
+  return createPrSurface({
+    cfg,
+    installationId: item.installationId,
+    owner: item.owner,
+    repo: item.repo,
+    prNumber: item.prNumber,
+    installation,
+  });
 }
 
 async function isBotCommenter(cfg: Config, commenterId?: number): Promise<boolean> {
@@ -237,24 +246,35 @@ export async function runDurableWorkItem<T extends WorkType>(
   let executionEpoch = 0;
   const jobSignal = spec.job.signal;
   const phaseState: WorkItemPhaseState = { phase: "claiming" };
-  let installation: InstallationToken | undefined;
+  let seededInstallation: InstallationToken | undefined;
+  let executionPrSurface: PrSurface | undefined;
   /** Set while a reschedule afterComplete may still need abort on terminal failure. */
   let pendingRescheduleAbort: ((boss: PgBoss, error: unknown) => Promise<void>) | undefined;
 
+  async function prSurfaceForHooks(
+    workItemCore: TypedCore,
+    installation?: InstallationToken,
+  ): Promise<PrSurface> {
+    const token =
+      installation ??
+      seededInstallation ??
+      (await mintInstallationToken(spec.cfg, workItemCore.installationId));
+    return createPrSurfaceForItem(spec.cfg, workItemCore, token);
+  }
+
   async function invokeCancelledHook(
-    item: TypedCore,
-    currentInstallation: InstallationToken | undefined,
+    itemCore: TypedCore,
     reason: string,
+    installation?: InstallationToken,
   ): Promise<void> {
     if (!spec.onCancelled) return;
     try {
-      const token =
-        currentInstallation ?? (await mintInstallationToken(spec.cfg, item.installationId));
-      await spec.onCancelled(item, token, reason);
+      const prSurface = await prSurfaceForHooks(itemCore, installation);
+      await spec.onCancelled(itemCore, prSurface, reason);
     } catch (error) {
       logWarn("agent_work_cancelled_hook_failed", {
         type: spec.type,
-        workItemId: item.id,
+        workItemId: itemCore.id,
         reason,
         message: error instanceof Error ? error.message : String(error),
       });
@@ -262,28 +282,31 @@ export async function runDurableWorkItem<T extends WorkType>(
   }
 
   async function markCancelledAndInvokeHook(
-    item: TypedCore,
-    currentInstallation: InstallationToken | undefined,
+    itemCore: TypedCore,
     reason: string,
     /** When set, only this claim may terminalise the row. */
     cancelEpoch?: number,
+    installation?: InstallationToken,
   ): Promise<void> {
-    if (cancelEpoch != null && !(await isExecutionEpochCurrent(spec.pool, item.id, cancelEpoch))) {
+    if (
+      cancelEpoch != null &&
+      !(await isExecutionEpochCurrent(spec.pool, itemCore.id, cancelEpoch))
+    ) {
       logInfo("agent_work_stale_execution_skipped", {
         type: spec.type,
-        workItemId: item.id,
+        workItemId: itemCore.id,
         executionEpoch: cancelEpoch,
         reason,
       });
       return;
     }
     if (cancelEpoch != null) {
-      await markWorkCancelled(spec.pool, item.id, cancelEpoch);
+      await markWorkCancelled(spec.pool, itemCore.id, cancelEpoch);
     } else {
-      await markWorkCancelled(spec.pool, item.id);
+      await markWorkCancelled(spec.pool, itemCore.id);
     }
-    await clearResumeSnapshotsBestEffort(spec.pool, item.id);
-    await invokeCancelledHook(item, currentInstallation, reason);
+    await clearResumeSnapshotsBestEffort(spec.pool, itemCore.id);
+    await invokeCancelledHook(itemCore, reason, installation);
   }
 
   if (spec.acceptItem == null) {
@@ -302,13 +325,13 @@ export async function runDurableWorkItem<T extends WorkType>(
     const cancelBeforeClaim = async () => {
       if (isSkipCheckSuppressed(phaseState)) return false;
       if (!(await shouldSkipWork(spec.pool, core))) return false;
-      await markCancelledAndInvokeHook(core, installation, "skipped_before_claim");
+      await markCancelledAndInvokeHook(core, "skipped_before_claim");
       return true;
     };
 
     if (await cancelBeforeClaim()) return;
     if (jobSignal.aborted) {
-      await markCancelledAndInvokeHook(core, installation, "job_aborted_before_claim");
+      await markCancelledAndInvokeHook(core, "job_aborted_before_claim");
       return;
     }
     const claim = await claimWorkForExecution(spec.pool, core.id);
@@ -342,7 +365,7 @@ export async function runDurableWorkItem<T extends WorkType>(
     }
     if (!(await shouldSkipWork(spec.pool, item))) return false;
     if (notifyHook) {
-      await markCancelledAndInvokeHook(item, installation, reason, executionEpoch);
+      await markCancelledAndInvokeHook(item, reason, executionEpoch, seededInstallation);
     } else {
       await markWorkCancelled(spec.pool, item.id, executionEpoch);
       await clearResumeSnapshotsBestEffort(spec.pool, item.id);
@@ -359,27 +382,16 @@ export async function runDurableWorkItem<T extends WorkType>(
     installationToken: InstallationToken,
   ): Promise<DurableExecutionContext | undefined> {
     if (await isBotCommenter(spec.cfg, workItemCommenterId(item))) {
-      await markCancelledAndInvokeHook(item, installationToken, "bot_commenter", executionEpoch);
+      await markCancelledAndInvokeHook(item, "bot_commenter", executionEpoch, installationToken);
       return undefined;
     }
 
-    const resolvedHead = await spec.resolveHeadSha(
-      installationToken.token,
-      installationToken.expiresAtTs,
-      item,
-    );
+    const prSurface = createPrSurfaceForItem(spec.cfg, item, installationToken);
+    const resolvedHead = await spec.resolveHeadSha(prSurface, item);
     const headSha = resolvedHead.headSha;
     if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, executionEpoch)) {
-      const prSurface = createPrSurface({
-        cfg: spec.cfg,
-        installationId: item.installationId,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        installation: installationToken,
-      });
+      executionPrSurface = prSurface;
       return {
-        installation: installationToken,
         prSurface,
         headSha,
         pullRequest: resolvedHead.pullRequest,
@@ -436,29 +448,8 @@ export async function runDurableWorkItem<T extends WorkType>(
 
   async function publishOutcomeReaction(content: GithubReactionContent): Promise<void> {
     try {
-      const token = installation ?? (await mintInstallationToken(spec.cfg, item.installationId));
-      let botUserId: number | undefined;
-      try {
-        botUserId = (await getCachedBotIdentity(spec.cfg)).userId;
-      } catch (identityError) {
-        logWarn("agent_work_outcome_reaction_bot_identity_failed", {
-          type: spec.type,
-          workItemId: item.id,
-          reaction: content,
-          message: sanitizeLogMessage(
-            identityError instanceof Error ? identityError.message : String(identityError),
-          ),
-        });
-      }
-      await reactOnAckTargets(
-        token.token,
-        item.owner,
-        item.repo,
-        reactionTargetsForWorkItem(item),
-        content,
-        botUserId,
-        token.expiresAtTs,
-      );
+      const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
+      await prSurface.setAcknowledgementReaction(reactionTargetsForWorkItem(item), content);
     } catch (error) {
       logWarn("agent_work_outcome_reaction_failed", {
         type: spec.type,
@@ -506,7 +497,7 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function invokeTerminalFailureHook(error: unknown): Promise<void> {
     if (!spec.onTerminalFailure) return;
     try {
-      await spec.onTerminalFailure(item, installation, error);
+      await spec.onTerminalFailure(item, executionPrSurface, error);
     } catch (publishError) {
       logWarn("agent_work_terminal_failure_hook_failed", {
         type: spec.type,
@@ -582,7 +573,7 @@ export async function runDurableWorkItem<T extends WorkType>(
 
   try {
     if (jobSignal.aborted) {
-      await markCancelledAndInvokeHook(item, installation, "job_aborted", executionEpoch);
+      await markCancelledAndInvokeHook(item, "job_aborted", executionEpoch, seededInstallation);
       return;
     }
     if (!(await isExecutionEpochCurrent(spec.pool, item.id, executionEpoch))) {
@@ -594,8 +585,8 @@ export async function runDurableWorkItem<T extends WorkType>(
       });
       return;
     }
-    installation = await mintInstallationToken(spec.cfg, item.installationId);
-    const execution = await prepareDurableExecution(installation);
+    seededInstallation = await mintInstallationToken(spec.cfg, item.installationId);
+    const execution = await prepareDurableExecution(seededInstallation);
     if (!execution) return;
 
     logInfo("agent_work_started", {

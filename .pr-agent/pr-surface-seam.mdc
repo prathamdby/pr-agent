@@ -1,0 +1,11 @@
+---
+globs:
+  - "src/agentWork/**"
+  - "src/review/**"
+  - "src/agent/**"
+  - "src/prWorkspace/**"
+  - "test/prSurfaceImportGraph.test.ts"
+  - "test/prSurface.seam.test.ts"
+---
+
+Feature and worker code must use `createPrSurface` / `PrSurface` from `src/github/prSurface.ts` for PR-surface GitHub I/O. Do not import `prSurfaceImpl.ts`, do not call `installationOctokit` outside `src/github/`, and do not thread installation tokens through executor or publish signatures. `gitCredentialToken()` on `PrSurface` is the sole credential escape hatch for git checkout. CI guard: `test/prSurfaceImportGraph.test.ts` (ADR 0034).

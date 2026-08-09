@@ -16,12 +16,10 @@ import {
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
 import { getAppBotIdentity } from "../../github/appAuth.js";
-import { createPrSurface } from "../../github/prSurface.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { runDurableWorkItem } from "../durableJob.js";
-import { getPullRequestHead } from "../githubPrSurface.js";
+import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import {
   getOperationIntent,
   mergeOperationIntentDetail,
@@ -221,8 +219,7 @@ export async function executeAskJob(
     boss,
     job,
     type: "ask",
-    resolveHeadSha: (token, expiresAtTs, item) =>
-      getPullRequestHead(token, item.owner, item.repo, item.prNumber, expiresAtTs),
+    resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const { prSurface } = env;
       const headSha = env.headSha;
@@ -351,7 +348,7 @@ export async function executeAskJob(
         },
       );
     },
-    onTerminalFailure: async (item, installation, error) => {
+    onTerminalFailure: async (item, prSurface, error) => {
       const failure = classifyFailure(error ?? new Error("Ask failed after retries"), {
         phase: "ask",
       });
@@ -366,7 +363,7 @@ export async function executeAskJob(
           ...classifiedFailurePostHogProperties(failure),
         },
       });
-      if (!installation) return;
+      if (!prSurface) return;
       // Durable publish_records survive process death; answerDelivered does not.
       if (
         await hasCompletedPublishStep(
@@ -381,14 +378,6 @@ export async function executeAskJob(
       }
       if (answerDelivered) return;
       const payload = item.payload;
-      const prSurface = createPrSurface({
-        cfg,
-        installationId: item.installationId,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        installation,
-      });
       await publishAskAnswer(
         prSurface,
         item,

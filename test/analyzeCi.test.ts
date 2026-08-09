@@ -1,33 +1,51 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ListFailingActionsJobsResult } from "../src/github/actionsLogs.js";
 
 const {
   listCheckRunsForHead,
   listLegacyCommitStatusesForHead,
   isMissingChecksPermissionError,
-  fetchCiLogContext,
+  listFailingActionsJobsForHead,
+  downloadActionsJobLogs,
 } = vi.hoisted(() => ({
   listCheckRunsForHead: vi.fn(),
   listLegacyCommitStatusesForHead: vi.fn(),
   isMissingChecksPermissionError: vi.fn((_error?: unknown) => false),
-  fetchCiLogContext: vi.fn(),
+  listFailingActionsJobsForHead: vi.fn(
+    async (): Promise<ListFailingActionsJobsResult> => ({ ok: true, jobs: [] }),
+  ),
+  downloadActionsJobLogs: vi.fn(),
 }));
 
 vi.mock("../src/github/ciStatus.js", () => ({
   listCheckRunsForHead,
-  listCheckRunAnnotations: vi.fn(),
+  listCheckRunAnnotations: vi.fn(async () => []),
   listLegacyCommitStatusesForHead,
   isMissingChecksPermissionError,
 }));
 
-vi.mock("../src/review/ci/fetchCiLogContext.js", () => ({
-  fetchCiLogContext,
+vi.mock("../src/github/actionsLogs.js", () => ({
+  listFailingActionsJobsForHead,
+  downloadActionsJobLogs,
 }));
 
 import {
-  buildCiSummary,
+  buildCiSummaryForSurface,
   isOwnCiCheckName,
   summarizeCiSnapshot,
 } from "../src/review/ci/analyzeCi.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+
+function ciSurface() {
+  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { credentialToken: "t" })
+    .surface;
+}
+
+async function buildCiSummary(
+  options: Parameters<typeof buildCiSummaryForSurface>[1] & { headSha: string },
+) {
+  return buildCiSummaryForSurface(ciSurface(), options);
+}
 import type { CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
 
 const mockAuthor: CiSummaryAuthor = async (input) => ({
@@ -47,12 +65,9 @@ describe("analyzeCi", () => {
     listLegacyCommitStatusesForHead.mockReset();
     isMissingChecksPermissionError.mockReset();
     isMissingChecksPermissionError.mockReturnValue(false);
-    fetchCiLogContext.mockReset();
-    fetchCiLogContext.mockResolvedValue({
-      condensedLogs: "Format issues found in above 1 files.",
-      checkOutputFallback: "Format issues found in above 1 files.",
-      actionsPermissionMissing: false,
-    });
+    listFailingActionsJobsForHead.mockReset();
+    downloadActionsJobLogs.mockReset();
+    listFailingActionsJobsForHead.mockResolvedValue({ ok: true, jobs: [] });
   });
 
   it("recognizes PR Agent owned check names", () => {
@@ -126,11 +141,16 @@ describe("analyzeCi", () => {
       },
     ]);
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    listFailingActionsJobsForHead.mockResolvedValueOnce({
+      ok: true,
+      jobs: [{ id: 1, name: "lint", conclusion: "failure" as const, htmlUrl: null }],
+    });
+    downloadActionsJobLogs.mockResolvedValueOnce({
+      ok: true,
+      text: "Format issues found in above 1 files.",
+    });
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       waitMs: 0,
       author: mockAuthor,
@@ -140,7 +160,7 @@ describe("analyzeCi", () => {
     expect(summary.headline).toContain("lint");
     expect(summary.failures).toHaveLength(1);
     expect(summary.failures[0]?.reason).toContain("Format issues");
-    expect(fetchCiLogContext).toHaveBeenCalled();
+    expect(listFailingActionsJobsForHead).toHaveBeenCalled();
   });
 
   it("skips log fetch and LLM in lightweight mode", async () => {
@@ -159,9 +179,6 @@ describe("analyzeCi", () => {
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       lightweight: true,
       waitMs: 0,
@@ -170,7 +187,7 @@ describe("analyzeCi", () => {
 
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(0);
-    expect(fetchCiLogContext).not.toHaveBeenCalled();
+    expect(listFailingActionsJobsForHead).not.toHaveBeenCalled();
   });
 
   it("lightweight mode still lists failing check names in headline", async () => {
@@ -199,9 +216,6 @@ describe("analyzeCi", () => {
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       lightweight: true,
       waitMs: 0,
@@ -229,9 +243,6 @@ describe("analyzeCi", () => {
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       waitMs: 0,
     });
@@ -239,7 +250,7 @@ describe("analyzeCi", () => {
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(1);
     expect(summary.failures[0]?.reason).toContain("unavailable");
-    expect(fetchCiLogContext).toHaveBeenCalled();
+    expect(listFailingActionsJobsForHead).toHaveBeenCalled();
   });
 
   it("prefers condensed format failure over Node deprecation in author input", async () => {
@@ -256,17 +267,9 @@ describe("analyzeCi", () => {
       },
     ]);
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    fetchCiLogContext.mockResolvedValueOnce({
-      condensedLogs:
-        "Checking formatting...\nFormat issues found in above 1 files.\nError: Process completed with exit code 1.",
-      checkOutputFallback: "Node.js 20 is deprecated.",
-      actionsPermissionMissing: false,
-    });
+    listFailingActionsJobsForHead.mockResolvedValueOnce({ ok: true, jobs: [] });
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       waitMs: 0,
       author: mockAuthor,
@@ -307,9 +310,6 @@ describe("analyzeCi", () => {
     listLegacyCommitStatusesForHead.mockResolvedValue([]);
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       waitMs: 500,
       waitPollMs: 50,
@@ -378,9 +378,6 @@ describe("analyzeCi", () => {
     isMissingChecksPermissionError.mockReturnValue(true);
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       waitMs: 0,
     });
@@ -404,16 +401,12 @@ describe("analyzeCi", () => {
       },
     ]);
     listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    fetchCiLogContext.mockResolvedValueOnce({
-      condensedLogs: "Format issues found",
-      checkOutputFallback: "Format issues found",
-      actionsPermissionMissing: true,
+    listFailingActionsJobsForHead.mockResolvedValueOnce({
+      ok: false,
+      reason: "actions_permission",
     });
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       waitMs: 0,
       author: mockAuthor,
@@ -440,16 +433,9 @@ describe("analyzeCi", () => {
         targetUrl: null,
       },
     ]);
-    fetchCiLogContext.mockResolvedValueOnce({
-      condensedLogs: "",
-      checkOutputFallback: "The Travis CI build failed",
-      actionsPermissionMissing: false,
-    });
+    listFailingActionsJobsForHead.mockResolvedValueOnce({ ok: true, jobs: [] });
 
     const summary = await buildCiSummary({
-      token: "t",
-      owner: "o",
-      repo: "r",
       headSha: "abc",
       waitMs: 0,
       author: async () => ({

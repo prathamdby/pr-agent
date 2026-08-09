@@ -50,7 +50,6 @@ import {
   snapshotReviewRunMetrics,
   type ReviewRunMetricsSnapshot,
 } from "../../review/run/reviewRunMetrics.js";
-import { createPrSurface } from "../../github/prSurface.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
@@ -91,7 +90,7 @@ import {
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
-import { getAppBotIdentity } from "../githubPrSurface.js";
+import { getAppBotIdentity } from "../../github/appAuth.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
@@ -833,18 +832,10 @@ export async function executeReviewJob(
         ),
       );
     },
-    onCancelled: async (item, installation) => {
+    onCancelled: async (item, prSurface) => {
       if (!item.reviewLens) return;
       const reviewLens = item.reviewLens;
       const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
-      const prSurface = createPrSurface({
-        cfg,
-        installationId: item.installationId,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        installation,
-      });
       await completeReviewCheckRun(pool, {
         prSurface,
         owner: item.owner,
@@ -858,18 +849,10 @@ export async function executeReviewJob(
         detailsUrl: reviewCheckDetailsUrl(item.owner, item.repo, item.prNumber, summaryCommentId),
       });
     },
-    onTerminalFailure: async (item, installation) => {
-      if (!installation) return;
+    onTerminalFailure: async (item, prSurface) => {
+      if (!prSurface) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;
-      const prSurface = createPrSurface({
-        cfg,
-        installationId: item.installationId,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-        installation,
-      });
       if (
         await hasCompletedPublishStep(
           pool,

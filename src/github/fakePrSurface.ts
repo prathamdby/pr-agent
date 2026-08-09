@@ -17,9 +17,11 @@ import type {
   PrSurface,
   PullRequestBranchInfo,
   PushedCommitSummary,
+  ReviewCommentParentNode,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
+import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
 
 export type FakePrSurfaceEvent =
   | { readonly kind: "getHead" }
@@ -53,6 +55,12 @@ export type FakePrSurfaceEvent =
       };
     }
   | { readonly kind: "fetchPriorInlineFeedback"; readonly botUserId: number }
+  | {
+      readonly kind: "fetchBotFindingThreads";
+      readonly botUserId: number;
+      readonly publishRecordLenses?: ReadonlyMap<number, string>;
+    }
+  | { readonly kind: "fetchReviewCommentParentGraph" }
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
   | { readonly kind: "publishThreadBatch"; readonly review: ThreadBatchReview }
   | { readonly kind: "listInlineReviewThreads" }
@@ -119,6 +127,8 @@ export type FakePrSurfaceControls = {
       readonly threadUrl: string;
     }>,
   ) => void;
+  readonly setBotFindingThreads: (threads: readonly BotFindingThread[]) => void;
+  readonly setReviewCommentParentGraph: (nodes: readonly ReviewCommentParentNode[]) => void;
   readonly setConversationComments: (comments: readonly PrConversationComment[]) => void;
   readonly setInlineReviewComments: (comments: readonly PrConversationComment[]) => void;
   readonly setPullRequestBody: (body: string | null) => void;
@@ -208,6 +218,8 @@ export function createFakePrSurface(
     readonly humanReplies: readonly string[];
     readonly threadUrl: string;
   }> = [];
+  let botFindingThreads: BotFindingThread[] = [];
+  let reviewCommentParentGraph: ReviewCommentParentNode[] = [];
   let reviewComments: Array<{ path: string; line: number; id: number; url: string }> = [];
   let conversationComments: PrConversationComment[] = [];
   let inlineReviewComments: PrConversationComment[] = [];
@@ -295,6 +307,12 @@ export function createFakePrSurface(
     },
     setPriorInlineFeedback(next) {
       priorInlineFeedback = [...next];
+    },
+    setBotFindingThreads(threads) {
+      botFindingThreads = [...threads];
+    },
+    setReviewCommentParentGraph(nodes) {
+      reviewCommentParentGraph = [...nodes];
     },
     setConversationComments(next) {
       conversationComments = [...next];
@@ -439,6 +457,16 @@ export function createFakePrSurface(
     async fetchPriorInlineFeedback(botUserId) {
       events.push({ kind: "fetchPriorInlineFeedback", botUserId });
       return priorInlineFeedback;
+    },
+
+    async fetchBotFindingThreads(botUserId, publishRecordLenses) {
+      events.push({ kind: "fetchBotFindingThreads", botUserId, publishRecordLenses });
+      return botFindingThreads;
+    },
+
+    async fetchReviewCommentParentGraph() {
+      events.push({ kind: "fetchReviewCommentParentGraph" });
+      return reviewCommentParentGraph;
     },
 
     async editComment(commentId, body) {

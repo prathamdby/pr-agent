@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for durable review/ask work execution.
+Accepted. Superseded in part by [ADR 0009](0009-durable-agent-work.md) for durable review/ask work execution. Worker-path PR-surface I/O is re-established under [ADR 0034](0034-pr-surface-seam.md) (Promise `PrSurface` factory, not Effect `Context.Tag`).
 
 ## Context
 

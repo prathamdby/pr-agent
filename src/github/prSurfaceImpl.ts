@@ -23,7 +23,11 @@ import {
   updateReviewCheckRun,
   upsertReviewSummaryComment,
 } from "./reviewPublish.js";
-import { fetchPriorInlineReviewFeedback } from "../review/run/reviewPriorFeedback.js";
+import {
+  fetchBotFindingThreads,
+  fetchPriorInlineReviewFeedback,
+  fetchReviewCommentParentGraph,
+} from "./reviewPriorFeedbackIo.js";
 import { withTransientReviewRetry } from "./reviewPublishRetry.js";
 import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
@@ -567,8 +571,26 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     },
 
     async fetchPriorInlineFeedback(botUserId) {
-      const { token } = await ensureAuth();
-      return fetchPriorInlineReviewFeedback(token, owner, repo, prNumber, botUserId);
+      const { token, expiresAtTs } = await ensureAuth();
+      return fetchPriorInlineReviewFeedback(token, owner, repo, prNumber, botUserId, expiresAtTs);
+    },
+
+    async fetchBotFindingThreads(botUserId, publishRecordLenses) {
+      const { token, expiresAtTs } = await ensureAuth();
+      return fetchBotFindingThreads(
+        token,
+        owner,
+        repo,
+        prNumber,
+        botUserId,
+        publishRecordLenses,
+        expiresAtTs,
+      );
+    },
+
+    async fetchReviewCommentParentGraph() {
+      const { token, expiresAtTs } = await ensureAuth();
+      return fetchReviewCommentParentGraph(token, owner, repo, prNumber, expiresAtTs);
     },
 
     async publishThreadBatch(review: ThreadBatchReview) {

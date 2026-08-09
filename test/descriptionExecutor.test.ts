@@ -117,13 +117,7 @@ function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<Descrip
 
 function mockDurableExecution(item = descriptionItem()): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
-    const installation = {
-      token: "tok",
-      expiresAtTs: Date.now() + 60_000,
-      ttlMs: 60_000,
-    };
     const result = await spec.execute(item, {
-      installation,
       prSurface: fakeDurablePrSurface(),
       headSha: "head",
       executionEpoch: 1,
@@ -142,12 +136,7 @@ async function runTerminalFailure(
   durablePrSurfaceControls().setPullRequestBody(prBody);
   const item = descriptionItem(source);
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
-    const installation = {
-      token: "tok",
-      expiresAtTs: Date.now() + 60_000,
-      ttlMs: 60_000,
-    };
-    await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+    await spec.onTerminalFailure?.(item, fakeDurablePrSurface(), new Error("dead"));
   });
   await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
 }

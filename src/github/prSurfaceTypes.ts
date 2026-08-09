@@ -13,6 +13,8 @@ import type { ListReviewThreadResolutionResult } from "./reviewThreadResolution.
 import type { InlineReviewComment, ReviewCheckRunConclusion } from "./reviewPublish.js";
 import type { RateLimitCircuit } from "./rateLimitCircuit.js";
 import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
+import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
+import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { GithubReactionContent } from "../settings/index.js";
 
 export type AcknowledgementTarget =
@@ -106,6 +108,11 @@ export type PublishDescriptionSurfaceResult = {
   readonly bodyUpdated: boolean;
 };
 
+export type ReviewCommentParentNode = {
+  readonly id: number;
+  readonly inReplyToId: number | null;
+};
+
 export type CreatePrSurfaceParams = {
   readonly cfg: Pick<Config, "githubAppId" | "githubAppPrivateKey">;
   readonly installationId: number;
@@ -142,6 +149,11 @@ export type PrSurface = {
   listPullRequestReviewComments(): Promise<ListPullRequestReviewCommentsResult>;
   setReviewCommitStatus(headSha: string, params: ReviewCommitStatusParams): Promise<void>;
   fetchPriorInlineFeedback(botUserId: number): Promise<readonly PriorInlineFeedbackEntry[]>;
+  fetchBotFindingThreads(
+    botUserId: number,
+    publishRecordLenses?: ReadonlyMap<number, AnyReviewLens>,
+  ): Promise<readonly BotFindingThread[]>;
+  fetchReviewCommentParentGraph(): Promise<readonly ReviewCommentParentNode[]>;
   publishThreadBatch(review: ThreadBatchReview): Promise<PublishedBatch>;
   listInlineReviewThreads(): Promise<ListReviewThreadResolutionResult>;
   resolveInlineReviewThread(threadId: string): Promise<void>;

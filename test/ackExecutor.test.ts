@@ -21,10 +21,6 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
   })),
 }));
 
-vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
-}));
-
 vi.mock("../src/review/ci/analyzeCi.js", () => ({
   buildCiSummaryForSurface: vi.fn(async () => null),
 }));

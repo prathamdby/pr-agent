@@ -4,13 +4,10 @@ import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
 import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
-import { createPrSurface } from "../../github/prSurface.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import {
-  fetchBotFindingThreads,
-  fetchReviewCommentParentGraph,
   resolveReviewThreadRootId,
   type BotFindingThread,
 } from "../../review/run/reviewPriorFeedback.js";
@@ -148,13 +145,7 @@ async function resolveScopedThreadRootId(params: {
   readonly analytics: TriageAnalyticsRef;
 }): Promise<number> {
   try {
-    const token = await params.prSurface.gitCredentialToken();
-    const commentGraph = await fetchReviewCommentParentGraph(
-      token,
-      params.owner,
-      params.repo,
-      params.prNumber,
-    );
+    const commentGraph = await params.prSurface.fetchReviewCommentParentGraph();
     return (
       resolveReviewThreadRootId(commentGraph, params.anchorCommentId) ?? params.anchorCommentId
     );
@@ -269,16 +260,8 @@ async function resolveInventoryAndScope(params: {
     params.pool,
     params.item.resourceKey,
   );
-  const token = await params.prSurface.gitCredentialToken();
   const [threads, resolutionResult] = await Promise.all([
-    fetchBotFindingThreads(
-      token,
-      params.item.owner,
-      params.item.repo,
-      params.item.prNumber,
-      botIdentity.userId,
-      eligibleReviews,
-    ),
+    params.prSurface.fetchBotFindingThreads(botIdentity.userId, eligibleReviews),
     params.prSurface.listInlineReviewThreads(),
   ]);
   warnReviewThreadResolutionDegraded(resolutionResult, {
@@ -681,8 +664,8 @@ export async function executeTriageJob(
         scope,
       });
     },
-    onTerminalFailure: async (item, installation) => {
-      if (!installation) return;
+    onTerminalFailure: async (item, prSurface) => {
+      if (!prSurface) return;
       const payload = item.payload;
       const analytics = triageAnalyticsRef(item, payload.scope ?? "all");
       if (
@@ -694,14 +677,6 @@ export async function executeTriageJob(
         step: "failure_comment",
       });
       try {
-        const prSurface = createPrSurface({
-          cfg,
-          installationId: item.installationId,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-          installation,
-        });
         await prSurface.replyAt(
           { kind: "prConversation", prNumber: item.prNumber },
           TRIAGE_FAILURE_MESSAGE,

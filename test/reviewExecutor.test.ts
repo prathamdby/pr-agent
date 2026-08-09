@@ -60,9 +60,8 @@ vi.mock("../src/review/orchestrator/orchestratorRun.js", () => ({
   runOrchestratedPrReview: mocks.runOrchestratedPrReview,
 }));
 
-vi.mock("../src/agentWork/githubPrSurface.js", () => ({
+vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
-  getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
 }));
 
 vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
@@ -172,11 +171,6 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
   vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
     const item = makeItem(source);
     await spec.execute(item, {
-      installation: {
-        token: "tok",
-        expiresAtTs: Date.now() + 300_000,
-        ttlMs: 300_000,
-      },
       prSurface: durableSurfaceBundle.surface,
       headSha: "head",
       executionEpoch: 1,
@@ -714,11 +708,7 @@ describe("executeReviewJob", () => {
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
-        {
-          token: "tok",
-          expiresAtTs: Date.now() + 300_000,
-          ttlMs: 300_000,
-        },
+        durableSurfaceBundle.surface,
         new Error("dead"),
       );
     });
@@ -740,11 +730,7 @@ describe("executeReviewJob", () => {
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
-        {
-          token: "tok",
-          expiresAtTs: Date.now() + 300_000,
-          ttlMs: 300_000,
-        },
+        durableSurfaceBundle.surface,
         new Error("dead"),
       );
     });
@@ -764,11 +750,7 @@ describe("executeReviewJob", () => {
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
-        {
-          token: "tok",
-          expiresAtTs: Date.now() + 300_000,
-          ttlMs: 300_000,
-        },
+        durableSurfaceBundle.surface,
         new Error("dead"),
       );
     });
@@ -794,11 +776,7 @@ describe("executeReviewJob", () => {
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onCancelled?.(
         makeItem("slash"),
-        {
-          token: "tok",
-          expiresAtTs: Date.now() + 60_000,
-          ttlMs: 60_000,
-        },
+        durableSurfaceBundle.surface,
         "skipped_before_claim",
       );
     });
@@ -1044,11 +1022,6 @@ describe("executeReviewJob", () => {
     };
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.execute(makeItem("slash"), {
-        installation: {
-          token: "tok",
-          expiresAtTs: Date.now() + 60_000,
-          ttlMs: 60_000,
-        },
         prSurface: durableSurfaceBundle.surface,
         headSha: "head",
         executionEpoch: 1,
@@ -1071,11 +1044,6 @@ describe("executeReviewJob", () => {
     };
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.execute(makeItem("slash"), {
-        installation: {
-          token: "tok",
-          expiresAtTs: Date.now() + 60_000,
-          ttlMs: 60_000,
-        },
         prSurface: durableSurfaceBundle.surface,
         headSha: "head",
         executionEpoch: 1,
