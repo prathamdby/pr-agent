@@ -3,6 +3,24 @@ import { describe, expect, it } from "vitest";
 import { specialistReportSchema } from "../src/review/orchestrator/specialistReport.js";
 
 describe("specialistReportSchema", () => {
+  it("defaults omitted findings to an empty list for no_findings", () => {
+    const parsed = v.safeParse(specialistReportSchema, { status: "no_findings" });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.output.findings).toEqual([]);
+    }
+  });
+
+  it("rejects findings status when the findings key is omitted", () => {
+    const parsed = v.safeParse(specialistReportSchema, { status: "findings" });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.issues[0]?.message).toBe("status 'findings' requires at least one finding");
+    }
+  });
+
   it("rejects findings status without a finding", () => {
     const parsed = v.safeParse(specialistReportSchema, {
       status: "findings",

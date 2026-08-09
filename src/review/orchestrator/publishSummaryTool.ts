@@ -214,7 +214,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     name: "publish_summary",
     description:
       "Publish the final review summary exactly once. Supply display copy for every accepted finding ID without changing severity or placement. Write prCharacter per the synthesis overview-scale hard rule.",
-    parameters: toJsonSchema(publishSummarySchema),
+    parameters: toJsonSchema(publishSummarySchema, { errorMode: "ignore" }),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_summary");

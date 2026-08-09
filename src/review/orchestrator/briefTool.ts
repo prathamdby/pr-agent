@@ -42,7 +42,7 @@ export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
   const piTool: PiTool = {
     name: "submit_specialist_brief",
     description: "Submit the structured specialist brief after completing PR reconnaissance.",
-    parameters: toJsonSchema(specialistBriefSchema),
+    parameters: toJsonSchema(specialistBriefSchema, { errorMode: "ignore" }),
   };
   const executor: AgentRunnerToolExecutor = async (args) => {
     const gate = assertPhaseToolAllowed(phaseRef.current, "submit_specialist_brief");
