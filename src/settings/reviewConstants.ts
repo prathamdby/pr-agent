@@ -194,7 +194,7 @@ export const REVIEW_DIFF_CACHE_REQUIRED_MESSAGE =
 /** Review harness: anchor menu block header (untrusted user content). */
 export const REVIEW_ANCHOR_MENU_BLOCK_LABEL = "anchor_menu";
 
-/** Zod ReviewPayload failure kinds for harness metrics and repair prompts. */
+/** ReviewPayload validation failure kinds for harness metrics and repair prompts. */
 export type ReviewValidationFailureKind =
   | "missing_field"
   | "wrong_type"

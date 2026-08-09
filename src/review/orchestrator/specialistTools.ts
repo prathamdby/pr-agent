@@ -1,5 +1,5 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
 import { AppError } from "../../errors/appError.js";
 import { specialistReportSchema } from "./specialistReport.js";
@@ -10,7 +10,9 @@ export const SUBMIT_FINDINGS_REPORT_NAME = "submit_findings_report";
 export const SUBMIT_FINDINGS_REPORT_DESCRIPTION =
   "Submit the specialist's final findings report exactly once.";
 
-export const SUBMIT_FINDINGS_REPORT_PARAMETERS = z.toJSONSchema(specialistReportSchema);
+export const SUBMIT_FINDINGS_REPORT_PARAMETERS = toJsonSchema(specialistReportSchema, {
+  errorMode: "ignore",
+});
 
 export type SpecialistWorkspaceTools = {
   readonly piTools: readonly PiTool[];

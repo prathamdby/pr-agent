@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import { coerceReviewPayloadInput, reviewPayloadSchema } from "../src/review/reviewSchema.js";
 
@@ -21,11 +22,11 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
       followUps: [],
     });
     expect(coercions).toContain("finding_line_to_start_end");
-    const parsed = reviewPayloadSchema.safeParse(value);
+    const parsed = v.safeParse(reviewPayloadSchema, value);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.findings[0]?.startLine).toBe(42);
-      expect(parsed.data.findings[0]?.endLine).toBe(42);
+      expect(parsed.output.findings[0]?.startLine).toBe(42);
+      expect(parsed.output.findings[0]?.endLine).toBe(42);
     }
   });
 
@@ -48,7 +49,7 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
       followUps: [],
     });
     expect(coercions).not.toContain("finding_line_to_start_end");
-    const parsed = reviewPayloadSchema.safeParse(value);
+    const parsed = v.safeParse(reviewPayloadSchema, value);
     expect(parsed.success).toBe(false);
   });
 
@@ -136,11 +137,11 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
       followUps: [],
     });
     expect(coercions.filter((c) => c === "finding_severity_alias")).toHaveLength(2);
-    const parsed = reviewPayloadSchema.safeParse(value);
+    const parsed = v.safeParse(reviewPayloadSchema, value);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.findings[0]?.severity).toBe("P1");
-      expect(parsed.data.findings[1]?.severity).toBe("P1");
+      expect(parsed.output.findings[0]?.severity).toBe("P1");
+      expect(parsed.output.findings[1]?.severity).toBe("P1");
     }
   });
 
@@ -169,11 +170,11 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
 
     expect(coercions).toContain("finding_severity_alias");
     expect(coercions).toContain("finding_confidence_number");
-    const parsed = reviewPayloadSchema.safeParse(value);
+    const parsed = v.safeParse(reviewPayloadSchema, value);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.findings[0]?.suggestedCode).toBe(suggestedCode);
-      expect(parsed.data.findings[0]?.confidence).toBe(4);
+      expect(parsed.output.findings[0]?.suggestedCode).toBe(suggestedCode);
+      expect(parsed.output.findings[0]?.confidence).toBe(4);
     }
   });
 

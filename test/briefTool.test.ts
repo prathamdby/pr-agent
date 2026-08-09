@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   buildSpecialistBriefTool,
@@ -130,7 +131,7 @@ const invalidBriefs = [
 
 describe("specialistBriefSchema", () => {
   it.each(invalidBriefs)("rejects %s", (_name, input) => {
-    expect(specialistBriefSchema.safeParse(input).success).toBe(false);
+    expect(v.safeParse(specialistBriefSchema, input).success).toBe(false);
   });
 
   it("accepts every field at its cap", () => {
@@ -141,7 +142,7 @@ describe("specialistBriefSchema", () => {
     };
 
     expect(
-      specialistBriefSchema.safeParse({
+      v.safeParse(specialistBriefSchema, {
         prIntent: "x".repeat(2000),
         architectureNotes: "x".repeat(6000),
         riskAreas: Array.from({ length: 12 }, () => cappedRisk),

@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   TriagePayloadSchema,
@@ -8,7 +9,7 @@ import {
 
 describe("triage schema", () => {
   it("accepts one verdict per inventory thread", () => {
-    const payload = TriagePayloadSchema.parse({
+    const payload = v.parse(TriagePayloadSchema, {
       verdicts: [
         {
           verdict: "fixed",
@@ -38,7 +39,7 @@ describe("triage schema", () => {
   });
 
   it("rejects hallucinated ids, unknown commits, missing verdicts, and dismissed without human reply", () => {
-    const payload = TriagePayloadSchema.parse({
+    const payload = v.parse(TriagePayloadSchema, {
       verdicts: [
         {
           verdict: "fixed",
@@ -76,7 +77,7 @@ describe("triage schema", () => {
 
 describe("verification schema", () => {
   it("accepts one verdict per inventory thread with pushed shas", () => {
-    const payload = VerificationPayloadSchema.parse({
+    const payload = v.parse(VerificationPayloadSchema, {
       verdicts: [
         {
           verdict: "fixed",
@@ -105,7 +106,7 @@ describe("verification schema", () => {
   });
 
   it("rejects hallucinated ids, unknown commits, missing verdicts, and dismissed without human reply", () => {
-    const payload = VerificationPayloadSchema.parse({
+    const payload = v.parse(VerificationPayloadSchema, {
       verdicts: [
         {
           verdict: "fixed",
@@ -139,7 +140,7 @@ describe("verification schema", () => {
   });
 
   it("matches short SHA prefix against full SHA from API", () => {
-    const payload = VerificationPayloadSchema.parse({
+    const payload = v.parse(VerificationPayloadSchema, {
       verdicts: [
         {
           verdict: "fixed",

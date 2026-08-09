@@ -1,4 +1,5 @@
 import type { Config } from "../../config.js";
+import * as v from "valibot";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import { createFeaturePiSession } from "../../agent/runtime/createFeatureSession.js";
@@ -35,7 +36,7 @@ function extractJsonObject(text: string): unknown {
 
 export function parseCiSummaryLlmText(text: string): CiSummaryLlmFields {
   const parsed = extractJsonObject(text);
-  return ciSummaryLlmSchema.parse(parsed);
+  return v.parse(ciSummaryLlmSchema, parsed);
 }
 
 /**

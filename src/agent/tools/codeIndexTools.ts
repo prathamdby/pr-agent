@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Pool } from "pg";
-import { z } from "zod";
+import * as v from "valibot";
 import { assertPathAllowedForAsk, pathAllowedForAsk, type AskPathGate } from "../ask/askSafety.js";
 import { assertWorkspacePath, type LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { CODE_INDEX_MAX_RESULTS } from "../../settings/index.js";
@@ -17,9 +17,9 @@ import {
 export const SEARCH_CODE_INDEX_DESCRIPTION =
   "Search the optional Postgres FTS code index for navigation hints (path and line ranges). Hints only — you must call readWorkspaceFile on any match before citing path or line numbers in findings. When the index is unavailable for this run, the tool returns { unavailable: true }; use listChangedFiles, searchWorkspace, and readWorkspaceFile instead.";
 
-export const searchCodeIndexSchema = z.object({
-  query: z.string().min(1),
-  limit: z.number().int().positive().optional().default(CODE_INDEX_MAX_RESULTS),
+export const searchCodeIndexSchema = v.object({
+  query: v.pipe(v.string(), v.minLength(1)),
+  limit: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), CODE_INDEX_MAX_RESULTS),
 });
 
 async function verifyChunkHash(

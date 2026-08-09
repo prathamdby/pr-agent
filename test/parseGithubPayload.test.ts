@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
+import * as v from "valibot";
 import { AppError } from "../src/errors/appError.js";
 import {
   WebhookParseError,
@@ -8,14 +8,23 @@ import {
 } from "../src/webhook/parseGithubPayload.js";
 
 describe("WebhookParseError", () => {
-  it("preserves eventName and zodError through AppError", () => {
-    const zodErr = new z.ZodError([]);
-    const err = new WebhookParseError("parse failed", "pull_request.opened", zodErr);
+  it("preserves eventName and valibotError through AppError", () => {
+    const valibotErr = new v.ValiError([
+      {
+        kind: "schema",
+        type: "string",
+        input: 42,
+        expected: "string",
+        received: "42",
+        message: "Invalid type: Expected string but received 42",
+      },
+    ]);
+    const err = new WebhookParseError("parse failed", "pull_request.opened", valibotErr);
     expect(err).toBeInstanceOf(AppError);
     expect(err).toBeInstanceOf(WebhookParseError);
     expect(err.code).toBe("webhook.parse_failed");
     expect(err.eventName).toBe("pull_request.opened");
-    expect(err.zodError).toBe(zodErr);
+    expect(err.valibotError).toBe(valibotErr);
   });
 });
 
@@ -308,7 +317,7 @@ describe("parseGithubPayload", () => {
       expect(e).toBeInstanceOf(AppError);
       expect((e as WebhookParseError).code).toBe("webhook.parse_failed");
       expect((e as WebhookParseError).eventName).toBe("pull_request");
-      expect((e as WebhookParseError).zodError).toBeInstanceOf(z.ZodError);
+      expect((e as WebhookParseError).valibotError).toBeInstanceOf(v.ValiError);
     }
   });
 

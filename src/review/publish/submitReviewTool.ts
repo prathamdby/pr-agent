@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn, logDebug } from "../../evlog.js";
@@ -39,8 +40,8 @@ export type SubmitReviewState = {
 };
 
 const SUBMIT_REVIEW_SCHEMA = createReviewPayloadSchema();
-const SUBMIT_REVIEW_PARAMETERS = z.toJSONSchema(SUBMIT_REVIEW_SCHEMA, {
-  unrepresentable: "any",
+const SUBMIT_REVIEW_PARAMETERS = toJsonSchema(SUBMIT_REVIEW_SCHEMA, {
+  errorMode: "ignore",
 }) as PiTool["parameters"];
 
 export function createSubmitReviewState(initial?: {
@@ -148,9 +149,9 @@ export function buildSubmitReviewTool(params: {
       });
     }
 
-    const parsed = SUBMIT_REVIEW_SCHEMA.safeParse(coercedArgs);
+    const parsed = v.safeParse(SUBMIT_REVIEW_SCHEMA, coercedArgs);
     if (!parsed.success) {
-      const formatted = formatReviewValidationError(parsed.error);
+      const formatted = formatReviewValidationError(parsed.issues);
       params.state.lastValidationError = formatted.message;
       recordReviewMetric({
         kind: "validation_failed",
@@ -172,7 +173,7 @@ export function buildSubmitReviewTool(params: {
     recordReviewMetric({ kind: "submit_validated", coercions });
 
     const prepared = prepareReviewPayloadForPublish({
-      payload: parsed.data,
+      payload: parsed.output,
       reviewMinConfidence: REVIEW_MIN_CONFIDENCE,
       severityFloor: params.severityFloor,
       cachedDiffIndex: params.cachedDiffIndex,
@@ -291,10 +292,10 @@ export function buildSubmitReviewTool(params: {
     }
 
     params.state.published = true;
-    const severities = parsed.data.findings.map((f) => f.severity);
+    const severities = parsed.output.findings.map((f) => f.severity);
     recordReviewMetric({
       kind: "published",
-      findingsCount: parsed.data.findings.length,
+      findingsCount: parsed.output.findings.length,
       severities,
     });
     logInfo("review_published", {
@@ -302,9 +303,9 @@ export function buildSubmitReviewTool(params: {
       owner: params.ctx.owner,
       repo: params.ctx.repo,
       pr: params.ctx.prNumber,
-      findingsCount: parsed.data.findings.length,
+      findingsCount: parsed.output.findings.length,
     });
-    return { ok: true, findingsCount: parsed.data.findings.length, severities };
+    return { ok: true, findingsCount: parsed.output.findings.length, severities };
   };
 
   return { piTool, executor };

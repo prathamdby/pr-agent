@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as v from "valibot";
 import { AppError } from "../errors/appError.js";
 import { LEGACY_REVIEW_LENSES, normalizeReviewLens } from "../settings/legacyReviewLenses.js";
 import type {
@@ -12,99 +12,104 @@ import type {
   WorkType,
 } from "./types.js";
 
-const ReviewModeSchema = z.enum(["review", ...LEGACY_REVIEW_LENSES]).transform(normalizeReviewLens);
-const WorkSourceSchema = z.enum(["auto", "slash"]);
+const ReviewModeSchema = v.pipe(
+  v.picklist(["review", ...LEGACY_REVIEW_LENSES]),
+  v.transform(normalizeReviewLens),
+);
+const WorkSourceSchema = v.picklist(["auto", "slash"]);
 
-const ReplyTargetSchema = z.discriminatedUnion("kind", [
-  z.looseObject({
-    kind: z.literal("prConversation"),
-    prNumber: z.number().int().positive(),
+const positiveInt = () => v.pipe(v.number(), v.integer(), v.gtValue(0));
+
+const ReplyTargetSchema = v.variant("kind", [
+  v.looseObject({
+    kind: v.literal("prConversation"),
+    prNumber: positiveInt(),
   }),
-  z.looseObject({
-    kind: z.literal("inlineReviewThread"),
-    prNumber: z.number().int().positive(),
-    inReplyToCommentId: z.number().int().positive(),
+  v.looseObject({
+    kind: v.literal("inlineReviewThread"),
+    prNumber: positiveInt(),
+    inReplyToCommentId: positiveInt(),
   }),
 ]);
 
-const CodeAnchorSchema = z.looseObject({
-  path: z.string().min(1),
-  line: z.number().int().positive(),
-  startLine: z.number().int().positive().optional(),
-  side: z.enum(["LEFT", "RIGHT"]).optional(),
-  diffHunk: z.string().optional(),
+const CodeAnchorSchema = v.looseObject({
+  path: v.pipe(v.string(), v.minLength(1)),
+  line: positiveInt(),
+  startLine: v.optional(positiveInt()),
+  side: v.optional(v.picklist(["LEFT", "RIGHT"])),
+  diffHunk: v.optional(v.string()),
 });
 
-const AckTargetSchema = z.discriminatedUnion("kind", [
-  z.looseObject({
-    kind: z.literal("pr"),
-    prNumber: z.number().int().positive(),
+const AckTargetSchema = v.variant("kind", [
+  v.looseObject({
+    kind: v.literal("pr"),
+    prNumber: positiveInt(),
   }),
-  z.looseObject({
-    kind: z.literal("issueComment"),
-    commentId: z.number().int().positive(),
+  v.looseObject({
+    kind: v.literal("issueComment"),
+    commentId: positiveInt(),
   }),
-  z.looseObject({
-    kind: z.literal("reviewComment"),
-    commentId: z.number().int().positive(),
+  v.looseObject({
+    kind: v.literal("reviewComment"),
+    commentId: positiveInt(),
   }),
 ]);
 
-const ReviewWorkPayloadSchema = z.looseObject({
+const ReviewWorkPayloadSchema = v.looseObject({
   mode: ReviewModeSchema,
   source: WorkSourceSchema,
-  repositorySizeKb: z.number().optional(),
-  userSupplement: z.string().optional(),
-  commenterId: z.number().int().optional(),
-  ackTargets: z.array(AckTargetSchema).optional(),
-  publishDegraded: z.boolean().optional(),
-  staleHeadRescheduled: z.boolean().optional(),
-  staleHeadReplacementWorkItemId: z.string().min(1).optional(),
-  staleHeadReplacementEnqueued: z.boolean().optional(),
-  cancelAttribution: z
-    .discriminatedUnion("kind", [
-      z.object({ kind: z.literal("user"), login: z.string().min(1) }),
-      z.object({ kind: z.literal("merged") }),
-    ])
-    .optional(),
+  repositorySizeKb: v.optional(v.number()),
+  userSupplement: v.optional(v.string()),
+  commenterId: v.optional(v.pipe(v.number(), v.integer())),
+  ackTargets: v.optional(v.array(AckTargetSchema)),
+  publishDegraded: v.optional(v.boolean()),
+  staleHeadRescheduled: v.optional(v.boolean()),
+  staleHeadReplacementWorkItemId: v.optional(v.pipe(v.string(), v.minLength(1))),
+  staleHeadReplacementEnqueued: v.optional(v.boolean()),
+  cancelAttribution: v.optional(
+    v.variant("kind", [
+      v.object({ kind: v.literal("user"), login: v.pipe(v.string(), v.minLength(1)) }),
+      v.object({ kind: v.literal("merged") }),
+    ]),
+  ),
 });
 
-const AskWorkPayloadSchema = z.looseObject({
-  question: z.string(),
+const AskWorkPayloadSchema = v.looseObject({
+  question: v.string(),
   replyTarget: ReplyTargetSchema,
-  repositorySizeKb: z.number().optional(),
-  codeAnchor: CodeAnchorSchema.optional(),
-  commenterId: z.number().int().optional(),
-  commentId: z.number().int().positive(),
-  ackTargets: z.array(AckTargetSchema).optional(),
+  repositorySizeKb: v.optional(v.number()),
+  codeAnchor: v.optional(CodeAnchorSchema),
+  commenterId: v.optional(v.pipe(v.number(), v.integer())),
+  commentId: positiveInt(),
+  ackTargets: v.optional(v.array(AckTargetSchema)),
 });
 
-const DescriptionWorkPayloadSchema = z.looseObject({
+const DescriptionWorkPayloadSchema = v.looseObject({
   source: WorkSourceSchema,
-  repositorySizeKb: z.number().optional(),
-  userSupplement: z.string().optional(),
-  commenterId: z.number().int().optional(),
-  ackTargets: z.array(AckTargetSchema).optional(),
+  repositorySizeKb: v.optional(v.number()),
+  userSupplement: v.optional(v.string()),
+  commenterId: v.optional(v.pipe(v.number(), v.integer())),
+  ackTargets: v.optional(v.array(AckTargetSchema)),
 });
 
-const TriageWorkPayloadSchema = z.looseObject({
-  source: z.literal("slash"),
-  repositorySizeKb: z.number().optional(),
-  commenterId: z.number().int().optional(),
-  commentId: z.number().int().positive(),
-  scope: z.enum(["all", "thread"]),
-  threadAnchorCommentId: z.number().int().positive().optional(),
-  needsThreadRootResolution: z.boolean().optional(),
+const TriageWorkPayloadSchema = v.looseObject({
+  source: v.literal("slash"),
+  repositorySizeKb: v.optional(v.number()),
+  commenterId: v.optional(v.pipe(v.number(), v.integer())),
+  commentId: positiveInt(),
+  scope: v.picklist(["all", "thread"]),
+  threadAnchorCommentId: v.optional(positiveInt()),
+  needsThreadRootResolution: v.optional(v.boolean()),
   replyTarget: ReplyTargetSchema,
-  publishDegraded: z.boolean().optional(),
-  ackTargets: z.array(AckTargetSchema).optional(),
+  publishDegraded: v.optional(v.boolean()),
+  ackTargets: v.optional(v.array(AckTargetSchema)),
 });
 
-const VerificationWorkPayloadSchema = z.looseObject({
-  source: z.literal("auto"),
-  repositorySizeKb: z.number().optional(),
-  pushBeforeSha: z.string().min(1).optional(),
-  ackTargets: z.array(AckTargetSchema).optional(),
+const VerificationWorkPayloadSchema = v.looseObject({
+  source: v.literal("auto"),
+  repositorySizeKb: v.optional(v.number()),
+  pushBeforeSha: v.optional(v.pipe(v.string(), v.minLength(1))),
+  ackTargets: v.optional(v.array(AckTargetSchema)),
 });
 
 export class WorkItemPayloadValidationError extends AppError {
@@ -121,19 +126,23 @@ export class WorkItemPayloadValidationError extends AppError {
   }
 }
 
-function parseWithSchema<T>(workType: WorkType, schema: z.ZodType<T>, raw: unknown): T {
-  const result = schema.safeParse(raw);
+function parseWithSchema<T>(
+  workType: WorkType,
+  schema: v.GenericSchema<unknown, T>,
+  raw: unknown,
+): T {
+  const result = v.safeParse(schema, raw);
   if (!result.success) {
-    const issue = result.error.issues[0];
+    const issue = result.issues[0];
     const detail = !issue
       ? "invalid payload"
-      : `${issue.path.length > 0 ? issue.path.join(".") : "(root)"}: ${issue.message}`;
+      : `${v.getDotPath(issue) ?? "(root)"}: ${issue.message}`;
     throw new WorkItemPayloadValidationError(
       workType,
       `Invalid ${workType} work item payload: ${detail}`,
     );
   }
-  return result.data;
+  return result.output;
 }
 
 export function parseWorkItemPayload(type: "review", raw: unknown): ReviewWorkPayload;

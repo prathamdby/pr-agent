@@ -3,7 +3,7 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, relative } from "node:path";
 import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import type { WritablePrCheckout } from "../../prWorkspace/writablePrCheckout.js";
@@ -103,15 +103,15 @@ export function buildTriageWorkspaceTools(params: {
 
   const readWorkspaceFile = defineLocalTool({
     description: "Read a text file from the writable PR checkout. Path is repo-relative.",
-    schema: z.object({ path: z.string().min(1) }),
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => readTextFile(root, path, LOCAL_WORKSPACE_MAX_FILE_BYTES),
   });
 
   const searchWorkspace = defineLocalTool({
     description: "Search the writable checkout with git grep for a literal string.",
-    schema: z.object({
-      query: z.string().min(1),
-      maxResults: z.number().int().positive().optional().default(20),
+    schema: v.object({
+      query: v.pipe(v.string(), v.minLength(1)),
+      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
     }),
     run: async ({ query, maxResults }) => {
       // Avoid `git grep --max-count` (requires git ≥2.40); cap results after the fact.
@@ -142,7 +142,7 @@ export function buildTriageWorkspaceTools(params: {
   const getWorkspaceDiff = defineLocalTool({
     description:
       "Return the current unified diff for a repo-relative path in the writable checkout.",
-    schema: z.object({ path: z.string().min(1) }),
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => {
       const fullPath = await safeReadPath(root, path);
       const rel = relativePath(root, fullPath);
@@ -154,10 +154,10 @@ export function buildTriageWorkspaceTools(params: {
   const editWorkspaceFile = defineLocalTool({
     description:
       "Exact-match replacement in a writable checkout file. oldText must match exactly once.",
-    schema: z.object({
-      path: z.string().min(1),
-      oldText: z.string().min(1),
-      newText: z.string(),
+    schema: v.object({
+      path: v.pipe(v.string(), v.minLength(1)),
+      oldText: v.pipe(v.string(), v.minLength(1)),
+      newText: v.string(),
     }),
     run: async ({ path, oldText, newText }) => {
       const { fullPath, relativePath: rel } = await assertTriageWritablePath({
@@ -189,9 +189,9 @@ export function buildTriageWorkspaceTools(params: {
 
   const createWorkspaceFile = defineLocalTool({
     description: "Create a new file in the writable checkout. Fails if path already exists.",
-    schema: z.object({
-      path: z.string().min(1),
-      content: z.string().max(TRIAGE_NEW_FILE_MAX_BYTES),
+    schema: v.object({
+      path: v.pipe(v.string(), v.minLength(1)),
+      content: v.pipe(v.string(), v.maxLength(TRIAGE_NEW_FILE_MAX_BYTES)),
     }),
     run: async ({ path, content }) => {
       const { fullPath, relativePath: rel } = await assertTriageWritablePath({
@@ -215,11 +215,16 @@ export function buildTriageWorkspaceTools(params: {
 
   const commitFix = defineLocalTool({
     description: "Commit the minimal fix for one finding. One call per threadRootCommentId.",
-    schema: z.object({
-      threadRootCommentId: z.number().int().positive(),
-      files: z.array(z.string().min(1)).min(1),
-      subject: z.string().min(1),
-      body: z.array(z.string().min(1)).max(TRIAGE_COMMIT_BODY_MAX_BULLETS).optional(),
+    schema: v.object({
+      threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+      files: v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.minLength(1)),
+      subject: v.pipe(v.string(), v.minLength(1)),
+      body: v.optional(
+        v.pipe(
+          v.array(v.pipe(v.string(), v.minLength(1))),
+          v.maxLength(TRIAGE_COMMIT_BODY_MAX_BULLETS),
+        ),
+      ),
     }),
     run: async ({ threadRootCommentId, files, subject, body }) => {
       if (!inventoryIds.has(threadRootCommentId)) {

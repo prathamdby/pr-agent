@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   coerceReviewPayloadInput,
@@ -87,7 +88,7 @@ describe("severity helpers", () => {
   });
 
   it("requires fixPrompt for P3 findings", () => {
-    const parsed = reviewPayloadSchema.safeParse({
+    const parsed = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Overview",
       findings: [
         {
@@ -126,7 +127,7 @@ describe("selectInlineFindings", () => {
 
   it("accepts more than eight findings", () => {
     const findings = Array.from({ length: 12 }, (_, i) => makeFinding("P2", `bug-${i}`));
-    const parsed = reviewPayloadSchema.safeParse({
+    const parsed = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Large review",
       findings,
       estimatedEffort: 3,
@@ -136,14 +137,14 @@ describe("selectInlineFindings", () => {
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.findings).toHaveLength(12);
-      expect(selectInlineFindings(parsed.data.findings)).toHaveLength(12);
+      expect(parsed.output.findings).toHaveLength(12);
+      expect(selectInlineFindings(parsed.output.findings)).toHaveLength(12);
     }
   });
 
   it("rejects payloads above the soft findings ceiling", () => {
     const findings = Array.from({ length: 129 }, (_, i) => makeFinding("P2", `bug-${i}`));
-    const parsed = reviewPayloadSchema.safeParse({
+    const parsed = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Huge review",
       findings,
       estimatedEffort: 3,
@@ -157,7 +158,7 @@ describe("selectInlineFindings", () => {
 
 describe("reviewPayloadSchema", () => {
   it("accepts optional suggestedCode and confidence fields", () => {
-    const parsed = reviewPayloadSchema.safeParse({
+    const parsed = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Review with suggestion metadata",
       findings: [
         {
@@ -180,14 +181,14 @@ describe("reviewPayloadSchema", () => {
 
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.findings[0]?.suggestedCode).toBe("if (!ok) return;");
-      expect(parsed.data.findings[0]?.confidence).toBe(4);
+      expect(parsed.output.findings[0]?.suggestedCode).toBe("if (!ok) return;");
+      expect(parsed.output.findings[0]?.confidence).toBe(4);
     }
   });
 
   it("rejects invalid confidence and oversized suggestedCode", () => {
     for (const confidence of [0, 6]) {
-      const parsed = reviewPayloadSchema.safeParse({
+      const parsed = v.safeParse(reviewPayloadSchema, {
         prCharacter: "Review with bad confidence",
         findings: [{ ...makeFinding("P1", "bad confidence"), confidence }],
         estimatedEffort: 2,
@@ -198,7 +199,7 @@ describe("reviewPayloadSchema", () => {
       expect(parsed.success).toBe(false);
     }
 
-    const oversized = reviewPayloadSchema.safeParse({
+    const oversized = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Review with large suggestion",
       findings: [
         {
@@ -236,12 +237,12 @@ describe("coerceReviewPayloadInput", () => {
       followUps: [],
     });
     expect(coerced).toBe(true);
-    const parsed = reviewPayloadSchema.safeParse(value);
+    const parsed = v.safeParse(reviewPayloadSchema, value);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.findings[0]?.severity).toBe("P0");
-      expect(parsed.data.findings[0]?.startLine).toBe(10);
-      expect(parsed.data.estimatedEffort).toBe(3);
+      expect(parsed.output.findings[0]?.severity).toBe("P0");
+      expect(parsed.output.findings[0]?.startLine).toBe(10);
+      expect(parsed.output.estimatedEffort).toBe(3);
     }
   });
 
@@ -293,7 +294,7 @@ describe("coerceReviewPayloadInput", () => {
 
 describe("reviewFinding violatedRule", () => {
   it("accepts optional flat .pr-agent/*.mdc path and legacy payloads without it", () => {
-    const withRule = reviewPayloadSchema.safeParse({
+    const withRule = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Policy violation",
       findings: [
         {
@@ -308,10 +309,10 @@ describe("reviewFinding violatedRule", () => {
     });
     expect(withRule.success).toBe(true);
     if (withRule.success) {
-      expect(withRule.data.findings[0]?.violatedRule).toBe(".pr-agent/module-layout.mdc");
+      expect(withRule.output.findings[0]?.violatedRule).toBe(".pr-agent/module-layout.mdc");
     }
 
-    const legacy = reviewPayloadSchema.safeParse({
+    const legacy = v.safeParse(reviewPayloadSchema, {
       prCharacter: "No policy field",
       findings: [makeFinding("P2", "ordinary bug")],
       estimatedEffort: 2,
@@ -321,7 +322,7 @@ describe("reviewFinding violatedRule", () => {
     });
     expect(legacy.success).toBe(true);
     if (legacy.success) {
-      expect(legacy.data.findings[0]?.violatedRule).toBeUndefined();
+      expect(legacy.output.findings[0]?.violatedRule).toBeUndefined();
     }
   });
 
@@ -341,7 +342,7 @@ describe("reviewFinding violatedRule", () => {
       null,
       `.pr-agent/${"a".repeat(67)}.mdc`,
     ]) {
-      const parsed = reviewPayloadSchema.safeParse({
+      const parsed = v.safeParse(reviewPayloadSchema, {
         prCharacter: "Bad rule path",
         findings: [{ ...makeFinding("P2", "bad rule"), violatedRule }],
         estimatedEffort: 2,
@@ -356,7 +357,7 @@ describe("reviewFinding violatedRule", () => {
   it("accepts the exactly-80-char violatedRule path and rejects over-max", () => {
     const exactly80 = `.pr-agent/${"a".repeat(66)}.mdc`;
     expect(exactly80.length).toBe(80);
-    const accepted = reviewPayloadSchema.safeParse({
+    const accepted = v.safeParse(reviewPayloadSchema, {
       prCharacter: "Max rule path",
       findings: [{ ...makeFinding("P2", "max path"), violatedRule: exactly80 }],
       estimatedEffort: 2,
@@ -366,7 +367,7 @@ describe("reviewFinding violatedRule", () => {
     });
     expect(accepted.success).toBe(true);
     if (accepted.success) {
-      expect(accepted.data.findings[0]?.violatedRule).toBe(exactly80);
+      expect(accepted.output.findings[0]?.violatedRule).toBe(exactly80);
     }
   });
 });
@@ -374,7 +375,7 @@ describe("reviewFinding violatedRule", () => {
 describe("reviewFinding category", () => {
   it("accepts optional category enum and legacy payloads without category", () => {
     expect(
-      reviewPayloadSchema.safeParse({
+      v.safeParse(reviewPayloadSchema, {
         prCharacter: "Adds retry logic.",
         findings: [
           {
@@ -396,7 +397,7 @@ describe("reviewFinding category", () => {
     ).toBe(true);
 
     expect(
-      reviewPayloadSchema.safeParse({
+      v.safeParse(reviewPayloadSchema, {
         prCharacter: "Adds retry logic.",
         findings: [
           {
@@ -417,7 +418,7 @@ describe("reviewFinding category", () => {
     ).toBe(true);
 
     expect(
-      reviewPayloadSchema.safeParse({
+      v.safeParse(reviewPayloadSchema, {
         prCharacter: "Adds retry logic.",
         findings: [
           {
@@ -451,13 +452,13 @@ describe("reviewPayload unknown fields", () => {
   };
 
   it("strips legacy mergeVerdict from parsed payload", () => {
-    const parsed = reviewPayloadSchema.safeParse({
+    const parsed = v.safeParse(reviewPayloadSchema, {
       ...baseInput,
       mergeVerdict: { score: 4, rationale: "Minor issues only on this pass." },
     });
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect("mergeVerdict" in parsed.data).toBe(false);
+      expect("mergeVerdict" in parsed.output).toBe(false);
     }
   });
 
@@ -471,13 +472,13 @@ describe("reviewPayload unknown fields", () => {
       123,
       true,
     ]) {
-      const parsed = reviewPayloadSchema.safeParse({
+      const parsed = v.safeParse(reviewPayloadSchema, {
         ...baseInput,
         mergeVerdict: bad,
       });
       expect(parsed.success).toBe(true);
       if (parsed.success) {
-        expect("mergeVerdict" in parsed.data).toBe(false);
+        expect("mergeVerdict" in parsed.output).toBe(false);
       }
     }
   });
@@ -485,10 +486,10 @@ describe("reviewPayload unknown fields", () => {
 
 describe("formatReviewValidationError", () => {
   it("lists field paths in bullet form with failureKind", () => {
-    const parsed = reviewPayloadSchema.safeParse({ prCharacter: "x" });
+    const parsed = v.safeParse(reviewPayloadSchema, { prCharacter: "x" });
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
-      const formatted = formatReviewValidationError(parsed.error);
+      const formatted = formatReviewValidationError(parsed.issues);
       expect(formatted.message).toContain("ReviewPayload validation failed:");
       expect(formatted.message).toContain("findings");
       expect(formatted.paths).toContain("findings");

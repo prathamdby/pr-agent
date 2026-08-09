@@ -1,8 +1,8 @@
-import { z } from "zod";
+import * as v from "valibot";
 import { fixDoubleEscapedString } from "../tools/fixDoubleEscapedString.js";
 import { MAX_DESCRIPTION_PAYLOAD_PR_FILES } from "../../settings/index.js";
 
-const descriptionPrTypeSchema = z.enum([
+const descriptionPrTypeSchema = v.picklist([
   "Bug fix",
   "Tests",
   "Enhancement",
@@ -10,23 +10,25 @@ const descriptionPrTypeSchema = z.enum([
   "Other",
 ]);
 
-const descriptionFileSchema = z.object({
-  filename: z.string().min(1),
-  changesTitle: z.string().min(1),
-  changesSummary: z.string().optional(),
-  label: z.string().min(1).optional(),
+const descriptionFileSchema = v.object({
+  filename: v.pipe(v.string(), v.minLength(1)),
+  changesTitle: v.pipe(v.string(), v.minLength(1)),
+  changesSummary: v.optional(v.string()),
+  label: v.optional(v.pipe(v.string(), v.minLength(1))),
 });
 
-export const descriptionPayloadSchema = z.object({
-  title: z.string().min(1),
-  type: z.array(descriptionPrTypeSchema).min(1),
-  description: z.string().min(1),
-  changesDiagram: z.string().optional(),
-  prFiles: z.array(descriptionFileSchema).max(MAX_DESCRIPTION_PAYLOAD_PR_FILES).optional(),
+export const descriptionPayloadSchema = v.object({
+  title: v.pipe(v.string(), v.minLength(1)),
+  type: v.pipe(v.array(descriptionPrTypeSchema), v.minLength(1)),
+  description: v.pipe(v.string(), v.minLength(1)),
+  changesDiagram: v.optional(v.string()),
+  prFiles: v.optional(
+    v.pipe(v.array(descriptionFileSchema), v.maxLength(MAX_DESCRIPTION_PAYLOAD_PR_FILES)),
+  ),
 });
 
-export type DescriptionPayload = z.infer<typeof descriptionPayloadSchema>;
-export type DescriptionPrFile = z.infer<typeof descriptionFileSchema>;
+export type DescriptionPayload = v.InferOutput<typeof descriptionPayloadSchema>;
+export type DescriptionPrFile = v.InferOutput<typeof descriptionFileSchema>;
 
 export const DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE: DescriptionPayload = {
   title: "Add user session validation",
@@ -63,7 +65,7 @@ function coerceStringArray(value: unknown): string[] | undefined {
     .filter(Boolean);
 }
 
-const PR_TYPE_ALIASES: Record<string, z.infer<typeof descriptionPrTypeSchema>> = {
+const PR_TYPE_ALIASES: Record<string, v.InferOutput<typeof descriptionPrTypeSchema>> = {
   bug_fix: "Bug fix",
   bugfix: "Bug fix",
   "bug fix": "Bug fix",
@@ -75,15 +77,17 @@ const PR_TYPE_ALIASES: Record<string, z.infer<typeof descriptionPrTypeSchema>> =
   other: "Other",
 };
 
-function coercePrTypes(value: unknown): z.infer<typeof descriptionPrTypeSchema>[] | undefined {
+function coercePrTypes(
+  value: unknown,
+): v.InferOutput<typeof descriptionPrTypeSchema>[] | undefined {
   const raw = coerceStringArray(value);
   if (!raw) return undefined;
   const mapped = raw.flatMap((item) => {
     const key = item.toLowerCase().replace(/\s+/g, " ");
     const alias = PR_TYPE_ALIASES[key.replace(/ /g, "_")] ?? PR_TYPE_ALIASES[key];
     if (alias) return [alias];
-    const match = descriptionPrTypeSchema.safeParse(item);
-    return match.success ? [match.data] : [];
+    const match = v.safeParse(descriptionPrTypeSchema, item);
+    return match.success ? [match.output] : [];
   });
   return mapped.length > 0 ? [...new Set(mapped)] : undefined;
 }

@@ -1,18 +1,18 @@
-import { z } from "zod";
+import * as v from "valibot";
 import { installationSchema, repositorySchema } from "./common.js";
 
-export const pullRequestWebhookSchema = z.object({
-  action: z.string(),
+export const pullRequestWebhookSchema = v.object({
+  action: v.string(),
   installation: installationSchema,
   repository: repositorySchema,
-  before: z.string().optional(),
-  pull_request: z.object({
-    number: z.number(),
-    head: z.object({
-      sha: z.string(),
+  before: v.optional(v.string()),
+  pull_request: v.object({
+    number: v.number(),
+    head: v.object({
+      sha: v.string(),
     }),
-    merged: z.boolean().optional().default(false),
+    merged: v.optional(v.boolean(), false),
   }),
 });
 
-export type PullRequestWebhookPayload = z.infer<typeof pullRequestWebhookSchema>;
+export type PullRequestWebhookPayload = v.InferOutput<typeof pullRequestWebhookSchema>;

@@ -1,32 +1,34 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
-import { formatZodIssues } from "../../util/formatZodIssues.js";
+import { formatValidationIssues } from "../../util/formatValidationIssues.js";
 import type { SpecialistId } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
-export const specialistBriefSchema = z.object({
-  prIntent: z.string().min(1).max(2000),
-  architectureNotes: z.string().max(6000),
-  riskAreas: z
-    .array(
-      z.object({
-        area: z.string().max(200),
-        files: z.array(z.string()).max(20),
-        reason: z.string().max(500),
+export const specialistBriefSchema = v.object({
+  prIntent: v.pipe(v.string(), v.minLength(1), v.maxLength(2000)),
+  architectureNotes: v.pipe(v.string(), v.maxLength(6000)),
+  riskAreas: v.pipe(
+    v.array(
+      v.object({
+        area: v.pipe(v.string(), v.maxLength(200)),
+        files: v.pipe(v.array(v.string()), v.maxLength(20)),
+        reason: v.pipe(v.string(), v.maxLength(500)),
       }),
-    )
-    .max(12),
-  fileMap: z.string().max(6000),
-  specialistFocus: z.object({
-    correctness: z.string().max(1500),
-    security: z.string().max(1500),
-    quality: z.string().max(1500),
-    tests: z.string().max(1500),
+    ),
+    v.maxLength(12),
+  ),
+  fileMap: v.pipe(v.string(), v.maxLength(6000)),
+  specialistFocus: v.object({
+    correctness: v.pipe(v.string(), v.maxLength(1500)),
+    security: v.pipe(v.string(), v.maxLength(1500)),
+    quality: v.pipe(v.string(), v.maxLength(1500)),
+    tests: v.pipe(v.string(), v.maxLength(1500)),
   }),
 });
 
-export type SpecialistBrief = z.infer<typeof specialistBriefSchema>;
+export type SpecialistBrief = v.InferOutput<typeof specialistBriefSchema>;
 
 export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
   readonly piTool: PiTool;
@@ -40,7 +42,7 @@ export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
   const piTool: PiTool = {
     name: "submit_specialist_brief",
     description: "Submit the structured specialist brief after completing PR reconnaissance.",
-    parameters: z.toJSONSchema(specialistBriefSchema),
+    parameters: toJsonSchema(specialistBriefSchema, { errorMode: "ignore" }),
   };
   const executor: AgentRunnerToolExecutor = async (args) => {
     const gate = assertPhaseToolAllowed(phaseRef.current, "submit_specialist_brief");
@@ -54,12 +56,12 @@ export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
         error: gate.error,
       };
     }
-    const parsed = specialistBriefSchema.safeParse(args);
+    const parsed = v.safeParse(specialistBriefSchema, args);
     if (!parsed.success) {
-      validationError = formatZodIssues(parsed.error, "SpecialistBrief validation failed:");
+      validationError = formatValidationIssues(parsed.issues, "SpecialistBrief validation failed:");
       return { accepted: false, error: validationError };
     }
-    brief = parsed.data;
+    brief = parsed.output;
     validationError = null;
     return { accepted: true };
   };

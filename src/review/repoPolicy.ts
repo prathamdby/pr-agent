@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import { z } from "zod";
+import * as v from "valibot";
 import { logWarn } from "../evlog.js";
 import {
   MAX_REPO_POLICY_BYTES,
@@ -13,12 +13,10 @@ import {
   REPO_POLICY_EXTENSION,
 } from "../settings/index.js";
 
-const frontmatterSchema = z
-  .object({
-    globs: z.union([z.string(), z.array(z.string())]).optional(),
-    alwaysApply: z.boolean().optional(),
-  })
-  .passthrough();
+const frontmatterSchema = v.looseObject({
+  globs: v.optional(v.union([v.string(), v.array(v.string())])),
+  alwaysApply: v.optional(v.boolean()),
+});
 
 type RepoPolicyRule = {
   readonly filename: string;
@@ -108,12 +106,12 @@ function parseMdcContent(
     if (parsed != null && (typeof parsed !== "object" || Array.isArray(parsed))) {
       return { kind: "invalid", reason: "frontmatter must be a mapping" };
     }
-    const validated = frontmatterSchema.safeParse(parsed ?? {});
+    const validated = v.safeParse(frontmatterSchema, parsed ?? {});
     if (!validated.success) {
       return { kind: "invalid", reason: "frontmatter schema validation failed" };
     }
-    alwaysApply = validated.data.alwaysApply;
-    globs = normalizeGlobs(validated.data.globs);
+    alwaysApply = validated.output.alwaysApply;
+    globs = normalizeGlobs(validated.output.globs);
   }
 
   const body = bodyRaw.trim().slice(0, MAX_REPO_POLICY_INSTRUCTION_CHARS);

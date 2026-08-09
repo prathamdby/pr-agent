@@ -1,5 +1,6 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { Pool } from "pg";
+import * as v from "valibot";
 import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
@@ -100,13 +101,13 @@ function parseStoredCommit(value: unknown): TriageCommittedDetail | null {
 export function parseStoredTriagePushDetail(detail: unknown): StoredTriagePushDetail | null {
   if (typeof detail !== "object" || detail == null) return null;
   const entry = detail as Record<string, unknown>;
-  const payload = TriagePayloadSchema.safeParse(entry.payload);
+  const payload = v.safeParse(TriagePayloadSchema, entry.payload);
   if (!payload.success || !Array.isArray(entry.commits)) return null;
   const commits = entry.commits.map(parseStoredCommit);
   if (commits.some((commit) => commit == null)) return null;
   const staleHead = entry.staleHead === true;
   return {
-    payload: payload.data,
+    payload: payload.output,
     commits: commits as TriageCommittedDetail[],
     pushed: !staleHead,
     degraded: staleHead,

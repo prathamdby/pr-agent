@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
@@ -24,8 +25,8 @@ export function createSubmitVerificationState(): SubmitVerificationState {
   };
 }
 
-const SUBMIT_VERIFICATION_PARAMETERS = z.toJSONSchema(VerificationPayloadSchema, {
-  unrepresentable: "any",
+const SUBMIT_VERIFICATION_PARAMETERS = toJsonSchema(VerificationPayloadSchema, {
+  errorMode: "ignore",
 }) as PiTool["parameters"];
 
 export function buildSubmitVerificationTool(params: {
@@ -55,10 +56,10 @@ export function buildSubmitVerificationTool(params: {
       });
       return { ok: true, duplicate: true };
     }
-    const parsed = VerificationPayloadSchema.safeParse(args);
+    const parsed = v.safeParse(VerificationPayloadSchema, args);
     if (!parsed.success) {
-      params.submitState.lastValidationError = parsed.error.issues
-        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      params.submitState.lastValidationError = parsed.issues
+        .map((issue) => `${v.getDotPath(issue) ?? "(root)"}: ${issue.message}`)
         .join("\n");
       throw new AppError({
         code: "verification.validation_failed",
@@ -66,7 +67,7 @@ export function buildSubmitVerificationTool(params: {
       });
     }
     const issues = validateVerificationVerdicts({
-      payload: parsed.data,
+      payload: parsed.output,
       inventory: params.inventory.map((thread) => ({
         threadRootCommentId: thread.rootCommentId,
         hasHumanReplies: thread.humanReplies.length > 0,
@@ -83,7 +84,7 @@ export function buildSubmitVerificationTool(params: {
 
     params.submitState.lastValidationError = null;
     params.submitState.submitted = true;
-    params.submitState.payload = parsed.data;
+    params.submitState.payload = parsed.output;
     return { ok: true };
   };
 
