@@ -152,14 +152,13 @@ export async function executeCodeIndexBuildJob(
     prNumber: data.prNumber,
     installation,
   });
-  const gitCredentialToken = await prSurface.gitCredentialToken();
   await withPrRepositoryView(
     {
       owner: data.owner,
       repo: data.repo,
       prNumber: data.prNumber,
       headSha: data.headSha,
-      installationToken: gitCredentialToken,
+      gitCredentialAuth: () => prSurface.gitCredentialAuth(),
     },
     async (view) => {
       const pathGate = {

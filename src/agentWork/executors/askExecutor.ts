@@ -248,11 +248,14 @@ export async function executeAskJob(
         return status === "degraded" ? { degraded: true } : {};
       }
 
-      const gitCredentialToken = await prSurface.gitCredentialToken();
       return withPrRepositoryView(
         buildRepositoryViewParams(
           item,
-          { installationToken: gitCredentialToken, headSha, pullRequest: env.pullRequest },
+          {
+            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+            headSha,
+            pullRequest: env.pullRequest,
+          },
           payload,
         ),
         async (repositoryView) => {

@@ -1,8 +1,4 @@
-import {
-  isMissingChecksPermissionError,
-  listCheckRunsForHead,
-  listLegacyCommitStatusesForHead,
-} from "../../github/ciStatus.js";
+import { isMissingChecksPermissionError } from "../../github/ciStatus.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import {
   REVIEW_CI_SUMMARY_GRANT_ACTIONS,
@@ -26,8 +22,6 @@ import type {
   CiSummary,
 } from "./ciSummaryTypes.js";
 import type { PrSurface } from "../../github/prSurface.js";
-import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "../../github/actionsLogs.js";
-import { listCheckRunAnnotations } from "../../github/ciStatus.js";
 import { redactReviewText } from "../findings/reviewPublicOutput.js";
 import {
   condenseJobLogText,
@@ -52,11 +46,8 @@ const FAILING_LEGACY_STATES = new Set(["failure", "error"]);
 const PENDING_LEGACY_STATES = new Set(["pending"]);
 
 type BuildCiSummaryOptions = {
-  readonly gitCredential: string;
-  readonly owner: string;
-  readonly repo: string;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
-  readonly gitCredentialExpiresAtTs?: number;
   /** Max failing checks to dig into with logs. */
   readonly maxFailures?: number;
   /** When true, skip log fetch and LLM (progress stub path). */
@@ -77,11 +68,8 @@ type FetchCiLogContextResult = {
 };
 
 async function fetchCiLogContext(options: {
-  readonly gitCredential: string;
-  readonly owner: string;
-  readonly repo: string;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
-  readonly gitCredentialExpiresAtTs?: number;
   readonly failingChecks: readonly CiCheckRunSnapshot[];
   readonly maxFailures?: number;
 }): Promise<FetchCiLogContextResult> {
@@ -97,13 +85,7 @@ async function fetchCiLogContext(options: {
       outputParts.push(`### Check: ${run.name}\n${chunks.join("\n")}`);
     }
     try {
-      const annotations = await listCheckRunAnnotations(
-        options.gitCredential,
-        options.owner,
-        options.repo,
-        run.id,
-        options.gitCredentialExpiresAtTs,
-      );
+      const annotations = await options.prSurface.listCheckRunAnnotations(run.id);
       const failureAnnotations = annotations.filter((a) => a.annotationLevel === "failure");
       for (const annotation of failureAnnotations.slice(0, 5)) {
         const loc =
@@ -121,36 +103,24 @@ async function fetchCiLogContext(options: {
   let jobs: CondensedJobLog[] = [];
   let actionsPermissionMissing = false;
   try {
-    const listed = await listFailingActionsJobsForHead(
-      options.gitCredential,
-      options.owner,
-      options.repo,
-      options.headSha,
-      options.gitCredentialExpiresAtTs,
-    );
+    const listed = await options.prSurface.listFailingActionsJobs(options.headSha);
     if (!listed.ok) {
       actionsPermissionMissing = true;
       logDebug("review_ci_summary_actions_unavailable", {
-        owner: options.owner,
-        repo: options.repo,
+        owner: options.prSurface.owner,
+        repo: options.prSurface.repo,
         reason: "actions_permission",
       });
     } else {
       const selected = listed.jobs.slice(0, REVIEW_CI_SUMMARY_LOG_MAX_JOBS);
       for (const job of selected) {
-        const downloaded = await downloadActionsJobLogs(
-          options.gitCredential,
-          options.owner,
-          options.repo,
-          job.id,
-          options.gitCredentialExpiresAtTs,
-        );
+        const downloaded = await options.prSurface.downloadActionsJobLogs(job.id);
         if (!downloaded.ok) {
           if (downloaded.reason === "actions_permission") {
             actionsPermissionMissing = true;
             logDebug("review_ci_summary_actions_unavailable", {
-              owner: options.owner,
-              repo: options.repo,
+              owner: options.prSurface.owner,
+              repo: options.prSurface.repo,
               reason: "actions_permission",
               jobId: job.id,
             });
@@ -167,8 +137,8 @@ async function fetchCiLogContext(options: {
     }
   } catch (error) {
     logDebug("review_ci_summary_actions_logs_failed", {
-      owner: options.owner,
-      repo: options.repo,
+      owner: options.prSurface.owner,
+      repo: options.prSurface.repo,
       message: error instanceof Error ? error.message : String(error),
     });
     jobs = [];
@@ -204,40 +174,25 @@ function isLegacyFailing(status: CiLegacyStatus): boolean {
 
 async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   try {
-    const [checks, statuses] = await Promise.all([
-      listCheckRunsForHead(
-        options.gitCredential,
-        options.owner,
-        options.repo,
-        options.headSha,
-        options.gitCredentialExpiresAtTs,
-      ),
-      listLegacyCommitStatusesForHead(
-        options.gitCredential,
-        options.owner,
-        options.repo,
-        options.headSha,
-        options.gitCredentialExpiresAtTs,
-      ),
-    ]);
+    const { checkRuns, legacyStatuses } = await options.prSurface.getCiStatus(options.headSha);
     return {
       ok: true,
-      checks: checks.filter((run) => !isOwnCiCheckName(run.name)),
-      statuses: statuses.filter((status) => status.context !== OWN_COMMIT_STATUS_CONTEXT),
+      checks: checkRuns.filter((run) => !isOwnCiCheckName(run.name)),
+      statuses: legacyStatuses.filter((status) => status.context !== OWN_COMMIT_STATUS_CONTEXT),
     };
   } catch (error) {
     if (isMissingChecksPermissionError(error)) {
       logDebug("review_ci_summary_unavailable", {
-        owner: options.owner,
-        repo: options.repo,
+        owner: options.prSurface.owner,
+        repo: options.prSurface.repo,
         prHead: options.headSha,
         reason: "checks_permission",
       });
       return { ok: false, reason: "checks_permission" };
     }
     logWarn("review_ci_summary_fetch_failed", {
-      owner: options.owner,
-      repo: options.repo,
+      owner: options.prSurface.owner,
+      repo: options.prSurface.repo,
       message: error instanceof Error ? error.message : String(error),
     });
     return { ok: false, reason: "fetch_error" };
@@ -379,18 +334,9 @@ function buildAuthorInput(
 
 export async function buildCiSummaryForSurface(
   prSurface: PrSurface,
-  options: Omit<
-    BuildCiSummaryOptions,
-    "gitCredential" | "gitCredentialExpiresAtTs" | "owner" | "repo"
-  >,
+  options: Omit<BuildCiSummaryOptions, "prSurface">,
 ): Promise<CiSummary> {
-  const gitCredential = await prSurface.gitCredentialToken();
-  return buildCiSummary({
-    ...options,
-    gitCredential,
-    owner: prSurface.owner,
-    repo: prSurface.repo,
-  });
+  return buildCiSummary({ ...options, prSurface });
 }
 
 async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
@@ -416,11 +362,8 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
     const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
     const { condensedLogs, checkOutputFallback, actionsPermissionMissing } =
       await fetchCiLogContext({
-        gitCredential: options.gitCredential,
-        owner: options.owner,
-        repo: options.repo,
+        prSurface: options.prSurface,
         headSha: options.headSha,
-        gitCredentialExpiresAtTs: options.gitCredentialExpiresAtTs,
         failingChecks,
         maxFailures,
       });
@@ -439,8 +382,8 @@ async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary
     return withPermissionNote(mergeCiSummaryWithFacts(authorInput, llm), actionsNote);
   } catch (error) {
     logWarn("review_ci_summary_build_failed", {
-      owner: options.owner,
-      repo: options.repo,
+      owner: options.prSurface.owner,
+      repo: options.prSurface.repo,
       message: error instanceof Error ? error.message : String(error),
     });
     return unavailableSummary();

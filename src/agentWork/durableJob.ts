@@ -497,7 +497,8 @@ export async function runDurableWorkItem<T extends WorkType>(
   async function invokeTerminalFailureHook(error: unknown): Promise<void> {
     if (!spec.onTerminalFailure) return;
     try {
-      await spec.onTerminalFailure(item, executionPrSurface, error);
+      const prSurface = executionPrSurface ?? (await prSurfaceForHooks(item));
+      await spec.onTerminalFailure(item, prSurface, error);
     } catch (publishError) {
       logWarn("agent_work_terminal_failure_hook_failed", {
         type: spec.type,

@@ -1,52 +1,31 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListFailingActionsJobsResult } from "../src/github/actionsLogs.js";
 
-const {
-  listCheckRunsForHead,
-  listLegacyCommitStatusesForHead,
-  isMissingChecksPermissionError,
-  listFailingActionsJobsForHead,
-  downloadActionsJobLogs,
-} = vi.hoisted(() => ({
-  listCheckRunsForHead: vi.fn(),
-  listLegacyCommitStatusesForHead: vi.fn(),
-  isMissingChecksPermissionError: vi.fn((_error?: unknown) => false),
-  listFailingActionsJobsForHead: vi.fn(
-    async (): Promise<ListFailingActionsJobsResult> => ({ ok: true, jobs: [] }),
-  ),
-  downloadActionsJobLogs: vi.fn(),
-}));
-
-vi.mock("../src/github/ciStatus.js", () => ({
-  listCheckRunsForHead,
-  listCheckRunAnnotations: vi.fn(async () => []),
-  listLegacyCommitStatusesForHead,
-  isMissingChecksPermissionError,
-}));
-
-vi.mock("../src/github/actionsLogs.js", () => ({
-  listFailingActionsJobsForHead,
-  downloadActionsJobLogs,
-}));
+vi.mock("../src/github/ciStatus.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/ciStatus.js")>();
+  return actual;
+});
 
 import {
   buildCiSummaryForSurface,
   isOwnCiCheckName,
   summarizeCiSnapshot,
 } from "../src/review/ci/analyzeCi.js";
-import { createFakePrSurface } from "../src/github/prSurface.js";
+import { createFakePrSurface, type FakePrSurfaceControls } from "../src/github/prSurface.js";
+import type { CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
 
 function ciSurface() {
-  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { credentialToken: "t" })
-    .surface;
+  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { credentialToken: "t" });
 }
 
 async function buildCiSummary(
   options: Parameters<typeof buildCiSummaryForSurface>[1] & { headSha: string },
+  setup?: (controls: FakePrSurfaceControls) => void,
 ) {
-  return buildCiSummaryForSurface(ciSurface(), options);
+  const { surface, controls } = ciSurface();
+  setup?.(controls);
+  return buildCiSummaryForSurface(surface, options);
 }
-import type { CiSummaryAuthor } from "../src/review/ci/authorCiSummary.js";
 
 const mockAuthor: CiSummaryAuthor = async (input) => ({
   headline: `❌ CI failing — ${input.failingNames.join(", ")}`,
@@ -61,13 +40,7 @@ const mockAuthor: CiSummaryAuthor = async (input) => ({
 
 describe("analyzeCi", () => {
   beforeEach(() => {
-    listCheckRunsForHead.mockReset();
-    listLegacyCommitStatusesForHead.mockReset();
-    isMissingChecksPermissionError.mockReset();
-    isMissingChecksPermissionError.mockReturnValue(false);
-    listFailingActionsJobsForHead.mockReset();
-    downloadActionsJobLogs.mockReset();
-    listFailingActionsJobsForHead.mockResolvedValue({ ok: true, jobs: [] });
+    // per-test setup via buildCiSummary helper
   });
 
   it("recognizes PR Agent owned check names", () => {
@@ -118,67 +91,70 @@ describe("analyzeCi", () => {
   });
 
   it("authors failing CI from condensed logs via injected author", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
+    const summary = await buildCiSummary(
       {
-        id: 10,
-        name: "PR Agent Review",
-        status: "in_progress",
-        conclusion: null,
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: null,
+        headSha: "abc",
+        waitMs: 0,
+        author: mockAuthor,
       },
-      {
-        id: 11,
-        name: "lint",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: "https://example.com/lint",
-        outputTitle: "Lint",
-        outputSummary: null,
-        outputText: null,
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 10,
+              name: "PR Agent Review",
+              status: "in_progress",
+              conclusion: null,
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+            {
+              id: 11,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: "https://example.com/lint",
+              outputTitle: "Lint",
+              outputSummary: null,
+              outputText: null,
+            },
+          ],
+          legacyStatuses: [],
+        });
+        controls.setFailingJobs("abc", [
+          { id: 1, name: "lint", conclusion: "failure", htmlUrl: null },
+        ]);
+        controls.setJobLogs(1, "Format issues found in above 1 files.");
       },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listFailingActionsJobsForHead.mockResolvedValueOnce({
-      ok: true,
-      jobs: [{ id: 1, name: "lint", conclusion: "failure" as const, htmlUrl: null }],
-    });
-    downloadActionsJobLogs.mockResolvedValueOnce({
-      ok: true,
-      text: "Format issues found in above 1 files.",
-    });
-
-    const summary = await buildCiSummary({
-      headSha: "abc",
-      waitMs: 0,
-      author: mockAuthor,
-    });
+    );
 
     expect(summary.status).toBe("failing");
     expect(summary.headline).toContain("lint");
     expect(summary.failures).toHaveLength(1);
     expect(summary.failures[0]?.reason).toContain("Format issues");
-    expect(listFailingActionsJobsForHead).toHaveBeenCalled();
   });
 
   it("skips log fetch and LLM in lightweight mode", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
-      {
-        id: 11,
-        name: "unit",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: "1 failed",
-        outputText: null,
-      },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    const { surface, controls } = ciSurface();
+    controls.setCiStatus("abc", {
+      checkRuns: [
+        {
+          id: 11,
+          name: "unit",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "1 failed",
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
 
-    const summary = await buildCiSummary({
+    const summary = await buildCiSummaryForSurface(surface, {
       headSha: "abc",
       lightweight: true,
       waitMs: 0,
@@ -187,39 +163,44 @@ describe("analyzeCi", () => {
 
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(0);
-    expect(listFailingActionsJobsForHead).not.toHaveBeenCalled();
+    expect(controls.events.filter((e) => e.kind === "listFailingActionsJobs")).toHaveLength(0);
   });
 
   it("lightweight mode still lists failing check names in headline", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
+    const summary = await buildCiSummary(
       {
-        id: 1,
-        name: "build",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: null,
+        headSha: "abc",
+        lightweight: true,
+        waitMs: 0,
       },
-      {
-        id: 2,
-        name: "lint",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: null,
-        outputText: null,
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 1,
+              name: "build",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+            {
+              id: 2,
+              name: "lint",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: null,
+              outputTitle: null,
+              outputSummary: null,
+              outputText: null,
+            },
+          ],
+          legacyStatuses: [],
+        });
       },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-
-    const summary = await buildCiSummary({
-      headSha: "abc",
-      lightweight: true,
-      waitMs: 0,
-    });
+    );
 
     expect(summary.status).toBe("failing");
     expect(summary.headline).toContain("build");
@@ -228,21 +209,24 @@ describe("analyzeCi", () => {
   });
 
   it("uses facts-only failures when author is omitted", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
-      {
-        id: 1,
-        name: "build",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: "build broke",
-        outputText: null,
-      },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
+    const { surface, controls } = ciSurface();
+    controls.setCiStatus("abc", {
+      checkRuns: [
+        {
+          id: 1,
+          name: "build",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "build broke",
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
 
-    const summary = await buildCiSummary({
+    const summary = await buildCiSummaryForSurface(surface, {
       headSha: "abc",
       waitMs: 0,
     });
@@ -250,30 +234,34 @@ describe("analyzeCi", () => {
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(1);
     expect(summary.failures[0]?.reason).toContain("unavailable");
-    expect(listFailingActionsJobsForHead).toHaveBeenCalled();
+    expect(controls.events.some((e) => e.kind === "listFailingActionsJobs")).toBe(true);
   });
 
   it("prefers condensed format failure over Node deprecation in author input", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
+    const summary = await buildCiSummary(
       {
-        id: 11,
-        name: "check",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: "https://example.com/check",
-        outputTitle: null,
-        outputSummary: null,
-        outputText: "Format issues found",
+        headSha: "abc",
+        waitMs: 0,
+        author: mockAuthor,
       },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listFailingActionsJobsForHead.mockResolvedValueOnce({ ok: true, jobs: [] });
-
-    const summary = await buildCiSummary({
-      headSha: "abc",
-      waitMs: 0,
-      author: mockAuthor,
-    });
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [
+            {
+              id: 11,
+              name: "check",
+              status: "completed",
+              conclusion: "failure",
+              htmlUrl: "https://example.com/check",
+              outputTitle: null,
+              outputSummary: null,
+              outputText: "Format issues found",
+            },
+          ],
+          legacyStatuses: [],
+        });
+      },
+    );
 
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(1);
@@ -282,41 +270,39 @@ describe("analyzeCi", () => {
   });
 
   it("polls until CI transitions from pending to passing", async () => {
-    listCheckRunsForHead
-      .mockResolvedValueOnce([
-        {
-          id: 1,
-          name: "ci",
-          status: "in_progress",
-          conclusion: null,
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ])
-      .mockResolvedValueOnce([
-        {
-          id: 1,
-          name: "ci",
-          status: "completed",
-          conclusion: "success",
-          htmlUrl: null,
-          outputTitle: null,
-          outputSummary: null,
-          outputText: null,
-        },
-      ]);
-    listLegacyCommitStatusesForHead.mockResolvedValue([]);
+    const { surface, controls } = ciSurface();
+    let poll = 0;
+    const pendingRun = {
+      id: 1,
+      name: "ci",
+      status: "in_progress" as const,
+      conclusion: null,
+      htmlUrl: null,
+      outputTitle: null,
+      outputSummary: null,
+      outputText: null,
+    };
+    const passingRun = {
+      ...pendingRun,
+      status: "completed" as const,
+      conclusion: "success" as const,
+    };
+    const originalGetCiStatus = surface.getCiStatus.bind(surface);
+    vi.spyOn(surface, "getCiStatus").mockImplementation(async (headSha) => {
+      poll += 1;
+      const checkRuns = poll === 1 ? [pendingRun] : [passingRun];
+      controls.setCiStatus(headSha, { checkRuns, legacyStatuses: [] });
+      return originalGetCiStatus(headSha);
+    });
 
-    const summary = await buildCiSummary({
+    const summary = await buildCiSummaryForSurface(surface, {
       headSha: "abc",
       waitMs: 500,
       waitPollMs: 50,
     });
 
     expect(summary.status).toBe("passing");
-    expect(listCheckRunsForHead).toHaveBeenCalledTimes(2);
+    expect(poll).toBeGreaterThanOrEqual(2);
   });
 
   it("truncates failing headline after three check names", () => {
@@ -371,16 +357,27 @@ describe("analyzeCi", () => {
     expect(summary.headline).not.toContain("d");
   });
 
-  it("asks to grant Checks Read when Checks permission is missing", async () => {
-    listCheckRunsForHead.mockRejectedValueOnce(
-      Object.assign(new Error("Not Found"), { status: 404 }),
-    );
-    isMissingChecksPermissionError.mockReturnValue(true);
-
-    const summary = await buildCiSummary({
-      headSha: "abc",
-      waitMs: 0,
+  it("propagates permission errors from fake getCiStatus", async () => {
+    const { surface, controls } = ciSurface();
+    const err = Object.assign(new Error("Resource not accessible by integration"), {
+      status: 403,
     });
+    controls.setCiStatusError(err);
+    await expect(surface.getCiStatus("abc")).rejects.toBe(err);
+  });
+
+  it("asks to grant Checks Read when Checks permission is missing", async () => {
+    const summary = await buildCiSummary(
+      {
+        headSha: "abc",
+        waitMs: 0,
+      },
+      (controls) => {
+        controls.setCiStatusError(
+          Object.assign(new Error("Resource not accessible by integration"), { status: 403 }),
+        );
+      },
+    );
 
     expect(summary.status).toBe("unavailable");
     expect(summary.headline).toMatch(/Checks to Read/i);
@@ -388,25 +385,29 @@ describe("analyzeCi", () => {
   });
 
   it("attaches an Actions Read grant note when job logs are blocked", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([
-      {
-        id: 11,
-        name: "lint",
-        status: "completed",
-        conclusion: "failure",
-        htmlUrl: null,
-        outputTitle: null,
-        outputSummary: "Format issues found",
-        outputText: null,
-      },
-    ]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([]);
-    listFailingActionsJobsForHead.mockResolvedValueOnce({
-      ok: false,
-      reason: "actions_permission",
+    const { surface, controls } = ciSurface();
+    controls.setCiStatus("abc", {
+      checkRuns: [
+        {
+          id: 11,
+          name: "lint",
+          status: "completed",
+          conclusion: "failure",
+          htmlUrl: null,
+          outputTitle: null,
+          outputSummary: "Format issues found",
+          outputText: null,
+        },
+      ],
+      legacyStatuses: [],
+    });
+    const originalListJobs = surface.listFailingActionsJobs.bind(surface);
+    vi.spyOn(surface, "listFailingActionsJobs").mockImplementation(async (_headSha) => {
+      const result: ListFailingActionsJobsResult = { ok: false, reason: "actions_permission" };
+      return result;
     });
 
-    const summary = await buildCiSummary({
+    const summary = await buildCiSummaryForSurface(surface, {
       headSha: "abc",
       waitMs: 0,
       author: mockAuthor,
@@ -415,40 +416,45 @@ describe("analyzeCi", () => {
     expect(summary.status).toBe("failing");
     expect(summary.permissionNote).toMatch(/Actions to Read/i);
     expect(summary.failures[0]?.reason).toContain("Format issues");
+    void originalListJobs;
   });
 
   it("authors legacy commit status failures from facts + author", async () => {
-    listCheckRunsForHead.mockResolvedValueOnce([]);
-    listLegacyCommitStatusesForHead.mockResolvedValueOnce([
+    const summary = await buildCiSummary(
       {
-        context: "ci/travis",
-        state: "failure",
-        description: "The Travis CI build failed",
-        targetUrl: "https://travis.example/1",
+        headSha: "abc",
+        waitMs: 0,
+        author: async () => ({
+          headline: "❌ CI failing — ci/travis",
+          failures: [
+            {
+              name: "ci/travis",
+              reason: "The Travis CI build failed",
+              fixHint: "Inspect Travis and re-push.",
+            },
+          ],
+        }),
       },
-      {
-        context: "pr-agent/review",
-        state: "failure",
-        description: "should be ignored",
-        targetUrl: null,
+      (controls) => {
+        controls.setCiStatus("abc", {
+          checkRuns: [],
+          legacyStatuses: [
+            {
+              context: "ci/travis",
+              state: "failure",
+              description: "The Travis CI build failed",
+              targetUrl: "https://travis.example/1",
+            },
+            {
+              context: "pr-agent/review",
+              state: "failure",
+              description: "should be ignored",
+              targetUrl: null,
+            },
+          ],
+        });
       },
-    ]);
-    listFailingActionsJobsForHead.mockResolvedValueOnce({ ok: true, jobs: [] });
-
-    const summary = await buildCiSummary({
-      headSha: "abc",
-      waitMs: 0,
-      author: async () => ({
-        headline: "❌ CI failing — ci/travis",
-        failures: [
-          {
-            name: "ci/travis",
-            reason: "The Travis CI build failed",
-            fixHint: "Inspect Travis and re-push.",
-          },
-        ],
-      }),
-    });
+    );
 
     expect(summary.status).toBe("failing");
     expect(summary.failures).toHaveLength(1);

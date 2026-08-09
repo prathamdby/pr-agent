@@ -70,7 +70,7 @@ const params = {
   repo: "r",
   prNumber: 1,
   headSha: "h".repeat(40),
-  installationToken: "t",
+  gitCredentialAuth: async () => ({ token: "t", expiresAtTs: Date.now() + 3_600_000 }),
 };
 const prFiles = {
   files: [],

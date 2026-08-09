@@ -1,4 +1,4 @@
-import { logInfo } from "../../evlog.js";
+import { logInfo, logWarn } from "../../evlog.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
@@ -24,8 +24,6 @@ import {
   getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
-import { logWarn } from "../../evlog.js";
-
 export type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 
 export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
@@ -84,15 +82,15 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   }
 
   return runWithRateLimitCircuit(circuit, async () => {
-    const { refreshableGh } = buildAskRunSetup(params);
+    const { bundle } = buildAskRunSetup(params);
 
     const ctx7 = buildContext7Tools({
       apiKey: cfg.context7ApiKey,
       maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
     });
-    const tools = [...refreshableGh.bundle.piTools, ...ctx7.piTools];
+    const tools = [...bundle.piTools, ...ctx7.piTools];
     const executors = wrapExecutorsWithRateLimitCircuit({
-      ...refreshableGh.bundle.executors,
+      ...bundle.executors,
       ...ctx7.executors,
     });
 
@@ -103,7 +101,6 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       systemPrompt: buildAskSystemPrompt(),
       tools,
       executors,
-      refreshBeforeTool: refreshableGh.refreshBeforeTool,
       durability: params.durability,
     });
 

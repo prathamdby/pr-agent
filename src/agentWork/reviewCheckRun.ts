@@ -155,10 +155,9 @@ async function recoverStaleReservationOrWaitForPeer(
   return { kind: "resolved", githubId };
 }
 
-async function createGithubCheckRunOrRecoverDuplicate(
+async function createGithubCheckRunOnSurface(
   pool: Pool,
   params: EnsureReviewCheckRunParams,
-  name: string,
 ): Promise<GithubCheckRunRef | null> {
   try {
     return await params.prSurface.startReviewCheck(
@@ -166,25 +165,18 @@ async function createGithubCheckRunOrRecoverDuplicate(
       params.workItemId,
       "PR Agent review is in progress.",
     );
-  } catch (e) {
-    return recoverDuplicateCheckRunAfter422(pool, params, name, e);
-  }
-}
-
-/** GitHub rejects duplicate check-run names with a 422; look up the existing run instead of failing. */
-async function recoverDuplicateCheckRunAfter422(
-  pool: Pool,
-  params: EnsureReviewCheckRunParams,
-  name: string,
-  createError: unknown,
-): Promise<GithubCheckRunRef | null> {
-  if (httpStatus(createError) !== 422) {
+  } catch (createError) {
+    // Duplicate-name 422 recovery lives in prSurfaceImpl.startReviewCheck.
     await releaseUnstartedReviewCheckRunReservation(pool, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
       reviewLens: params.reviewLens,
     });
-    logCheckRunWarning("review_check_run_start_failed", createError, {
+    const event =
+      httpStatus(createError) === 422
+        ? "review_check_run_start_duplicate_unresolved"
+        : "review_check_run_start_failed";
+    logCheckRunWarning(event, createError, {
       owner: params.owner,
       repo: params.repo,
       pr: params.prNumber,
@@ -192,18 +184,6 @@ async function recoverDuplicateCheckRunAfter422(
     });
     return null;
   }
-  await releaseUnstartedReviewCheckRunReservation(pool, {
-    workItemId: params.workItemId,
-    resourceKey: params.resourceKey,
-    reviewLens: params.reviewLens,
-  });
-  logCheckRunWarning("review_check_run_duplicate_lookup_failed", createError, {
-    owner: params.owner,
-    repo: params.repo,
-    pr: params.prNumber,
-    reviewLens: params.reviewLens,
-  });
-  return null;
 }
 
 async function cancelOrphanedCheckRunAfterRecordFailure(
@@ -281,7 +261,7 @@ export async function ensureReviewCheckRunStarted(
   if (reservation.kind === "existing") return reservation.githubId;
   if (reservation.kind === "resolved") return reservation.githubId;
 
-  const check = await createGithubCheckRunOrRecoverDuplicate(pool, params, name);
+  const check = await createGithubCheckRunOnSurface(pool, params);
   if (check == null) return null;
 
   return recordCreatedCheckRunOrCleanup(pool, params, name, check);

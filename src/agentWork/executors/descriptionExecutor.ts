@@ -34,11 +34,14 @@ export async function executeDescriptionJob(
       const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
-      const gitCredentialToken = await prSurface.gitCredentialToken();
       return withPrRepositoryView(
         buildRepositoryViewParams(
           item,
-          { installationToken: gitCredentialToken, headSha, pullRequest: env.pullRequest },
+          {
+            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+            headSha,
+            pullRequest: env.pullRequest,
+          },
           payload,
         ),
         async (repositoryView) => {

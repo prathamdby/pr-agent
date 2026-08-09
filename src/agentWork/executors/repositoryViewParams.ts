@@ -10,7 +10,10 @@ type WorkItemIdentity = {
 type RepositoryViewEnv = {
   readonly headSha: string;
   readonly pullRequest?: PullRequestForFileList;
-  readonly installationToken: string;
+  readonly gitCredentialAuth: () => Promise<{
+    readonly token: string;
+    readonly expiresAtTs: number;
+  }>;
 };
 
 type RepositoryViewPayload = {
@@ -28,7 +31,7 @@ export function buildRepositoryViewParams(
     repo: item.repo,
     prNumber: item.prNumber,
     headSha: env.headSha,
-    installationToken: env.installationToken,
+    gitCredentialAuth: env.gitCredentialAuth,
     pullRequest: env.pullRequest,
     repositorySizeKb: payload.repositorySizeKb,
     ...(extra?.prFiles !== undefined ? { prFiles: extra.prFiles } : {}),

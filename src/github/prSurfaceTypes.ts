@@ -12,7 +12,11 @@ import type { DownloadActionsJobLogsResult, ListFailingActionsJobsResult } from 
 import type { ListReviewThreadResolutionResult } from "./reviewThreadResolution.js";
 import type { InlineReviewComment, ReviewCheckRunConclusion } from "./reviewPublish.js";
 import type { RateLimitCircuit } from "./rateLimitCircuit.js";
-import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
+import type {
+  CiCheckAnnotation,
+  CiCheckRunSnapshot,
+  CiLegacyStatus,
+} from "../review/ci/ciSummaryTypes.js";
 import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import type { GithubReactionContent } from "../settings/index.js";
@@ -30,7 +34,7 @@ export type PullRequestHeadResolution = {
 export type PostedReply = { readonly commentId: number };
 export type IssueCommentRef = {
   readonly id: number;
-  readonly url?: string;
+  readonly url: string;
   readonly body?: string;
 };
 export type ProgressCommentUpsert = { readonly id: number; readonly updated: boolean };
@@ -169,6 +173,8 @@ export type PrSurface = {
   getCiStatus(headSha: string): Promise<CiStatusSnapshot>;
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;
+  listCheckRunAnnotations(checkRunId: number): Promise<readonly CiCheckAnnotation[]>;
+  gitCredentialAuth(): Promise<{ readonly token: string; readonly expiresAtTs: number }>;
   gitCredentialToken(): Promise<string>;
   listConversationComments(): Promise<readonly PrConversationComment[]>;
   listInlineReviewComments(): Promise<readonly PrConversationComment[]>;

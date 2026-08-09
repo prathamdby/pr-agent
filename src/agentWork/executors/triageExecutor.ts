@@ -506,13 +506,14 @@ async function runFreshTriageAgent(params: {
     step: "commit_identity",
     source: commitAttribution.source,
   });
+  const { token } = await params.prSurface.gitCredentialAuth();
   return withWritablePrCheckout(
     {
       owner: params.item.owner,
       repo: params.item.repo,
       headRef: params.headRef,
       headSha: params.headSha,
-      installationToken: await params.prSurface.gitCredentialToken(),
+      installationToken: token,
       botIdentity: params.botIdentity,
       commitAttribution,
     },

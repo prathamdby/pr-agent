@@ -9,16 +9,13 @@ export function buildAskRunSetup(params: AskRunParams) {
     pathGate.addPaths(extraAllowedPaths);
   }
 
-  const refreshableGh = {
-    bundle: buildLocalWorkspaceTools(params.workspace, {
-      pathGate,
-      extraAllowedPaths,
-    }),
-    refreshBeforeTool: async () => undefined,
-  };
+  const bundle = buildLocalWorkspaceTools(params.workspace, {
+    pathGate,
+    extraAllowedPaths,
+  });
 
   return {
-    refreshableGh,
+    bundle,
     pathGate,
   };
 }

@@ -1,11 +1,15 @@
 import { getAppBotIdentity, installationOctokit } from "./appAuth.js";
 import type { InstallationToken } from "./appAuth.js";
-import { logDebug } from "../evlog.js";
+import { logDebug, logWarn } from "../evlog.js";
 import { mintInstallationToken } from "./installationToken.js";
 import { isInstallationTokenNearExpiry } from "./installationTokenExpiry.js";
 import { downloadActionsJobLogs, listFailingActionsJobsForHead } from "./actionsLogs.js";
 import { listCommitCompareFiles } from "./compareCommitFiles.js";
-import { listCheckRunsForHead, listLegacyCommitStatusesForHead } from "./ciStatus.js";
+import {
+  listCheckRunsForHead,
+  listCheckRunAnnotations,
+  listLegacyCommitStatusesForHead,
+} from "./ciStatus.js";
 import { fetchPullRequestFiles, type PullRequestForFileList } from "./listPullRequestFiles.js";
 import { createRateLimitCircuit } from "./rateLimitCircuit.js";
 import { httpStatus } from "./httpStatus.js";
@@ -31,6 +35,7 @@ import {
 import { withTransientReviewRetry } from "./reviewPublishRetry.js";
 import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
 import { paginateOctokitPages } from "./paginateOctokit.js";
+import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { mergeDescriptionIntoPrBody } from "../agent/description/descriptionBodyMerge.js";
 import { renderDescriptionAgentBlock } from "../agent/description/descriptionRender.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
@@ -473,11 +478,17 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
   async function ensureBotUserId(): Promise<number | undefined> {
     if (botIdentityLoaded) return botUserId;
-    botIdentityLoaded = true;
     try {
       const bot = await getAppBotIdentity(cfg);
       botUserId = bot.userId;
-    } catch {
+      botIdentityLoaded = true;
+    } catch (error) {
+      logWarn("pr_surface_bot_identity_failed", {
+        installationId,
+        owner,
+        repo,
+        message: sanitizeLogMessage(error instanceof Error ? error.message : String(error)),
+      });
       botUserId = undefined;
     }
     return botUserId;
@@ -540,9 +551,7 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     async upsertProgressComment(body, sentinel, knownExisting) {
       const { token, expiresAtTs } = await ensureAuth();
       const mappedKnown =
-        knownExisting == null
-          ? knownExisting
-          : { id: knownExisting.id, url: knownExisting.url ?? "" };
+        knownExisting == null ? knownExisting : { id: knownExisting.id, url: knownExisting.url };
       return upsertReviewSummaryComment(
         token,
         owner,
@@ -699,6 +708,15 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     async downloadActionsJobLogs(jobId) {
       const { token, expiresAtTs } = await ensureAuth();
       return downloadActionsJobLogs(token, owner, repo, jobId, expiresAtTs);
+    },
+
+    async listCheckRunAnnotations(checkRunId) {
+      const { token, expiresAtTs } = await ensureAuth();
+      return listCheckRunAnnotations(token, owner, repo, checkRunId, expiresAtTs);
+    },
+
+    async gitCredentialAuth() {
+      return ensureAuth();
     },
 
     async gitCredentialToken() {

@@ -107,11 +107,14 @@ export async function executeVerificationJob(
         });
       }
 
-      const gitCredentialToken = await prSurface.gitCredentialToken();
       const result = await withPrRepositoryView(
         buildRepositoryViewParams(
           item,
-          { installationToken: gitCredentialToken, headSha, pullRequest: env.pullRequest },
+          {
+            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+            headSha,
+            pullRequest: env.pullRequest,
+          },
           payload,
           { prFiles },
         ),

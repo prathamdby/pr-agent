@@ -31,8 +31,10 @@ export type PreparePrRepositoryViewParams = {
   readonly repo: string;
   readonly prNumber: number;
   readonly headSha: string;
-  readonly installationToken: string;
-  readonly installationExpiresAtTs?: number;
+  readonly gitCredentialAuth: () => Promise<{
+    readonly token: string;
+    readonly expiresAtTs: number;
+  }>;
   readonly prFiles?: ListPullRequestFilesResult;
   readonly pullRequest?: PullRequestForFileList;
   readonly repositorySizeKb?: number;
@@ -76,10 +78,11 @@ function cacheKey(
 async function prepareUncached(
   params: PreparePrRepositoryViewParams,
 ): Promise<CachedPrRepositoryView> {
+  const { token, expiresAtTs } = await params.gitCredentialAuth();
   const prFiles =
     params.prFiles ??
     (await fetchPullRequestFiles(
-      params.installationToken,
+      token,
       params.owner,
       params.repo,
       params.prNumber,
@@ -88,7 +91,7 @@ async function prepareUncached(
         maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
       },
       params.pullRequest,
-      params.installationExpiresAtTs,
+      expiresAtTs,
     ));
   assertPullRequestFilesHeadSha(prFiles, params.headSha);
   const workspace = await prepareLocalPrWorkspace({
@@ -96,7 +99,7 @@ async function prepareUncached(
     repo: params.repo,
     prNumber: params.prNumber,
     headSha: params.headSha,
-    installationToken: params.installationToken,
+    installationToken: token,
     prFiles,
     repositorySizeKb: params.repositorySizeKb,
   });

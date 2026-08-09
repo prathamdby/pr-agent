@@ -22,6 +22,7 @@ import type {
 } from "./prSurfaceTypes.js";
 import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { BotFindingThread } from "../review/run/reviewPriorFeedback.js";
+import type { CiCheckRunSnapshot, CiLegacyStatus } from "../review/ci/ciSummaryTypes.js";
 
 export type FakePrSurfaceEvent =
   | { readonly kind: "getHead" }
@@ -42,7 +43,7 @@ export type FakePrSurfaceEvent =
       readonly kind: "upsertProgressComment";
       readonly body: string;
       readonly sentinel: string;
-      readonly knownExisting?: { readonly id: number; readonly url?: string } | null;
+      readonly knownExisting?: { readonly id: number; readonly url: string } | null;
     }
   | { readonly kind: "listPullRequestReviewComments" }
   | {
@@ -79,6 +80,8 @@ export type FakePrSurfaceEvent =
   | { readonly kind: "getCiStatus"; readonly headSha: string }
   | { readonly kind: "listFailingActionsJobs"; readonly headSha: string }
   | { readonly kind: "downloadActionsJobLogs"; readonly jobId: number }
+  | { readonly kind: "listCheckRunAnnotations"; readonly checkRunId: number }
+  | { readonly kind: "gitCredentialAuth" }
   | { readonly kind: "gitCredentialToken" }
   | { readonly kind: "listConversationComments" }
   | { readonly kind: "listInlineReviewComments" }
@@ -102,6 +105,18 @@ export type FakePrSurfaceControls = {
   readonly setLabels: (labels: readonly string[]) => void;
   readonly setRateLimitOpen: (open: boolean) => void;
   readonly setCredentialToken: (token: string) => void;
+  readonly setCredentialAuth: (auth: {
+    readonly token: string;
+    readonly expiresAtTs: number;
+  }) => void;
+  readonly setCiStatus: (
+    headSha: string,
+    status: {
+      readonly checkRuns: readonly CiCheckRunSnapshot[];
+      readonly legacyStatuses: readonly CiLegacyStatus[];
+    },
+  ) => void;
+  readonly setCiStatusError: (error: unknown) => void;
   readonly setProgressComment: (sentinel: string, body: string, id?: number) => void;
   readonly getProgressComment: (
     sentinel: string,
@@ -192,12 +207,21 @@ export function createFakePrSurface(
   let pullRequest = options?.pullRequest ?? defaultPullRequest(headSha);
   const issueComments = new Map<
     number,
-    { readonly id: number; readonly body: string; readonly url?: string }
+    { readonly id: number; readonly body: string; readonly url: string }
   >();
   const progressBySentinel = new Map<string, number>();
   let labels = [...(options?.labels ?? [])];
   let rateLimitOpen = options?.rateLimitOpen ?? false;
   let credentialToken = options?.credentialToken ?? "fake-git-token";
+  let credentialExpiresAtTs = Date.now() + 3_600_000;
+  let ciStatusError: unknown;
+  const ciStatusByHead = new Map<
+    string,
+    {
+      readonly checkRuns: CiCheckRunSnapshot[];
+      readonly legacyStatuses: CiLegacyStatus[];
+    }
+  >();
   const threads = new Map<number, ReviewThreadResolution>();
   const checkRuns = new Map<number, { readonly id: number; readonly url: string | null }>();
   const failingJobsByHead = new Map<
@@ -269,6 +293,20 @@ export function createFakePrSurface(
     },
     setCredentialToken(token) {
       credentialToken = token;
+    },
+    setCredentialAuth(auth) {
+      credentialToken = auth.token;
+      credentialExpiresAtTs = auth.expiresAtTs;
+    },
+    setCiStatus(head, status) {
+      ciStatusByHead.set(head, {
+        checkRuns: [...status.checkRuns],
+        legacyStatuses: [...status.legacyStatuses],
+      });
+      ciStatusError = undefined;
+    },
+    setCiStatusError(error) {
+      ciStatusError = error;
     },
     setProgressComment(sentinel, body, id) {
       const commentId = id ?? nextCommentId++;
@@ -541,7 +579,8 @@ export function createFakePrSurface(
 
     async getCiStatus(headShaArg) {
       events.push({ kind: "getCiStatus", headSha: headShaArg });
-      return { checkRuns: [], legacyStatuses: [] };
+      if (ciStatusError != null) throw ciStatusError;
+      return ciStatusByHead.get(headShaArg) ?? { checkRuns: [], legacyStatuses: [] };
     },
 
     async listFailingActionsJobs(headShaArg) {
@@ -559,9 +598,19 @@ export function createFakePrSurface(
       return { ok: true as const, text };
     },
 
+    async listCheckRunAnnotations(checkRunId) {
+      events.push({ kind: "listCheckRunAnnotations", checkRunId });
+      return [];
+    },
+
+    async gitCredentialAuth() {
+      events.push({ kind: "gitCredentialAuth" });
+      return { token: credentialToken, expiresAtTs: credentialExpiresAtTs };
+    },
+
     async gitCredentialToken() {
       events.push({ kind: "gitCredentialToken" });
-      return credentialToken;
+      return (await this.gitCredentialAuth()).token;
     },
 
     async listConversationComments() {

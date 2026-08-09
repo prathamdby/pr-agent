@@ -798,12 +798,15 @@ export async function executeReviewJob(
           message: error instanceof Error ? error.message : String(error),
         });
       }
-      const gitCredentialToken = await prSurface.gitCredentialToken();
       return runWithRateLimitCircuit(rateLimitCircuit, () =>
         withPrRepositoryView(
           buildRepositoryViewParams(
             item,
-            { installationToken: gitCredentialToken, headSha, pullRequest: env.pullRequest },
+            {
+              gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+              headSha,
+              pullRequest: env.pullRequest,
+            },
             payload,
             { prFiles: lightweight.prefetchedPrFiles },
           ),

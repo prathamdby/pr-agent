@@ -79,7 +79,7 @@ async function resolveKnownSummaryCommentRef(
   hintCommentId: number | null | undefined,
 ): Promise<{ id: number; url: string } | null> {
   const resolved = await prSurface.resolveProgressComment(sentinel, hintCommentId);
-  return resolved ? { id: resolved.id, url: resolved.url ?? "" } : null;
+  return resolved ? { id: resolved.id, url: resolved.url } : null;
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -417,7 +417,7 @@ export async function publishReviewSummaryOnly(params: {
       params.progressCommentIdHint,
     );
     knownSummaryCommentRef = resolvedSummary
-      ? { id: resolvedSummary.id, url: resolvedSummary.url ?? "" }
+      ? { id: resolvedSummary.id, url: resolvedSummary.url }
       : null;
   }
 
