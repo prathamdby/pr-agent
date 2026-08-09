@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   coerceDescriptionPayloadInput,
@@ -6,7 +7,7 @@ import {
 
 describe("descriptionSchema", () => {
   it("accepts minimal valid payload", () => {
-    const parsed = descriptionPayloadSchema.safeParse({
+    const parsed = v.safeParse(descriptionPayloadSchema, {
       title: "Fix session handling",
       type: ["Bug fix"],
       description: "- Validate cookie\n- Reject expired tokens",
@@ -29,16 +30,16 @@ describe("descriptionSchema", () => {
         ],
       },
     });
-    const parsed = descriptionPayloadSchema.safeParse(coerced);
+    const parsed = v.safeParse(descriptionPayloadSchema, coerced);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.prFiles?.[0]?.filename).toBe("src/metrics.ts");
-      expect(parsed.data.type).toContain("Enhancement");
+      expect(parsed.output.prFiles?.[0]?.filename).toBe("src/metrics.ts");
+      expect(parsed.output.type).toContain("Enhancement");
     }
   });
 
   it("accepts read-first entries with only filename and changesTitle", () => {
-    const parsed = descriptionPayloadSchema.safeParse({
+    const parsed = v.safeParse(descriptionPayloadSchema, {
       title: "Auth hardening",
       type: ["Enhancement"],
       description: "- Tighten session checks",
@@ -59,10 +60,10 @@ describe("descriptionSchema", () => {
       description: "- d",
       prFiles: [{ filename: "src/a.ts", reason: "Open this first for the data path" }],
     });
-    const parsed = descriptionPayloadSchema.safeParse(coerced);
+    const parsed = v.safeParse(descriptionPayloadSchema, coerced);
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data.prFiles?.[0]?.changesTitle).toBe("Open this first for the data path");
+      expect(parsed.output.prFiles?.[0]?.changesTitle).toBe("Open this first for the data path");
     }
   });
 });

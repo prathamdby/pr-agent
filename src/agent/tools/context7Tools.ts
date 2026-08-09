@@ -1,34 +1,37 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 
 import { AppError } from "../../errors/appError.js";
 import { CONTEXT7_BASE_URL } from "../../settings/index.js";
 import { capTextOutput } from "./toolOutputBudget.js";
 
-const resolveLibraryIdSchema = z.object({
-  libraryName: z
-    .string()
-    .describe("Third-party library name to resolve, e.g. 'react', 'next.js', 'zod'."),
-  query: z
-    .string()
-    .optional()
-    .describe(
+const resolveLibraryIdSchema = v.object({
+  libraryName: v.pipe(
+    v.string(),
+    v.description("Third-party library name to resolve, e.g. 'react', 'next.js', 'zod'."),
+  ),
+  query: v.pipe(
+    v.optional(v.string()),
+    v.description(
       "Optional ranking query; defaults to libraryName. Use to disambiguate when several packages share a name.",
     ),
+  ),
 });
 
-const getLibraryDocsSchema = z.object({
-  libraryId: z
-    .string()
-    .describe(
+const getLibraryDocsSchema = v.object({
+  libraryId: v.pipe(
+    v.string(),
+    v.description(
       "Context7 library ID returned by resolveLibraryId, e.g. '/facebook/react' or '/vercel/next.js'.",
     ),
-  topic: z
-    .string()
-    .optional()
-    .describe(
+  ),
+  topic: v.pipe(
+    v.optional(v.string()),
+    v.description(
       "Optional topic or API question to focus the returned docs, e.g. 'hooks', 'middleware', 'schema typing'.",
     ),
+  ),
 });
 
 export type Context7ToolResponse = {
@@ -40,7 +43,7 @@ export type Context7ToolResponse = {
 
 type ReviewTool = {
   readonly description: string;
-  readonly schema: z.ZodType;
+  readonly schema: v.GenericSchema;
   readonly run: (
     parsed: any,
     apiKey: string,
@@ -52,8 +55,8 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
   return {
     name,
     description: t.description,
-    parameters: z.toJSONSchema(t.schema, {
-      unrepresentable: "any",
+    parameters: toJsonSchema(t.schema, {
+      errorMode: "ignore",
     }) as PiTool["parameters"],
   };
 }
@@ -63,7 +66,7 @@ function toExecutor(
   apiKey: string,
   maxResponseBytes: number,
 ): (args: Record<string, unknown>) => Promise<Context7ToolResponse> {
-  return async (args) => t.run(t.schema.parse(args), apiKey, maxResponseBytes);
+  return async (args) => t.run(v.parse(t.schema, args), apiKey, maxResponseBytes);
 }
 
 function authHeader(apiKey: string): Record<string, string> {

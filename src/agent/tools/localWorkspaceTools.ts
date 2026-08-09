@@ -1,6 +1,6 @@
 import { readFile, stat } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
 import type { CheckoutCoverage, LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { assertWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
 import {
@@ -174,7 +174,7 @@ export function buildLocalWorkspaceTools(
   const listChangedFiles: LocalTool = {
     description:
       "Start here: list files changed in this pull request (path, status, presence in the PR head checkout).",
-    schema: z.object({}),
+    schema: v.object({}),
     run: async () => ({
       files: workspace.changedFiles.map((file) => ({
         path: file.path,
@@ -190,10 +190,10 @@ export function buildLocalWorkspaceTools(
   const readWorkspaceFile: LocalTool = {
     description:
       "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; on truncated, narrow the range — do not retry the same call unchanged.",
-    schema: z.object({
-      path: z.string().min(1),
-      startLine: z.number().int().positive().optional(),
-      maxLines: z.number().int().positive().optional(),
+    schema: v.object({
+      path: v.pipe(v.string(), v.minLength(1)),
+      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
     }),
     run: async ({ path, startLine, maxLines }) => {
       const normalized = normalizeEvidencePath(path);
@@ -240,9 +240,9 @@ export function buildLocalWorkspaceTools(
   const searchWorkspace: LocalTool = {
     description:
       "Search the full PR head checkout with git grep for a literal string (not a regex). Use to find callers, types, and config beyond the diff. Skips binary files. On truncated, narrow the query — do not retry unchanged. pathsSearched is how many checkout paths were scanned; filesScanned is the distinct matched file count.",
-    schema: z.object({
-      query: z.string().min(1),
-      maxResults: z.number().int().positive().optional().default(20),
+    schema: v.object({
+      query: v.pipe(v.string(), v.minLength(1)),
+      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
     }),
     run: async ({ query, maxResults }) => {
       const allowedPaths = workspace.sortedCheckoutPaths.filter((path) =>
@@ -278,7 +278,7 @@ export function buildLocalWorkspaceTools(
   const getWorkspaceDiff: LocalTool = {
     description:
       "After listChangedFiles, read each change's PR unified diff before opening whole files. Path from the changed-file list. Responses are byte-capped; on truncated, narrow the path or follow up with a focused file read.",
-    schema: z.object({ path: z.string().min(1) }),
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => {
       const normalized = normalizeEvidencePath(path);
       assertPathAllowedForAsk(normalized, pathGate);
@@ -305,7 +305,7 @@ export function buildLocalWorkspaceTools(
   const getWorkspaceBlame: LocalTool = {
     description:
       "Best-effort local git blame at PR head. Use only when authorship genuinely decides a finding. Responses are byte-capped; prefer startLine/maxLines on readWorkspaceFile for focused follow-up context.",
-    schema: z.object({ path: z.string().min(1) }),
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => {
       const normalized = path.replace(/\\/g, "/");
       assertPathAllowedForAsk(normalized, pathGate);
@@ -336,14 +336,12 @@ export function buildLocalWorkspaceTools(
   const resolveSymbol: LocalTool = {
     description:
       "Look up symbol definitions in the ephemeral per-run symbol index (TypeScript/JavaScript/Python heuristics). Navigation hint only — you must call readWorkspaceFile on any match before citing path or line numbers in findings.",
-    schema: z.object({
-      name: z.string().min(1),
-      maxResults: z
-        .number()
-        .int()
-        .positive()
-        .optional()
-        .default(LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS),
+    schema: v.object({
+      name: v.pipe(v.string(), v.minLength(1)),
+      maxResults: v.optional(
+        v.pipe(v.number(), v.integer(), v.gtValue(0)),
+        LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS,
+      ),
     }),
     run: async ({ name, maxResults }) => {
       const status = workspace.getSymbolIndexStatus();

@@ -1,3 +1,4 @@
+import * as v from "valibot";
 import { describe, expect, it } from "vitest";
 import {
   parseCiSummaryLlmText,
@@ -8,7 +9,7 @@ import { ciGateRowContract } from "../src/review/ci/ciGatePrompt.js";
 
 describe("ciSummarySchema", () => {
   it("accepts valid LLM fields", () => {
-    const parsed = ciSummaryLlmSchema.parse({
+    const parsed = v.parse(ciSummaryLlmSchema, {
       headline: "❌ CI failing — lint",
       failures: [
         {
@@ -23,7 +24,7 @@ describe("ciSummarySchema", () => {
 
   it("rejects empty headline", () => {
     expect(() =>
-      ciSummaryLlmSchema.parse({
+      v.parse(ciSummaryLlmSchema, {
         headline: "",
         failures: [],
       }),

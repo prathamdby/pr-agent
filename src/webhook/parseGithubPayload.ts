@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as v from "valibot";
 import { installationIdPickSchema } from "./payloads/common.js";
 import { issueCommentWebhookSchema } from "./payloads/issueCommentEvent.js";
 import { pullRequestReviewCommentWebhookSchema } from "./payloads/pullRequestReviewCommentEvent.js";
@@ -11,20 +11,22 @@ import type { WorkflowRunWebhookPayload } from "./payloads/workflowRunEvent.js";
 import { AppError } from "../errors/appError.js";
 import { AUTOMATED_PR_ACTIONS } from "../settings/index.js";
 
+export type WebhookSchemaError = v.ValiError<v.GenericSchema | v.GenericSchemaAsync>;
+
 export class WebhookParseError extends AppError {
   readonly eventName: string;
-  readonly zodError?: z.ZodError;
+  readonly valibotError?: WebhookSchemaError;
 
-  constructor(message: string, eventName: string, zodError?: z.ZodError) {
+  constructor(message: string, eventName: string, valibotError?: WebhookSchemaError) {
     super({
       code: "webhook.parse_failed",
       message,
       context: { eventName },
-      cause: zodError,
+      cause: valibotError,
     });
     this.name = "WebhookParseError";
     this.eventName = eventName;
-    this.zodError = zodError;
+    this.valibotError = valibotError;
   }
 }
 
@@ -38,11 +40,15 @@ export type ParsedGithubEvent =
   | { name: "workflow_run"; data: WorkflowRunWebhookPayload }
   | { name: "ignored"; data: unknown };
 
-function parseOrThrow<T>(eventName: string, schema: z.ZodType<T>, payload: unknown): T {
+function parseOrThrow<T>(
+  eventName: string,
+  schema: v.GenericSchema<unknown, T>,
+  payload: unknown,
+): T {
   try {
-    return schema.parse(payload);
+    return v.parse(schema, payload);
   } catch (e) {
-    if (e instanceof z.ZodError) {
+    if (e instanceof v.ValiError) {
       throw new WebhookParseError(e.message, eventName, e);
     }
     throw e;
@@ -99,6 +105,6 @@ export function parseGithubPayload(eventName: string, payload: unknown): ParsedG
 
 /** Installation id for any App webhook JSON (extra top-level keys allowed). */
 export function parseInstallationId(payload: unknown): number | undefined {
-  const r = installationIdPickSchema.safeParse(payload);
-  return r.success ? r.data.installation.id : undefined;
+  const r = v.safeParse(installationIdPickSchema, payload);
+  return r.success ? r.output.installation.id : undefined;
 }

@@ -12,7 +12,7 @@ Architecture: [ADR 0009](adr/0009-durable-agent-work.md).
 
 ## Behaviour and semantics
 
-- **Payload boundary:** each subscribed `X-GitHub-Event` type is validated with minimal Zod shapes before deduplication. Malformed payloads are logged and skipped without inserting a dedupe row (so GitHub retries can succeed after fixes or transient issues).
+- **Payload boundary:** each subscribed `X-GitHub-Event` type is validated with minimal Valibot shapes before deduplication. Malformed payloads are logged and skipped without inserting a dedupe row (so GitHub retries can succeed after fixes or transient issues).
 - **Slash commands** are detected on the **first non-empty line** only, and are **case-sensitive** (`/review` works; `/Review` does not). `/ask <question>` answers one question about the PR or a specific diff line (**code anchor**).
 - **Webhook deduplication** is durable: `webhook_events.dedupe_key` uses `X-GitHub-Delivery` when present, otherwise SHA-256(raw body). Duplicate deliveries return **`200`** without creating duplicate **agent work items**.
 - **Review superseding:** when a newer automated review is enqueued for the same PR, it supersedes queued auto-reviews and requests cooperative cancellation of an in-flight auto-review. Automated **verification** on `synchronize` uses the same pattern for prior verification items. Slash-command reviews are not superseded.

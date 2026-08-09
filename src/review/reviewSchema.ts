@@ -1,4 +1,4 @@
-import { z } from "zod";
+import * as v from "valibot";
 import {
   MAX_REVIEW_FOLLOW_UPS,
   MAX_REVIEW_PAYLOAD_FINDINGS,
@@ -24,66 +24,78 @@ export type ReviewMode = "review";
 /** How a review run was triggered (automated webhook vs slash command). */
 export type WorkSource = "auto" | "slash";
 
-const severitySchema = z.enum(["P0", "P1", "P2", "P3"]);
+const severitySchema = v.picklist(["P0", "P1", "P2", "P3"]);
 
 export const REVIEW_FINDING_CATEGORIES = ["bug", "security", "performance", "style"] as const;
 export type ReviewFindingCategory = (typeof REVIEW_FINDING_CATEGORIES)[number];
 
 const VIOLATED_RULE_PATH_RE = /^\.pr-agent\/[A-Za-z0-9][A-Za-z0-9._-]*\.mdc$/;
 
-export const reviewFindingSchema = z
-  .object({
-    severity: severitySchema,
-    file: z.string().min(1),
-    startLine: z.number().int().positive(),
-    endLine: z.number().int().positive(),
-    title: z.string().min(1).max(REVIEW_FINDING_TITLE_MAX_CHARS),
-    detail: z.string().min(1).max(REVIEW_FINDING_DETAIL_MAX_CHARS),
-    fixPrompt: z.string().max(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS).optional(),
-    suggestedCode: z.string().max(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS).optional(),
-    confidence: z.number().int().min(1).max(5).optional(),
-    category: z.enum(REVIEW_FINDING_CATEGORIES).optional(),
-    violatedRule: z.string().min(1).max(REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS).optional(),
-  })
-  .superRefine((f, ctx) => {
-    if (f.startLine > f.endLine) {
-      ctx.addIssue({
-        code: "custom",
-        message: "startLine must be <= endLine",
-        path: ["endLine"],
-      });
-    }
-    if (!f.fixPrompt || f.fixPrompt.trim().length === 0) {
-      ctx.addIssue({
-        code: "custom",
-        message: "fixPrompt is required for P0/P1/P2/P3 findings",
-        path: ["fixPrompt"],
-      });
-    }
-    if (f.violatedRule != null && !VIOLATED_RULE_PATH_RE.test(f.violatedRule)) {
-      ctx.addIssue({
-        code: "custom",
-        message: "violatedRule must be a flat .pr-agent/<name>.mdc path",
-        path: ["violatedRule"],
-      });
-    }
-  });
+export const reviewFindingEntries = {
+  severity: severitySchema,
+  file: v.pipe(v.string(), v.minLength(1)),
+  startLine: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+  endLine: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+  title: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_FINDING_TITLE_MAX_CHARS)),
+  detail: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_FINDING_DETAIL_MAX_CHARS)),
+  fixPrompt: v.optional(v.pipe(v.string(), v.maxLength(REVIEW_FINDING_FIX_PROMPT_MAX_CHARS))),
+  suggestedCode: v.optional(
+    v.pipe(v.string(), v.maxLength(REVIEW_FINDING_SUGGESTED_CODE_MAX_CHARS)),
+  ),
+  confidence: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(5))),
+  category: v.optional(v.picklist(REVIEW_FINDING_CATEGORIES)),
+  violatedRule: v.optional(
+    v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_FINDING_VIOLATED_RULE_MAX_CHARS)),
+  ),
+};
+
+export const reviewFindingSchema = v.pipe(
+  v.object(reviewFindingEntries),
+  v.forward(
+    v.check((f) => f.startLine <= f.endLine, "startLine must be <= endLine"),
+    ["endLine"],
+  ),
+  v.forward(
+    v.check(
+      (f) => f.fixPrompt != null && f.fixPrompt.trim().length > 0,
+      "fixPrompt is required for P0/P1/P2/P3 findings",
+    ),
+    ["fixPrompt"],
+  ),
+  v.forward(
+    v.check(
+      (f) => f.violatedRule == null || VIOLATED_RULE_PATH_RE.test(f.violatedRule),
+      "violatedRule must be a flat .pr-agent/<name>.mdc path",
+    ),
+    ["violatedRule"],
+  ),
+);
 
 export function createReviewPayloadSchema() {
-  return z.object({
-    prCharacter: z.string().min(1).max(REVIEW_OVERVIEW_MAX_CHARS),
-    findings: z.array(reviewFindingSchema).max(MAX_REVIEW_PAYLOAD_FINDINGS),
-    estimatedEffort: z.number().int().min(REVIEW_EFFORT_MIN).max(REVIEW_EFFORT_MAX),
-    relevantTests: z.enum(["yes", "no", "partial"]),
-    securityConcerns: z.string().max(REVIEW_SECURITY_CONCERNS_MAX_CHARS).nullable(),
-    followUps: z.array(z.string().max(REVIEW_FOLLOW_UP_MAX_CHARS)).max(MAX_REVIEW_FOLLOW_UPS),
+  return v.object({
+    prCharacter: v.pipe(v.string(), v.minLength(1), v.maxLength(REVIEW_OVERVIEW_MAX_CHARS)),
+    findings: v.pipe(v.array(reviewFindingSchema), v.maxLength(MAX_REVIEW_PAYLOAD_FINDINGS)),
+    estimatedEffort: v.pipe(
+      v.number(),
+      v.integer(),
+      v.minValue(REVIEW_EFFORT_MIN),
+      v.maxValue(REVIEW_EFFORT_MAX),
+    ),
+    relevantTests: v.picklist(["yes", "no", "partial"]),
+    securityConcerns: v.nullable(
+      v.pipe(v.string(), v.maxLength(REVIEW_SECURITY_CONCERNS_MAX_CHARS)),
+    ),
+    followUps: v.pipe(
+      v.array(v.pipe(v.string(), v.maxLength(REVIEW_FOLLOW_UP_MAX_CHARS))),
+      v.maxLength(MAX_REVIEW_FOLLOW_UPS),
+    ),
   });
 }
 
 export const reviewPayloadSchema = createReviewPayloadSchema();
 
-export type ReviewFinding = z.infer<typeof reviewFindingSchema>;
-export type ReviewPayload = z.infer<typeof reviewPayloadSchema>;
+export type ReviewFinding = v.InferOutput<typeof reviewFindingSchema>;
+export type ReviewPayload = v.InferOutput<typeof reviewPayloadSchema>;
 
 export type ReviewPublishContext = {
   owner: string;
@@ -341,32 +353,45 @@ export function coerceReviewPayloadInput(raw: unknown): {
   return { value: input, coerced: coercions.length > 0, coercions };
 }
 
-function zodIssueFailureKind(issue: z.ZodIssue): ReviewValidationFailureKind {
-  switch (issue.code) {
-    case "invalid_type":
-      return issue.input === undefined ? "missing_field" : "wrong_type";
-    case "invalid_value":
+const BASE_TYPE_ISSUE_TYPES = new Set([
+  "string",
+  "number",
+  "boolean",
+  "array",
+  "object",
+  "null",
+  "undefined",
+]);
+
+function valibotIssueFailureKind(issue: v.GenericIssue): ReviewValidationFailureKind {
+  if (issue.input === undefined) return "missing_field";
+  switch (issue.type) {
+    case "picklist":
+    case "literal":
       return "enum_mismatch";
-    case "too_small":
-      return issue.origin === "string" ? "string_too_short" : "out_of_range";
-    case "too_big":
-      return issue.origin === "array" ? "array_too_long" : "out_of_range";
-    case "custom":
+    case "min_length":
+      return typeof issue.input === "string" ? "string_too_short" : "out_of_range";
+    case "max_length":
+      return Array.isArray(issue.input) ? "array_too_long" : "out_of_range";
+    case "min_value":
+    case "max_value":
+      return "out_of_range";
+    case "check":
       return "custom_predicate";
     default:
-      return "other";
+      return BASE_TYPE_ISSUE_TYPES.has(issue.type) ? "wrong_type" : "other";
   }
 }
 
-export function formatReviewValidationError(error: z.ZodError): {
+export function formatReviewValidationError(issues: readonly v.GenericIssue[]): {
   message: string;
   failureKind: ReviewValidationFailureKind;
   paths: string[];
 } {
   const paths: string[] = [];
   const lines = ["ReviewPayload validation failed:"];
-  for (const issue of error.issues) {
-    const path = issue.path.length > 0 ? issue.path.join(".") : "(root)";
+  for (const issue of issues) {
+    const path = v.getDotPath(issue) ?? "(root)";
     paths.push(path);
     lines.push(`- ${path}: ${issue.message}`);
   }
@@ -374,8 +399,8 @@ export function formatReviewValidationError(error: z.ZodError): {
     `Required top-level fields: prCharacter, findings (array, max ${MAX_REVIEW_PAYLOAD_FINDINGS}), estimatedEffort (${REVIEW_EFFORT_MIN}-${REVIEW_EFFORT_MAX}), relevantTests (yes|no|partial), securityConcerns (string|null), followUps (max ${MAX_REVIEW_FOLLOW_UPS}).`,
   );
   lines.push("Each finding needs: severity, file, startLine, endLine, title, detail, fixPrompt.");
-  const firstIssue = error.issues[0];
-  const failureKind = firstIssue ? zodIssueFailureKind(firstIssue) : "other";
+  const firstIssue = issues[0];
+  const failureKind = firstIssue ? valibotIssueFailureKind(firstIssue) : "other";
   return { message: lines.join("\n"), failureKind, paths };
 }
 

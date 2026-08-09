@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
@@ -26,8 +27,8 @@ export function createSubmitTriageState(): SubmitTriageState {
   };
 }
 
-const SUBMIT_TRIAGE_PARAMETERS = z.toJSONSchema(TriagePayloadSchema, {
-  unrepresentable: "any",
+const SUBMIT_TRIAGE_PARAMETERS = toJsonSchema(TriagePayloadSchema, {
+  errorMode: "ignore",
 }) as PiTool["parameters"];
 
 export function buildSubmitTriageTool(params: {
@@ -58,10 +59,10 @@ export function buildSubmitTriageTool(params: {
       });
       return { ok: true, duplicate: true };
     }
-    const parsed = TriagePayloadSchema.safeParse(args);
+    const parsed = v.safeParse(TriagePayloadSchema, args);
     if (!parsed.success) {
-      params.submitState.lastValidationError = parsed.error.issues
-        .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+      params.submitState.lastValidationError = parsed.issues
+        .map((issue) => `${v.getDotPath(issue) ?? "(root)"}: ${issue.message}`)
         .join("\n");
       throw new AppError({
         code: "triage.validation_failed",
@@ -69,7 +70,7 @@ export function buildSubmitTriageTool(params: {
       });
     }
     const issues = validateTriageVerdicts({
-      payload: parsed.data,
+      payload: parsed.output,
       inventory: params.inventory.map((thread) => ({
         threadRootCommentId: thread.rootCommentId,
         hasHumanReplies: thread.humanReplies.length > 0,
@@ -87,7 +88,7 @@ export function buildSubmitTriageTool(params: {
 
     params.submitState.lastValidationError = null;
     params.submitState.submitted = true;
-    params.submitState.payload = parsed.data;
+    params.submitState.payload = parsed.output;
     return { ok: true };
   };
 

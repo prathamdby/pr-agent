@@ -3,7 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace.js";
@@ -67,15 +67,15 @@ export function buildVerificationWorkspaceTools(params: {
 
   const readWorkspaceFile = defineLocalTool({
     description: "Read a text file from the PR repository view. Path is repo-relative.",
-    schema: z.object({ path: z.string().min(1) }),
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => readTextFile(root, path, LOCAL_WORKSPACE_MAX_FILE_BYTES),
   });
 
   const searchWorkspace = defineLocalTool({
     description: "Search the PR repository view with git grep for a literal string.",
-    schema: z.object({
-      query: z.string().min(1),
-      maxResults: z.number().int().positive().optional().default(20),
+    schema: v.object({
+      query: v.pipe(v.string(), v.minLength(1)),
+      maxResults: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0)), 20),
     }),
     run: async ({ query, maxResults }) => {
       const stdout = await git(
@@ -108,7 +108,7 @@ export function buildVerificationWorkspaceTools(params: {
   const getWorkspaceDiff = defineLocalTool({
     description:
       "Return the current unified diff for a repo-relative path in the PR repository view.",
-    schema: z.object({ path: z.string().min(1) }),
+    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
     run: async ({ path }) => {
       const fullPath = await safePath(root, path);
       const rel = relativePath(root, fullPath);

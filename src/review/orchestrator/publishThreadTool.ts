@@ -1,7 +1,8 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError, toAppError } from "../../errors/appError.js";
-import { formatZodIssues } from "../../util/formatZodIssues.js";
+import { formatValidationIssues } from "../../util/formatValidationIssues.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
 import type { Config } from "../../config.js";
@@ -19,8 +20,8 @@ import {
 } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
-const publishThreadSchema = z.object({
-  findings: z.array(reviewFindingSchema),
+const publishThreadSchema = v.object({
+  findings: v.array(reviewFindingSchema),
 });
 
 type PublishedThreadOverlapHint = {
@@ -92,7 +93,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     name: "publish_thread",
     description:
       "Publish one judged batch of review findings. An empty findings array is valid when no candidate survives judgment.",
-    parameters: z.toJSONSchema(publishThreadSchema),
+    parameters: toJsonSchema(publishThreadSchema, { errorMode: "ignore" }),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishThreadToolResult> => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_thread");
@@ -105,11 +106,11 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         error: gate.error,
       };
     }
-    const parsed = publishThreadSchema.safeParse(args);
+    const parsed = v.safeParse(publishThreadSchema, args);
     if (!parsed.success) {
       throw new AppError({
         code: "review.publish_thread_validation_failed",
-        message: formatZodIssues(parsed.error, "publish_thread validation failed:"),
+        message: formatValidationIssues(parsed.issues, "publish_thread validation failed:"),
       });
     }
     if (source == null) {
@@ -121,7 +122,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
 
     let result: FindingBatchResult;
     try {
-      result = await publishFindingBatch(parsed.data.findings, {
+      result = await publishFindingBatch(parsed.output.findings, {
         ...batchContext,
         source,
         ledger,
@@ -141,7 +142,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       ledger = applyFindingLedgerDelta(ledger, result.delta);
       if (result.kind === "published") publishedBatchCount += 1;
       if (params.agentEvents && params.cfg) {
-        const submittedCount = parsed.data.findings.length;
+        const submittedCount = parsed.output.findings.length;
         const acceptedCount = result.delta.accepted.length;
         safeEmitDecisionEvent(params.agentEvents, params.cfg, {
           specialist: source,
@@ -156,7 +157,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     }
     return {
       ...result,
-      publishedThreadOverlapHints: overlapHints(ledger, parsed.data.findings),
+      publishedThreadOverlapHints: overlapHints(ledger, parsed.output.findings),
     };
   };
 

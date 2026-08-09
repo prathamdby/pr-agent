@@ -1,33 +1,33 @@
-import { z } from "zod";
+import * as v from "valibot";
 import type { CodeAnchor } from "../../agent/ask/askRunTypes.js";
 import { installationSchema, repositorySchema } from "./common.js";
 
-export const pullRequestReviewCommentWebhookSchema = z.object({
-  action: z.string(),
+export const pullRequestReviewCommentWebhookSchema = v.object({
+  action: v.string(),
   installation: installationSchema,
   repository: repositorySchema,
-  pull_request: z.object({
-    number: z.number(),
+  pull_request: v.object({
+    number: v.number(),
   }),
-  comment: z.object({
-    id: z.number(),
-    user: z.object({
-      id: z.number(),
-      login: z.string().nullish(),
+  comment: v.object({
+    id: v.number(),
+    user: v.object({
+      id: v.number(),
+      login: v.nullish(v.string()),
     }),
-    author_association: z.string().nullish(),
-    body: z.string().nullish(),
-    in_reply_to_id: z.number().nullish(),
-    pull_request_review_id: z.number().nullish(),
-    path: z.string().optional(),
-    line: z.number().optional(),
-    start_line: z.number().nullable().optional(),
-    side: z.enum(["LEFT", "RIGHT"]).optional(),
-    diff_hunk: z.string().optional(),
+    author_association: v.nullish(v.string()),
+    body: v.nullish(v.string()),
+    in_reply_to_id: v.nullish(v.number()),
+    pull_request_review_id: v.nullish(v.number()),
+    path: v.optional(v.string()),
+    line: v.optional(v.number()),
+    start_line: v.optional(v.nullable(v.number())),
+    side: v.optional(v.picklist(["LEFT", "RIGHT"])),
+    diff_hunk: v.optional(v.string()),
   }),
 });
 
-export type PullRequestReviewCommentWebhookPayload = z.infer<
+export type PullRequestReviewCommentWebhookPayload = v.InferOutput<
   typeof pullRequestReviewCommentWebhookSchema
 >;
 

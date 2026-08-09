@@ -1,5 +1,6 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import type { Config } from "../../config.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
@@ -10,7 +11,7 @@ import {
   descriptionPayloadSchema,
   DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
 } from "./descriptionSchema.js";
-import { formatZodIssues } from "../../util/formatZodIssues.js";
+import { formatValidationIssues } from "../../util/formatValidationIssues.js";
 import {
   enforceDescriptionMapPayload,
   type DescriptionMapMode,
@@ -48,8 +49,8 @@ const SUBMIT_DESCRIPTION_DESCRIPTION = [
   `Minimal valid example: ${JSON.stringify(DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE)}`,
 ].join(" ");
 
-const SUBMIT_DESCRIPTION_PARAMETERS = z.toJSONSchema(descriptionPayloadSchema, {
-  unrepresentable: "any",
+const SUBMIT_DESCRIPTION_PARAMETERS = toJsonSchema(descriptionPayloadSchema, {
+  errorMode: "ignore",
 }) as PiTool["parameters"];
 
 export function buildSubmitDescriptionTool(params: {
@@ -93,10 +94,10 @@ export function buildSubmitDescriptionTool(params: {
     }
 
     const coerced = coerceDescriptionPayloadInput(args);
-    const parsed = descriptionPayloadSchema.safeParse(coerced);
+    const parsed = v.safeParse(descriptionPayloadSchema, coerced);
     if (!parsed.success) {
-      params.state.lastValidationError = formatZodIssues(
-        parsed.error,
+      params.state.lastValidationError = formatValidationIssues(
+        parsed.issues,
         "DescriptionPayload validation failed:",
       );
       throw new AppError({
@@ -105,7 +106,7 @@ export function buildSubmitDescriptionTool(params: {
       });
     }
 
-    let payload = parsed.data;
+    let payload = parsed.output;
     if (payload.changesDiagram?.trim()) {
       const sanitizedDiagram = sanitizeMermaidDiagram(payload.changesDiagram);
       const mermaidIssues = validateSanitizedMermaidFence(sanitizedDiagram);

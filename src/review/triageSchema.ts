@@ -1,40 +1,40 @@
-import { z } from "zod";
+import * as v from "valibot";
 import {
   MAX_TRIAGE_FINDINGS,
   TRIAGE_SKIP_REASON_MAX_CHARS,
   TRIAGE_VERDICT_EVIDENCE_MAX_CHARS,
 } from "../settings/index.js";
 
-const TriageVerdictSchema = z.discriminatedUnion("verdict", [
-  z.object({
-    verdict: z.literal("fixed"),
-    threadRootCommentId: z.number().int().positive(),
-    commitSha: z.string().regex(/^[0-9a-f]{7,40}$/),
-    evidence: z.string().min(1).max(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS),
+const TriageVerdictSchema = v.variant("verdict", [
+  v.object({
+    verdict: v.literal("fixed"),
+    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+    commitSha: v.pipe(v.string(), v.regex(/^[0-9a-f]{7,40}$/)),
+    evidence: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS)),
   }),
-  z.object({
-    verdict: z.literal("already-resolved"),
-    threadRootCommentId: z.number().int().positive(),
-    evidence: z.string().min(1).max(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS),
+  v.object({
+    verdict: v.literal("already-resolved"),
+    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+    evidence: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS)),
   }),
-  z.object({
-    verdict: z.literal("skipped"),
-    threadRootCommentId: z.number().int().positive(),
-    reason: z.string().min(1).max(TRIAGE_SKIP_REASON_MAX_CHARS),
+  v.object({
+    verdict: v.literal("skipped"),
+    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+    reason: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_SKIP_REASON_MAX_CHARS)),
   }),
-  z.object({
-    verdict: z.literal("dismissed"),
-    threadRootCommentId: z.number().int().positive(),
-    evidence: z.string().min(1).max(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS),
+  v.object({
+    verdict: v.literal("dismissed"),
+    threadRootCommentId: v.pipe(v.number(), v.integer(), v.gtValue(0)),
+    evidence: v.pipe(v.string(), v.minLength(1), v.maxLength(TRIAGE_VERDICT_EVIDENCE_MAX_CHARS)),
   }),
 ]);
 
-export const TriagePayloadSchema = z.object({
-  verdicts: z.array(TriageVerdictSchema).min(1).max(MAX_TRIAGE_FINDINGS),
+export const TriagePayloadSchema = v.object({
+  verdicts: v.pipe(v.array(TriageVerdictSchema), v.minLength(1), v.maxLength(MAX_TRIAGE_FINDINGS)),
 });
 
-export type TriageVerdict = z.infer<typeof TriageVerdictSchema>;
-export type TriagePayload = z.infer<typeof TriagePayloadSchema>;
+export type TriageVerdict = v.InferOutput<typeof TriageVerdictSchema>;
+export type TriagePayload = v.InferOutput<typeof TriagePayloadSchema>;
 
 /**
  * Same verdict vocabulary as triage, but read-only.
@@ -43,12 +43,16 @@ export type TriagePayload = z.infer<typeof TriagePayloadSchema>;
  */
 const VerificationVerdictSchema = TriageVerdictSchema;
 
-export const VerificationPayloadSchema = z.object({
-  verdicts: z.array(VerificationVerdictSchema).min(1).max(MAX_TRIAGE_FINDINGS),
+export const VerificationPayloadSchema = v.object({
+  verdicts: v.pipe(
+    v.array(VerificationVerdictSchema),
+    v.minLength(1),
+    v.maxLength(MAX_TRIAGE_FINDINGS),
+  ),
 });
 
-export type VerificationVerdict = z.infer<typeof VerificationVerdictSchema>;
-export type VerificationPayload = z.infer<typeof VerificationPayloadSchema>;
+export type VerificationVerdict = v.InferOutput<typeof VerificationVerdictSchema>;
+export type VerificationPayload = v.InferOutput<typeof VerificationPayloadSchema>;
 
 type VerificationInventoryItem = {
   readonly threadRootCommentId: number;

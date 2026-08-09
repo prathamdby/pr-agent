@@ -1,8 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import { z } from "zod";
+import * as v from "valibot";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError, toAppError } from "../../errors/appError.js";
 import { MAX_REVIEW_PAYLOAD_FINDINGS } from "../../settings/index.js";
-import { formatZodIssues } from "../../util/formatZodIssues.js";
+import { formatValidationIssues } from "../../util/formatValidationIssues.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
 import {
@@ -12,27 +13,26 @@ import {
 import {
   createReviewPayloadSchema,
   formatReviewValidationError,
-  reviewFindingSchema,
+  reviewFindingEntries,
   type ReviewFinding,
   type ReviewPayload,
 } from "../reviewSchema.js";
 import type { AcceptedPlacement, FindingLedger, ReviewCoverage } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
-const summaryFindingCopySchema = z.object({
-  findingId: z.string().min(1),
-  title: reviewFindingSchema.shape.title,
-  detail: reviewFindingSchema.shape.detail,
-  fixPrompt: reviewFindingSchema.shape.fixPrompt,
-  confidence: reviewFindingSchema.shape.confidence,
-  category: reviewFindingSchema.shape.category,
+const summaryFindingCopySchema = v.object({
+  findingId: v.pipe(v.string(), v.minLength(1)),
+  title: reviewFindingEntries.title,
+  detail: reviewFindingEntries.detail,
+  fixPrompt: reviewFindingEntries.fixPrompt,
+  confidence: reviewFindingEntries.confidence,
+  category: reviewFindingEntries.category,
 });
 
-const publishSummarySchema = createReviewPayloadSchema()
-  .omit({ findings: true })
-  .extend({
-    findings: z.array(summaryFindingCopySchema).max(MAX_REVIEW_PAYLOAD_FINDINGS),
-  });
+const publishSummarySchema = v.object({
+  ...v.omit(createReviewPayloadSchema(), ["findings"]).entries,
+  findings: v.pipe(v.array(summaryFindingCopySchema), v.maxLength(MAX_REVIEW_PAYLOAD_FINDINGS)),
+});
 
 export type PublishSummaryState = {
   published: boolean;
@@ -65,8 +65,8 @@ type PublishSummaryToolParams = Omit<
   readonly getCoverage: () => ReviewCoverage;
 };
 
-type SummaryInput = z.infer<typeof publishSummarySchema>;
-type SummaryFindingCopy = z.infer<typeof summaryFindingCopySchema>;
+type SummaryInput = v.InferOutput<typeof publishSummarySchema>;
+type SummaryFindingCopy = v.InferOutput<typeof summaryFindingCopySchema>;
 
 export function createPublishSummaryState(initial?: {
   readonly published?: boolean;
@@ -171,15 +171,15 @@ function reconstructPayload(
     return findingFromCopy(accepted, copy);
   });
   const { findings: _copies, ...overview } = input;
-  const parsed = createReviewPayloadSchema().safeParse({ ...overview, findings });
+  const parsed = v.safeParse(createReviewPayloadSchema(), { ...overview, findings });
   if (!parsed.success) {
     throwValidationError(
       state,
       "review.publish_summary_validation_failed",
-      formatReviewValidationError(parsed.error).message,
+      formatReviewValidationError(parsed.issues).message,
     );
   }
-  return parsed.data;
+  return parsed.output;
 }
 
 function ledgerWithFindingCopy(
@@ -214,7 +214,7 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
     name: "publish_summary",
     description:
       "Publish the final review summary exactly once. Supply display copy for every accepted finding ID without changing severity or placement. Write prCharacter per the synthesis overview-scale hard rule.",
-    parameters: z.toJSONSchema(publishSummarySchema),
+    parameters: toJsonSchema(publishSummarySchema),
   };
   const executor = async (args: Record<string, unknown>): Promise<PublishSummaryToolResult> => {
     const gate = assertPhaseToolAllowed(params.phaseRef.current, "publish_summary");
@@ -231,17 +231,17 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       return { ok: true, duplicate: true };
     }
 
-    const parsed = publishSummarySchema.safeParse(args);
+    const parsed = v.safeParse(publishSummarySchema, args);
     if (!parsed.success) {
       throwValidationError(
         state,
         "review.publish_summary_validation_failed",
-        formatZodIssues(parsed.error, "publish_summary validation failed:"),
+        formatValidationIssues(parsed.issues, "publish_summary validation failed:"),
       );
     }
 
     const ledger = getLedger();
-    const candidate = reconstructPayload(state, ledger, parsed.data);
+    const candidate = reconstructPayload(state, ledger, parsed.output);
     const validation = validateReviewPayload({
       payload: candidate,
       cachedDiffIndex: params.cachedDiffIndex,

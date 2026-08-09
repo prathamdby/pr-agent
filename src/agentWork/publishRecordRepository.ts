@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { Pool, PoolClient } from "pg";
+import * as v from "valibot";
 import { queryOne } from "../db/postgres.js";
 import { parseStoredInlineFingerprints } from "../review/findings/reviewFindingFingerprint.js";
 import {
@@ -384,7 +385,7 @@ type StoredInlineBatchRef = {
 
 function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"][number] | null {
   if (!isRecord(value)) return null;
-  const finding = reviewFindingSchema.safeParse(value.finding);
+  const finding = v.safeParse(reviewFindingSchema, value.finding);
   const resolvedLine = Number(value.resolvedLine);
   if (
     !finding.success ||
@@ -395,7 +396,7 @@ function parseStoredPlacement(value: unknown): StoredInlineBatchRef["placements"
     return null;
   }
   return {
-    finding: finding.data,
+    finding: finding.output,
     resolvedLine,
     canonicalFingerprint: value.canonicalFingerprint,
   };

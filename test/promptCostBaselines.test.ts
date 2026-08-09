@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
+import { toJsonSchema } from "@valibot/to-json-schema";
 import { buildContext7Tools } from "../src/agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../src/agent/tools/localWorkspaceTools.js";
 import {
@@ -80,7 +80,7 @@ describe("prompt cost baselines", () => {
   });
 
   it("keeps structured review schema top-level fields required", () => {
-    const jsonSchema = z.toJSONSchema(createReviewPayloadSchema(), { unrepresentable: "any" });
+    const jsonSchema = toJsonSchema(createReviewPayloadSchema(), { errorMode: "ignore" });
     const required = requiredFields(jsonSchema);
     expect(required.toSorted()).toEqual([...REVIEW_PAYLOAD_FIELDS].toSorted());
   });

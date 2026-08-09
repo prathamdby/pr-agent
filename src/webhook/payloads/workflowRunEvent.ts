@@ -1,25 +1,25 @@
-import { z } from "zod";
+import * as v from "valibot";
 import { installationSchema, repositorySchema } from "./common.js";
 
-const workflowRunPullRequestSchema = z.object({
-  number: z.number(),
-  head: z.object({ sha: z.string() }),
+const workflowRunPullRequestSchema = v.object({
+  number: v.number(),
+  head: v.object({ sha: v.string() }),
 });
 
-export const workflowRunWebhookSchema = z.object({
-  action: z.string(),
+export const workflowRunWebhookSchema = v.object({
+  action: v.string(),
   installation: installationSchema,
   repository: repositorySchema,
-  workflow_run: z.object({
-    id: z.number(),
-    head_sha: z.string(),
-    status: z.string(),
-    conclusion: z.string().nullable(),
-    pull_requests: z.array(workflowRunPullRequestSchema).optional().default([]),
+  workflow_run: v.object({
+    id: v.number(),
+    head_sha: v.string(),
+    status: v.string(),
+    conclusion: v.nullable(v.string()),
+    pull_requests: v.optional(v.array(workflowRunPullRequestSchema), []),
   }),
 });
 
-export type WorkflowRunWebhookPayload = z.infer<typeof workflowRunWebhookSchema>;
+export type WorkflowRunWebhookPayload = v.InferOutput<typeof workflowRunWebhookSchema>;
 
 /** PR numbers whose head SHA matches the workflow run head (deduped). */
 export function prNumbersForWorkflowRunHead(

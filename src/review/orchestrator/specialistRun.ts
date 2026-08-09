@@ -1,4 +1,5 @@
 import type { Config } from "../../config.js";
+import * as v from "valibot";
 import { AppError } from "../../errors/appError.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitEvidenceRejectEvent } from "../../agent/runtime/agentEventSink.js";
@@ -19,7 +20,7 @@ import { specialistReportSchema, type SpecialistReport } from "./specialistRepor
 import type { SpecialistId, SpecialistOutcome } from "./orchestratorTypes.js";
 import type { EvidenceLedger } from "../findings/evidenceLedger.js";
 import { assertFindingsHaveEvidence } from "../findings/evidenceValidator.js";
-import { formatZodIssues } from "../../util/formatZodIssues.js";
+import { formatValidationIssues } from "../../util/formatValidationIssues.js";
 import {
   buildSpecialistSessionTools,
   buildSubmitFindingsReportPiTool,
@@ -126,13 +127,16 @@ function buildSubmitTool(
 } {
   const piTool = buildSubmitFindingsReportPiTool();
   const executor: AgentRunnerToolExecutor = async (args) => {
-    const parsed = specialistReportSchema.safeParse(args);
+    const parsed = v.safeParse(specialistReportSchema, args);
     if (!parsed.success) {
-      state.validationError = formatZodIssues(parsed.error, "SpecialistReport validation failed:");
+      state.validationError = formatValidationIssues(
+        parsed.issues,
+        "SpecialistReport validation failed:",
+      );
       return { accepted: false, error: state.validationError };
     }
 
-    let report = parsed.data;
+    let report = parsed.output;
     if (evidence != null && report.findings.length > 0) {
       const filtered = assertFindingsHaveEvidence(
         report.findings,
