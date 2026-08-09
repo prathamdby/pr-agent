@@ -5,12 +5,11 @@ import type { Config } from "../config.js";
 import { captureEvent } from "../analytics/index.js";
 import { AppError, errorLogFields, isAppError } from "../errors/appError.js";
 import { logError, logInfo, logWarn } from "../evlog.js";
+import { getAppBotIdentity, type BotIdentity, type InstallationToken } from "../github/appAuth.js";
 import {
-  getAppBotIdentity,
-  mintInstallationAuth,
-  type BotIdentity,
-  type InstallationToken,
-} from "../github/appAuth.js";
+  clearInstallationTokenCacheForTest,
+  mintInstallationToken,
+} from "../github/installationToken.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { classifyProviderError } from "../agent/providers/providerErrors.js";
 import {
@@ -23,8 +22,6 @@ import {
   DEFERRED_HEAD_SHA,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
-  INSTALLATION_TOKEN_FALLBACK_TTL_MS,
-  TOKEN_FRESHNESS_BUFFER_MS,
   type GithubReactionContent,
 } from "../settings/index.js";
 import {
@@ -62,12 +59,13 @@ export type DurableExecutionContext = {
   signal: AbortSignal;
 };
 
-const installationTokenCache = new Map<number, InstallationToken | Promise<InstallationToken>>();
 let botIdentityCache: Promise<BotIdentity> | undefined;
+
+export { mintInstallationToken };
 
 export function clearDurableAuthCachesForTest(): void {
   if (process.env.NODE_ENV === "test") {
-    installationTokenCache.clear();
+    clearInstallationTokenCacheForTest();
     botIdentityCache = undefined;
   }
 }
@@ -121,38 +119,6 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
     reason: string,
   ) => Promise<void>;
 };
-
-export async function mintInstallationToken(
-  cfg: Config,
-  installationId: number,
-): Promise<InstallationToken> {
-  const cached = installationTokenCache.get(installationId);
-  if (cached) {
-    const token = await cached;
-    if (token.expiresAtTs - Date.now() > TOKEN_FRESHNESS_BUFFER_MS) return token;
-  }
-
-  const pending = (async () => {
-    const auth = await mintInstallationAuth(cfg, installationId);
-    const parsed = auth.expiresAt ? Date.parse(auth.expiresAt) : Number.NaN;
-    const now = Date.now();
-    const expiresAtTs = Number.isFinite(parsed) ? parsed : now + INSTALLATION_TOKEN_FALLBACK_TTL_MS;
-    return {
-      token: auth.token,
-      expiresAtTs,
-      ttlMs: Math.max(0, expiresAtTs - now),
-    };
-  })();
-  installationTokenCache.set(installationId, pending);
-  try {
-    const token = await pending;
-    installationTokenCache.set(installationId, token);
-    return token;
-  } catch (error) {
-    installationTokenCache.delete(installationId);
-    throw error;
-  }
-}
 
 export function makeInstallationTokenRefresher(
   cfg: Config,
