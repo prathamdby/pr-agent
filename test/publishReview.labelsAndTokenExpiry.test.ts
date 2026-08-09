@@ -1,7 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as evlog from "../src/evlog.js";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
+import { testPublishState } from "./helpers/reviewPublishTestHelpers.js";
 import {
   createPublishReviewTestHarness,
   publishReviewTestBaseParams,

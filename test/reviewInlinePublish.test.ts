@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { publishInlineReviewComments } from "../src/review/placement/reviewInlinePublish.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import type { InlinePlacement } from "../src/review/placement/reviewDiffPlacement.js";

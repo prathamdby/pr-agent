@@ -122,18 +122,6 @@ export type DurableJobSpec<T extends WorkType = WorkType> = {
   ) => Promise<void>;
 };
 
-export function makeInstallationTokenRefresher(
-  cfg: Config,
-  installationId: number,
-  holder: { installation: InstallationToken },
-): () => Promise<{ token: string; expiresAtTs: number }> {
-  return async () => {
-    const fresh = await mintInstallationToken(cfg, installationId);
-    holder.installation = fresh;
-    return { token: fresh.token, expiresAtTs: fresh.expiresAtTs };
-  };
-}
-
 export async function resolveWorkItemHead(
   token: string,
   expiresAtTs: number,

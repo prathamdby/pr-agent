@@ -3,7 +3,6 @@ import { createFindingLedger } from "../src/review/orchestrator/orchestratorType
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { makePublishReviewTestPrSurface } from "./helpers/publishReviewTestSetup.js";
 import { createFakePrSurface } from "../src/github/prSurface.js";
 
 function configuredSummarySurface() {
@@ -74,11 +73,6 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   return createReviewCheckRunMock();
 });
 
-import {
-  listPullRequestReviewComments,
-  setReviewCommitStatus,
-  upsertReviewSummaryComment,
-} from "../src/github/reviewPublish.js";
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
 import { attachSummaryCommentCoordination } from "../src/review/publish/publishSummaryOnly.js";
 import type { Pool, PoolClient } from "pg";

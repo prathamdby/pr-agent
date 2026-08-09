@@ -44,14 +44,13 @@ vi.mock("../src/agent/ask/askRun.js", () => ({
   runAskRun: mocks.runAskRun,
 }));
 
-vi.mock("../src/agentWork/durableJob.js", () => ({
-  makeInstallationTokenRefresher: vi.fn(() => async () => ({
-    token: "tok",
-    expiresAtTs: 1_000_000,
-    ttlMs: 60_000,
-  })),
-  runDurableWorkItem: mocks.runDurableWorkItem,
-}));
+vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
+  return {
+    ...actual,
+    runDurableWorkItem: mocks.runDurableWorkItem,
+  };
+});
 
 vi.mock("../src/prWorkspace/index.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
