@@ -21,9 +21,7 @@ function placement(f: ReviewFinding): InlinePlacement {
   return { finding: f, inlineLine: f.startLine, inlinePosted: true };
 }
 
-function surfaceWithPublish(
-  publishImpl: PrSurface["publishThreadBatch"],
-): PrSurface {
+function surfaceWithPublish(publishImpl: PrSurface["publishThreadBatch"]): PrSurface {
   const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
   vi.spyOn(surface, "publishThreadBatch").mockImplementation(publishImpl);
   return surface;

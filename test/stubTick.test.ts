@@ -19,7 +19,9 @@ import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/pub
 
 const pool = {} as Pool;
 
-function specialistTickArgs(prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface) {
+function specialistTickArgs(
+  prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+) {
   return {
     pool,
     workItemId: "wi-1",
@@ -73,9 +75,7 @@ describe("tickProgressComment", () => {
       new Error("GitHub unavailable"),
     );
 
-    await expect(
-      tickProgressComment(specialistTickArgs()),
-    ).resolves.toBeUndefined();
+    await expect(tickProgressComment(specialistTickArgs())).resolves.toBeUndefined();
 
     expect(logWarn).toHaveBeenCalledWith(
       "review_progress_tick_failed",

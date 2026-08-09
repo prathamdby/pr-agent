@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { captureEvent } from "../../analytics/index.js";
 import { runAskRun } from "../../agent/ask/askRun.js";
 import { loadAskThreadTranscript } from "../../agent/ask/askThreadContext.js";
@@ -14,12 +15,13 @@ import {
   classifiedFailureLogFields,
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
-import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
+import { getAppBotIdentity } from "../../github/appAuth.js";
+import { createPrSurface } from "../../github/prSurface.js";
 import { logWarn } from "../../evlog.js";
 import { ASK_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
-import { makeInstallationTokenRefresher, runDurableWorkItem } from "../durableJob.js";
-import { getPullRequestHead, postSlashReply } from "../githubPrSurface.js";
+import { runDurableWorkItem } from "../durableJob.js";
+import { getPullRequestHead } from "../githubPrSurface.js";
 import {
   getOperationIntent,
   mergeOperationIntentDetail,
@@ -32,47 +34,31 @@ import type { AskJobData, AskWorkItem } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
 
 async function publishAskAnswer(
-  token: string,
-  tokenExpiresAtTs: number,
+  prSurface: PrSurface,
   item: AskWorkItem,
   answer: string,
   alreadySanitized = false,
 ): Promise<{ commentId: number }> {
   const body = alreadySanitized ? answer : sanitizeAskAnswerText(answer);
   const replyTarget = item.payload.replyTarget;
-  if (replyTarget.kind === "inlineReviewThread") {
-    try {
-      return await postSlashReply(
-        token,
-        item.owner,
-        item.repo,
-        replyTarget,
-        body,
-        tokenExpiresAtTs,
-      );
-    } catch (e) {
-      const failure = classifyFailure(e, { phase: "publish", toolName: "ask_inline_reply" });
-      logWarn("ask_inline_reply_failed", {
-        owner: item.owner,
-        repo: item.repo,
-        pr: replyTarget.prNumber,
-        inReplyToCommentId: replyTarget.inReplyToCommentId,
-        message: e instanceof Error ? e.message : String(e),
-        ...classifiedFailureLogFields(failure),
-      });
-      const octokit = installationOctokit(token, tokenExpiresAtTs);
-      const { data } = await octokit.rest.issues.createComment({
-        owner: item.owner,
-        repo: item.repo,
-        issue_number: replyTarget.prNumber,
-        body: ["_Could not reply in the review thread; posting here instead._", "", body].join(
-          "\n",
-        ),
-      });
-      return { commentId: data.id };
-    }
+  try {
+    return await prSurface.replyAt(replyTarget, body);
+  } catch (e) {
+    if (replyTarget.kind !== "inlineReviewThread") throw e;
+    const failure = classifyFailure(e, { phase: "publish", toolName: "ask_inline_reply" });
+    logWarn("ask_inline_reply_failed", {
+      owner: item.owner,
+      repo: item.repo,
+      pr: replyTarget.prNumber,
+      inReplyToCommentId: replyTarget.inReplyToCommentId,
+      message: e instanceof Error ? e.message : String(e),
+      ...classifiedFailureLogFields(failure),
+    });
+    return await prSurface.replyAt(
+      { kind: "prConversation", prNumber: replyTarget.prNumber },
+      ["_Could not reply in the review thread; posting here instead._", "", body].join("\n"),
+    );
   }
-  return await postSlashReply(token, item.owner, item.repo, replyTarget, body, tokenExpiresAtTs);
 }
 
 async function stashRecoveredAskReply(params: {
@@ -126,11 +112,10 @@ async function stashRecoveredAskReply(params: {
 async function recoverDeliveredAskReplyCommentId(params: {
   readonly cfg: Config;
   readonly pool: Pool;
-  readonly token: string;
-  readonly tokenExpiresAtTs: number;
+  readonly prSurface: PrSurface;
   readonly item: AskWorkItem;
 }): Promise<number | null> {
-  const { cfg, pool, token, tokenExpiresAtTs, item } = params;
+  const { cfg, pool, prSurface, item } = params;
   const operationKey = askReplyOperationKey(item.resourceKey);
   const intent = await getOperationIntent(pool, item.id, operationKey);
   const stashed = askReplyCommentIdFromIntentDetail(intent?.detail);
@@ -149,10 +134,7 @@ async function recoverDeliveredAskReplyCommentId(params: {
 
   const bot = await getAppBotIdentity(cfg);
   const recovered = await findExistingAskReplyComment({
-    token,
-    tokenExpiresAtTs,
-    owner: item.owner,
-    repo: item.repo,
+    prSurface,
     replyTarget,
     question: item.payload.question,
     botLogin: bot.login,
@@ -242,7 +224,7 @@ export async function executeAskJob(
     resolveHeadSha: (token, expiresAtTs, item) =>
       getPullRequestHead(token, item.owner, item.repo, item.prNumber, expiresAtTs),
     execute: async (item, env) => {
-      const tokenState = { installation: env.installation };
+      const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
       const askReplyPublished = () =>
@@ -255,8 +237,7 @@ export async function executeAskJob(
       const recoveredCommentId = await recoverDeliveredAskReplyCommentId({
         cfg,
         pool,
-        token: tokenState.installation.token,
-        tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+        prSurface,
         item,
       });
       if (recoveredCommentId != null) {
@@ -270,26 +251,22 @@ export async function executeAskJob(
         return status === "degraded" ? { degraded: true } : {};
       }
 
+      const gitCredentialToken = await prSurface.gitCredentialToken();
       return withPrRepositoryView(
         buildRepositoryViewParams(
           item,
-          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+          { installationToken: gitCredentialToken, headSha, pullRequest: env.pullRequest },
           payload,
         ),
         async (repositoryView) => {
           const transcript = await loadAskThreadTranscript({
-            token: tokenState.installation.token,
-            tokenExpiresAtTs: tokenState.installation.expiresAtTs,
-            owner: item.owner,
-            repo: item.repo,
+            prSurface,
             replyTarget: payload.replyTarget,
             commentId: payload.commentId,
           });
           const result = await runAskRun({
             cfg,
-            token: tokenState.installation.token,
-            tokenExpiresAtTs: tokenState.installation.expiresAtTs,
-            tokenTtlMs: tokenState.installation.ttlMs,
+            prSurface,
             owner: item.owner,
             repo: item.repo,
             prNumber: item.prNumber,
@@ -301,11 +278,6 @@ export async function executeAskJob(
             threadTranscriptTruncated: transcript.truncated,
             cwd: repositoryView.agentCwd,
             workspace: repositoryView.workspace,
-            refreshInstallationToken: makeInstallationTokenRefresher(
-              cfg,
-              item.installationId,
-              tokenState,
-            ),
             durability: {
               pool,
               workItemId: item.id,
@@ -325,14 +297,7 @@ export async function executeAskJob(
                 reviewLens: ASK_PUBLISH_LENS,
                 replyTargetKind: payload.replyTarget.kind,
               },
-              mutate: () =>
-                publishAskAnswer(
-                  tokenState.installation.token,
-                  tokenState.installation.expiresAtTs,
-                  item,
-                  result.answer,
-                  true,
-                ),
+              mutate: () => publishAskAnswer(prSurface, item, result.answer, true),
             });
             answerDelivered = true;
             captureEvent({
@@ -416,9 +381,16 @@ export async function executeAskJob(
       }
       if (answerDelivered) return;
       const payload = item.payload;
+      const prSurface = createPrSurface({
+        cfg,
+        installationId: item.installationId,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        installation,
+      });
       await publishAskAnswer(
-        installation.token,
-        installation.expiresAtTs,
+        prSurface,
         item,
         formatAskReply({
           question: payload.question,

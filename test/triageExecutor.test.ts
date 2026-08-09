@@ -9,17 +9,18 @@ import {
   TRIAGE_THREAD_NOT_ELIGIBLE,
 } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
+import {
+  durablePrSurfaceControls,
+  fakeDurablePrSurface,
+  resetDurablePrSurface,
+} from "./helpers/executorDurableHarness.js";
+import * as prSurfaceModule from "../src/github/prSurface.js";
 
 const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
-  pullsGet: vi.fn(),
-  createComment: vi.fn(),
-  getById: vi.fn(),
   getAppBotIdentity: vi.fn(),
   fetchBotFindingThreads: vi.fn(),
   fetchReviewCommentParentGraph: vi.fn(),
-  listReviewThreadResolution: vi.fn(),
   withWritablePrCheckout: vi.fn(),
   runFullPrTriage: vi.fn(),
   parseStoredTriagePushDetail: vi.fn(),
@@ -38,13 +39,6 @@ vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
 
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
-  installationOctokit: vi.fn(() => ({
-    rest: {
-      pulls: { get: mocks.pullsGet },
-      issues: { createComment: mocks.createComment },
-      users: { getById: mocks.getById },
-    },
-  })),
 }));
 
 vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
@@ -57,7 +51,6 @@ vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
 });
 
 vi.mock("../src/github/reviewThreadResolution.js", () => ({
-  listReviewThreadResolution: mocks.listReviewThreadResolution,
   warnReviewThreadResolutionDegraded: vi.fn(),
 }));
 
@@ -116,16 +109,19 @@ function mockDurableExecution(workItem = item()): void {
   );
 }
 
+function configureDefaultThreads(
+  entries: ReadonlyArray<readonly [number, { threadNodeId: string; isResolved: boolean }]>,
+) {
+  durablePrSurfaceControls().setThreads(new Map(entries));
+}
+
 describe("executeTriageJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDurablePrSurface();
+    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
     mockDurableExecution();
-    mocks.pullsGet.mockResolvedValue({
-      data: {
-        head: { ref: "branch", repo: { full_name: "o/r" } },
-        base: { repo: { full_name: "o/r" } },
-      },
-    });
+    configureDefaultThreads([[1, { threadNodeId: "node", isResolved: false }]]);
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
     mocks.fetchBotFindingThreads.mockResolvedValue([
       {
@@ -139,10 +135,6 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/thread",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      status: "ok",
-    });
     mocks.withWritablePrCheckout.mockImplementation(async (_params, run) =>
       run({
         dir: "/tmp/checkout",
@@ -172,14 +164,12 @@ describe("executeTriageJob", () => {
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.fetchReviewCommentParentGraph.mockResolvedValue([]);
-    mocks.getById.mockResolvedValue({
-      data: {
-        id: 42,
-        login: "alice",
-        name: "Alice",
-        email: null,
-        type: "User",
-      },
+    durablePrSurfaceControls().setGithubUser(42, {
+      id: 42,
+      login: "alice",
+      name: "Alice",
+      email: null,
+      type: "User",
     });
   });
 
@@ -206,7 +196,11 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.getById).toHaveBeenCalledWith({ account_id: 42 });
+    expect(
+      durablePrSurfaceControls().events.some(
+        (event) => event.kind === "lookupGitHubUser" && event.userId === 42,
+      ),
+    ).toBe(true);
     expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         commitAttribution: expect.objectContaining({
@@ -242,7 +236,9 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.getById).not.toHaveBeenCalled();
+    expect(
+      durablePrSurfaceControls().events.some((event) => event.kind === "lookupGitHubUser"),
+    ).toBe(false);
     expect(mocks.withWritablePrCheckout).toHaveBeenCalledWith(
       expect.objectContaining({
         commitAttribution: expect.objectContaining({
@@ -266,7 +262,7 @@ describe("executeTriageJob", () => {
         },
       }),
     );
-    mocks.getById.mockRejectedValue(new Error("not found"));
+    durablePrSurfaceControls().setGithubUser(42, null);
 
     await executeTriageJob(cfg, pool, boss, job());
 
@@ -282,12 +278,7 @@ describe("executeTriageJob", () => {
   });
 
   it("fork PRs publish report only and never create checkout", async () => {
-    mocks.pullsGet.mockResolvedValue({
-      data: {
-        head: { ref: "branch", repo: { full_name: "fork/r" } },
-        base: { repo: { full_name: "o/r" } },
-      },
-    });
+    durablePrSurfaceControls().setPullRequestBranchInfo({ headRef: "branch", sameRepo: false });
 
     await executeTriageJob(cfg, pool, boss, job());
 
@@ -296,10 +287,7 @@ describe("executeTriageJob", () => {
   });
 
   it("reports already-resolved threads without implying no review ran", async () => {
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: true }]]),
-      status: "ok",
-    });
+    configureDefaultThreads([[1, { threadNodeId: "node", isResolved: true }]]);
 
     await executeTriageJob(cfg, pool, boss, job());
 
@@ -418,13 +406,10 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/thread-2",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([
-        [1, { threadNodeId: "node-1", isResolved: false }],
-        [2, { threadNodeId: "node-2", isResolved: false }],
-      ]),
-      status: "ok",
-    });
+    configureDefaultThreads([
+      [1, { threadNodeId: "node-1", isResolved: false }],
+      [2, { threadNodeId: "node-2", isResolved: false }],
+    ]);
     mocks.getCompletedPublishStepDetailWithoutNewerStep.mockResolvedValue({
       pushedShas: ["abc1234"],
       commits: [{ sha: "abc1234", subject: "fix: guard user", diff: "+ok\n" }],
@@ -482,13 +467,10 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/2",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([
-        [1, { threadNodeId: "node-1", isResolved: false }],
-        [2, { threadNodeId: "node-2", isResolved: false }],
-      ]),
-      status: "ok",
-    });
+    configureDefaultThreads([
+      [1, { threadNodeId: "node-1", isResolved: false }],
+      [2, { threadNodeId: "node-2", isResolved: false }],
+    ]);
     mocks.fetchReviewCommentParentGraph.mockResolvedValue([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
@@ -534,10 +516,7 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/9",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[9, { threadNodeId: "node-9", isResolved: false }]]),
-      status: "ok",
-    });
+    configureDefaultThreads([[9, { threadNodeId: "node-9", isResolved: false }]]);
     mocks.fetchReviewCommentParentGraph.mockRejectedValue(new Error("graphql unavailable"));
     mockDurableExecution(
       item({
@@ -619,10 +598,7 @@ describe("executeTriageJob", () => {
         threadUrl: "https://github.test/1",
       },
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node-1", isResolved: true }]]),
-      status: "ok",
-    });
+    configureDefaultThreads([[1, { threadNodeId: "node-1", isResolved: true }]]);
     mocks.fetchReviewCommentParentGraph.mockResolvedValue([
       { id: 1, inReplyToId: null },
       { id: 9, inReplyToId: 1 },
@@ -711,11 +687,7 @@ describe("executeTriageJob", () => {
 
     await executeTriageJob(cfg, pool, boss, job());
 
-    expect(mocks.createComment).toHaveBeenCalledWith({
-      owner: "o",
-      repo: "r",
-      issue_number: 1,
-      body: TRIAGE_FAILURE_MESSAGE,
-    });
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.body).toBe(TRIAGE_FAILURE_MESSAGE);
   });
 });

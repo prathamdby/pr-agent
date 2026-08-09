@@ -1,7 +1,6 @@
-import type { Pool } from "pg";
 import type { Config } from "../../config.js";
+import type { Pool } from "pg";
 import { logWarn } from "../../evlog.js";
-import { findIssueCommentBySentinel, updateIssueComment } from "../../github/reviewPublish.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../../review/reviewSchema.js";
 import { upsertSummaryCommentWithCreationClaim } from "../../review/publish/publishReview.js";
 import {
@@ -18,18 +17,13 @@ import {
   type ReviewQueuePosition,
 } from "../repository.js";
 import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
-import { buildCiSummary } from "../../review/ci/analyzeCi.js";
+import { buildCiSummaryForSurface } from "../../review/ci/analyzeCi.js";
 import {
   parseProgressRevisionState,
   renderReviewCancelledNotice,
   renderReviewProgressComment,
 } from "../../review/run/progressComment.js";
-import {
-  getAppBotIdentity,
-  getPullRequestHeadSha,
-  postAckReply,
-  reactOnAckTargets,
-} from "../githubPrSurface.js";
+import { getAppBotIdentity } from "../githubPrSurface.js";
 import type { ReviewMode } from "../../review/reviewSchema.js";
 import type { AckJobData, WorkStatus } from "../types.js";
 
@@ -57,6 +51,21 @@ export async function canAckPublishProgress(
 
 type AckInstallation = Awaited<ReturnType<typeof mintInstallationToken>>;
 
+function ackPrSurface(
+  cfg: Config,
+  data: Pick<AckJobData, "installationId" | "owner" | "repo" | "prNumber">,
+  installation: AckInstallation,
+) {
+  return createPrSurface({
+    cfg,
+    installationId: data.installationId,
+    owner: data.owner,
+    repo: data.repo,
+    prNumber: data.prNumber,
+    installation,
+  });
+}
+
 async function publishAckProgress(
   cfg: Config,
   pool: Pool,
@@ -64,22 +73,13 @@ async function publishAckProgress(
   installation: AckInstallation,
   resourceKey: string,
 ): Promise<void> {
+  const prSurface = ackPrSurface(cfg, data, installation);
   const headSha =
     data.progress.headSha === DEFERRED_HEAD_SHA
-      ? await getPullRequestHeadSha(
-          installation.token,
-          data.owner,
-          data.repo,
-          data.prNumber,
-          installation.expiresAtTs,
-        )
+      ? await prSurface.getHeadSha()
       : data.progress.headSha;
-  const ciSummary = await buildCiSummary({
-    token: installation.token,
-    owner: data.owner,
-    repo: data.repo,
+  const ciSummary = await buildCiSummaryForSurface(prSurface, {
     headSha,
-    expiresAtTs: installation.expiresAtTs,
     lightweight: true,
     waitMs: 0,
   });
@@ -103,14 +103,6 @@ async function publishAckProgress(
     queuePosition,
     progressRevision: 0,
     progressWorkItemId: data.workItemId,
-  });
-  const prSurface = createPrSurface({
-    cfg,
-    installationId: data.installationId,
-    owner: data.owner,
-    repo: data.repo,
-    prNumber: data.prNumber,
-    installation,
   });
   await upsertSummaryCommentWithCreationClaim({
     pool,
@@ -143,15 +135,9 @@ async function publishCancelProgress(
   installation: AckInstallation,
   resourceKey: string,
 ): Promise<void> {
-  const existing = await findIssueCommentBySentinel(
-    installation.token,
-    data.owner,
-    data.repo,
-    data.prNumber,
-    REVIEW_SUMMARY_SENTINEL,
-    installation.expiresAtTs,
-  );
-  const rev = existing != null ? parseProgressRevisionState(existing.body) : null;
+  const prSurface = ackPrSurface(cfg, data, installation);
+  const existing = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
+  const rev = existing?.body != null ? parseProgressRevisionState(existing.body) : null;
   const ownsStub =
     existing != null &&
     (rev?.workItemId == null || rev.workItemId === data.cancelProgress.workItemId);
@@ -162,14 +148,7 @@ async function publishCancelProgress(
   });
 
   if (ownsStub && existing != null) {
-    await updateIssueComment(
-      installation.token,
-      data.owner,
-      data.repo,
-      existing.id,
-      body,
-      installation.expiresAtTs,
-    );
+    await prSurface.editComment(existing.id, body);
     return;
   }
 
@@ -178,14 +157,7 @@ async function publishCancelProgress(
     workItemId: data.cancelProgress.workItemId,
     resourceKey,
     reviewLens: "review",
-    prSurface: createPrSurface({
-      cfg,
-      installationId: data.installationId,
-      owner: data.owner,
-      repo: data.repo,
-      prNumber: data.prNumber,
-      installation,
-    }),
+    prSurface,
     body,
     sentinel: REVIEW_SUMMARY_SENTINEL,
     progressRevision: 0,
@@ -194,10 +166,8 @@ async function publishCancelProgress(
 
 /** Fire-and-forget ack (reactions, progress stub, slash replies); not a durable work item. */
 export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): Promise<void> {
-  let botUserId: number | undefined;
   try {
     const bot = await getAppBotIdentity(cfg);
-    botUserId = bot.userId;
     if (data.commenterId != null && bot.userId === data.commenterId) return;
   } catch (e) {
     logWarn("ack_bot_identity_check_failed", {
@@ -205,16 +175,9 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
     });
   }
   const installation = await mintInstallationToken(cfg, data.installationId);
+  const prSurface = ackPrSurface(cfg, data, installation);
 
-  await reactOnAckTargets(
-    installation.token,
-    data.owner,
-    data.repo,
-    data.targets,
-    GITHUB_REACTION_EYES,
-    botUserId,
-    installation.expiresAtTs,
-  );
+  await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_EYES);
 
   if (data.progress) {
     const progressData = { ...data, progress: data.progress };
@@ -259,19 +222,11 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
   }
 
   if (data.reply) {
-    await postAckReply(installation.token, data, data.reply.body, installation.expiresAtTs);
+    await prSurface.replyAt(data.reply.target, data.reply.body);
   }
 
   // Ack-only interactions (help / disabled / usage / cancel) finish here — no durable work item.
   if (data.reply && data.workItemId == null) {
-    await reactOnAckTargets(
-      installation.token,
-      data.owner,
-      data.repo,
-      data.targets,
-      GITHUB_REACTION_PLUS_ONE,
-      botUserId,
-      installation.expiresAtTs,
-    );
+    await prSurface.setAcknowledgementReaction(data.targets, GITHUB_REACTION_PLUS_ONE);
   }
 }

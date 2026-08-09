@@ -1,9 +1,6 @@
 import { vi, type Mock } from "vitest";
 import type { ReviewPayload } from "../../src/review/reviewSchema.js";
-import {
-  createFakePrSurface,
-  type FakePrSurfaceControls,
-} from "../../src/github/prSurface.js";
+import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
 import type { PrSurface, ThreadBatchReview } from "../../src/github/prSurface.js";
 import { makeReviewPayload } from "./reviewPayloadFactory.js";
 import { makeTestConfig } from "./config.js";

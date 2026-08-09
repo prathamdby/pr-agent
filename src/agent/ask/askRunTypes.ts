@@ -1,5 +1,6 @@
 import type { ReplyTarget } from "../../commands/replyTarget.js";
 import type { Config } from "../../config.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type { FeatureSessionDurability } from "../runtime/sessionDurability.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 
@@ -13,9 +14,7 @@ export type CodeAnchor = {
 
 export type AskRunParams = {
   cfg: Config;
-  token: string;
-  tokenExpiresAtTs: number;
-  tokenTtlMs: number;
+  prSurface: PrSurface;
   owner: string;
   repo: string;
   prNumber: number;
@@ -26,10 +25,6 @@ export type AskRunParams = {
   /** Full containing-thread transcript for conversational asks (untrusted). */
   threadTranscript?: string;
   threadTranscriptTruncated?: boolean;
-  refreshInstallationToken?: () => Promise<{
-    token: string;
-    expiresAtTs: number;
-  }>;
   cwd?: string;
   workspace: LocalPrWorkspace;
   durability?: FeatureSessionDurability;

@@ -149,7 +149,11 @@ describe("createReviewRescheduleWorkItem", () => {
       },
     });
 
-    const result = await buildStaleReviewRescheduleResult(pool, parent, prSurfaceWithHead("newhead"));
+    const result = await buildStaleReviewRescheduleResult(
+      pool,
+      parent,
+      prSurfaceWithHead("newhead"),
+    );
     expect(query.mock.calls[0]?.[1]?.[2]).toBe("auto");
     await result.afterComplete(boss, "active-job");
 

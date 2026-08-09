@@ -17,7 +17,12 @@ import {
   type CiAuthorInput,
   type CiSummaryAuthor,
 } from "./authorCiSummary.js";
-import type { CiCheckRunSnapshot, CiFailureDetail, CiLegacyStatus, CiSummary } from "./ciSummaryTypes.js";
+import type {
+  CiCheckRunSnapshot,
+  CiFailureDetail,
+  CiLegacyStatus,
+  CiSummary,
+} from "./ciSummaryTypes.js";
 import type { PrSurface } from "../../github/prSurface.js";
 import { fetchCiLogContext } from "./fetchCiLogContext.js";
 

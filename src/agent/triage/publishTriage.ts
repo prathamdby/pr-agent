@@ -1,11 +1,7 @@
 import type { TriageScope } from "../../agentWork/types.js";
 import type { Pool } from "pg";
-import { installationOctokit } from "../../github/appAuth.js";
-import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
-import {
-  resolveReviewThread,
-  type ReviewThreadResolution,
-} from "../../github/reviewThreadResolution.js";
+import type { PrSurface } from "../../github/prSurface.js";
+import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
@@ -48,8 +44,7 @@ type PublishTriageParams = {
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly installationId: number;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -131,36 +126,25 @@ function replyBody(
 }
 
 async function replyToThread(
-  params: Pick<
-    PublishTriageParams,
-    "token" | "tokenExpiresAtTs" | "owner" | "repo" | "prNumber"
-  > & {
+  params: Pick<PublishTriageParams, "prSurface" | "prNumber"> & {
     readonly thread: BotFindingThread;
     readonly verdict: Extract<TriageVerdict, { verdict: "fixed" | "already-resolved" }>;
   },
 ): Promise<void> {
-  const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
-  await octokit.rest.pulls.createReplyForReviewComment({
-    owner: params.owner,
-    repo: params.repo,
-    pull_number: params.prNumber,
-    comment_id: params.thread.rootCommentId,
-    body: replyBody(params.verdict),
-  });
+  await params.prSurface.replyAt(
+    {
+      kind: "inlineReviewThread",
+      prNumber: params.prNumber,
+      inReplyToCommentId: params.thread.rootCommentId,
+    },
+    replyBody(params.verdict),
+  );
 }
 
 async function upsertTriageReport(
   params: Pick<
     PublishTriageParams,
-    | "token"
-    | "tokenExpiresAtTs"
-    | "owner"
-    | "repo"
-    | "prNumber"
-    | "pool"
-    | "workItemId"
-    | "resourceKey"
-    | "executionEpoch"
+    "prSurface" | "pool" | "workItemId" | "resourceKey" | "executionEpoch"
   > & {
     readonly body: string;
   },
@@ -177,15 +161,9 @@ async function upsertTriageReport(
       reviewLens: TRIAGE_PUBLISH_LENS,
     },
     mutate: () =>
-      upsertReviewSummaryComment(
-        params.token,
-        params.owner,
-        params.repo,
-        params.prNumber,
+      params.prSurface.upsertProgressComment(
         redactReviewText(params.body),
         TRIAGE_SUMMARY_SENTINEL,
-        undefined,
-        params.tokenExpiresAtTs,
       ),
   });
   await recordPublishStep(params.pool, {
@@ -375,8 +353,7 @@ export async function publishTriage(params: PublishTriageParams): Promise<{ degr
           reviewLens: TRIAGE_PUBLISH_LENS,
           threadRootCommentId: verdict.threadRootCommentId,
         },
-        mutate: () =>
-          resolveReviewThread(params.token, resolution.threadNodeId, params.tokenExpiresAtTs),
+        mutate: () => params.prSurface.resolveInlineReviewThread(resolution.threadNodeId),
       });
     } catch (error) {
       captureTriageFailure(analytics, "thread_resolve", error, {

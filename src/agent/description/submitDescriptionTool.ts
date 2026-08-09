@@ -1,6 +1,7 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { Config } from "../../config.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { AppError } from "../../errors/appError.js";
 import { logDebug, logInfo } from "../../evlog.js";
 import { publishDescriptionToPullRequest } from "./publishDescription.js";
@@ -53,9 +54,7 @@ const SUBMIT_DESCRIPTION_PARAMETERS = z.toJSONSchema(descriptionPayloadSchema, {
 
 export function buildSubmitDescriptionTool(params: {
   cfg: Config;
-  token: string;
-  tokenExpiresAtTs?: number;
-  getTokenExpiresAtTs?: () => number;
+  prSurface: PrSurface;
   owner: string;
   repo: string;
   prNumber: number;
@@ -148,8 +147,7 @@ export function buildSubmitDescriptionTool(params: {
     const publish = () =>
       publishDescriptionToPullRequest({
         cfg: params.cfg,
-        token: params.token,
-        tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
+        prSurface: params.prSurface,
         owner: params.owner,
         repo: params.repo,
         prNumber: params.prNumber,

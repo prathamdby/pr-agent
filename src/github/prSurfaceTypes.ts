@@ -1,4 +1,5 @@
 import type { Config } from "../config.js";
+import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import type { InstallationToken } from "./appAuth.js";
 import type {
@@ -25,7 +26,11 @@ export type PullRequestHeadResolution = {
 };
 
 export type PostedReply = { readonly commentId: number };
-export type IssueCommentRef = { readonly id: number; readonly url?: string; readonly body?: string };
+export type IssueCommentRef = {
+  readonly id: number;
+  readonly url?: string;
+  readonly body?: string;
+};
 export type ProgressCommentUpsert = { readonly id: number; readonly updated: boolean };
 export type PublishedReviewCommentRef = {
   readonly path: string;
@@ -68,6 +73,37 @@ export type ReviewCheckOutcome = {
 export type CiStatusSnapshot = {
   readonly checkRuns: readonly CiCheckRunSnapshot[];
   readonly legacyStatuses: readonly CiLegacyStatus[];
+};
+
+export type PrConversationComment = {
+  readonly id: number;
+  readonly inReplyToId: number | null;
+  readonly authorLogin: string;
+  readonly body: string;
+};
+
+export type PullRequestBranchInfo = {
+  readonly headRef: string;
+  readonly sameRepo: boolean;
+};
+
+export type PushedCommitSummary = {
+  readonly sha: string;
+  readonly subject: string;
+};
+
+export type GithubUserProfile = {
+  readonly id: number;
+  readonly login: string;
+  readonly name: string | null;
+  readonly email: string | null;
+  readonly type: string;
+};
+
+export type PublishDescriptionSurfaceResult = {
+  readonly prNumber: number;
+  readonly titleUpdated: boolean;
+  readonly bodyUpdated: boolean;
 };
 
 export type CreatePrSurfaceParams = {
@@ -122,5 +158,16 @@ export type PrSurface = {
   listFailingActionsJobs(headSha: string): Promise<ListFailingActionsJobsResult>;
   downloadActionsJobLogs(jobId: number): Promise<DownloadActionsJobLogsResult>;
   gitCredentialToken(): Promise<string>;
+  listConversationComments(): Promise<readonly PrConversationComment[]>;
+  listInlineReviewComments(): Promise<readonly PrConversationComment[]>;
+  editReviewComment(commentId: number, body: string): Promise<boolean>;
+  getPullRequestBody(): Promise<string | null>;
+  getPullRequestBranchInfo(): Promise<PullRequestBranchInfo>;
+  publishDescription(
+    cfg: Pick<Config, "features">,
+    payload: DescriptionPayload,
+  ): Promise<PublishDescriptionSurfaceResult>;
+  listPushedCommits(): Promise<readonly PushedCommitSummary[]>;
+  lookupGitHubUser(userId: number): Promise<GithubUserProfile | null>;
   isRateLimitCircuitOpen(): boolean;
 };

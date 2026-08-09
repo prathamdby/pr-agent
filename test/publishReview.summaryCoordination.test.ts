@@ -100,9 +100,10 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
 
     expect(claimSummaryCommentCreation).not.toHaveBeenCalled();
     expect(harness.findProgressComment).not.toHaveBeenCalled();
-    expect(harness.upsertProgressComment).toHaveBeenCalledWith("summary body",
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
+      "summary body",
       REVIEW_SUMMARY_SENTINEL,
-      { id: 55, url: "https://example.com/55" }
+      { id: 55, url: "https://example.com/55" },
     );
   });
 
@@ -121,9 +122,10 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
 
     expect(getSummaryCommentGithubId).toHaveBeenCalled();
     expect(harness.findProgressComment).not.toHaveBeenCalled();
-    expect(harness.upsertProgressComment).toHaveBeenCalledWith("summary body",
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
+      "summary body",
       REVIEW_SUMMARY_SENTINEL,
-      { id: 77, url: "https://example.com/77" }
+      { id: 77, url: "https://example.com/77" },
     );
     vi.useRealTimers();
   });
@@ -138,9 +140,10 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
     await pending;
 
     expect(harness.findProgressComment).toHaveBeenCalled();
-    expect(harness.upsertProgressComment).toHaveBeenCalledWith("summary body",
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
+      "summary body",
       REVIEW_SUMMARY_SENTINEL,
-      null
+      null,
     );
     vi.useRealTimers();
   });
@@ -321,9 +324,10 @@ describe("upsertSummaryCommentWithCreationClaim", () => {
       }),
     ).resolves.toMatchObject({ id: 99 });
 
-    expect(harness.upsertProgressComment).toHaveBeenCalledWith(expect.stringContaining("workItemId=wi-1 value=0"),
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
+      expect.stringContaining("workItemId=wi-1 value=0"),
       REVIEW_SUMMARY_SENTINEL,
-      { id: 88, url: "https://example.com/88" }
+      { id: 88, url: "https://example.com/88" },
     );
   });
 
@@ -503,9 +507,10 @@ describe("publishReview summary coordination", () => {
     });
 
     expect(harness.findProgressComment).toHaveBeenCalled();
-    expect(harness.upsertProgressComment).toHaveBeenCalledWith(expect.stringContaining("<!-- pr-agent:progress-revision workItemId=wi-1 value=7 -->"),
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
+      expect.stringContaining("<!-- pr-agent:progress-revision workItemId=wi-1 value=7 -->"),
       REVIEW_SUMMARY_SENTINEL,
-      { id: 88, url: "https://example.com/88" }
+      { id: 88, url: "https://example.com/88" },
     );
     expect(lockQuery.mock.calls.some(([sql]) => sql.includes("pg_advisory_lock"))).toBe(true);
     expect(lockQuery.mock.calls.some(([sql]) => sql.includes("pg_advisory_unlock"))).toBe(true);

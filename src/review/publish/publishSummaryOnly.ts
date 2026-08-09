@@ -156,7 +156,9 @@ async function upsertSummaryCommentAtRevision(
     getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
     params.prSurface.findProgressComment(params.sentinel),
   ]);
-  const bodyRevision = currentComment ? parseProgressRevisionState(currentComment.body ?? "") : null;
+  const bodyRevision = currentComment
+    ? parseProgressRevisionState(currentComment.body ?? "")
+    : null;
   // Authoritative ownership lives on the progress publish record (reassigned at intake).
   // Stale writers whose work item no longer owns the record must not overwrite.
   if (
@@ -327,9 +329,8 @@ export async function publishReviewSummaryOnly(params: {
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
   );
-  let reviewComments: Awaited<
-    ReturnType<PrSurface["listPullRequestReviewComments"]>
-  >["comments"] = [];
+  let reviewComments: Awaited<ReturnType<PrSurface["listPullRequestReviewComments"]>>["comments"] =
+    [];
   if (placementsNeedingUrls) {
     try {
       const listed = await params.prSurface.listPullRequestReviewComments();

@@ -26,20 +26,164 @@ import {
 import { fetchPriorInlineReviewFeedback } from "../review/run/reviewPriorFeedback.js";
 import { withTransientReviewRetry } from "./reviewPublishRetry.js";
 import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
+import { paginateOctokitPages } from "./paginateOctokit.js";
+import { mergeDescriptionIntoPrBody } from "../agent/description/descriptionBodyMerge.js";
+import { renderDescriptionAgentBlock } from "../agent/description/descriptionRender.js";
+import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
 import {
+  COMMENT_PAGINATION_MAX_PAGES,
+  COMMENTS_PAGE_SIZE,
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
   GITHUB_REACTION_PLUS_ONE,
+  PR_COMMITS_MAX_PAGES,
+  PR_COMMITS_PAGE_SIZE,
   type GithubReactionContent,
 } from "../settings/index.js";
 import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
+  PrConversationComment,
   PrSurface,
   ReviewCheckOutcome,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
+
+async function listConversationCommentsForPr(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  expiresAtTs?: number,
+): Promise<readonly PrConversationComment[]> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const rows = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.issues.listComments({
+        owner,
+        repo,
+        issue_number: prNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+  return rows.map((comment) => ({
+    id: comment.id,
+    inReplyToId:
+      "in_reply_to_id" in comment && typeof comment.in_reply_to_id === "number"
+        ? comment.in_reply_to_id
+        : null,
+    authorLogin: comment.user?.login ?? "unknown",
+    body: comment.body ?? "",
+  }));
+}
+
+async function listInlineReviewCommentsForPr(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  expiresAtTs?: number,
+): Promise<readonly PrConversationComment[]> {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const rows = await paginateOctokitPages({
+    perPage: COMMENTS_PAGE_SIZE,
+    maxPages: COMMENT_PAGINATION_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listReviewComments({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+  return rows.map((comment) => ({
+    id: comment.id,
+    inReplyToId: comment.in_reply_to_id ?? null,
+    authorLogin: comment.user?.login ?? "unknown",
+    body: comment.body ?? "",
+  }));
+}
+
+async function listPushedCommitsForPr(
+  token: string,
+  owner: string,
+  repo: string,
+  prNumber: number,
+  expiresAtTs?: number,
+) {
+  const octokit = installationOctokit(token, expiresAtTs);
+  const commits = await paginateOctokitPages({
+    perPage: PR_COMMITS_PAGE_SIZE,
+    maxPages: PR_COMMITS_MAX_PAGES,
+    fetchPage: async (page, perPage) => {
+      const { data } = await octokit.rest.pulls.listCommits({
+        owner,
+        repo,
+        pull_number: prNumber,
+        per_page: perPage,
+        page,
+      });
+      return data;
+    },
+  });
+  return commits.map((commit) => ({
+    sha: commit.sha,
+    subject: commit.commit.message.split("\n")[0] ?? "",
+  }));
+}
+
+async function publishDescriptionOnPullRequest(params: {
+  readonly cfg: Pick<import("../config.js").Config, "features">;
+  readonly token: string;
+  readonly tokenExpiresAtTs?: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly prNumber: number;
+  readonly payload: DescriptionPayload;
+}) {
+  const { cfg, token, tokenExpiresAtTs, owner, repo, prNumber, payload } = params;
+  const octokit = installationOctokit(token, tokenExpiresAtTs);
+  const { data: pr } = await octokit.rest.pulls.get({
+    owner,
+    repo,
+    pull_number: prNumber,
+  });
+
+  const agentBlock = renderDescriptionAgentBlock(payload, {
+    owner,
+    repo,
+    prNumber,
+  });
+  const mergedBody = mergeDescriptionIntoPrBody({
+    currentBody: pr.body,
+    agentBlock,
+  });
+
+  const nextTitle = cfg.features.titleRewrite ? payload.title.trim() : (pr.title ?? "");
+  const titleUpdated = cfg.features.titleRewrite && nextTitle !== (pr.title ?? "");
+  const bodyUpdated = mergedBody !== (pr.body ?? "");
+
+  if (titleUpdated || bodyUpdated) {
+    await octokit.rest.pulls.update({
+      owner,
+      repo,
+      pull_number: prNumber,
+      title: nextTitle,
+      body: mergedBody,
+    });
+  }
+
+  return { prNumber, titleUpdated, bodyUpdated };
+}
 
 const REVIEW_CHECK_RUN_NAME = "PR Agent Review";
 
@@ -537,6 +681,93 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
 
     async gitCredentialToken() {
       return (await ensureAuth()).token;
+    },
+
+    async listConversationComments() {
+      const { token, expiresAtTs } = await ensureAuth();
+      return listConversationCommentsForPr(token, owner, repo, prNumber, expiresAtTs);
+    },
+
+    async listInlineReviewComments() {
+      const { token, expiresAtTs } = await ensureAuth();
+      return listInlineReviewCommentsForPr(token, owner, repo, prNumber, expiresAtTs);
+    },
+
+    async editReviewComment(commentId, body) {
+      const { token, expiresAtTs } = await ensureAuth();
+      const octokit = installationOctokit(token, expiresAtTs);
+      try {
+        await octokit.rest.pulls.updateReviewComment({
+          owner,
+          repo,
+          comment_id: commentId,
+          body,
+        });
+        return true;
+      } catch (error) {
+        if (httpStatus(error) === 404) return false;
+        throw error;
+      }
+    },
+
+    async getPullRequestBody() {
+      const { token, expiresAtTs } = await ensureAuth();
+      const octokit = installationOctokit(token, expiresAtTs);
+      const { data } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      return data.body ?? null;
+    },
+
+    async getPullRequestBranchInfo() {
+      const { token, expiresAtTs } = await ensureAuth();
+      const octokit = installationOctokit(token, expiresAtTs);
+      const { data } = await octokit.rest.pulls.get({
+        owner,
+        repo,
+        pull_number: prNumber,
+      });
+      return {
+        headRef: data.head.ref,
+        sameRepo: data.head.repo?.full_name === data.base.repo?.full_name,
+      };
+    },
+
+    async publishDescription(cfg, payload) {
+      const { token, expiresAtTs } = await ensureAuth();
+      return publishDescriptionOnPullRequest({
+        cfg,
+        token,
+        tokenExpiresAtTs: expiresAtTs,
+        owner,
+        repo,
+        prNumber,
+        payload,
+      });
+    },
+
+    async listPushedCommits() {
+      const { token, expiresAtTs } = await ensureAuth();
+      return listPushedCommitsForPr(token, owner, repo, prNumber, expiresAtTs);
+    },
+
+    async lookupGitHubUser(userId) {
+      const { token, expiresAtTs } = await ensureAuth();
+      const octokit = installationOctokit(token, expiresAtTs);
+      try {
+        const { data } = await octokit.rest.users.getById({ account_id: userId });
+        return {
+          id: data.id,
+          login: data.login ?? "unknown",
+          name: data.name ?? null,
+          email: data.email ?? null,
+          type: data.type ?? "User",
+        };
+      } catch {
+        return null;
+      }
     },
 
     isRateLimitCircuitOpen() {

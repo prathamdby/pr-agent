@@ -1,13 +1,25 @@
 import type { ReplyTarget } from "../commands/replyTarget.js";
-import type { ListPullRequestFilesLimits, PullRequestForFileList } from "./listPullRequestFiles.js";
-import type { ReviewThreadResolution } from "./reviewThreadResolution.js";
+import type {
+  ListPullRequestFilesLimits,
+  ListPullRequestFilesResult,
+  PullRequestForFileList,
+} from "./listPullRequestFiles.js";
+import type { ListCommitCompareFilesResult } from "./compareCommitFiles.js";
+import type {
+  ReviewThreadResolution,
+  ReviewThreadResolutionStatus,
+} from "./reviewThreadResolution.js";
 import type { GithubReactionContent } from "../settings/index.js";
 import type {
   AcknowledgementTarget,
   CreatePrSurfaceParams,
+  PrConversationComment,
   PrSurface,
+  PullRequestBranchInfo,
+  PushedCommitSummary,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
+import type { DescriptionPayload } from "../agent/description/descriptionSchema.js";
 
 export type FakePrSurfaceEvent =
   | { readonly kind: "getHead" }
@@ -34,7 +46,11 @@ export type FakePrSurfaceEvent =
   | {
       readonly kind: "setReviewCommitStatus";
       readonly headSha: string;
-      readonly status: { readonly state: string; readonly description: string; readonly targetUrl?: string };
+      readonly status: {
+        readonly state: string;
+        readonly description: string;
+        readonly targetUrl?: string;
+      };
     }
   | { readonly kind: "fetchPriorInlineFeedback"; readonly botUserId: number }
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
@@ -55,7 +71,15 @@ export type FakePrSurfaceEvent =
   | { readonly kind: "getCiStatus"; readonly headSha: string }
   | { readonly kind: "listFailingActionsJobs"; readonly headSha: string }
   | { readonly kind: "downloadActionsJobLogs"; readonly jobId: number }
-  | { readonly kind: "gitCredentialToken" };
+  | { readonly kind: "gitCredentialToken" }
+  | { readonly kind: "listConversationComments" }
+  | { readonly kind: "listInlineReviewComments" }
+  | { readonly kind: "editReviewComment"; readonly commentId: number; readonly body: string }
+  | { readonly kind: "getPullRequestBody" }
+  | { readonly kind: "getPullRequestBranchInfo" }
+  | { readonly kind: "publishDescription" }
+  | { readonly kind: "listPushedCommits" }
+  | { readonly kind: "lookupGitHubUser"; readonly userId: number };
 
 export type FakePrSurfaceControls = {
   readonly events: FakePrSurfaceEvent[];
@@ -94,6 +118,33 @@ export type FakePrSurfaceControls = {
       readonly humanReplies: readonly string[];
       readonly threadUrl: string;
     }>,
+  ) => void;
+  readonly setConversationComments: (comments: readonly PrConversationComment[]) => void;
+  readonly setInlineReviewComments: (comments: readonly PrConversationComment[]) => void;
+  readonly setPullRequestBody: (body: string | null) => void;
+  readonly setPullRequestBranchInfo: (info: PullRequestBranchInfo) => void;
+  readonly setPushedCommits: (commits: readonly PushedCommitSummary[]) => void;
+  readonly setGithubUser: (
+    userId: number,
+    profile: {
+      readonly id: number;
+      readonly login: string;
+      readonly name: string | null;
+      readonly email: string | null;
+      readonly type: string;
+    } | null,
+  ) => void;
+  readonly setReviewCommentBody: (commentId: number, body: string) => void;
+  readonly setChangedFilesResult: (result: ListPullRequestFilesResult) => void;
+  readonly setCommitCompareFilesResult: (
+    result:
+      | ListCommitCompareFilesResult
+      | ((base: string, head: string) => ListCommitCompareFilesResult),
+  ) => void;
+  readonly rejectNextInlineReviewReply: (error: Error) => void;
+  readonly setThreadResolutionStatus: (
+    status: ReviewThreadResolutionStatus,
+    warning?: string,
   ) => void;
 };
 
@@ -158,6 +209,32 @@ export function createFakePrSurface(
     readonly threadUrl: string;
   }> = [];
   let reviewComments: Array<{ path: string; line: number; id: number; url: string }> = [];
+  let conversationComments: PrConversationComment[] = [];
+  let inlineReviewComments: PrConversationComment[] = [];
+  let pullRequestBody: string | null = null;
+  let pullRequestBranchInfo: PullRequestBranchInfo = { headRef: "branch", sameRepo: true };
+  let pushedCommits: PushedCommitSummary[] = [];
+  const githubUsers = new Map<
+    number,
+    { id: number; login: string; name: string | null; email: string | null; type: string }
+  >();
+  const reviewCommentBodies = new Map<number, string>();
+  let changedFilesResult: ListPullRequestFilesResult = {
+    files: [],
+    truncated: false,
+    omittedCountLowerBound: 0,
+    totalChanges: 0,
+    headSha,
+  };
+  let commitCompareFilesResult:
+    | ListCommitCompareFilesResult
+    | ((base: string, head: string) => ListCommitCompareFilesResult) = {
+    files: [],
+    truncated: false,
+  };
+  let inlineReplyError: Error | null = null;
+  let threadResolutionStatus: ReviewThreadResolutionStatus = "ok";
+  let threadResolutionWarning: string | undefined;
 
   const controls: FakePrSurfaceControls = {
     events,
@@ -219,6 +296,41 @@ export function createFakePrSurface(
     setPriorInlineFeedback(next) {
       priorInlineFeedback = [...next];
     },
+    setConversationComments(next) {
+      conversationComments = [...next];
+    },
+    setInlineReviewComments(next) {
+      inlineReviewComments = [...next];
+    },
+    setPullRequestBody(body) {
+      pullRequestBody = body;
+    },
+    setPullRequestBranchInfo(info) {
+      pullRequestBranchInfo = info;
+    },
+    setPushedCommits(commits) {
+      pushedCommits = [...commits];
+    },
+    setGithubUser(userId, profile) {
+      if (profile == null) githubUsers.delete(userId);
+      else githubUsers.set(userId, profile);
+    },
+    setReviewCommentBody(commentId, body) {
+      reviewCommentBodies.set(commentId, body);
+    },
+    setChangedFilesResult(result) {
+      changedFilesResult = result;
+    },
+    setCommitCompareFilesResult(result) {
+      commitCompareFilesResult = result;
+    },
+    rejectNextInlineReviewReply(error) {
+      inlineReplyError = error;
+    },
+    setThreadResolutionStatus(status, warning) {
+      threadResolutionStatus = status;
+      threadResolutionWarning = warning;
+    },
   };
 
   const surface: PrSurface = {
@@ -242,9 +354,17 @@ export function createFakePrSurface(
     },
 
     async replyAt(target, body) {
+      if (target.kind === "inlineReviewThread" && inlineReplyError != null) {
+        const error = inlineReplyError;
+        inlineReplyError = null;
+        throw error;
+      }
       events.push({ kind: "replyAt", target, body });
       replies.push({ target, body });
       const commentId = nextCommentId++;
+      if (target.kind === "inlineReviewThread") {
+        reviewCommentBodies.set(commentId, body);
+      }
       issueComments.set(commentId, {
         id: commentId,
         body,
@@ -341,7 +461,11 @@ export function createFakePrSurface(
 
     async listInlineReviewThreads() {
       events.push({ kind: "listInlineReviewThreads" });
-      return { byRootCommentId: new Map(threads), status: "ok" as const };
+      return {
+        byRootCommentId: new Map(threads),
+        status: threadResolutionStatus,
+        ...(threadResolutionWarning != null ? { warning: threadResolutionWarning } : {}),
+      };
     },
 
     async resolveInlineReviewThread(threadId) {
@@ -355,18 +479,14 @@ export function createFakePrSurface(
 
     async listChangedFiles(caps) {
       events.push({ kind: "listChangedFiles", caps });
-      return {
-        files: [],
-        truncated: false,
-        omittedCountLowerBound: 0,
-        totalChanges: 0,
-        headSha,
-      };
+      return { ...changedFilesResult, headSha: changedFilesResult.headSha ?? headSha };
     },
 
     async listCommitCompareFiles(base, head) {
       events.push({ kind: "listCommitCompareFiles", base, head });
-      return { files: [], truncated: false };
+      return typeof commitCompareFilesResult === "function"
+        ? commitCompareFilesResult(base, head)
+        : commitCompareFilesResult;
     },
 
     async getLabels() {
@@ -414,6 +534,48 @@ export function createFakePrSurface(
     async gitCredentialToken() {
       events.push({ kind: "gitCredentialToken" });
       return credentialToken;
+    },
+
+    async listConversationComments() {
+      events.push({ kind: "listConversationComments" });
+      return conversationComments;
+    },
+
+    async listInlineReviewComments() {
+      events.push({ kind: "listInlineReviewComments" });
+      return inlineReviewComments;
+    },
+
+    async editReviewComment(commentId, body) {
+      events.push({ kind: "editReviewComment", commentId, body });
+      if (!reviewCommentBodies.has(commentId)) return false;
+      reviewCommentBodies.set(commentId, body);
+      return true;
+    },
+
+    async getPullRequestBody() {
+      events.push({ kind: "getPullRequestBody" });
+      return pullRequestBody;
+    },
+
+    async getPullRequestBranchInfo() {
+      events.push({ kind: "getPullRequestBranchInfo" });
+      return pullRequestBranchInfo;
+    },
+
+    async publishDescription(_cfg, _payload: DescriptionPayload) {
+      events.push({ kind: "publishDescription" });
+      return { prNumber: params.prNumber, titleUpdated: false, bodyUpdated: true };
+    },
+
+    async listPushedCommits() {
+      events.push({ kind: "listPushedCommits" });
+      return pushedCommits;
+    },
+
+    async lookupGitHubUser(userId) {
+      events.push({ kind: "lookupGitHubUser", userId });
+      return githubUsers.get(userId) ?? null;
     },
 
     isRateLimitCircuitOpen() {

@@ -5,31 +5,14 @@ import {
   type WritablePrCheckout,
 } from "../src/prWorkspace/writablePrCheckout.js";
 
-const mocks = vi.hoisted(() => ({
-  createReply: vi.fn(),
-  upsert: vi.fn(),
-  resolve: vi.fn(),
-  recordPublishStep: vi.fn(),
-}));
-
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: vi.fn(() => ({
-    rest: {
-      pulls: { createReplyForReviewComment: mocks.createReply },
-    },
-  })),
-}));
-
-vi.mock("../src/github/reviewPublish.js", () => ({
-  upsertReviewSummaryComment: mocks.upsert,
-}));
-
-vi.mock("../src/github/reviewThreadResolution.js", () => ({
-  resolveReviewThread: mocks.resolve,
-}));
+import {
+  publishTestPrSurface,
+  resolveThreadIds,
+  upsertProgressBody,
+} from "./helpers/publishPrSurface.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
-  recordPublishStep: mocks.recordPublishStep,
+  recordPublishStep: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
@@ -91,22 +74,23 @@ function poolWithPriorRunActedIds(): Pool {
 }
 
 describe("publishTriage", () => {
+  let controls: import("../src/github/fakePrSurface.js").FakePrSurfaceControls;
+
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.upsert.mockResolvedValue({ id: 99, updated: false });
-    mocks.recordPublishStep.mockResolvedValue(undefined);
-    mocks.createReply.mockResolvedValue(undefined);
-    mocks.resolve.mockResolvedValue(undefined);
+    controls = publishTestPrSurface().controls;
   });
 
   it("posts no thread replies when push is stale", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -130,19 +114,26 @@ describe("publishTriage", () => {
     });
 
     expect(result.degraded).toBe(true);
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.upsert.mock.calls[0]?.[4]).toContain("head changed");
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(upsertProgressBody(controls)).toContain("head changed");
   });
 
   it("still replies to already-resolved verdicts when push is stale", async () => {
+    const fake = publishTestPrSurface(
+      new Map([
+        [1, { threadNodeId: "node-1", isResolved: false }],
+        [2, { threadNodeId: "node-2", isResolved: false }],
+      ]),
+    );
+    controls = fake.controls;
     const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -174,22 +165,25 @@ describe("publishTriage", () => {
     });
 
     expect(result.degraded).toBe(true);
-    expect(mocks.createReply).toHaveBeenCalledTimes(1);
-    expect(mocks.createReply).toHaveBeenCalledWith(
-      expect.objectContaining({ comment_id: 2, body: expect.stringContaining("Already resolved") }),
+    expect(controls.replies).toHaveLength(1);
+    expect(controls.replies[0]?.target).toEqual(
+      expect.objectContaining({ kind: "inlineReviewThread", inReplyToCommentId: 2 }),
     );
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "node-2", undefined);
-    expect(mocks.upsert.mock.calls[0]?.[4]).toContain("head changed");
+    expect(controls.replies[0]?.body).toContain("Already resolved");
+    expect(resolveThreadIds(controls)).toContain("node-2");
+    expect(upsertProgressBody(controls)).toContain("head changed");
   });
 
   it("skips already acted ids and never resolves dismissed verdicts", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     await publishTriage({
       pool: pool({ actedThreadIds: [1] }),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -209,18 +203,20 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(0);
   });
 
   it("skips duplicate replies but still resolves already acted threads", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     await publishTriage({
       pool: pool({ actedThreadIds: [1] }),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -240,18 +236,20 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "node", undefined);
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toContain("node");
   });
 
   it("skips replies when the thread already has a bot triage reply", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     await publishTriage({
       pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -271,18 +269,20 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "node", undefined);
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toContain("node");
   });
 
   it("does not reuse acted thread ids from prior triage work items", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     await publishTriage({
       pool: poolWithPriorRunActedIds(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -302,18 +302,20 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 1 }));
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "node", undefined);
+    expect(controls.replies[0]?.target).toEqual(expect.objectContaining({ inReplyToCommentId: 1 }));
+    expect(resolveThreadIds(controls)).toContain("node");
   });
 
   it("marks publish degraded when an actionable verdict lacks thread mapping", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     const result = await publishTriage({
       pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -334,19 +336,21 @@ describe("publishTriage", () => {
     });
 
     expect(result.degraded).toBe(true);
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.upsert.mock.calls[0]?.[4]).toContain("could not be matched");
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(upsertProgressBody(controls)).toContain("could not be matched");
   });
 
   it("redacts secret-shaped substrings in the triage report body before upsert", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     await publishTriage({
       pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -367,7 +371,7 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    const body = mocks.upsert.mock.calls[0]?.[4] as string;
+    const body = upsertProgressBody(controls);
     expect(body).toContain("Policy suggestions for dismissed findings");
     expect(body).toContain("[redacted]");
     expect(body).not.toContain("ghp_");
@@ -375,13 +379,15 @@ describe("publishTriage", () => {
   });
 
   it("preserves clean triage report formatting through the upsert chokepoint", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     await publishTriage({
       pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -401,7 +407,7 @@ describe("publishTriage", () => {
       previouslyResolvedCount: 0,
     });
 
-    const body = mocks.upsert.mock.calls[0]?.[4] as string;
+    const body = upsertProgressBody(controls);
     expect(body.startsWith(TRIAGE_SUMMARY_SENTINEL)).toBe(true);
     expect(body).toContain("| Severity | Finding | Location | Verdict | Thread |");
     expect(body).toContain("Already resolved");
@@ -411,13 +417,15 @@ describe("publishTriage", () => {
   });
 
   it("redacts report-only bodies at the same upsert chokepoint", async () => {
+    const fake = publishTestPrSurface();
+    controls = fake.controls;
     await publishTriageReportOnly({
       pool: pool(),
       workItemId: "wi",
       executionEpoch: 1,
       resourceKey: "o/r#1",
       installationId: 42,
-      token: "tok",
+      prSurface: fake.surface,
       owner: "o",
       repo: "r",
       prNumber: 1,
@@ -427,7 +435,7 @@ describe("publishTriage", () => {
       body: `${TRIAGE_SUMMARY_SENTINEL}\n\nInventory leaked OPENAI_API_KEY=sk-abcdefghijklmnopqrstuvwxyz\n`,
     });
 
-    const body = mocks.upsert.mock.calls[0]?.[4] as string;
+    const body = upsertProgressBody(controls);
     expect(body.startsWith(TRIAGE_SUMMARY_SENTINEL)).toBe(true);
     expect(body).toContain("[redacted]");
     expect(body).not.toContain("sk-");

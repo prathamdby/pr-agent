@@ -1,9 +1,9 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
 import { createAskPathGate } from "../ask/askSafety.js";
 import { buildLocalWorkspaceTools } from "../tools/localWorkspaceTools.js";
-import { createRefreshableToolExecutors } from "../tools/refreshableGithubTools.js";
 import { descriptionSystemPrompt } from "./descriptionSystemPrompt.js";
 import { buildDescriptionUserContent } from "./descriptionUserMessage.js";
 import { resolveDescriptionWritingPolicy } from "./descriptionWritingPolicy.js";
@@ -14,15 +14,12 @@ import {
 } from "./submitDescriptionTool.js";
 import type { OperationIntentContext } from "../../agentWork/withOperationIntent.js";
 
-const TOKEN_REFRESH_TOOL = "getPullRequest";
-
 export type DescriptionRunSetup = {
   readonly systemPrompt: string;
   readonly userContent: string;
   readonly piTools: PiTool[];
   readonly executors: Record<string, (args: Record<string, unknown>) => Promise<unknown>>;
   readonly submitState: SubmitDescriptionState;
-  readonly getToken: () => string;
   readonly refreshBeforeTool: (toolName: string) => Promise<void>;
 };
 
@@ -34,9 +31,7 @@ export function shouldContinueDescriptionRun(
 
 export function buildDescriptionRunSetup(params: {
   cfg: Config;
-  token: string;
-  tokenExpiresAtTs: number;
-  tokenTtlMs: number;
+  prSurface: PrSurface;
   owner: string;
   repo: string;
   prNumber: number;
@@ -46,46 +41,22 @@ export function buildDescriptionRunSetup(params: {
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   operationIntent?: OperationIntentContext;
-  refreshInstallationToken?: () => Promise<{
-    token: string;
-    expiresAtTs: number;
-  }>;
 }): DescriptionRunSetup {
-  const {
-    cfg,
-    token,
-    tokenExpiresAtTs,
-    owner,
-    repo,
-    prNumber,
-    headSha,
-    userSupplement,
-    workspace,
-  } = params;
+  const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, workspace } = params;
 
   const pathGate = createAskPathGate();
   const submitState = createSubmitDescriptionState();
   const policy = resolveDescriptionWritingPolicy(workspace.stats);
   const knownPaths = new Set(workspace.changedFiles.map((file) => file.path));
 
-  const refreshableGh = createRefreshableToolExecutors({
-    initialToken: token,
-    tokenExpiresAtTs,
-    tokenTtlMs: params.tokenTtlMs,
-    refreshInstallationToken: params.refreshInstallationToken,
-    githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
-    build: (_activeToken, _activeExpiresAtTs) =>
-      buildLocalWorkspaceTools(workspace, {
-        pathGate,
-      }),
+  const localTools = buildLocalWorkspaceTools(workspace, {
+    pathGate,
   });
 
   const buildSubmit = () =>
     buildSubmitDescriptionTool({
       cfg,
-      token: refreshableGh.getToken(),
-      tokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs(),
-      getTokenExpiresAtTs: () => refreshableGh.getTokenExpiresAtTs(),
+      prSurface,
       owner,
       repo,
       prNumber,
@@ -98,7 +69,7 @@ export function buildDescriptionRunSetup(params: {
     });
 
   let submitBundle = buildSubmit();
-  const executors = { ...refreshableGh.bundle.executors };
+  const executors = { ...localTools.executors };
   executors.submitDescription = async (args) => {
     if (submitState.published) {
       return { ok: true, duplicate: true };
@@ -107,11 +78,8 @@ export function buildDescriptionRunSetup(params: {
   };
 
   const refreshBeforeTool = async (toolName: string) => {
-    if (refreshableGh.githubExecutorNames.has(toolName) || toolName === "submitDescription") {
-      await refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL);
-      if (toolName === "submitDescription") {
-        submitBundle = buildSubmit();
-      }
+    if (toolName === "submitDescription") {
+      submitBundle = buildSubmit();
     }
   };
 
@@ -128,10 +96,9 @@ export function buildDescriptionRunSetup(params: {
       truncated: workspace.stats.truncated,
       userSupplement,
     }),
-    piTools: [...refreshableGh.bundle.piTools, submitBundle.piTool],
+    piTools: [...localTools.piTools, submitBundle.piTool],
     executors,
     submitState,
-    getToken: refreshableGh.getToken,
     refreshBeforeTool,
   };
 }

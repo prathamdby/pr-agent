@@ -6,6 +6,7 @@ import {
   createSubmitDescriptionState,
 } from "../src/agent/description/submitDescriptionTool.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 
 vi.mock("../src/agentWork/operationIntentRepository.js", () => ({
   persistOperationIntent: vi.fn(),
@@ -30,9 +31,10 @@ function buildTool(
   operationIntent?: { client: Pool; workItemId: string; resourceKey: string },
   extras?: { mapMode?: "omit" | "read_first"; knownPaths?: ReadonlySet<string> },
 ) {
+  const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
   return buildSubmitDescriptionTool({
     cfg: makeTestConfig(),
-    token: "token",
+    prSurface: surface,
     owner: "o",
     repo: "r",
     prNumber: 1,

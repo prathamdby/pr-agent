@@ -79,7 +79,9 @@ describe("tryLightweightAutoReviewCompletion", () => {
       published: false,
       reason: "skipped",
     });
-    expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(0);
+    expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(
+      0,
+    );
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 

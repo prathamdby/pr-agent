@@ -1,5 +1,5 @@
 import type { ReplyTarget } from "../../commands/replyTarget.js";
-import { installationOctokit } from "../../github/appAuth.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { isRecord } from "../../util/typeGuards.js";
 import { redactOutboundSecrets } from "./askSafety.js";
 
@@ -36,30 +36,21 @@ export function askReplyBodyMatchesQuestion(
  * reply on the PR conversation before remutating or rerunning the model.
  */
 export async function findExistingAskReplyComment(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
+  readonly prSurface: PrSurface;
   readonly replyTarget: ReplyTarget;
   readonly question: string;
   readonly botLogin: string;
 }): Promise<RecoveredAskReply | null> {
-  const { token, tokenExpiresAtTs, owner, repo, replyTarget, question, botLogin } = params;
+  const { prSurface, replyTarget, question, botLogin } = params;
   if (replyTarget.kind === "inlineReviewThread") {
     return null;
   }
 
-  const octokit = installationOctokit(token, tokenExpiresAtTs);
-  const comments = await octokit.paginate(octokit.rest.issues.listComments, {
-    owner,
-    repo,
-    issue_number: replyTarget.prNumber,
-    per_page: 100,
-  });
+  const comments = await prSurface.listConversationComments();
 
   for (let i = comments.length - 1; i >= 0; i -= 1) {
     const comment = comments[i];
-    if (!comment || comment.user?.login !== botLogin) continue;
+    if (!comment || comment.authorLogin !== botLogin) continue;
     if (!askReplyBodyMatchesQuestion(comment.body ?? "", question, replyTarget)) continue;
     return { commentId: comment.id };
   }

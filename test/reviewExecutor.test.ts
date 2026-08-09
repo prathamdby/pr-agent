@@ -736,11 +736,7 @@ describe("executeReviewJob", () => {
   });
 
   it("skips failure notice when a summary sentinel already exists on GitHub", async () => {
-    durableSurfaceBundle.controls.setProgressComment(
-      REVIEW_SUMMARY_SENTINEL,
-      "landed",
-      4242,
-    );
+    durableSurfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "landed", 4242);
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),

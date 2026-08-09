@@ -1,5 +1,4 @@
-import { logInfo, logWarn } from "../../evlog.js";
-import { AppError } from "../../errors/appError.js";
+import { logInfo } from "../../evlog.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
@@ -25,6 +24,7 @@ import {
   getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
+import { logWarn } from "../../evlog.js";
 
 export type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 
@@ -47,19 +47,6 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       }),
       replied: true,
     };
-  }
-
-  if (!Number.isFinite(params.tokenExpiresAtTs)) {
-    throw new AppError({
-      code: "ask.invalid_token_expires_at",
-      message: "tokenExpiresAtTs must be a finite timestamp in milliseconds",
-    });
-  }
-  if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
-    throw new AppError({
-      code: "ask.invalid_token_ttl",
-      message: "tokenTtlMs must be a positive finite duration in milliseconds",
-    });
   }
 
   const installationId = params.durability?.installationId ?? 0;

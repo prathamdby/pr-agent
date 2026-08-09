@@ -274,8 +274,7 @@ export async function runOrchestratedPrReview(
     workItemId: params.workItemId,
     resolveProgressCommentUrl,
     prSurface: setup.prSurface,
-    
-    
+
     cachedDiffIndex: setup.cachedDiffIndex,
     recordPublishStep: params.recordPublishStep,
     operationIntent: params.recordPublishStep?.summaryCommentCoordination
@@ -314,8 +313,7 @@ export async function runOrchestratedPrReview(
       hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
     },
     prSurface: setup.prSurface,
-    
-    
+
     remainingFinalizationMs: params.timing.remainingTotalMs,
     mode: reviewMode,
     cachedDiffIndex: setup.cachedDiffIndex,
@@ -634,8 +632,7 @@ export async function runOrchestratedPrReview(
         specialists: snapshotSpecialists(),
       },
       prSurface: setup.prSurface,
-      
-      
+
       hintCommentId: params.progressCommentIdHint,
     });
   };
@@ -679,8 +676,7 @@ export async function runOrchestratedPrReview(
         mode: reviewMode,
         attribution: stopped.attribution,
         prSurface: setup.prSurface,
-        
-        
+
         hintCommentId: params.progressCommentIdHint,
       });
       return;
@@ -703,8 +699,7 @@ export async function runOrchestratedPrReview(
         specialists: snapshotSpecialists(),
       },
       prSurface: setup.prSurface,
-      
-      
+
       hintCommentId: params.progressCommentIdHint,
     });
   };
@@ -741,7 +736,7 @@ export async function runOrchestratedPrReview(
     phaseRef.current = "judgment";
     publishThread.setSource(outcome.specialist);
     const ledgerBefore = publishThread.getLedger();
-    
+
     publishAttempts += 1;
     const result = await publishThread.executor({ findings: outcome.report.findings });
     if (result.kind === "wrong_phase") {
@@ -807,7 +802,7 @@ export async function runOrchestratedPrReview(
       state,
       findings: ledger.accepted.map((accepted) => accepted.placement.finding),
     });
-    
+
     publishAttempts += 1;
     const result = await publishReviewSummaryOnly({
       cfg: params.cfg,
@@ -819,8 +814,7 @@ export async function runOrchestratedPrReview(
         hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
       },
       prSurface: setup.prSurface,
-      
-      
+
       remainingFinalizationMs: params.timing.remainingTotalMs,
       payload,
       ledger,
@@ -843,7 +837,6 @@ export async function runOrchestratedPrReview(
   };
 
   const publishFailureNotice = async (): Promise<void> => {
-    
     const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
     await publishReviewRunFailureNotice({
       cfg: params.cfg,

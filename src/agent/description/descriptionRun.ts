@@ -1,20 +1,19 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
-import { AppError } from "../../errors/appError.js";
 import { assistantFromText, runSubmitOnlyRound } from "../../agentRun/sessionHelpers.js";
 import {
   runStructuredAgentLoop,
   runValidationRepairLoop,
 } from "../../agentRun/structuredAgentLoop.js";
-import { logInfo, logWarn } from "../../evlog.js";
+import { logInfo } from "../../evlog.js";
 import { createFeaturePiSession } from "../runtime/createFeatureSession.js";
 import { DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE } from "./descriptionSchema.js";
 import {
   DESCRIPTION_PRE_SUBMIT_NUDGE_ROUNDS,
   DESCRIPTION_SUBMIT_ONLY_NUDGE,
   DESCRIPTION_VALIDATION_REPAIR_ROUNDS,
-  TOKEN_FRESHNESS_BUFFER_MS,
   MAX_TOOL_ROUNDS_DESCRIBE,
 } from "../../settings/index.js";
 import { buildDescriptionRunSetup, shouldContinueDescriptionRun } from "./descriptionRunSetup.js";
@@ -27,17 +26,9 @@ export type DescriptionRunResult = {
   publishSuperseded: boolean;
 };
 
-function tokenTtlMsOrDefault(value: number | undefined): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) return value;
-  logWarn("description_token_ttl_defaulted");
-  return TOKEN_FRESHNESS_BUFFER_MS;
-}
-
 export async function runFullPrDescription(params: {
   cfg: Config;
-  token: string;
-  tokenExpiresAtTs: number;
-  tokenTtlMs?: number;
+  prSurface: PrSurface;
   owner: string;
   repo: string;
   prNumber: number;
@@ -48,23 +39,11 @@ export async function runFullPrDescription(params: {
   shouldAbortPublish?: () => Promise<boolean>;
   recordPublishStep?: (detail?: Record<string, unknown>) => Promise<void>;
   operationIntent?: OperationIntentContext;
-  refreshInstallationToken?: () => Promise<{
-    token: string;
-    expiresAtTs: number;
-  }>;
   durability?: FeatureSessionDurability;
 }): Promise<DescriptionRunResult> {
-  if (!Number.isFinite(params.tokenExpiresAtTs)) {
-    throw new AppError({
-      code: "description.invalid_token_expires_at",
-      message: "tokenExpiresAtTs must be a finite timestamp in milliseconds",
-    });
-  }
-
   const { cfg, owner, repo, prNumber } = params;
-  const tokenTtlMs = tokenTtlMsOrDefault(params.tokenTtlMs);
   const providerName = cfg.piProvider;
-  const setup = buildDescriptionRunSetup({ ...params, tokenTtlMs });
+  const setup = buildDescriptionRunSetup(params);
   const session = await createFeaturePiSession({
     role: "description",
     cfg,

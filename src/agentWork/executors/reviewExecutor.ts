@@ -90,10 +90,7 @@ import {
   type StaleReviewRescheduleResult,
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
-import {
-  resolveWorkItemHead,
-  runDurableWorkItem,
-} from "../durableJob.js";
+import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { getAppBotIdentity } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";

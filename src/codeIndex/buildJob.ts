@@ -4,6 +4,7 @@ import type { PgBoss } from "pg-boss";
 import type { Config } from "../config.js";
 import { logWarn } from "../evlog.js";
 import { mintInstallationToken } from "../agentWork/durableJob.js";
+import { createPrSurface } from "../github/prSurface.js";
 import { assertWorkspacePath, type LocalPrWorkspace } from "../prWorkspace/localPrWorkspace.js";
 import { withPrRepositoryView } from "../prWorkspace/prRepositoryView.js";
 import { isIndexableSourcePath } from "../prWorkspace/symbolIndex.js";
@@ -143,14 +144,22 @@ export async function executeCodeIndexBuildJob(
   if (existing) return;
 
   const installation = await mintInstallationToken(cfg, data.installationId);
+  const prSurface = createPrSurface({
+    cfg,
+    installationId: data.installationId,
+    owner: data.owner,
+    repo: data.repo,
+    prNumber: data.prNumber,
+    installation,
+  });
+  const gitCredentialToken = await prSurface.gitCredentialToken();
   await withPrRepositoryView(
     {
       owner: data.owner,
       repo: data.repo,
       prNumber: data.prNumber,
       headSha: data.headSha,
-      installationToken: installation.token,
-      installationExpiresAtTs: installation.expiresAtTs,
+      installationToken: gitCredentialToken,
     },
     async (view) => {
       const pathGate = {

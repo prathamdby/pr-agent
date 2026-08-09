@@ -63,8 +63,7 @@ export function buildReviewRunSetup(params: {
   pool?: Pool;
   codeIndexSnapshotId?: string;
 }): ReviewRunSetup {
-  const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } =
-    params;
+  const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();

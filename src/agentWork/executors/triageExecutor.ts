@@ -3,12 +3,11 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logWarn } from "../../evlog.js";
-import { getAppBotIdentity, installationOctokit, type BotIdentity } from "../../github/appAuth.js";
-import {
-  listReviewThreadResolution,
-  warnReviewThreadResolutionDegraded,
-  type ReviewThreadResolution,
-} from "../../github/reviewThreadResolution.js";
+import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
+import { createPrSurface } from "../../github/prSurface.js";
+import type { PrSurface } from "../../github/prSurface.js";
+import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
+import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import {
   fetchBotFindingThreads,
   fetchReviewCommentParentGraph,
@@ -85,23 +84,8 @@ type InventoryAndScope = {
   readonly reportContext: TriageReportContext;
 };
 
-async function loadPullRequestBranchInfo(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
-}): Promise<PullRequestBranchInfo> {
-  const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
-  const { data } = await octokit.rest.pulls.get({
-    owner: params.owner,
-    repo: params.repo,
-    pull_number: params.prNumber,
-  });
-  return {
-    headRef: data.head.ref,
-    sameRepo: data.head.repo?.full_name === data.base.repo?.full_name,
-  };
+async function loadPullRequestBranchInfo(prSurface: PrSurface): Promise<PullRequestBranchInfo> {
+  return prSurface.getPullRequestBranchInfo();
 }
 
 function triageAnalyticsRef(
@@ -156,7 +140,7 @@ function triageReportContext(
 }
 
 async function resolveScopedThreadRootId(params: {
-  readonly token: string;
+  readonly prSurface: PrSurface;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -164,8 +148,9 @@ async function resolveScopedThreadRootId(params: {
   readonly analytics: TriageAnalyticsRef;
 }): Promise<number> {
   try {
+    const token = await params.prSurface.gitCredentialToken();
     const commentGraph = await fetchReviewCommentParentGraph(
-      params.token,
+      token,
       params.owner,
       params.repo,
       params.prNumber,
@@ -240,8 +225,7 @@ function resolveEmptyInventoryOutcome(params: {
 async function handleForkPrReport(params: {
   readonly pool: Pool;
   readonly item: TriageWorkItem;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
   readonly analytics: TriageAnalyticsRef;
@@ -252,8 +236,7 @@ async function handleForkPrReport(params: {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     installationId: params.item.installationId,
-    token: params.token,
-    tokenExpiresAtTs: params.tokenExpiresAtTs,
+    prSurface: params.prSurface,
     owner: params.item.owner,
     repo: params.item.repo,
     prNumber: params.item.prNumber,
@@ -276,8 +259,7 @@ async function resolveInventoryAndScope(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
   readonly analytics: TriageAnalyticsRef;
 }): Promise<InventoryAndScope> {
@@ -287,22 +269,17 @@ async function resolveInventoryAndScope(params: {
     params.pool,
     params.item.resourceKey,
   );
+  const token = await params.prSurface.gitCredentialToken();
   const [threads, resolutionResult] = await Promise.all([
     fetchBotFindingThreads(
-      params.token,
+      token,
       params.item.owner,
       params.item.repo,
       params.item.prNumber,
       botIdentity.userId,
       eligibleReviews,
     ),
-    listReviewThreadResolution(
-      params.token,
-      params.item.owner,
-      params.item.repo,
-      params.item.prNumber,
-      params.tokenExpiresAtTs,
-    ),
+    params.prSurface.listInlineReviewThreads(),
   ]);
   warnReviewThreadResolutionDegraded(resolutionResult, {
     type: "triage",
@@ -330,7 +307,7 @@ async function resolveInventoryAndScope(params: {
       scopedThreadRootId =
         payload.needsThreadRootResolution === true
           ? await resolveScopedThreadRootId({
-              token: params.token,
+              prSurface: params.prSurface,
               owner: params.item.owner,
               repo: params.item.repo,
               prNumber: params.item.prNumber,
@@ -360,8 +337,7 @@ async function resolveInventoryAndScope(params: {
 async function publishEmptyInventoryReport(params: {
   readonly pool: Pool;
   readonly item: TriageWorkItem;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly scope: NonNullable<TriageWorkPayload["scope"]> | "all";
   readonly analytics: TriageAnalyticsRef;
@@ -386,8 +362,7 @@ async function publishEmptyInventoryReport(params: {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     installationId: params.item.installationId,
-    token: params.token,
-    tokenExpiresAtTs: params.tokenExpiresAtTs,
+    prSurface: params.prSurface,
     owner: params.item.owner,
     repo: params.item.repo,
     prNumber: params.item.prNumber,
@@ -412,8 +387,7 @@ async function tryResumeStoredPush(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly headRef: string;
   readonly analytics: TriageAnalyticsRef;
@@ -462,8 +436,7 @@ async function tryResumeStoredPush(params: {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,
     installationId: params.item.installationId,
-    token: params.token,
-    tokenExpiresAtTs: params.tokenExpiresAtTs,
+    prSurface: params.prSurface,
     owner: params.item.owner,
     repo: params.item.repo,
     prNumber: params.item.prNumber,
@@ -495,8 +468,7 @@ async function tryResumeStoredPush(params: {
  * Private profile email still yields human path via id-based noreply.
  */
 async function resolveTriggererGitPerson(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly commenterId?: number;
   readonly botIdentity: BotIdentity;
   readonly analytics: TriageAnalyticsRef;
@@ -504,10 +476,8 @@ async function resolveTriggererGitPerson(params: {
   if (params.commenterId == null) return null;
   if (params.commenterId === params.botIdentity.userId) return null;
   try {
-    const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
-    const { data } = await octokit.rest.users.getById({
-      account_id: params.commenterId,
-    });
+    const data = await params.prSurface.lookupGitHubUser(params.commenterId);
+    if (data == null) return null;
     return gitPersonFromGithubUser(data);
   } catch (error) {
     const errorObj = error instanceof Error ? error : new Error(String(error));
@@ -528,8 +498,7 @@ async function runFreshTriageAgent(params: {
   readonly cfg: Config;
   readonly pool: Pool;
   readonly item: TriageWorkItem;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly headRef: string;
   readonly botIdentity: BotIdentity;
@@ -541,8 +510,7 @@ async function runFreshTriageAgent(params: {
   readonly reportContext: TriageReportContext;
 }): Promise<TriageExecuteResult> {
   const triggerer = await resolveTriggererGitPerson({
-    token: params.token,
-    tokenExpiresAtTs: params.tokenExpiresAtTs,
+    prSurface: params.prSurface,
     commenterId: params.item.payload.commenterId,
     botIdentity: params.botIdentity,
     analytics: params.analytics,
@@ -561,7 +529,7 @@ async function runFreshTriageAgent(params: {
       repo: params.item.repo,
       headRef: params.headRef,
       headSha: params.headSha,
-      installationToken: params.token,
+      installationToken: await params.prSurface.gitCredentialToken(),
       botIdentity: params.botIdentity,
       commitAttribution,
     },
@@ -600,8 +568,7 @@ async function runFreshTriageAgent(params: {
         workItemId: params.item.id,
         resourceKey: params.item.resourceKey,
         installationId: params.item.installationId,
-        token: params.token,
-        tokenExpiresAtTs: params.tokenExpiresAtTs,
+        prSurface: params.prSurface,
         owner: params.item.owner,
         repo: params.item.repo,
         prNumber: params.item.prNumber,
@@ -646,22 +613,14 @@ export async function executeTriageJob(
       const scope = item.payload.scope ?? "all";
       const analytics = triageAnalyticsRef(item, scope);
       captureTriageEvent(analytics, "triage started");
-      const token = env.installation.token;
-      const tokenExpiresAtTs = env.installation.expiresAtTs;
+      const { prSurface } = env;
       const headSha = env.headSha;
-      const branch = await loadPullRequestBranchInfo({
-        token,
-        tokenExpiresAtTs,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
-      });
+      const branch = await loadPullRequestBranchInfo(prSurface);
       if (!branch.sameRepo) {
         return handleForkPrReport({
           pool,
           item,
-          token,
-          tokenExpiresAtTs,
+          prSurface,
           headSha,
           scope,
           analytics,
@@ -672,8 +631,7 @@ export async function executeTriageJob(
         cfg,
         pool,
         item,
-        token,
-        tokenExpiresAtTs,
+        prSurface,
         scope,
         analytics,
       });
@@ -681,8 +639,7 @@ export async function executeTriageJob(
         return publishEmptyInventoryReport({
           pool,
           item,
-          token,
-          tokenExpiresAtTs,
+          prSurface,
           headSha,
           scope,
           analytics,
@@ -705,8 +662,7 @@ export async function executeTriageJob(
         cfg,
         pool,
         item,
-        token,
-        tokenExpiresAtTs,
+        prSurface,
         headSha,
         headRef: branch.headRef,
         analytics,
@@ -738,13 +694,18 @@ export async function executeTriageJob(
         step: "failure_comment",
       });
       try {
-        const octokit = installationOctokit(installation.token, installation.expiresAtTs);
-        await octokit.rest.issues.createComment({
+        const prSurface = createPrSurface({
+          cfg,
+          installationId: item.installationId,
           owner: item.owner,
           repo: item.repo,
-          issue_number: item.prNumber,
-          body: TRIAGE_FAILURE_MESSAGE,
+          prNumber: item.prNumber,
+          installation,
         });
+        await prSurface.replyAt(
+          { kind: "prConversation", prNumber: item.prNumber },
+          TRIAGE_FAILURE_MESSAGE,
+        );
       } catch (error) {
         captureTriageFailure(analytics, "failure_comment", error);
         throw error;
