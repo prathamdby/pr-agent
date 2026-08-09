@@ -5,6 +5,7 @@ import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AskJobData } from "../src/agentWork/types.js";
 import { askReplyOperationKey } from "../src/agentWork/withOperationIntent.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
 import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
@@ -138,6 +139,7 @@ function mockDurableExecution(): void {
         expiresAtTs: 1_000_000,
         ttlMs: 60_000,
       },
+      prSurface: fakeDurablePrSurface(),
       headSha: "head",
       executionEpoch: 1,
       signal: new AbortController().signal,
@@ -215,6 +217,7 @@ describe("executeAskJob", () => {
           expiresAtTs: 1_000_000,
           ttlMs: 60_000,
         },
+        prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -240,6 +243,7 @@ describe("executeAskJob", () => {
       };
       await spec.execute(item, {
         installation,
+        prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -292,6 +296,7 @@ describe("executeAskJob", () => {
           expiresAtTs: 1_000_000,
           ttlMs: 60_000,
         },
+        prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -328,6 +333,7 @@ describe("executeAskJob", () => {
       await expect(
         spec.execute(item, {
           installation,
+          prSurface: fakeDurablePrSurface(),
           headSha: "head",
           executionEpoch: 1,
           signal: new AbortController().signal,
@@ -357,6 +363,7 @@ describe("executeAskJob", () => {
       await expect(
         spec.execute(item, {
           installation,
+          prSurface: fakeDurablePrSurface(),
           headSha: "head",
           executionEpoch: 1,
           signal: new AbortController().signal,

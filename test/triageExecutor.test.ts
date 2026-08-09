@@ -9,6 +9,7 @@ import {
   TRIAGE_THREAD_NOT_ELIGIBLE,
 } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
 
 const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
@@ -107,6 +108,7 @@ function mockDurableExecution(workItem = item()): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"triage">) =>
     spec.execute(workItem, {
       installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+      prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       executionEpoch: 1,
       signal: new AbortController().signal,

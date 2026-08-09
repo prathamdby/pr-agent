@@ -4,6 +4,7 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { VerificationJobData } from "../src/agentWork/types.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
 
 const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
@@ -116,6 +117,7 @@ function mockDurableExecution(workItem = item()): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) =>
     spec.execute(workItem, {
       installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+      prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       executionEpoch: 1,
       signal: new AbortController().signal,
@@ -459,6 +461,7 @@ describe("executeVerificationJob", () => {
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
       executeResult = await spec.execute(item(), {
         installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+        prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -494,6 +497,7 @@ describe("executeVerificationJob", () => {
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
       executeResult = await spec.execute(item(), {
         installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+        prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -564,6 +568,7 @@ describe("executeVerificationJob", () => {
         }),
         {
           installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+          prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
           executionEpoch: 1,
           signal: new AbortController().signal,

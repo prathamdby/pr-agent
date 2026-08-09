@@ -9,6 +9,7 @@ import { makeDescriptionWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import * as repo from "../src/agentWork/repository.js";
 import {
+  fakeDurablePrSurface,
   makeDurableJobMetadata,
   mockFetchedWorkItem,
   setupDefaultDurableAuthMocks,
@@ -128,6 +129,7 @@ function mockDurableExecution(item = descriptionItem()): void {
     };
     const result = await spec.execute(item, {
       installation,
+      prSurface: fakeDurablePrSurface(),
       headSha: "head",
       executionEpoch: 1,
       signal: new AbortController().signal,

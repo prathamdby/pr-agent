@@ -3,7 +3,18 @@ import type { JobWithMetadata } from "pg-boss";
 import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
 import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
 import * as appAuth from "../../src/github/appAuth.js";
+import { createFakePrSurface } from "../../src/github/prSurface.js";
 import * as repo from "../../src/agentWork/repository.js";
+
+export function fakeDurablePrSurface(
+  params: { owner?: string; repo?: string; prNumber?: number } = {},
+) {
+  return createFakePrSurface({
+    owner: params.owner ?? "o",
+    repo: params.repo ?? "r",
+    prNumber: params.prNumber ?? 1,
+  }).surface;
+}
 
 export function coreOf(item: AgentWorkItem): AgentWorkItemCore {
   switch (item.type) {

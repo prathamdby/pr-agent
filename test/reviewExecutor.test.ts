@@ -8,6 +8,7 @@ import type { ReviewJobData } from "../src/agentWork/types.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 
 const mocks = vi.hoisted(() => ({
@@ -174,6 +175,7 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
         expiresAtTs: Date.now() + 300_000,
         ttlMs: 300_000,
       },
+      prSurface: fakeDurablePrSurface(),
       headSha: "head",
       executionEpoch: 1,
       signal: new AbortController().signal,
@@ -1029,6 +1031,7 @@ describe("executeReviewJob", () => {
           expiresAtTs: Date.now() + 60_000,
           ttlMs: 60_000,
         },
+        prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -1055,6 +1058,7 @@ describe("executeReviewJob", () => {
           expiresAtTs: Date.now() + 60_000,
           ttlMs: 60_000,
         },
+        prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,

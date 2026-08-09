@@ -40,6 +40,7 @@ import {
   shouldSkipWork,
   updateRunningWorkHeadSha,
 } from "./repository.js";
+import { createPrSurface, type PrSurface } from "../github/prSurface.js";
 import { getPullRequestHead, reactOnAckTargets } from "./githubPrSurface.js";
 import { reactionTargetsForWorkItem } from "./reactionTargets.js";
 import { cancelOrphanedStaleHeadReplacementOnTerminalFailure } from "./reviewReschedule.js";
@@ -51,6 +52,7 @@ import { clearResumeSnapshotsBestEffort } from "../agent/runtime/sessionDurabili
 
 export type DurableExecutionContext = {
   installation: InstallationToken;
+  prSurface: PrSurface;
   headSha: string;
   pullRequest?: PullRequestForFileList;
   /** Fencing token from the claim that owns this execution. */
@@ -380,8 +382,17 @@ export async function runDurableWorkItem<T extends WorkType>(
     );
     const headSha = resolvedHead.headSha;
     if (await updateRunningWorkHeadSha(spec.pool, item.id, headSha, executionEpoch)) {
+      const prSurface = createPrSurface({
+        cfg: spec.cfg,
+        installationId: item.installationId,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        installation: installationToken,
+      });
       return {
         installation: installationToken,
+        prSurface,
         headSha,
         pullRequest: resolvedHead.pullRequest,
         executionEpoch,
