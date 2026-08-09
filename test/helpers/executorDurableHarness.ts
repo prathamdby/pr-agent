@@ -3,7 +3,47 @@ import type { JobWithMetadata } from "pg-boss";
 import type { AgentWorkItem, AgentWorkItemCore } from "../../src/agentWork/types.js";
 import { clearDurableAuthCachesForTest } from "../../src/agentWork/durableJob.js";
 import * as appAuth from "../../src/github/appAuth.js";
+import { createFakePrSurface, type FakePrSurfaceControls } from "../../src/github/prSurface.js";
 import * as repo from "../../src/agentWork/repository.js";
+
+let durableSurfaceBundle = createFakePrSurface(
+  { owner: "o", repo: "r", prNumber: 1 },
+  { headSha: "head", credentialToken: "tok" },
+);
+
+export function resetDurablePrSurface(
+  params: { owner?: string; repo?: string; prNumber?: number; headSha?: string } = {},
+) {
+  durableSurfaceBundle = createFakePrSurface(
+    {
+      owner: params.owner ?? "o",
+      repo: params.repo ?? "r",
+      prNumber: params.prNumber ?? 1,
+    },
+    { headSha: params.headSha ?? "head", credentialToken: "tok" },
+  );
+  return durableSurfaceBundle;
+}
+
+export function durablePrSurfaceControls(): FakePrSurfaceControls {
+  return durableSurfaceBundle.controls;
+}
+
+export function fakeDurablePrSurface(
+  params: { owner?: string; repo?: string; prNumber?: number } = {},
+) {
+  if (
+    params.owner != null &&
+    (params.owner !== "o" || params.repo !== "r" || params.prNumber !== 1)
+  ) {
+    return createFakePrSurface({
+      owner: params.owner ?? "o",
+      repo: params.repo ?? "r",
+      prNumber: params.prNumber ?? 1,
+    }).surface;
+  }
+  return durableSurfaceBundle.surface;
+}
 
 export function coreOf(item: AgentWorkItem): AgentWorkItemCore {
   switch (item.type) {

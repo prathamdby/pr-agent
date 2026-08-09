@@ -4,31 +4,15 @@ import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js"
 import type { ReviewThreadResolution } from "../src/github/reviewThreadResolution.js";
 import type { VerificationPayload } from "../src/review/triageSchema.js";
 import { VERIFICATION_STUB_MARKER } from "../src/settings/index.js";
-
-const mocks = vi.hoisted(() => ({
-  createReply: vi.fn(),
-  updateComment: vi.fn(),
-  resolve: vi.fn(),
-  recordPublishStep: vi.fn(),
-}));
-
-vi.mock("../src/github/appAuth.js", () => ({
-  installationOctokit: vi.fn(() => ({
-    rest: {
-      pulls: {
-        createReplyForReviewComment: mocks.createReply,
-        updateReviewComment: mocks.updateComment,
-      },
-    },
-  })),
-}));
-
-vi.mock("../src/github/reviewThreadResolution.js", () => ({
-  resolveReviewThread: mocks.resolve,
-}));
+import {
+  publishTestPrSurface,
+  resolveThreadIds,
+  editReviewCommentEvents,
+} from "./helpers/publishPrSurface.js";
+import { recordPublishStep } from "../src/agentWork/repository.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
-  recordPublishStep: mocks.recordPublishStep,
+  recordPublishStep: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../src/agentWork/workItemStateRepository.js", async (importOriginal) => {
@@ -79,6 +63,8 @@ function resolutionMap(
   return new Map(entries);
 }
 
+let controls: import("../src/github/fakePrSurface.js").FakePrSurfaceControls;
+
 function baseParams(overrides: {
   readonly payload: VerificationPayload;
   readonly inventory?: readonly BotFindingThread[];
@@ -89,14 +75,38 @@ function baseParams(overrides: {
   readonly workItemId?: string;
   readonly executionEpoch?: number;
   readonly policyResult?: Parameters<typeof publishVerification>[0]["policyResult"];
+  readonly threads?: ReadonlyMap<number, ReviewThreadResolution>;
+  readonly stubBodies?: Readonly<Record<number, string>>;
 }) {
+  const fake = publishTestPrSurface(
+    overrides.threads ??
+      overrides.resolutionByRootCommentId ??
+      resolutionMap([
+        [1, { threadNodeId: "PRRT_1", isResolved: false }],
+        [2, { threadNodeId: "PRRT_2", isResolved: false }],
+        [3, { threadNodeId: "PRRT_3", isResolved: false }],
+      ]),
+  );
+  controls = fake.controls;
+  for (const inventoryThread of overrides.inventory ?? [thread, secondThread, thirdThread]) {
+    const stubId =
+      "verificationStubCommentId" in inventoryThread
+        ? inventoryThread.verificationStubCommentId
+        : undefined;
+    if (stubId != null) {
+      fake.controls.setReviewCommentBody(stubId, `${VERIFICATION_STUB_MARKER}\nstub`);
+    }
+  }
+  for (const [stubId, body] of Object.entries(overrides.stubBodies ?? {})) {
+    fake.controls.setReviewCommentBody(Number(stubId), body);
+  }
   return {
     pool: overrides.pool ?? pool(),
     workItemId: overrides.workItemId ?? "wi",
     executionEpoch: overrides.executionEpoch ?? 1,
     installationId: 1,
     resourceKey: "o/r#1",
-    token: "tok",
+    prSurface: fake.surface,
     owner: "o",
     repo: "r",
     prNumber: 1,
@@ -119,10 +129,6 @@ function baseParams(overrides: {
 describe("publishVerification", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.recordPublishStep.mockResolvedValue(undefined);
-    mocks.createReply.mockResolvedValue({ data: { id: 9001 } });
-    mocks.updateComment.mockResolvedValue({ data: { id: 9001 } });
-    mocks.resolve.mockResolvedValue(undefined);
   });
 
   it("silently resolves fixed and already-resolved threads without replying", async () => {
@@ -147,10 +153,10 @@ describe("publishVerification", () => {
     );
 
     expect(result).toEqual({ degraded: false });
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.updateComment).not.toHaveBeenCalled();
-    expect(mocks.resolve).toHaveBeenCalledTimes(2);
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(controls.replies).toHaveLength(0);
+    expect(controls.events.filter((e) => e.kind === "editReviewComment")).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(2);
+    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         step: "verification_thread_actions",
@@ -165,7 +171,7 @@ describe("publishVerification", () => {
         },
       }),
     );
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         step: "verification_thread_actions",
@@ -207,9 +213,9 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(controls.replies).toHaveLength(0);
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -226,8 +232,6 @@ describe("publishVerification", () => {
   });
 
   it("edits a prior still-open stub when later marking fixed", async () => {
-    mocks.updateComment.mockResolvedValueOnce({ data: {} });
-
     await publishVerification(
       baseParams({
         pool: pool({
@@ -249,16 +253,13 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.updateComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        comment_id: 555,
-        body: expect.stringContaining("**Verification**: Fixed"),
-      }),
-    );
-    expect(mocks.updateComment.mock.calls[0]?.[0]?.body).toContain(VERIFICATION_STUB_MARKER);
-    expect(mocks.updateComment.mock.calls[0]?.[0]?.body).not.toContain("Still open");
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
+    expect(controls.replies).toHaveLength(0);
+    const edit = editReviewCommentEvents(controls)[0];
+    expect(edit?.commentId).toBe(555);
+    expect(edit?.body).toContain("**Verification**: Fixed");
+    expect(edit?.body).toContain(VERIFICATION_STUB_MARKER);
+    expect(edit?.body).not.toContain("Still open");
+    expect(resolveThreadIds(controls)).toContain("PRRT_1");
   });
 
   it("creates a marked still-open stub only for findings on changed files", async () => {
@@ -281,15 +282,13 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.createReply).toHaveBeenCalledTimes(1);
-    expect(mocks.createReply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        comment_id: 1,
-        body: expect.stringContaining(VERIFICATION_STUB_MARKER),
-      }),
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(controls.replies).toHaveLength(1);
+    expect(controls.replies[0]?.target).toEqual(
+      expect.objectContaining({ kind: "inlineReviewThread", inReplyToCommentId: 1 }),
     );
-    expect(mocks.createReply.mock.calls[0]?.[0]?.body).toContain("Still open");
+    expect(controls.replies[0]?.body).toContain(VERIFICATION_STUB_MARKER);
+    expect(controls.replies[0]?.body).toContain("Still open");
   });
 
   it("does not suppress still-open stubs for omitted paths when compare is truncated", async () => {
@@ -315,9 +314,17 @@ describe("publishVerification", () => {
     );
 
     expect(result).toEqual({ degraded: true });
-    expect(mocks.createReply).toHaveBeenCalledTimes(2);
-    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 1 }));
-    expect(mocks.createReply).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 3 }));
+    expect(controls.replies).toHaveLength(2);
+    expect(
+      controls.replies.some(
+        (r) => r.target.kind === "inlineReviewThread" && r.target.inReplyToCommentId === 1,
+      ),
+    ).toBe(true);
+    expect(
+      controls.replies.some(
+        (r) => r.target.kind === "inlineReviewThread" && r.target.inReplyToCommentId === 3,
+      ),
+    ).toBe(true);
   });
 
   it("edits an existing stub in place on later still-open publishes", async () => {
@@ -328,6 +335,7 @@ describe("publishVerification", () => {
             "1": { stubCommentId: 555, lastVerdict: "skipped", lastHeadSha: "b".repeat(40) },
           },
         }),
+        stubBodies: { 555: `${VERIFICATION_STUB_MARKER}\nstub` },
         inventory: [thread],
         payload: {
           verdicts: [
@@ -341,14 +349,10 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.updateComment).toHaveBeenCalledTimes(1);
-    expect(mocks.updateComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        comment_id: 555,
-        body: expect.stringContaining("still open after push"),
-      }),
-    );
+    expect(controls.replies).toHaveLength(0);
+    expect(editReviewCommentEvents(controls)).toHaveLength(1);
+    expect(editReviewCommentEvents(controls)[0]?.commentId).toBe(555);
+    expect(editReviewCommentEvents(controls)[0]?.body).toContain("still open after push");
   });
 
   it("recovers stub id from inventory marker when ledger lacks stubCommentId", async () => {
@@ -367,8 +371,10 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 777 }));
+    expect(controls.replies).toHaveLength(0);
+    expect(controls.events.some((e) => e.kind === "editReviewComment" && e.commentId === 777)).toBe(
+      true,
+    );
   });
 
   it("dismisses by editing stub, grounding policy, and resolving the thread", async () => {
@@ -403,15 +409,17 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.updateComment).toHaveBeenCalledTimes(1);
-    const body = mocks.updateComment.mock.calls[0]?.[0]?.body as string;
+    expect(controls.replies).toHaveLength(0);
+    expect(controls.events.filter((e) => e.kind === "editReviewComment")).toHaveLength(1);
+    const body =
+      (controls.events.find((e) => e.kind === "editReviewComment") as { body: string } | undefined)
+        ?.body ?? "";
     expect(body).toContain("Dismissed");
     expect(body).toContain("Append this to `.pr-agent/src.mdc`:");
     expect(body).not.toContain("pathInstructions");
     expect(body).not.toContain(".pr-agent.yml");
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(resolveThreadIds(controls)).toContain("PRRT_1");
+    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -444,19 +452,19 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.createReply).toHaveBeenCalledTimes(1);
-    expect(mocks.resolve).toHaveBeenCalledTimes(1);
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(controls.replies).toHaveLength(1);
+    expect(resolveThreadIds(controls)).toHaveLength(1);
+    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
           threads: {
-            "1": {
-              stubCommentId: 9001,
+            "1": expect.objectContaining({
+              stubCommentId: expect.any(Number),
               lastVerdict: "dismissed",
               lastHeadSha: "a".repeat(40),
               terminal: true,
-            },
+            }),
           },
         },
       }),
@@ -480,7 +488,7 @@ describe("publishVerification", () => {
     );
 
     expect(result).toEqual({ degraded: true });
-    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(controls.replies).toHaveLength(0);
   });
 
   it("marks degraded when fixed thread has no resolution mapping", async () => {
@@ -502,8 +510,8 @@ describe("publishVerification", () => {
     );
 
     expect(result).toEqual({ degraded: true });
-    expect(mocks.resolve).not.toHaveBeenCalled();
-    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(resolveThreadIds(controls)).toHaveLength(0);
+    expect(controls.replies).toHaveLength(0);
   });
 
   it("mixes silent resolve with still-open stub creates in one payload", async () => {
@@ -527,21 +535,13 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.resolve).toHaveBeenCalledTimes(1);
-    expect(mocks.resolve).toHaveBeenCalledWith("tok", "PRRT_1", undefined);
-    expect(mocks.createReply).toHaveBeenCalledTimes(1);
-    expect(mocks.createReply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        comment_id: 2,
-        body: expect.stringContaining("Still open"),
-      }),
-    );
+    expect(resolveThreadIds(controls)).toHaveLength(1);
+    expect(resolveThreadIds(controls)).toContain("PRRT_1");
+    expect(controls.replies).toHaveLength(1);
+    expect(controls.replies[0]?.body).toContain("Still open");
   });
 
   it("falls back to create when updating a deleted stub returns 404", async () => {
-    mocks.updateComment.mockRejectedValueOnce({ status: 404 });
-    mocks.createReply.mockResolvedValueOnce({ data: { id: 9900 } });
-
     await publishVerification(
       baseParams({
         pool: pool({
@@ -549,6 +549,7 @@ describe("publishVerification", () => {
             "1": { stubCommentId: 555, lastVerdict: "skipped" },
           },
         }),
+        stubBodies: {},
         inventory: [thread],
         payload: {
           verdicts: [
@@ -562,18 +563,20 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 555 }));
-    expect(mocks.createReply).toHaveBeenCalledTimes(1);
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(controls.events.some((e) => e.kind === "editReviewComment" && e.commentId === 555)).toBe(
+      true,
+    );
+    expect(controls.replies).toHaveLength(1);
+    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
           threads: {
-            "1": {
-              stubCommentId: 9900,
+            "1": expect.objectContaining({
+              stubCommentId: expect.any(Number),
               lastVerdict: "skipped",
               lastHeadSha: "a".repeat(40),
-            },
+            }),
           },
         },
       }),
@@ -581,8 +584,6 @@ describe("publishVerification", () => {
   });
 
   it("preserves stubCommentId when a later fixed verdict has no stub id", async () => {
-    mocks.updateComment.mockResolvedValueOnce({ data: {} });
-
     await publishVerification(
       baseParams({
         pool: pool({
@@ -604,15 +605,12 @@ describe("publishVerification", () => {
       }),
     );
 
-    expect(mocks.createReply).not.toHaveBeenCalled();
-    expect(mocks.updateComment).toHaveBeenCalledWith(
-      expect.objectContaining({
-        comment_id: 555,
-        body: expect.stringContaining("**Verification**: Fixed"),
-      }),
-    );
-    expect(mocks.resolve).toHaveBeenCalledTimes(1);
-    expect(mocks.recordPublishStep).toHaveBeenCalledWith(
+    expect(controls.replies).toHaveLength(0);
+    const edit = editReviewCommentEvents(controls)[0];
+    expect(edit?.commentId).toBe(555);
+    expect(edit?.body).toContain("**Verification**: Fixed");
+    expect(resolveThreadIds(controls)).toHaveLength(1);
+    expect(vi.mocked(recordPublishStep)).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
         detail: {
@@ -646,6 +644,7 @@ describe("publishVerification", () => {
         pool: { query } as unknown as Pool,
         workItemId: "wi-new",
         executionEpoch: 1,
+        stubBodies: { 4242: `${VERIFICATION_STUB_MARKER}\nstub` },
         inventory: [thread],
         payload: {
           verdicts: [
@@ -663,7 +662,9 @@ describe("publishVerification", () => {
       expect.stringContaining("resource_key"),
       expect.arrayContaining(["o/r#1"]),
     );
-    expect(mocks.updateComment).toHaveBeenCalledWith(expect.objectContaining({ comment_id: 4242 }));
-    expect(mocks.createReply).not.toHaveBeenCalled();
+    expect(
+      controls.events.some((e) => e.kind === "editReviewComment" && e.commentId === 4242),
+    ).toBe(true);
+    expect(controls.replies).toHaveLength(0);
   });
 });

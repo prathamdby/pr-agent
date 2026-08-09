@@ -1,5 +1,4 @@
 import { logInfo, logWarn } from "../../evlog.js";
-import { AppError } from "../../errors/appError.js";
 import { buildAskSystemPrompt } from "./askPrompt.js";
 import { formatAskReply } from "./formatAskReply.js";
 import { buildContext7Tools } from "../tools/context7Tools.js";
@@ -25,7 +24,6 @@ import {
   getSharedRateLimitCircuit,
   openSharedRateLimitCircuitBestEffort,
 } from "../../github/sharedRateLimitCircuit.js";
-
 export type { AskRunParams, AskRunResult } from "./askRunTypes.js";
 
 export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
@@ -47,19 +45,6 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       }),
       replied: true,
     };
-  }
-
-  if (!Number.isFinite(params.tokenExpiresAtTs)) {
-    throw new AppError({
-      code: "ask.invalid_token_expires_at",
-      message: "tokenExpiresAtTs must be a finite timestamp in milliseconds",
-    });
-  }
-  if (!Number.isFinite(params.tokenTtlMs) || params.tokenTtlMs <= 0) {
-    throw new AppError({
-      code: "ask.invalid_token_ttl",
-      message: "tokenTtlMs must be a positive finite duration in milliseconds",
-    });
   }
 
   const installationId = params.durability?.installationId ?? 0;
@@ -97,15 +82,15 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
   }
 
   return runWithRateLimitCircuit(circuit, async () => {
-    const { refreshableGh } = buildAskRunSetup(params);
+    const { bundle } = buildAskRunSetup(params);
 
     const ctx7 = buildContext7Tools({
       apiKey: cfg.context7ApiKey,
       maxResponseBytes: CONTEXT7_RESPONSE_BYTES,
     });
-    const tools = [...refreshableGh.bundle.piTools, ...ctx7.piTools];
+    const tools = [...bundle.piTools, ...ctx7.piTools];
     const executors = wrapExecutorsWithRateLimitCircuit({
-      ...refreshableGh.bundle.executors,
+      ...bundle.executors,
       ...ctx7.executors,
     });
 
@@ -116,7 +101,6 @@ export async function runAskRun(params: AskRunParams): Promise<AskRunResult> {
       systemPrompt: buildAskSystemPrompt(),
       tools,
       executors,
-      refreshBeforeTool: refreshableGh.refreshBeforeTool,
       durability: params.durability,
     });
 

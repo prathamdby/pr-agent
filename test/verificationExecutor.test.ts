@@ -4,24 +4,21 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { VerificationJobData } from "../src/agentWork/types.js";
 import { makeTestConfig } from "./helpers/config.js";
+import {
+  durablePrSurfaceControls,
+  fakeDurablePrSurface,
+  resetDurablePrSurface,
+} from "./helpers/executorDurableHarness.js";
 
 const mocks = vi.hoisted(() => ({
   runDurableWorkItem: vi.fn(),
   getAppBotIdentity: vi.fn(),
-  fetchBotFindingThreads: vi.fn(),
-  listReviewThreadResolution: vi.fn(),
   withPrRepositoryView: vi.fn(),
   runVerification: vi.fn(),
   publishVerification: vi.fn(),
   loadRepoPolicy: vi.fn(),
-  fetchPullRequestFiles: vi.fn(),
-  listCommitCompareFiles: vi.fn(),
   listTriageEligibleInlineReviews: vi.fn(),
   shouldSkipWork: vi.fn(),
-  getPullRequestHeadSha: vi.fn(),
-  listCommits: vi.fn(),
-  createReplyForReviewComment: vi.fn(),
-  resolveReviewThread: vi.fn(),
   recordPublishStep: vi.fn(),
 }));
 
@@ -32,25 +29,6 @@ vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
 
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
-  installationOctokit: vi.fn(() => ({
-    rest: {
-      pulls: {
-        listCommits: mocks.listCommits,
-        createReplyForReviewComment: mocks.createReplyForReviewComment,
-      },
-    },
-  })),
-}));
-
-vi.mock("../src/review/run/reviewPriorFeedback.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/review/run/reviewPriorFeedback.js")>();
-  return { ...actual, fetchBotFindingThreads: mocks.fetchBotFindingThreads };
-});
-
-vi.mock("../src/github/reviewThreadResolution.js", () => ({
-  listReviewThreadResolution: mocks.listReviewThreadResolution,
-  resolveReviewThread: mocks.resolveReviewThread,
-  warnReviewThreadResolutionDegraded: vi.fn(),
 }));
 
 vi.mock("../src/prWorkspace/index.js", () => ({
@@ -69,14 +47,6 @@ vi.mock("../src/review/repoPolicy.js", () => ({
   loadRepoPolicy: mocks.loadRepoPolicy,
 }));
 
-vi.mock("../src/github/listPullRequestFiles.js", () => ({
-  fetchPullRequestFiles: mocks.fetchPullRequestFiles,
-}));
-
-vi.mock("../src/github/compareCommitFiles.js", () => ({
-  listCommitCompareFiles: mocks.listCommitCompareFiles,
-}));
-
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/agentWork/repository.js")>();
   return {
@@ -86,11 +56,7 @@ vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/agentWork/githubPrSurface.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/agentWork/githubPrSurface.js")>();
-  return { ...actual, getPullRequestHeadSha: mocks.getPullRequestHeadSha };
-});
-
+import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
 import { executeVerificationJob } from "../src/agentWork/executors/verificationExecutor.js";
 import { makeVerificationWorkItem } from "./helpers/agentWorkItems.js";
 
@@ -115,7 +81,7 @@ function job(): JobWithMetadata<VerificationJobData> {
 function mockDurableExecution(workItem = item()): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) =>
     spec.execute(workItem, {
-      installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+      prSurface: fakeDurablePrSurface(),
       headSha: "a".repeat(40),
       executionEpoch: 1,
       signal: new AbortController().signal,
@@ -128,12 +94,12 @@ function findingThread(
   overrides: Partial<{
     path: string;
     line: number;
-    severity: string;
+    severity: BotFindingThread["severity"];
     titleSnippet: string;
     humanReplies: string[];
     hasTriageReply: boolean;
   }> = {},
-) {
+): BotFindingThread {
   return {
     rootCommentId,
     lens: "review" as const,
@@ -147,16 +113,34 @@ function findingThread(
   };
 }
 
+function configureVerificationThreads(
+  entries: ReadonlyArray<readonly [number, { threadNodeId: string; isResolved: boolean }]>,
+) {
+  durablePrSurfaceControls().setThreads(new Map(entries));
+}
+
+function configureDefaultPrFiles() {
+  durablePrSurfaceControls().setChangedFilesResult({
+    files: [{ filename: "src/app.ts", status: "modified", additions: 1, deletions: 1, changes: 2 }],
+    truncated: false,
+    omittedCountLowerBound: 0,
+    totalChanges: 10,
+    headSha: "a".repeat(40),
+  });
+  durablePrSurfaceControls().setPushedCommits([
+    { sha: "b".repeat(40), subject: "fix: guard user" },
+  ]);
+}
+
 describe("executeVerificationJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDurablePrSurface({ headSha: "a".repeat(40) });
     mockDurableExecution();
+    configureDefaultPrFiles();
+    configureVerificationThreads([[1, { threadNodeId: "node", isResolved: false }]]);
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 999, login: "pr-agent[bot]" });
-    mocks.fetchBotFindingThreads.mockResolvedValue([]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map(),
-      status: "ok",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([]);
     mocks.withPrRepositoryView.mockImplementation(
       async (_params: unknown, run: (view: unknown) => Promise<unknown>) =>
         run({ agentCwd: "/tmp/view", workspace: {}, preflight: {} }),
@@ -167,27 +151,12 @@ describe("executeVerificationJob", () => {
     });
     mocks.publishVerification.mockResolvedValue({ degraded: false });
     mocks.loadRepoPolicy.mockResolvedValue({ kind: "absent" });
-    mocks.fetchPullRequestFiles.mockResolvedValue({
-      files: [{ filename: "src/app.ts" }],
-      truncated: false,
-      omittedCountLowerBound: 0,
-      totalChanges: 10,
-      headSha: "a".repeat(40),
-    });
-    mocks.listCommitCompareFiles.mockResolvedValue({
-      files: ["src/delta.ts"],
-      truncated: false,
-    });
     mocks.listTriageEligibleInlineReviews.mockResolvedValue(new Map());
     mocks.shouldSkipWork.mockResolvedValue(false);
-    mocks.getPullRequestHeadSha.mockResolvedValue("a".repeat(40));
-    mocks.listCommits.mockResolvedValue({
-      data: [{ sha: "b".repeat(40), commit: { message: "fix: guard user" } }],
-    });
   });
 
   it("short-circuits quietly when there are no open findings", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([]);
+    durablePrSurfaceControls().setBotFindingThreads([]);
 
     await executeVerificationJob(cfg, pool, boss, job());
 
@@ -197,11 +166,8 @@ describe("executeVerificationJob", () => {
   });
 
   it("short-circuits when all findings are already resolved", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: true }]]),
-      status: "ok",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    configureVerificationThreads([[1, { threadNodeId: "node", isResolved: true }]]);
 
     await executeVerificationJob(cfg, pool, boss, job());
 
@@ -211,11 +177,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("runs the verification agent and publishes when there are open findings", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      status: "ok",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -249,7 +211,9 @@ describe("executeVerificationJob", () => {
         policyResult: { kind: "absent" },
       }),
     );
-    expect(mocks.listCommitCompareFiles).not.toHaveBeenCalled();
+    expect(
+      durablePrSurfaceControls().events.some((event) => event.kind === "listCommitCompareFiles"),
+    ).toBe(false);
   });
 
   it("gates skipped-reply paths on the push-delta compare when pushBeforeSha is present", async () => {
@@ -259,25 +223,25 @@ describe("executeVerificationJob", () => {
         payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
       }),
     );
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([
-        [1, { threadNodeId: "node-1", isResolved: false }],
-        [2, { threadNodeId: "node-2", isResolved: false }],
-      ]),
-      status: "ok",
-    });
-    mocks.fetchPullRequestFiles.mockResolvedValue({
-      files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
+    configureVerificationThreads([
+      [1, { threadNodeId: "node-1", isResolved: false }],
+      [2, { threadNodeId: "node-2", isResolved: false }],
+    ]);
+    durablePrSurfaceControls().setChangedFilesResult({
+      files: [
+        { filename: "src/app.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
+        { filename: "README.md", status: "modified", additions: 1, deletions: 0, changes: 1 },
+      ],
       truncated: false,
       omittedCountLowerBound: 0,
       totalChanges: 20,
       headSha: "a".repeat(40),
     });
-    mocks.listCommitCompareFiles.mockResolvedValue({
+    durablePrSurfaceControls().setCommitCompareFilesResult({
       files: ["src/delta.ts", "src/app.ts"],
       truncated: false,
     });
@@ -301,12 +265,14 @@ describe("executeVerificationJob", () => {
 
     await executeVerificationJob(cfg, pool, boss, job());
 
-    expect(mocks.listCommitCompareFiles).toHaveBeenCalledWith(
-      expect.objectContaining({
-        base: beforeSha,
-        head: "a".repeat(40),
-      }),
-    );
+    expect(
+      durablePrSurfaceControls().events.some(
+        (event) =>
+          event.kind === "listCommitCompareFiles" &&
+          event.base === beforeSha &&
+          event.head === "a".repeat(40),
+      ),
+    ).toBe(true);
     expect(mocks.publishVerification).toHaveBeenCalledWith(
       expect.objectContaining({
         changedFilePaths: ["src/delta.ts", "src/app.ts"],
@@ -315,19 +281,19 @@ describe("executeVerificationJob", () => {
   });
 
   it("uses an empty changedFilePaths set when pushBeforeSha is absent", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([
+    durablePrSurfaceControls().setBotFindingThreads([
       findingThread(1, { path: "src/app.ts" }),
       findingThread(2, { path: "src/other.ts" }),
     ]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([
-        [1, { threadNodeId: "node-1", isResolved: false }],
-        [2, { threadNodeId: "node-2", isResolved: false }],
-      ]),
-      status: "ok",
-    });
-    mocks.fetchPullRequestFiles.mockResolvedValue({
-      files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
+    configureVerificationThreads([
+      [1, { threadNodeId: "node-1", isResolved: false }],
+      [2, { threadNodeId: "node-2", isResolved: false }],
+    ]);
+    durablePrSurfaceControls().setChangedFilesResult({
+      files: [
+        { filename: "src/app.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
+        { filename: "README.md", status: "modified", additions: 1, deletions: 0, changes: 1 },
+      ],
       truncated: false,
       omittedCountLowerBound: 0,
       totalChanges: 20,
@@ -353,7 +319,9 @@ describe("executeVerificationJob", () => {
 
     await executeVerificationJob(cfg, pool, boss, job());
 
-    expect(mocks.listCommitCompareFiles).not.toHaveBeenCalled();
+    expect(
+      durablePrSurfaceControls().events.some((event) => event.kind === "listCommitCompareFiles"),
+    ).toBe(false);
     expect(mocks.publishVerification).toHaveBeenCalledWith(
       expect.objectContaining({
         changedFilePaths: [],
@@ -362,11 +330,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("throws when the agent does not submit a payload", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      status: "ok",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: false,
       payload: null,
@@ -379,11 +343,7 @@ describe("executeVerificationJob", () => {
   });
 
   it("does not publish when head SHA is stale at publish time", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      status: "ok",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -397,21 +357,19 @@ describe("executeVerificationJob", () => {
         ],
       },
     });
-    mocks.getPullRequestHeadSha.mockResolvedValue("f".repeat(40));
+    durablePrSurfaceControls().setHeadSha("f".repeat(40));
 
     await executeVerificationJob(cfg, pool, boss, job());
 
     expect(mocks.runVerification).toHaveBeenCalled();
-    expect(mocks.getPullRequestHeadSha).toHaveBeenCalled();
+    expect(durablePrSurfaceControls().events.some((event) => event.kind === "getHeadSha")).toBe(
+      true,
+    );
     expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
 
   it("does not publish when cancel was requested before publish", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      status: "ok",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -430,16 +388,11 @@ describe("executeVerificationJob", () => {
     await executeVerificationJob(cfg, pool, boss, job());
 
     expect(mocks.runVerification).toHaveBeenCalled();
-    expect(mocks.getPullRequestHeadSha).not.toHaveBeenCalled();
     expect(mocks.publishVerification).not.toHaveBeenCalled();
   });
 
   it("propagates degraded when publishVerification reports degraded", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      status: "ok",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -458,7 +411,7 @@ describe("executeVerificationJob", () => {
     let executeResult: unknown;
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
       executeResult = await spec.execute(item(), {
-        installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+        prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -471,12 +424,11 @@ describe("executeVerificationJob", () => {
   });
 
   it("continues findings evaluation when reviewThreads GraphQL is permission_denied", async () => {
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map(),
-      status: "permission_denied",
-      warning: "grant Pull requests read for reviewThreads",
-    });
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setThreadResolutionStatus(
+      "permission_denied",
+      "grant Pull requests read for reviewThreads",
+    );
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -493,7 +445,7 @@ describe("executeVerificationJob", () => {
     let executeResult: unknown;
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"verification">) => {
       executeResult = await spec.execute(item(), {
-        installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+        prSurface: fakeDurablePrSurface(),
         headSha: "a".repeat(40),
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -530,19 +482,18 @@ describe("executeVerificationJob", () => {
         payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
       }),
     );
-    mocks.fetchBotFindingThreads.mockResolvedValue([findingThread(1, { path: "src/app.ts" })]);
-    mocks.listReviewThreadResolution.mockResolvedValue({
-      byRootCommentId: new Map([[1, { threadNodeId: "node", isResolved: false }]]),
-      status: "ok",
-    });
-    mocks.fetchPullRequestFiles.mockResolvedValue({
-      files: [{ filename: "src/app.ts" }, { filename: "README.md" }],
+    durablePrSurfaceControls().setBotFindingThreads([findingThread(1, { path: "src/app.ts" })]);
+    durablePrSurfaceControls().setChangedFilesResult({
+      files: [
+        { filename: "src/app.ts", status: "modified", additions: 1, deletions: 0, changes: 1 },
+        { filename: "README.md", status: "modified", additions: 1, deletions: 0, changes: 1 },
+      ],
       truncated: false,
       omittedCountLowerBound: 0,
       totalChanges: 20,
       headSha: "a".repeat(40),
     });
-    mocks.listCommitCompareFiles.mockResolvedValue({ files: [...files], truncated });
+    durablePrSurfaceControls().setCommitCompareFilesResult({ files: [...files], truncated });
     mocks.runVerification.mockResolvedValue({
       submitted: true,
       payload: {
@@ -563,7 +514,7 @@ describe("executeVerificationJob", () => {
           payload: { repositorySizeKb: 100, pushBeforeSha: beforeSha },
         }),
         {
-          installation: { token: "tok", expiresAtTs: Date.now() + 60_000, ttlMs: 60_000 },
+          prSurface: fakeDurablePrSurface(),
           headSha: "a".repeat(40),
           executionEpoch: 1,
           signal: new AbortController().signal,

@@ -1,17 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import * as evlog from "../src/evlog.js";
 import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
-import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
+import { testPublishState } from "./helpers/reviewPublishTestHelpers.js";
 import {
+  createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
+  type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
-
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
-  const { createReviewPublishGithubMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewPublishGithubMock(actual);
-});
 
 vi.mock("../src/agentWork/repository.js", async () => {
   const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
@@ -23,24 +19,19 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   return createReviewCheckRunMock();
 });
 
-import {
-  createPullRequestReviewWithComments,
-  listPullRequestLabels,
-  resolveVerifiedSummaryCommentRef,
-  setPullRequestLabels,
-  upsertReviewSummaryComment,
-} from "../src/github/reviewPublish.js";
-
 const payload = publishReviewTestPayload;
-const baseParams = publishReviewTestBaseParams;
+let harness: PublishReviewTestHarness;
+let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
 describe("publishReview labels and token expiry", () => {
   beforeEach(() => {
+    harness = createPublishReviewTestHarness();
+    baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
   });
 
   it("skips label sync when reviewLabels mode is off and no category label exists", async () => {
-    vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["bug"]);
+    harness.getLabels.mockResolvedValueOnce(["bug"]);
 
     await publishReviewForTest({
       ...baseParams,
@@ -51,11 +42,11 @@ describe("publishReview labels and token expiry", () => {
       },
     });
 
-    expect(setPullRequestLabels).not.toHaveBeenCalled();
+    expect(harness.setLabels).not.toHaveBeenCalled();
   });
 
-  it("skips setPullRequestLabels when exact effort label already exists", async () => {
-    vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
+  it("skips setLabels when exact effort label already exists", async () => {
+    harness.getLabels.mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 
     await publishReviewForTest({
       ...baseParams,
@@ -66,14 +57,11 @@ describe("publishReview labels and token expiry", () => {
       },
     });
 
-    expect(setPullRequestLabels).not.toHaveBeenCalled();
+    expect(harness.setLabels).not.toHaveBeenCalled();
   });
 
-  it("calls setPullRequestLabels when effort matches but security label is stale", async () => {
-    vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
-      "Review effort 2/5",
-      "Possible security concern",
-    ]);
+  it("calls setLabels when effort matches but security label is stale", async () => {
+    harness.getLabels.mockResolvedValueOnce(["Review effort 2/5", "Possible security concern"]);
 
     await publishReviewForTest({
       ...baseParams,
@@ -85,18 +73,11 @@ describe("publishReview labels and token expiry", () => {
       payload: { ...payload, estimatedEffort: 2, securityConcerns: null },
     });
 
-    expect(setPullRequestLabels).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      ["Review effort 2/5"],
-      undefined,
-    );
+    expect(harness.setLabels).toHaveBeenCalledWith(["Review effort 2/5"]);
   });
 
-  it("calls setPullRequestLabels when effort label value changes", async () => {
-    vi.mocked(listPullRequestLabels).mockResolvedValueOnce(["Review effort 2/5", "bug"]);
+  it("calls setLabels when effort label value changes", async () => {
+    harness.getLabels.mockResolvedValueOnce(["Review effort 2/5", "bug"]);
 
     await publishReviewForTest({
       ...baseParams,
@@ -108,22 +89,11 @@ describe("publishReview labels and token expiry", () => {
       payload: { ...payload, estimatedEffort: 4 },
     });
 
-    expect(setPullRequestLabels).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      ["bug", "Review effort 4/5"],
-      undefined,
-    );
+    expect(harness.setLabels).toHaveBeenCalledWith(["bug", "Review effort 4/5"]);
   });
 
   it("uses the review effort family for a recognized legacy mode", async () => {
-    vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
-      "Review effort 3/5",
-      "Quality effort 1/5",
-      "bug",
-    ]);
+    harness.getLabels.mockResolvedValueOnce(["Review effort 3/5", "Quality effort 1/5", "bug"]);
 
     await publishReviewForTest({
       ...baseParams,
@@ -136,20 +106,17 @@ describe("publishReview labels and token expiry", () => {
       payload: { ...payload, estimatedEffort: 4 },
     });
 
-    expect(setPullRequestLabels).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      ["Quality effort 1/5", "bug", "Review effort 4/5"],
-      undefined,
-    );
+    expect(harness.setLabels).toHaveBeenCalledWith([
+      "Quality effort 1/5",
+      "bug",
+      "Review effort 4/5",
+    ]);
   });
 
   it("preserves unmanaged labels beyond the first GitHub page on replace-all sync", async () => {
     const pageOneExtras = Array.from({ length: 30 }, (_, i) => `extra-${i + 1}`);
     const pageTwoExtras = ["must-preserve-page-two", "also-preserve-page-two"];
-    vi.mocked(listPullRequestLabels).mockResolvedValueOnce([
+    harness.getLabels.mockResolvedValueOnce([
       "Review effort 1/5",
       ...pageOneExtras,
       ...pageTwoExtras,
@@ -165,64 +132,34 @@ describe("publishReview labels and token expiry", () => {
       payload: { ...payload, estimatedEffort: 2 },
     });
 
-    expect(setPullRequestLabels).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.setLabels).toHaveBeenCalledWith(
       expect.arrayContaining([...pageOneExtras, ...pageTwoExtras, "Review effort 2/5"]),
-      undefined,
     );
-    const nextLabels = vi.mocked(setPullRequestLabels).mock.calls[0]?.[4] ?? [];
+    const nextLabels = harness.setLabels.mock.calls[0]?.[0] ?? [];
     expect(nextLabels).toHaveLength(pageOneExtras.length + pageTwoExtras.length + 1);
     expect(nextLabels).not.toContain("Review effort 1/5");
   });
 
-  it("forwards tokenExpiresAtTs to inline review creation", async () => {
-    const tokenExpiresAtTs = 1_700_000_000_000;
-
-    await publishReviewForTest({
-      ...baseParams,
-      tokenExpiresAtTs,
-      publishState: testPublishState(),
-      cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
-    });
-
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
-      expect.objectContaining({
-        event: "COMMENT",
-        commitId: "sha",
-      }),
-      tokenExpiresAtTs,
-    );
-  });
-
   it("does not create a zero-comment review on repeat no-bugs publish", async () => {
-    const tokenExpiresAtTs = 1_700_000_000_000;
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+    harness.resolveProgressComment.mockResolvedValueOnce({
       id: 99,
       url: "https://github.com/o/r/pull/1#issuecomment-99",
-      source: "hint",
+      body: "progress",
     });
 
     await publishReviewForTest({
       ...baseParams,
-      tokenExpiresAtTs,
       shouldLinkToSummary: true,
       progressCommentIdHint: 99,
       publishState: testPublishState(),
       payload: { ...payload, findings: [] },
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("does not fail publish when label sync throws", async () => {
-    vi.mocked(setPullRequestLabels).mockRejectedValueOnce(new Error("labels forbidden"));
+    harness.setLabels.mockRejectedValueOnce(new Error("labels forbidden"));
 
     await expect(
       publishReviewForTest({
@@ -235,7 +172,7 @@ describe("publishReview labels and token expiry", () => {
       }),
     ).resolves.toBeUndefined();
 
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
   });
 
   it.each([
@@ -253,7 +190,7 @@ describe("publishReview labels and token expiry", () => {
     "does not fail publish when label listing rejects with $name",
     async ({ rejection, message }) => {
       const warnSpy = vi.spyOn(evlog, "logWarn").mockImplementation(() => {});
-      vi.mocked(listPullRequestLabels).mockRejectedValueOnce(rejection);
+      harness.getLabels.mockRejectedValueOnce(rejection);
 
       await expect(
         publishReviewForTest({
@@ -266,8 +203,8 @@ describe("publishReview labels and token expiry", () => {
         }),
       ).resolves.toBeUndefined();
 
-      expect(upsertReviewSummaryComment).toHaveBeenCalled();
-      expect(setPullRequestLabels).not.toHaveBeenCalled();
+      expect(harness.upsertProgressComment).toHaveBeenCalled();
+      expect(harness.setLabels).not.toHaveBeenCalled();
       expect(warnSpy).toHaveBeenCalledWith("review_labels_fetch_failed", {
         mode: "review",
         owner: "o",

@@ -16,6 +16,7 @@ Binding review rules live in [`.pr-agent/*.mdc`](../.pr-agent/) — this guide i
 | Web / worker layers       | `src/agentWork/runtime.ts`, `workerRuntime.ts` | `agentWorkWebLive` (web); `agentWorkWorkerLive` (worker-only import graph)                                                                                      |
 | Ask / description         | `src/agent/`                                   | `ask/askRun.ts`, `description/descriptionRun.ts`                                                                                                                |
 | Pi session seam           | `src/agent/runtime/`                           | `piSession.ts` (`createPiSession`, `createFakePiSession`) — feature harnesses must not import raw Pi SDK sessions                                               |
+| PR surface seam           | `src/github/`                                  | `prSurface.ts` (`createPrSurface`, `createFakePrSurface`) — worker/feature code must not import `prSurfaceImpl.ts` or thread installation tokens                |
 | Agent tool outputs        | `src/agent/tools/`                             | `toolOutputBudget.ts`, `localWorkspaceTools.ts`, `codeIndexTools.ts`, `context7Tools.ts`                                                                        |
 | Analytics facade          | `src/analytics/`                               | `index.ts` (`initAnalytics`, `captureEvent`, `captureException`, `shutdownAnalytics`)                                                                           |
 

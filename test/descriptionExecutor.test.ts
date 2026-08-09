@@ -9,18 +9,20 @@ import { makeDescriptionWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import * as repo from "../src/agentWork/repository.js";
 import {
+  fakeDurablePrSurface,
   makeDurableJobMetadata,
   mockFetchedWorkItem,
+  resetDurablePrSurface,
+  durablePrSurfaceControls,
   setupDefaultDurableAuthMocks,
   setupDefaultDurableRepositoryMocks,
 } from "./helpers/executorDurableHarness.js";
+import * as prSurfaceModule from "../src/github/prSurface.js";
 
 const mocks = vi.hoisted(() => ({
   runDescriptionRun: vi.fn(),
   runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
-  pullsGet: vi.fn(),
-  createComment: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", async (importOriginal) => {
@@ -62,12 +64,6 @@ vi.mock("../src/prWorkspace/index.js", () => ({
 vi.mock("../src/github/appAuth.js", () => ({
   mintInstallationAuth: vi.fn(),
   getAppBotIdentity: vi.fn(),
-  installationOctokit: vi.fn(() => ({
-    rest: {
-      pulls: { get: mocks.pullsGet },
-      issues: { createComment: mocks.createComment },
-    },
-  })),
 }));
 
 import { runDurableWorkItem } from "../src/agentWork/durableJob.js";
@@ -121,13 +117,8 @@ function descriptionJob(retryCount = 0, retryLimit = 3): JobWithMetadata<Descrip
 
 function mockDurableExecution(item = descriptionItem()): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
-    const installation = {
-      token: "tok",
-      expiresAtTs: Date.now() + 60_000,
-      ttlMs: 60_000,
-    };
     const result = await spec.execute(item, {
-      installation,
+      prSurface: fakeDurablePrSurface(),
       headSha: "head",
       executionEpoch: 1,
       signal: new AbortController().signal,
@@ -142,15 +133,10 @@ async function runTerminalFailure(
   source: "slash" | "auto",
   prBody = "manual pr body",
 ): Promise<void> {
-  mocks.pullsGet.mockResolvedValue({ data: { body: prBody } });
+  durablePrSurfaceControls().setPullRequestBody(prBody);
   const item = descriptionItem(source);
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"description">) => {
-    const installation = {
-      token: "tok",
-      expiresAtTs: Date.now() + 60_000,
-      ttlMs: 60_000,
-    };
-    await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+    await spec.onTerminalFailure?.(item, fakeDurablePrSurface(), new Error("dead"));
   });
   await executeDescriptionJob(cfg, pool, boss, descriptionJob(3, 3));
 }
@@ -158,13 +144,13 @@ async function runTerminalFailure(
 describe("executeDescriptionJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDurablePrSurface();
+    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
     setupDefaultDurableRepositoryMocks();
     mocks.runDescriptionRun.mockResolvedValue({
       published: true,
       publishSuperseded: false,
     });
-    mocks.createComment.mockResolvedValue(undefined);
-    mocks.pullsGet.mockResolvedValue({ data: { body: "manual pr body" } });
     mocks.withPrRepositoryView.mockImplementation(async (_params, run) =>
       run({
         agentCwd: "/tmp/pr-agent",
@@ -177,27 +163,20 @@ describe("executeDescriptionJob", () => {
   it("posts slash failure comment on terminal pg-boss attempt", async () => {
     await runTerminalFailure("slash");
 
-    expect(mocks.pullsGet).not.toHaveBeenCalled();
-    expect(mocks.createComment).toHaveBeenCalledWith({
-      owner: "o",
-      repo: "r",
-      issue_number: 1,
-      body: DESCRIPTION_FAILURE_MESSAGE,
-    });
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.body).toBe(DESCRIPTION_FAILURE_MESSAGE);
   });
 
   it("posts auto failure comment when description header is absent", async () => {
     await runTerminalFailure("auto", "manual pr body");
 
-    expect(mocks.pullsGet).toHaveBeenCalled();
-    expect(mocks.createComment).toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
   });
 
   it("stays silent for auto terminal failure when description header is present", async () => {
     await runTerminalFailure("auto", `intro\n${DESCRIPTION_AGENT_HEADER}\ncontent`);
 
-    expect(mocks.pullsGet).toHaveBeenCalled();
-    expect(mocks.createComment).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
 
   it("marks publish degraded when description run reports unpublished output", async () => {

@@ -9,64 +9,21 @@ import {
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
 import { logInfo, logWarn } from "../../evlog.js";
-import { getAppBotIdentity, installationOctokit } from "../../github/appAuth.js";
-import {
-  listReviewThreadResolution,
-  warnReviewThreadResolutionDegraded,
-} from "../../github/reviewThreadResolution.js";
-import { listCommitCompareFiles } from "../../github/compareCommitFiles.js";
-import { fetchPullRequestFiles } from "../../github/listPullRequestFiles.js";
-import { paginateOctokitPages } from "../../github/paginateOctokit.js";
-import { fetchBotFindingThreads } from "../../review/run/reviewPriorFeedback.js";
+import { getAppBotIdentity } from "../../github/appAuth.js";
+import { warnReviewThreadResolutionDegraded } from "../../github/reviewThreadResolution.js";
 import { loadRepoPolicy } from "../../review/repoPolicy.js";
 import { runVerification } from "../../agent/verification/verificationRun.js";
 import { publishVerification } from "../../agent/verification/publishVerification.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import {
   MAX_REPO_POLICY_BYTES,
-  PR_COMMITS_MAX_PAGES,
-  PR_COMMITS_PAGE_SIZE,
   MAX_PR_FILES_LISTED,
   MAX_PR_FILES_PATCH_BYTES,
 } from "../../settings/index.js";
 import { listTriageEligibleInlineReviews, shouldSkipWork } from "../repository.js";
-import { getPullRequestHeadSha } from "../githubPrSurface.js";
 import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type VerificationJobData } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
-
-type PushedCommit = {
-  readonly sha: string;
-  readonly subject: string;
-};
-
-async function listPushedCommits(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
-  readonly prNumber: number;
-}): Promise<PushedCommit[]> {
-  const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
-  const commits = await paginateOctokitPages({
-    perPage: PR_COMMITS_PAGE_SIZE,
-    maxPages: PR_COMMITS_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listCommits({
-        owner: params.owner,
-        repo: params.repo,
-        pull_number: params.prNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
-  return commits.map((commit) => ({
-    sha: commit.sha,
-    subject: commit.commit.message.split("\n")[0] ?? "",
-  }));
-}
 
 export async function executeVerificationJob(
   cfg: Config,
@@ -83,27 +40,14 @@ export async function executeVerificationJob(
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
       const payload = item.payload;
-      const tokenState = { installation: env.installation };
+      const { prSurface } = env;
       const headSha = env.headSha;
       const botIdentity = await getAppBotIdentity(cfg);
 
       const eligibleReviews = await listTriageEligibleInlineReviews(pool, item.resourceKey);
       const [threads, resolutionResult] = await Promise.all([
-        fetchBotFindingThreads(
-          tokenState.installation.token,
-          item.owner,
-          item.repo,
-          item.prNumber,
-          botIdentity.userId,
-          eligibleReviews,
-        ),
-        listReviewThreadResolution(
-          tokenState.installation.token,
-          item.owner,
-          item.repo,
-          item.prNumber,
-          tokenState.installation.expiresAtTs,
-        ),
+        prSurface.fetchBotFindingThreads(botIdentity.userId, eligibleReviews),
+        prSurface.listInlineReviewThreads(),
       ]);
 
       warnReviewThreadResolutionDegraded(resolutionResult, {
@@ -132,34 +76,16 @@ export async function executeVerificationJob(
       }
 
       const [prFiles, pushedCommits, pushDeltaFiles] = await Promise.all([
-        fetchPullRequestFiles(
-          tokenState.installation.token,
-          item.owner,
-          item.repo,
-          item.prNumber,
+        prSurface.listChangedFiles(
           {
             maxPrFilesListed: MAX_PR_FILES_LISTED,
             maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
           },
           env.pullRequest,
-          tokenState.installation.expiresAtTs,
         ),
-        listPushedCommits({
-          token: tokenState.installation.token,
-          tokenExpiresAtTs: tokenState.installation.expiresAtTs,
-          owner: item.owner,
-          repo: item.repo,
-          prNumber: item.prNumber,
-        }),
+        prSurface.listPushedCommits(),
         payload.pushBeforeSha != null
-          ? listCommitCompareFiles({
-              token: tokenState.installation.token,
-              tokenExpiresAtTs: tokenState.installation.expiresAtTs,
-              owner: item.owner,
-              repo: item.repo,
-              base: payload.pushBeforeSha,
-              head: headSha,
-            })
+          ? prSurface.listCommitCompareFiles(payload.pushBeforeSha, headSha)
           : Promise.resolve(null),
       ]);
 
@@ -184,7 +110,11 @@ export async function executeVerificationJob(
       const result = await withPrRepositoryView(
         buildRepositoryViewParams(
           item,
-          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+          {
+            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+            headSha,
+            pullRequest: env.pullRequest,
+          },
           payload,
           { prFiles },
         ),
@@ -230,13 +160,7 @@ export async function executeVerificationJob(
         return {};
       }
 
-      const latestHeadSha = await getPullRequestHeadSha(
-        tokenState.installation.token,
-        item.owner,
-        item.repo,
-        item.prNumber,
-        tokenState.installation.expiresAtTs,
-      );
+      const latestHeadSha = await prSurface.getHeadSha();
       if (latestHeadSha !== headSha) {
         logInfo("verification_publish_skipped", {
           type: "verification",
@@ -257,8 +181,7 @@ export async function executeVerificationJob(
         workItemId: item.id,
         resourceKey: item.resourceKey,
         installationId: item.installationId,
-        token: tokenState.installation.token,
-        tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+        prSurface,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,

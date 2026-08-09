@@ -1,10 +1,10 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { buildContext7Tools } from "../../agent/tools/context7Tools.js";
 import { buildLocalWorkspaceTools } from "../../agent/tools/localWorkspaceTools.js";
-import { createRefreshableToolExecutors } from "../../agent/tools/refreshableGithubTools.js";
 import {
   createCachedPrDiffIndex,
   type CachedPrDiffIndex,
@@ -28,13 +28,8 @@ export type ReviewRunSetup = {
   };
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly evidenceLedger: EvidenceLedger;
-  readonly getToken: () => string;
-  readonly getTokenExpiresAtTs: () => number;
-  readonly refreshBeforeTool: (toolName: string) => Promise<void>;
-  readonly refreshLiveAuth: () => Promise<void>;
+  readonly prSurface: PrSurface;
 };
-
-const TOKEN_REFRESH_TOOL = "getPullRequest";
 
 function buildOrchestratorUserContent(params: {
   readonly owner: string;
@@ -57,9 +52,7 @@ function buildOrchestratorUserContent(params: {
 
 export function buildReviewRunSetup(params: {
   cfg: Config;
-  token: string;
-  tokenExpiresAtTs: number;
-  tokenTtlMs: number;
+  prSurface: PrSurface;
   owner: string;
   repo: string;
   prNumber: number;
@@ -67,46 +60,22 @@ export function buildReviewRunSetup(params: {
   userSupplement?: string;
   trustedContext?: string;
   workspace: LocalPrWorkspace;
-  refreshInstallationToken?: () => Promise<{
-    token: string;
-    expiresAtTs: number;
-  }>;
   pool?: Pool;
   codeIndexSnapshotId?: string;
 }): ReviewRunSetup {
-  const {
-    cfg,
-    token,
-    tokenExpiresAtTs,
-    owner,
-    repo,
-    prNumber,
-    headSha,
-    userSupplement,
-    trustedContext,
-  } = params;
+  const { cfg, prSurface, owner, repo, prNumber, headSha, userSupplement, trustedContext } = params;
 
   const cachedDiffIndex: CachedPrDiffIndex =
     params.workspace.diffIndex ?? createCachedPrDiffIndex();
   const evidenceLedger = createEvidenceLedger(headSha);
   const pathGate = createAskPathGate();
-  const refreshableGh = createRefreshableToolExecutors({
-    initialToken: token,
-    tokenExpiresAtTs,
-    tokenTtlMs: params.tokenTtlMs,
-    refreshInstallationToken: params.refreshInstallationToken,
-    githubToolNames: new Set([TOKEN_REFRESH_TOOL]),
-    build: (_activeToken, _activeExpiresAtTs) => {
-      const bundle = buildLocalWorkspaceTools(params.workspace, {
-        pathGate,
-        evidenceLedger,
-        headSha,
-      });
-      const executors = { ...bundle.executors };
-      wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
-      return { piTools: bundle.piTools, executors };
-    },
+  const bundle = buildLocalWorkspaceTools(params.workspace, {
+    pathGate,
+    evidenceLedger,
+    headSha,
   });
+  const executors = { ...bundle.executors };
+  wrapListPullRequestFilesDiffIngestion(executors, cachedDiffIndex);
 
   const ctx7 = buildContext7Tools({
     apiKey: cfg.context7ApiKey,
@@ -121,19 +90,14 @@ export function buildReviewRunSetup(params: {
           pathGate,
         })
       : buildUnavailableCodeIndexTools();
-  const executors = wrapExecutorsWithRateLimitCircuit({
-    ...refreshableGh.bundle.executors,
+  const wrappedExecutors = wrapExecutorsWithRateLimitCircuit({
+    ...executors,
     ...ctx7.executors,
     ...codeIndex.executors,
   });
   const workspaceTools = {
-    piTools: [...refreshableGh.bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
-    executors,
-  };
-  const refreshBeforeTool = async (toolName: string) => {
-    if (refreshableGh.githubExecutorNames.has(toolName)) {
-      await refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL);
-    }
+    piTools: [...bundle.piTools, ...ctx7.piTools, ...codeIndex.piTools],
+    executors: wrappedExecutors,
   };
 
   return {
@@ -148,9 +112,6 @@ export function buildReviewRunSetup(params: {
     workspaceTools,
     cachedDiffIndex,
     evidenceLedger,
-    getToken: refreshableGh.getToken,
-    getTokenExpiresAtTs: refreshableGh.getTokenExpiresAtTs,
-    refreshBeforeTool,
-    refreshLiveAuth: () => refreshableGh.refreshBeforeTool(TOKEN_REFRESH_TOOL),
+    prSurface,
   };
 }

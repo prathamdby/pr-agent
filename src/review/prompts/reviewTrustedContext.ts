@@ -13,10 +13,8 @@ import type { SymbolIndexStatus } from "../../prWorkspace/symbolIndex.js";
 import { formatSymbolIndexStatusLine } from "../../prWorkspace/symbolIndex.js";
 import type { CodeIndexPrepareResult } from "../../codeIndex/buildJob.js";
 import { formatCodeIndexStatusLine } from "../../codeIndex/buildJob.js";
-import {
-  fetchPriorInlineReviewFeedback,
-  formatPriorInlineFeedbackBlock,
-} from "../run/reviewPriorFeedback.js";
+import type { PrSurface } from "../../github/prSurface.js";
+import { formatPriorInlineFeedbackBlock } from "../run/reviewPriorFeedback.js";
 
 function buildTrustedReviewContextBlock(
   metadata: ReviewPreflightMetadata,
@@ -89,22 +87,20 @@ export function buildTrustedReviewContextForReview(params: {
 }
 
 export async function fetchPriorInlineFeedbackBlockForReview(params: {
-  token: string;
-  owner: string;
-  repo: string;
-  prNumber: number;
+  prSurface: PrSurface;
   botUserId: number;
   onPriorFeedbackError?: (error: unknown) => void;
 }): Promise<string | undefined> {
   try {
-    const threads = await fetchPriorInlineReviewFeedback(
-      params.token,
-      params.owner,
-      params.repo,
-      params.prNumber,
-      params.botUserId,
+    const threads = await params.prSurface.fetchPriorInlineFeedback(params.botUserId);
+    return (
+      formatPriorInlineFeedbackBlock(
+        threads.map((thread) => ({
+          ...thread,
+          humanReplies: [...thread.humanReplies],
+        })),
+      ) || undefined
     );
-    return formatPriorInlineFeedbackBlock(threads) || undefined;
   } catch (error) {
     params.onPriorFeedbackError?.(error);
     return undefined;

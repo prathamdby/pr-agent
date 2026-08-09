@@ -2,11 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Pool } from "pg";
 import { tryLightweightAutoReviewCompletion } from "../src/agentWork/reviewLightweightCompletion.js";
 import type { AgentWorkItem } from "../src/agentWork/types.js";
-
-vi.mock("../src/github/reviewPublish.js", () => ({
-  resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
-  upsertReviewSummaryComment: vi.fn(async () => ({ id: 42, updated: true })),
-}));
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getSummaryCommentGithubId: vi.fn(async () => null),
@@ -18,10 +15,6 @@ vi.mock("../src/review/run/reviewRunMetrics.js", () => ({
   snapshotReviewRunMetrics: vi.fn(() => null),
 }));
 
-import {
-  resolveVerifiedSummaryCommentRef,
-  upsertReviewSummaryComment,
-} from "../src/github/reviewPublish.js";
 import {
   getSummaryCommentGithubId,
   recordPublishStep,
@@ -52,6 +45,10 @@ function autoReviewItem(overrides: { headSha?: string } = {}): AgentWorkItem {
   };
 }
 
+function fakeSurface() {
+  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+}
+
 describe("tryLightweightAutoReviewCompletion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -61,11 +58,12 @@ describe("tryLightweightAutoReviewCompletion", () => {
 
   it("does not publish summary when shouldSkipWork is true", async () => {
     vi.mocked(shouldSkipWork).mockResolvedValue(true);
+    const { surface, controls } = fakeSurface();
 
     const result = await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem(),
       reviewLens: "review",
-      token: "tok",
+      prSurface: surface,
       model: "grok-4.5",
       executionEpoch: 1,
       preflight: {
@@ -81,15 +79,18 @@ describe("tryLightweightAutoReviewCompletion", () => {
       published: false,
       reason: "skipped",
     });
-    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+    expect(controls.events.filter((event) => event.kind === "upsertProgressComment")).toHaveLength(
+      0,
+    );
     expect(recordPublishStep).not.toHaveBeenCalled();
   });
 
   it("publishes summary when trivial and work is not skipped", async () => {
+    const { surface, controls } = fakeSurface();
     const result = await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem(),
       reviewLens: "review",
-      token: "tok",
+      prSurface: surface,
       model: "grok-4.5",
       executionEpoch: 1,
       preflight: {
@@ -100,19 +101,20 @@ describe("tryLightweightAutoReviewCompletion", () => {
       },
     });
 
-    expect(result).toEqual({ handled: true, published: true, summaryId: 42 });
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(result).toMatchObject({ handled: true, published: true });
+    expect(controls.events.some((event) => event.kind === "upsertProgressComment")).toBe(true);
     expect(recordPublishStep).toHaveBeenCalledWith(
       pool,
-      expect.objectContaining({ step: "summary_comment", githubId: 42 }),
+      expect.objectContaining({ step: "summary_comment" }),
     );
   });
 
   it("publishes a 0s footer when metrics snapshot is null", async () => {
+    const { surface, controls } = fakeSurface();
     const result = await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem({ headSha: "abc123def456" }),
       reviewLens: "review",
-      token: "tok",
+      prSurface: surface,
       model: "grok-4.5",
       executionEpoch: 1,
       preflight: {
@@ -123,17 +125,11 @@ describe("tryLightweightAutoReviewCompletion", () => {
       },
     });
 
-    expect(result).toEqual({ handled: true, published: true, summaryId: 42 });
+    expect(result).toMatchObject({ handled: true, published: true });
     expect(snapshotReviewRunMetrics).toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      1,
-      expect.stringContaining("<sub>abc123d ⋅ general ⋅ 0s ⋅ grok-4.5</sub>"),
-      expect.any(String),
-      undefined,
-      undefined,
+    const upsert = controls.events.find((event) => event.kind === "upsertProgressComment");
+    expect(upsert?.kind === "upsertProgressComment" && upsert.body).toContain(
+      "<sub>abc123d ⋅ general ⋅ 0s ⋅ grok-4.5</sub>",
     );
   });
 
@@ -143,11 +139,12 @@ describe("tryLightweightAutoReviewCompletion", () => {
     vi.mocked(snapshotReviewRunMetrics).mockReturnValue({
       startedAtMs: Date.parse("2026-07-22T12:08:00.000Z"),
     } as ReturnType<typeof snapshotReviewRunMetrics>);
+    const { surface, controls } = fakeSurface();
 
     await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem({ headSha: "abc123def456" }),
       reviewLens: "review",
-      token: "tok",
+      prSurface: surface,
       model: "grok-4.5",
       executionEpoch: 1,
       preflight: {
@@ -158,32 +155,22 @@ describe("tryLightweightAutoReviewCompletion", () => {
       },
     });
 
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      1,
-      expect.stringContaining("<sub>abc123d ⋅ general ⋅ 2m ⋅ grok-4.5</sub>"),
-      expect.any(String),
-      undefined,
-      undefined,
+    const upsert = controls.events.find((event) => event.kind === "upsertProgressComment");
+    expect(upsert?.kind === "upsertProgressComment" && upsert.body).toContain(
+      "<sub>abc123d ⋅ general ⋅ 2m ⋅ grok-4.5</sub>",
     );
     vi.useRealTimers();
   });
 
-  it("uses stored summary id without scanning when verified", async () => {
+  it("uses stored summary id when resolving the progress comment", async () => {
     vi.mocked(getSummaryCommentGithubId).mockResolvedValue(55);
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue({
-      id: 55,
-      url: "https://example.com/55",
-      source: "hint",
-    });
+    const { surface, controls } = fakeSurface();
+    controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, "existing", 55);
 
     await tryLightweightAutoReviewCompletion(pool, {
       item: autoReviewItem(),
       reviewLens: "review",
-      token: "tok",
-      tokenExpiresAtTs: 1_000_000,
+      prSurface: surface,
       model: "grok-4.5",
       executionEpoch: 1,
       preflight: {
@@ -195,24 +182,14 @@ describe("tryLightweightAutoReviewCompletion", () => {
     });
 
     expect(getSummaryCommentGithubId).toHaveBeenCalledWith(pool, "o/r#1", "review");
-    expect(resolveVerifiedSummaryCommentRef).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      1,
-      expect.any(String),
-      55,
-      1_000_000,
-    );
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      1,
-      expect.any(String),
-      expect.any(String),
-      { id: 55, url: "https://example.com/55" },
-      1_000_000,
-    );
+    const resolve = controls.events.find((event) => event.kind === "resolveProgressComment");
+    expect(resolve).toMatchObject({
+      kind: "resolveProgressComment",
+      hintCommentId: 55,
+    });
+    const upsert = controls.events.find((event) => event.kind === "upsertProgressComment");
+    expect(upsert?.kind === "upsertProgressComment" && upsert.knownExisting).toMatchObject({
+      id: 55,
+    });
   });
 });

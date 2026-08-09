@@ -1,14 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildAskUserContent } from "../src/agent/ask/askUserContent.js";
 import type { AskRunParams } from "../src/agent/ask/askRunTypes.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 function baseParams(overrides: Partial<AskRunParams> = {}): AskRunParams {
+  const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
   return {
     cfg: makeTestConfig(),
-    token: "t",
-    tokenExpiresAtTs: Date.now() + 60_000,
-    tokenTtlMs: 60_000,
+    prSurface: surface,
     owner: "o",
     repo: "r",
     prNumber: 1,

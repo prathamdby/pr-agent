@@ -1,10 +1,6 @@
 import type { Pool } from "pg";
-import { installationOctokit } from "../../github/appAuth.js";
-import { httpStatus } from "../../github/httpStatus.js";
-import {
-  resolveReviewThread,
-  type ReviewThreadResolution,
-} from "../../github/reviewThreadResolution.js";
+import type { PrSurface } from "../../github/prSurface.js";
+import type { ReviewThreadResolution } from "../../github/reviewThreadResolution.js";
 import { redactReviewText } from "../../review/findings/reviewPublicOutput.js";
 import {
   renderPolicySuggestionForDismissed,
@@ -35,8 +31,7 @@ type PublishVerificationParams = {
   readonly workItemId: string;
   readonly resourceKey: string;
   readonly installationId: number;
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
+  readonly prSurface: PrSurface;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -86,53 +81,32 @@ function resolveStubCommentId(
 }
 
 async function createStubReply(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
+  readonly prSurface: PrSurface;
   readonly prNumber: number;
   readonly thread: BotFindingThread;
   readonly body: string;
 }): Promise<number> {
-  const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
-  const { data } = await octokit.rest.pulls.createReplyForReviewComment({
-    owner: params.owner,
-    repo: params.repo,
-    pull_number: params.prNumber,
-    comment_id: params.thread.rootCommentId,
-    body: params.body,
-  });
-  return data.id;
+  const posted = await params.prSurface.replyAt(
+    {
+      kind: "inlineReviewThread",
+      prNumber: params.prNumber,
+      inReplyToCommentId: params.thread.rootCommentId,
+    },
+    params.body,
+  );
+  return posted.commentId;
 }
 
 async function updateStubReply(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
+  readonly prSurface: PrSurface;
   readonly stubCommentId: number;
   readonly body: string;
 }): Promise<boolean> {
-  const octokit = installationOctokit(params.token, params.tokenExpiresAtTs);
-  try {
-    await octokit.rest.pulls.updateReviewComment({
-      owner: params.owner,
-      repo: params.repo,
-      comment_id: params.stubCommentId,
-      body: params.body,
-    });
-    return true;
-  } catch (error) {
-    if (httpStatus(error) === 404) return false;
-    throw error;
-  }
+  return params.prSurface.editReviewComment(params.stubCommentId, params.body);
 }
 
 async function upsertStubComment(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
+  readonly prSurface: PrSurface;
   readonly prNumber: number;
   readonly thread: BotFindingThread;
   readonly stubCommentId: number | undefined;
@@ -140,10 +114,7 @@ async function upsertStubComment(params: {
 }): Promise<number> {
   if (params.stubCommentId != null) {
     const updated = await updateStubReply({
-      token: params.token,
-      tokenExpiresAtTs: params.tokenExpiresAtTs,
-      owner: params.owner,
-      repo: params.repo,
+      prSurface: params.prSurface,
       stubCommentId: params.stubCommentId,
       body: params.body,
     });
@@ -261,21 +232,14 @@ export async function publishVerification(
             let nextStubCommentId: number | undefined = priorStubId;
             if (priorStubId != null) {
               const updated = await updateStubReply({
-                token: params.token,
-                tokenExpiresAtTs: params.tokenExpiresAtTs,
-                owner: params.owner,
-                repo: params.repo,
+                prSurface: params.prSurface,
                 stubCommentId: priorStubId,
                 body: terminalSuccessStubBody(verdict),
               });
               if (!updated) nextStubCommentId = undefined;
             }
             if (!resolution.isResolved) {
-              await resolveReviewThread(
-                params.token,
-                resolution.threadNodeId,
-                params.tokenExpiresAtTs,
-              );
+              await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
             }
             return nextStubCommentId;
           },
@@ -307,10 +271,7 @@ export async function publishVerification(
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
           mutate: () =>
             upsertStubComment({
-              token: params.token,
-              tokenExpiresAtTs: params.tokenExpiresAtTs,
-              owner: params.owner,
-              repo: params.repo,
+              prSurface: params.prSurface,
               prNumber: params.prNumber,
               thread,
               stubCommentId: resolveStubCommentId(thread, prior),
@@ -349,21 +310,14 @@ export async function publishVerification(
           detail: verificationIntentDetail(params, verdict.threadRootCommentId, verdict.verdict),
           mutate: async () => {
             const createdStubCommentId = await upsertStubComment({
-              token: params.token,
-              tokenExpiresAtTs: params.tokenExpiresAtTs,
-              owner: params.owner,
-              repo: params.repo,
+              prSurface: params.prSurface,
               prNumber: params.prNumber,
               thread,
               stubCommentId: resolveStubCommentId(thread, prior),
               body,
             });
             if (!resolution.isResolved) {
-              await resolveReviewThread(
-                params.token,
-                resolution.threadNodeId,
-                params.tokenExpiresAtTs,
-              );
+              await params.prSurface.resolveInlineReviewThread(resolution.threadNodeId);
             }
             return createdStubCommentId;
           },

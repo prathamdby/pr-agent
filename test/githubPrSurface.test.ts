@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { makeTestConfig } from "./helpers/config.js";
 
 const mocks = vi.hoisted(() => ({
   createForIssue: vi.fn(),
@@ -12,10 +13,11 @@ const mocks = vi.hoisted(() => ({
   deleteForPullRequestComment: vi.fn(),
   logDebug: vi.fn(),
   httpStatus: vi.fn(),
+  getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
 }));
 
 vi.mock("../src/github/appAuth.js", () => ({
-  getAppBotIdentity: vi.fn(),
+  getAppBotIdentity: mocks.getAppBotIdentity,
   installationOctokit: () => {
     const rest = {
       reactions: {
@@ -49,7 +51,7 @@ vi.mock("../src/github/httpStatus.js", () => ({
   httpStatus: mocks.httpStatus,
 }));
 
-import { reactOnAckTargets, safeReaction } from "../src/agentWork/githubPrSurface.js";
+import { createPrSurface } from "../src/github/prSurface.js";
 import {
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_MINUS_ONE,
@@ -58,14 +60,36 @@ import {
 
 const BOT_USER_ID = 999;
 
-describe("safeReaction", () => {
+function prSurface() {
+  return createPrSurface({
+    cfg: makeTestConfig(),
+    installationId: 1,
+    owner: "o",
+    repo: "r",
+    prNumber: 7,
+    installation: {
+      token: "tok",
+      expiresAtTs: Date.now() + 3_600_000,
+      ttlMs: 3_600_000,
+    },
+  });
+}
+
+describe("PrSurface acknowledgement reactions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.getAppBotIdentity.mockResolvedValue({ userId: BOT_USER_ID, login: "pr-agent[bot]" });
+    mocks.listForIssue.mockResolvedValue({ data: [] });
+    mocks.createForIssue.mockResolvedValue({});
+    mocks.deleteForIssue.mockResolvedValue({});
   });
 
   it("posts the requested reaction content", async () => {
     mocks.createForIssue.mockResolvedValue({});
-    await safeReaction("tok", "o", "r", { kind: "pr", prNumber: 7 }, GITHUB_REACTION_PLUS_ONE);
+    await prSurface().setAcknowledgementReaction(
+      [{ kind: "pr", prNumber: 7 }],
+      GITHUB_REACTION_PLUS_ONE,
+    );
     expect(mocks.createForIssue).toHaveBeenCalledWith(
       expect.objectContaining({
         issue_number: 7,
@@ -79,7 +103,7 @@ describe("safeReaction", () => {
     mocks.httpStatus.mockReturnValue(403);
 
     await expect(
-      safeReaction("tok", "o", "r", { kind: "pr", prNumber: 7 }, GITHUB_REACTION_EYES),
+      prSurface().setAcknowledgementReaction([{ kind: "pr", prNumber: 7 }], GITHUB_REACTION_EYES),
     ).resolves.toBeUndefined();
 
     expect(mocks.logDebug).toHaveBeenCalledWith(
@@ -99,19 +123,10 @@ describe("safeReaction", () => {
     mocks.httpStatus.mockReturnValue(422);
 
     await expect(
-      safeReaction("tok", "o", "r", { kind: "pr", prNumber: 7 }),
+      prSurface().setAcknowledgementReaction([{ kind: "pr", prNumber: 7 }], GITHUB_REACTION_EYES),
     ).resolves.toBeUndefined();
 
     expect(mocks.logDebug).not.toHaveBeenCalled();
-  });
-});
-
-describe("reactOnAckTargets", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.listForIssue.mockResolvedValue({ data: [] });
-    mocks.createForIssue.mockResolvedValue({});
-    mocks.deleteForIssue.mockResolvedValue({});
   });
 
   it("continues when one target fails", async () => {
@@ -122,17 +137,13 @@ describe("reactOnAckTargets", () => {
     mocks.httpStatus.mockReturnValue(500);
 
     await expect(
-      reactOnAckTargets(
-        "tok",
-        "o",
-        "r",
+      prSurface().setAcknowledgementReaction(
         [
           { kind: "pr", prNumber: 1 },
           { kind: "pr", prNumber: 2 },
           { kind: "pr", prNumber: 3 },
         ],
         GITHUB_REACTION_PLUS_ONE,
-        BOT_USER_ID,
       ),
     ).resolves.toBeUndefined();
 
@@ -152,13 +163,9 @@ describe("reactOnAckTargets", () => {
       ],
     });
 
-    await reactOnAckTargets(
-      "tok",
-      "o",
-      "r",
+    await prSurface().setAcknowledgementReaction(
       [{ kind: "pr", prNumber: 7 }],
       GITHUB_REACTION_PLUS_ONE,
-      BOT_USER_ID,
     );
 
     expect(mocks.deleteForIssue).toHaveBeenCalledWith(
@@ -183,13 +190,9 @@ describe("reactOnAckTargets", () => {
       data: [{ id: 21, content: GITHUB_REACTION_EYES, user: { id: BOT_USER_ID } }],
     });
 
-    await reactOnAckTargets(
-      "tok",
-      "o",
-      "r",
+    await prSurface().setAcknowledgementReaction(
       [{ kind: "pr", prNumber: 7 }],
       GITHUB_REACTION_MINUS_ONE,
-      BOT_USER_ID,
     );
 
     expect(mocks.deleteForIssue).toHaveBeenCalledWith(expect.objectContaining({ reaction_id: 21 }));
@@ -203,27 +206,21 @@ describe("reactOnAckTargets", () => {
       data: [{ id: 31, content: GITHUB_REACTION_PLUS_ONE, user: { id: BOT_USER_ID } }],
     });
 
-    await reactOnAckTargets(
-      "tok",
-      "o",
-      "r",
+    await prSurface().setAcknowledgementReaction(
       [{ kind: "pr", prNumber: 7 }],
       GITHUB_REACTION_PLUS_ONE,
-      BOT_USER_ID,
     );
 
     expect(mocks.createForIssue).not.toHaveBeenCalled();
     expect(mocks.deleteForIssue).not.toHaveBeenCalled();
   });
 
-  it("creates without deletes when botUserId is unavailable", async () => {
-    await reactOnAckTargets(
-      "tok",
-      "o",
-      "r",
+  it("creates without deletes when bot identity is unavailable", async () => {
+    mocks.getAppBotIdentity.mockRejectedValue(new Error("no bot"));
+
+    await prSurface().setAcknowledgementReaction(
       [{ kind: "pr", prNumber: 7 }],
       GITHUB_REACTION_PLUS_ONE,
-      undefined,
     );
 
     expect(mocks.listForIssue).not.toHaveBeenCalled();
@@ -240,13 +237,9 @@ describe("reactOnAckTargets", () => {
     mocks.createForIssueComment.mockResolvedValue({});
     mocks.deleteForIssueComment.mockResolvedValue({});
 
-    await reactOnAckTargets(
-      "tok",
-      "o",
-      "r",
+    await prSurface().setAcknowledgementReaction(
       [{ kind: "issueComment", commentId: 55 }],
       GITHUB_REACTION_PLUS_ONE,
-      BOT_USER_ID,
     );
 
     expect(mocks.listForIssueComment).toHaveBeenCalledWith(
@@ -267,13 +260,9 @@ describe("reactOnAckTargets", () => {
     mocks.createForPullRequestReviewComment.mockResolvedValue({});
     mocks.deleteForPullRequestComment.mockResolvedValue({});
 
-    await reactOnAckTargets(
-      "tok",
-      "o",
-      "r",
+    await prSurface().setAcknowledgementReaction(
       [{ kind: "reviewComment", commentId: 66 }],
       GITHUB_REACTION_PLUS_ONE,
-      BOT_USER_ID,
     );
 
     expect(mocks.listForPullRequestReviewComment).toHaveBeenCalledWith(
@@ -301,13 +290,9 @@ describe("reactOnAckTargets", () => {
     mocks.httpStatus.mockReturnValue(500);
 
     await expect(
-      reactOnAckTargets(
-        "tok",
-        "o",
-        "r",
+      prSurface().setAcknowledgementReaction(
         [{ kind: "pr", prNumber: 7 }],
         GITHUB_REACTION_PLUS_ONE,
-        BOT_USER_ID,
       ),
     ).resolves.toBeUndefined();
 

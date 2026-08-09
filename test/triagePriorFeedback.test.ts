@@ -27,9 +27,9 @@ vi.mock("../src/github/appAuth.js", () => ({
 
 import {
   classifyReviewLensFromPointerBody,
-  fetchBotFindingThreads,
   parseReviewPointerLensMarker,
 } from "../src/review/run/reviewPriorFeedback.js";
+import { fetchBotFindingThreads } from "../src/github/reviewPriorFeedbackIo.js";
 
 describe("classifyReviewLensFromPointerBody", () => {
   it("prefers the HTML lens marker over legacy strings", () => {

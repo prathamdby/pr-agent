@@ -1,6 +1,7 @@
 import type { Config } from "../../config.js";
 import { reviewCheckDetailsUrl } from "../../agentWork/reviewCheckRun.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { createCachedPrDiffIndex, type CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 import { applyFindingLedgerDelta, createFindingLedger } from "../orchestrator/orchestratorTypes.js";
@@ -20,13 +21,10 @@ export {
 
 export async function publishReview(
   params: ReviewPublishContext & {
-    token: string;
-    getToken?: () => string;
-    getTokenExpiresAtTs?: () => number | undefined;
+    prSurface: PrSurface;
     mode?: AnyReviewLens;
     cfg: Pick<Config, "piModel" | "features">;
     payload: ReviewPayload;
-    tokenExpiresAtTs?: number;
     dedupedFindingCount?: number;
     publishState: SubmitReviewState;
     cachedDiffIndex?: CachedPrDiffIndex;
@@ -50,8 +48,6 @@ export async function publishReview(
     postedInlineCount: resumedPlacements.length,
     threadCallCount: params.publishState.threadCallCount,
   });
-  const getToken = params.getToken ?? (() => params.token);
-  const getTokenExpiresAtTs = params.getTokenExpiresAtTs ?? (() => params.tokenExpiresAtTs);
   const batchResult = await publishFindingBatch(params.payload.findings, {
     ctx: params,
     source: "review",
@@ -72,8 +68,7 @@ export async function publishReview(
         params.prNumber,
         params.progressCommentIdHint,
       ),
-    getToken,
-    getTokenExpiresAtTs,
+    prSurface: params.prSurface,
     cachedDiffIndex: params.cachedDiffIndex ?? createCachedPrDiffIndex(),
     recordPublishStep: params.recordPublishStep,
     shouldAbortPublish: params.shouldAbortPublish,
@@ -92,8 +87,7 @@ export async function publishReview(
   const summaryResult = await publishReviewSummaryOnly({
     cfg: params.cfg,
     ctx: params,
-    getToken,
-    getTokenExpiresAtTs,
+    prSurface: params.prSurface,
     payload: params.payload,
     ledger,
     mode: params.mode,

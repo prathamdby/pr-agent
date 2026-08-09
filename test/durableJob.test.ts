@@ -39,10 +39,24 @@ vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: vi.fn(),
 }));
 
-vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getPullRequestHead: vi.fn(async () => ({ headSha: "x", pullRequest: {} })),
-  reactOnAckTargets: vi.fn(),
+const prSurfaceMocks = vi.hoisted(() => ({
+  setAcknowledgementReaction: vi.fn().mockResolvedValue(undefined),
+  getHead: vi.fn(async () => ({ headSha: "x", pullRequest: {} })),
 }));
+
+vi.mock("../src/github/prSurface.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/github/prSurface.js")>();
+  return {
+    ...actual,
+    createPrSurface: vi.fn(() => ({
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+      getHead: prSurfaceMocks.getHead,
+      setAcknowledgementReaction: prSurfaceMocks.setAcknowledgementReaction,
+    })),
+  };
+});
 
 vi.mock("../src/evlog.js", () => ({
   logInfo: vi.fn(),
@@ -54,7 +68,6 @@ import * as repo from "../src/agentWork/repository.js";
 import * as reviewReschedule from "../src/agentWork/reviewReschedule.js";
 import * as appAuth from "../src/github/appAuth.js";
 import * as evlog from "../src/evlog.js";
-import { reactOnAckTargets } from "../src/agentWork/githubPrSurface.js";
 import { GITHUB_REACTION_MINUS_ONE, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
 
 const cfg = {} as Config;
@@ -153,7 +166,7 @@ describe("runDurableWorkItem", () => {
     expect(repo.claimWorkForExecution).toHaveBeenCalledWith(pool, "wi-1");
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[1].headSha).toBe("abc123");
-    expect(execute.mock.calls[0]?.[1].installation.token).toBe("tok");
+    expect(execute.mock.calls[0]?.[1].prSurface).toBeDefined();
     expect(repo.markWorkCompleted).toHaveBeenCalledWith(pool, "wi-1", 1);
     expect(repo.markWorkCancelled).not.toHaveBeenCalled();
     expect(repo.shouldSkipWork).toHaveBeenCalledTimes(2);
@@ -317,7 +330,7 @@ describe("runDurableWorkItem", () => {
     expect(onCancelled).toHaveBeenCalledTimes(1);
     expect(onCancelled).toHaveBeenCalledWith(
       expect.objectContaining({ id: "wi-1", installationId: 42 }),
-      expect.objectContaining({ token: "tok" }),
+      expect.objectContaining({ owner: "o", repo: "r" }),
       "skipped_before_claim",
     );
   });
@@ -447,7 +460,7 @@ describe("runDurableWorkItem", () => {
     expect(execute).not.toHaveBeenCalled();
     expect(onCancelled).toHaveBeenCalledWith(
       expect.objectContaining({ id: "wi-1" }),
-      expect.objectContaining({ token: "tok" }),
+      expect.objectContaining({ owner: "o", repo: "r" }),
       "head_update_rejected",
     );
   });
@@ -476,14 +489,9 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ execute });
 
-    expect(reactOnAckTargets).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
+    expect(prSurfaceMocks.setAcknowledgementReaction).toHaveBeenCalledWith(
       [{ kind: "pr", prNumber: 1 }],
       GITHUB_REACTION_PLUS_ONE,
-      999,
-      expect.any(Number),
     );
   });
 
@@ -501,14 +509,9 @@ describe("runDurableWorkItem", () => {
 
     await runReviewWorkItem({ job: makeJob(3, 3), execute });
 
-    expect(reactOnAckTargets).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
+    expect(prSurfaceMocks.setAcknowledgementReaction).toHaveBeenCalledWith(
       [{ kind: "pr", prNumber: 1 }],
       GITHUB_REACTION_MINUS_ONE,
-      999,
-      expect.any(Number),
     );
   });
 
@@ -520,7 +523,7 @@ describe("runDurableWorkItem", () => {
     await runReviewWorkItem({ execute });
 
     expect(repo.markWorkCancelled).toHaveBeenCalled();
-    expect(reactOnAckTargets).not.toHaveBeenCalled();
+    expect(prSurfaceMocks.setAcknowledgementReaction).not.toHaveBeenCalled();
   });
 
   it("on non-terminal pg-boss attempt: marks retrying and rethrows", async () => {
@@ -544,9 +547,9 @@ describe("runDurableWorkItem", () => {
 
     expect(repo.markWorkFailed).toHaveBeenCalledWith(pool, "wi-1", boom, 1);
     expect(onTerminalFailure).toHaveBeenCalledTimes(1);
-    const [itemArg, installArg, errArg] = onTerminalFailure.mock.calls[0];
+    const [itemArg, surfaceArg, errArg] = onTerminalFailure.mock.calls[0];
     expect(itemArg.id).toBe("wi-1");
-    expect((installArg as { token: string }).token).toBe("tok");
+    expect(surfaceArg).toMatchObject({ owner: "o", repo: "r" });
     expect(errArg).toBe(boom);
   });
 

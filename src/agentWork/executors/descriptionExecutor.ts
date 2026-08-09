@@ -8,19 +8,15 @@ import {
   classifiedFailureLogFields,
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
-import { installationOctokit } from "../../github/appAuth.js";
 import { logWarn } from "../../evlog.js";
 import { prBodyHasAgentDescriptionBlock } from "../../agent/description/descriptionBodyMerge.js";
 import { DESCRIPTION_FAILURE_MESSAGE, DESCRIPTION_PUBLISH_LENS } from "../../settings/index.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
 import { isExecutionEpochCurrent, recordPublishStep, shouldSkipWork } from "../repository.js";
-import {
-  makeInstallationTokenRefresher,
-  resolveWorkItemHead,
-  runDurableWorkItem,
-} from "../durableJob.js";
+import { resolveWorkItemHead, runDurableWorkItem } from "../durableJob.js";
 import { type DescriptionJobData } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
+
 export async function executeDescriptionJob(
   cfg: Config,
   pool: Pool,
@@ -35,21 +31,23 @@ export async function executeDescriptionJob(
     type: "description",
     resolveHeadSha: resolveWorkItemHead,
     execute: async (item, env) => {
-      const tokenState = { installation: env.installation };
+      const { prSurface } = env;
       const headSha = env.headSha;
       const payload = item.payload;
       return withPrRepositoryView(
         buildRepositoryViewParams(
           item,
-          { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+          {
+            gitCredentialAuth: () => prSurface.gitCredentialAuth(),
+            headSha,
+            pullRequest: env.pullRequest,
+          },
           payload,
         ),
         async (repositoryView) => {
           const result = await runFullPrDescription({
             cfg,
-            token: tokenState.installation.token,
-            tokenExpiresAtTs: tokenState.installation.expiresAtTs,
-            tokenTtlMs: tokenState.installation.ttlMs,
+            prSurface,
             owner: item.owner,
             repo: item.repo,
             prNumber: item.prNumber,
@@ -76,11 +74,6 @@ export async function executeDescriptionJob(
               resourceKey: item.resourceKey,
               executionEpoch: env.executionEpoch,
             },
-            refreshInstallationToken: makeInstallationTokenRefresher(
-              cfg,
-              item.installationId,
-              tokenState,
-            ),
             durability: {
               pool,
               workItemId: item.id,
@@ -126,24 +119,17 @@ export async function executeDescriptionJob(
         },
       );
     },
-    onTerminalFailure: async (item, installation) => {
-      if (!installation) return;
+    onTerminalFailure: async (item, prSurface) => {
+      if (!prSurface) return;
       const payload = item.payload;
-      const octokit = installationOctokit(installation.token, installation.expiresAtTs);
       if (payload.source !== "slash") {
-        const { data: pr } = await octokit.rest.pulls.get({
-          owner: item.owner,
-          repo: item.repo,
-          pull_number: item.prNumber,
-        });
-        if (prBodyHasAgentDescriptionBlock(pr.body)) return;
+        const body = await prSurface.getPullRequestBody();
+        if (prBodyHasAgentDescriptionBlock(body)) return;
       }
-      await octokit.rest.issues.createComment({
-        owner: item.owner,
-        repo: item.repo,
-        issue_number: item.prNumber,
-        body: DESCRIPTION_FAILURE_MESSAGE,
-      });
+      await prSurface.replyAt(
+        { kind: "prConversation", prNumber: item.prNumber },
+        DESCRIPTION_FAILURE_MESSAGE,
+      );
     },
   });
 }

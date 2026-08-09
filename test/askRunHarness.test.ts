@@ -20,17 +20,18 @@ vi.mock("../src/agent/runtime/createFeatureSession.js", () => ({
 }));
 
 import { runAskRun } from "../src/agent/ask/askRun.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 
 const cfg = makeTestConfig({
   reviewConcurrency: 1,
   askConcurrency: 3,
 });
 
+const { surface: prSurface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 459 });
+
 const askParams = {
   cfg,
-  token: "t",
-  tokenExpiresAtTs: Date.now() + 3_600_000,
-  tokenTtlMs: 3_600_000,
+  prSurface,
   owner: "o",
   repo: "r",
   prNumber: 459,

@@ -1,4 +1,3 @@
-import type { InstallationToken } from "../../github/appAuth.js";
 import type { PullRequestForFileList } from "../../github/listPullRequestFiles.js";
 import type { PreparePrRepositoryViewParams } from "../../prWorkspace/prRepositoryView.js";
 
@@ -9,9 +8,12 @@ type WorkItemIdentity = {
 };
 
 type RepositoryViewEnv = {
-  readonly installation: InstallationToken;
   readonly headSha: string;
   readonly pullRequest?: PullRequestForFileList;
+  readonly gitCredentialAuth: () => Promise<{
+    readonly token: string;
+    readonly expiresAtTs: number;
+  }>;
 };
 
 type RepositoryViewPayload = {
@@ -29,8 +31,7 @@ export function buildRepositoryViewParams(
     repo: item.repo,
     prNumber: item.prNumber,
     headSha: env.headSha,
-    installationToken: env.installation.token,
-    installationExpiresAtTs: env.installation.expiresAtTs,
+    gitCredentialAuth: env.gitCredentialAuth,
     pullRequest: env.pullRequest,
     repositorySizeKb: payload.repositorySizeKb,
     ...(extra?.prFiles !== undefined ? { prFiles: extra.prFiles } : {}),

@@ -3,7 +3,15 @@ import type { Pool } from "pg";
 import type { Config } from "../src/config.js";
 import { executeAckJob } from "../src/agentWork/executors/ackExecutor.js";
 import type { AckJobData } from "../src/agentWork/types.js";
-import { GITHUB_REACTION_EYES, GITHUB_REACTION_PLUS_ONE } from "../src/settings/index.js";
+import {
+  GITHUB_REACTION_EYES,
+  GITHUB_REACTION_PLUS_ONE,
+  REVIEW_SUMMARY_SENTINEL,
+} from "../src/settings/index.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+import * as prSurfaceModule from "../src/github/prSurface.js";
+
+let surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
 
 vi.mock("../src/agentWork/durableJob.js", () => ({
   mintInstallationToken: vi.fn(async () => ({
@@ -13,18 +21,8 @@ vi.mock("../src/agentWork/durableJob.js", () => ({
   })),
 }));
 
-vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getAppBotIdentity: vi.fn(async () => ({ userId: 999, login: "pr-agent[bot]" })),
-  getPullRequestHeadSha: vi.fn(),
-  postAckReply: vi.fn(),
-  reactOnAckTargets: vi.fn(),
-}));
-
-vi.mock("../src/github/reviewPublish.js", () => ({
-  resolveVerifiedSummaryCommentRef: vi.fn(),
-  upsertReviewSummaryComment: vi.fn(async () => ({ id: 77, updated: true })),
-  findIssueCommentBySentinel: vi.fn(async () => null),
-  updateIssueComment: vi.fn(async () => undefined),
+vi.mock("../src/review/ci/analyzeCi.js", () => ({
+  buildCiSummaryForSurface: vi.fn(async () => null),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -52,22 +50,10 @@ vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
   ensureReviewCheckRunStarted: vi.fn(),
 }));
 
-vi.mock("../src/review/ci/analyzeCi.js", () => ({
-  buildCiSummary: vi.fn(async () => null),
-}));
-
-import { postAckReply, reactOnAckTargets } from "../src/agentWork/githubPrSurface.js";
-import {
-  findIssueCommentBySentinel,
-  resolveVerifiedSummaryCommentRef,
-  updateIssueComment,
-  upsertReviewSummaryComment,
-} from "../src/github/reviewPublish.js";
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
 import {
   getProgressCommentOwner,
   getReviewQueuePosition,
-  getSummaryCommentGithubId,
   getWorkItemCore,
   recordPublishStep,
 } from "../src/agentWork/repository.js";
@@ -99,21 +85,16 @@ function ackData(): AckJobData {
 describe("executeAckJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
   });
 
   it("posts eyes on every ack target", async () => {
     await expect(executeAckJob(cfg, pool, ackData())).resolves.toBeUndefined();
 
-    expect(reactOnAckTargets).toHaveBeenCalledTimes(1);
-    expect(reactOnAckTargets).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      ackData().targets,
-      GITHUB_REACTION_EYES,
-      999,
-      expect.any(Number),
-    );
+    expect(surfaceBundle.controls.reactions).toHaveLength(1);
+    expect(surfaceBundle.controls.reactions[0]?.targets).toEqual(ackData().targets);
+    expect(surfaceBundle.controls.reactions[0]?.kind).toBe(GITHUB_REACTION_EYES);
   });
 
   it("adds plus-one after ack-only replies with no durable work item", async () => {
@@ -122,10 +103,10 @@ describe("executeAckJob", () => {
       reply: { target: { kind: "prConversation", prNumber: 1 }, body: "help" },
     });
 
-    expect(postAckReply).toHaveBeenCalled();
-    expect(reactOnAckTargets).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(reactOnAckTargets).mock.calls[1]?.[4]).toBe(GITHUB_REACTION_PLUS_ONE);
-    expect(vi.mocked(reactOnAckTargets).mock.calls[1]?.[5]).toBe(999);
+    expect(surfaceBundle.controls.replies).toHaveLength(1);
+    expect(surfaceBundle.controls.replies[0]?.body).toBe("help");
+    expect(surfaceBundle.controls.reactions).toHaveLength(2);
+    expect(surfaceBundle.controls.reactions[1]?.kind).toBe(GITHUB_REACTION_PLUS_ONE);
   });
 
   it("does not plus-one when a durable work item will own the outcome reaction", async () => {
@@ -135,8 +116,8 @@ describe("executeAckJob", () => {
       reply: { target: { kind: "prConversation", prNumber: 1 }, body: "hint" },
     });
 
-    expect(reactOnAckTargets).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(reactOnAckTargets).mock.calls[0]?.[4]).toBe(GITHUB_REACTION_EYES);
+    expect(surfaceBundle.controls.reactions).toHaveLength(1);
+    expect(surfaceBundle.controls.reactions[0]?.kind).toBe(GITHUB_REACTION_EYES);
   });
 
   it("uses coordinated summary upsert for progress with work item id", async () => {
@@ -154,6 +135,7 @@ describe("executeAckJob", () => {
         reviewLens: "review",
         progressRevision: 0,
         body: expect.stringMatching(/Review queued/),
+        prSurface: surfaceBundle.surface,
       }),
     );
     const queuedBody = vi.mocked(upsertSummaryCommentWithCreationClaim).mock.calls[0]?.[0]?.body;
@@ -172,6 +154,7 @@ describe("executeAckJob", () => {
         prNumber: 1,
         headSha: "sha",
         reviewLens: "review",
+        prSurface: surfaceBundle.surface,
       }),
     );
   });
@@ -207,13 +190,6 @@ describe("executeAckJob", () => {
   });
 
   it("uses revision coordination when progress has no work item id", async () => {
-    vi.mocked(getSummaryCommentGithubId).mockResolvedValue(55);
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValue({
-      id: 55,
-      url: "https://example.com/55",
-      source: "hint",
-    });
-
     await executeAckJob(cfg, pool, {
       ...ackData(),
       progress: { lens: "review", headSha: "sha", source: "auto" },
@@ -229,9 +205,6 @@ describe("executeAckJob", () => {
       }),
     );
     expect(getReviewQueuePosition).not.toHaveBeenCalled();
-    expect(getSummaryCommentGithubId).not.toHaveBeenCalled();
-    expect(resolveVerifiedSummaryCommentRef).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
   });
 
   it("no-ops progress when the work item is superseded", async () => {
@@ -314,11 +287,7 @@ describe("executeAckJob", () => {
       progressRevision: 1,
       progressWorkItemId: "wi-cancel",
     });
-    vi.mocked(findIssueCommentBySentinel).mockResolvedValueOnce({
-      id: 99,
-      body: stub,
-      url: "https://example.com/99",
-    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -328,15 +297,10 @@ describe("executeAckJob", () => {
       },
     });
 
-    expect(updateIssueComment).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      99,
-      expect.stringContaining(reviewProgressCancelledNote({ kind: "user", login: "alice" })),
-      expect.any(Number),
-    );
-    const body = vi.mocked(updateIssueComment).mock.calls[0]?.[4] as string;
+    const edit = surfaceBundle.controls.events.find((event) => event.kind === "editComment");
+    expect(edit).toMatchObject({ kind: "editComment", commentId: 99 });
+    const body = edit?.kind === "editComment" ? edit.body : "";
+    expect(body).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
     expect(body).not.toContain("<strong>Recon</strong>");
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
   });
@@ -349,11 +313,7 @@ describe("executeAckJob", () => {
       progressRevision: 2,
       progressWorkItemId: "wi-other",
     });
-    vi.mocked(findIssueCommentBySentinel).mockResolvedValueOnce({
-      id: 100,
-      body: foreign,
-      url: "https://example.com/100",
-    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, foreign, 100);
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -363,7 +323,7 @@ describe("executeAckJob", () => {
       },
     });
 
-    expect(updateIssueComment).not.toHaveBeenCalled();
+    expect(surfaceBundle.controls.events.some((event) => event.kind === "editComment")).toBe(false);
     expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         workItemId: "wi-cancel",
@@ -373,13 +333,14 @@ describe("executeAckJob", () => {
       }),
     );
 
-    vi.mocked(findIssueCommentBySentinel).mockResolvedValueOnce({
-      id: 101,
-      body: renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }),
-      url: "https://example.com/101",
-    });
+    surfaceBundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => surfaceBundle.surface);
+    surfaceBundle.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      renderReviewFailureNotice({ mode: "review", retryCommand: "/review" }),
+      101,
+    );
     vi.mocked(upsertSummaryCommentWithCreationClaim).mockClear();
-    vi.mocked(updateIssueComment).mockClear();
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
@@ -389,15 +350,10 @@ describe("executeAckJob", () => {
       },
     });
 
-    // Failure notice has no progress-revision workItemId — treated as owned legacy stub.
-    expect(updateIssueComment).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      101,
-      expect.stringContaining(reviewProgressCancelledNote({ kind: "merged" })),
-      expect.any(Number),
-    );
+    const edit = surfaceBundle.controls.events.find((event) => event.kind === "editComment");
+    expect(edit).toMatchObject({ kind: "editComment", commentId: 101 });
+    const body = edit?.kind === "editComment" ? edit.body : "";
+    expect(body).toContain(reviewProgressCancelledNote({ kind: "merged" }));
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
   });
 });

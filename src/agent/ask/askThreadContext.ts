@@ -1,12 +1,7 @@
-import { installationOctokit } from "../../github/appAuth.js";
-import { paginateOctokitPages } from "../../github/paginateOctokit.js";
 import { logWarn } from "../../evlog.js";
-import {
-  COMMENT_PAGINATION_MAX_PAGES,
-  COMMENTS_PAGE_SIZE,
-  MAX_ASK_THREAD_TRANSCRIPT_CHARS,
-} from "../../settings/index.js";
+import { MAX_ASK_THREAD_TRANSCRIPT_CHARS } from "../../settings/index.js";
 import type { ReplyTarget } from "../../commands/replyTarget.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { redactOutboundSecrets } from "./askSafety.js";
 
 export type ThreadComment = {
@@ -91,94 +86,23 @@ export function formatThreadTranscript(
   return { text, truncated: true };
 }
 
-async function listInlineReviewComments(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  expiresAtTs?: number,
-): Promise<ThreadComment[]> {
-  const octokit = installationOctokit(token, expiresAtTs);
-  const rows = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.pulls.listReviewComments({
-        owner,
-        repo,
-        pull_number: prNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
-  return rows.map((c) => ({
-    id: c.id,
-    inReplyToId: c.in_reply_to_id ?? null,
-    authorLogin: c.user?.login ?? "unknown",
-    body: c.body ?? "",
-  }));
-}
-
-async function listIssueComments(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
-  expiresAtTs?: number,
-): Promise<ThreadComment[]> {
-  const octokit = installationOctokit(token, expiresAtTs);
-  const rows = await paginateOctokitPages({
-    perPage: COMMENTS_PAGE_SIZE,
-    maxPages: COMMENT_PAGINATION_MAX_PAGES,
-    fetchPage: async (page, perPage) => {
-      const { data } = await octokit.rest.issues.listComments({
-        owner,
-        repo,
-        issue_number: prNumber,
-        per_page: perPage,
-        page,
-      });
-      return data;
-    },
-  });
-  return rows.map((c) => ({
-    id: c.id,
-    // Octokit typings may omit reply threading; read when present.
-    inReplyToId:
-      "in_reply_to_id" in c && typeof c.in_reply_to_id === "number" ? c.in_reply_to_id : null,
-    authorLogin: c.user?.login ?? "unknown",
-    body: c.body ?? "",
-  }));
-}
-
 /**
  * Load the containing comment thread for an ask. Soft-degrades to empty on failure.
  */
 export async function loadAskThreadTranscript(params: {
-  readonly token: string;
-  readonly tokenExpiresAtTs?: number;
-  readonly owner: string;
-  readonly repo: string;
+  readonly prSurface: PrSurface;
   readonly replyTarget: ReplyTarget;
   readonly commentId: number;
 }): Promise<AskThreadTranscript> {
-  const { token, tokenExpiresAtTs, owner, repo, replyTarget, commentId } = params;
+  const { prSurface, replyTarget, commentId } = params;
   try {
     if (replyTarget.kind === "inlineReviewThread") {
-      const all = await listInlineReviewComments(
-        token,
-        owner,
-        repo,
-        replyTarget.prNumber,
-        tokenExpiresAtTs,
-      );
+      const all = await prSurface.listInlineReviewComments();
       const thread = commentsInThread(all, replyTarget.inReplyToCommentId);
       return formatThreadTranscript(thread);
     }
 
-    const all = await listIssueComments(token, owner, repo, replyTarget.prNumber, tokenExpiresAtTs);
+    const all = await prSurface.listConversationComments();
     const byId = new Map(all.map((c) => [c.id, c]));
     const anchor = byId.get(commentId);
     if (!anchor) {
@@ -192,8 +116,8 @@ export async function loadAskThreadTranscript(params: {
     return formatThreadTranscript(thread.length > 0 ? thread : [anchor]);
   } catch (error) {
     logWarn("ask_thread_transcript_load_failed", {
-      owner,
-      repo,
+      owner: prSurface.owner,
+      repo: prSurface.repo,
       pr: replyTarget.prNumber,
       commentId,
       replyTargetKind: replyTarget.kind,

@@ -1,8 +1,7 @@
 import type { Config } from "../../config.js";
 import type { Pool } from "pg";
-import { findIssueCommentBySentinel, updateIssueComment } from "../../github/reviewPublish.js";
 import { logDebug, logWarn } from "../../evlog.js";
-import { buildCiSummary } from "../../review/ci/analyzeCi.js";
+import { buildCiSummaryForSurface } from "../../review/ci/analyzeCi.js";
 import { createAgentCiSummaryAuthor } from "../../review/ci/authorCiSummary.js";
 import {
   commentBodyHasCiSummaryCell,
@@ -12,6 +11,7 @@ import {
 import { parseReviewMetaFromCommentBody } from "../../review/ci/reviewMetaParse.js";
 import { REVIEW_CI_SUMMARY_MAX_FAILURES, REVIEW_SUMMARY_SENTINEL } from "../../settings/index.js";
 import { LEGACY_REVIEW_SUMMARY_SENTINELS } from "../../settings/legacyReviewLenses.js";
+import { createPrSurface } from "../../github/prSurface.js";
 import { mintInstallationToken } from "../durableJob.js";
 import { hasActiveReviewWorkItem } from "../repository.js";
 import type { CiRefreshJobData } from "../types.js";
@@ -37,14 +37,18 @@ export async function executeCiRefreshJob(
     });
     return;
   }
-  const author = createAgentCiSummaryAuthor(cfg);
-
-  const ciSummary = await buildCiSummary({
-    token: installation.token,
+  const prSurface = createPrSurface({
+    cfg,
+    installationId: data.installationId,
     owner: data.owner,
     repo: data.repo,
+    prNumber: data.prNumber,
+    installation,
+  });
+  const author = createAgentCiSummaryAuthor(cfg);
+
+  const ciSummary = await buildCiSummaryForSurface(prSurface, {
     headSha: data.headSha,
-    expiresAtTs: installation.expiresAtTs,
     waitMs: 0,
     maxFailures: REVIEW_CI_SUMMARY_MAX_FAILURES,
     author,
@@ -62,31 +66,17 @@ export async function executeCiRefreshJob(
 
   for (const sentinel of SUMMARY_SENTINELS) {
     try {
-      const comment = await findIssueCommentBySentinel(
-        installation.token,
-        data.owner,
-        data.repo,
-        data.prNumber,
-        sentinel,
-        installation.expiresAtTs,
-      );
+      const comment = await prSurface.findProgressComment(sentinel);
       if (comment == null) continue;
 
-      const meta = parseReviewMetaFromCommentBody(comment.body);
+      const meta = parseReviewMetaFromCommentBody(comment.body ?? "");
       if (meta == null || meta.headSha !== data.headSha) continue;
-      if (!commentBodyHasCiSummaryCell(comment.body)) continue;
+      if (!commentBodyHasCiSummaryCell(comment.body ?? "")) continue;
 
-      const patched = patchCiSummaryCellInCommentBody(comment.body, ciSummary);
+      const patched = patchCiSummaryCellInCommentBody(comment.body ?? "", ciSummary);
       if (patched == null || patched === comment.body) continue;
 
-      await updateIssueComment(
-        installation.token,
-        data.owner,
-        data.repo,
-        comment.id,
-        patched,
-        installation.expiresAtTs,
-      );
+      await prSurface.editComment(comment.id, patched);
       logDebug("ci_refresh_patched", {
         owner: data.owner,
         repo: data.repo,

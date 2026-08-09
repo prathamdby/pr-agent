@@ -1,12 +1,10 @@
-import {
-  isMissingChecksPermissionError,
-  listCheckRunsForHead,
-  listLegacyCommitStatusesForHead,
-} from "../../github/ciStatus.js";
+import { isMissingChecksPermissionError } from "../../github/ciStatus.js";
 import { logDebug, logWarn } from "../../evlog.js";
 import {
   REVIEW_CI_SUMMARY_GRANT_ACTIONS,
   REVIEW_CI_SUMMARY_GRANT_CHECKS,
+  REVIEW_CI_SUMMARY_LOG_MAX_JOBS,
+  REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS,
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_UNAVAILABLE,
   REVIEW_CI_SUMMARY_WAIT_POLL_MS,
@@ -23,7 +21,13 @@ import type {
   CiLegacyStatus,
   CiSummary,
 } from "./ciSummaryTypes.js";
-import { fetchCiLogContext } from "./fetchCiLogContext.js";
+import type { PrSurface } from "../../github/prSurface.js";
+import { redactReviewText } from "../findings/reviewPublicOutput.js";
+import {
+  condenseJobLogText,
+  mergeCondensedJobLogs,
+  type CondensedJobLog,
+} from "./condenseCiLogs.js";
 
 const OWN_CHECK_NAME_PREFIX = "PR Agent";
 const OWN_COMMIT_STATUS_CONTEXT = "pr-agent/review";
@@ -41,12 +45,9 @@ const PENDING_CHECK_STATUSES = new Set([
 const FAILING_LEGACY_STATES = new Set(["failure", "error"]);
 const PENDING_LEGACY_STATES = new Set(["pending"]);
 
-export type BuildCiSummaryOptions = {
-  readonly token: string;
-  readonly owner: string;
-  readonly repo: string;
+type BuildCiSummaryOptions = {
+  readonly prSurface: PrSurface;
   readonly headSha: string;
-  readonly expiresAtTs?: number;
   /** Max failing checks to dig into with logs. */
   readonly maxFailures?: number;
   /** When true, skip log fetch and LLM (progress stub path). */
@@ -59,6 +60,95 @@ export type BuildCiSummaryOptions = {
    */
   readonly author?: CiSummaryAuthor;
 };
+
+type FetchCiLogContextResult = {
+  readonly condensedLogs: string;
+  readonly checkOutputFallback: string;
+  readonly actionsPermissionMissing: boolean;
+};
+
+async function fetchCiLogContext(options: {
+  readonly prSurface: PrSurface;
+  readonly headSha: string;
+  readonly failingChecks: readonly CiCheckRunSnapshot[];
+  readonly maxFailures?: number;
+}): Promise<FetchCiLogContextResult> {
+  const maxFailures = options.maxFailures ?? REVIEW_CI_SUMMARY_MAX_FAILURES;
+  const failing = options.failingChecks.slice(0, maxFailures);
+
+  const outputParts: string[] = [];
+  for (const run of failing) {
+    const chunks = [run.outputTitle, run.outputSummary, run.outputText]
+      .filter((part): part is string => part != null && part.trim().length > 0)
+      .map((part) => part.trim());
+    if (chunks.length > 0) {
+      outputParts.push(`### Check: ${run.name}\n${chunks.join("\n")}`);
+    }
+    try {
+      const annotations = await options.prSurface.listCheckRunAnnotations(run.id);
+      const failureAnnotations = annotations.filter((a) => a.annotationLevel === "failure");
+      for (const annotation of failureAnnotations.slice(0, 5)) {
+        const loc =
+          annotation.startLine != null
+            ? `${annotation.path}:${annotation.startLine}`
+            : annotation.path;
+        outputParts.push(`${loc} — ${annotation.message}`);
+      }
+    } catch {
+      // annotations are best-effort fallback
+    }
+  }
+  const checkOutputFallback = redactReviewText(outputParts.join("\n\n"));
+
+  let jobs: CondensedJobLog[] = [];
+  let actionsPermissionMissing = false;
+  try {
+    const listed = await options.prSurface.listFailingActionsJobs(options.headSha);
+    if (!listed.ok) {
+      actionsPermissionMissing = true;
+      logDebug("review_ci_summary_actions_unavailable", {
+        owner: options.prSurface.owner,
+        repo: options.prSurface.repo,
+        reason: "actions_permission",
+      });
+    } else {
+      const selected = listed.jobs.slice(0, REVIEW_CI_SUMMARY_LOG_MAX_JOBS);
+      for (const job of selected) {
+        const downloaded = await options.prSurface.downloadActionsJobLogs(job.id);
+        if (!downloaded.ok) {
+          if (downloaded.reason === "actions_permission") {
+            actionsPermissionMissing = true;
+            logDebug("review_ci_summary_actions_unavailable", {
+              owner: options.prSurface.owner,
+              repo: options.prSurface.repo,
+              reason: "actions_permission",
+              jobId: job.id,
+            });
+            break;
+          }
+          continue;
+        }
+        jobs.push({
+          name: job.name,
+          url: job.htmlUrl ?? undefined,
+          text: condenseJobLogText(downloaded.text, REVIEW_CI_SUMMARY_LOG_PER_JOB_MAX_CHARS),
+        });
+      }
+    }
+  } catch (error) {
+    logDebug("review_ci_summary_actions_logs_failed", {
+      owner: options.prSurface.owner,
+      repo: options.prSurface.repo,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    jobs = [];
+  }
+
+  const condensedLogs =
+    jobs.length > 0 ? mergeCondensedJobLogs(jobs) : condenseJobLogText(checkOutputFallback);
+
+  return { condensedLogs, checkOutputFallback, actionsPermissionMissing };
+}
 
 type ExternalCiLoad =
   | {
@@ -84,40 +174,25 @@ function isLegacyFailing(status: CiLegacyStatus): boolean {
 
 async function loadExternalCi(options: BuildCiSummaryOptions): Promise<ExternalCiLoad> {
   try {
-    const [checks, statuses] = await Promise.all([
-      listCheckRunsForHead(
-        options.token,
-        options.owner,
-        options.repo,
-        options.headSha,
-        options.expiresAtTs,
-      ),
-      listLegacyCommitStatusesForHead(
-        options.token,
-        options.owner,
-        options.repo,
-        options.headSha,
-        options.expiresAtTs,
-      ),
-    ]);
+    const { checkRuns, legacyStatuses } = await options.prSurface.getCiStatus(options.headSha);
     return {
       ok: true,
-      checks: checks.filter((run) => !isOwnCiCheckName(run.name)),
-      statuses: statuses.filter((status) => status.context !== OWN_COMMIT_STATUS_CONTEXT),
+      checks: checkRuns.filter((run) => !isOwnCiCheckName(run.name)),
+      statuses: legacyStatuses.filter((status) => status.context !== OWN_COMMIT_STATUS_CONTEXT),
     };
   } catch (error) {
     if (isMissingChecksPermissionError(error)) {
       logDebug("review_ci_summary_unavailable", {
-        owner: options.owner,
-        repo: options.repo,
+        owner: options.prSurface.owner,
+        repo: options.prSurface.repo,
         prHead: options.headSha,
         reason: "checks_permission",
       });
       return { ok: false, reason: "checks_permission" };
     }
     logWarn("review_ci_summary_fetch_failed", {
-      owner: options.owner,
-      repo: options.repo,
+      owner: options.prSurface.owner,
+      repo: options.prSurface.repo,
       message: error instanceof Error ? error.message : String(error),
     });
     return { ok: false, reason: "fetch_error" };
@@ -257,7 +332,14 @@ function buildAuthorInput(
   };
 }
 
-export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
+export async function buildCiSummaryForSurface(
+  prSurface: PrSurface,
+  options: Omit<BuildCiSummaryOptions, "prSurface">,
+): Promise<CiSummary> {
+  return buildCiSummary({ ...options, prSurface });
+}
+
+async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {
   try {
     const loaded = await waitForTerminalCi(options);
     if (!loaded.ok) {
@@ -280,11 +362,8 @@ export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<Ci
     const failingChecks = snapshot.checks.filter(isCheckFailing).slice(0, maxFailures);
     const { condensedLogs, checkOutputFallback, actionsPermissionMissing } =
       await fetchCiLogContext({
-        token: options.token,
-        owner: options.owner,
-        repo: options.repo,
+        prSurface: options.prSurface,
         headSha: options.headSha,
-        expiresAtTs: options.expiresAtTs,
         failingChecks,
         maxFailures,
       });
@@ -303,8 +382,8 @@ export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<Ci
     return withPermissionNote(mergeCiSummaryWithFacts(authorInput, llm), actionsNote);
   } catch (error) {
     logWarn("review_ci_summary_build_failed", {
-      owner: options.owner,
-      repo: options.repo,
+      owner: options.prSurface.owner,
+      repo: options.prSurface.repo,
       message: error instanceof Error ? error.message : String(error),
     });
     return unavailableSummary();

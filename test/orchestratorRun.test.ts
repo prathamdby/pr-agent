@@ -13,6 +13,7 @@ import { createFindingLedger } from "../src/review/orchestrator/orchestratorType
 import type { Pool } from "pg";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 import { ORCHESTRATOR_JUDGMENT_MAX_TOOL_ROUNDS } from "../src/settings/index.js";
 import * as evlog from "../src/evlog.js";
 import { snapshotReviewRunMetrics } from "../src/review/run/reviewRunMetrics.js";
@@ -88,12 +89,7 @@ vi.mock("../src/review/run/reviewRunSetup.js", () => ({
       covers: () => true,
       snapshot: () => [],
     },
-    getToken: () => "token",
-    getTokenExpiresAtTs: () => Date.now() + 60_000,
-    refreshBeforeTool: vi.fn(async () => undefined),
-    refreshLiveAuth: vi.fn(async () => {
-      testState.refreshes += 1;
-    }),
+    prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
   })),
 }));
 
@@ -199,9 +195,7 @@ vi.mock("../src/review/orchestrator/stubTick.js", () => ({
         recon?: string;
         specialists?: Record<string, { phase: string }>;
       };
-      refreshLiveAuth?: () => Promise<void>;
     }) => {
-      await params.refreshLiveAuth?.();
       testState.ticks.push({
         progressRevision: params.progressRevision,
         kind: params.tickState.kind,
@@ -311,9 +305,7 @@ function params(): OrchestratedReviewRunParams {
   const now = Date.now();
   return {
     cfg: makeTestConfig(),
-    token: "token",
-    tokenExpiresAtTs: now + 60_000,
-    tokenTtlMs: 60_000,
+    prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
     owner: "o",
     repo: "r",
     prNumber: 1,
@@ -853,19 +845,6 @@ describe("runOrchestratedPrReview", () => {
     expect(testState.lastSessionToolNames.at(-3)).toBe("submit_specialist_brief");
     expect(testState.lastSessionToolNames.at(-2)).toBe("publish_thread");
     expect(testState.lastSessionToolNames.at(-1)).toBe("publish_summary");
-  });
-
-  it("refreshes live authentication before every model-driven publish and tick", async () => {
-    const recordPublishStep = coordinatedRecordPublishStep();
-    const run = runOrchestratedPrReview({ ...params(), recordPublishStep });
-    for (const specialist of ["correctness", "security", "quality", "tests"] as const) {
-      testState.outcomes.get(specialist)?.resolve(report(specialist));
-      await vi.waitFor(() => expect(testState.publishOrder).toContain(specialist));
-    }
-    await run;
-
-    // +1 refresh for the worker-start progress tick before recon.
-    expect(testState.refreshes).toBe(11);
   });
 
   it("resolves the current progress comment after orchestration starts", async () => {

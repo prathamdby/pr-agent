@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 import * as evlog from "../src/evlog.js";
 import { AppError } from "../src/errors/appError.js";
 import {
@@ -103,7 +104,7 @@ describe("submitReview tool", () => {
     };
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state: createSubmitReviewState({ inlineReviewIds: [41] }),
       workItemId: "wi-1",
@@ -124,7 +125,7 @@ describe("submitReview tool", () => {
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
@@ -142,7 +143,7 @@ describe("submitReview tool", () => {
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
@@ -162,7 +163,7 @@ describe("submitReview tool", () => {
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
@@ -184,7 +185,7 @@ describe("submitReview tool", () => {
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
@@ -203,7 +204,7 @@ describe("submitReview tool", () => {
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       shouldAbortPublish: async () => {
@@ -222,7 +223,7 @@ describe("submitReview tool", () => {
     const state = createSubmitReviewState();
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       canEnforceDiffCacheBeforeSubmit: () => false,
@@ -242,7 +243,7 @@ describe("submitReview tool", () => {
     });
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
     });
@@ -260,7 +261,7 @@ describe("submitReview tool", () => {
     (mode) => {
       const { piTool } = buildSubmitReviewTool({
         cfg,
-        token: "tok",
+        prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
         ctx: {
           owner: "o",
           repo: "r",
@@ -287,7 +288,7 @@ describe("submitReview tool", () => {
       const state = createSubmitReviewState();
       const { executor } = buildSubmitReviewTool({
         cfg,
-        token: "tok",
+        prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
         ctx: {
           owner: "o",
           repo: "r",
@@ -309,7 +310,7 @@ describe("submitReview tool", () => {
     const index = createCachedPrDiffIndex();
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       cachedDiffIndex: index,
@@ -328,7 +329,7 @@ describe("submitReview tool", () => {
     });
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       cachedDiffIndex: index,
@@ -347,7 +348,7 @@ describe("submitReview tool", () => {
     ingestListPullRequestFilesResult(index, { files: [] });
     const { executor } = buildSubmitReviewTool({
       cfg,
-      token: "tok",
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
       state,
       cachedDiffIndex: index,
@@ -390,7 +391,7 @@ describe("submitReview tool", () => {
       const state = createSubmitReviewState();
       const { executor } = buildSubmitReviewTool({
         cfg,
-        token: "tok",
+        prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
         ctx: {
           owner: "o",
           repo: "r",

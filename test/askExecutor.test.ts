@@ -5,9 +5,15 @@ import type { DurableJobSpec } from "../src/agentWork/durableJob.js";
 import type { AskJobData } from "../src/agentWork/types.js";
 import { askReplyOperationKey } from "../src/agentWork/withOperationIntent.js";
 import { makeTestConfig } from "./helpers/config.js";
+import {
+  durablePrSurfaceControls,
+  fakeDurablePrSurface,
+  resetDurablePrSurface,
+} from "./helpers/executorDurableHarness.js";
 import { makeAskWorkItem } from "./helpers/agentWorkItems.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
+import * as prSurfaceModule from "../src/github/prSurface.js";
 
 const mocks = vi.hoisted(() => ({
   hasCompletedPublishStep: vi.fn(),
@@ -15,11 +21,8 @@ const mocks = vi.hoisted(() => ({
   runAskRun: vi.fn(),
   runDurableWorkItem: vi.fn(),
   withPrRepositoryView: vi.fn(),
-  postSlashReply: vi.fn(),
-  createComment: vi.fn(),
   getAppBotIdentity: vi.fn(),
   findExistingAskReplyComment: vi.fn(),
-  paginate: vi.fn(),
 }));
 
 vi.mock("../src/agentWork/repository.js", () => ({
@@ -41,32 +44,20 @@ vi.mock("../src/agent/ask/askRun.js", () => ({
   runAskRun: mocks.runAskRun,
 }));
 
-vi.mock("../src/agentWork/durableJob.js", () => ({
-  makeInstallationTokenRefresher: vi.fn(() => async () => ({
-    token: "tok",
-    expiresAtTs: 1_000_000,
-    ttlMs: 60_000,
-  })),
-  runDurableWorkItem: mocks.runDurableWorkItem,
-}));
+vi.mock("../src/agentWork/durableJob.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/agentWork/durableJob.js")>();
+  return {
+    ...actual,
+    runDurableWorkItem: mocks.runDurableWorkItem,
+  };
+});
 
 vi.mock("../src/prWorkspace/index.js", () => ({
   withPrRepositoryView: mocks.withPrRepositoryView,
 }));
 
-vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
-  postSlashReply: mocks.postSlashReply,
-}));
-
 vi.mock("../src/github/appAuth.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
-  installationOctokit: vi.fn(() => ({
-    paginate: mocks.paginate,
-    rest: {
-      issues: { createComment: mocks.createComment, listComments: vi.fn() },
-    },
-  })),
 }));
 
 vi.mock("../src/agent/ask/recoverAskReply.js", async (importOriginal) => {
@@ -133,11 +124,7 @@ function askJob(): JobWithMetadata<AskJobData> {
 function mockDurableExecution(): void {
   mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
     await spec.execute(askItem(), {
-      installation: {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      },
+      prSurface: fakeDurablePrSurface(),
       headSha: "head",
       executionEpoch: 1,
       signal: new AbortController().signal,
@@ -157,11 +144,11 @@ function mockRepositoryView(): void {
 describe("executeAskJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDurablePrSurface();
+    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
     mocks.hasCompletedPublishStep.mockResolvedValue(false);
     mocks.recordAskPublishStep.mockResolvedValue(undefined);
     mocks.runAskRun.mockResolvedValue({ answer: "answer" });
-    mocks.postSlashReply.mockResolvedValue({ commentId: 9001 });
-    mocks.createComment.mockResolvedValue({ data: { id: 9002 } });
     mocks.getAppBotIdentity.mockResolvedValue({ userId: 1, login: "pr-agent[bot]" });
     mocks.findExistingAskReplyComment.mockResolvedValue(null);
     mockDurableExecution();
@@ -172,26 +159,24 @@ describe("executeAskJob", () => {
     await executeAskJob(cfg, pool, boss, askJob());
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
-    expect(mocks.postSlashReply).toHaveBeenCalledWith(
-      "tok",
-      "o",
-      "r",
-      { kind: "prConversation", prNumber: 1 },
-      "answer",
-      1_000_000,
-    );
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.body).toBe("answer");
     expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
       step: "ask_reply",
-      detail: { replyTargetKind: "prConversation", commentId: 9001 },
+      detail: {
+        replyTargetKind: "prConversation",
+        commentId: expect.any(Number),
+      },
       executionEpoch: 1,
     });
     const intent = memoryOperationIntentStore.get("wi-1", askReplyOperationKey("o/r#1"));
     expect(intent?.status).toBe("reconciled");
-    expect(intent?.detail.__result).toEqual({ commentId: 9001 });
+    expect(intent?.detail.__result).toEqual({
+      commentId: expect.any(Number),
+    });
   });
 
   it("skips agent and answer publish when the ask reply was already recorded", async () => {
@@ -201,7 +186,7 @@ describe("executeAskJob", () => {
 
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runAskRun).not.toHaveBeenCalled();
-    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
   });
 
@@ -210,11 +195,7 @@ describe("executeAskJob", () => {
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       result = await spec.execute(askItem(), {
-        installation: {
-          token: "tok",
-          expiresAtTs: 1_000_000,
-          ttlMs: 60_000,
-        },
+        prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -225,7 +206,7 @@ describe("executeAskJob", () => {
 
     expect(result).toEqual({ degraded: true });
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
   });
 
@@ -233,42 +214,33 @@ describe("executeAskJob", () => {
     mocks.recordAskPublishStep.mockRejectedValue(new Error("record failed"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
+      const prSurface = fakeDurablePrSurface();
       await spec.execute(item, {
-        installation,
+        prSurface,
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
       });
-      await spec.onTerminalFailure?.(item, installation, new Error("complete failed"));
+      await spec.onTerminalFailure?.(item, prSurface, new Error("complete failed"));
     });
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
-    expect(mocks.postSlashReply.mock.calls[0]?.[4]).toBe("answer");
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.body).toBe("answer");
   });
 
   it("skips terminal failure reply when durable ask_reply is already published", async () => {
     mocks.hasCompletedPublishStep.mockResolvedValue(true);
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
-      // New process: answerDelivered starts false; durable state must suppress the notice.
-      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+      const prSurface = fakeDurablePrSurface();
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
     });
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
 
   it("falls back to a PR comment when inline thread reply fails", async () => {
@@ -284,14 +256,10 @@ describe("executeAskJob", () => {
         commentId: 99,
       },
     });
-    mocks.postSlashReply.mockRejectedValueOnce(new Error("thread unavailable"));
+    durablePrSurfaceControls().rejectNextInlineReviewReply(new Error("thread unavailable"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       await spec.execute(item, {
-        installation: {
-          token: "tok",
-          expiresAtTs: 1_000_000,
-          ttlMs: 60_000,
-        },
+        prSurface: fakeDurablePrSurface(),
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -300,18 +268,19 @@ describe("executeAskJob", () => {
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
-    expect(mocks.createComment).toHaveBeenCalledWith({
-      owner: "o",
-      repo: "r",
-      issue_number: 1,
-      body: expect.stringContaining("Could not reply in the review thread"),
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.target).toEqual({
+      kind: "prConversation",
+      prNumber: 1,
     });
-    expect(mocks.createComment.mock.calls[0]?.[0].body).toContain("answer");
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain(
+      "Could not reply in the review thread",
+    );
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain("answer");
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        detail: expect.objectContaining({ commentId: 9002 }),
+        detail: expect.objectContaining({ commentId: expect.any(Number) }),
       }),
     );
   });
@@ -320,43 +289,35 @@ describe("executeAskJob", () => {
     mocks.runAskRun.mockRejectedValue(new Error("agent failed"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
+      const prSurface = fakeDurablePrSurface();
       await expect(
         spec.execute(item, {
-          installation,
+          prSurface,
           headSha: "head",
           executionEpoch: 1,
           signal: new AbortController().signal,
         }),
       ).rejects.toThrow("agent failed");
-      await spec.onTerminalFailure?.(item, installation, new Error("dead"));
+      await spec.onTerminalFailure?.(item, prSurface, new Error("dead"));
     });
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
-    expect(mocks.postSlashReply.mock.calls[0]?.[4]).toContain(
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain(
       "could not complete this ask after retries",
     );
-    expect(mocks.postSlashReply.mock.calls[0]?.[4]).toContain("**Question:** what changed?");
+    expect(durablePrSurfaceControls().replies[0]?.body).toContain("**Question:** what changed?");
   });
 
   it("does not post terminal failure reply on non-terminal retry", async () => {
     mocks.runAskRun.mockRejectedValue(new Error("transient"));
     mocks.runDurableWorkItem.mockImplementation(async (spec: DurableJobSpec<"ask">) => {
       const item = askItem();
-      const installation = {
-        token: "tok",
-        expiresAtTs: 1_000_000,
-        ttlMs: 60_000,
-      };
+      const prSurface = fakeDurablePrSurface();
       await expect(
         spec.execute(item, {
-          installation,
+          prSurface,
           headSha: "head",
           executionEpoch: 1,
           signal: new AbortController().signal,
@@ -366,7 +327,7 @@ describe("executeAskJob", () => {
 
     await executeAskJob(cfg, pool, boss, askJob());
 
-    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
   });
 
   it("does not remutate or rerun the model after post-mutate / pre-reconcile crash", async () => {
@@ -377,21 +338,22 @@ describe("executeAskJob", () => {
     );
 
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
     const operationKey = askReplyOperationKey("o/r#1");
     const pending = memoryOperationIntentStore.get("wi-1", operationKey);
     expect(pending?.status).toBe("pending");
-    expect(pending?.detail.__result).toEqual({ commentId: 9001 });
+    expect(pending?.detail.__result).toEqual({ commentId: expect.any(Number) });
     expect(mocks.recordAskPublishStep).not.toHaveBeenCalled();
 
     mocks.runAskRun.mockClear();
-    mocks.postSlashReply.mockClear();
     mocks.findExistingAskReplyComment.mockClear();
+    resetDurablePrSurface();
+    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(() => fakeDurablePrSurface());
 
     await executeAskJob(cfg, pool, boss, askJob());
 
     expect(mocks.runAskRun).not.toHaveBeenCalled();
-    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
     expect(mocks.recordAskPublishStep).toHaveBeenCalledTimes(1);
     expect(memoryOperationIntentStore.get("wi-1", operationKey)?.status).toBe("reconciled");
@@ -409,7 +371,7 @@ describe("executeAskJob", () => {
     await executeAskJob(cfg, pool, boss, askJob());
 
     expect(mocks.runAskRun).not.toHaveBeenCalled();
-    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.findExistingAskReplyComment).toHaveBeenCalledTimes(1);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(pool, {
       workItemId: "wi-1",
@@ -441,7 +403,7 @@ describe("executeAskJob", () => {
     await executeAskJob(cfg, pool, boss, askJob());
 
     expect(mocks.runAskRun).not.toHaveBeenCalled();
-    expect(mocks.postSlashReply).not.toHaveBeenCalled();
+    expect(durablePrSurfaceControls().replies).toHaveLength(0);
     expect(mocks.recordAskPublishStep).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
@@ -475,6 +437,6 @@ describe("executeAskJob", () => {
 
     expect(mocks.findExistingAskReplyComment).not.toHaveBeenCalled();
     expect(mocks.runAskRun).toHaveBeenCalledTimes(1);
-    expect(mocks.postSlashReply).toHaveBeenCalledTimes(1);
+    expect(durablePrSurfaceControls().replies).toHaveLength(1);
   });
 });

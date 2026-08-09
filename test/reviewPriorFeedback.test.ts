@@ -1,10 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import {
   classifyReviewLensFromPointerBody,
-  fetchPriorInlineReviewFeedback,
   formatPriorInlineFeedbackBlock,
   type PriorInlineFeedbackThread,
 } from "../src/review/run/reviewPriorFeedback.js";
+import { fetchPriorInlineReviewFeedback } from "../src/github/reviewPriorFeedbackIo.js";
 import { REVIEW_POINTER_BODY } from "../src/settings/index.js";
 import { LEGACY_REVIEW_POINTER_BODIES } from "../src/settings/legacyReviewLenses.js";
 

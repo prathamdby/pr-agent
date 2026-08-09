@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { logWarn } from "../../evlog.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type { ReviewCancelAttribution } from "../../settings/reviewConstants.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { CiSummary } from "../ci/ciSummaryTypes.js";
@@ -26,9 +27,7 @@ type TickProgressCommentBase = {
   readonly headSha: string;
   readonly source: WorkSource;
   readonly ciSummary?: CiSummary | null;
-  readonly getToken: () => string;
-  readonly getTokenExpiresAtTs: () => number | undefined;
-  readonly refreshLiveAuth?: () => Promise<void>;
+  readonly prSurface: PrSurface;
   readonly hintCommentId?: number | null;
 };
 
@@ -53,26 +52,18 @@ export type WriteCancelledProgressCommentArgs = {
   readonly prNumber: number;
   readonly mode: AnyReviewLens;
   readonly attribution: ReviewCancelAttribution;
-  readonly getToken: () => string;
-  readonly getTokenExpiresAtTs: () => number | undefined;
-  readonly refreshLiveAuth?: () => Promise<void>;
+  readonly prSurface: PrSurface;
   readonly hintCommentId?: number | null;
 };
 
 export async function tickProgressComment(args: TickProgressCommentArgs): Promise<void> {
   try {
-    await args.refreshLiveAuth?.();
-    const token = args.getToken();
-    const expiresAtTs = args.getTokenExpiresAtTs();
     await upsertSummaryCommentWithCreationClaim({
       pool: args.pool,
       workItemId: args.workItemId,
       resourceKey: args.resourceKey,
       reviewLens: args.mode,
-      token,
-      owner: args.owner,
-      repo: args.repo,
-      prNumber: args.prNumber,
+      prSurface: args.prSurface,
       body: renderReviewProgressComment({
         mode: args.mode,
         headSha: args.headSha,
@@ -83,7 +74,6 @@ export async function tickProgressComment(args: TickProgressCommentArgs): Promis
         progressWorkItemId: args.workItemId,
       }),
       sentinel: REVIEW_SUMMARY_SENTINEL,
-      expiresAtTs,
       hintCommentId: args.hintCommentId,
       progressRevision: args.progressRevision,
     });
@@ -104,25 +94,18 @@ export async function writeCancelledProgressComment(
   args: WriteCancelledProgressCommentArgs,
 ): Promise<void> {
   try {
-    await args.refreshLiveAuth?.();
-    const token = args.getToken();
-    const expiresAtTs = args.getTokenExpiresAtTs();
     await upsertSummaryCommentWithCreationClaim({
       pool: args.pool,
       workItemId: args.workItemId,
       resourceKey: args.resourceKey,
       reviewLens: args.mode,
-      token,
-      owner: args.owner,
-      repo: args.repo,
-      prNumber: args.prNumber,
+      prSurface: args.prSurface,
       body: renderReviewCancelledNotice({
         attribution: args.attribution,
         progressRevision: 7,
         progressWorkItemId: args.workItemId,
       }),
       sentinel: REVIEW_SUMMARY_SENTINEL,
-      expiresAtTs,
       hintCommentId: args.hintCommentId,
       progressRevision: 7,
     });

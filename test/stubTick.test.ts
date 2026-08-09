@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 
 vi.mock("../src/review/publish/publishReview.js", () => ({
   upsertSummaryCommentWithCreationClaim: vi.fn(async () => ({
@@ -18,7 +19,9 @@ import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/pub
 
 const pool = {} as Pool;
 
-function specialistTickArgs() {
+function specialistTickArgs(
+  prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+) {
   return {
     pool,
     workItemId: "wi-1",
@@ -30,6 +33,7 @@ function specialistTickArgs() {
     headSha: "a".repeat(40),
     source: "auto" as const,
     progressRevision: 2 as const,
+    prSurface,
     tickState: {
       kind: "specialists" as const,
       recon: "done" as const,
@@ -48,28 +52,18 @@ describe("tickProgressComment", () => {
     vi.clearAllMocks();
   });
 
-  it("writes the rendered tick with live authentication", async () => {
-    const getToken = vi.fn(() => "fresh-token");
-    const getTokenExpiresAtTs = vi.fn(() => 123_456);
+  it("writes the rendered tick through PrSurface", async () => {
+    const prSurface = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
 
-    await expect(
-      tickProgressComment({
-        ...specialistTickArgs(),
-        getToken,
-        getTokenExpiresAtTs,
-      }),
-    ).resolves.toBeUndefined();
+    await expect(tickProgressComment(specialistTickArgs(prSurface))).resolves.toBeUndefined();
 
-    expect(getToken).toHaveBeenCalledOnce();
-    expect(getTokenExpiresAtTs).toHaveBeenCalledOnce();
     expect(upsertSummaryCommentWithCreationClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         pool,
         workItemId: "wi-1",
         resourceKey: "o/r#1",
         reviewLens: "review",
-        token: "fresh-token",
-        expiresAtTs: 123_456,
+        prSurface,
         progressRevision: 2,
         body: expect.stringContaining("✅ No findings"),
       }),
@@ -81,13 +75,7 @@ describe("tickProgressComment", () => {
       new Error("GitHub unavailable"),
     );
 
-    await expect(
-      tickProgressComment({
-        ...specialistTickArgs(),
-        getToken: () => "fresh-token",
-        getTokenExpiresAtTs: () => 123_456,
-      }),
-    ).resolves.toBeUndefined();
+    await expect(tickProgressComment(specialistTickArgs())).resolves.toBeUndefined();
 
     expect(logWarn).toHaveBeenCalledWith(
       "review_progress_tick_failed",
