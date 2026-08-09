@@ -10,19 +10,15 @@ import {
 } from "./helpers/reviewPublishTestHelpers.js";
 import { fingerprintFinding } from "../src/review/findings/reviewFindingFingerprint.js";
 import {
+  createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
+  type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
 
 type RecordPublishStep = NonNullable<
   Parameters<typeof publishReviewForTest>[0]["recordPublishStep"]
 >;
-
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
-  const { createReviewPublishGithubMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewPublishGithubMock(actual);
-});
 
 vi.mock("../src/agentWork/repository.js", async () => {
   const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
@@ -34,18 +30,14 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   return createReviewCheckRunMock();
 });
 
-import {
-  createPullRequestReviewWithComments,
-  listPullRequestReviewComments,
-  resolveVerifiedSummaryCommentRef,
-  upsertReviewSummaryComment,
-} from "../src/github/reviewPublish.js";
-
 const payload = publishReviewTestPayload;
-const baseParams = publishReviewTestBaseParams;
+let harness: PublishReviewTestHarness;
+let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 
 describe("publishReview core", () => {
   beforeEach(() => {
+    harness = createPublishReviewTestHarness();
+    baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
   });
 
@@ -58,11 +50,7 @@ describe("publishReview core", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.publishThreadBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "COMMENT",
         body: expect.stringContaining(
@@ -77,14 +65,13 @@ describe("publishReview core", () => {
           }),
         ],
       }),
-      undefined,
     );
-    const reviewBody = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4]?.body;
+    const reviewBody = harness.publishThreadBatch.mock.calls[0]?.[0]?.body;
     expect(reviewBody).toContain("Here's what the review found.");
     expect(reviewBody).not.toContain(REVIEW_POINTER_BODY);
-    expect(listPullRequestReviewComments).toHaveBeenCalledWith("t", "o", "r", 1, undefined);
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
-    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(harness.listPullRequestReviewComments).toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
+    const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r99");
     expect(summaryBody).not.toContain("/blob/sha/");
     expect(publishState.inlineReviewIds).toEqual([1]);
@@ -101,9 +88,9 @@ describe("publishReview core", () => {
       storedInlineFingerprints: [stored],
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
-    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
+    const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("Summary only");
     expect(summaryBody).toContain("Bug");
   });
@@ -117,9 +104,9 @@ describe("publishReview core", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
-    expect(vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4]).toContain("Summary only");
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
+    expect(harness.upsertProgressComment.mock.calls[0]?.[0]).toContain("Summary only");
     expect(publishState.threadCallCount).toBe(9);
   });
 
@@ -172,11 +159,7 @@ describe("publishReview core", () => {
       payload: { ...payload, findings },
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.publishThreadBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         event: "COMMENT",
         comments: expect.arrayContaining([
@@ -184,7 +167,6 @@ describe("publishReview core", () => {
           expect.objectContaining({ path: "b.ts" }),
         ]),
       }),
-      undefined,
     );
   });
 
@@ -205,16 +187,11 @@ describe("publishReview core", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
       expect.stringContaining(sentinel),
       sentinel,
       null,
-      undefined,
     );
     expect(publishState.inlineReviewIds).toEqual([]);
   });
@@ -241,8 +218,8 @@ describe("publishReview core", () => {
       },
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
   });
 
@@ -269,8 +246,8 @@ describe("publishReview core", () => {
       },
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(harness.publishThreadBatch).toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).not.toEqual([]);
   });
 
@@ -285,13 +262,8 @@ describe("publishReview core", () => {
       },
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.publishThreadBatch).toHaveBeenCalledWith(
       expect.objectContaining({ event: "COMMENT" }),
-      undefined,
     );
   });
 
@@ -321,11 +293,10 @@ describe("publishReview core", () => {
       ],
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(listPullRequestReviewComments).toHaveBeenCalledTimes(1);
-    expect(listPullRequestReviewComments).toHaveBeenCalledWith("t", "o", "r", 1, undefined);
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.listPullRequestReviewComments).toHaveBeenCalledTimes(1);
     expect(publishState.inlineReviewIds).toEqual([41, 42]);
-    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4] ?? "";
+    const summaryBody = harness.upsertProgressComment.mock.calls[0]?.[0] ?? "";
     expect(summaryBody.match(/Bug/g)).toHaveLength(1);
   });
 
@@ -339,36 +310,26 @@ describe("publishReview core", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.publishThreadBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(
           "Track this run on the [progress stub](https://github.com/o/r/pull/1#issuecomment-99)",
         ),
         event: "COMMENT",
       }),
-      undefined,
     );
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
       expect.stringContaining(REVIEW_SUMMARY_SENTINEL),
       REVIEW_SUMMARY_SENTINEL,
       null,
-      undefined,
     );
   });
 
   it("links specialist body to the progress stub when shouldLinkToSummary and comment verifies", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+    harness.resolveProgressComment.mockResolvedValueOnce({
       id: 99,
       url: "https://github.com/o/r/pull/1#issuecomment-99",
-      source: "hint",
+      body: `${REVIEW_SUMMARY_SENTINEL}\nprogress`,
     });
 
     await publishReviewForTest({
@@ -379,33 +340,23 @@ describe("publishReview core", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(resolveVerifiedSummaryCommentRef).toHaveBeenCalled();
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.resolveProgressComment).toHaveBeenCalled();
+    expect(harness.publishThreadBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.stringContaining(
           "Track this run on the [progress stub](https://github.com/o/r/pull/1#issuecomment-99)",
         ),
       }),
-      undefined,
     );
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
       expect.any(String),
       REVIEW_SUMMARY_SENTINEL,
       { id: 99, url: "https://github.com/o/r/pull/1#issuecomment-99" },
-      undefined,
     );
   });
 
   it("fails incremental review publish when progress comment URL is unavailable", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce(null);
+    harness.resolveProgressComment.mockResolvedValueOnce(null);
 
     await expect(
       publishReviewForTest({
@@ -416,14 +367,14 @@ describe("publishReview core", () => {
         cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
       }),
     ).rejects.toThrow(/progress comment/i);
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("does not create a zero-comment review when a repeated run has no findings", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+    harness.resolveProgressComment.mockResolvedValueOnce({
       id: 99,
       url: "https://github.com/o/r/pull/1#issuecomment-99",
-      source: "hint",
+      body: `${REVIEW_SUMMARY_SENTINEL}\nprogress`,
     });
     const publishState = testPublishState();
 
@@ -435,16 +386,16 @@ describe("publishReview core", () => {
       payload: { ...payload, findings: [] },
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
   });
 
   it("does not post repeat no-bugs review when shouldLinkToSummary but P3-only findings", async () => {
-    vi.mocked(resolveVerifiedSummaryCommentRef).mockResolvedValueOnce({
+    harness.resolveProgressComment.mockResolvedValueOnce({
       id: 99,
       url: "https://github.com/o/r/pull/1#issuecomment-99",
-      source: "hint",
+      body: `${REVIEW_SUMMARY_SENTINEL}\nprogress`,
     });
 
     await publishReviewForTest({
@@ -467,24 +418,19 @@ describe("publishReview core", () => {
       },
     });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalled();
   });
 
   it("publishes summary when inline anchors are invalid", async () => {
     const publishState = testPublishState();
     await publishReviewForTest({ ...baseParams, publishState });
 
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
-    expect(upsertReviewSummaryComment).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      1,
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).toHaveBeenCalledWith(
       expect.stringContaining("Summary only"),
       REVIEW_SUMMARY_SENTINEL,
       null,
-      undefined,
     );
     expect(publishState.inlineReviewIds).toEqual([]);
   });
@@ -500,15 +446,13 @@ describe("publishReview core", () => {
       shouldAbortPublish,
     });
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
-    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(harness.upsertProgressComment).not.toHaveBeenCalled();
     expect(publishState.publishSuperseded).toBe(true);
   });
 
   it("propagates arbitrary GitHub inline publish failures", async () => {
-    vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce(
-      new Error("GitHub unavailable"),
-    );
+    harness.publishThreadBatch.mockRejectedValueOnce(new Error("GitHub unavailable"));
     const publishState = testPublishState();
 
     await expect(
@@ -519,7 +463,7 @@ describe("publishReview core", () => {
       }),
     ).rejects.toThrow("GitHub unavailable");
 
-    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+    expect(harness.upsertProgressComment).not.toHaveBeenCalled();
     expect(publishState.inlineReviewIds).toEqual([]);
   });
 });

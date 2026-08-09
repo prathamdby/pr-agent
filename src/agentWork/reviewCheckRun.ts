@@ -2,12 +2,8 @@ import type { Pool } from "pg";
 import { logWarn } from "../evlog.js";
 import { isMissingActionsPermissionError } from "../github/actionsLogs.js";
 import { httpStatus } from "../github/httpStatus.js";
-import {
-  createReviewCheckRun,
-  findReviewCheckRunByName,
-  updateReviewCheckRun,
-  type ReviewCheckRunConclusion,
-} from "../github/reviewPublish.js";
+import type { PrSurface } from "../github/prSurface.js";
+import type { ReviewCheckRunConclusion } from "../github/reviewPublish.js";
 import { checkRunFindingsSummary } from "../github/statusCopy.js";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
@@ -79,8 +75,7 @@ export function reviewCheckDetailsUrl(
 }
 
 type EnsureReviewCheckRunParams = {
-  token: string;
-  tokenExpiresAtTs?: number;
+  prSurface: PrSurface;
   owner: string;
   repo: string;
   prNumber: number;
@@ -166,17 +161,10 @@ async function createGithubCheckRunOrRecoverDuplicate(
   name: string,
 ): Promise<GithubCheckRunRef | null> {
   try {
-    return await createReviewCheckRun(
-      params.token,
-      params.owner,
-      params.repo,
-      {
-        name,
-        headSha: params.headSha,
-        externalId: params.workItemId,
-        summary: "PR Agent review is in progress.",
-      },
-      params.tokenExpiresAtTs,
+    return await params.prSurface.startReviewCheck(
+      params.headSha,
+      params.workItemId,
+      "PR Agent review is in progress.",
     );
   } catch (e) {
     return recoverDuplicateCheckRunAfter422(pool, params, name, e);
@@ -190,33 +178,7 @@ async function recoverDuplicateCheckRunAfter422(
   name: string,
   createError: unknown,
 ): Promise<GithubCheckRunRef | null> {
-  let duplicate: GithubCheckRunRef | null = null;
-  if (httpStatus(createError) === 422) {
-    try {
-      duplicate = await findReviewCheckRunByName(
-        params.token,
-        params.owner,
-        params.repo,
-        params.headSha,
-        name,
-        params.tokenExpiresAtTs,
-      );
-    } catch (lookupError) {
-      await releaseUnstartedReviewCheckRunReservation(pool, {
-        workItemId: params.workItemId,
-        resourceKey: params.resourceKey,
-        reviewLens: params.reviewLens,
-      });
-      logCheckRunWarning("review_check_run_duplicate_lookup_failed", lookupError, {
-        owner: params.owner,
-        repo: params.repo,
-        pr: params.prNumber,
-        reviewLens: params.reviewLens,
-      });
-      return null;
-    }
-  }
-  if (duplicate == null) {
+  if (httpStatus(createError) !== 422) {
     await releaseUnstartedReviewCheckRunReservation(pool, {
       workItemId: params.workItemId,
       resourceKey: params.resourceKey,
@@ -230,7 +192,18 @@ async function recoverDuplicateCheckRunAfter422(
     });
     return null;
   }
-  return duplicate;
+  await releaseUnstartedReviewCheckRunReservation(pool, {
+    workItemId: params.workItemId,
+    resourceKey: params.resourceKey,
+    reviewLens: params.reviewLens,
+  });
+  logCheckRunWarning("review_check_run_duplicate_lookup_failed", createError, {
+    owner: params.owner,
+    repo: params.repo,
+    pr: params.prNumber,
+    reviewLens: params.reviewLens,
+  });
+  return null;
 }
 
 async function cancelOrphanedCheckRunAfterRecordFailure(
@@ -240,19 +213,12 @@ async function cancelOrphanedCheckRunAfterRecordFailure(
   recordError: unknown,
 ): Promise<void> {
   try {
-    await updateReviewCheckRun(
-      params.token,
-      params.owner,
-      params.repo,
-      check.id,
-      {
-        name,
-        conclusion: "cancelled",
-        completedAt: new Date().toISOString(),
-        summary: "PR Agent could not persist this check run.",
-      },
-      params.tokenExpiresAtTs,
-    );
+    await params.prSurface.finishReviewCheck({
+      checkRunId: check.id,
+      conclusion: "cancelled",
+      summary: "PR Agent could not persist this check run.",
+      name,
+    });
   } catch (cancelError) {
     logCheckRunWarning("review_check_run_orphan_cancel_failed", cancelError, {
       owner: params.owner,
@@ -324,8 +290,7 @@ export async function ensureReviewCheckRunStarted(
 export async function completeReviewCheckRun(
   pool: Pool,
   params: {
-    token: string;
-    tokenExpiresAtTs?: number;
+    prSurface: PrSurface;
     owner: string;
     repo: string;
     prNumber: number;
@@ -347,20 +312,13 @@ export async function completeReviewCheckRun(
   const completedAt = new Date().toISOString();
   const name = reviewCheckRunName();
   try {
-    await updateReviewCheckRun(
-      params.token,
-      params.owner,
-      params.repo,
+    await params.prSurface.finishReviewCheck({
       checkRunId,
-      {
-        name,
-        conclusion: params.conclusion,
-        completedAt,
-        summary: params.summary,
-        detailsUrl: params.detailsUrl,
-      },
-      params.tokenExpiresAtTs,
-    );
+      conclusion: params.conclusion,
+      summary: params.summary,
+      detailsUrl: params.detailsUrl,
+      name,
+    });
   } catch (e) {
     logCheckRunWarning("review_check_run_complete_failed", e, {
       owner: params.owner,

@@ -9,9 +9,11 @@ type WorkItemIdentity = {
 };
 
 type RepositoryViewEnv = {
-  readonly installation: InstallationToken;
   readonly headSha: string;
   readonly pullRequest?: PullRequestForFileList;
+  readonly installation?: InstallationToken;
+  readonly installationToken?: string;
+  readonly installationExpiresAtTs?: number;
 };
 
 type RepositoryViewPayload = {
@@ -24,13 +26,17 @@ export function buildRepositoryViewParams(
   payload: RepositoryViewPayload,
   extra?: Pick<PreparePrRepositoryViewParams, "prFiles">,
 ): PreparePrRepositoryViewParams {
+  const installationToken = env.installationToken ?? env.installation?.token;
+  if (installationToken == null) {
+    throw new Error("buildRepositoryViewParams requires installation or installationToken");
+  }
   return {
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,
     headSha: env.headSha,
-    installationToken: env.installation.token,
-    installationExpiresAtTs: env.installation.expiresAtTs,
+    installationToken,
+    installationExpiresAtTs: env.installationExpiresAtTs ?? env.installation?.expiresAtTs,
     pullRequest: env.pullRequest,
     repositorySizeKb: payload.repositorySizeKb,
     ...(extra?.prFiles !== undefined ? { prFiles: extra.prFiles } : {}),

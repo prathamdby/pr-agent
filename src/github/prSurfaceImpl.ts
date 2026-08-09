@@ -12,13 +12,18 @@ import { httpStatus } from "./httpStatus.js";
 import {
   createPullRequestReviewWithComments,
   createReviewCheckRun,
+  findIssueCommentBySentinel,
   findReviewCheckRunByName,
+  getIssueCommentIfSentinel,
   listPullRequestLabels,
+  listPullRequestReviewComments,
   setPullRequestLabels,
+  setReviewCommitStatus,
   updateIssueComment,
   updateReviewCheckRun,
   upsertReviewSummaryComment,
 } from "./reviewPublish.js";
+import { fetchPriorInlineReviewFeedback } from "../review/run/reviewPriorFeedback.js";
 import { withTransientReviewRetry } from "./reviewPublishRetry.js";
 import { listReviewThreadResolution, resolveReviewThread } from "./reviewThreadResolution.js";
 import type { ReplyTarget } from "../commands/replyTarget.js";
@@ -355,8 +360,41 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
       return postSlashReply(token, owner, repo, target, body, expiresAtTs);
     },
 
-    async upsertProgressComment(body, sentinel) {
+    async findProgressComment(sentinel) {
       const { token, expiresAtTs } = await ensureAuth();
+      const found = await findIssueCommentBySentinel(
+        token,
+        owner,
+        repo,
+        prNumber,
+        sentinel,
+        expiresAtTs,
+      );
+      return found ? { id: found.id, url: found.url, body: found.body } : null;
+    },
+
+    async resolveProgressComment(sentinel, hintCommentId) {
+      const { token, expiresAtTs } = await ensureAuth();
+      if (hintCommentId != null) {
+        const verified = await getIssueCommentIfSentinel(
+          token,
+          owner,
+          repo,
+          hintCommentId,
+          sentinel,
+          expiresAtTs,
+        );
+        if (verified) return verified;
+      }
+      return this.findProgressComment(sentinel);
+    },
+
+    async upsertProgressComment(body, sentinel, knownExisting) {
+      const { token, expiresAtTs } = await ensureAuth();
+      const mappedKnown =
+        knownExisting == null
+          ? knownExisting
+          : { id: knownExisting.id, url: knownExisting.url ?? "" };
       return upsertReviewSummaryComment(
         token,
         owner,
@@ -364,7 +402,7 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
         prNumber,
         body,
         sentinel,
-        undefined,
+        mappedKnown,
         expiresAtTs,
       );
     },
@@ -372,6 +410,21 @@ export function createPrSurfaceImpl(params: CreatePrSurfaceParams): PrSurface {
     async editComment(commentId, body) {
       const { token, expiresAtTs } = await ensureAuth();
       await updateIssueComment(token, owner, repo, commentId, body, expiresAtTs);
+    },
+
+    async listPullRequestReviewComments() {
+      const { token, expiresAtTs } = await ensureAuth();
+      return listPullRequestReviewComments(token, owner, repo, prNumber, expiresAtTs);
+    },
+
+    async setReviewCommitStatus(headSha, status) {
+      const { token, expiresAtTs } = await ensureAuth();
+      await setReviewCommitStatus(token, owner, repo, headSha, status, expiresAtTs);
+    },
+
+    async fetchPriorInlineFeedback(botUserId) {
+      const { token } = await ensureAuth();
+      return fetchPriorInlineReviewFeedback(token, owner, repo, prNumber, botUserId);
     },
 
     async publishThreadBatch(review: ThreadBatchReview) {

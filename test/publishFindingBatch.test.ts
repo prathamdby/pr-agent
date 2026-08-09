@@ -19,6 +19,10 @@ import {
   seedEvidenceForFindings,
 } from "./helpers/evidenceTestHelpers.js";
 import { memoryOperationIntentStore } from "./setup/operationIntent-memory.js";
+import {
+  createPublishReviewTestHarness,
+  type PublishReviewTestHarness,
+} from "./helpers/publishReviewTestSetup.js";
 
 const settingsOverrides = vi.hoisted(
   (): {
@@ -43,19 +47,6 @@ vi.mock("../src/settings/index.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
-  return {
-    ...actual,
-    createPullRequestReviewWithComments: vi.fn(async () => ({
-      id: 101,
-      url: "https://example.com/reviews/101",
-    })),
-  };
-});
-
-import { createPullRequestReviewWithComments } from "../src/github/reviewPublish.js";
-
 const finding: ReviewFinding = {
   severity: "P1",
   file: "src/a.ts",
@@ -77,6 +68,8 @@ function findingAt(line: number): ReviewFinding {
 }
 
 const PROGRESS_COMMENT_URL = "https://github.com/o/r/pull/1#issuecomment-99";
+
+let harness: PublishReviewTestHarness;
 
 function batchContext(
   ledger: FindingLedger,
@@ -101,7 +94,7 @@ function batchContext(
     source: "correctness",
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => PROGRESS_COMMENT_URL,
-    getToken: () => "token",
+    prSurface: harness.surface,
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10]),
     recordPublishStep,
     ledger,
@@ -112,6 +105,7 @@ function batchContext(
 
 describe("publishFindingBatch", () => {
   beforeEach(() => {
+    harness = createPublishReviewTestHarness();
     vi.clearAllMocks();
     settingsOverrides.maxInlineReviewComments = undefined;
     settingsOverrides.maxThreadPublishCalls = undefined;
@@ -130,7 +124,7 @@ describe("publishFindingBatch", () => {
     );
 
     expect(result.kind).toBe("empty");
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(recordPublishStep).not.toHaveBeenCalled();
     if (result.kind !== "empty") return;
     expect(result.delta.accepted).toEqual([
@@ -152,12 +146,12 @@ describe("publishFindingBatch", () => {
     expect(recordPublishStep).toHaveBeenCalledWith(
       "inline_review",
       expect.objectContaining({
-        githubId: 101,
+        githubId: 1,
         meta: expect.objectContaining({
           version: 2,
           workItemId: "wi-1",
           specialist: "correctness",
-          reviewId: 101,
+          reviewId: 1,
           event: "COMMENT",
           placements: [
             expect.objectContaining({
@@ -174,7 +168,7 @@ describe("publishFindingBatch", () => {
     const second = await publishFindingBatch([finding], batchContext(ledger, recordPublishStep));
 
     expect(second.kind).toBe("empty");
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
     expect(recordPublishStep).toHaveBeenCalledTimes(1);
     if (second.kind !== "empty") return;
     expect(second.delta.accepted).toEqual([]);
@@ -193,7 +187,7 @@ describe("publishFindingBatch", () => {
 
     expect(result.kind).toBe("published");
     if (result.kind !== "published") return;
-    const reviewParams = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4];
+    const reviewParams = harness.publishThreadBatch.mock.calls[0]?.[0];
     expect(reviewParams?.event).toBe("COMMENT");
     expect(reviewParams?.comments).toHaveLength(1);
     expect(result.delta.postedInlineCount).toBe(1);
@@ -212,7 +206,7 @@ describe("publishFindingBatch", () => {
     );
 
     expect(result.kind).toBe("published");
-    const reviewParams = vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[4];
+    const reviewParams = harness.publishThreadBatch.mock.calls[0]?.[0];
     expect(reviewParams?.body).toContain(
       `Track this run on the [progress stub](${PROGRESS_COMMENT_URL}) in the PR conversation.`,
     );
@@ -230,7 +224,7 @@ describe("publishFindingBatch", () => {
         }),
       ),
     ).rejects.toThrow(/progress comment/i);
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("resolves the progress comment URL when the batch is published", async () => {
@@ -254,7 +248,7 @@ describe("publishFindingBatch", () => {
     );
 
     expect(result).toEqual({ kind: "stopped", reason: "superseded" });
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("propagates abort-check failures so the durable job can retry", async () => {
@@ -270,7 +264,7 @@ describe("publishFindingBatch", () => {
         }),
       ),
     ).rejects.toBe(abortCheckError);
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("reports a stale head when the publish gate records one", async () => {
@@ -283,13 +277,11 @@ describe("publishFindingBatch", () => {
     );
 
     expect(result).toEqual({ kind: "stopped", reason: "stale_head" });
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("propagates arbitrary GitHub publish failures", async () => {
-    vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce(
-      new Error("GitHub unavailable"),
-    );
+    harness.publishThreadBatch.mockRejectedValueOnce(new Error("GitHub unavailable"));
     const recordPublishStep = vi.fn(async () => undefined);
 
     await expect(
@@ -310,7 +302,7 @@ describe("publishFindingBatch", () => {
     );
 
     expect(result.kind).toBe("budget_exhausted");
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     if (result.kind !== "budget_exhausted") return;
     expect(result.delta.threadBudgetExhausted).toBe(true);
     expect(result.delta.accepted).toEqual([
@@ -343,7 +335,7 @@ describe("publishFindingBatch", () => {
 
     expect(ledgerAfterEighth.threadCallCount).toBe(8);
     expect(ninth.kind).toBe("budget_exhausted");
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
     if (ninth.kind !== "budget_exhausted") return;
     expect(ninth.delta.accepted).toEqual([
       expect.objectContaining({
@@ -380,7 +372,7 @@ describe("publishFindingBatch", () => {
     );
     expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
 
-    vi.mocked(createPullRequestReviewWithComments).mockClear();
+    harness.publishThreadBatch.mockClear();
     const second = await publishFindingBatch(
       [finding],
       batchContext(createFindingLedger(), recordPublishStep, {
@@ -388,7 +380,7 @@ describe("publishFindingBatch", () => {
       }),
     );
     expect(second.kind).toBe("published");
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(memoryOperationIntentStore.get("wi-1", expectedKey)?.status).toBe("reconciled");
   });
 
@@ -417,16 +409,16 @@ describe("publishFindingBatch", () => {
       ),
     ).rejects.toThrow("crash before reconcile");
 
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(1);
+    expect(harness.publishThreadBatch).toHaveBeenCalledTimes(1);
     const pending = memoryOperationIntentStore.get("wi-crash", operationKey);
     expect(pending?.status).toBe("pending");
     expect(pending?.detail.__result).toEqual(
       expect.objectContaining({
-        review: expect.objectContaining({ id: 101 }),
+        review: expect.objectContaining({ id: 1 }),
       }),
     );
 
-    vi.mocked(createPullRequestReviewWithComments).mockClear();
+    harness.publishThreadBatch.mockClear();
     const recovered = await publishFindingBatch(
       [finding],
       batchContext(
@@ -440,7 +432,7 @@ describe("publishFindingBatch", () => {
     );
 
     expect(recovered.kind).toBe("published");
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(harness.publishThreadBatch).not.toHaveBeenCalled();
     expect(memoryOperationIntentStore.get("wi-crash", operationKey)?.status).toBe("reconciled");
   });
 });

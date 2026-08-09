@@ -1,8 +1,4 @@
-import {
-  createPullRequestReviewWithComments,
-  type InlineReviewComment,
-} from "../../github/reviewPublish.js";
-import { withTransientReviewRetry } from "../../github/reviewPublishRetry.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type { InlinePlacement } from "./reviewDiffPlacement.js";
 import {
   isLineResolutionPublishError,
@@ -11,11 +7,10 @@ import {
 } from "../../github/reviewErrors.js";
 import { compareReviewFindingsBySeverityFileLine } from "../findings/reviewFindingSort.js";
 import type { ReviewFinding } from "../reviewSchema.js";
+import type { InlineReviewComment } from "../../github/reviewPublish.js";
 
 type InlinePublishParams<TPlacement extends InlinePlacement> = {
-  getToken: () => string;
-  getTokenExpiresAtTs?: () => number | undefined;
-  refreshLiveAuth?: () => Promise<void>;
+  prSurface: PrSurface;
   renderReviewBody: (anchorDroppedPlacements: readonly InlinePlacement[]) => string;
   event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
   commitId?: string;
@@ -84,9 +79,6 @@ function fallbackLineResolutionDrop<TPlacement extends InlinePlacement>(
 }
 
 export async function publishInlineReviewComments<TPlacement extends InlinePlacement>(
-  owner: string,
-  repo: string,
-  pullNumber: number,
   params: InlinePublishParams<TPlacement>,
 ): Promise<InlinePublishResult<TPlacement>> {
   let attemptPlacements = params.inlinePlacements.filter(
@@ -99,34 +91,20 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
   );
 
   while (attemptPlacements.length > 0) {
-    const prevCount = attemptPlacements.length;
     const comments = inlineCommentsFromPlacements(
       attemptPlacements,
       params.renderCommentBody,
       commentByPlacement,
     );
     try {
-      const reviewParams = {
+      const review = await params.prSurface.publishThreadBatch({
         body: params.renderReviewBody(anchorDroppedPlacements),
         event: params.event,
         comments,
         commitId: params.commitId,
-      };
-      const review = await withTransientReviewRetry(async () => {
-        await params.refreshLiveAuth?.();
-        const token = params.getToken();
-        const expiresAtTs = params.getTokenExpiresAtTs?.();
-        return createPullRequestReviewWithComments(
-          token,
-          owner,
-          repo,
-          pullNumber,
-          reviewParams,
-          expiresAtTs,
-        );
       });
       return {
-        review,
+        review: { id: review.reviewId, url: review.reviewUrl },
         postedPlacements: attemptPlacements,
         anchorDroppedPlacements,
         lineResolutionFallback: anchorDroppedPlacements.length > 0,
@@ -148,25 +126,13 @@ export async function publishInlineReviewComments<TPlacement extends InlinePlace
           inlineLine: placement.inlineLine,
         });
       }
-      const remaining = attemptPlacements.filter((placement) => !droppedSet.has(placement));
-      if (remaining.length >= prevCount) {
-        break;
-      }
-      attemptPlacements = remaining;
+      attemptPlacements = attemptPlacements.filter((placement) => !droppedSet.has(placement));
     }
   }
 
-  const allAnchorDroppedPlacements = [
-    ...anchorDroppedPlacements,
-    ...attemptPlacements.map((placement) => ({
-      ...placement,
-      inlinePosted: false,
-    })),
-  ];
-
   return {
     postedPlacements: [],
-    anchorDroppedPlacements: allAnchorDroppedPlacements,
+    anchorDroppedPlacements,
     lineResolutionFallback: anchorDroppedPlacements.length > 0,
   };
 }

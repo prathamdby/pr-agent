@@ -3,15 +3,11 @@ import { publishReviewForTest } from "./helpers/reviewPublishTestHelpers.js";
 import type { ReviewPayload } from "../src/review/reviewSchema.js";
 import { cachedDiffForLines, testPublishState } from "./helpers/reviewPublishTestHelpers.js";
 import {
+  createPublishReviewTestHarness,
   publishReviewTestBaseParams,
   publishReviewTestPayload,
+  type PublishReviewTestHarness,
 } from "./helpers/publishReviewTestSetup.js";
-
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
-  const { createReviewPublishGithubMock } = await import("./helpers/publishReviewTestSetup.js");
-  return createReviewPublishGithubMock(actual);
-});
 
 vi.mock("../src/agentWork/repository.js", async () => {
   const { createAgentWorkRepositoryMock } = await import("./helpers/publishReviewTestSetup.js");
@@ -23,12 +19,12 @@ vi.mock("../src/agentWork/reviewCheckRun.js", async () => {
   return createReviewCheckRunMock();
 });
 
-import { setReviewCommitStatus, upsertReviewSummaryComment } from "../src/github/reviewPublish.js";
 import { attachSummaryCommentCoordination } from "../src/review/publish/publishReview.js";
 import { completeReviewCheckRun } from "../src/agentWork/reviewCheckRun.js";
 
 const payload = publishReviewTestPayload;
-const baseParams = publishReviewTestBaseParams;
+let harness: PublishReviewTestHarness;
+let baseParams: ReturnType<typeof publishReviewTestBaseParams>;
 const pool = {
   connect: vi.fn(async () => ({
     query: vi.fn(async () => undefined),
@@ -38,8 +34,10 @@ const pool = {
 
 describe("publishReview check run completion", () => {
   beforeEach(() => {
+    harness = createPublishReviewTestHarness();
+    baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
-    vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 2, updated: false });
+    harness.upsertProgressComment.mockResolvedValue({ id: 2, updated: false });
   });
 
   function coordinatedRecordPublishStep() {
@@ -61,7 +59,7 @@ describe("publishReview check run completion", () => {
     expect(completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        token: "t",
+        prSurface: harness.surface,
         owner: "o",
         repo: "r",
         prNumber: 1,
@@ -144,8 +142,10 @@ describe("publishReview check run completion", () => {
 
 describe("publishReview commit status", () => {
   beforeEach(() => {
+    harness = createPublishReviewTestHarness();
+    baseParams = publishReviewTestBaseParams(harness);
     vi.clearAllMocks();
-    vi.mocked(upsertReviewSummaryComment).mockResolvedValue({ id: 2, updated: false });
+    harness.upsertProgressComment.mockResolvedValue({ id: 2, updated: false });
   });
 
   it("posts failure when published findings include P1", async () => {
@@ -156,18 +156,11 @@ describe("publishReview commit status", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(setReviewCommitStatus).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      "sha",
-      {
-        state: "failure",
-        description: "1 finding",
-        targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
-      },
-      undefined,
-    );
+    expect(harness.setReviewCommitStatus).toHaveBeenCalledWith("sha", {
+      state: "failure",
+      description: "1 finding",
+      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
+    });
   });
 
   it("posts failure when findings are P2-only", async () => {
@@ -194,22 +187,15 @@ describe("publishReview commit status", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(setReviewCommitStatus).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
-      "sha",
-      {
-        state: "failure",
-        description: "1 finding",
-        targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
-      },
-      undefined,
-    );
+    expect(harness.setReviewCommitStatus).toHaveBeenCalledWith("sha", {
+      state: "failure",
+      description: "1 finding",
+      targetUrl: "https://github.com/o/r/pull/1#issuecomment-2",
+    });
   });
 
   it("completes publish when commit status API throws", async () => {
-    vi.mocked(setReviewCommitStatus).mockRejectedValueOnce(new Error("status api down"));
+    harness.setReviewCommitStatus.mockRejectedValueOnce(new Error("status api down"));
 
     await expect(
       publishReviewForTest({
@@ -228,6 +214,6 @@ describe("publishReview commit status", () => {
       cachedDiffIndex: cachedDiffForLines("src/x.ts", [4]),
     });
 
-    expect(setReviewCommitStatus).not.toHaveBeenCalled();
+    expect(harness.setReviewCommitStatus).not.toHaveBeenCalled();
   });
 });

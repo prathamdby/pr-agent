@@ -4,7 +4,6 @@ import {
   type ClassifiedFailure,
 } from "../../errors/classifiedFailure.js";
 import { logWarn } from "../../evlog.js";
-import { upsertReviewSummaryComment } from "../../github/reviewPublish.js";
 import { renderReviewFailureNotice } from "./progressComment.js";
 import type { ReviewRunSetup } from "./reviewRunSetup.js";
 import { REVIEW_SUMMARY_SENTINEL } from "../reviewSchema.js";
@@ -25,19 +24,11 @@ export async function publishReviewRunFailureNotice(params: {
     publishAttempts: params.publishAttempts,
     ...(params.lastFailure != null ? classifiedFailureLogFields(params.lastFailure) : {}),
   });
-  const token = params.setup.getToken();
-  const tokenExpiresAtTs = params.setup.getTokenExpiresAtTs();
   const sentinel = REVIEW_SUMMARY_SENTINEL;
   try {
-    await upsertReviewSummaryComment(
-      token,
-      params.owner,
-      params.repo,
-      params.prNumber,
+    await params.setup.prSurface.upsertProgressComment(
       renderReviewFailureNotice({ mode: params.reviewMode, retryCommand: "/review" }),
       sentinel,
-      undefined,
-      tokenExpiresAtTs,
     );
   } catch (error) {
     logWarn("review_publish_fallback_comment_failed", {

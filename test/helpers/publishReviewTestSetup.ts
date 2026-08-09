@@ -1,6 +1,10 @@
-import { vi } from "vitest";
+import { vi, type Mock } from "vitest";
 import type { ReviewPayload } from "../../src/review/reviewSchema.js";
-import type * as reviewPublish from "../../src/github/reviewPublish.js";
+import {
+  createFakePrSurface,
+  type FakePrSurfaceControls,
+} from "../../src/github/prSurface.js";
+import type { PrSurface, ThreadBatchReview } from "../../src/github/prSurface.js";
 import { makeReviewPayload } from "./reviewPayloadFactory.js";
 import { makeTestConfig } from "./config.js";
 
@@ -19,37 +23,31 @@ export const publishReviewTestPayload: ReviewPayload = makeReviewPayload({
   ],
 });
 
-export const publishReviewTestBaseParams = {
-  token: "t",
-  owner: "o",
-  repo: "r",
-  prNumber: 1,
-  headSha: "sha",
-  hasDescriptionReviewMap: false,
-  progressCommentIdHint: 99,
-  cfg: {
-    piModel: "gpt-4o-mini",
-    features: { ...makeTestConfig().features, reviewLabels: "off" as const },
-  },
-  payload: publishReviewTestPayload,
+export type PublishReviewTestHarness = {
+  readonly surface: PrSurface;
+  readonly controls: FakePrSurfaceControls;
+  readonly publishThreadBatch: Mock<PrSurface["publishThreadBatch"]>;
+  readonly listPullRequestReviewComments: Mock<PrSurface["listPullRequestReviewComments"]>;
+  readonly upsertProgressComment: Mock<PrSurface["upsertProgressComment"]>;
+  readonly resolveProgressComment: Mock<PrSurface["resolveProgressComment"]>;
+  readonly findProgressComment: Mock<PrSurface["findProgressComment"]>;
+  readonly getLabels: Mock<PrSurface["getLabels"]>;
+  readonly setLabels: Mock<PrSurface["setLabels"]>;
+  readonly setReviewCommitStatus: Mock<PrSurface["setReviewCommitStatus"]>;
 };
 
-export function createReviewPublishGithubMock(actual: typeof reviewPublish) {
-  return {
-    ...actual,
-    createPullRequestReviewWithComments: vi.fn(async () => ({
-      id: 1,
-      url: "https://example.com/review/1",
-    })),
-    listPullRequestReviewCommentsForReview: vi.fn(async () => [
-      {
-        path: "src/x.ts",
-        line: 4,
-        id: 99,
-        url: "https://github.com/o/r/pull/1#discussion_r99",
-      },
-    ]),
-    listPullRequestReviewComments: vi.fn(async () => ({
+export function createPublishReviewTestHarness(options?: {
+  readonly labels?: readonly string[];
+}): PublishReviewTestHarness {
+  const bundle = createFakePrSurface(
+    { owner: "o", repo: "r", prNumber: 1 },
+    options?.labels ? { labels: options.labels } : undefined,
+  );
+  let nextReviewId = 1;
+
+  const listPullRequestReviewComments = vi
+    .spyOn(bundle.surface, "listPullRequestReviewComments")
+    .mockImplementation(async () => ({
       comments: [
         {
           path: "src/x.ts",
@@ -59,13 +57,62 @@ export function createReviewPublishGithubMock(actual: typeof reviewPublish) {
         },
       ],
       truncated: false,
-    })),
-    resolveVerifiedSummaryCommentRef: vi.fn(async () => null),
-    findIssueCommentBySentinel: vi.fn(async () => null),
-    upsertReviewSummaryComment: vi.fn(async () => ({ id: 2, updated: false })),
-    listPullRequestLabels: vi.fn(async () => []),
-    setPullRequestLabels: vi.fn(async () => undefined),
-    setReviewCommitStatus: vi.fn(async () => undefined),
+    }));
+
+  const publishThreadBatch = vi
+    .spyOn(bundle.surface, "publishThreadBatch")
+    .mockImplementation(async (_review: ThreadBatchReview) => {
+      const reviewId = nextReviewId++;
+      return {
+        reviewId,
+        reviewUrl: `https://github.com/o/r/pull/1#pullrequestreview-${reviewId}`,
+      };
+    });
+
+  const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
+  const resolveProgressComment = vi.spyOn(bundle.surface, "resolveProgressComment");
+  const findProgressComment = vi.spyOn(bundle.surface, "findProgressComment");
+  const getLabels = vi.spyOn(bundle.surface, "getLabels");
+  const setLabels = vi.spyOn(bundle.surface, "setLabels");
+  const setReviewCommitStatus = vi.spyOn(bundle.surface, "setReviewCommitStatus");
+
+  return {
+    surface: bundle.surface,
+    controls: bundle.controls,
+    publishThreadBatch,
+    listPullRequestReviewComments,
+    upsertProgressComment,
+    resolveProgressComment,
+    findProgressComment,
+    getLabels,
+    setLabels,
+    setReviewCommitStatus,
+  };
+}
+
+/** @deprecated Prefer createPublishReviewTestHarness().surface */
+export function makePublishReviewTestPrSurface() {
+  return createPublishReviewTestHarness().surface;
+}
+
+export function publishReviewTestBaseParams(
+  harness: PublishReviewTestHarness,
+  overrides: Record<string, unknown> = {},
+) {
+  return {
+    prSurface: harness.surface,
+    owner: "o",
+    repo: "r",
+    prNumber: 1,
+    headSha: "sha",
+    hasDescriptionReviewMap: false,
+    progressCommentIdHint: 99,
+    cfg: {
+      piModel: "gpt-4o-mini",
+      features: { ...makeTestConfig().features, reviewLabels: "off" as const },
+    },
+    payload: publishReviewTestPayload,
+    ...overrides,
   };
 }
 

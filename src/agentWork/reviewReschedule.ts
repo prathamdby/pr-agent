@@ -6,7 +6,7 @@ import { AppError } from "../errors/appError.js";
 import { logInfo, logWarn } from "../evlog.js";
 import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, REVIEW_QUEUE } from "../settings/index.js";
-import { getPullRequestHeadSha } from "./githubPrSurface.js";
+import type { PrSurface } from "../github/prSurface.js";
 import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
 import { releaseReviewSingletonSlot } from "./singletonQueue.js";
@@ -95,16 +95,9 @@ export async function cancelOrphanedStaleHeadReplacementOnTerminalFailure(
 export async function buildStaleReviewRescheduleResult(
   pool: Pool,
   item: ReviewWorkItem,
-  token: string,
-  expiresAtTs?: number,
+  prSurface: PrSurface,
 ): Promise<StaleReviewRescheduleResult> {
-  const latestHeadSha = await getPullRequestHeadSha(
-    token,
-    item.owner,
-    item.repo,
-    item.prNumber,
-    expiresAtTs,
-  );
+  const latestHeadSha = await prSurface.getHeadSha();
   const replacement = await createReviewRescheduleWorkItem(pool, item, latestHeadSha);
   // Closed over by afterComplete / onRescheduleAbort so terminal abort does not re-read payload.
   let replacementEnqueued = false;

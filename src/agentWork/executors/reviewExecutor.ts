@@ -8,7 +8,7 @@ import {
   classifiedFailureLogFields,
   classifiedFailurePostHogProperties,
 } from "../../errors/classifiedFailure.js";
-import type { InstallationToken } from "../../github/appAuth.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { createRateLimitCircuit, runWithRateLimitCircuit } from "../../github/rateLimitCircuit.js";
 import {
   getSharedRateLimitCircuit,
@@ -16,7 +16,6 @@ import {
 } from "../../github/sharedRateLimitCircuit.js";
 import {
   assertPullRequestFilesHeadSha,
-  fetchPullRequestFiles,
   type ListPullRequestFilesResult,
   type PullRequestForFileList,
 } from "../../github/listPullRequestFiles.js";
@@ -51,10 +50,7 @@ import {
   snapshotReviewRunMetrics,
   type ReviewRunMetricsSnapshot,
 } from "../../review/run/reviewRunMetrics.js";
-import {
-  findIssueCommentBySentinel,
-  upsertReviewSummaryComment,
-} from "../../github/reviewPublish.js";
+import { createPrSurface } from "../../github/prSurface.js";
 import { logInfo, logWarn } from "../../evlog.js";
 import { attachSummaryCommentCoordination } from "../../review/publish/publishReview.js";
 import { withPrRepositoryView } from "../../prWorkspace/index.js";
@@ -95,14 +91,12 @@ import {
 } from "../reviewReschedule.js";
 import { renderReviewFailureNotice } from "../../review/run/progressComment.js";
 import {
-  makeInstallationTokenRefresher,
   resolveWorkItemHead,
   runDurableWorkItem,
 } from "../durableJob.js";
-import { getAppBotIdentity, getPullRequestHeadSha } from "../githubPrSurface.js";
+import { getAppBotIdentity } from "../githubPrSurface.js";
 import { type ReviewJobData, type ReviewWorkItem, type ReviewWorkPayload } from "../types.js";
 import { buildRepositoryViewParams } from "./repositoryViewParams.js";
-import { isInstallationTokenNearExpiry } from "../../github/installationTokenExpiry.js";
 import { createAskPathGate } from "../../agent/ask/askSafety.js";
 import { prepareCodeIndexForReview } from "../../codeIndex/buildJob.js";
 
@@ -125,8 +119,6 @@ async function loadAndRenderTrustedBlock<TResult extends { readonly kind: string
   params.onNonOk?.(result as Exclude<TResult, { kind: "ok" }>);
   return undefined;
 }
-
-type TokenState = { installation: InstallationToken };
 
 type ReviewExecutionResult = StaleReviewRescheduleResult | { readonly degraded: boolean };
 
@@ -151,8 +143,7 @@ function reviewRunGate(args: {
   readonly item: ReviewWorkItem;
   readonly headSha: string;
   readonly timing: ReviewRunTiming;
-  readonly tokenState: TokenState;
-  readonly refreshInstallationToken: () => Promise<{ token: string; expiresAtTs: number }>;
+  readonly prSurface: PrSurface;
   readonly publishAbortState: { staleHead?: boolean };
   readonly staleHeadAtPublish: { value: boolean };
 }): ReviewRunGate {
@@ -170,17 +161,7 @@ function reviewRunGate(args: {
         return { kind: "stop", reason: "superseded" };
       }
       if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
-      if (isInstallationTokenNearExpiry(args.tokenState.installation.expiresAtTs)) {
-        await args.refreshInstallationToken();
-      }
-      if (deadlineReached()) return { kind: "finalize", reason: "deadline" };
-      const latestHeadSha = await getPullRequestHeadSha(
-        args.tokenState.installation.token,
-        args.item.owner,
-        args.item.repo,
-        args.item.prNumber,
-        args.tokenState.installation.expiresAtTs,
-      );
+      const latestHeadSha = await args.prSurface.getHeadSha();
       if (latestHeadSha !== args.headSha) {
         args.staleHeadAtPublish.value = true;
         args.publishAbortState.staleHead = true;
@@ -197,9 +178,9 @@ async function handleStaleHeadReschedule(args: {
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
-  readonly installation: InstallationToken;
+  readonly prSurface: PrSurface;
 }): Promise<StaleReviewRescheduleResult | undefined> {
-  const { pool, item, reviewLens, payload, installation } = args;
+  const { pool, item, reviewLens, payload, prSurface } = args;
   if (
     (payload.source !== "slash" && payload.source !== "auto") ||
     payload.staleHeadRescheduled ||
@@ -208,8 +189,7 @@ async function handleStaleHeadReschedule(args: {
     return undefined;
   }
   await completeReviewCheckRun(pool, {
-    token: installation.token,
-    tokenExpiresAtTs: installation.expiresAtTs,
+    prSurface,
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,
@@ -219,19 +199,19 @@ async function handleStaleHeadReschedule(args: {
     conclusion: "cancelled",
     summary: "Review was rescheduled for a newer pull request head.",
   });
-  return buildStaleReviewRescheduleResult(pool, item, installation.token, installation.expiresAtTs);
+  return buildStaleReviewRescheduleResult(pool, item, prSurface);
 }
 
 async function completeCheckFromStoredSummary(args: {
   readonly pool: Pool;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
-  readonly tokenState: TokenState;
+  readonly prSurface: PrSurface;
   readonly conclusion: "failure" | "cancelled";
   readonly summary: string;
   readonly lastFailure?: ReviewRunResult["lastFailure"];
 }): Promise<void> {
-  const { pool, item, reviewLens, tokenState, conclusion, summary, lastFailure } = args;
+  const { pool, item, reviewLens, prSurface, conclusion, summary, lastFailure } = args;
   if (conclusion === "failure" && lastFailure != null) {
     logWarn("review_check_run_failure_classified", {
       owner: item.owner,
@@ -242,8 +222,7 @@ async function completeCheckFromStoredSummary(args: {
   }
   const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
   await completeReviewCheckRun(pool, {
-    token: tokenState.installation.token,
-    tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+    prSurface,
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,
@@ -262,26 +241,21 @@ async function runLightweightCompletionOrSkip(args: {
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
-  readonly tokenState: TokenState;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly executionEpoch: number;
 }): Promise<LightweightPhaseResult> {
-  const { cfg, pool, item, reviewLens, payload, tokenState, headSha, executionEpoch } = args;
+  const { cfg, pool, item, reviewLens, payload, prSurface, headSha, executionEpoch } = args;
   if (payload.source !== "auto") {
     return { done: false, prefetchedPrFiles: undefined };
   }
   const prefetchedPrFiles = await recordReviewPhaseSpan("preflight", () =>
-    fetchPullRequestFiles(
-      tokenState.installation.token,
-      item.owner,
-      item.repo,
-      item.prNumber,
+    prSurface.listChangedFiles(
       {
         maxPrFilesListed: MAX_PR_FILES_LISTED,
         maxPrFilesPatchBytes: MAX_PR_FILES_PATCH_BYTES,
       },
       undefined,
-      tokenState.installation.expiresAtTs,
     ),
   );
   assertPullRequestFilesHeadSha(prefetchedPrFiles, headSha);
@@ -289,8 +263,7 @@ async function runLightweightCompletionOrSkip(args: {
   const lightweightResult = await tryLightweightAutoReviewCompletion(pool, {
     item,
     reviewLens,
-    token: tokenState.installation.token,
-    tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+    prSurface,
     preflight,
     model: cfg.piModel,
     executionEpoch,
@@ -312,8 +285,7 @@ async function runLightweightCompletionOrSkip(args: {
   });
   logReviewRunCompleted();
   await completeReviewCheckRun(pool, {
-    token: tokenState.installation.token,
-    tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+    prSurface,
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,
@@ -338,9 +310,9 @@ async function buildPriorInlineFeedbackPromise(args: {
   readonly cfg: Config;
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
-  readonly tokenState: TokenState;
+  readonly prSurface: PrSurface;
 }): Promise<SettledPriorInlineFeedback> {
-  const { cfg, item, reviewLens, tokenState } = args;
+  const { cfg, item, reviewLens, prSurface } = args;
   const logPriorFeedbackError = (error: unknown) => {
     logWarn("prior_inline_feedback_fetch_failed", {
       owner: item.owner,
@@ -355,10 +327,7 @@ async function buildPriorInlineFeedbackPromise(args: {
     return {
       ok: true,
       value: await fetchPriorInlineFeedbackBlockForReview({
-        token: tokenState.installation.token,
-        owner: item.owner,
-        repo: item.repo,
-        prNumber: item.prNumber,
+        prSurface,
         botUserId: bot.userId,
         onPriorFeedbackError: logPriorFeedbackError,
       }),
@@ -396,10 +365,10 @@ async function handleReviewPublishResult(args: {
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
-  readonly tokenState: TokenState;
+  readonly prSurface: PrSurface;
   readonly result: ReviewRunResult;
 }): Promise<ReviewExecutionResult> {
-  const { cfg, pool, item, reviewLens, payload, tokenState, result } = args;
+  const { cfg, pool, item, reviewLens, payload, prSurface, result } = args;
   if (!result.published) {
     if (result.publishSuperseded) {
       logInfo("review_publish_superseded", {
@@ -412,7 +381,7 @@ async function handleReviewPublishResult(args: {
         pool,
         item,
         reviewLens,
-        tokenState,
+        prSurface,
         conclusion: "cancelled",
         summary: "Review publish was skipped because the work was superseded or cancelled.",
       });
@@ -450,7 +419,7 @@ async function handleReviewPublishResult(args: {
         pool,
         item,
         reviewLens,
-        tokenState,
+        prSurface,
         conclusion: "failure",
         summary: "PR Agent could not publish a structured review.",
         lastFailure,
@@ -485,7 +454,7 @@ async function runFullReviewAgainstRepositoryView(args: {
   readonly item: ReviewWorkItem;
   readonly reviewLens: ReviewMode;
   readonly payload: ReviewWorkPayload;
-  readonly tokenState: TokenState;
+  readonly prSurface: PrSurface;
   readonly headSha: string;
   readonly pullRequest: PullRequestForFileList | undefined;
   readonly publishContext: ReviewExecutorPublishContext;
@@ -505,7 +474,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     item,
     reviewLens,
     payload,
-    tokenState,
+    prSurface,
     headSha,
     pullRequest,
     publishContext,
@@ -603,26 +572,18 @@ async function runFullReviewAgainstRepositoryView(args: {
   });
 
   const timing = reviewRunTimingFromJob(args.job);
-  const refreshInstallationToken = makeInstallationTokenRefresher(
-    cfg,
-    item.installationId,
-    tokenState,
-  );
   const gate = reviewRunGate({
     pool,
     item,
     headSha,
     timing,
-    tokenState,
-    refreshInstallationToken,
+    prSurface,
     publishAbortState,
     staleHeadAtPublish,
   });
   const result = await runOrchestratedPrReview({
     cfg,
-    token: tokenState.installation.token,
-    tokenExpiresAtTs: tokenState.installation.expiresAtTs,
-    tokenTtlMs: tokenState.installation.ttlMs,
+    prSurface,
     owner: item.owner,
     repo: item.repo,
     prNumber: item.prNumber,
@@ -676,13 +637,7 @@ async function runFullReviewAgainstRepositoryView(args: {
       if (signal.aborted) return true;
       if (await shouldSkipWork(pool, item)) return true;
       if (!(await isExecutionEpochCurrent(pool, item.id, executionEpoch))) return true;
-      const latestHeadSha = await getPullRequestHeadSha(
-        tokenState.installation.token,
-        item.owner,
-        item.repo,
-        item.prNumber,
-        tokenState.installation.expiresAtTs,
-      );
+      const latestHeadSha = await prSurface.getHeadSha();
       if (latestHeadSha !== headSha) {
         staleHeadAtPublish.value = true;
         publishAbortState.staleHead = true;
@@ -690,7 +645,6 @@ async function runFullReviewAgainstRepositoryView(args: {
       }
       return false;
     },
-    refreshInstallationToken,
     durability: {
       pool,
       workItemId: item.id,
@@ -710,16 +664,11 @@ async function runFullReviewAgainstRepositoryView(args: {
       pool,
       item,
       reviewLens,
-      tokenState,
+      prSurface,
       conclusion: "cancelled",
       summary: "Review was rescheduled for a newer pull request head.",
     });
-    return buildStaleReviewRescheduleResult(
-      pool,
-      item,
-      tokenState.installation.token,
-      tokenState.installation.expiresAtTs,
-    );
+    return buildStaleReviewRescheduleResult(pool, item, prSurface);
   }
 
   return handleReviewPublishResult({
@@ -728,7 +677,7 @@ async function runFullReviewAgainstRepositoryView(args: {
     item,
     reviewLens,
     payload,
-    tokenState,
+    prSurface,
     result,
   });
 }
@@ -762,7 +711,7 @@ export async function executeReviewJob(
         item,
         reviewLens,
         payload,
-        installation: env.installation,
+        prSurface: env.prSurface,
       });
       if (staleHeadResult) return staleHeadResult;
 
@@ -786,14 +735,13 @@ export async function executeReviewJob(
         findingHistoryCandidates,
         cfg.findingHistoryDismissSuppressAfter,
       );
-      const tokenState: TokenState = { installation: env.installation };
+      const prSurface = env.prSurface;
       const headSha = env.headSha;
       const staleHeadAtPublish = { value: false };
       const publishAbortState: { staleHead?: boolean } = {};
 
       await ensureReviewCheckRunStarted(pool, {
-        token: tokenState.installation.token,
-        tokenExpiresAtTs: tokenState.installation.expiresAtTs,
+        prSurface,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,
@@ -809,7 +757,7 @@ export async function executeReviewJob(
         item,
         reviewLens,
         payload,
-        tokenState,
+        prSurface,
         headSha,
         executionEpoch: env.executionEpoch,
       });
@@ -819,7 +767,7 @@ export async function executeReviewJob(
         cfg,
         item,
         reviewLens,
-        tokenState,
+        prSurface,
       });
 
       const rateLimitCircuit = createRateLimitCircuit({
@@ -854,11 +802,12 @@ export async function executeReviewJob(
           message: error instanceof Error ? error.message : String(error),
         });
       }
+      const gitCredentialToken = await prSurface.gitCredentialToken();
       return runWithRateLimitCircuit(rateLimitCircuit, () =>
         withPrRepositoryView(
           buildRepositoryViewParams(
             item,
-            { installation: tokenState.installation, headSha, pullRequest: env.pullRequest },
+            { installationToken: gitCredentialToken, headSha, pullRequest: env.pullRequest },
             payload,
             { prFiles: lightweight.prefetchedPrFiles },
           ),
@@ -871,7 +820,7 @@ export async function executeReviewJob(
               item,
               reviewLens,
               payload,
-              tokenState,
+              prSurface,
               headSha,
               pullRequest: env.pullRequest,
               publishContext,
@@ -891,9 +840,16 @@ export async function executeReviewJob(
       if (!item.reviewLens) return;
       const reviewLens = item.reviewLens;
       const summaryCommentId = await getSummaryCommentGithubId(pool, item.resourceKey, reviewLens);
+      const prSurface = createPrSurface({
+        cfg,
+        installationId: item.installationId,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        installation,
+      });
       await completeReviewCheckRun(pool, {
-        token: installation.token,
-        tokenExpiresAtTs: installation.expiresAtTs,
+        prSurface,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,
@@ -909,6 +865,14 @@ export async function executeReviewJob(
       if (!installation) return;
       const reviewLens = item.reviewLens;
       if (!reviewLens) return;
+      const prSurface = createPrSurface({
+        cfg,
+        installationId: item.installationId,
+        owner: item.owner,
+        repo: item.repo,
+        prNumber: item.prNumber,
+        installation,
+      });
       if (
         await hasCompletedPublishStep(
           pool,
@@ -920,32 +884,17 @@ export async function executeReviewJob(
       ) {
         return;
       }
-      // Summary may have landed on GitHub before the publish record / intent __result.
-      const landedSummary = await findIssueCommentBySentinel(
-        installation.token,
-        item.owner,
-        item.repo,
-        item.prNumber,
-        REVIEW_SUMMARY_SENTINEL,
-        installation.expiresAtTs,
-      );
+      const landedSummary = await prSurface.findProgressComment(REVIEW_SUMMARY_SENTINEL);
       if (landedSummary != null) return;
-      const summary = await upsertReviewSummaryComment(
-        installation.token,
-        item.owner,
-        item.repo,
-        item.prNumber,
+      const summary = await prSurface.upsertProgressComment(
         renderReviewFailureNotice({
           mode: reviewLens,
           retryCommand: "/review",
         }),
         REVIEW_SUMMARY_SENTINEL,
-        undefined,
-        installation.expiresAtTs,
       );
       await completeReviewCheckRun(pool, {
-        token: installation.token,
-        tokenExpiresAtTs: installation.expiresAtTs,
+        prSurface,
         owner: item.owner,
         repo: item.repo,
         prNumber: item.prNumber,

@@ -7,12 +7,16 @@ export type {
   CiStatusSnapshot,
   CreatePrSurfaceParams,
   IssueCommentRef,
+  ListPullRequestReviewCommentsResult,
   PostedReply,
+  PriorInlineFeedbackEntry,
   ProgressCommentUpsert,
   PrSurface,
   PublishedBatch,
+  PublishedReviewCommentRef,
   PullRequestHeadResolution,
   ReviewCheckOutcome,
+  ReviewCommitStatusParams,
   ThreadBatchReview,
 } from "./prSurfaceTypes.js";
 export { createFakePrSurface } from "./fakePrSurface.js";

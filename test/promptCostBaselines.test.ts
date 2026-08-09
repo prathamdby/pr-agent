@@ -20,7 +20,12 @@ import {
 } from "./helpers/promptCost.js";
 import { isRecord } from "../src/util/typeGuards.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+
+function reviewPrSurface() {
+  return createFakePrSurface({ owner: "octo", repo: "hello", prNumber: 42 }).surface;
+}
 
 type PromptSurface = {
   readonly name: string;
@@ -83,7 +88,7 @@ describe("prompt cost baselines", () => {
   it("keeps submitReview tool contract stable", () => {
     const { piTool } = buildSubmitReviewTool({
       cfg,
-      token: "token",
+      prSurface: reviewPrSurface(),
       ctx: {
         owner: "octo",
         repo: "hello",
@@ -105,7 +110,7 @@ describe("prompt cost baselines", () => {
   it("reduces static submitReview tool surface versus the prior field-list description", () => {
     const { piTool } = buildSubmitReviewTool({
       cfg,
-      token: "token",
+      prSurface: reviewPrSurface(),
       ctx: {
         owner: "octo",
         repo: "hello",
@@ -203,7 +208,7 @@ function promptSurfaces(): PromptSurface[] {
   }).piTools;
   const submitReviewTool = buildSubmitReviewTool({
     cfg,
-    token: "token",
+    prSurface: reviewPrSurface(),
     ctx: {
       owner: "octo",
       repo: "hello",

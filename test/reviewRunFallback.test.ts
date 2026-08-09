@@ -4,6 +4,7 @@ import * as evlog from "../src/evlog.js";
 import { publishReviewRunFailureNotice } from "../src/review/run/reviewRunFallback.js";
 import type { ReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 
 vi.mock("../src/github/reviewPublish.js", () => ({
   upsertReviewSummaryComment: vi.fn(async () => ({ id: 1 })),
@@ -22,8 +23,7 @@ describe("publishReviewRunFailureNotice", () => {
     await publishReviewRunFailureNotice({
       cfg: makeTestConfig(),
       setup: {
-        getToken: () => "tok",
-        getTokenExpiresAtTs: () => Date.now() + 60_000,
+        prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
       } as ReviewRunSetup,
       owner: "o",
       repo: "r",

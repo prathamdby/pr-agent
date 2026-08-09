@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Config } from "../../config.js";
 import { AppError } from "../../errors/appError.js";
 import { logInfo, logWarn, logDebug } from "../../evlog.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { publishReview } from "./publishReview.js";
 import { createAgentCiSummaryAuthor } from "../ci/authorCiSummary.js";
 import type { CachedPrDiffIndex } from "../placement/reviewDiffIndex.js";
@@ -60,10 +61,7 @@ export function createSubmitReviewState(initial?: {
 
 export function buildSubmitReviewTool(params: {
   cfg: Config;
-  token: string;
-  tokenExpiresAtTs?: number;
-  getToken?: () => string;
-  getTokenExpiresAtTs?: () => number;
+  prSurface: PrSurface;
   ctx: ReviewPublishContext;
   mode?: AnyReviewLens;
   state: SubmitReviewState;
@@ -246,10 +244,7 @@ export function buildSubmitReviewTool(params: {
 
     try {
       await publishReview({
-        token: params.getToken?.() ?? params.token,
-        getToken: params.getToken,
-        tokenExpiresAtTs: params.getTokenExpiresAtTs?.() ?? params.tokenExpiresAtTs,
-        getTokenExpiresAtTs: params.getTokenExpiresAtTs,
+        prSurface: params.prSurface,
         mode,
         cfg: params.cfg,
         ...params.ctx,

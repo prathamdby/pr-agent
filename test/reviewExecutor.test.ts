@@ -7,9 +7,15 @@ import type { JobWithMetadata, PgBoss } from "pg-boss";
 import type { ReviewJobData } from "../src/agentWork/types.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
 import { DESCRIPTION_AGENT_HEADER } from "../src/settings/index.js";
+import { REVIEW_SUMMARY_SENTINEL } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
-import { fakeDurablePrSurface } from "./helpers/executorDurableHarness.js";
+import { createFakePrSurface, type FakePrSurfaceEvent } from "../src/github/prSurface.js";
 import { mockLocalPrWorkspace } from "./helpers/mockWorkspace.js";
+
+let durableSurfaceBundle = createFakePrSurface(
+  { owner: "o", repo: "r", prNumber: 1 },
+  { headSha: "head" },
+);
 
 const mocks = vi.hoisted(() => ({
   loadPublishContext: vi.fn(),
@@ -30,17 +36,6 @@ const mocks = vi.hoisted(() => ({
   recordPublishStep: vi.fn(),
   hasCompletedPublishStep: vi.fn(async () => false),
   shouldSkipWork: vi.fn(async () => false),
-  getPullRequestHeadSha: vi.fn(async () => "head"),
-  ensureCheckRunStarted: vi.fn(async (): Promise<number | null> => null),
-  completeCheckRun: vi.fn(async () => true),
-  reviewCheckDetailsUrl: vi.fn(
-    (
-      _owner: string,
-      _repo: string,
-      _prNumber: number,
-      _summaryCommentId?: string | number | null,
-    ): string | undefined => undefined,
-  ),
   getSharedRateLimitCircuit: vi.fn(async () => null),
   openSharedRateLimitCircuitBestEffort: vi.fn(),
 }));
@@ -61,12 +56,6 @@ vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: mocks.getWorkItem,
 }));
 
-vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
-  ensureReviewCheckRunStarted: mocks.ensureCheckRunStarted,
-  completeReviewCheckRun: mocks.completeCheckRun,
-  reviewCheckDetailsUrl: mocks.reviewCheckDetailsUrl,
-}));
-
 vi.mock("../src/review/orchestrator/orchestratorRun.js", () => ({
   runOrchestratedPrReview: mocks.runOrchestratedPrReview,
 }));
@@ -74,7 +63,6 @@ vi.mock("../src/review/orchestrator/orchestratorRun.js", () => ({
 vi.mock("../src/agentWork/githubPrSurface.js", () => ({
   getAppBotIdentity: mocks.getAppBotIdentity,
   getPullRequestHead: vi.fn(async () => ({ headSha: "head" })),
-  getPullRequestHeadSha: mocks.getPullRequestHeadSha,
 }));
 
 vi.mock("../src/github/sharedRateLimitCircuit.js", () => ({
@@ -92,6 +80,8 @@ import * as evlog from "../src/evlog.js";
 import * as reviewPublish from "../src/github/reviewPublish.js";
 import * as reviewRunMetrics from "../src/review/run/reviewRunMetrics.js";
 import * as rateLimitCircuit from "../src/github/rateLimitCircuit.js";
+import * as reviewCheckRun from "../src/agentWork/reviewCheckRun.js";
+import * as prSurfaceModule from "../src/github/prSurface.js";
 import { executeReviewJob } from "../src/agentWork/executors/reviewExecutor.js";
 
 const cfg = makeTestConfig({ piModel: "test" });
@@ -166,7 +156,19 @@ function reviewJob(): JobWithMetadata<ReviewJobData> {
   };
 }
 
+function mockAutoPrFiles(surface = durableSurfaceBundle.surface) {
+  return vi.spyOn(surface, "listChangedFiles").mockResolvedValue(prFiles);
+}
+
 function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
+  durableSurfaceBundle = createFakePrSurface(
+    { owner: "o", repo: "r", prNumber: 1 },
+    { headSha: "head" },
+  );
+  vi.mocked(prSurfaceModule.createPrSurface).mockImplementation(() => durableSurfaceBundle.surface);
+  if (source === "auto") {
+    mockAutoPrFiles();
+  }
   vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
     const item = makeItem(source);
     await spec.execute(item, {
@@ -175,7 +177,7 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
         expiresAtTs: Date.now() + 300_000,
         ttlMs: 300_000,
       },
-      prSurface: fakeDurablePrSurface(),
+      prSurface: durableSurfaceBundle.surface,
       headSha: "head",
       executionEpoch: 1,
       signal: new AbortController().signal,
@@ -187,6 +189,21 @@ function mockDurableExecution(source: "auto" | "slash" = "slash"): void {
 describe("executeReviewJob", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    durableSurfaceBundle = createFakePrSurface(
+      { owner: "o", repo: "r", prNumber: 1 },
+      { headSha: "head" },
+    );
+    vi.spyOn(prSurfaceModule, "createPrSurface").mockImplementation(
+      () => durableSurfaceBundle.surface,
+    );
+    vi.spyOn(reviewCheckRun, "ensureReviewCheckRunStarted").mockResolvedValue(123);
+    vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockResolvedValue(true);
+    vi.spyOn(reviewCheckRun, "reviewCheckDetailsUrl").mockImplementation(
+      (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
+        summaryCommentId == null
+          ? undefined
+          : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
+    );
     mocks.getSharedRateLimitCircuit.mockResolvedValue(null);
     vi.spyOn(listPullRequestFiles, "fetchPullRequestFiles").mockImplementation(mocks.fetchPrFiles);
     vi.spyOn(reviewLightweightCompletion, "tryLightweightAutoReviewCompletion").mockImplementation(
@@ -236,14 +253,6 @@ describe("executeReviewJob", () => {
     mocks.buildTrustedContext.mockResolvedValue("trusted");
     mocks.fetchPriorFeedback.mockResolvedValue(undefined);
     mocks.getSummaryCommentGithubId.mockResolvedValue(1);
-    mocks.ensureCheckRunStarted.mockResolvedValue(123);
-    mocks.completeCheckRun.mockResolvedValue(true);
-    mocks.reviewCheckDetailsUrl.mockImplementation(
-      (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
-        summaryCommentId == null
-          ? undefined
-          : `https://github.com/${owner}/${repo}/pull/${prNumber}#issuecomment-${summaryCommentId}`,
-    );
     mockRepositoryView();
     mockDurableExecution("slash");
   });
@@ -351,10 +360,10 @@ describe("executeReviewJob", () => {
   it("ensures a review check run before the long review", async () => {
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.ensureCheckRunStarted).toHaveBeenCalledWith(
+    expect(reviewCheckRun.ensureReviewCheckRunStarted).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        token: "tok",
+        prSurface: durableSurfaceBundle.surface,
         owner: "o",
         repo: "r",
         prNumber: 1,
@@ -390,7 +399,7 @@ describe("executeReviewJob", () => {
   });
 
   it("routes a stale-head gate stop through the existing slash reschedule path", async () => {
-    mocks.getPullRequestHeadSha.mockResolvedValueOnce("new-head");
+    durableSurfaceBundle.controls.setHeadSha("new-head");
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
@@ -403,14 +412,13 @@ describe("executeReviewJob", () => {
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ id: "wi-1" }),
-      "tok",
-      expect.any(Number),
+      durableSurfaceBundle.surface,
     );
   });
 
   it("routes a stale-head gate stop through reschedule for auto reviews", async () => {
     mockDurableExecution("auto");
-    mocks.getPullRequestHeadSha.mockResolvedValueOnce("new-head");
+    vi.spyOn(durableSurfaceBundle.surface, "getHeadSha").mockResolvedValue("new-head");
     mocks.runOrchestratedPrReview.mockImplementationOnce(async (params) => {
       const gate = await params.gate.check();
       expect(gate).toEqual({ kind: "stop", reason: "stale_head" });
@@ -423,13 +431,12 @@ describe("executeReviewJob", () => {
     expect(mocks.buildStaleReschedule).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({ id: "wi-1", source: "auto" }),
-      "tok",
-      expect.any(Number),
+      durableSurfaceBundle.surface,
     );
   });
 
   it("preserves superseded gate stops without checking the pull request head", async () => {
-    mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    mocks.shouldSkipWork.mockResolvedValue(true);
     mocks.getWorkItem.mockResolvedValueOnce(
       makeReviewWorkItem({ id: "wi-1", source: "auto", status: "running" }),
     );
@@ -441,12 +448,16 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.getPullRequestHeadSha).not.toHaveBeenCalled();
+    expect(
+      durableSurfaceBundle.controls.events.some(
+        (event: FakePrSurfaceEvent) => event.kind === "getHeadSha",
+      ),
+    ).toBe(false);
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
   });
 
   it("maps slash /cancel into a cancelled gate stop with attribution", async () => {
-    mocks.shouldSkipWork.mockResolvedValueOnce(true);
+    mocks.shouldSkipWork.mockResolvedValue(true);
     mocks.getWorkItem.mockResolvedValueOnce(
       makeReviewWorkItem({
         id: "wi-1",
@@ -471,9 +482,13 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.getPullRequestHeadSha).not.toHaveBeenCalled();
+    expect(
+      durableSurfaceBundle.controls.events.some(
+        (event: FakePrSurfaceEvent) => event.kind === "getHeadSha",
+      ),
+    ).toBe(false);
     expect(mocks.buildStaleReschedule).not.toHaveBeenCalled();
-    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         conclusion: "cancelled",
@@ -483,11 +498,12 @@ describe("executeReviewJob", () => {
 
   it("runs auto preflight and lightweight completion before full review", async () => {
     mockDurableExecution("auto");
-    mocks.lightweight.mockResolvedValue({ handled: true, published: true });
+    const listChangedFiles = mockAutoPrFiles();
+    mocks.lightweight.mockResolvedValue({ handled: true, published: true, summaryId: 42 });
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.fetchPrFiles).toHaveBeenCalledTimes(1);
+    expect(listChangedFiles).toHaveBeenCalledTimes(1);
     expect(mocks.lightweight).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
@@ -501,7 +517,7 @@ describe("executeReviewJob", () => {
     );
     expect(mocks.withPrRepositoryView).not.toHaveBeenCalled();
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
-    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         conclusion: "success",
@@ -519,7 +535,7 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         conclusion: "failure",
@@ -685,7 +701,7 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         conclusion: "cancelled",
@@ -695,7 +711,6 @@ describe("executeReviewJob", () => {
   });
 
   it("completes an existing check as failure from the terminal failure hook", async () => {
-    vi.spyOn(reviewPublish, "findIssueCommentBySentinel").mockResolvedValue(null);
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
@@ -710,7 +725,7 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         conclusion: "failure",
@@ -721,12 +736,11 @@ describe("executeReviewJob", () => {
   });
 
   it("skips failure notice when a summary sentinel already exists on GitHub", async () => {
-    vi.spyOn(reviewPublish, "findIssueCommentBySentinel").mockResolvedValue({
-      id: 4242,
-      url: "https://github.test/comment/4242",
-      body: "landed",
-    });
-    const upsert = vi.spyOn(reviewPublish, "upsertReviewSummaryComment");
+    durableSurfaceBundle.controls.setProgressComment(
+      REVIEW_SUMMARY_SENTINEL,
+      "landed",
+      4242,
+    );
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
@@ -741,13 +755,16 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(upsert).not.toHaveBeenCalled();
-    expect(mocks.completeCheckRun).not.toHaveBeenCalled();
+    expect(
+      durableSurfaceBundle.controls.events.filter(
+        (event: FakePrSurfaceEvent) => event.kind === "upsertProgressComment",
+      ),
+    ).toHaveLength(0);
+    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
   });
 
   it("does not overwrite a completed summary from the terminal failure hook", async () => {
     mocks.hasCompletedPublishStep.mockResolvedValueOnce(true);
-    const upsert = vi.spyOn(reviewPublish, "upsertReviewSummaryComment");
     vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
       await spec.onTerminalFailure?.(
         makeItem("slash"),
@@ -769,8 +786,12 @@ describe("executeReviewJob", () => {
       "review",
       "summary_comment",
     );
-    expect(upsert).not.toHaveBeenCalled();
-    expect(mocks.completeCheckRun).not.toHaveBeenCalled();
+    expect(
+      durableSurfaceBundle.controls.events.filter(
+        (event: FakePrSurfaceEvent) => event.kind === "upsertProgressComment",
+      ),
+    ).toHaveLength(0);
+    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
   });
 
   it("completes an existing check as cancelled from the durable cancellation hook", async () => {
@@ -788,7 +809,7 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.completeCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
         conclusion: "cancelled",
@@ -801,10 +822,11 @@ describe("executeReviewJob", () => {
 
   it("passes auto preflight files into repository preparation", async () => {
     mockDurableExecution("auto");
+    const listChangedFiles = mockAutoPrFiles();
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(mocks.fetchPrFiles).toHaveBeenCalledTimes(1);
+    expect(listChangedFiles).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView).toHaveBeenCalledTimes(1);
     expect(mocks.withPrRepositoryView.mock.calls[0]?.[0]).toMatchObject({
       prFiles,
@@ -1031,7 +1053,7 @@ describe("executeReviewJob", () => {
           expiresAtTs: Date.now() + 60_000,
           ttlMs: 60_000,
         },
-        prSurface: fakeDurablePrSurface(),
+        prSurface: durableSurfaceBundle.surface,
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,
@@ -1058,7 +1080,7 @@ describe("executeReviewJob", () => {
           expiresAtTs: Date.now() + 60_000,
           ttlMs: 60_000,
         },
-        prSurface: fakeDurablePrSurface(),
+        prSurface: durableSurfaceBundle.surface,
         headSha: "head",
         executionEpoch: 1,
         signal: new AbortController().signal,

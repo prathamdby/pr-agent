@@ -7,6 +7,8 @@ import {
 import { buildPublishThreadTool } from "../src/review/orchestrator/publishThreadTool.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { cachedDiffForLines } from "./helpers/reviewPublishTestHelpers.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+import type { PrSurface } from "../src/github/prSurface.js";
 
 const settingsOverrides = vi.hoisted((): { maxThreadPublishCalls: number | undefined } => ({
   maxThreadPublishCalls: undefined,
@@ -22,19 +24,7 @@ vi.mock("../src/settings/index.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
-  let reviewId = 100;
-  return {
-    ...actual,
-    createPullRequestReviewWithComments: vi.fn(async () => {
-      reviewId += 1;
-      return { id: reviewId, url: `https://example.com/reviews/${reviewId}` };
-    }),
-  };
-});
-
-import { createPullRequestReviewWithComments } from "../src/github/reviewPublish.js";
+let nextReviewId = 100;
 
 function finding(line: number): ReviewFinding {
   return {
@@ -48,8 +38,19 @@ function finding(line: number): ReviewFinding {
   };
 }
 
-function buildTool(getToken: () => string, shouldAbortPublish?: () => Promise<boolean>) {
-  return buildPublishThreadTool({
+function buildTool(
+  shouldAbortPublish?: () => Promise<boolean>,
+  publishImpl?: PrSurface["publishThreadBatch"],
+) {
+  const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+  const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch").mockImplementation(
+    publishImpl ??
+      (async () => {
+        nextReviewId += 1;
+        return { reviewId: nextReviewId, reviewUrl: `https://example.com/reviews/${nextReviewId}` };
+      }),
+  );
+  const tool = buildPublishThreadTool({
     phaseRef: createOrchestratorPhaseRef("judgment"),
     ctx: {
       owner: "o",
@@ -60,22 +61,24 @@ function buildTool(getToken: () => string, shouldAbortPublish?: () => Promise<bo
     },
     workItemId: "wi-1",
     resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
-    getToken,
+    prSurface: surface,
     cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
     recordPublishStep: vi.fn(async () => undefined),
     shouldAbortPublish,
     initialLedger: createFindingLedger(),
   });
+  return { tool, publishThreadBatch };
 }
 
 describe("buildPublishThreadTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    nextReviewId = 100;
     settingsOverrides.maxThreadPublishCalls = undefined;
   });
 
   it("carries the finding ledger across calls and reports same-file published threads", async () => {
-    const tool = buildTool(() => "token");
+    const { tool, publishThreadBatch } = buildTool();
     tool.setSource("correctness");
 
     const first = await tool.executor({ findings: [finding(10)] });
@@ -100,7 +103,7 @@ describe("buildPublishThreadTool", () => {
         expect.objectContaining({ startLine: 20 }),
       ],
     });
-    expect(createPullRequestReviewWithComments).toHaveBeenCalledTimes(2);
+    expect(publishThreadBatch).toHaveBeenCalledTimes(2);
     expect(tool.getLedger().accepted).toHaveLength(2);
     expect(tool.getLedger().accepted.map((placement) => placement.source)).toEqual([
       "correctness",
@@ -113,7 +116,7 @@ describe("buildPublishThreadTool", () => {
 
   it("retains budget-exhausted findings as summary-only ledger entries", async () => {
     settingsOverrides.maxThreadPublishCalls = 1;
-    const tool = buildTool(() => "token");
+    const { tool } = buildTool();
     tool.setSource("security");
 
     await tool.executor({ findings: [finding(10)] });
@@ -132,23 +135,8 @@ describe("buildPublishThreadTool", () => {
     expect(tool.getPublishedBatchCount()).toBe(1);
   });
 
-  it("reads the live token getter for each publish call", async () => {
-    let token = "first-token";
-    const tool = buildTool(() => token);
-    tool.setSource("quality");
-
-    await tool.executor({ findings: [finding(10)] });
-    token = "refreshed-token";
-    await tool.executor({ findings: [finding(20)] });
-
-    expect(vi.mocked(createPullRequestReviewWithComments).mock.calls[0]?.[0]).toBe("first-token");
-    expect(vi.mocked(createPullRequestReviewWithComments).mock.calls[1]?.[0]).toBe(
-      "refreshed-token",
-    );
-  });
-
   it("rejects malformed calls and calls made before a specialist source is selected", async () => {
-    const tool = buildTool(() => "token");
+    const { tool, publishThreadBatch } = buildTool();
 
     await expect(tool.executor({ findings: "not-an-array" })).rejects.toMatchObject({
       code: "review.publish_thread_validation_failed",
@@ -158,10 +146,12 @@ describe("buildPublishThreadTool", () => {
     });
     expect(tool.getLedger()).toEqual(createFindingLedger());
     expect(tool.getPublishedBatchCount()).toBe(0);
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("rejects wrong-phase calls before publish with a structured shape", async () => {
+    const { surface } = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    const publishThreadBatch = vi.spyOn(surface, "publishThreadBatch");
     const tool = buildPublishThreadTool({
       phaseRef: createOrchestratorPhaseRef("recon"),
       ctx: {
@@ -173,7 +163,7 @@ describe("buildPublishThreadTool", () => {
       },
       workItemId: "wi-1",
       resolveProgressCommentUrl: async () => "https://github.com/o/r/pull/1#issuecomment-99",
-      getToken: () => "token",
+      prSurface: surface,
       cachedDiffIndex: cachedDiffForLines("src/a.ts", [10, 20]),
       recordPublishStep: vi.fn(async () => undefined),
       initialLedger: createFindingLedger(),
@@ -189,28 +179,24 @@ describe("buildPublishThreadTool", () => {
       error: expect.stringContaining("publish_thread"),
     });
     expect(tool.getLedger()).toEqual(createFindingLedger());
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("leaves the ledger unchanged when the publish gate stops the call", async () => {
-    const tool = buildTool(
-      () => "token",
-      async () => true,
-    );
+    const { tool, publishThreadBatch } = buildTool(async () => true);
     tool.setSource("tests");
 
     const result = await tool.executor({ findings: [finding(10)] });
 
     expect(result.kind).toBe("stopped");
     expect(tool.getLedger()).toEqual(createFindingLedger());
-    expect(createPullRequestReviewWithComments).not.toHaveBeenCalled();
+    expect(publishThreadBatch).not.toHaveBeenCalled();
   });
 
   it("leaves the ledger unchanged when GitHub publish throws", async () => {
-    vi.mocked(createPullRequestReviewWithComments).mockRejectedValueOnce(
-      new Error("GitHub unavailable"),
-    );
-    const tool = buildTool(() => "token");
+    const { tool, publishThreadBatch } = buildTool(undefined, async () => {
+      throw new Error("GitHub unavailable");
+    });
     tool.setSource("quality");
 
     await expect(tool.executor({ findings: [finding(10)] })).rejects.toMatchObject({
@@ -219,5 +205,6 @@ describe("buildPublishThreadTool", () => {
 
     expect(tool.getLedger()).toEqual(createFindingLedger());
     expect(tool.getPublishedBatchCount()).toBe(0);
+    expect(publishThreadBatch).toHaveBeenCalledTimes(1);
   });
 });

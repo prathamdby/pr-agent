@@ -215,7 +215,7 @@ export type ResolvedSummaryCommentRef = IssueCommentRef & {
   source: "hint" | "scan";
 };
 
-async function getIssueCommentIfSentinel(
+export async function getIssueCommentIfSentinel(
   token: string,
   owner: string,
   repo: string,

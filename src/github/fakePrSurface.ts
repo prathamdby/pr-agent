@@ -18,7 +18,25 @@ export type FakePrSurfaceEvent =
       readonly reaction: GithubReactionContent;
     }
   | { readonly kind: "replyAt"; readonly target: ReplyTarget; readonly body: string }
-  | { readonly kind: "upsertProgressComment"; readonly body: string; readonly sentinel: string }
+  | { readonly kind: "findProgressComment"; readonly sentinel: string }
+  | {
+      readonly kind: "resolveProgressComment";
+      readonly sentinel: string;
+      readonly hintCommentId?: number | null;
+    }
+  | {
+      readonly kind: "upsertProgressComment";
+      readonly body: string;
+      readonly sentinel: string;
+      readonly knownExisting?: { readonly id: number; readonly url?: string } | null;
+    }
+  | { readonly kind: "listPullRequestReviewComments" }
+  | {
+      readonly kind: "setReviewCommitStatus";
+      readonly headSha: string;
+      readonly status: { readonly state: string; readonly description: string; readonly targetUrl?: string };
+    }
+  | { readonly kind: "fetchPriorInlineFeedback"; readonly botUserId: number }
   | { readonly kind: "editComment"; readonly commentId: number; readonly body: string }
   | { readonly kind: "publishThreadBatch"; readonly review: ThreadBatchReview }
   | { readonly kind: "listInlineReviewThreads" }
@@ -67,6 +85,16 @@ export type FakePrSurfaceControls = {
   ) => void;
   readonly setJobLogs: (jobId: number, text: string) => void;
   readonly setThreads: (threads: Map<number, ReviewThreadResolution>) => void;
+  readonly setPriorInlineFeedback: (
+    threads: Array<{
+      readonly path: string;
+      readonly startLine: number;
+      readonly endLine: number;
+      readonly botTitleSnippet: string;
+      readonly humanReplies: readonly string[];
+      readonly threadUrl: string;
+    }>,
+  ) => void;
 };
 
 type FakePrSurfaceOptions = {
@@ -121,6 +149,15 @@ export function createFakePrSurface(
     }>
   >();
   const jobLogs = new Map<number, string>();
+  let priorInlineFeedback: Array<{
+    readonly path: string;
+    readonly startLine: number;
+    readonly endLine: number;
+    readonly botTitleSnippet: string;
+    readonly humanReplies: readonly string[];
+    readonly threadUrl: string;
+  }> = [];
+  let reviewComments: Array<{ path: string; line: number; id: number; url: string }> = [];
 
   const controls: FakePrSurfaceControls = {
     events,
@@ -179,6 +216,9 @@ export function createFakePrSurface(
         threads.set(key, value);
       }
     },
+    setPriorInlineFeedback(next) {
+      priorInlineFeedback = [...next];
+    },
   };
 
   const surface: PrSurface = {
@@ -213,8 +253,35 @@ export function createFakePrSurface(
       return { commentId };
     },
 
-    async upsertProgressComment(body, sentinel) {
-      events.push({ kind: "upsertProgressComment", body, sentinel });
+    async findProgressComment(sentinel) {
+      events.push({ kind: "findProgressComment", sentinel });
+      const comment = controls.getProgressComment(sentinel);
+      if (comment == null) return null;
+      const stored = issueComments.get(comment.id);
+      return stored ? { id: stored.id, url: stored.url, body: stored.body } : null;
+    },
+
+    async resolveProgressComment(sentinel, hintCommentId) {
+      events.push({ kind: "resolveProgressComment", sentinel, hintCommentId });
+      if (hintCommentId != null) {
+        const hinted = issueComments.get(hintCommentId);
+        if (hinted?.body.includes(sentinel)) {
+          return { id: hinted.id, url: hinted.url, body: hinted.body };
+        }
+      }
+      return this.findProgressComment(sentinel);
+    },
+
+    async upsertProgressComment(body, sentinel, knownExisting) {
+      events.push({ kind: "upsertProgressComment", body, sentinel, knownExisting });
+      if (knownExisting != null) {
+        const existing = issueComments.get(knownExisting.id);
+        if (existing != null) {
+          issueComments.set(knownExisting.id, { ...existing, body });
+          progressBySentinel.set(sentinel, knownExisting.id);
+          return { id: knownExisting.id, updated: true };
+        }
+      }
       const existingId = progressBySentinel.get(sentinel);
       if (existingId != null) {
         const existing = issueComments.get(existingId);
@@ -238,6 +305,20 @@ export function createFakePrSurface(
         url: `https://github.com/${params.owner}/${params.repo}/issues/${params.prNumber}#issuecomment-${commentId}`,
       });
       return { id: commentId, updated: false };
+    },
+
+    async listPullRequestReviewComments() {
+      events.push({ kind: "listPullRequestReviewComments" });
+      return { comments: reviewComments, truncated: false };
+    },
+
+    async setReviewCommitStatus(headShaArg, status) {
+      events.push({ kind: "setReviewCommitStatus", headSha: headShaArg, status });
+    },
+
+    async fetchPriorInlineFeedback(botUserId) {
+      events.push({ kind: "fetchPriorInlineFeedback", botUserId });
+      return priorInlineFeedback;
     },
 
     async editComment(commentId, body) {

@@ -25,8 +25,31 @@ export type PullRequestHeadResolution = {
 };
 
 export type PostedReply = { readonly commentId: number };
-export type IssueCommentRef = { readonly id: number; readonly url?: string };
+export type IssueCommentRef = { readonly id: number; readonly url?: string; readonly body?: string };
 export type ProgressCommentUpsert = { readonly id: number; readonly updated: boolean };
+export type PublishedReviewCommentRef = {
+  readonly path: string;
+  readonly line: number;
+  readonly id: number;
+  readonly url: string;
+};
+export type ListPullRequestReviewCommentsResult = {
+  readonly comments: readonly PublishedReviewCommentRef[];
+  readonly truncated: boolean;
+};
+export type ReviewCommitStatusParams = {
+  readonly state: "success" | "failure" | "error";
+  readonly description: string;
+  readonly targetUrl?: string;
+};
+export type PriorInlineFeedbackEntry = {
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+  readonly botTitleSnippet: string;
+  readonly humanReplies: readonly string[];
+  readonly threadUrl: string;
+};
 export type ThreadBatchReview = {
   readonly body: string;
   readonly event: "APPROVE" | "REQUEST_CHANGES" | "COMMENT";
@@ -69,8 +92,20 @@ export type PrSurface = {
     kind: GithubReactionContent,
   ): Promise<void>;
   replyAt(target: ReplyTarget, body: string): Promise<PostedReply>;
-  upsertProgressComment(body: string, sentinel: string): Promise<ProgressCommentUpsert>;
+  findProgressComment(sentinel: string): Promise<IssueCommentRef | null>;
+  resolveProgressComment(
+    sentinel: string,
+    hintCommentId?: number | null,
+  ): Promise<IssueCommentRef | null>;
+  upsertProgressComment(
+    body: string,
+    sentinel: string,
+    knownExisting?: IssueCommentRef | null,
+  ): Promise<ProgressCommentUpsert>;
   editComment(commentId: number, body: string): Promise<void>;
+  listPullRequestReviewComments(): Promise<ListPullRequestReviewCommentsResult>;
+  setReviewCommitStatus(headSha: string, params: ReviewCommitStatusParams): Promise<void>;
+  fetchPriorInlineFeedback(botUserId: number): Promise<readonly PriorInlineFeedbackEntry[]>;
   publishThreadBatch(review: ThreadBatchReview): Promise<PublishedBatch>;
   listInlineReviewThreads(): Promise<ListReviewThreadResolutionResult>;
   resolveInlineReviewThread(threadId: string): Promise<void>;

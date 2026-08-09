@@ -11,13 +11,15 @@ import {
 } from "../src/agentWork/reviewReschedule.js";
 import type { ReviewWorkItem } from "../src/agentWork/types.js";
 import { makeReviewWorkItem } from "./helpers/agentWorkItems.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+
+function prSurfaceWithHead(headSha: string) {
+  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }, { headSha }).surface;
+}
 
 vi.mock("../src/agentWork/repository.js", () => ({
   getWorkItem: vi.fn(),
   markQueuedWorkCancelled: vi.fn(),
-}));
-vi.mock("../src/agentWork/githubPrSurface.js", () => ({
-  getPullRequestHeadSha: vi.fn(),
 }));
 vi.mock("../src/db/postgres.js", () => ({
   inTransaction: async (
@@ -34,7 +36,6 @@ vi.mock("../src/evlog.js", () => ({
 }));
 
 import { getWorkItem, markQueuedWorkCancelled } from "../src/agentWork/repository.js";
-import { getPullRequestHeadSha } from "../src/agentWork/githubPrSurface.js";
 import * as evlog from "../src/evlog.js";
 
 function makeItem(
@@ -130,7 +131,6 @@ describe("createReviewRescheduleWorkItem", () => {
   });
 
   it("preserves auto source on the replacement work item and ack", async () => {
-    vi.mocked(getPullRequestHeadSha).mockResolvedValue("newhead");
     const query = vi
       .fn()
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "newhead" }] })
@@ -149,7 +149,7 @@ describe("createReviewRescheduleWorkItem", () => {
       },
     });
 
-    const result = await buildStaleReviewRescheduleResult(pool, parent, "token");
+    const result = await buildStaleReviewRescheduleResult(pool, parent, prSurfaceWithHead("newhead"));
     expect(query.mock.calls[0]?.[1]?.[2]).toBe("auto");
     await result.afterComplete(boss, "active-job");
 
@@ -182,7 +182,6 @@ describe("createReviewRescheduleWorkItem", () => {
   });
 
   it("uses the persisted replacement head for the ack after an insert conflict", async () => {
-    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
     const query = vi
       .fn()
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
@@ -202,7 +201,7 @@ describe("createReviewRescheduleWorkItem", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      "token",
+      prSurfaceWithHead("latest-head"),
     );
     await result.afterComplete(boss, "active-job");
 
@@ -512,7 +511,6 @@ describe("cancelUnenqueuedStaleHeadReplacement", () => {
 
 describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
   it("cancels un-enqueued replacement when afterComplete never ran", async () => {
-    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
     vi.mocked(markQueuedWorkCancelled).mockResolvedValue(true);
     const query = vi.fn().mockResolvedValue({
       rowCount: 1,
@@ -531,7 +529,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      "token",
+      prSurfaceWithHead("latest-head"),
     );
     await result.onRescheduleAbort(boss, boom);
 
@@ -539,7 +537,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
   });
 
   it("does not cancel after afterComplete marks the replacement enqueued", async () => {
-    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
     const query = vi
       .fn()
       .mockResolvedValueOnce({ rowCount: 1, rows: [{ head_sha: "persisted-head" }] })
@@ -559,7 +556,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementWorkItemId: "existing-replacement",
         },
       }),
-      "token",
+      prSurfaceWithHead("latest-head"),
     );
     await result.afterComplete(boss, "active-job");
     await result.onRescheduleAbort(boss, new Error("should not cancel"));
@@ -568,7 +565,6 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
   });
 
   it("does not trust a persisted enqueue marker before jobs are verified", async () => {
-    vi.mocked(getPullRequestHeadSha).mockResolvedValue("latest-head");
     const query = vi.fn().mockResolvedValue({
       rowCount: 1,
       rows: [{ head_sha: "latest-head" }],
@@ -586,7 +582,7 @@ describe("buildStaleReviewRescheduleResult onRescheduleAbort", () => {
           staleHeadReplacementEnqueued: true,
         },
       }),
-      "token",
+      prSurfaceWithHead("latest-head"),
     );
     const error = new Error("parent failed");
     await result.onRescheduleAbort(boss, error);

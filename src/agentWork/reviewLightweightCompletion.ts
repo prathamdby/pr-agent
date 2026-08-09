@@ -5,10 +5,7 @@ import { renderLightweightReviewCompletion } from "../review/run/reviewRender.js
 import { resolveReviewWallClockMs } from "../review/run/reviewRunFooter.js";
 import { snapshotReviewRunMetrics } from "../review/run/reviewRunMetrics.js";
 import { REVIEW_SUMMARY_SENTINEL, type ReviewMode } from "../review/reviewSchema.js";
-import {
-  resolveVerifiedSummaryCommentRef,
-  upsertReviewSummaryComment,
-} from "../github/reviewPublish.js";
+import type { PrSurface } from "../github/prSurface.js";
 import { getSummaryCommentGithubId, recordPublishStep, shouldSkipWork } from "./repository.js";
 import type { AgentWorkItem } from "./types.js";
 
@@ -31,8 +28,7 @@ export async function tryLightweightAutoReviewCompletion(
   params: {
     item: AgentWorkItem;
     reviewLens: ReviewMode;
-    token: string;
-    tokenExpiresAtTs?: number;
+    prSurface: PrSurface;
     preflight: ReviewPreflightMetadata;
     model: string;
     executionEpoch: number;
@@ -65,29 +61,8 @@ export async function tryLightweightAutoReviewCompletion(
     params.item.resourceKey,
     params.reviewLens,
   );
-  const verified =
-    storedId != null
-      ? await resolveVerifiedSummaryCommentRef(
-          params.token,
-          params.item.owner,
-          params.item.repo,
-          params.item.prNumber,
-          sentinel,
-          storedId,
-          params.tokenExpiresAtTs,
-        )
-      : null;
-  const knownExisting = verified ? { id: verified.id, url: verified.url } : undefined;
-  const summary = await upsertReviewSummaryComment(
-    params.token,
-    params.item.owner,
-    params.item.repo,
-    params.item.prNumber,
-    body,
-    sentinel,
-    knownExisting,
-    params.tokenExpiresAtTs,
-  );
+  const knownExisting = await params.prSurface.resolveProgressComment(sentinel, storedId);
+  const summary = await params.prSurface.upsertProgressComment(body, sentinel, knownExisting);
   await recordPublishStep(pool, {
     workItemId: params.item.id,
     resourceKey: params.item.resourceKey,

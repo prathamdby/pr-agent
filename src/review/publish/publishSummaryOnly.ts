@@ -19,15 +19,7 @@ import {
   reviewCheckRunOutcome,
 } from "../../agentWork/reviewCheckRun.js";
 import { logDebug, logWarn } from "../../evlog.js";
-import {
-  findIssueCommentBySentinel,
-  listPullRequestLabels,
-  listPullRequestReviewComments,
-  resolveVerifiedSummaryCommentRef,
-  setPullRequestLabels,
-  setReviewCommitStatus,
-  upsertReviewSummaryComment,
-} from "../../github/reviewPublish.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import {
   REVIEW_CI_SUMMARY_MAX_FAILURES,
   REVIEW_CI_SUMMARY_WAIT_MS,
@@ -35,7 +27,7 @@ import {
   REVIEW_PUBLISH_TRANSIENT_RETRY_DELAYS_MS,
 } from "../../settings/index.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
-import { buildCiSummary } from "../ci/analyzeCi.js";
+import { buildCiSummaryForSurface } from "../ci/analyzeCi.js";
 import type { CiSummaryAuthor } from "../ci/authorCiSummary.js";
 import { preserveCiSummaryRowInCommentBody } from "../ci/renderCiSummary.js";
 import type { FindingLedger, ReviewCoverage } from "../orchestrator/orchestratorTypes.js";
@@ -82,24 +74,12 @@ export function attachSummaryCommentCoordination(
 }
 
 async function resolveKnownSummaryCommentRef(
-  token: string,
-  owner: string,
-  repo: string,
-  prNumber: number,
+  prSurface: PrSurface,
   sentinel: string,
   hintCommentId: number | null | undefined,
-  expiresAtTs?: number,
 ): Promise<{ id: number; url: string } | null> {
-  const resolved = await resolveVerifiedSummaryCommentRef(
-    token,
-    owner,
-    repo,
-    prNumber,
-    sentinel,
-    hintCommentId,
-    expiresAtTs,
-  );
-  return resolved ? { id: resolved.id, url: resolved.url } : null;
+  const resolved = await prSurface.resolveProgressComment(sentinel, hintCommentId);
+  return resolved ? { id: resolved.id, url: resolved.url ?? "" } : null;
 }
 
 type ProgressCommentRevision = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -115,13 +95,9 @@ type SummaryCommentUpsertParams = {
   workItemId?: string;
   resourceKey: string;
   reviewLens: AnyReviewLens;
-  token: string;
-  owner: string;
-  repo: string;
-  prNumber: number;
+  prSurface: PrSurface;
   body: string;
   sentinel: string;
-  expiresAtTs?: number;
   hintCommentId?: number | null;
   progressRevision?: ProgressCommentRevision;
 };
@@ -129,85 +105,24 @@ type SummaryCommentUpsertParams = {
 async function upsertSummaryCommentWithoutRevision(
   params: SummaryCommentUpsertParams,
 ): Promise<SummaryCommentUpsertResult> {
-  const {
-    pool,
-    workItemId,
-    resourceKey,
-    reviewLens,
-    token,
-    owner,
-    repo,
-    prNumber,
-    body,
-    sentinel,
-    expiresAtTs,
-  } = params;
+  const { pool, workItemId, resourceKey, reviewLens, prSurface, body, sentinel } = params;
 
   const storedId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
   const hintId = params.hintCommentId ?? storedId ?? null;
-  const knownFromStored = await resolveKnownSummaryCommentRef(
-    token,
-    owner,
-    repo,
-    prNumber,
-    sentinel,
-    hintId,
-    expiresAtTs,
-  );
+  const knownFromStored = await resolveKnownSummaryCommentRef(prSurface, sentinel, hintId);
   if (knownFromStored) {
-    return upsertReviewSummaryComment(
-      token,
-      owner,
-      repo,
-      prNumber,
-      body,
-      sentinel,
-      knownFromStored,
-      expiresAtTs,
-    );
+    return prSurface.upsertProgressComment(body, sentinel, knownFromStored);
   }
 
   if (workItemId == null) {
-    const scanned = await findIssueCommentBySentinel(
-      token,
-      owner,
-      repo,
-      prNumber,
-      sentinel,
-      expiresAtTs,
-    );
-    return upsertReviewSummaryComment(
-      token,
-      owner,
-      repo,
-      prNumber,
-      body,
-      sentinel,
-      scanned,
-      expiresAtTs,
-    );
+    const scanned = await prSurface.findProgressComment(sentinel);
+    return prSurface.upsertProgressComment(body, sentinel, scanned);
   }
 
   const claimWon = await claimSummaryCommentCreation(pool, workItemId, resourceKey, reviewLens);
   if (claimWon) {
-    const scanned = await findIssueCommentBySentinel(
-      token,
-      owner,
-      repo,
-      prNumber,
-      sentinel,
-      expiresAtTs,
-    );
-    return upsertReviewSummaryComment(
-      token,
-      owner,
-      repo,
-      prNumber,
-      body,
-      sentinel,
-      scanned,
-      expiresAtTs,
-    );
+    const scanned = await prSurface.findProgressComment(sentinel);
+    return prSurface.upsertProgressComment(body, sentinel, scanned);
   }
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -220,47 +135,14 @@ async function upsertSummaryCommentWithoutRevision(
     }
     const polledId = await getSummaryCommentGithubId(pool, resourceKey, reviewLens);
     if (polledId == null) continue;
-    const knownFromPoll = await resolveKnownSummaryCommentRef(
-      token,
-      owner,
-      repo,
-      prNumber,
-      sentinel,
-      polledId,
-      expiresAtTs,
-    );
+    const knownFromPoll = await resolveKnownSummaryCommentRef(prSurface, sentinel, polledId);
     if (knownFromPoll) {
-      return upsertReviewSummaryComment(
-        token,
-        owner,
-        repo,
-        prNumber,
-        body,
-        sentinel,
-        knownFromPoll,
-        expiresAtTs,
-      );
+      return prSurface.upsertProgressComment(body, sentinel, knownFromPoll);
     }
   }
 
-  const scanned = await findIssueCommentBySentinel(
-    token,
-    owner,
-    repo,
-    prNumber,
-    sentinel,
-    expiresAtTs,
-  );
-  return upsertReviewSummaryComment(
-    token,
-    owner,
-    repo,
-    prNumber,
-    body,
-    sentinel,
-    scanned,
-    expiresAtTs,
-  );
+  const scanned = await prSurface.findProgressComment(sentinel);
+  return prSurface.upsertProgressComment(body, sentinel, scanned);
 }
 
 async function upsertSummaryCommentAtRevision(
@@ -272,16 +154,9 @@ async function upsertSummaryCommentAtRevision(
   const [progressOwner, storedRevision, currentComment] = await Promise.all([
     getProgressCommentOwner(client, params.resourceKey, params.reviewLens),
     getProgressCommentRevision(client, params.resourceKey, params.reviewLens),
-    findIssueCommentBySentinel(
-      params.token,
-      params.owner,
-      params.repo,
-      params.prNumber,
-      params.sentinel,
-      params.expiresAtTs,
-    ),
+    params.prSurface.findProgressComment(params.sentinel),
   ]);
-  const bodyRevision = currentComment ? parseProgressRevisionState(currentComment.body) : null;
+  const bodyRevision = currentComment ? parseProgressRevisionState(currentComment.body ?? "") : null;
   // Authoritative ownership lives on the progress publish record (reassigned at intake).
   // Stale writers whose work item no longer owns the record must not overwrite.
   if (
@@ -419,9 +294,7 @@ export type PublishSummaryOnlyResult =
 export async function publishReviewSummaryOnly(params: {
   readonly cfg: Pick<Config, "piModel" | "features">;
   readonly ctx: ReviewPublishContext;
-  readonly getToken: () => string;
-  readonly getTokenExpiresAtTs?: () => number | undefined;
-  readonly refreshLiveAuth?: () => Promise<void>;
+  readonly prSurface: PrSurface;
   readonly payload: ReviewPayload;
   readonly ledger: FindingLedger;
   readonly mode?: AnyReviewLens;
@@ -454,18 +327,12 @@ export async function publishReviewSummaryOnly(params: {
   const placementsNeedingUrls = summaryPlacements.some(
     (placement) => placement.inlinePosted && placement.inlineCommentUrl == null,
   );
-  let reviewComments: Awaited<ReturnType<typeof listPullRequestReviewComments>>["comments"] = [];
+  let reviewComments: Awaited<
+    ReturnType<PrSurface["listPullRequestReviewComments"]>
+  >["comments"] = [];
   if (placementsNeedingUrls) {
     try {
-      const token = params.getToken();
-      const tokenExpiresAtTs = params.getTokenExpiresAtTs?.();
-      const listed = await listPullRequestReviewComments(
-        token,
-        owner,
-        repo,
-        prNumber,
-        tokenExpiresAtTs,
-      );
+      const listed = await params.prSurface.listPullRequestReviewComments();
       reviewComments = listed.comments;
       if (listed.truncated) {
         logWarn("review_inline_comment_urls_truncated", {
@@ -493,14 +360,8 @@ export async function publishReviewSummaryOnly(params: {
 
   const metricsSnapshot = snapshotReviewRunMetrics();
   const summaryCoordination = params.recordPublishStep?.summaryCommentCoordination;
-  const ciToken = params.getToken();
-  const ciTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
-  const ciSummary = await buildCiSummary({
-    token: ciToken,
-    owner,
-    repo,
+  const ciSummary = await buildCiSummaryForSurface(params.prSurface, {
     headSha,
-    expiresAtTs: ciTokenExpiresAtTs,
     waitMs: Math.max(
       0,
       Math.min(REVIEW_CI_SUMMARY_WAIT_MS, params.remainingFinalizationMs?.() ?? Infinity),
@@ -548,59 +409,33 @@ export async function publishReviewSummaryOnly(params: {
     };
   }
 
-  await params.refreshLiveAuth?.();
-  const summaryToken = params.getToken();
-  const summaryTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
   let knownSummaryCommentRef: { id: number; url: string } | null = null;
   if (params.shouldLinkToSummary) {
-    const resolvedSummary = await resolveVerifiedSummaryCommentRef(
-      summaryToken,
-      owner,
-      repo,
-      prNumber,
+    const resolvedSummary = await params.prSurface.resolveProgressComment(
       summarySentinel,
       params.progressCommentIdHint,
-      summaryTokenExpiresAtTs,
     );
     knownSummaryCommentRef = resolvedSummary
-      ? { id: resolvedSummary.id, url: resolvedSummary.url }
+      ? { id: resolvedSummary.id, url: resolvedSummary.url ?? "" }
       : null;
   }
 
-  await params.refreshLiveAuth?.();
-  const labelsToken = params.getToken();
-  const labelsTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
-  const labelsPromise = listPullRequestLabels(
-    labelsToken,
-    owner,
-    repo,
-    prNumber,
-    labelsTokenExpiresAtTs,
-  ).catch((error: unknown) => error);
+  const labelsPromise = params.prSurface.getLabels().catch((error: unknown) => error);
   const runSummaryUpsert = () =>
     summaryCoordination
       ? upsertSummaryCommentWithCreationClaim({
           ...summaryCoordination,
           reviewLens: mode,
-          token: summaryToken,
-          owner,
-          repo,
-          prNumber,
+          prSurface: params.prSurface,
           body: summaryBody,
           sentinel: summarySentinel,
-          expiresAtTs: summaryTokenExpiresAtTs,
           hintCommentId: params.progressCommentIdHint ?? knownSummaryCommentRef?.id,
           progressRevision: 7,
         })
-      : upsertReviewSummaryComment(
-          summaryToken,
-          owner,
-          repo,
-          prNumber,
+      : params.prSurface.upsertProgressComment(
           summaryBody,
           summarySentinel,
           knownSummaryCommentRef,
-          summaryTokenExpiresAtTs,
         );
   const summaryPromise =
     summaryCoordination == null
@@ -648,12 +483,8 @@ export async function publishReviewSummaryOnly(params: {
       : findingsOutcome;
   const targetUrl = reviewCheckDetailsUrl(owner, repo, prNumber, summary.id);
   if (summaryCoordination) {
-    await params.refreshLiveAuth?.();
-    const checkToken = params.getToken();
-    const checkTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
     await completeReviewCheckRun(summaryCoordination.pool, {
-      token: checkToken,
-      tokenExpiresAtTs: checkTokenExpiresAtTs,
+      prSurface: params.prSurface,
       owner,
       repo,
       prNumber,
@@ -668,26 +499,16 @@ export async function publishReviewSummaryOnly(params: {
 
   if (params.cfg.features.commitStatus) {
     try {
-      await params.refreshLiveAuth?.();
-      const commitStatusToken = params.getToken();
-      const commitStatusTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
-      await setReviewCommitStatus(
-        commitStatusToken,
-        owner,
-        repo,
-        headSha,
-        {
-          state:
-            coverage.kind === "partial"
-              ? "error"
-              : checkOutcome.conclusion === "failure"
-                ? "failure"
-                : "success",
-          description: checkOutcome.summary,
-          targetUrl,
-        },
-        commitStatusTokenExpiresAtTs,
-      );
+      await params.prSurface.setReviewCommitStatus(headSha, {
+        state:
+          coverage.kind === "partial"
+            ? "error"
+            : checkOutcome.conclusion === "failure"
+              ? "failure"
+              : "success",
+        description: checkOutcome.summary,
+        targetUrl,
+      });
     } catch (error) {
       logWarn("review_commit_status_failed", {
         mode,
@@ -739,17 +560,7 @@ export async function publishReviewSummaryOnly(params: {
       } else {
         const managed = reviewLabelsFromPayload(params.payload, options);
         const next = syncReviewLabels(currentLabels, managed);
-        await params.refreshLiveAuth?.();
-        const labelsWriteToken = params.getToken();
-        const labelsWriteTokenExpiresAtTs = params.getTokenExpiresAtTs?.();
-        await setPullRequestLabels(
-          labelsWriteToken,
-          owner,
-          repo,
-          prNumber,
-          next,
-          labelsWriteTokenExpiresAtTs,
-        );
+        await params.prSurface.setLabels(next);
         await params.recordPublishStep?.("labels", { meta: { labels: next } });
         logDebug("review_labels_synced", { owner, repo, pr: prNumber, labels: next });
       }

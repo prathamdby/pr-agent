@@ -17,12 +17,8 @@ import {
   type CiAuthorInput,
   type CiSummaryAuthor,
 } from "./authorCiSummary.js";
-import type {
-  CiCheckRunSnapshot,
-  CiFailureDetail,
-  CiLegacyStatus,
-  CiSummary,
-} from "./ciSummaryTypes.js";
+import type { CiCheckRunSnapshot, CiFailureDetail, CiLegacyStatus, CiSummary } from "./ciSummaryTypes.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import { fetchCiLogContext } from "./fetchCiLogContext.js";
 
 const OWN_CHECK_NAME_PREFIX = "PR Agent";
@@ -255,6 +251,19 @@ function buildAuthorInput(
     condensedLogs,
     checkOutputFallback,
   };
+}
+
+export async function buildCiSummaryForSurface(
+  prSurface: PrSurface,
+  options: Omit<BuildCiSummaryOptions, "token" | "expiresAtTs" | "owner" | "repo">,
+): Promise<CiSummary> {
+  const token = await prSurface.gitCredentialToken();
+  return buildCiSummary({
+    ...options,
+    token,
+    owner: prSurface.owner,
+    repo: prSurface.repo,
+  });
 }
 
 export async function buildCiSummary(options: BuildCiSummaryOptions): Promise<CiSummary> {

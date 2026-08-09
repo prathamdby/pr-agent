@@ -30,6 +30,7 @@ import {
 } from "../../agentWork/withOperationIntent.js";
 import { safeEmitPublishEvent } from "../../agent/runtime/agentEventSink.js";
 import type { Config } from "../../config.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type {
   AcceptedPlacement,
   FindingLedger,
@@ -77,9 +78,7 @@ export type FindingBatchContext = {
   readonly workItemId?: string;
   /** Resolves the current review progress comment (progress stub / final summary). */
   readonly resolveProgressCommentUrl: () => Promise<string | undefined>;
-  readonly getToken: () => string;
-  readonly getTokenExpiresAtTs?: () => number | undefined;
-  readonly refreshLiveAuth?: () => Promise<void>;
+  readonly prSurface: PrSurface;
   readonly cachedDiffIndex: CachedPrDiffIndex;
   readonly recordPublishStep?: RecordPublishStepWithCoordination;
   readonly operationIntent?: OperationIntentContext;
@@ -294,10 +293,8 @@ export async function publishFindingBatch(
         })
       : crypto.randomUUID();
   const inlineResult = await (context.operationIntent == null
-    ? publishInlineReviewComments(context.ctx.owner, context.ctx.repo, context.ctx.prNumber, {
-        getToken: context.getToken,
-        getTokenExpiresAtTs: context.getTokenExpiresAtTs,
-        refreshLiveAuth: context.refreshLiveAuth,
+    ? publishInlineReviewComments({
+        prSurface: context.prSurface,
         renderReviewBody: () =>
           renderSpecialistReviewBody({
             specialist: context.source,
@@ -322,10 +319,8 @@ export async function publishFindingBatch(
           batchId,
         },
         mutate: () =>
-          publishInlineReviewComments(context.ctx.owner, context.ctx.repo, context.ctx.prNumber, {
-            getToken: context.getToken,
-            getTokenExpiresAtTs: context.getTokenExpiresAtTs,
-            refreshLiveAuth: context.refreshLiveAuth,
+          publishInlineReviewComments({
+            prSurface: context.prSurface,
             renderReviewBody: () =>
               renderSpecialistReviewBody({
                 specialist: context.source,

@@ -214,13 +214,6 @@ function deterministicPayload(params: {
 export async function runOrchestratedPrReview(
   params: OrchestratedReviewRunParams,
 ): Promise<ReviewRunResult> {
-  if (!Number.isFinite(params.tokenExpiresAtTs)) {
-    throw new AppError({
-      code: "review.invalid_token_expiry_ts",
-      message: "tokenExpiresAtTs must be a finite timestamp in milliseconds",
-    });
-  }
-
   const reviewMode = params.mode ?? "review";
   initReviewRunMetrics({
     provider: params.cfg.piProvider,
@@ -228,15 +221,17 @@ export async function runOrchestratedPrReview(
     mode: reviewMode,
   });
   const setup = buildReviewRunSetup({
-    ...params,
+    cfg: params.cfg,
+    prSurface: params.prSurface,
+    owner: params.owner,
+    repo: params.repo,
+    prNumber: params.prNumber,
+    headSha: params.headSha,
+    userSupplement: params.userSupplement,
+    trustedContext: params.trustedContext,
+    workspace: params.workspace,
     pool: params.durability?.pool,
     codeIndexSnapshotId: params.codeIndexSnapshotId,
-    tokenTtlMs:
-      typeof params.tokenTtlMs === "number" &&
-      Number.isFinite(params.tokenTtlMs) &&
-      params.tokenTtlMs > 0
-        ? params.tokenTtlMs
-        : TOKEN_FRESHNESS_BUFFER_MS,
   });
   const phaseRef = createOrchestratorPhaseRef("recon");
   const briefTool = buildSpecialistBriefTool(phaseRef);
@@ -278,9 +273,9 @@ export async function runOrchestratedPrReview(
     },
     workItemId: params.workItemId,
     resolveProgressCommentUrl,
-    getToken: setup.getToken,
-    getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
-    refreshLiveAuth: setup.refreshLiveAuth,
+    prSurface: setup.prSurface,
+    
+    
     cachedDiffIndex: setup.cachedDiffIndex,
     recordPublishStep: params.recordPublishStep,
     operationIntent: params.recordPublishStep?.summaryCommentCoordination
@@ -318,9 +313,9 @@ export async function runOrchestratedPrReview(
       headSha: params.headSha,
       hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
     },
-    getToken: setup.getToken,
-    getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
-    refreshLiveAuth: setup.refreshLiveAuth,
+    prSurface: setup.prSurface,
+    
+    
     remainingFinalizationMs: params.timing.remainingTotalMs,
     mode: reviewMode,
     cachedDiffIndex: setup.cachedDiffIndex,
@@ -357,13 +352,6 @@ export async function runOrchestratedPrReview(
       tools: allTools,
       executors: allExecutors,
       durability: params.durability,
-      refreshBeforeTool: async (toolName: string) => {
-        if (toolName === "publish_thread" || toolName === "publish_summary") {
-          await setup.refreshLiveAuth();
-          return;
-        }
-        await setup.refreshBeforeTool(toolName);
-      },
     });
     const creation = await settleBefore(
       sessionCreation,
@@ -645,9 +633,9 @@ export async function runOrchestratedPrReview(
         recon: state.recon,
         specialists: snapshotSpecialists(),
       },
-      getToken: setup.getToken,
-      getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
-      refreshLiveAuth: setup.refreshLiveAuth,
+      prSurface: setup.prSurface,
+      
+      
       hintCommentId: params.progressCommentIdHint,
     });
   };
@@ -690,9 +678,9 @@ export async function runOrchestratedPrReview(
         prNumber: params.prNumber,
         mode: reviewMode,
         attribution: stopped.attribution,
-        getToken: setup.getToken,
-        getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
-        refreshLiveAuth: setup.refreshLiveAuth,
+        prSurface: setup.prSurface,
+        
+        
         hintCommentId: params.progressCommentIdHint,
       });
       return;
@@ -714,9 +702,9 @@ export async function runOrchestratedPrReview(
         recon: state.recon,
         specialists: snapshotSpecialists(),
       },
-      getToken: setup.getToken,
-      getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
-      refreshLiveAuth: setup.refreshLiveAuth,
+      prSurface: setup.prSurface,
+      
+      
       hintCommentId: params.progressCommentIdHint,
     });
   };
@@ -753,7 +741,7 @@ export async function runOrchestratedPrReview(
     phaseRef.current = "judgment";
     publishThread.setSource(outcome.specialist);
     const ledgerBefore = publishThread.getLedger();
-    await setup.refreshLiveAuth();
+    
     publishAttempts += 1;
     const result = await publishThread.executor({ findings: outcome.report.findings });
     if (result.kind === "wrong_phase") {
@@ -819,7 +807,7 @@ export async function runOrchestratedPrReview(
       state,
       findings: ledger.accepted.map((accepted) => accepted.placement.finding),
     });
-    await setup.refreshLiveAuth();
+    
     publishAttempts += 1;
     const result = await publishReviewSummaryOnly({
       cfg: params.cfg,
@@ -830,9 +818,9 @@ export async function runOrchestratedPrReview(
         headSha: params.headSha,
         hasDescriptionReviewMap: params.hasDescriptionReviewMap ?? false,
       },
-      getToken: setup.getToken,
-      getTokenExpiresAtTs: setup.getTokenExpiresAtTs,
-      refreshLiveAuth: setup.refreshLiveAuth,
+      prSurface: setup.prSurface,
+      
+      
       remainingFinalizationMs: params.timing.remainingTotalMs,
       payload,
       ledger,
@@ -855,7 +843,7 @@ export async function runOrchestratedPrReview(
   };
 
   const publishFailureNotice = async (): Promise<void> => {
-    await setup.refreshLiveAuth();
+    
     const lastFailure = snapshotReviewRunMetrics()?.lastFailure ?? undefined;
     await publishReviewRunFailureNotice({
       cfg: params.cfg,

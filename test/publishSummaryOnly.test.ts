@@ -3,6 +3,36 @@ import { createFindingLedger } from "../src/review/orchestrator/orchestratorType
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
 import type { ReviewFinding, ReviewPayload } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { makePublishReviewTestPrSurface } from "./helpers/publishReviewTestSetup.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+
+function configuredSummarySurface() {
+  const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+  vi.spyOn(bundle.surface, "listPullRequestReviewComments").mockResolvedValue({
+    comments: [
+      {
+        path: "src/a.ts",
+        line: 10,
+        id: 41,
+        url: "https://github.com/o/r/pull/1#discussion_r41",
+      },
+      {
+        path: "src/a.ts",
+        line: 20,
+        id: 42,
+        url: "https://github.com/o/r/pull/1#discussion_r42",
+      },
+    ],
+    truncated: false,
+  });
+  const upsertProgressComment = vi
+    .spyOn(bundle.surface, "upsertProgressComment")
+    .mockResolvedValue({ id: 2, updated: false });
+  const setReviewCommitStatus = vi
+    .spyOn(bundle.surface, "setReviewCommitStatus")
+    .mockResolvedValue(undefined);
+  return { ...bundle, upsertProgressComment, setReviewCommitStatus };
+}
 
 vi.mock("../src/github/reviewPublish.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../src/github/reviewPublish.js")>();
@@ -102,6 +132,8 @@ describe("publishReviewSummaryOnly", () => {
       postedInlineCount: 2,
     });
 
+    const { surface, upsertProgressComment } = configuredSummarySurface();
+
     const result = await publishReviewSummaryOnly({
       cfg: makeTestConfig(),
       ctx: {
@@ -111,7 +143,7 @@ describe("publishReviewSummaryOnly", () => {
         headSha: "sha",
         hasDescriptionReviewMap: false,
       },
-      getToken: () => "t",
+      prSurface: surface,
       payload,
       ledger,
       coverage: {
@@ -122,8 +154,8 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result).toEqual({ kind: "published", summaryCommentId: 2 });
-    expect(listPullRequestReviewComments).toHaveBeenCalledTimes(1);
-    const summaryBody = vi.mocked(upsertReviewSummaryComment).mock.calls[0]?.[4];
+    expect(upsertProgressComment).toHaveBeenCalledTimes(1);
+    const summaryBody = upsertProgressComment.mock.calls[0]?.[0];
     expect(summaryBody).toContain("#discussion_r41");
     expect(summaryBody).toContain("#discussion_r42");
     expect(summaryBody).toContain("Coverage partial: security specialist failed.");
@@ -133,6 +165,8 @@ describe("publishReviewSummaryOnly", () => {
   });
 
   it("stops before the summary write when the reviewed head is stale", async () => {
+    const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
     const result = await publishReviewSummaryOnly({
       cfg: makeTestConfig(),
       ctx: {
@@ -142,7 +176,7 @@ describe("publishReviewSummaryOnly", () => {
         headSha: "sha",
         hasDescriptionReviewMap: false,
       },
-      getToken: () => "t",
+      prSurface: bundle.surface,
       payload: {
         prCharacter: "No findings.",
         findings: [],
@@ -157,7 +191,7 @@ describe("publishReviewSummaryOnly", () => {
     });
 
     expect(result).toEqual({ kind: "stopped", reason: "stale_head" });
-    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+    expect(upsertProgressComment).not.toHaveBeenCalled();
   });
 
   it("forces a neutral check and error commit status for partial coverage", async () => {
@@ -171,6 +205,7 @@ describe("publishReviewSummaryOnly", () => {
       workItemId: "wi-1",
       resourceKey: "o/r#1",
     });
+    const { surface, setReviewCommitStatus, upsertProgressComment } = configuredSummarySurface();
     const result = await publishReviewSummaryOnly({
       cfg: makeTestConfig({
         features: { ...makeTestConfig().features, commitStatus: true, reviewLabels: "off" },
@@ -182,7 +217,7 @@ describe("publishReviewSummaryOnly", () => {
         headSha: "sha",
         hasDescriptionReviewMap: false,
       },
-      getToken: () => "t",
+      prSurface: surface,
       payload: {
         prCharacter: "One finding with partial coverage.",
         findings: [finding(10)],
@@ -204,21 +239,21 @@ describe("publishReviewSummaryOnly", () => {
     expect(completeReviewCheckRun).toHaveBeenCalledWith(
       recordPublishStep.summaryCommentCoordination?.pool,
       expect.objectContaining({
+        prSurface: surface,
         conclusion: "neutral",
         summary: "Coverage partial: security specialist failed.",
       }),
     );
     expect(setReviewCommitStatus).toHaveBeenCalledWith(
-      "t",
-      "o",
-      "r",
       "sha",
       expect.objectContaining({ state: "error" }),
-      undefined,
     );
+    expect(upsertProgressComment).toHaveBeenCalled();
   });
 
   it("rejects summary publication when every specialist failed", async () => {
+    const bundle = createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 });
+    const upsertProgressComment = vi.spyOn(bundle.surface, "upsertProgressComment");
     await expect(
       publishReviewSummaryOnly({
         cfg: makeTestConfig(),
@@ -229,7 +264,7 @@ describe("publishReviewSummaryOnly", () => {
           headSha: "sha",
           hasDescriptionReviewMap: false,
         },
-        getToken: () => "t",
+        prSurface: bundle.surface,
         payload: {
           prCharacter: "No coverage.",
           findings: [],
@@ -245,6 +280,6 @@ describe("publishReviewSummaryOnly", () => {
         },
       }),
     ).rejects.toMatchObject({ code: "review.summary_coverage_none" });
-    expect(upsertReviewSummaryComment).not.toHaveBeenCalled();
+    expect(upsertProgressComment).not.toHaveBeenCalled();
   });
 });

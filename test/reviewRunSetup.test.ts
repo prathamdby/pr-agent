@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { LocalPrWorkspace } from "../src/prWorkspace/index.js";
 import { buildCheckoutCoverage } from "../src/prWorkspace/localPrWorkspace.js";
 import { buildReviewRunSetup } from "../src/review/run/reviewRunSetup.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const workspace: LocalPrWorkspace = {
@@ -33,30 +34,24 @@ const workspace: LocalPrWorkspace = {
 };
 
 describe("buildReviewRunSetup", () => {
-  it("exposes exploration tools and a live auth refresh", async () => {
-    const refreshInstallationToken = vi.fn(async () => ({
-      token: "fresh-token",
-      expiresAtTs: Date.now() + 60_000,
-    }));
+  it("exposes exploration tools and the injected PrSurface", () => {
+    const prSurface = createFakePrSurface({
+      owner: "o",
+      repo: "r",
+      prNumber: 1,
+    }).surface;
     const setup = buildReviewRunSetup({
       cfg: makeTestConfig(),
-      token: "old-token",
-      tokenExpiresAtTs: Date.now() - 1,
-      tokenTtlMs: 60_000,
+      prSurface,
       owner: "o",
       repo: "r",
       prNumber: 1,
       headSha: "a".repeat(40),
       workspace,
-      refreshInstallationToken,
     });
 
     expect(setup.workspaceTools.piTools.map((tool) => tool.name)).not.toContain("submitReview");
     expect(setup.orchestratorUserContent).not.toContain("submitReview");
-
-    await setup.refreshLiveAuth();
-
-    expect(refreshInstallationToken).toHaveBeenCalledOnce();
-    expect(setup.getToken()).toBe("fresh-token");
+    expect(setup.prSurface).toBe(prSurface);
   });
 });

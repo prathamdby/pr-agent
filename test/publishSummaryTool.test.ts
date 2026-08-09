@@ -16,6 +16,11 @@ import {
 import { publishReviewSummaryOnly } from "../src/review/publish/publishSummaryOnly.js";
 import type { ReviewFinding } from "../src/review/reviewSchema.js";
 import { makeTestConfig } from "./helpers/config.js";
+import { createFakePrSurface } from "../src/github/prSurface.js";
+
+function reviewPrSurface() {
+  return createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface;
+}
 
 vi.mock("../src/review/publish/publishSummaryOnly.js", async (importOriginal) => {
   const actual =
@@ -88,7 +93,6 @@ function summaryInput(ids: readonly string[]) {
 
 function buildTool(params: {
   getLedger: () => FindingLedger;
-  getToken?: () => string;
   getCoverage?: () => ReviewCoverage;
   state?: ReturnType<typeof createPublishSummaryState>;
   ciAuthor?: Parameters<typeof buildPublishSummaryTool>[0]["ciAuthor"];
@@ -103,7 +107,7 @@ function buildTool(params: {
       headSha: "abc1234",
       hasDescriptionReviewMap: false,
     },
-    getToken: params.getToken ?? (() => "token"),
+    prSurface: reviewPrSurface(),
     getLedger: params.getLedger,
     getCoverage: params.getCoverage ?? (() => ({ kind: "full" })),
     state: params.state ?? createPublishSummaryState(),
@@ -132,7 +136,7 @@ describe("buildPublishSummaryTool", () => {
         headSha: "abc1234",
         hasDescriptionReviewMap: false,
       },
-      getToken: () => "token",
+      prSurface: reviewPrSurface(),
       getLedger: () => createFindingLedger(),
       getCoverage: () => ({ kind: "full" }),
       state,
@@ -291,23 +295,15 @@ describe("buildPublishSummaryTool", () => {
     expect(publishReviewSummaryOnly).toHaveBeenCalledTimes(1);
   });
 
-  it("does not latch a stopped publish and passes through the live token getter", async () => {
+  it("does not latch a stopped publish and allows a later successful publish", async () => {
     const state = createPublishSummaryState();
     const ledger = createFindingLedger({ accepted: [accepted("finding-1", finding(10))] });
-    let token = "first-token";
-    const tool = buildTool({ getLedger: () => ledger, getToken: () => token, state });
+    const tool = buildTool({ getLedger: () => ledger, state });
     vi.mocked(publishReviewSummaryOnly)
-      .mockImplementationOnce(async (params) => {
-        expect(params.getToken()).toBe("first-token");
-        return { kind: "stopped", reason: "superseded" };
-      })
-      .mockImplementationOnce(async (params) => {
-        expect(params.getToken()).toBe("refreshed-token");
-        return { kind: "published", summaryCommentId: 92 };
-      });
+      .mockImplementationOnce(async () => ({ kind: "stopped", reason: "superseded" }))
+      .mockImplementationOnce(async () => ({ kind: "published", summaryCommentId: 92 }));
 
     const stopped = await tool.executor(summaryInput(["finding-1"]));
-    token = "refreshed-token";
     const published = await tool.executor(summaryInput(["finding-1"]));
 
     expect(stopped).toEqual({ ok: false, reason: "superseded" });

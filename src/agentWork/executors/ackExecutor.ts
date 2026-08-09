@@ -9,6 +9,7 @@ import {
   GITHUB_REACTION_EYES,
   GITHUB_REACTION_PLUS_ONE,
 } from "../../settings/index.js";
+import { createPrSurface } from "../../github/prSurface.js";
 import { mintInstallationToken } from "../durableJob.js";
 import {
   getProgressCommentOwner,
@@ -57,6 +58,7 @@ export async function canAckPublishProgress(
 type AckInstallation = Awaited<ReturnType<typeof mintInstallationToken>>;
 
 async function publishAckProgress(
+  cfg: Config,
   pool: Pool,
   data: AckJobData & { readonly progress: NonNullable<AckJobData["progress"]> },
   installation: AckInstallation,
@@ -102,24 +104,27 @@ async function publishAckProgress(
     progressRevision: 0,
     progressWorkItemId: data.workItemId,
   });
+  const prSurface = createPrSurface({
+    cfg,
+    installationId: data.installationId,
+    owner: data.owner,
+    repo: data.repo,
+    prNumber: data.prNumber,
+    installation,
+  });
   await upsertSummaryCommentWithCreationClaim({
     pool,
     workItemId: data.workItemId,
     resourceKey,
     reviewLens: data.progress.lens,
-    token: installation.token,
-    owner: data.owner,
-    repo: data.repo,
-    prNumber: data.prNumber,
+    prSurface,
     body,
     sentinel: REVIEW_SUMMARY_SENTINEL,
-    expiresAtTs: installation.expiresAtTs,
     progressRevision: 0,
   });
   if (data.workItemId) {
     await ensureReviewCheckRunStarted(pool, {
-      token: installation.token,
-      tokenExpiresAtTs: installation.expiresAtTs,
+      prSurface,
       owner: data.owner,
       repo: data.repo,
       prNumber: data.prNumber,
@@ -132,6 +137,7 @@ async function publishAckProgress(
 }
 
 async function publishCancelProgress(
+  cfg: Config,
   pool: Pool,
   data: AckJobData & { readonly cancelProgress: NonNullable<AckJobData["cancelProgress"]> },
   installation: AckInstallation,
@@ -172,13 +178,16 @@ async function publishCancelProgress(
     workItemId: data.cancelProgress.workItemId,
     resourceKey,
     reviewLens: "review",
-    token: installation.token,
-    owner: data.owner,
-    repo: data.repo,
-    prNumber: data.prNumber,
+    prSurface: createPrSurface({
+      cfg,
+      installationId: data.installationId,
+      owner: data.owner,
+      repo: data.repo,
+      prNumber: data.prNumber,
+      installation,
+    }),
     body,
     sentinel: REVIEW_SUMMARY_SENTINEL,
-    expiresAtTs: installation.expiresAtTs,
     progressRevision: 0,
   });
 }
@@ -223,10 +232,10 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
           reviewLens: progressData.progress.lens,
         });
       } else {
-        await publishAckProgress(pool, progressData, installation, resourceKey);
+        await publishAckProgress(cfg, pool, progressData, installation, resourceKey);
       }
     } else {
-      await publishAckProgress(pool, progressData, installation, resourceKey);
+      await publishAckProgress(cfg, pool, progressData, installation, resourceKey);
     }
   }
 
@@ -234,6 +243,7 @@ export async function executeAckJob(cfg: Config, pool: Pool, data: AckJobData): 
     const resourceKey = `${data.owner}/${data.repo}#${data.prNumber}`;
     try {
       await publishCancelProgress(
+        cfg,
         pool,
         { ...data, cancelProgress: data.cancelProgress },
         installation,

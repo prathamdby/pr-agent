@@ -1,6 +1,7 @@
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { Config } from "../../config.js";
 import type { ClassifiedFailure } from "../../errors/classifiedFailure.js";
+import type { PrSurface } from "../../github/prSurface.js";
 import type { LocalPrWorkspace } from "../../prWorkspace/index.js";
 import type { WorkSource } from "../reviewSchema.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
@@ -10,9 +11,7 @@ import type { FeatureSessionDurability } from "../../agent/runtime/sessionDurabi
 
 export type ReviewRunParams = {
   readonly cfg: Config;
-  readonly token: string;
-  readonly tokenExpiresAtTs: number;
-  readonly tokenTtlMs?: number;
+  readonly prSurface: PrSurface;
   readonly owner: string;
   readonly repo: string;
   readonly prNumber: number;
@@ -36,10 +35,6 @@ export type ReviewRunParams = {
   readonly crossPrSuppressionFingerprints?: readonly string[];
   readonly workItemId?: string;
   readonly resumedPlacements?: readonly AcceptedPlacement[];
-  readonly refreshInstallationToken?: () => Promise<{
-    readonly token: string;
-    readonly expiresAtTs: number;
-  }>;
   readonly durability?: FeatureSessionDurability;
   readonly reviewSource?: WorkSource;
   readonly staleHeadRescheduled?: boolean;
