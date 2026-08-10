@@ -10,7 +10,10 @@ import {
 } from "../src/agent/triage/triageWorkspaceTools.js";
 import type { WritablePrCheckout } from "../src/prWorkspace/writablePrCheckout.js";
 import type { BotFindingThread } from "../src/review/run/reviewPriorFeedback.js";
-import { MAX_TRIAGE_FIXES_PER_RUN } from "../src/settings/index.js";
+import {
+  LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+  MAX_TRIAGE_FIXES_PER_RUN,
+} from "../src/settings/index.js";
 import { makeTestConfig } from "./helpers/config.js";
 
 const exec = promisify(execFile);
@@ -124,6 +127,75 @@ describe("buildTriageWorkspaceTools", () => {
     expect(out.content).toBe("");
     expect(out.note).toBe("File is empty (0 bytes).");
     expect(out.refused).toBeUndefined();
+  });
+
+  it("refuses binary files with the shared named dead end", async () => {
+    const { executors } = await setup({ files: { "src/app.ts": "abc\0def\n" } });
+
+    const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
+      refused?: boolean;
+      reason?: string;
+    };
+
+    expect(out.refused).toBe(true);
+    expect(out.reason).toBe("Binary file cannot be read as text.");
+  });
+
+  it("caps oversized reads at the shared response budget with a resume offset", async () => {
+    // Lines stay under the per-line clamp so the byte budget is what fires.
+    const bigFile = ("x".repeat(1_000) + "\n").repeat(400);
+    const { executors } = await setup({ files: { "src/app.ts": bigFile } });
+
+    const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
+      truncated?: boolean;
+      truncationReason?: string;
+      resumeStartLine?: number;
+      endLine?: number;
+      returnedBytes?: number;
+    };
+
+    expect(out.truncated).toBe(true);
+    expect(out.truncationReason).toBe("response byte budget exceeded");
+    expect(out.returnedBytes).toBeLessThanOrEqual(LOCAL_WORKSPACE_READ_RESPONSE_BYTES);
+    // A byte-cap cut lands mid-line, so the next read resumes on that line.
+    expect(out.endLine).toBeGreaterThan(1);
+    expect(out.resumeStartLine).toBe(out.endLine);
+  });
+
+  it("supports line-window reads like every other feature", async () => {
+    const { executors } = await setup({ files: { "src/app.ts": "a\nb\nc\nd\n" } });
+
+    const out = (await executors.readWorkspaceFile({
+      path: "src/app.ts",
+      startLine: 2,
+      maxLines: 2,
+    })) as {
+      content?: string;
+      startLine?: number;
+      endLine?: number;
+      truncated?: boolean;
+      resumeStartLine?: number;
+      note?: string;
+    };
+
+    expect(out.content).toBe("b\nc");
+    expect(out.startLine).toBe(2);
+    expect(out.endLine).toBe(3);
+    expect(out.truncated).toBe(true);
+    expect(out.resumeStartLine).toBe(4);
+    expect(out.note).toBe("Line window ended at line 3 of 4. Resume with startLine 4.");
+  });
+
+  it("strips BOM and normalizes CRLF so line numbers match diff and blame", async () => {
+    const { executors } = await setup({ files: { "src/app.ts": "\uFEFFone\r\ntwo\r\n" } });
+
+    const out = (await executors.readWorkspaceFile({ path: "src/app.ts" })) as {
+      content?: string;
+      endLine?: number;
+    };
+
+    expect(out.content).toBe("one\ntwo\n");
+    expect(out.endLine).toBe(2);
   });
 
   it("blocks read through absolute symlink escapes", async () => {
@@ -258,6 +330,64 @@ describe("buildTriageWorkspaceTools", () => {
     });
     expect(out).toEqual({ ok: true, path: "src/app.ts" });
     expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe("const value = 2;\n");
+  });
+
+  it("edits a CRLF file with the normalized text the model saw, preserving CRLF", async () => {
+    const { root, executors } = await setup({
+      files: { "src/app.ts": "const value = 1;\r\nconst other = 3;\r\n" },
+    });
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "const value = 1;\nconst other = 3;",
+      newText: "const value = 2;\nconst other = 3;",
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe(
+      "const value = 2;\r\nconst other = 3;\r\n",
+    );
+  });
+
+  it("keeps LF-only lines in a mixed-ending file untouched by the edit", async () => {
+    const { root, executors } = await setup({
+      files: { "src/app.ts": "alpha\r\nbeta\ngamma\r\n" },
+    });
+    // oldText spans a line break, so it only matches in the normalized space
+    // the model was shown — the raw fast path cannot serve this edit.
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "alpha\nbeta",
+      newText: "alpha\nBETA",
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe("alpha\r\nBETA\ngamma\r\n");
+  });
+
+  it("does not double the carriage return when newText already uses CRLF", async () => {
+    const { root, executors } = await setup({
+      files: { "src/app.ts": "alpha\r\nbeta\r\ngamma\r\n" },
+    });
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "alpha\nbeta",
+      newText: "alpha\r\none\r\ntwo",
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    const written = await readFile(join(root, "src/app.ts"), "utf8");
+    expect(written).toBe("alpha\r\none\r\ntwo\r\ngamma\r\n");
+    expect(written).not.toContain("\r\r\n");
+  });
+
+  it("edits a BOM file with the normalized text the model saw, preserving the BOM", async () => {
+    const { root, executors } = await setup({
+      files: { "src/app.ts": "\uFEFFconst value = 1;\n" },
+    });
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "const value = 1;",
+      newText: "const value = 2;",
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe("\uFEFFconst value = 2;\n");
   });
 
   it("blocks create of control-plane workflow files", async () => {

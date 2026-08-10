@@ -1,6 +1,8 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
+import { AppError } from "../../errors/appError.js";
+import { parseToolInput } from "./parseToolInput.js";
 
 export type LocalTool<TSchema extends v.GenericSchema = v.GenericSchema> = {
   readonly description: string;
@@ -26,6 +28,22 @@ export function toPiTool(name: string, t: LocalTool): PiTool {
   };
 }
 
-export function toExecutor(t: LocalTool): (args: Record<string, unknown>) => Promise<unknown> {
-  return async (args) => t.run(v.parse(t.schema, args));
+export function toExecutor(
+  name: string,
+  t: LocalTool,
+): (args: Record<string, unknown>) => Promise<unknown> {
+  return async (args) => {
+    const parsed = parseToolInput(t.schema, args, {
+      toolName: name,
+      errorTitle: `${name} validation failed:`,
+    });
+    if (!parsed.ok) {
+      throw new AppError({
+        code: "tool.input_validation_failed",
+        message: parsed.error,
+        context: { toolName: name },
+      });
+    }
+    return t.run(parsed.value);
+  };
 }

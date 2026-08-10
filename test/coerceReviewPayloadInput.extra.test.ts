@@ -88,24 +88,28 @@ describe("coerceReviewPayloadInput extra rescue rules", () => {
     expect(coercions).toContain("unwrap_payload");
   });
 
-  it("coerces single-object findings to array", () => {
-    const { coercions } = coerceReviewPayloadInput({
+  it("leaves single-object findings for the generic parse-seam repair", () => {
+    const findings = {
+      severity: "P2",
+      file: "a.ts",
+      startLine: 1,
+      endLine: 1,
+      title: "t",
+      detail: "d",
+      fixPrompt: "fix",
+    };
+    const { value, coercions } = coerceReviewPayloadInput({
       prCharacter: "x",
-      findings: {
-        severity: "P2",
-        file: "a.ts",
-        startLine: 1,
-        endLine: 1,
-        title: "t",
-        detail: "d",
-        fixPrompt: "fix",
-      },
+      findings,
       estimatedEffort: 1,
       relevantTests: "no",
       securityConcerns: null,
       followUps: [],
     });
-    expect(coercions).toContain("findings_object_to_array");
+    // Object-to-array wrapping is one of the four generic tool-input repairs
+    // (object_wrapped_as_array); the domain coercion no longer duplicates it.
+    expect(coercions).not.toContain("findings_object_to_array");
+    expect((value as { findings: unknown }).findings).toBe(findings);
   });
 
   it("rescues severity aliases like P1 (High) and integer 2", () => {

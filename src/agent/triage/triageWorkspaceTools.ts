@@ -13,11 +13,15 @@ import {
   TRIAGE_NEW_FILE_MAX_BYTES,
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   MAX_TRIAGE_FIXES_PER_RUN,
 } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
-import { readWorkspaceTextFile } from "../tools/readWorkspaceTextFile.js";
+import {
+  normalizeTextFileEncoding,
+  readBudgetedWorkspaceTextFile,
+} from "../tools/readWorkspaceTextFile.js";
 import {
   assertTriageStagePaths,
   assertTriageWritablePath,
@@ -59,6 +63,25 @@ function countOccurrences(haystack: string, needle: string): number {
   }
 }
 
+/**
+ * Map an offset in `normalizeTextFileEncoding(raw)` back to its offset in
+ * `raw`, so an edit matched in normalized space can be spliced into the raw
+ * bytes without rewriting line endings anywhere else in the file.
+ */
+function rawOffsetForNormalizedOffset(raw: string, normalizedOffset: number): number {
+  let rawIndex = raw.startsWith("\uFEFF") ? 1 : 0;
+  let normalizedIndex = 0;
+  while (normalizedIndex < normalizedOffset && rawIndex < raw.length) {
+    if (raw[rawIndex] === "\r" && raw[rawIndex + 1] === "\n") {
+      rawIndex += 2;
+    } else {
+      rawIndex += 1;
+    }
+    normalizedIndex += 1;
+  }
+  return rawIndex;
+}
+
 async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {
   const { stdout } = await exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
     cwd: root,
@@ -95,10 +118,18 @@ export function buildTriageWorkspaceTools(params: {
 
   const readWorkspaceFile = defineLocalTool({
     description: "Read a text file from the writable PR checkout. Path is repo-relative.",
-    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
-    run: async ({ path }) => {
+    schema: v.object({
+      path: v.pipe(v.string(), v.minLength(1)),
+      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+    }),
+    run: async ({ path, startLine, maxLines }) => {
       const fullPath = await safeReadPath(root, path);
-      const result = await readWorkspaceTextFile(fullPath, LOCAL_WORKSPACE_MAX_FILE_BYTES);
+      const result = await readBudgetedWorkspaceTextFile(fullPath, {
+        maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+        maxResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+        window: { startLine, maxLines },
+      });
       if (result.refused) {
         return { path, refused: true, reason: result.reason };
       }
@@ -167,12 +198,9 @@ export function buildTriageWorkspaceTools(params: {
       });
       const content = await readFile(fullPath, "utf8");
       const matches = countOccurrences(content, oldText);
-      if (matches === 0) {
-        throw new AppError({
-          code: "triage.old_text_not_found",
-          message: "oldText not found; re-read the file",
-          context: { path: rel },
-        });
+      if (matches === 1) {
+        await writeFile(fullPath, content.replace(oldText, newText));
+        return { ok: true, path: rel };
       }
       if (matches > 1) {
         throw new AppError({
@@ -181,7 +209,45 @@ export function buildTriageWorkspaceTools(params: {
           context: { path: rel },
         });
       }
-      await writeFile(fullPath, content.replace(oldText, newText));
+      // Reads show BOM-stripped, CRLF-normalized text, so oldText copied from
+      // a read cannot exact-match the raw bytes of such files. Retry in the
+      // normalized space the model actually saw, then splice the result back
+      // into the raw bytes so the rest of the file keeps its own encoding.
+      const hadBom = content.startsWith("\uFEFF");
+      const hadCrlf = content.includes("\r\n");
+      if (!hadBom && !hadCrlf) {
+        throw new AppError({
+          code: "triage.old_text_not_found",
+          message: "oldText not found; re-read the file",
+          context: { path: rel },
+        });
+      }
+      const normalized = normalizeTextFileEncoding(content);
+      const normalizedOldText = normalizeTextFileEncoding(oldText);
+      const normalizedMatches = countOccurrences(normalized, normalizedOldText);
+      if (normalizedMatches === 0) {
+        throw new AppError({
+          code: "triage.old_text_not_found",
+          message: "oldText not found; re-read the file",
+          context: { path: rel },
+        });
+      }
+      if (normalizedMatches > 1) {
+        throw new AppError({
+          code: "triage.old_text_ambiguous",
+          message: "oldText is ambiguous; include more surrounding context",
+          context: { path: rel },
+        });
+      }
+      // Splice the raw bytes at the matched region instead of re-encoding the
+      // whole file: a mixed-ending file keeps its LF-only lines, and newText
+      // is normalized first so its own CRLFs cannot become "\r\r\n".
+      const matchStart = normalized.indexOf(normalizedOldText);
+      const rawStart = rawOffsetForNormalizedOffset(content, matchStart);
+      const rawEnd = rawOffsetForNormalizedOffset(content, matchStart + normalizedOldText.length);
+      const newTextLf = newText.replace(/\r\n/g, "\n");
+      const replacement = hadCrlf ? newTextLf.replace(/\n/g, "\r\n") : newTextLf;
+      await writeFile(fullPath, content.slice(0, rawStart) + replacement + content.slice(rawEnd));
       return { ok: true, path: rel };
     },
   });
@@ -269,7 +335,7 @@ export function buildTriageWorkspaceTools(params: {
   return {
     piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
     executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
+      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
     ),
   };
 }

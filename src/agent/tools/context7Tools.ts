@@ -4,6 +4,7 @@ import { toJsonSchema } from "@valibot/to-json-schema";
 
 import { AppError } from "../../errors/appError.js";
 import { CONTEXT7_BASE_URL } from "../../settings/index.js";
+import { parseToolInput } from "./parseToolInput.js";
 import { capTextOutput } from "./toolOutputBudget.js";
 
 const resolveLibraryIdSchema = v.object({
@@ -62,11 +63,25 @@ function toPiTool(name: string, t: ReviewTool): PiTool {
 }
 
 function toExecutor(
+  name: string,
   t: ReviewTool,
   apiKey: string,
   maxResponseBytes: number,
 ): (args: Record<string, unknown>) => Promise<Context7ToolResponse> {
-  return async (args) => t.run(v.parse(t.schema, args), apiKey, maxResponseBytes);
+  return async (args) => {
+    const parsed = parseToolInput(t.schema, args, {
+      toolName: name,
+      errorTitle: `${name} validation failed:`,
+    });
+    if (!parsed.ok) {
+      throw new AppError({
+        code: "tool.input_validation_failed",
+        message: parsed.error,
+        context: { toolName: name },
+      });
+    }
+    return t.run(parsed.value, apiKey, maxResponseBytes);
+  };
 }
 
 function authHeader(apiKey: string): Record<string, string> {
@@ -180,7 +195,7 @@ export function buildContext7Tools({
     executors: Object.fromEntries(
       CONTEXT7_TOOL_ENTRIES.map(([name, tool]) => [
         name,
-        toExecutor(tool, apiKey, maxResponseBytes),
+        toExecutor(name, tool, apiKey, maxResponseBytes),
       ]),
     ),
   };

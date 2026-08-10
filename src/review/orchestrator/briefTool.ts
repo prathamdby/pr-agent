@@ -2,7 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import type { AgentRunnerToolExecutor } from "../../agent/providers/interface.js";
-import { formatValidationIssues } from "../../util/formatValidationIssues.js";
+import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import type { SpecialistId } from "./orchestratorTypes.js";
 import { assertPhaseToolAllowed, type OrchestratorPhaseRef } from "./phaseToolPolicy.js";
 
@@ -56,12 +56,15 @@ export function buildSpecialistBriefTool(phaseRef: OrchestratorPhaseRef): {
         error: gate.error,
       };
     }
-    const parsed = v.safeParse(specialistBriefSchema, args);
-    if (!parsed.success) {
-      validationError = formatValidationIssues(parsed.issues, "SpecialistBrief validation failed:");
+    const parsed = parseToolInput(specialistBriefSchema, args, {
+      toolName: "submit_specialist_brief",
+      errorTitle: "SpecialistBrief validation failed:",
+    });
+    if (!parsed.ok) {
+      validationError = parsed.error;
       return { accepted: false, error: validationError };
     }
-    brief = parsed.output;
+    brief = parsed.value;
     validationError = null;
     return { accepted: true };
   };

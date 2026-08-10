@@ -385,6 +385,7 @@ Writing policy is computed once per description run from workspace size stats (`
 | `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`         | 50000000   |
 | `LOCAL_WORKSPACE_MAX_DIFF_BYTES`                 | 5000000    |
 | `LOCAL_WORKSPACE_READ_RESPONSE_BYTES`            | 128000     |
+| `LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS`       | 2000       |
 | `LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES`            | 256000     |
 | `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`           | 500000000  |
 | `LOCAL_WORKSPACE_MAX_FETCH_BYTES`                | 2147483648 |

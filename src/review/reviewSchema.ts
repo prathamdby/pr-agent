@@ -309,13 +309,6 @@ export function coerceReviewPayloadInput(raw: unknown): {
 
   const input = { ...(unwrapped.value as Record<string, unknown>) };
 
-  if ("findings" in input && input.findings != null && !Array.isArray(input.findings)) {
-    if (typeof input.findings === "object") {
-      input.findings = [input.findings];
-      coercions.push("findings_object_to_array");
-    }
-  }
-
   if ("prCharacter" in input && typeof input.prCharacter === "string") {
     const { text, changed } = coerceReviewTextField(input.prCharacter, "prCharacter", coercions);
     if (changed) {
@@ -348,6 +341,11 @@ export function coerceReviewPayloadInput(raw: unknown): {
   }
   if (Array.isArray(input.findings)) {
     input.findings = input.findings.map((item) => coerceFinding(item, coercions));
+  } else if (typeof input.findings === "object" && input.findings != null) {
+    // A single finding object still needs its domain coercions here; the
+    // generic object_wrapped_as_array repair does the wrapping afterwards.
+    // Coercing only the array form left shape-plus-domain errors unparseable.
+    input.findings = coerceFinding(input.findings, coercions);
   }
 
   return { value: input, coerced: coercions.length > 0, coercions };

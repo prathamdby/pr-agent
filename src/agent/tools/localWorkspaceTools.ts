@@ -13,11 +13,11 @@ import {
 import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
 import {
   MISSING_FROM_CHECKOUT_REASON,
-  readWorkspaceTextFile,
+  readBudgetedWorkspaceTextFile,
   refuseWorkspaceTextFileRead,
-  type WorkspaceTextFileReadResult,
+  type BudgetedWorkspaceTextFileRead,
 } from "./readWorkspaceTextFile.js";
-import { capTextOutput, readTextWithOutputBudget } from "./toolOutputBudget.js";
+import { capTextOutput } from "./toolOutputBudget.js";
 import {
   LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
@@ -50,8 +50,6 @@ const DEFAULT_LOCAL_WORKSPACE_TOOL_LIMITS: LocalWorkspaceToolLimits = {
   searchMaxFiles: LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   searchMaxTotalBytes: LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
 };
-
-const BINARY_SAMPLE_BYTES = 8192;
 
 function primePathGate(
   workspace: LocalPrWorkspace,
@@ -94,16 +92,50 @@ function recordFileReadEvidence(
     readonly startLine: number;
     readonly endLine: number;
     readonly content: string;
+    readonly clampedLines?: readonly number[];
   },
 ): void {
-  ledger.record({
-    path: params.path,
-    startLine: params.startLine,
-    endLine: params.endLine,
-    contentHash: hashNormalizedLineText(params.content),
-    headSha: params.headSha,
-    tool: params.tool,
-  });
+  // A clamped line's contents were elided, so it can never back a finding.
+  // Record the clamp-free segments only; range coverage is the sole check
+  // assertFindingsHaveEvidence makes, and a marker must not satisfy it.
+  for (const [startLine, endLine] of segmentsExcluding(
+    params.startLine,
+    params.endLine,
+    params.clampedLines,
+  )) {
+    ledger.record({
+      path: params.path,
+      startLine,
+      endLine,
+      contentHash: hashNormalizedLineText(params.content),
+      headSha: params.headSha,
+      tool: params.tool,
+    });
+  }
+}
+
+/** Split [start, end] into the maximal ranges that skip every excluded line. */
+function segmentsExcluding(
+  startLine: number,
+  endLine: number,
+  excluded?: readonly number[],
+): [number, number][] {
+  if (!excluded || excluded.length === 0) return [[startLine, endLine]];
+  const skip = new Set(excluded);
+  const segments: [number, number][] = [];
+  let segmentStart: number | null = null;
+  for (let line = startLine; line <= endLine; line += 1) {
+    if (skip.has(line)) {
+      if (segmentStart !== null) {
+        segments.push([segmentStart, line - 1]);
+        segmentStart = null;
+      }
+      continue;
+    }
+    segmentStart ??= line;
+  }
+  if (segmentStart !== null) segments.push([segmentStart, endLine]);
+  return segments;
 }
 
 function recordDiffEvidence(
@@ -268,7 +300,7 @@ export function buildLocalWorkspaceTools(
 
       const respondWithRead = (
         readPath: string,
-        result: WorkspaceTextFileReadResult,
+        result: BudgetedWorkspaceTextFileRead,
         note?: string,
       ) => {
         if (result.refused) {
@@ -280,38 +312,27 @@ export function buildLocalWorkspaceTools(
             ...(note ? { note } : {}),
           };
         }
-        if (result.content.slice(0, BINARY_SAMPLE_BYTES).includes("\0")) {
-          return {
-            path: readPath,
-            refused: true,
-            reason: "Binary file cannot be read as text.",
-            ...(note ? { note } : {}),
-          };
-        }
-        const readOutput = readTextWithOutputBudget(result.content, limits.readResponseBytes, {
-          startLine,
-          maxLines,
-        });
         if (
           evidenceLedger &&
           headSha &&
-          readOutput.content.length > 0 &&
-          readOutput.startLine > 0 &&
-          readOutput.endLine > 0
+          result.content.length > 0 &&
+          result.startLine > 0 &&
+          result.endLine > 0
         ) {
           recordFileReadEvidence(evidenceLedger, {
             path: readPath,
             headSha,
             tool: "readWorkspaceFile",
-            startLine: readOutput.startLine,
-            endLine: readOutput.endLine,
-            content: readOutput.content,
+            startLine: result.startLine,
+            endLine: result.endLine,
+            content: result.content,
+            clampedLines: result.clampedLines,
           });
         }
-        const combinedNote = [note, result.note, readOutput.note].filter(Boolean).join(" ");
+        const combinedNote = [note, result.note].filter(Boolean).join(" ");
         return {
           path: readPath,
-          ...readOutput,
+          ...result,
           ...(combinedNote ? { note: combinedNote } : {}),
         };
       };
@@ -324,9 +345,13 @@ export function buildLocalWorkspaceTools(
         const resolved = findUnicodeEquivalentPath(normalized, workspace.sortedCheckoutPaths);
         if (resolved !== undefined && pathAllowedForAsk(resolved, pathGate)) {
           const repairNote = `requested '${normalized}' not found byte-for-byte; resolved to unicode-equivalent '${resolved}'`;
-          const resolvedResult = await readWorkspaceTextFile(
+          const resolvedResult = await readBudgetedWorkspaceTextFile(
             assertWorkspacePath(workspace.agentCwd, resolved),
-            limits.maxFileBytes,
+            {
+              maxFileBytes: limits.maxFileBytes,
+              maxResponseBytes: limits.readResponseBytes,
+              window: { startLine, maxLines },
+            },
           );
           return respondWithRead(resolved, resolvedResult, repairNote);
         }
@@ -347,9 +372,13 @@ export function buildLocalWorkspaceTools(
       if (!workspace.isPathInCheckout(normalized)) {
         return respondToMissing();
       }
-      const result = await readWorkspaceTextFile(
+      const result = await readBudgetedWorkspaceTextFile(
         assertWorkspacePath(workspace.agentCwd, normalized),
-        limits.maxFileBytes,
+        {
+          maxFileBytes: limits.maxFileBytes,
+          maxResponseBytes: limits.readResponseBytes,
+          window: { startLine, maxLines },
+        },
       );
       if (result.refused && result.refusalKind === "missing") {
         return respondToMissing();
@@ -506,7 +535,7 @@ export function buildLocalWorkspaceTools(
   return {
     piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
     executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
+      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
     ),
   };
 }

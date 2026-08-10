@@ -129,6 +129,21 @@ describe("runSpecialist", () => {
     expect(runnerMocks.sessions[0]?.dispose).toHaveBeenCalledTimes(1);
   });
 
+  it("repairs a single-object findings report at the parse seam", async () => {
+    runnerMocks.behaviors.push({
+      kind: "report",
+      report: { status: "findings", findings: finding },
+    });
+
+    const outcome = await runSpecialist(specialistArgs());
+
+    expect(outcome).toMatchObject({
+      kind: "report",
+      specialist: "correctness",
+      report: findingsReport,
+    });
+  });
+
   it("returns empty for a valid no_findings report", async () => {
     runnerMocks.behaviors.push({ kind: "report", report: emptyReport });
 

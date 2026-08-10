@@ -2,7 +2,7 @@ import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError, toAppError } from "../../errors/appError.js";
-import { formatValidationIssues } from "../../util/formatValidationIssues.js";
+import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import type { AgentEventsContext } from "../../agent/runtime/agentEventSink.js";
 import { safeEmitDecisionEvent } from "../../agent/runtime/agentEventSink.js";
 import type { Config } from "../../config.js";
@@ -106,11 +106,14 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
         error: gate.error,
       };
     }
-    const parsed = v.safeParse(publishThreadSchema, args);
-    if (!parsed.success) {
+    const parsed = parseToolInput(publishThreadSchema, args, {
+      toolName: "publish_thread",
+      errorTitle: "publish_thread validation failed:",
+    });
+    if (!parsed.ok) {
       throw new AppError({
         code: "review.publish_thread_validation_failed",
-        message: formatValidationIssues(parsed.issues, "publish_thread validation failed:"),
+        message: parsed.error,
       });
     }
     if (source == null) {
@@ -122,7 +125,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
 
     let result: FindingBatchResult;
     try {
-      result = await publishFindingBatch(parsed.output.findings, {
+      result = await publishFindingBatch(parsed.value.findings, {
         ...batchContext,
         source,
         ledger,
@@ -142,7 +145,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
       ledger = applyFindingLedgerDelta(ledger, result.delta);
       if (result.kind === "published") publishedBatchCount += 1;
       if (params.agentEvents && params.cfg) {
-        const submittedCount = parsed.output.findings.length;
+        const submittedCount = parsed.value.findings.length;
         const acceptedCount = result.delta.accepted.length;
         safeEmitDecisionEvent(params.agentEvents, params.cfg, {
           specialist: source,
@@ -157,7 +160,7 @@ export function buildPublishThreadTool(params: PublishThreadToolParams): {
     }
     return {
       ...result,
-      publishedThreadOverlapHints: overlapHints(ledger, parsed.output.findings),
+      publishedThreadOverlapHints: overlapHints(ledger, parsed.value.findings),
     };
   };
 

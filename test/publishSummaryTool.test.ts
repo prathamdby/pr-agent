@@ -199,6 +199,24 @@ describe("buildPublishSummaryTool", () => {
     expect(call?.ledger.accepted[1]?.placement.finding).toEqual(call?.payload.findings[1]);
   });
 
+  it("repairs a bare-string followUps field at the parse seam", async () => {
+    const ledger = createFindingLedger({
+      accepted: [accepted("finding-1", finding(10))],
+      inlineReviewIds: [10],
+      postedInlineCount: 1,
+    });
+    const tool = buildTool({ getLedger: () => ledger });
+
+    const result = await tool.executor({
+      ...summaryInput(["finding-1"]),
+      followUps: "Add a regression test.",
+    });
+
+    expect(result).toEqual({ ok: true, summaryCommentId: 91 });
+    const call = vi.mocked(publishReviewSummaryOnly).mock.calls[0]?.[0];
+    expect(call?.payload.followUps).toEqual(["Add a regression test."]);
+  });
+
   it.each([
     ["drops an accepted ID", ["finding-1"]],
     ["adds an unknown ID", ["finding-1", "finding-2", "finding-3"]],
