@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -862,6 +863,124 @@ describe("local workspace tools", () => {
 
   const HOSTILE_NAME = "Meeting\u202fnotes\u2019 re\u0301sume\u0301 3.04\u202fPM.txt";
   const CLEAN_NAME = "Meeting notes\u2019 r\u00e9sum\u00e9 3.04 PM.txt";
+
+  it("readWorkspaceFile names a socket instead of reporting it missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    const server = createServer();
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
+      await mkdir(join(root, "logs"), { recursive: true });
+      await new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(join(root, "logs", "agent.sock"), resolve);
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "logs/agent.sock"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "logs/agent.sock" })) as {
+        refused?: boolean;
+        reason?: string;
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.reason).toContain("socket");
+    } finally {
+      if (server.listening) server.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile notes the repair but still refuses a too-large resolved twin", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const nfcPath = "docs/caf\u00e9.md";
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        [nfcPath]: "x".repeat(200),
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", nfcPath]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ maxFileBytes: 100 }),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      const out = (await executors.readWorkspaceFile?.({ path: "docs/caf\u0065\u0301.md" })) as {
+        path: string;
+        refused?: boolean;
+        reason?: string;
+        note?: string;
+        content?: string;
+      };
+
+      expect(out.path).toBe(nfcPath);
+      expect(out.refused).toBe(true);
+      expect(out.reason).toBe("File exceeds 100 byte read limit.");
+      expect(out.note).toContain("unicode-equivalent");
+      expect(out.content).toBeUndefined();
+      expect(evidenceLedger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile suggests a sibling at exactly the similarity threshold", async () => {
+    // bigramDiceSimilarity("ci.yml", "cd.yml") is exactly 0.6, the configured minimum.
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "cd.yml": "name: ci\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "cd.yml"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "ci.yml" })) as {
+        refused?: boolean;
+        similarPaths?: string[];
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.similarPaths).toEqual(["cd.yml"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile caps similarPaths at five suggestions", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const siblings = [
+        "config-a.ts",
+        "config-b.ts",
+        "config-c.ts",
+        "config-d.ts",
+        "config-e.ts",
+        "config-f.ts",
+        "config-g.ts",
+        "config-h.ts",
+        "config-i.ts",
+      ];
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        ...Object.fromEntries(siblings.map((name) => [name, "export {};\n"])),
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", ...siblings]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "config.ts" })) as {
+        refused?: boolean;
+        similarPaths?: string[];
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.similarPaths).toHaveLength(5);
+      expect(out.similarPaths).toContain("config-g.ts");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 
   it("readWorkspaceFile repairs a unicode-equivalent filename and records evidence under the resolved path", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
