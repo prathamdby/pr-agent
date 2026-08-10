@@ -409,4 +409,91 @@ describe("submitReview tool", () => {
       expect(publishReview).not.toHaveBeenCalled();
     });
   });
+
+  it("passes an already-valid payload through without touching it", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const logDebug = vi.spyOn(evlog, "logDebug");
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
+      state,
+    });
+    // Schema-valid, but the domain coercion would trim the padding if it ran.
+    const payload = validPayload({ prCharacter: "  padded but valid  " });
+    await executor(payload);
+    expect(publishReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ prCharacter: "  padded but valid  " }),
+      }),
+    );
+    expect(logDebug).not.toHaveBeenCalledWith("review_payload_coerced", expect.anything());
+    logDebug.mockRestore();
+  });
+
+  it("runs domain coercions only after a validation failure", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const logDebug = vi.spyOn(evlog, "logDebug");
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
+      state,
+    });
+    // "high" is not a schema severity, so the first parse fails and the
+    // domain severity-alias coercion repairs it.
+    const payload = validPayload({ findings: [finding({ severity: "high" })] });
+    await executor(payload);
+    expect(logDebug).toHaveBeenCalledWith(
+      "review_payload_coerced",
+      expect.objectContaining({ coercions: expect.arrayContaining(["finding_severity_alias"]) }),
+    );
+    expect(publishReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          findings: expect.arrayContaining([expect.objectContaining({ severity: "P1" })]),
+        }),
+      }),
+    );
+    logDebug.mockRestore();
+  });
+
+  it("wraps a single-object findings payload via the generic repair, not a domain rule", async () => {
+    evlog.initEvlog("info", { silent: true, suppressDrainWarning: true });
+    const logDebug = vi.spyOn(evlog, "logDebug");
+    await evlog.runWithOperationLogger({ method: "JOB", path: "/test" }, async () => {
+      initReviewRunMetrics({ provider: "openai", model: "gpt-4o-mini", mode: "review" });
+      const state = createSubmitReviewState();
+      const { executor } = buildSubmitReviewTool({
+        cfg,
+        prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+        ctx: {
+          owner: "o",
+          repo: "r",
+          prNumber: 1,
+          headSha: "sha",
+          hasDescriptionReviewMap: false,
+        },
+        state,
+      });
+      await executor(validPayload({ findings: finding() }));
+      expect(publishReview).toHaveBeenCalledWith(
+        expect.objectContaining({
+          payload: expect.objectContaining({
+            findings: expect.arrayContaining([expect.objectContaining({ file: "a.ts" })]),
+          }),
+        }),
+      );
+      expect(logDebug).toHaveBeenCalledWith("tool_input_repaired", {
+        tool: "submitReview",
+        repairs: ["object_wrapped_as_array"],
+      });
+      expect(snapshotReviewRunMetrics()?.toolInputRepairs).toEqual({
+        "submitReview:object_wrapped_as_array": 1,
+      });
+    });
+    logDebug.mockRestore();
+  });
 });

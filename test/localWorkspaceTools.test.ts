@@ -177,6 +177,57 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("readWorkspaceFile clamps a minified mega-line instead of letting it eat the budget", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const minified = `"use strict";${"m".repeat(50_000)}`;
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/bundle.js": `${minified}\nexport const after = 1;\n`,
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/bundle.js"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "src/bundle.js" })) as {
+        content: string;
+        truncated: boolean;
+        endLine: number;
+      };
+
+      expect(out.truncated).toBe(false);
+      expect(out.content).toBe(
+        `[line 1 clamped: ${minified.length} characters elided]\nexport const after = 1;\n`,
+      );
+      expect(out.endLine).toBe(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile strips a leading BOM and normalizes CRLF", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export const changed = true;\n",
+        "src/legacy.ts": "\uFEFFone\r\ntwo\r\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/legacy.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "src/legacy.ts" })) as {
+        content: string;
+        startLine: number;
+        endLine: number;
+      };
+
+      expect(out.content).toBe("one\ntwo\n");
+      expect(out.startLine).toBe(1);
+      expect(out.endLine).toBe(2);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("readWorkspaceFile supports line-window reads with line metadata", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

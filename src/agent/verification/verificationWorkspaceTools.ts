@@ -9,10 +9,11 @@ import { assertContainedWorkspacePath } from "../../prWorkspace/localPrWorkspace
 import {
   LOCAL_WORKSPACE_FETCH_TIMEOUT_MS,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
 } from "../../settings/index.js";
 import { isSensitivePath } from "../ask/askSafety.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
-import { readWorkspaceTextFile } from "../tools/readWorkspaceTextFile.js";
+import { readBudgetedWorkspaceTextFile } from "../tools/readWorkspaceTextFile.js";
 
 const exec = promisify(execFile);
 
@@ -58,10 +59,18 @@ export function buildVerificationWorkspaceTools(params: {
 
   const readWorkspaceFile = defineLocalTool({
     description: "Read a text file from the PR repository view. Path is repo-relative.",
-    schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
-    run: async ({ path }) => {
+    schema: v.object({
+      path: v.pipe(v.string(), v.minLength(1)),
+      startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+      maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
+    }),
+    run: async ({ path, startLine, maxLines }) => {
       const fullPath = await safePath(root, path);
-      const result = await readWorkspaceTextFile(fullPath, LOCAL_WORKSPACE_MAX_FILE_BYTES);
+      const result = await readBudgetedWorkspaceTextFile(fullPath, {
+        maxFileBytes: LOCAL_WORKSPACE_MAX_FILE_BYTES,
+        maxResponseBytes: LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
+        window: { startLine, maxLines },
+      });
       if (result.refused) {
         return { path, refused: true, reason: result.reason };
       }
@@ -124,7 +133,7 @@ export function buildVerificationWorkspaceTools(params: {
   return {
     piTools: Object.entries(tools).map(([name, tool]) => toPiTool(name, tool)),
     executors: Object.fromEntries(
-      Object.entries(tools).map(([name, tool]) => [name, toExecutor(tool)]),
+      Object.entries(tools).map(([name, tool]) => [name, toExecutor(name, tool)]),
     ),
   };
 }

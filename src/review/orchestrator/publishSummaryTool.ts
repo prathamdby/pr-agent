@@ -3,7 +3,7 @@ import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError, toAppError } from "../../errors/appError.js";
 import { MAX_REVIEW_PAYLOAD_FINDINGS } from "../../settings/index.js";
-import { formatValidationIssues } from "../../util/formatValidationIssues.js";
+import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import { redactReviewPayloadSecrets } from "../findings/reviewPublicOutput.js";
 import { validateReviewPayload } from "../findings/reviewFindingValidator.js";
 import {
@@ -231,17 +231,16 @@ export function buildPublishSummaryTool(params: PublishSummaryToolParams): {
       return { ok: true, duplicate: true };
     }
 
-    const parsed = v.safeParse(publishSummarySchema, args);
-    if (!parsed.success) {
-      throwValidationError(
-        state,
-        "review.publish_summary_validation_failed",
-        formatValidationIssues(parsed.issues, "publish_summary validation failed:"),
-      );
+    const parsed = parseToolInput(publishSummarySchema, args, {
+      toolName: "publish_summary",
+      errorTitle: "publish_summary validation failed:",
+    });
+    if (!parsed.ok) {
+      throwValidationError(state, "review.publish_summary_validation_failed", parsed.error);
     }
 
     const ledger = getLedger();
-    const candidate = reconstructPayload(state, ledger, parsed.output);
+    const candidate = reconstructPayload(state, ledger, parsed.value);
     const validation = validateReviewPayload({
       payload: candidate,
       cachedDiffIndex: params.cachedDiffIndex,

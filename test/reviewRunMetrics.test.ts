@@ -52,6 +52,21 @@ describe("reviewRunMetrics", () => {
         coercions: ["finding_severity_alias"],
       });
       recordReviewMetric({
+        kind: "tool_input_repaired",
+        tool: "submitReview",
+        repairs: ["object_wrapped_as_array", "stringified_json_array"],
+      });
+      recordReviewMetric({
+        kind: "tool_input_repaired",
+        tool: "readWorkspaceFile",
+        repairs: ["string_wrapped_as_array"],
+      });
+      recordReviewMetric({
+        kind: "tool_input_repaired",
+        tool: "readWorkspaceFile",
+        repairs: ["string_wrapped_as_array"],
+      });
+      recordReviewMetric({
         kind: "validation_failed",
         failureKind: "missing_field",
         paths: ["findings"],
@@ -113,6 +128,11 @@ describe("reviewRunMetrics", () => {
         validationFailureCount: 1,
         validationFailureKinds: { missing_field: 1 },
         coercionsApplied: { finding_severity_alias: 1 },
+        toolInputRepairs: {
+          "submitReview:object_wrapped_as_array": 1,
+          "submitReview:stringified_json_array": 1,
+          "readWorkspaceFile:string_wrapped_as_array": 2,
+        },
         anchorFailureCount: 2,
         anchorFailureFiles: ["a.ts", "b.ts"],
         proseOnlyCollapsesByPhase: { pre_submit: 1 },

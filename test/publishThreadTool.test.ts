@@ -135,6 +135,17 @@ describe("buildPublishThreadTool", () => {
     expect(tool.getPublishedBatchCount()).toBe(1);
   });
 
+  it("repairs a single-object findings payload at the parse seam", async () => {
+    const { tool, publishThreadBatch } = buildTool();
+    tool.setSource("correctness");
+
+    const result = await tool.executor({ findings: finding(10) });
+
+    expect(result.kind).toBe("published");
+    expect(publishThreadBatch).toHaveBeenCalledTimes(1);
+    expect(tool.getLedger().accepted).toHaveLength(1);
+  });
+
   it("rejects malformed calls and calls made before a specialist source is selected", async () => {
     const { tool, publishThreadBatch } = buildTool();
 

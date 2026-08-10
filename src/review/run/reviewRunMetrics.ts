@@ -47,6 +47,11 @@ export type ReviewMetricEvent =
     }
   | { readonly kind: "submit_validated"; readonly coercions: readonly string[] }
   | {
+      readonly kind: "tool_input_repaired";
+      readonly tool: string;
+      readonly repairs: readonly string[];
+    }
+  | {
       readonly kind: "validation_failed";
       readonly failureKind: ReviewValidationFailureKind;
       readonly paths: readonly string[];
@@ -78,6 +83,7 @@ export type ReviewRunMetricsSnapshot = {
   readonly validationFailureCount: number;
   readonly validationFailureKinds: Record<string, number>;
   readonly coercionsApplied: Record<string, number>;
+  readonly toolInputRepairs: Record<string, number>;
   readonly anchorFailureCount: number;
   readonly anchorFailureFiles: readonly string[];
   readonly proseOnlyCollapsesByPhase: Record<string, number>;
@@ -132,6 +138,7 @@ type MutableReviewRunMetrics = {
   validationFailureCount: number;
   validationFailureKinds: Record<string, number>;
   coercionsApplied: Record<string, number>;
+  toolInputRepairs: Record<string, number>;
   anchorFailureCount: number;
   anchorFailureFiles: string[];
   proseOnlyCollapsesByPhase: Record<string, number>;
@@ -188,6 +195,7 @@ function createEmptyMetrics(meta: {
     validationFailureCount: 0,
     validationFailureKinds: {},
     coercionsApplied: {},
+    toolInputRepairs: {},
     anchorFailureCount: 0,
     anchorFailureFiles: [],
     proseOnlyCollapsesByPhase: {},
@@ -340,6 +348,11 @@ export function recordReviewMetric(event: ReviewMetricEvent): void {
         bumpRecord(metrics.coercionsApplied, rule);
       }
       break;
+    case "tool_input_repaired":
+      for (const repair of event.repairs) {
+        bumpRecord(metrics.toolInputRepairs, `${event.tool}:${repair}`);
+      }
+      break;
     case "validation_failed":
       metrics.validationFailureCount += 1;
       bumpRecord(metrics.validationFailureKinds, event.failureKind);
@@ -476,6 +489,7 @@ export function snapshotReviewRunMetrics(): ReviewRunMetricsSnapshot | null {
     validationFailureCount: metrics.validationFailureCount,
     validationFailureKinds: { ...metrics.validationFailureKinds },
     coercionsApplied: { ...metrics.coercionsApplied },
+    toolInputRepairs: { ...metrics.toolInputRepairs },
     anchorFailureCount: metrics.anchorFailureCount,
     anchorFailureFiles: [...metrics.anchorFailureFiles],
     proseOnlyCollapsesByPhase: { ...metrics.proseOnlyCollapsesByPhase },

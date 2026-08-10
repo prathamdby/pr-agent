@@ -21,8 +21,10 @@ import {
   createReviewPayloadSchema,
   formatReviewValidationError,
   REVIEW_SUMMARY_SENTINEL,
+  type ReviewPayload,
   type ReviewPublishContext,
 } from "../reviewSchema.js";
+import { parseToolInput } from "../../agent/tools/parseToolInput.js";
 import type { AnyReviewLens } from "../../settings/legacyReviewLenses.js";
 import type { AcceptedPlacement } from "../orchestrator/orchestratorTypes.js";
 import type { CheckoutCoverage } from "../../prWorkspace/localPrWorkspace.js";
@@ -139,41 +141,54 @@ export function buildSubmitReviewTool(params: {
       });
     }
 
-    const { value: coercedArgs, coerced, coercions } = coerceReviewPayloadInput(args);
-    if (coerced) {
-      logDebug("review_payload_coerced", {
-        mode,
-        owner: params.ctx.owner,
-        repo: params.ctx.repo,
-        coercions,
+    // Validate-then-repair: an already-valid payload is never rewritten by
+    // the domain coercions below; they run only after a validation failure,
+    // followed by the generic four-repair pass at the failing paths.
+    let output: ReviewPayload;
+    let coercions: readonly string[] = [];
+    const direct = v.safeParse(SUBMIT_REVIEW_SCHEMA, args);
+    if (direct.success) {
+      output = direct.output;
+    } else {
+      const coercedResult = coerceReviewPayloadInput(args);
+      if (coercedResult.coerced) {
+        logDebug("review_payload_coerced", {
+          mode,
+          owner: params.ctx.owner,
+          repo: params.ctx.repo,
+          coercions: coercedResult.coercions,
+        });
+      }
+      coercions = coercedResult.coercions;
+      const parsed = parseToolInput(SUBMIT_REVIEW_SCHEMA, coercedResult.value, {
+        toolName: "submitReview",
       });
-    }
-
-    const parsed = v.safeParse(SUBMIT_REVIEW_SCHEMA, coercedArgs);
-    if (!parsed.success) {
-      const formatted = formatReviewValidationError(parsed.issues);
-      params.state.lastValidationError = formatted.message;
-      recordReviewMetric({
-        kind: "validation_failed",
-        failureKind: formatted.failureKind,
-        paths: formatted.paths,
-      });
-      logWarn("review_payload_validation_failed", {
-        mode,
-        failureKind: formatted.failureKind,
-        message: formatted.message.slice(0, 200),
-      });
-      throw new AppError({
-        code: "review.payload_validation_failed",
-        message: formatted.message,
-      });
+      if (!parsed.ok) {
+        const formatted = formatReviewValidationError(parsed.issues);
+        params.state.lastValidationError = formatted.message;
+        recordReviewMetric({
+          kind: "validation_failed",
+          failureKind: formatted.failureKind,
+          paths: formatted.paths,
+        });
+        logWarn("review_payload_validation_failed", {
+          mode,
+          failureKind: formatted.failureKind,
+          message: formatted.message.slice(0, 200),
+        });
+        throw new AppError({
+          code: "review.payload_validation_failed",
+          message: formatted.message,
+        });
+      }
+      output = parsed.value;
     }
 
     params.state.lastValidationError = null;
     recordReviewMetric({ kind: "submit_validated", coercions });
 
     const prepared = prepareReviewPayloadForPublish({
-      payload: parsed.output,
+      payload: output,
       reviewMinConfidence: REVIEW_MIN_CONFIDENCE,
       severityFloor: params.severityFloor,
       cachedDiffIndex: params.cachedDiffIndex,
@@ -292,10 +307,10 @@ export function buildSubmitReviewTool(params: {
     }
 
     params.state.published = true;
-    const severities = parsed.output.findings.map((f) => f.severity);
+    const severities = output.findings.map((f) => f.severity);
     recordReviewMetric({
       kind: "published",
-      findingsCount: parsed.output.findings.length,
+      findingsCount: output.findings.length,
       severities,
     });
     logInfo("review_published", {
@@ -303,9 +318,9 @@ export function buildSubmitReviewTool(params: {
       owner: params.ctx.owner,
       repo: params.ctx.repo,
       pr: params.ctx.prNumber,
-      findingsCount: parsed.output.findings.length,
+      findingsCount: output.findings.length,
     });
-    return { ok: true, findingsCount: parsed.output.findings.length, severities };
+    return { ok: true, findingsCount: output.findings.length, severities };
   };
 
   return { piTool, executor };

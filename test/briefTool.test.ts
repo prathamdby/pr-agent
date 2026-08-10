@@ -68,6 +68,18 @@ describe("buildSpecialistBriefTool", () => {
     expect(acceptedResult).toEqual({ accepted: true });
     expect(tool.getBrief()).toEqual(validBrief());
   });
+
+  it("repairs a stringified files array inside a risk area instead of rejecting the brief", async () => {
+    const tool = buildSpecialistBriefTool(createOrchestratorPhaseRef("recon"));
+
+    const result = await tool.executor({
+      ...validBrief(),
+      riskAreas: [{ ...validRiskArea(), files: '["src/a.ts"]' }],
+    });
+
+    expect(result).toEqual({ accepted: true });
+    expect(tool.getBrief()?.riskAreas[0]?.files).toEqual(["src/a.ts"]);
+  });
 });
 
 const invalidBriefs = [

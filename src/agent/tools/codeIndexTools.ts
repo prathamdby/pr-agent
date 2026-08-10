@@ -47,7 +47,7 @@ function toCodeIndexBundle(tool: LocalTool): {
   return {
     piTools: Object.entries(tools).map(([name, entry]) => toPiTool(name, entry)),
     executors: Object.fromEntries(
-      Object.entries(tools).map(([name, entry]) => [name, toExecutor(entry)]),
+      Object.entries(tools).map(([name, entry]) => [name, toExecutor(name, entry)]),
     ),
   };
 }

@@ -167,6 +167,20 @@ describe("submitDescription tool", () => {
     expect(published.payload.prFiles).toBeUndefined();
   });
 
+  it("repairs a single-object prFiles payload at the parse seam", async () => {
+    const { executor } = buildTool();
+
+    await executor({
+      ...DESCRIPTION_PAYLOAD_MINIMAL_EXAMPLE,
+      prFiles: { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
+    });
+
+    const published = vi.mocked(publishDescriptionToPullRequest).mock.calls[0]![0];
+    expect(published.payload.prFiles).toEqual([
+      { filename: "src/auth/session.ts", changesTitle: "Auth boundary" },
+    ]);
+  });
+
   it("caps read_first prFiles at five before publish", async () => {
     const prFiles = Array.from({ length: 8 }, (_, i) => ({
       filename: `src/f${i}.ts`,

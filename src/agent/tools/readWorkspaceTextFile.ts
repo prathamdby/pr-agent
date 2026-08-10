@@ -1,11 +1,20 @@
 import { readFile, stat } from "node:fs/promises";
 import type { Stats } from "node:fs";
+import {
+  readTextWithOutputBudget,
+  type FileReadOutput,
+  type FileReadWindowParams,
+} from "./toolOutputBudget.js";
 
 export const MISSING_FROM_CHECKOUT_REASON = "Path is missing from the checkout.";
+export const BINARY_FILE_REASON = "Binary file cannot be read as text.";
+
+/** Sample size for the `\0` sniff that names binary files instead of returning mojibake. */
+const BINARY_SAMPLE_BYTES = 8192;
 
 export type WorkspaceTextFileRefusal = {
   readonly refused: true;
-  readonly refusalKind: "missing" | "special" | "too-large";
+  readonly refusalKind: "missing" | "special" | "too-large" | "binary";
   readonly reason: string;
 };
 
@@ -79,6 +88,14 @@ export async function refuseWorkspaceTextFileRead(
 }
 
 /**
+ * Strip a leading BOM and normalize CRLF to LF at the single decode point,
+ * so line numbers and content hashes agree with what diff and blame report.
+ */
+export function normalizeTextFileEncoding(text: string): string {
+  return text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+}
+
+/**
  * Guarded read of a workspace text file: the refusal above, or the decoded
  * content. Empty files carry a note — silent empty content is
  * indistinguishable from a broken tool, so the model re-reads to find out.
@@ -91,10 +108,40 @@ export async function readWorkspaceTextFile(
   if (target.refused) {
     return target;
   }
-  const content = await readFile(fullPath, "utf8");
+  const content = normalizeTextFileEncoding(await readFile(fullPath, "utf8"));
   return {
     size: target.size,
     content,
     ...(target.size === 0 ? { note: "File is empty (0 bytes)." } : {}),
   };
+}
+
+export type BudgetedWorkspaceTextFileRead =
+  | WorkspaceTextFileRefusal
+  | (FileReadOutput & { readonly refused?: undefined });
+
+/**
+ * The one budgeted read path every feature shares: stat-level refusal, then
+ * the binary sniff, then the response budget with its per-line clamp, line
+ * windows, and precomputed resume offsets. The 1MB-style file-size refusal
+ * stays the outer ceiling; the response budget is the inner one.
+ */
+export async function readBudgetedWorkspaceTextFile(
+  fullPath: string,
+  opts: {
+    readonly maxFileBytes: number;
+    readonly maxResponseBytes: number;
+    readonly window?: FileReadWindowParams;
+  },
+): Promise<BudgetedWorkspaceTextFileRead> {
+  const result = await readWorkspaceTextFile(fullPath, opts.maxFileBytes);
+  if (result.refused) {
+    return result;
+  }
+  if (result.content.slice(0, BINARY_SAMPLE_BYTES).includes("\0")) {
+    return { refused: true, refusalKind: "binary", reason: BINARY_FILE_REASON };
+  }
+  const readOutput = readTextWithOutputBudget(result.content, opts.maxResponseBytes, opts.window);
+  const note = [result.note, readOutput.note].filter(Boolean).join(" ");
+  return { ...readOutput, ...(note ? { note } : {}) };
 }

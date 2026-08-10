@@ -1,8 +1,8 @@
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
-import * as v from "valibot";
 import { toJsonSchema } from "@valibot/to-json-schema";
 import { AppError } from "../../errors/appError.js";
 import { logDebug } from "../../evlog.js";
+import { parseToolInput } from "../tools/parseToolInput.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import {
   formatVerificationValidationError,
@@ -56,18 +56,19 @@ export function buildSubmitVerificationTool(params: {
       });
       return { ok: true, duplicate: true };
     }
-    const parsed = v.safeParse(VerificationPayloadSchema, args);
-    if (!parsed.success) {
-      params.submitState.lastValidationError = parsed.issues
-        .map((issue) => `${v.getDotPath(issue) ?? "(root)"}: ${issue.message}`)
-        .join("\n");
+    const parsed = parseToolInput(VerificationPayloadSchema, args, {
+      toolName: "submitVerification",
+      errorTitle: "VerificationPayload validation failed:",
+    });
+    if (!parsed.ok) {
+      params.submitState.lastValidationError = parsed.error;
       throw new AppError({
         code: "verification.validation_failed",
         message: params.submitState.lastValidationError,
       });
     }
     const issues = validateVerificationVerdicts({
-      payload: parsed.output,
+      payload: parsed.value,
       inventory: params.inventory.map((thread) => ({
         threadRootCommentId: thread.rootCommentId,
         hasHumanReplies: thread.humanReplies.length > 0,
@@ -84,7 +85,7 @@ export function buildSubmitVerificationTool(params: {
 
     params.submitState.lastValidationError = null;
     params.submitState.submitted = true;
-    params.submitState.payload = parsed.output;
+    params.submitState.payload = parsed.value;
     return { ok: true };
   };
 
