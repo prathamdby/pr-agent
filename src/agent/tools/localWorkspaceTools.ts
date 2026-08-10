@@ -12,10 +12,13 @@ import {
   type AskPathGate,
 } from "../ask/askSafety.js";
 import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
+import { specialFileKind } from "./specialFileKind.js";
 import { capTextOutput, readTextWithOutputBudget } from "./toolOutputBudget.js";
 import {
   LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
   LOCAL_WORKSPACE_MAX_FILE_BYTES,
+  LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY,
+  LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS,
   LOCAL_WORKSPACE_READ_RESPONSE_BYTES,
   LOCAL_WORKSPACE_SEARCH_MAX_FILES,
   LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES,
@@ -121,35 +124,153 @@ function recordDiffEvidence(
   }
 }
 
+type ReadRefusal = {
+  readonly refusalKind: "missing" | "special" | "too-large";
+  readonly refusal: {
+    readonly refused: true;
+    readonly reason: string;
+    readonly coverage: CheckoutCoverage;
+  };
+};
+
 async function refuseUnlessReadableFile(
   workspace: LocalPrWorkspace,
   normalized: string,
   limits: LocalWorkspaceToolLimits,
-): Promise<{ refused: true; reason: string; coverage: CheckoutCoverage } | null> {
+): Promise<ReadRefusal | null> {
   if (!workspace.isPathInCheckout(normalized)) {
     return {
-      refused: true,
-      reason: "Path is missing from the checkout.",
-      coverage: workspace.getCoverage(),
+      refusalKind: "missing",
+      refusal: {
+        refused: true,
+        reason: "Path is missing from the checkout.",
+        coverage: workspace.getCoverage(),
+      },
     };
   }
   const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
   const info = await stat(safePath).catch(() => null);
-  if (!info?.isFile()) {
+  if (!info) {
     return {
-      refused: true,
-      reason: "Path is missing from the checkout.",
-      coverage: workspace.getCoverage(),
+      refusalKind: "missing",
+      refusal: {
+        refused: true,
+        reason: "Path is missing from the checkout.",
+        coverage: workspace.getCoverage(),
+      },
+    };
+  }
+  const kind = specialFileKind(info);
+  if (kind !== undefined) {
+    // Name the actual kind: reporting a FIFO or directory as "missing" sends
+    // the model spelunking for a path that exists but can never be read.
+    return {
+      refusalKind: "special",
+      refusal: {
+        refused: true,
+        reason: `Path is ${kind}, not a regular file; no read was attempted.`,
+        coverage: workspace.getCoverage(),
+      },
     };
   }
   if (info.size > limits.maxFileBytes) {
     return {
-      refused: true,
-      reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
-      coverage: workspace.getCoverage(),
+      refusalKind: "too-large",
+      refusal: {
+        refused: true,
+        reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
+        coverage: workspace.getCoverage(),
+      },
     };
   }
   return null;
+}
+
+function basenameOf(path: string): string {
+  return path.slice(path.lastIndexOf("/") + 1);
+}
+
+function sameDirEntries(
+  normalized: string,
+  checkoutPaths: readonly string[],
+): { readonly filename: string; readonly entries: string[] } {
+  const slash = normalized.lastIndexOf("/");
+  const dir = slash === -1 ? "" : normalized.slice(0, slash + 1);
+  const filename = slash === -1 ? normalized : normalized.slice(slash + 1);
+  const entries = checkoutPaths.filter((entry) => {
+    if (!entry.startsWith(dir)) return false;
+    const rest = entry.slice(dir.length);
+    return rest.length > 0 && !rest.includes("/");
+  });
+  return { filename, entries };
+}
+
+function canonicalizeFilename(name: string): string {
+  // NFC collapses composed/decomposed accents; the space/quote pairs below
+  // render identically in a terminal (macOS screenshot names, Finder renames).
+  return name
+    .normalize("NFC")
+    .replace(/[\u202f\u00a0]/g, " ")
+    .replace(/[\u2019\u2018]/g, "'");
+}
+
+function findUnicodeEquivalentPath(
+  normalized: string,
+  checkoutPaths: readonly string[],
+): string | undefined {
+  const { filename, entries } = sameDirEntries(normalized, checkoutPaths);
+  if (filename.length === 0) return undefined;
+  const target = canonicalizeFilename(filename);
+  const matches = entries.filter(
+    (entry) => entry !== normalized && canonicalizeFilename(basenameOf(entry)) === target,
+  );
+  // Exactly one equivalent spelling is an unambiguous repair. Zero or several
+  // falls through to suggestions; guessing among homoglyph collisions would
+  // silently read the wrong file.
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function bigramDiceSimilarity(a: string, b: string): number {
+  if (a === b) return 1;
+  if (a.length < 2 || b.length < 2) return 0;
+  const bigrams = new Map<string, number>();
+  for (let i = 0; i < a.length - 1; i += 1) {
+    const bigram = a.slice(i, i + 2);
+    bigrams.set(bigram, (bigrams.get(bigram) ?? 0) + 1);
+  }
+  let common = 0;
+  for (let i = 0; i < b.length - 1; i += 1) {
+    const bigram = b.slice(i, i + 2);
+    const count = bigrams.get(bigram) ?? 0;
+    if (count > 0) {
+      common += 1;
+      bigrams.set(bigram, count - 1);
+    }
+  }
+  return (2 * common) / (a.length - 1 + (b.length - 1));
+}
+
+function suggestSimilarPaths(
+  normalized: string,
+  checkoutPaths: readonly string[],
+  pathGate: AskPathGate,
+): string[] {
+  const { filename, entries } = sameDirEntries(normalized, checkoutPaths);
+  const target = filename.toLowerCase();
+  if (target.length === 0) return [];
+  const scored: Array<{ path: string; score: number }> = [];
+  for (const entry of entries) {
+    if (entry === normalized) continue;
+    const score = bigramDiceSimilarity(target, basenameOf(entry).toLowerCase());
+    if (
+      score >= LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY &&
+      pathAllowedForAsk(entry, pathGate)
+    ) {
+      scored.push({ path: entry, score });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path));
+  return scored.slice(0, LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS).map((entry) => entry.path);
 }
 
 export function buildLocalWorkspaceTools(
@@ -189,51 +310,89 @@ export function buildLocalWorkspaceTools(
 
   const readWorkspaceFile: LocalTool = {
     description:
-      "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; on truncated, narrow the range — do not retry the same call unchanged.",
+      "Read a text file from the PR head checkout (paths relative to repo root). Use startLine/maxLines on long files to trace callers, types, and config beyond the diff. Responses are byte-capped; on truncated, narrow the range — do not retry the same call unchanged. Missing paths explain why and may include similarPaths; empty files and past-EOF windows return a note — act on it instead of retrying.",
     schema: v.object({
       path: v.pipe(v.string(), v.minLength(1)),
       startLine: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
       maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
     }),
     run: async ({ path, startLine, maxLines }) => {
+      const readExistingFile = async (readPath: string, note?: string) => {
+        const safePath = assertWorkspacePath(workspace.agentCwd, readPath);
+        const buf = await readFile(safePath);
+        if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) {
+          return {
+            path: readPath,
+            refused: true,
+            reason: "Binary file cannot be read as text.",
+            ...(note ? { note } : {}),
+          };
+        }
+        const text = buf.toString("utf8");
+        const readOutput = readTextWithOutputBudget(text, limits.readResponseBytes, {
+          startLine,
+          maxLines,
+        });
+        if (
+          evidenceLedger &&
+          headSha &&
+          readOutput.content.length > 0 &&
+          readOutput.startLine > 0 &&
+          readOutput.endLine > 0
+        ) {
+          recordFileReadEvidence(evidenceLedger, {
+            path: readPath,
+            headSha,
+            tool: "readWorkspaceFile",
+            startLine: readOutput.startLine,
+            endLine: readOutput.endLine,
+            content: readOutput.content,
+          });
+        }
+        const combinedNote = [note, readOutput.note].filter(Boolean).join(" ");
+        return {
+          path: readPath,
+          ...readOutput,
+          ...(combinedNote ? { note: combinedNote } : {}),
+        };
+      };
+
       const normalized = normalizeEvidencePath(path);
       assertPathAllowedForAsk(normalized, pathGate);
       const changed = changedFileForPath(workspace, normalized);
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, content: null };
       }
-      const refused = await refuseUnlessReadableFile(workspace, normalized, limits);
-      if (refused) {
-        return { path: normalized, ...refused };
-      }
-      const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
-      const buf = await readFile(safePath);
-      if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) {
+      const check = await refuseUnlessReadableFile(workspace, normalized, limits);
+      if (check) {
+        if (check.refusalKind !== "missing") {
+          return { path: normalized, ...check.refusal };
+        }
+        // Invisible unicode differences (NFC/NFD, narrow no-break space, curly
+        // quotes) make a visually-correct path not-found forever; the byte
+        // mismatch doesn't render, so no amount of model reasoning recovers.
+        // Repairing is the tool's job — but only on a single unambiguous match.
+        const resolved = findUnicodeEquivalentPath(normalized, workspace.sortedCheckoutPaths);
+        if (resolved !== undefined && pathAllowedForAsk(resolved, pathGate)) {
+          const repairNote = `requested '${normalized}' not found byte-for-byte; resolved to unicode-equivalent '${resolved}'`;
+          const resolvedCheck = await refuseUnlessReadableFile(workspace, resolved, limits);
+          if (resolvedCheck) {
+            return { path: resolved, note: repairNote, ...resolvedCheck.refusal };
+          }
+          return readExistingFile(resolved, repairNote);
+        }
+        const similarPaths = suggestSimilarPaths(
+          normalized,
+          workspace.sortedCheckoutPaths,
+          pathGate,
+        );
         return {
           path: normalized,
-          refused: true,
-          reason: "Binary file cannot be read as text.",
+          ...check.refusal,
+          ...(similarPaths.length > 0 ? { similarPaths } : {}),
         };
       }
-      const text = buf.toString("utf8");
-      const readOutput = readTextWithOutputBudget(text, limits.readResponseBytes, {
-        startLine,
-        maxLines,
-      });
-      if (evidenceLedger && headSha && readOutput.startLine > 0 && readOutput.endLine > 0) {
-        recordFileReadEvidence(evidenceLedger, {
-          path: normalized,
-          headSha,
-          tool: "readWorkspaceFile",
-          startLine: readOutput.startLine,
-          endLine: readOutput.endLine,
-          content: readOutput.content,
-        });
-      }
-      return {
-        path: normalized,
-        ...readOutput,
-      };
+      return readExistingFile(normalized);
     },
   };
 
@@ -313,9 +472,9 @@ export function buildLocalWorkspaceTools(
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, blame: null };
       }
-      const refused = await refuseUnlessReadableFile(workspace, normalized, limits);
-      if (refused) {
-        return { path: normalized, ...refused, blame: null };
+      const check = await refuseUnlessReadableFile(workspace, normalized, limits);
+      if (check) {
+        return { path: normalized, ...check.refusal, blame: null };
       }
       const blame = redactPorcelainBlame(await workspace.getBlameForPath(normalized));
       const capped = capTextOutput(

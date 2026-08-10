@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -792,5 +792,341 @@ describe("local workspace tools", () => {
     });
     const resolveSymbol = piTools.find((tool) => tool.name === "resolveSymbol");
     expect(resolveSymbol?.description).toContain("readWorkspaceFile");
+  });
+
+  it("readWorkspaceFile names a FIFO instead of reporting it missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
+      await mkdir(join(root, "logs"), { recursive: true });
+      await exec("mkfifo", [join(root, "logs", "live.pipe")]);
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "logs/live.pipe" })) as {
+        refused?: boolean;
+        reason?: string;
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.reason).toContain("FIFO");
+      expect(out.reason).not.toContain("missing");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile names a directory reached through a symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
+      await mkdir(join(root, "docs"), { recursive: true });
+      await symlink(join(root, "docs"), join(root, "docs-link"));
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "docs-link"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "docs-link" })) as {
+        refused?: boolean;
+        reason?: string;
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.reason).toContain("directory");
+      expect(out.reason).not.toContain("missing");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile names a FIFO reached through an innocent-looking symlink", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
+      await mkdir(join(root, "logs"), { recursive: true });
+      await exec("mkfifo", [join(root, "logs", "live.pipe")]);
+      await symlink(join(root, "logs", "live.pipe"), join(root, "logs", "innocent.txt"));
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "logs/innocent.txt"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "logs/innocent.txt" })) as {
+        refused?: boolean;
+        reason?: string;
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.reason).toContain("FIFO");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  const HOSTILE_NAME = "Meeting\u202fnotes\u2019 re\u0301sume\u0301 3.04\u202fPM.txt";
+  const CLEAN_NAME = "Meeting notes\u2019 r\u00e9sum\u00e9 3.04 PM.txt";
+
+  it("readWorkspaceFile repairs a unicode-equivalent filename and records evidence under the resolved path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const hostilePath = `notes/${HOSTILE_NAME}`;
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        [hostilePath]: "- rotate the keys\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      const out = (await executors.readWorkspaceFile?.({ path: `notes/${CLEAN_NAME}` })) as {
+        path: string;
+        content?: string;
+        note?: string;
+      };
+
+      expect(out.path).toBe(hostilePath);
+      expect(out.content).toContain("rotate the keys");
+      expect(out.note).toContain("unicode-equivalent");
+      expect(evidenceLedger.covers(hostilePath, 1, 1)).toBe(true);
+      expect(evidenceLedger.covers(`notes/${CLEAN_NAME}`, 1, 1)).toBe(false);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile adds no repair note for the exact on-disk spelling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const hostilePath = `notes/${HOSTILE_NAME}`;
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        [hostilePath]: "- rotate the keys\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: hostilePath })) as {
+        content?: string;
+        note?: string;
+      };
+
+      expect(out.content).toContain("rotate the keys");
+      expect(out.note).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile refuses to guess between homoglyph twins", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "a\u2019b.txt": "curly\n",
+        "a'b.txt": "straight\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "a\u2019b.txt", "a'b.txt"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      // Left single quote canonicalizes to the same spelling as both twins.
+      const out = (await executors.readWorkspaceFile?.({ path: "a\u2018b.txt" })) as {
+        refused?: boolean;
+        note?: string;
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.note ?? "").not.toContain("unicode-equivalent");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile suggests but does not repair a visibly different spelling", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      const hostilePath = `notes/${HOSTILE_NAME}`;
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        [hostilePath]: "- rotate the keys\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", hostilePath]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({
+        path: "notes/Meeting notes' resume 3.04 PM.txt",
+      })) as {
+        refused?: boolean;
+        note?: string;
+        similarPaths?: string[];
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.note ?? "").not.toContain("unicode-equivalent");
+      expect(out.similarPaths).toEqual([hostilePath]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile suggests AGENTS.md for AGENT.md", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "AGENTS.md": "npm run build:prod\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "AGENT.md" })) as {
+        refused?: boolean;
+        similarPaths?: string[];
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.similarPaths).toEqual(["AGENTS.md"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile offers no suggestions for an unrelated name", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "AGENTS.md": "npm run build:prod\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "AGENTS.md"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "zzz_qqq.bin" })) as {
+        refused?: boolean;
+        similarPaths?: string[];
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.similarPaths).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile keeps gated sensitive paths out of similarPaths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "config/keys.pem": "KEY\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "config/keys.pem"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({ path: "config/keys.pub" })) as {
+        refused?: boolean;
+        similarPaths?: string[];
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.similarPaths).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile notes an empty file and records no evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "src/empty.ts": "",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/empty.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      const out = (await executors.readWorkspaceFile?.({ path: "src/empty.ts" })) as {
+        content?: string;
+        note?: string;
+        refused?: boolean;
+      };
+
+      expect(out.content).toBe("");
+      expect(out.note).toBe("File is empty (0 bytes).");
+      expect(out.refused).toBeUndefined();
+      expect(evidenceLedger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile notes a startLine beyond end of file and records no evidence", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "src/window.ts": "a\nb\nc\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits(),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      const out = (await executors.readWorkspaceFile?.({
+        path: "src/window.ts",
+        startLine: 900,
+        maxLines: 50,
+      })) as {
+        content?: string;
+        note?: string;
+        truncated?: boolean;
+      };
+
+      expect(out.content).toBe("");
+      expect(out.note).toContain("beyond the end of the file (3 lines total)");
+      expect(out.note).toContain("startLine <= 3");
+      expect(out.truncated).toBe(false);
+      expect(evidenceLedger.snapshot()).toHaveLength(0);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile still reads when startLine equals the last line", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, {
+        "src/changed.ts": "export {};\n",
+        "src/window.ts": "a\nb\nc\n",
+      });
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "src/window.ts"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.readWorkspaceFile?.({
+        path: "src/window.ts",
+        startLine: 3,
+        maxLines: 10,
+      })) as {
+        content?: string;
+        startLine?: number;
+        endLine?: number;
+        note?: string;
+      };
+
+      expect(out.content).toBe("c");
+      expect(out.startLine).toBe(3);
+      expect(out.endLine).toBe(3);
+      expect(out.note).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

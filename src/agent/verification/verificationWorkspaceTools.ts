@@ -13,6 +13,7 @@ import {
 } from "../../settings/index.js";
 import { isSensitivePath } from "../ask/askSafety.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import { specialFileKind } from "../tools/specialFileKind.js";
 
 const exec = promisify(execFile);
 
@@ -35,10 +36,23 @@ function relativePath(root: string, fullPath: string): string {
 async function readTextFile(root: string, path: string, maxBytes: number) {
   const fullPath = await safePath(root, path);
   const info = await stat(fullPath).catch(() => null);
-  if (!info?.isFile()) return { path, refused: true, reason: "Path is missing from checkout" };
+  if (!info) return { path, refused: true, reason: "Path is missing from checkout" };
+  const kind = specialFileKind(info);
+  if (kind !== undefined) {
+    return {
+      path,
+      refused: true,
+      reason: `Path is ${kind}, not a regular file; no read was attempted`,
+    };
+  }
   if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
   const content = await readFile(fullPath, "utf8");
-  return { path, size: info.size, content };
+  return {
+    path,
+    size: info.size,
+    content,
+    ...(info.size === 0 ? { note: "File is empty (0 bytes)." } : {}),
+  };
 }
 
 async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {

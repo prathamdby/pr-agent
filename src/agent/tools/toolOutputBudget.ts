@@ -42,6 +42,7 @@ export type FileReadOutput = {
   readonly truncated: boolean;
   readonly returnedBytes: number;
   readonly truncationReason?: string;
+  readonly note?: string;
 };
 
 export function readTextWithOutputBudget(
@@ -50,6 +51,19 @@ export function readTextWithOutputBudget(
   window?: FileReadWindowParams,
 ): FileReadOutput {
   const size = Buffer.byteLength(text, "utf8");
+  // Name the dead ends: silent empty content is indistinguishable from a
+  // broken tool, so the model re-reads or widens the window to find out.
+  if (size === 0) {
+    return {
+      content: "",
+      size,
+      startLine: 0,
+      endLine: 0,
+      truncated: false,
+      returnedBytes: 0,
+      note: "File is empty (0 bytes).",
+    };
+  }
   const hasLineWindow = window?.startLine != null || window?.maxLines != null;
 
   if (!hasLineWindow) {
@@ -66,6 +80,17 @@ export function readTextWithOutputBudget(
   }
 
   const lines = splitLines(text);
+  if (window.startLine != null && window.startLine > lines.length) {
+    return {
+      content: "",
+      size,
+      startLine: 0,
+      endLine: 0,
+      truncated: false,
+      returnedBytes: 0,
+      note: `startLine ${window.startLine} is beyond the end of the file (${lines.length} lines total). Retry with startLine <= ${lines.length}.`,
+    };
+  }
   const startIdx = Math.max(0, Math.min(lines.length, (window.startLine ?? 1) - 1));
   const endIdxExclusive =
     window.maxLines == null

@@ -20,3 +20,7 @@ export const LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS = 50_000;
 export const LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS = 50;
 /** Concurrent file reads while building the symbol index (index order stays path-order). */
 export const LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY = 16;
+/** Max similarPaths suggestions on a missing-path read refusal. */
+export const LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS = 5;
+/** Min bigram-Dice similarity (lowercase basenames, same directory) for a suggestion. */
+export const LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY = 0.6;

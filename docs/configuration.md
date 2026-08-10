@@ -373,27 +373,29 @@ Writing policy is computed once per description run from workspace size stats (`
 
 ### Local PR workspace
 
-| Symbol                                          | Default    |
-| ----------------------------------------------- | ---------- |
-| `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE`      | 256        |
-| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`         | 32         |
-| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`           | 60000      |
-| `LOCAL_WORKSPACE_CLONE_TIMEOUT_MS`              | 60000      |
-| `LOCAL_WORKSPACE_FETCH_TIMEOUT_MS`              | 60000      |
-| `LOCAL_WORKSPACE_SEARCH_MAX_FILES`              | 500        |
-| `LOCAL_WORKSPACE_MAX_FILE_BYTES`                | 1000000    |
-| `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`        | 50000000   |
-| `LOCAL_WORKSPACE_MAX_DIFF_BYTES`                | 5000000    |
-| `LOCAL_WORKSPACE_READ_RESPONSE_BYTES`           | 128000     |
-| `LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES`           | 256000     |
-| `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`          | 500000000  |
-| `LOCAL_WORKSPACE_MAX_FETCH_BYTES`               | 2147483648 |
-| `LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB`        | 1000000    |
-| `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS`     | 3600       |
-| `LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS` | 5000       |
-| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS`      | 50000      |
-| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS`      | 50         |
-| `LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY` | 16         |
+| Symbol                                           | Default    |
+| ------------------------------------------------ | ---------- |
+| `LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE`       | 256        |
+| `LOCAL_WORKSPACE_TREE_WALK_CONCURRENCY`          | 32         |
+| `PR_REPOSITORY_VIEW_RELEASE_GRACE_MS`            | 60000      |
+| `LOCAL_WORKSPACE_CLONE_TIMEOUT_MS`               | 60000      |
+| `LOCAL_WORKSPACE_FETCH_TIMEOUT_MS`               | 60000      |
+| `LOCAL_WORKSPACE_SEARCH_MAX_FILES`               | 500        |
+| `LOCAL_WORKSPACE_MAX_FILE_BYTES`                 | 1000000    |
+| `LOCAL_WORKSPACE_SEARCH_MAX_TOTAL_BYTES`         | 50000000   |
+| `LOCAL_WORKSPACE_MAX_DIFF_BYTES`                 | 5000000    |
+| `LOCAL_WORKSPACE_READ_RESPONSE_BYTES`            | 128000     |
+| `LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES`            | 256000     |
+| `LOCAL_WORKSPACE_MIN_FREE_SPACE_BYTES`           | 500000000  |
+| `LOCAL_WORKSPACE_MAX_FETCH_BYTES`                | 2147483648 |
+| `LOCAL_WORKSPACE_FULL_CLONE_MAX_REPO_KB`         | 1000000    |
+| `LOCAL_WORKSPACE_STALE_CLEANUP_AGE_SECONDS`      | 3600       |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_BUILD_TIMEOUT_MS`  | 5000       |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_SYMBOLS`       | 50000      |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_MAX_RESULTS`       | 50         |
+| `LOCAL_WORKSPACE_SYMBOL_INDEX_READ_CONCURRENCY`  | 16         |
+| `LOCAL_WORKSPACE_READ_MAX_PATH_SUGGESTIONS`      | 5          |
+| `LOCAL_WORKSPACE_PATH_SUGGESTION_MIN_SIMILARITY` | 0.6        |
 
 ### Code index (optional FTS hints)
 

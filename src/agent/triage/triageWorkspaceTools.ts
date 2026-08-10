@@ -17,6 +17,7 @@ import {
 } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import { specialFileKind } from "../tools/specialFileKind.js";
 import {
   assertTriageStagePaths,
   assertTriageWritablePath,
@@ -49,10 +50,23 @@ function relativePath(root: string, fullPath: string): string {
 async function readTextFile(root: string, path: string, maxBytes: number) {
   const fullPath = await safeReadPath(root, path);
   const info = await stat(fullPath).catch(() => null);
-  if (!info?.isFile()) return { path, refused: true, reason: "Path is missing from checkout" };
+  if (!info) return { path, refused: true, reason: "Path is missing from checkout" };
+  const kind = specialFileKind(info);
+  if (kind !== undefined) {
+    return {
+      path,
+      refused: true,
+      reason: `Path is ${kind}, not a regular file; no read was attempted`,
+    };
+  }
   if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
   const content = await readFile(fullPath, "utf8");
-  return { path, size: info.size, content };
+  return {
+    path,
+    size: info.size,
+    content,
+    ...(info.size === 0 ? { note: "File is empty (0 bytes)." } : {}),
+  };
 }
 
 function countOccurrences(haystack: string, needle: string): number {
