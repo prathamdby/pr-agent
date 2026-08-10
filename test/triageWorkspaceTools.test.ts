@@ -97,6 +97,35 @@ describe("buildTriageWorkspaceTools", () => {
     });
   });
 
+  it("names a FIFO instead of reporting it missing", async () => {
+    const { root, executors } = await setup({ files: { "src/app.ts": "export {};\n" } });
+    await mkdir(join(root, "logs"), { recursive: true });
+    await exec("mkfifo", [join(root, "logs", "live.pipe")]);
+
+    const out = (await executors.readWorkspaceFile({ path: "logs/live.pipe" })) as {
+      refused?: boolean;
+      reason?: string;
+    };
+
+    expect(out.refused).toBe(true);
+    expect(out.reason).toContain("FIFO");
+    expect(out.reason).not.toContain("missing");
+  });
+
+  it("notes an empty file instead of returning silent empty content", async () => {
+    const { executors } = await setup({ files: { "src/empty.ts": "" } });
+
+    const out = (await executors.readWorkspaceFile({ path: "src/empty.ts" })) as {
+      content?: string;
+      note?: string;
+      refused?: boolean;
+    };
+
+    expect(out.content).toBe("");
+    expect(out.note).toBe("File is empty (0 bytes).");
+    expect(out.refused).toBeUndefined();
+  });
+
   it("blocks read through absolute symlink escapes", async () => {
     const outside = await mkdtemp(join(tmpdir(), "triage-ws-outside-"));
     roots.push(outside);

@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
 import { relative } from "node:path";
 import { promisify } from "node:util";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
@@ -13,6 +12,7 @@ import {
 } from "../../settings/index.js";
 import { isSensitivePath } from "../ask/askSafety.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
+import { readWorkspaceTextFile } from "../tools/readWorkspaceTextFile.js";
 
 const exec = promisify(execFile);
 
@@ -30,15 +30,6 @@ async function safePath(root: string, path: string): Promise<string> {
 
 function relativePath(root: string, fullPath: string): string {
   return relative(root, fullPath).replace(/\\/g, "/");
-}
-
-async function readTextFile(root: string, path: string, maxBytes: number) {
-  const fullPath = await safePath(root, path);
-  const info = await stat(fullPath).catch(() => null);
-  if (!info?.isFile()) return { path, refused: true, reason: "Path is missing from checkout" };
-  if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
-  const content = await readFile(fullPath, "utf8");
-  return { path, size: info.size, content };
 }
 
 async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {
@@ -68,7 +59,14 @@ export function buildVerificationWorkspaceTools(params: {
   const readWorkspaceFile = defineLocalTool({
     description: "Read a text file from the PR repository view. Path is repo-relative.",
     schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
-    run: async ({ path }) => readTextFile(root, path, LOCAL_WORKSPACE_MAX_FILE_BYTES),
+    run: async ({ path }) => {
+      const fullPath = await safePath(root, path);
+      const result = await readWorkspaceTextFile(fullPath, LOCAL_WORKSPACE_MAX_FILE_BYTES);
+      if (result.refused) {
+        return { path, refused: true, reason: result.reason };
+      }
+      return { path, ...result };
+    },
   });
 
   const searchWorkspace = defineLocalTool({
