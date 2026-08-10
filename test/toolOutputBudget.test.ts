@@ -96,6 +96,12 @@ describe("readTextWithOutputBudget", () => {
     expect(out.truncated).toBe(false);
     expect(out.content).toBe(`short\n[line 2 clamped: ${OVER_LIMIT} characters elided]\ntail\n`);
     expect(out.endLine).toBe(3);
+    expect(out.clampedLines).toEqual([2]);
+  });
+
+  it("reports no clamped lines when nothing was elided", () => {
+    const out = readTextWithOutputBudget("a\nb\n", 128_000);
+    expect(out.clampedLines).toBeUndefined();
   });
 
   it("keeps marker line numbers absolute under a line window", () => {
@@ -106,6 +112,7 @@ describe("readTextWithOutputBudget", () => {
     expect(out.endLine).toBe(4);
     expect(out.truncated).toBe(true);
     expect(out.resumeStartLine).toBe(5);
+    expect(out.clampedLines).toEqual([4]);
   });
 
   it("clamps a mega-line before the byte budget so surrounding lines survive", () => {

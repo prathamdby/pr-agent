@@ -347,6 +347,36 @@ describe("buildTriageWorkspaceTools", () => {
     );
   });
 
+  it("keeps LF-only lines in a mixed-ending file untouched by the edit", async () => {
+    const { root, executors } = await setup({
+      files: { "src/app.ts": "alpha\r\nbeta\ngamma\r\n" },
+    });
+    // oldText spans a line break, so it only matches in the normalized space
+    // the model was shown — the raw fast path cannot serve this edit.
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "alpha\nbeta",
+      newText: "alpha\nBETA",
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    expect(await readFile(join(root, "src/app.ts"), "utf8")).toBe("alpha\r\nBETA\ngamma\r\n");
+  });
+
+  it("does not double the carriage return when newText already uses CRLF", async () => {
+    const { root, executors } = await setup({
+      files: { "src/app.ts": "alpha\r\nbeta\r\ngamma\r\n" },
+    });
+    const out = await executors.editWorkspaceFile({
+      path: "src/app.ts",
+      oldText: "alpha\nbeta",
+      newText: "alpha\r\none\r\ntwo",
+    });
+    expect(out).toEqual({ ok: true, path: "src/app.ts" });
+    const written = await readFile(join(root, "src/app.ts"), "utf8");
+    expect(written).toBe("alpha\r\none\r\ntwo\r\ngamma\r\n");
+    expect(written).not.toContain("\r\r\n");
+  });
+
   it("edits a BOM file with the normalized text the model saw, preserving the BOM", async () => {
     const { root, executors } = await setup({
       files: { "src/app.ts": "\uFEFFconst value = 1;\n" },

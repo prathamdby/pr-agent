@@ -46,6 +46,11 @@ export type FileReadOutput = {
   readonly truncationReason?: string;
   /** Line to pass as startLine on the next read; present on every truncation. */
   readonly resumeStartLine?: number;
+  /**
+   * File line numbers whose contents were elided by the clamp. These lines
+   * were never shown, so they must not count as read evidence.
+   */
+  readonly clampedLines?: readonly number[];
   readonly note?: string;
 };
 
@@ -57,16 +62,20 @@ export type FileReadOutput = {
  * before the byte budget. Returns null when nothing was clamped so callers
  * can keep the original text byte-identical.
  */
-function clampLongLines(lines: readonly string[]): string[] | null {
+function clampLongLines(
+  lines: readonly string[],
+): { readonly lines: string[]; readonly clampedLines: number[] } | null {
   let clamped: string[] | null = null;
+  const clampedLines: number[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line.length > LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS) {
       if (clamped === null) clamped = [...lines];
       clamped[index] = `[line ${index + 1} clamped: ${line.length} characters elided]`;
+      clampedLines.push(index + 1);
     }
   }
-  return clamped;
+  return clamped === null ? null : { lines: clamped, clampedLines };
 }
 
 export function readTextWithOutputBudget(
@@ -84,9 +93,11 @@ export function readTextWithOutputBudget(
 
   if (!hasLineWindow) {
     // Keep uncapped reads byte-identical; only a clamp reassembles the text.
-    const body = clamped === null ? text : clamped.join("\n") + (text.endsWith("\n") ? "\n" : "");
+    const body =
+      clamped === null ? text : clamped.lines.join("\n") + (text.endsWith("\n") ? "\n" : "");
     const capped = capTextOutput(body, maxResponseBytes, "response byte budget exceeded");
     const endLine = endLineForText(capped.content);
+    const shownClamped = clamped?.clampedLines.filter((line) => line <= endLine) ?? [];
     return {
       content: capped.content,
       size,
@@ -95,6 +106,7 @@ export function readTextWithOutputBudget(
       truncated: capped.truncated,
       returnedBytes: capped.returnedBytes,
       ...(capped.truncationReason ? { truncationReason: capped.truncationReason } : {}),
+      ...(shownClamped.length > 0 ? { clampedLines: shownClamped } : {}),
       // A byte-cap cut can land mid-line, so the next read resumes ON the
       // last shown line instead of silently skipping its tail.
       ...(capped.truncated
@@ -119,7 +131,7 @@ export function readTextWithOutputBudget(
       note: `startLine ${window.startLine} is beyond the end of the file (${lines.length} lines total). Retry with startLine <= ${lines.length}.`,
     };
   }
-  const budgetedLines = clamped ?? lines;
+  const budgetedLines = clamped?.lines ?? lines;
   const startIdx = Math.max(0, Math.min(budgetedLines.length, (window.startLine ?? 1) - 1));
   const endIdxExclusive =
     window.maxLines == null
@@ -142,6 +154,8 @@ export function readTextWithOutputBudget(
   const truncated = capped.truncated || lineWindowTruncated;
   const truncationReason =
     capped.truncationReason ?? (lineWindowTruncated ? "line window limit exceeded" : undefined);
+  const shownClamped =
+    clamped?.clampedLines.filter((line) => line >= startLine && line <= endLine) ?? [];
 
   return {
     content: capped.content,
@@ -151,6 +165,7 @@ export function readTextWithOutputBudget(
     truncated,
     returnedBytes: capped.returnedBytes,
     ...(truncationReason ? { truncationReason } : {}),
+    ...(shownClamped.length > 0 ? { clampedLines: shownClamped } : {}),
     ...(capped.truncated
       ? {
           resumeStartLine: endLine,

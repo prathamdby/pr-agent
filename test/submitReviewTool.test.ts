@@ -496,4 +496,26 @@ describe("submitReview tool", () => {
     });
     logDebug.mockRestore();
   });
+
+  it("rescues a single-object finding that also needs a severity alias", async () => {
+    // Shape error plus domain error in one payload: the generic repair wraps
+    // it, the domain coercion maps "high", and neither alone is enough.
+    const state = createSubmitReviewState();
+    const { executor } = buildSubmitReviewTool({
+      cfg,
+      prSurface: createFakePrSurface({ owner: "o", repo: "r", prNumber: 1 }).surface,
+      ctx: { owner: "o", repo: "r", prNumber: 1, headSha: "sha", hasDescriptionReviewMap: false },
+      state,
+    });
+    await executor(validPayload({ findings: finding({ severity: "high" }) }));
+    expect(publishReview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          findings: expect.arrayContaining([
+            expect.objectContaining({ severity: "P1", file: "a.ts" }),
+          ]),
+        }),
+      }),
+    );
+  });
 });

@@ -63,6 +63,25 @@ function countOccurrences(haystack: string, needle: string): number {
   }
 }
 
+/**
+ * Map an offset in `normalizeTextFileEncoding(raw)` back to its offset in
+ * `raw`, so an edit matched in normalized space can be spliced into the raw
+ * bytes without rewriting line endings anywhere else in the file.
+ */
+function rawOffsetForNormalizedOffset(raw: string, normalizedOffset: number): number {
+  let rawIndex = raw.startsWith("\uFEFF") ? 1 : 0;
+  let normalizedIndex = 0;
+  while (normalizedIndex < normalizedOffset && rawIndex < raw.length) {
+    if (raw[rawIndex] === "\r" && raw[rawIndex + 1] === "\n") {
+      rawIndex += 2;
+    } else {
+      rawIndex += 1;
+    }
+    normalizedIndex += 1;
+  }
+  return rawIndex;
+}
+
 async function git(root: string, args: readonly string[], timeoutMs: number): Promise<string> {
   const { stdout } = await exec("git", ["-c", "core.hooksPath=/dev/null", ...args], {
     cwd: root,
@@ -192,8 +211,8 @@ export function buildTriageWorkspaceTools(params: {
       }
       // Reads show BOM-stripped, CRLF-normalized text, so oldText copied from
       // a read cannot exact-match the raw bytes of such files. Retry in the
-      // normalized space the model actually saw, then re-encode with the
-      // file's own line-ending style and BOM.
+      // normalized space the model actually saw, then splice the result back
+      // into the raw bytes so the rest of the file keeps its own encoding.
       const hadBom = content.startsWith("\uFEFF");
       const hadCrlf = content.includes("\r\n");
       if (!hadBom && !hadCrlf) {
@@ -220,9 +239,15 @@ export function buildTriageWorkspaceTools(params: {
           context: { path: rel },
         });
       }
-      const replaced = normalized.replace(normalizedOldText, newText);
-      const withLineEndings = hadCrlf ? replaced.replace(/\n/g, "\r\n") : replaced;
-      await writeFile(fullPath, (hadBom ? "\uFEFF" : "") + withLineEndings);
+      // Splice the raw bytes at the matched region instead of re-encoding the
+      // whole file: a mixed-ending file keeps its LF-only lines, and newText
+      // is normalized first so its own CRLFs cannot become "\r\r\n".
+      const matchStart = normalized.indexOf(normalizedOldText);
+      const rawStart = rawOffsetForNormalizedOffset(content, matchStart);
+      const rawEnd = rawOffsetForNormalizedOffset(content, matchStart + normalizedOldText.length);
+      const newTextLf = newText.replace(/\r\n/g, "\n");
+      const replacement = hadCrlf ? newTextLf.replace(/\n/g, "\r\n") : newTextLf;
+      await writeFile(fullPath, content.slice(0, rawStart) + replacement + content.slice(rawEnd));
       return { ok: true, path: rel };
     },
   });

@@ -18,7 +18,10 @@ import {
   type GitGrepWorkspaceParams,
   type LocalPrWorkspace,
 } from "../src/prWorkspace/localPrWorkspace.js";
-import { LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE } from "../src/settings/index.js";
+import {
+  LOCAL_WORKSPACE_GREP_PATHSPEC_CHUNK_SIZE,
+  LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS,
+} from "../src/settings/index.js";
 import { createTestEvidenceLedger } from "./helpers/evidenceTestHelpers.js";
 import {
   buildSymbolIndex,
@@ -656,6 +659,33 @@ describe("local workspace tools", () => {
       expect(evidenceLedger.covers("src/small.ts", 1, 1)).toBe(false);
       expect(evidenceLedger.snapshot()).toHaveLength(1);
       expect(evidenceLedger.snapshot()[0]?.tool).toBe("readWorkspaceFile");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("readWorkspaceFile does not record evidence for a clamped line", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-evidence-"));
+    try {
+      // The clamp elides the line's contents, so a finding on it must not
+      // pass the range-coverage check in assertFindingsHaveEvidence.
+      await writeWorkspaceFiles(root, {
+        "src/min.ts": `line one\n${"x".repeat(LOCAL_WORKSPACE_READ_MAX_LINE_CHARACTERS + 1)}\nline three\n`,
+      });
+
+      const workspace = mockWorkspace(root, ["src/min.ts"]);
+      const evidenceLedger = createTestEvidenceLedger("deadbeef");
+      const { executors } = buildLocalWorkspaceTools(workspace, {
+        limits: testLimits({ readResponseBytes: 500_000 }),
+        evidenceLedger,
+        headSha: "deadbeef",
+      });
+      await executors.readWorkspaceFile?.({ path: "src/min.ts" });
+
+      expect(evidenceLedger.covers("src/min.ts", 2, 2)).toBe(false);
+      expect(evidenceLedger.covers("src/min.ts", 1, 3)).toBe(false);
+      expect(evidenceLedger.covers("src/min.ts", 1, 1)).toBe(true);
+      expect(evidenceLedger.covers("src/min.ts", 3, 3)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

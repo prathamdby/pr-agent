@@ -9,6 +9,7 @@ const schema = v.object({
   tags: v.optional(v.array(v.string())),
   items: v.optional(v.array(v.object({ name: v.string() }))),
   count: v.optional(v.number()),
+  limit: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
   nested: v.optional(v.object({ flags: v.optional(v.array(v.string())) })),
 });
 
@@ -24,6 +25,14 @@ describe("parseToolInput", () => {
 
   it("drops null values where the schema field is optional", () => {
     const result = parseToolInput(schema, { path: "a", count: null }, { toolName: "t" });
+    expect(result).toMatchObject({ ok: true, value: { path: "a" } });
+    expect(result.ok && result.repairs).toEqual(["null_optional_dropped"]);
+  });
+
+  it("drops null on an optional field wrapped in a pipe", () => {
+    // Every production optional routed through the seam is optional(pipe(...))
+    // — codeIndex limit, workspace startLine/maxLines, reviewSchema confidence.
+    const result = parseToolInput(schema, { path: "a", limit: null }, { toolName: "t" });
     expect(result).toMatchObject({ ok: true, value: { path: "a" } });
     expect(result.ok && result.repairs).toEqual(["null_optional_dropped"]);
   });

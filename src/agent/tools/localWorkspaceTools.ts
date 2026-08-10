@@ -92,16 +92,50 @@ function recordFileReadEvidence(
     readonly startLine: number;
     readonly endLine: number;
     readonly content: string;
+    readonly clampedLines?: readonly number[];
   },
 ): void {
-  ledger.record({
-    path: params.path,
-    startLine: params.startLine,
-    endLine: params.endLine,
-    contentHash: hashNormalizedLineText(params.content),
-    headSha: params.headSha,
-    tool: params.tool,
-  });
+  // A clamped line's contents were elided, so it can never back a finding.
+  // Record the clamp-free segments only; range coverage is the sole check
+  // assertFindingsHaveEvidence makes, and a marker must not satisfy it.
+  for (const [startLine, endLine] of segmentsExcluding(
+    params.startLine,
+    params.endLine,
+    params.clampedLines,
+  )) {
+    ledger.record({
+      path: params.path,
+      startLine,
+      endLine,
+      contentHash: hashNormalizedLineText(params.content),
+      headSha: params.headSha,
+      tool: params.tool,
+    });
+  }
+}
+
+/** Split [start, end] into the maximal ranges that skip every excluded line. */
+function segmentsExcluding(
+  startLine: number,
+  endLine: number,
+  excluded?: readonly number[],
+): [number, number][] {
+  if (!excluded || excluded.length === 0) return [[startLine, endLine]];
+  const skip = new Set(excluded);
+  const segments: [number, number][] = [];
+  let segmentStart: number | null = null;
+  for (let line = startLine; line <= endLine; line += 1) {
+    if (skip.has(line)) {
+      if (segmentStart !== null) {
+        segments.push([segmentStart, line - 1]);
+        segmentStart = null;
+      }
+      continue;
+    }
+    segmentStart ??= line;
+  }
+  if (segmentStart !== null) segments.push([segmentStart, endLine]);
+  return segments;
 }
 
 function recordDiffEvidence(
@@ -292,6 +326,7 @@ export function buildLocalWorkspaceTools(
             startLine: result.startLine,
             endLine: result.endLine,
             content: result.content,
+            clampedLines: result.clampedLines,
           });
         }
         const combinedNote = [note, result.note].filter(Boolean).join(" ");

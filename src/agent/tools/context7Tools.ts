@@ -74,7 +74,11 @@ function toExecutor(
       errorTitle: `${name} validation failed:`,
     });
     if (!parsed.ok) {
-      throw new Error(parsed.error);
+      throw new AppError({
+        code: "tool.input_validation_failed",
+        message: parsed.error,
+        context: { toolName: name },
+      });
     }
     return t.run(parsed.value, apiKey, maxResponseBytes);
   };
