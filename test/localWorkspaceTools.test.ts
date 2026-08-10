@@ -1100,6 +1100,29 @@ describe("local workspace tools", () => {
     }
   });
 
+  it("getWorkspaceBlame names a FIFO instead of reporting it missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
+    try {
+      await writeWorkspaceFiles(root, { "src/changed.ts": "export {};\n" });
+      await mkdir(join(root, "logs"), { recursive: true });
+      await exec("mkfifo", [join(root, "logs", "live.pipe")]);
+
+      const workspace = mockWorkspace(root, ["src/changed.ts", "logs/live.pipe"]);
+      const { executors } = buildLocalWorkspaceTools(workspace, { limits: testLimits() });
+      const out = (await executors.getWorkspaceBlame?.({ path: "logs/live.pipe" })) as {
+        refused?: boolean;
+        reason?: string;
+        blame?: string | null;
+      };
+
+      expect(out.refused).toBe(true);
+      expect(out.reason).toContain("FIFO");
+      expect(out.blame).toBeNull();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("readWorkspaceFile still reads when startLine equals the last line", async () => {
     const root = await mkdtemp(join(tmpdir(), "workspace-tools-"));
     try {

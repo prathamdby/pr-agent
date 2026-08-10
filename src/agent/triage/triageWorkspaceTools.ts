@@ -17,7 +17,7 @@ import {
 } from "../../settings/index.js";
 import type { BotFindingThread } from "../../review/run/reviewPriorFeedback.js";
 import { defineLocalTool, toExecutor, toPiTool } from "../tools/defineWorkspaceTool.js";
-import { specialFileKind } from "../tools/specialFileKind.js";
+import { readWorkspaceTextFile } from "../tools/readWorkspaceTextFile.js";
 import {
   assertTriageStagePaths,
   assertTriageWritablePath,
@@ -45,28 +45,6 @@ async function safeReadPath(root: string, path: string): Promise<string> {
 
 function relativePath(root: string, fullPath: string): string {
   return relative(root, fullPath).replace(/\\/g, "/");
-}
-
-async function readTextFile(root: string, path: string, maxBytes: number) {
-  const fullPath = await safeReadPath(root, path);
-  const info = await stat(fullPath).catch(() => null);
-  if (!info) return { path, refused: true, reason: "Path is missing from checkout" };
-  const kind = specialFileKind(info);
-  if (kind !== undefined) {
-    return {
-      path,
-      refused: true,
-      reason: `Path is ${kind}, not a regular file; no read was attempted`,
-    };
-  }
-  if (info.size > maxBytes) return { path, refused: true, reason: "File exceeds read limit" };
-  const content = await readFile(fullPath, "utf8");
-  return {
-    path,
-    size: info.size,
-    content,
-    ...(info.size === 0 ? { note: "File is empty (0 bytes)." } : {}),
-  };
 }
 
 function countOccurrences(haystack: string, needle: string): number {
@@ -118,7 +96,14 @@ export function buildTriageWorkspaceTools(params: {
   const readWorkspaceFile = defineLocalTool({
     description: "Read a text file from the writable PR checkout. Path is repo-relative.",
     schema: v.object({ path: v.pipe(v.string(), v.minLength(1)) }),
-    run: async ({ path }) => readTextFile(root, path, LOCAL_WORKSPACE_MAX_FILE_BYTES),
+    run: async ({ path }) => {
+      const fullPath = await safeReadPath(root, path);
+      const result = await readWorkspaceTextFile(fullPath, LOCAL_WORKSPACE_MAX_FILE_BYTES);
+      if (result.refused) {
+        return { path, refused: true, reason: result.reason };
+      }
+      return { path, ...result };
+    },
   });
 
   const searchWorkspace = defineLocalTool({

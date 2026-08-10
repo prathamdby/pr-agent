@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readTextWithOutputBudget } from "../src/agent/tools/toolOutputBudget.js";
 
 describe("readTextWithOutputBudget", () => {
-  it("names an empty file instead of returning silent empty content", () => {
+  it("returns a zero-line shape for an empty file", () => {
     const out = readTextWithOutputBudget("", 1000);
     expect(out).toMatchObject({
       content: "",
@@ -11,14 +11,14 @@ describe("readTextWithOutputBudget", () => {
       endLine: 0,
       truncated: false,
       returnedBytes: 0,
-      note: "File is empty (0 bytes).",
     });
+    expect(out.note).toBeUndefined();
   });
 
-  it("names an empty file under a line window", () => {
+  it("returns the same zero-line shape for an empty file under a line window", () => {
     const out = readTextWithOutputBudget("", 1000, { startLine: 5, maxLines: 10 });
-    expect(out.content).toBe("");
-    expect(out.note).toBe("File is empty (0 bytes).");
+    expect(out).toMatchObject({ content: "", startLine: 0, endLine: 0, truncated: false });
+    expect(out.note).toBeUndefined();
   });
 
   it("names a startLine beyond end of file with the real line count and retry bound", () => {

@@ -51,18 +51,8 @@ export function readTextWithOutputBudget(
   window?: FileReadWindowParams,
 ): FileReadOutput {
   const size = Buffer.byteLength(text, "utf8");
-  // Name the dead ends: silent empty content is indistinguishable from a
-  // broken tool, so the model re-reads or widens the window to find out.
   if (size === 0) {
-    return {
-      content: "",
-      size,
-      startLine: 0,
-      endLine: 0,
-      truncated: false,
-      returnedBytes: 0,
-      note: "File is empty (0 bytes).",
-    };
+    return { content: "", size, startLine: 0, endLine: 0, truncated: false, returnedBytes: 0 };
   }
   const hasLineWindow = window?.startLine != null || window?.maxLines != null;
 
@@ -80,6 +70,8 @@ export function readTextWithOutputBudget(
   }
 
   const lines = splitLines(text);
+  // Name the dead end: silent empty content is indistinguishable from a
+  // broken tool, so the model re-reads or widens the window to find out.
   if (window.startLine != null && window.startLine > lines.length) {
     return {
       content: "",

@@ -1,4 +1,3 @@
-import { readFile, stat } from "node:fs/promises";
 import type { Tool as PiTool } from "@earendil-works/pi-ai";
 import * as v from "valibot";
 import type { CheckoutCoverage, LocalPrWorkspace } from "../../prWorkspace/localPrWorkspace.js";
@@ -12,7 +11,12 @@ import {
   type AskPathGate,
 } from "../ask/askSafety.js";
 import { type LocalTool, toExecutor, toPiTool } from "./defineWorkspaceTool.js";
-import { specialFileKind } from "./specialFileKind.js";
+import {
+  MISSING_FROM_CHECKOUT_REASON,
+  readWorkspaceTextFile,
+  refuseWorkspaceTextFileRead,
+  type WorkspaceTextFileReadResult,
+} from "./readWorkspaceTextFile.js";
 import { capTextOutput, readTextWithOutputBudget } from "./toolOutputBudget.js";
 import {
   LOCAL_WORKSPACE_DIFF_RESPONSE_BYTES,
@@ -122,68 +126,6 @@ function recordDiffEvidence(
       tool: params.tool,
     });
   }
-}
-
-type ReadRefusal = {
-  readonly refusalKind: "missing" | "special" | "too-large";
-  readonly refusal: {
-    readonly refused: true;
-    readonly reason: string;
-    readonly coverage: CheckoutCoverage;
-  };
-};
-
-async function refuseUnlessReadableFile(
-  workspace: LocalPrWorkspace,
-  normalized: string,
-  limits: LocalWorkspaceToolLimits,
-): Promise<ReadRefusal | null> {
-  if (!workspace.isPathInCheckout(normalized)) {
-    return {
-      refusalKind: "missing",
-      refusal: {
-        refused: true,
-        reason: "Path is missing from the checkout.",
-        coverage: workspace.getCoverage(),
-      },
-    };
-  }
-  const safePath = assertWorkspacePath(workspace.agentCwd, normalized);
-  const info = await stat(safePath).catch(() => null);
-  if (!info) {
-    return {
-      refusalKind: "missing",
-      refusal: {
-        refused: true,
-        reason: "Path is missing from the checkout.",
-        coverage: workspace.getCoverage(),
-      },
-    };
-  }
-  const kind = specialFileKind(info);
-  if (kind !== undefined) {
-    // Name the actual kind: reporting a FIFO or directory as "missing" sends
-    // the model spelunking for a path that exists but can never be read.
-    return {
-      refusalKind: "special",
-      refusal: {
-        refused: true,
-        reason: `Path is ${kind}, not a regular file; no read was attempted.`,
-        coverage: workspace.getCoverage(),
-      },
-    };
-  }
-  if (info.size > limits.maxFileBytes) {
-    return {
-      refusalKind: "too-large",
-      refusal: {
-        refused: true,
-        reason: `File exceeds ${limits.maxFileBytes} byte read limit.`,
-        coverage: workspace.getCoverage(),
-      },
-    };
-  }
-  return null;
 }
 
 function basenameOf(path: string): string {
@@ -317,10 +259,28 @@ export function buildLocalWorkspaceTools(
       maxLines: v.optional(v.pipe(v.number(), v.integer(), v.gtValue(0))),
     }),
     run: async ({ path, startLine, maxLines }) => {
-      const readExistingFile = async (readPath: string, note?: string) => {
-        const safePath = assertWorkspacePath(workspace.agentCwd, readPath);
-        const buf = await readFile(safePath);
-        if (buf.subarray(0, Math.min(buf.length, BINARY_SAMPLE_BYTES)).includes(0)) {
+      const normalized = normalizeEvidencePath(path);
+      assertPathAllowedForAsk(normalized, pathGate);
+      const changed = changedFileForPath(workspace, normalized);
+      if (changed?.status === "deleted") {
+        return { path: normalized, deleted: true, content: null };
+      }
+
+      const respondWithRead = (
+        readPath: string,
+        result: WorkspaceTextFileReadResult,
+        note?: string,
+      ) => {
+        if (result.refused) {
+          return {
+            path: readPath,
+            refused: true,
+            reason: result.reason,
+            coverage: workspace.getCoverage(),
+            ...(note ? { note } : {}),
+          };
+        }
+        if (result.content.slice(0, BINARY_SAMPLE_BYTES).includes("\0")) {
           return {
             path: readPath,
             refused: true,
@@ -328,8 +288,7 @@ export function buildLocalWorkspaceTools(
             ...(note ? { note } : {}),
           };
         }
-        const text = buf.toString("utf8");
-        const readOutput = readTextWithOutputBudget(text, limits.readResponseBytes, {
+        const readOutput = readTextWithOutputBudget(result.content, limits.readResponseBytes, {
           startLine,
           maxLines,
         });
@@ -349,7 +308,7 @@ export function buildLocalWorkspaceTools(
             content: readOutput.content,
           });
         }
-        const combinedNote = [note, readOutput.note].filter(Boolean).join(" ");
+        const combinedNote = [note, result.note, readOutput.note].filter(Boolean).join(" ");
         return {
           path: readPath,
           ...readOutput,
@@ -357,29 +316,19 @@ export function buildLocalWorkspaceTools(
         };
       };
 
-      const normalized = normalizeEvidencePath(path);
-      assertPathAllowedForAsk(normalized, pathGate);
-      const changed = changedFileForPath(workspace, normalized);
-      if (changed?.status === "deleted") {
-        return { path: normalized, deleted: true, content: null };
-      }
-      const check = await refuseUnlessReadableFile(workspace, normalized, limits);
-      if (check) {
-        if (check.refusalKind !== "missing") {
-          return { path: normalized, ...check.refusal };
-        }
-        // Invisible unicode differences (NFC/NFD, narrow no-break space, curly
-        // quotes) make a visually-correct path not-found forever; the byte
-        // mismatch doesn't render, so no amount of model reasoning recovers.
-        // Repairing is the tool's job — but only on a single unambiguous match.
+      // Invisible unicode differences (NFC/NFD, narrow no-break space, curly
+      // quotes) make a visually-correct path not-found forever; the byte
+      // mismatch doesn't render, so no amount of model reasoning recovers.
+      // Repairing is the tool's job — but only on a single unambiguous match.
+      const respondToMissing = async () => {
         const resolved = findUnicodeEquivalentPath(normalized, workspace.sortedCheckoutPaths);
         if (resolved !== undefined && pathAllowedForAsk(resolved, pathGate)) {
           const repairNote = `requested '${normalized}' not found byte-for-byte; resolved to unicode-equivalent '${resolved}'`;
-          const resolvedCheck = await refuseUnlessReadableFile(workspace, resolved, limits);
-          if (resolvedCheck) {
-            return { path: resolved, note: repairNote, ...resolvedCheck.refusal };
-          }
-          return readExistingFile(resolved, repairNote);
+          const resolvedResult = await readWorkspaceTextFile(
+            assertWorkspacePath(workspace.agentCwd, resolved),
+            limits.maxFileBytes,
+          );
+          return respondWithRead(resolved, resolvedResult, repairNote);
         }
         const similarPaths = suggestSimilarPaths(
           normalized,
@@ -388,11 +337,24 @@ export function buildLocalWorkspaceTools(
         );
         return {
           path: normalized,
-          ...check.refusal,
+          refused: true,
+          reason: MISSING_FROM_CHECKOUT_REASON,
+          coverage: workspace.getCoverage(),
           ...(similarPaths.length > 0 ? { similarPaths } : {}),
         };
+      };
+
+      if (!workspace.isPathInCheckout(normalized)) {
+        return respondToMissing();
       }
-      return readExistingFile(normalized);
+      const result = await readWorkspaceTextFile(
+        assertWorkspacePath(workspace.agentCwd, normalized),
+        limits.maxFileBytes,
+      );
+      if (result.refused && result.refusalKind === "missing") {
+        return respondToMissing();
+      }
+      return respondWithRead(normalized, result);
     },
   };
 
@@ -472,9 +434,27 @@ export function buildLocalWorkspaceTools(
       if (changed?.status === "deleted") {
         return { path: normalized, deleted: true, blame: null };
       }
-      const check = await refuseUnlessReadableFile(workspace, normalized, limits);
-      if (check) {
-        return { path: normalized, ...check.refusal, blame: null };
+      if (!workspace.isPathInCheckout(normalized)) {
+        return {
+          path: normalized,
+          refused: true,
+          reason: MISSING_FROM_CHECKOUT_REASON,
+          coverage: workspace.getCoverage(),
+          blame: null,
+        };
+      }
+      const refusal = await refuseWorkspaceTextFileRead(
+        assertWorkspacePath(workspace.agentCwd, normalized),
+        limits.maxFileBytes,
+      );
+      if (refusal) {
+        return {
+          path: normalized,
+          refused: true,
+          reason: refusal.reason,
+          coverage: workspace.getCoverage(),
+          blame: null,
+        };
       }
       const blame = redactPorcelainBlame(await workspace.getBlameForPath(normalized));
       const capped = capTextOutput(
