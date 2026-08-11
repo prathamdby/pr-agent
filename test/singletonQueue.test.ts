@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PgBoss } from "pg-boss";
-import {
-  releaseReviewSingletonSlot,
-  releaseSingletonSlot,
-} from "../src/agentWork/singletonQueue.js";
-import { REVIEW_QUEUE } from "../src/settings/index.js";
+import { releaseSingletonSlot } from "../src/agentWork/singletonQueue.js";
+import { DESCRIPTION_QUEUE, REVIEW_QUEUE } from "../src/settings/index.js";
 
 type JobStub = {
   id: string;
@@ -32,11 +29,11 @@ describe("releaseSingletonSlot", () => {
     ]);
 
     await releaseSingletonSlot(boss, {
-      queue: REVIEW_QUEUE,
-      singletonKey: "owner/repo#1:review",
+      queue: DESCRIPTION_QUEUE,
+      singletonKey: "owner/repo#1:description",
     });
 
-    expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "failed-1", undefined);
+    expect(deleteJob).toHaveBeenCalledWith(DESCRIPTION_QUEUE, "failed-1", undefined);
     expect(cancel).not.toHaveBeenCalled();
   });
 
@@ -112,17 +109,6 @@ describe("releaseSingletonSlot", () => {
 
     expect(cancel).toHaveBeenCalledTimes(1);
     expect(cancel).toHaveBeenCalledWith(REVIEW_QUEUE, "auto-old", undefined);
-    expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "failed-1", undefined);
-  });
-
-  it("releaseReviewSingletonSlot targets the review queue key", async () => {
-    const { boss, findJobs, deleteJob } = makeBoss([
-      { id: "failed-1", state: "failed", data: { workItemId: "wi-old" } },
-    ]);
-
-    await releaseReviewSingletonSlot(boss, "acme/app#7", { cancelNonTerminal: false });
-
-    expect(findJobs).toHaveBeenCalledWith(REVIEW_QUEUE, { key: "acme/app#7:review" });
     expect(deleteJob).toHaveBeenCalledWith(REVIEW_QUEUE, "failed-1", undefined);
   });
 });

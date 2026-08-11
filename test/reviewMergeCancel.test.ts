@@ -103,6 +103,10 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-merged" }] };
       }
+      if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+        // Merge cancel terminalises queued/running; only the foreign holder stays active.
+        return { rows: [{ id: "wi-other" }] };
+      }
       if (sql.includes("status = 'queued'")) {
         return {
           rows: [
@@ -281,6 +285,10 @@ describe("applyAutomatedPullRequestIntake merge cancel", () => {
     const clientQuery = vi.fn(async (sql: string) => {
       if (sql.includes("INSERT INTO webhook_events")) {
         return { rows: [{ id: "event-zero" }] };
+      }
+      if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+        // Failed blocker is not active; keep the unrelated live holder.
+        return { rows: [{ id: "wi-live" }] };
       }
       if (sql.includes("status = 'queued'") || sql.includes("status = 'running'")) {
         return { rows: [] };

@@ -107,7 +107,7 @@ Production credential hardening and extra deploy notes: [docs/operations.md](doc
    - `pull_request`
    - `issue_comment`
    - `pull_request_review_comment`
-   - `workflow_run` (refreshes the CI row on an existing review summary when Actions finish later)
+   - `workflow_run` and `check_suite` (either completed event refreshes the CI row on an existing review summary when Actions finish later)
 5. Do **not** require `pull_request_review` unless you have a reason. The bot does not need it for normal intake.
 6. Repository permissions:
 
@@ -266,7 +266,7 @@ flowchart LR
 
 1. **Web** ([`processWebhookRequestEffect`](src/effect/programs/processWebhookRequestEffect.ts)) verifies the signature, parses the payload, dedupes the delivery in Postgres, and schedules work. It does not create installation tokens or post to the PR.
 2. **Scheduler** ([`AgentWorkScheduler`](src/agentWork/scheduler.ts)) inserts `agent_work_items` and enqueues pg-boss jobs.
-3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` completes later.
+3. **Ack worker** posts the eyes reaction and the review progress stub. **CI-refresh worker** updates only the CI cell on a finished summary when `workflow_run` or `check_suite` completes later.
 4. **Worker** ([`AgentWorkerLive`](src/agentWork/worker.ts)) owns queue consumers, pg-boss supervision, and the daily retention sweep.
 5. **Feature executors** ([`src/agentWork/executors/`](src/agentWork/executors/)) create a GitHub installation token, open a local PR workspace (or a writable checkout for triage), run the agent, and publish.
 6. **Reviews** ([`runOrchestratedPrReview`](src/review/orchestrator/orchestratorRun.ts)) inspect the PR, write a specialist brief, run four specialists in parallel, publish inline thread batches, then write the final summary.

@@ -8,7 +8,7 @@ import { sanitizeLogMessage } from "../security/sanitizeLogMessage.js";
 import { ACK_QUEUE, DEFERRED_HEAD_SHA, REVIEW_QUEUE } from "../settings/index.js";
 import { transferProgressCommentOwnership } from "./intake/workItemRepository.js";
 import { getWorkItem, markQueuedWorkCancelled } from "./repository.js";
-import { releaseReviewSingletonSlot } from "./singletonQueue.js";
+import { releaseReviewQueueSlotInTx } from "./reviewQueueSlot.js";
 import {
   installationGroupId,
   reviewSingletonKey,
@@ -320,13 +320,9 @@ export async function enqueueReviewReschedule(
 
   await inTransaction(pool, async (client) => {
     const db = pgBossDb(client);
-    // Reschedule only clears failed blockers for this singleton; never cancel
-    // another work item's job (e.g. a slash /review waiting behind auto).
-    await releaseReviewSingletonSlot(boss, item.resourceKey, {
-      db,
+    await releaseReviewQueueSlotInTx(boss, client, item.resourceKey, {
       skipJobId: activePgBossJobId,
       skipWorkItemId: workItemId,
-      cancelWorkItemIds: [],
     });
 
     const reviewData: ReviewJobData = {

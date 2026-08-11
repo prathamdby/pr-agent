@@ -8,6 +8,18 @@ import type { ReviewCancelAttribution } from "../settings/reviewConstants.js";
 export type WorkType = "review" | "ask" | "description" | "triage" | "verification";
 export type WorkStatus = "queued" | "running" | "superseded" | "cancelled" | "completed" | "failed";
 
+export const ACTIVE_WORK_STATUSES = ["queued", "running"] as const satisfies readonly WorkStatus[];
+export const TERMINAL_WORK_STATUSES = [
+  "superseded",
+  "cancelled",
+  "completed",
+  "failed",
+] as const satisfies readonly WorkStatus[];
+
+export function isTerminalWorkStatus(status: string): boolean {
+  return (TERMINAL_WORK_STATUSES as readonly string[]).includes(status);
+}
+
 export type WebhookHeaders = {
   readonly delivery?: string;
   readonly event?: string;
@@ -85,7 +97,7 @@ export type VerificationJobData = JobCorrelation & {
   readonly workItemId: string;
 };
 
-/** Fire-and-forget CI cell refresh after workflow_run completed (ADR 0026). */
+/** Fire-and-forget CI cell refresh after workflow_run / check_suite completed (ADR 0026). */
 export type CiRefreshJobData = JobCorrelation & {
   readonly kind: "ci_refresh";
   readonly installationId: number;

@@ -2,11 +2,11 @@ import * as v from "valibot";
 import { installationSchema, repositorySchema } from "./common.js";
 import { ciRefreshPullRequestSchema } from "./ciRefreshHead.js";
 
-export const workflowRunWebhookSchema = v.object({
+export const checkSuiteWebhookSchema = v.object({
   action: v.string(),
   installation: installationSchema,
   repository: repositorySchema,
-  workflow_run: v.object({
+  check_suite: v.object({
     id: v.number(),
     head_sha: v.string(),
     status: v.string(),
@@ -15,4 +15,4 @@ export const workflowRunWebhookSchema = v.object({
   }),
 });
 
-export type WorkflowRunWebhookPayload = v.InferOutput<typeof workflowRunWebhookSchema>;
+export type CheckSuiteWebhookPayload = v.InferOutput<typeof checkSuiteWebhookSchema>;

@@ -271,7 +271,15 @@ describe("stale-head shared helpers", () => {
 
 describe("enqueueReviewReschedule", () => {
   it("does not cancel a co-queued foreign work item on the singleton", async () => {
-    const query = vi.fn().mockResolvedValue({ rowCount: 1, rows: [] });
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("FROM agent_work_items") && sql.includes("status = ANY")) {
+        return {
+          rowCount: 2,
+          rows: [{ id: "slash-waiting" }, { id: "replacement-wi" }],
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
     const pool = { query } as unknown as Pool;
     const send = vi.fn().mockResolvedValue("job-id");
     const findJobs = vi.fn().mockResolvedValue([
@@ -378,7 +386,9 @@ describe("enqueueReviewReschedule", () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0]?.[0]).toBe(ACK_QUEUE);
     expect(cancel).not.toHaveBeenCalled();
-    expect(String(query.mock.calls[0]?.[0])).toContain("staleHeadReplacementEnqueued");
+    expect(
+      query.mock.calls.some((call) => String(call[0]).includes("staleHeadReplacementEnqueued")),
+    ).toBe(true);
   });
 
   it("accepts a deterministic review job id that is already terminal", async () => {

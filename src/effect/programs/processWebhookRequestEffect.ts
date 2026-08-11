@@ -6,6 +6,7 @@ import { captureEvent } from "../../analytics/index.js";
 import { emitOperationLogger, recordEvent, type RequestLogger } from "../../evlog.js";
 import { GITHUB_WEBHOOK_RESPONSE_MARGIN_MS, WEBHOOK_TIMEOUT_MS } from "../../settings/index.js";
 import { WebhookParseError, parseGithubPayload } from "../../webhook/parseGithubPayload.js";
+import { toCiRefreshHeadSource } from "../../webhook/payloads/ciRefreshHead.js";
 import { verifyGithubWebhookSignature } from "../../webhook/verifySignature.js";
 import { WebhookHandlers } from "../services/webhookHandlers.js";
 
@@ -75,7 +76,28 @@ function dispatchGithubEventEffect(
         yield* handlers.pullRequestReviewComment(cfg, headers, parsed.data, intakeLog);
         return { kind: "ok" as const };
       case "workflow_run":
-        yield* handlers.workflowRun(cfg, headers, parsed.data, intakeLog);
+        yield* handlers.ciRefresh(
+          headers,
+          toCiRefreshHeadSource({
+            installation: parsed.data.installation,
+            repository: parsed.data.repository,
+            headSha: parsed.data.workflow_run.head_sha,
+            pullRequests: parsed.data.workflow_run.pull_requests,
+          }),
+          intakeLog,
+        );
+        return { kind: "ok" as const };
+      case "check_suite":
+        yield* handlers.ciRefresh(
+          headers,
+          toCiRefreshHeadSource({
+            installation: parsed.data.installation,
+            repository: parsed.data.repository,
+            headSha: parsed.data.check_suite.head_sha,
+            pullRequests: parsed.data.check_suite.pull_requests,
+          }),
+          intakeLog,
+        );
         return { kind: "ok" as const };
       default:
         parsed satisfies never;

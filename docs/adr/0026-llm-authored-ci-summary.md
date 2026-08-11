@@ -26,7 +26,7 @@ Constraints that still hold:
 
 4. **Actions: read** is required for job-log download. Soft-fail without breaking the review: missing Checks shows a grant-Checks CI row; missing Actions on a red head keeps the failure row, falls back to check output when possible, and adds a grant-Actions note.
 
-5. **Timing.** Publish reuses `REVIEW_CI_SUMMARY_WAIT_*` wait/poll. If still pending at publish, leave a pending row. When CI later completes, a `workflow_run` (completed) webhook enqueues a CI-refresh job that surgically edits the CI cell (HTML markers) on the matching **review summary comment** for that head SHA — without a full re-review.
+5. **Timing.** Publish reuses `REVIEW_CI_SUMMARY_WAIT_*` wait/poll. If still pending at publish, leave a pending row. When CI later completes, a `workflow_run` or `check_suite` (completed) webhook enqueues a CI-refresh job that surgically edits the CI cell (HTML markers) on the matching **review summary comment** for that head SHA — without a full re-review.
 
 6. **Noise filter.** Condensation and the prompt contract prefer real failures (test/lint/type/build) over Actions runner deprecation warnings.
 
@@ -34,7 +34,7 @@ Constraints that still hold:
 
 - Operators need **Actions: read** in addition to Checks read for rich failure explanations.
 - A second LLM call runs at publish when CI is failing (and again on refresh). Passing/pending/none use server templates without a model call.
-- Webhook subscriptions grow to include **`workflow_run`**. Topology gains a CI-refresh queue lane.
+- Webhook subscriptions grow to include **`workflow_run`** and **`check_suite`**. Topology gains a CI-refresh queue lane.
 - ADR 0024’s annotation-first digests and “no Actions permission” assumptions are obsolete.
 
 ## Reversal

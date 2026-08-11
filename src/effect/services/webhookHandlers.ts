@@ -12,7 +12,10 @@ import { getAppBotIdentity, type BotIdentity } from "../../github/appAuth.js";
 import { IGNORED_BOT_SLASH_COMMAND, IGNORED_UNAUTHORIZED_SLASH } from "../../settings/index.js";
 import type { ParsedGithubEvent } from "../../webhook/parseGithubPayload.js";
 import { codeAnchorFromReviewComment } from "../../webhook/payloads/pullRequestReviewCommentEvent.js";
-import { prNumbersForWorkflowRunHead } from "../../webhook/payloads/workflowRunEvent.js";
+import {
+  prNumbersForCiHead,
+  type CiRefreshHeadSource,
+} from "../../webhook/payloads/ciRefreshHead.js";
 
 const resolveBotIdentityEffect = (cfg: Config) =>
   Effect.tryPromise({
@@ -26,7 +29,6 @@ type PullRequestReviewCommentData = Extract<
   ParsedGithubEvent,
   { name: "pull_request_review_comment" }
 >["data"];
-type WorkflowRunData = Extract<ParsedGithubEvent, { name: "workflow_run" }>["data"];
 
 export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
   WebhookHandlers,
@@ -49,10 +51,10 @@ export class WebhookHandlers extends Context.Tag("WebhookHandlers")<
       data: PullRequestReviewCommentData,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
-    readonly workflowRun: (
-      cfg: Config,
+    /** CI cell refresh from a completed workflow_run or check_suite head. */
+    readonly ciRefresh: (
       headers: WebhookHeaders,
-      data: WorkflowRunData,
+      data: CiRefreshHeadSource,
       intakeLog: RequestLogger,
     ) => Effect.Effect<void, Error>;
   }
@@ -295,25 +297,18 @@ export const WebhookHandlersCore = Layer.effect(
           );
         }),
 
-      workflowRun: (_cfg, headers, data, intakeLog) =>
-        Effect.gen(function* () {
-          const headSha = data.workflow_run.head_sha;
-          const prNumbers = prNumbersForWorkflowRunHead(
-            headSha,
-            data.workflow_run.pull_requests ?? [],
-          );
-          yield* scheduler.submitCiRefresh(
-            headers,
-            {
-              installationId: data.installation.id,
-              owner: data.repository.owner.login,
-              repo: data.repository.name,
-              headSha,
-              prNumbers,
-            },
-            intakeLog,
-          );
-        }),
+      ciRefresh: (headers, data, intakeLog) =>
+        scheduler.submitCiRefresh(
+          headers,
+          {
+            installationId: data.installationId,
+            owner: data.owner,
+            repo: data.repo,
+            headSha: data.headSha,
+            prNumbers: prNumbersForCiHead(data.headSha, data.pullRequests),
+          },
+          intakeLog,
+        ),
     });
   }),
 );
