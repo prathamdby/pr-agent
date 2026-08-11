@@ -350,12 +350,14 @@ async function handleSlashCancel(ctx: SlashIntakeContext): Promise<void> {
     return;
   }
   const primary = cancelled[0]!;
+  const cancelledWorkItemIds = cancelled.map((row) => row.id);
   await releaseReviewQueueSlotInTx(ctx.boss, ctx.client, resourceKey, {
-    cancelWorkItemIds: cancelled.map((row) => row.id),
+    cancelWorkItemIds: cancelledWorkItemIds,
   });
   await enqueueSlashAck(ctx, {
     cancelProgress: {
       workItemId: primary.id,
+      cancelledWorkItemIds,
       attribution,
     },
     reply: { target: ctx.input.replyTarget, body: SLASH_CANCEL_DONE_BODY },

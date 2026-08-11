@@ -48,6 +48,11 @@ vi.mock("../src/review/publish/publishReview.js", async (importOriginal) => {
 
 vi.mock("../src/agentWork/reviewCheckRun.js", () => ({
   ensureReviewCheckRunStarted: vi.fn(),
+  cancelReviewCheckRunsForWorkItems: vi.fn(async () => undefined),
+}));
+
+vi.mock("../src/evlog.js", () => ({
+  logWarn: vi.fn(),
 }));
 
 import { upsertSummaryCommentWithCreationClaim } from "../src/review/publish/publishReview.js";
@@ -57,12 +62,16 @@ import {
   getWorkItemCore,
   recordPublishStep,
 } from "../src/agentWork/repository.js";
-import { ensureReviewCheckRunStarted } from "../src/agentWork/reviewCheckRun.js";
+import {
+  cancelReviewCheckRunsForWorkItems,
+  ensureReviewCheckRunStarted,
+} from "../src/agentWork/reviewCheckRun.js";
 import {
   renderReviewProgressComment,
   renderReviewFailureNotice,
 } from "../src/review/run/progressComment.js";
 import { REVIEW_PROGRESS_QUEUE_LABEL, reviewProgressCancelledNote } from "../src/settings/index.js";
+import { logWarn } from "../src/evlog.js";
 
 const cfg = {} as Config;
 const pool = {} as Pool;
@@ -293,6 +302,7 @@ describe("executeAckJob", () => {
       ...ackData(),
       cancelProgress: {
         workItemId: "wi-cancel",
+        cancelledWorkItemIds: ["wi-cancel"],
         attribution: { kind: "user", login: "alice" },
       },
     });
@@ -303,6 +313,15 @@ describe("executeAckJob", () => {
     expect(body).toContain(reviewProgressCancelledNote({ kind: "user", login: "alice" }));
     expect(body).not.toContain("<strong>Recon</strong>");
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemIds: ["wi-cancel"],
+        owner: "o",
+        repo: "r",
+        prNumber: 1,
+      }),
+    );
   });
 
   it("falls back to upsert when cancelProgress finds a foreign stub", async () => {
@@ -319,6 +338,7 @@ describe("executeAckJob", () => {
       ...ackData(),
       cancelProgress: {
         workItemId: "wi-cancel",
+        cancelledWorkItemIds: ["wi-cancel"],
         attribution: { kind: "user", login: "alice" },
       },
     });
@@ -341,11 +361,13 @@ describe("executeAckJob", () => {
       101,
     );
     vi.mocked(upsertSummaryCommentWithCreationClaim).mockClear();
+    vi.mocked(cancelReviewCheckRunsForWorkItems).mockClear();
 
     await executeAckJob(cfg, pool, {
       ...ackData(),
       cancelProgress: {
         workItemId: "wi-cancel",
+        cancelledWorkItemIds: ["wi-cancel", "wi-other"],
         attribution: { kind: "merged" },
       },
     });
@@ -355,5 +377,136 @@ describe("executeAckJob", () => {
     const body = edit?.kind === "editComment" ? edit.body : "";
     expect(body).toContain(reviewProgressCancelledNote({ kind: "merged" }));
     expect(upsertSummaryCommentWithCreationClaim).not.toHaveBeenCalled();
+    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemIds: ["wi-cancel", "wi-other"],
+      }),
+    );
+  });
+
+  it("falls back to the primary work item id when cancelledWorkItemIds is missing", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha",
+      source: "auto",
+      progressRevision: 1,
+      progressWorkItemId: "wi-cancel",
+    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
+
+    await executeAckJob(cfg, pool, {
+      ...ackData(),
+      cancelProgress: {
+        workItemId: "wi-cancel",
+        attribution: { kind: "user", login: "alice" },
+      },
+    });
+
+    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemIds: ["wi-cancel"],
+      }),
+    );
+  });
+
+  it("passes an empty cancelledWorkItemIds array through without throwing", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha",
+      source: "auto",
+      progressRevision: 1,
+      progressWorkItemId: "wi-cancel",
+    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
+
+    await expect(
+      executeAckJob(cfg, pool, {
+        ...ackData(),
+        cancelProgress: {
+          workItemId: "wi-cancel",
+          cancelledWorkItemIds: [],
+          attribution: { kind: "user", login: "alice" },
+        },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemIds: [],
+      }),
+    );
+  });
+
+  it("still publishes the cancel comment when check cancellation rejects", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha",
+      source: "auto",
+      progressRevision: 1,
+      progressWorkItemId: "wi-cancel",
+    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
+    vi.mocked(cancelReviewCheckRunsForWorkItems).mockRejectedValueOnce(new Error("cancel boom"));
+
+    await expect(
+      executeAckJob(cfg, pool, {
+        ...ackData(),
+        cancelProgress: {
+          workItemId: "wi-cancel",
+          cancelledWorkItemIds: ["wi-cancel"],
+          attribution: { kind: "user", login: "alice" },
+        },
+      }),
+    ).resolves.toBeUndefined();
+
+    const edit = surfaceBundle.controls.events.find((event) => event.kind === "editComment");
+    expect(edit).toMatchObject({ kind: "editComment", commentId: 99 });
+    expect(logWarn).toHaveBeenCalledWith(
+      "ack_cancel_progress_failed",
+      expect.objectContaining({
+        workItemId: "wi-cancel",
+        message: "cancel boom",
+      }),
+    );
+  });
+
+  it("cancels check runs even when the cancel comment edit fails", async () => {
+    const stub = renderReviewProgressComment({
+      mode: "review",
+      headSha: "sha",
+      source: "auto",
+      progressRevision: 1,
+      progressWorkItemId: "wi-cancel",
+    });
+    surfaceBundle.controls.setProgressComment(REVIEW_SUMMARY_SENTINEL, stub, 99);
+    vi.spyOn(surfaceBundle.surface, "editComment").mockRejectedValueOnce(new Error("edit 403"));
+
+    await expect(
+      executeAckJob(cfg, pool, {
+        ...ackData(),
+        cancelProgress: {
+          workItemId: "wi-cancel",
+          cancelledWorkItemIds: ["wi-cancel"],
+          attribution: { kind: "user", login: "alice" },
+        },
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(logWarn).toHaveBeenCalledWith(
+      "ack_cancel_comment_failed",
+      expect.objectContaining({
+        workItemId: "wi-cancel",
+        message: "edit 403",
+      }),
+    );
+    expect(cancelReviewCheckRunsForWorkItems).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemIds: ["wi-cancel"],
+      }),
+    );
   });
 });

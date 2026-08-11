@@ -8,16 +8,21 @@ import { checkRunFindingsSummary } from "../github/statusCopy.js";
 import { isCheckFailingSeverity, type ReviewFinding } from "../review/reviewSchema.js";
 import type { AnyReviewLens } from "../settings/legacyReviewLenses.js";
 import {
+  DEFERRED_HEAD_SHA,
   REVIEW_CHECK_RUN_RESERVATION_STALE_MS,
   REVIEW_CHECK_RUN_WAIT_FOR_ID_MS,
   REVIEW_CHECK_RUN_WAIT_POLL_MS,
 } from "../settings/index.js";
 import {
   getReviewCheckRunGithubId,
+  getSummaryCommentGithubId,
+  getWorkItemCore,
   recordReviewCheckRun,
   releaseUnstartedReviewCheckRunReservation,
   reserveReviewCheckRun,
 } from "./repository.js";
+
+export const REVIEW_CHECK_RUN_CANCELLED_SUMMARY = "Review was cancelled before completion.";
 
 /** P0–P2 findings fail the check; empty or P3-only payloads pass. */
 export function reviewCheckRunOutcome(findings: readonly Pick<ReviewFinding, "severity">[]): {
@@ -267,28 +272,24 @@ export async function ensureReviewCheckRunStarted(
   return recordCreatedCheckRunOrCleanup(pool, params, name, check);
 }
 
-export async function completeReviewCheckRun(
-  pool: Pool,
-  params: {
-    prSurface: PrSurface;
-    owner: string;
-    repo: string;
-    prNumber: number;
-    workItemId: string;
-    resourceKey: string;
-    reviewLens: AnyReviewLens;
-    conclusion: ReviewCheckRunConclusion;
-    summary: string;
-    detailsUrl?: string;
-  },
-): Promise<boolean> {
-  const checkRunId = await waitForReviewCheckRunGithubId(
-    pool,
-    params.workItemId,
-    params.reviewLens,
-  );
-  if (checkRunId == null) return false;
+type CompleteReviewCheckRunParams = {
+  prSurface: PrSurface;
+  owner: string;
+  repo: string;
+  prNumber: number;
+  workItemId: string;
+  resourceKey: string;
+  reviewLens: AnyReviewLens;
+  conclusion: ReviewCheckRunConclusion;
+  summary: string;
+  detailsUrl?: string;
+};
 
+async function applyReviewCheckRunCompletion(
+  pool: Pool,
+  params: CompleteReviewCheckRunParams,
+  checkRunId: number,
+): Promise<boolean> {
   const completedAt = new Date().toISOString();
   const name = reviewCheckRunName();
   try {
@@ -336,4 +337,124 @@ export async function completeReviewCheckRun(
     });
   }
   return true;
+}
+
+export async function completeReviewCheckRun(
+  pool: Pool,
+  params: CompleteReviewCheckRunParams,
+): Promise<boolean> {
+  const checkRunId = await waitForReviewCheckRunGithubId(
+    pool,
+    params.workItemId,
+    params.reviewLens,
+  );
+  if (checkRunId == null) return false;
+  return applyReviewCheckRunCompletion(pool, params, checkRunId);
+}
+
+async function findOpenReviewCheckRunId(
+  prSurface: PrSurface,
+  headSha: string,
+): Promise<number | null> {
+  try {
+    const status = await prSurface.getCiStatus(headSha);
+    const open = status.checkRuns.find(
+      (run) => run.name === reviewCheckRunName() && run.status === "in_progress",
+    );
+    return open?.id ?? null;
+  } catch (error) {
+    logCheckRunWarning("review_check_run_cancel_lookup_failed", error, {
+      headSha,
+    });
+    return null;
+  }
+}
+
+/** Finish the review check as `cancelled`; recovers an open check on headSha when the id is late. */
+export async function cancelReviewCheckRun(
+  pool: Pool,
+  params: {
+    prSurface: PrSurface;
+    owner: string;
+    repo: string;
+    prNumber: number;
+    workItemId: string;
+    resourceKey: string;
+    reviewLens: AnyReviewLens;
+    headSha?: string;
+    detailsUrl?: string;
+  },
+): Promise<boolean> {
+  // One-shot lookup: cancel must not burn the late-start wait used by complete/publish.
+  let checkRunId = await getReviewCheckRunGithubId(pool, params.workItemId, params.reviewLens);
+  // Queued reviews keep DEFERRED_HEAD_SHA; only recover open checks for real SHAs.
+  if (checkRunId == null && params.headSha && params.headSha !== DEFERRED_HEAD_SHA) {
+    checkRunId = await findOpenReviewCheckRunId(params.prSurface, params.headSha);
+  }
+  if (checkRunId == null) return false;
+  return applyReviewCheckRunCompletion(
+    pool,
+    {
+      prSurface: params.prSurface,
+      owner: params.owner,
+      repo: params.repo,
+      prNumber: params.prNumber,
+      workItemId: params.workItemId,
+      resourceKey: params.resourceKey,
+      reviewLens: params.reviewLens,
+      conclusion: "cancelled",
+      summary: REVIEW_CHECK_RUN_CANCELLED_SUMMARY,
+      detailsUrl: params.detailsUrl,
+    },
+    checkRunId,
+  );
+}
+
+export async function cancelReviewCheckRunsForWorkItems(
+  pool: Pool,
+  params: {
+    prSurface: PrSurface;
+    owner: string;
+    repo: string;
+    prNumber: number;
+    workItemIds: readonly string[];
+  },
+): Promise<void> {
+  await Promise.all(
+    params.workItemIds.map(async (workItemId) => {
+      try {
+        const core = await getWorkItemCore(pool, workItemId);
+        if (core == null || core.type !== "review" || core.reviewLens == null) return;
+        const summaryCommentId = await getSummaryCommentGithubId(
+          pool,
+          core.resourceKey,
+          core.reviewLens,
+        );
+        await cancelReviewCheckRun(pool, {
+          prSurface: params.prSurface,
+          owner: params.owner,
+          repo: params.repo,
+          prNumber: params.prNumber,
+          workItemId,
+          resourceKey: core.resourceKey,
+          reviewLens: core.reviewLens,
+          headSha: core.headSha,
+          detailsUrl: reviewCheckDetailsUrl(
+            params.owner,
+            params.repo,
+            params.prNumber,
+            summaryCommentId,
+          ),
+        });
+      } catch (error) {
+        logWarn("review_check_run_cancel_item_failed", {
+          owner: params.owner,
+          repo: params.repo,
+          pr: params.prNumber,
+          workItemId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }),
+  );
 }

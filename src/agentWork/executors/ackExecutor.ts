@@ -16,7 +16,10 @@ import {
   getWorkItemCore,
   type ReviewQueuePosition,
 } from "../repository.js";
-import { ensureReviewCheckRunStarted } from "../reviewCheckRun.js";
+import {
+  cancelReviewCheckRunsForWorkItems,
+  ensureReviewCheckRunStarted,
+} from "../reviewCheckRun.js";
 import { buildCiSummaryForSurface } from "../../review/ci/analyzeCi.js";
 import {
   parseProgressRevisionState,
@@ -147,20 +150,41 @@ async function publishCancelProgress(
     progressWorkItemId: data.cancelProgress.workItemId,
   });
 
-  if (ownsStub && existing != null) {
-    await prSurface.editComment(existing.id, body);
-    return;
+  // Comment I/O must not block check cancellation — stale checks stuck in_progress are worse.
+  try {
+    if (ownsStub && existing != null) {
+      await prSurface.editComment(existing.id, body);
+    } else {
+      await upsertSummaryCommentWithCreationClaim({
+        pool,
+        workItemId: data.cancelProgress.workItemId,
+        resourceKey,
+        reviewLens: "review",
+        prSurface,
+        body,
+        sentinel: REVIEW_SUMMARY_SENTINEL,
+        progressRevision: 0,
+      });
+    }
+  } catch (error) {
+    logWarn("ack_cancel_comment_failed", {
+      workItemId: data.cancelProgress.workItemId,
+      resourceKey,
+      message: error instanceof Error ? error.message : String(error),
+    });
   }
 
-  await upsertSummaryCommentWithCreationClaim({
-    pool,
-    workItemId: data.cancelProgress.workItemId,
-    resourceKey,
-    reviewLens: "review",
+  // Stale pre-deploy ack jobs may omit cancelledWorkItemIds; fall back to the primary id.
+  const cancelledWorkItemIds = data.cancelProgress.cancelledWorkItemIds ?? [
+    data.cancelProgress.workItemId,
+  ];
+
+  await cancelReviewCheckRunsForWorkItems(pool, {
     prSurface,
-    body,
-    sentinel: REVIEW_SUMMARY_SENTINEL,
-    progressRevision: 0,
+    owner: data.owner,
+    repo: data.repo,
+    prNumber: data.prNumber,
+    workItemIds: cancelledWorkItemIds,
   });
 }
 

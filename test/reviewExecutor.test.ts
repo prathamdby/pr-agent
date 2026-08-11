@@ -192,6 +192,7 @@ describe("executeReviewJob", () => {
     );
     vi.spyOn(reviewCheckRun, "ensureReviewCheckRunStarted").mockResolvedValue(123);
     vi.spyOn(reviewCheckRun, "completeReviewCheckRun").mockResolvedValue(true);
+    vi.spyOn(reviewCheckRun, "cancelReviewCheckRun").mockResolvedValue(true);
     vi.spyOn(reviewCheckRun, "reviewCheckDetailsUrl").mockImplementation(
       (owner: string, repo: string, prNumber: number, summaryCommentId?: string | number | null) =>
         summaryCommentId == null
@@ -846,15 +847,72 @@ describe("executeReviewJob", () => {
 
     await executeReviewJob(cfg, pool, boss, reviewJob());
 
-    expect(reviewCheckRun.completeReviewCheckRun).toHaveBeenCalledWith(
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
       pool,
       expect.objectContaining({
-        conclusion: "cancelled",
-        summary: "Review was cancelled before completion.",
+        workItemId: "wi-1",
+        headSha: "head",
         detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
       }),
     );
+    expect(reviewCheckRun.completeReviewCheckRun).not.toHaveBeenCalled();
     expect(mocks.runOrchestratedPrReview).not.toHaveBeenCalled();
+  });
+
+  it("skips check cancellation from onCancelled when reviewLens is null", async () => {
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onCancelled?.(
+        { ...makeItem("slash"), reviewLens: null as unknown as "review" },
+        durableSurfaceBundle.surface,
+        "skipped_before_claim",
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(reviewCheckRun.cancelReviewCheckRun).not.toHaveBeenCalled();
+  });
+
+  it("still attempts DB-id cancel from onCancelled when headSha is missing", async () => {
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onCancelled?.(
+        { ...makeItem("slash"), headSha: undefined as unknown as string },
+        durableSurfaceBundle.surface,
+        "skipped_before_claim",
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemId: "wi-1",
+        headSha: undefined,
+        detailsUrl: "https://github.com/o/r/pull/1#issuecomment-1",
+      }),
+    );
+  });
+
+  it("passes undefined detailsUrl from onCancelled when summary comment id is null", async () => {
+    mocks.getSummaryCommentGithubId.mockResolvedValueOnce(null);
+    vi.spyOn(durableJob, "runDurableWorkItem").mockImplementation(async (spec) => {
+      await spec.onCancelled?.(
+        makeItem("slash"),
+        durableSurfaceBundle.surface,
+        "skipped_before_claim",
+      );
+    });
+
+    await executeReviewJob(cfg, pool, boss, reviewJob());
+
+    expect(reviewCheckRun.cancelReviewCheckRun).toHaveBeenCalledWith(
+      pool,
+      expect.objectContaining({
+        workItemId: "wi-1",
+        detailsUrl: undefined,
+      }),
+    );
   });
 
   it("passes auto preflight files into repository preparation", async () => {
